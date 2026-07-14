@@ -6,7 +6,6 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
   ( canonicalizeLexResult,
     normalizeCanonicalSourcePath,
@@ -32,7 +31,10 @@ import JazzNext.TestHarness
     failTest,
     runTestSuite
   )
-import System.Directory (doesFileExist)
+import JazzNext.TestSource
+  ( JazzSourceRole (..),
+    readCheckedInJazzSource,
+  )
 import System.Environment (lookupEnv)
 import System.Timeout (timeout)
 
@@ -180,8 +182,8 @@ runJazzLexer logicalPath source =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readStdlibSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readStdlibSource "LexerTypes.jz"
+        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
+        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
         "src/List.jz" -> readStdlibSource "List.jz"
         "src/Char.jz" -> readStdlibSource "Char.jz"
         "src/Text.jz" -> readStdlibSource "Text.jz"
@@ -214,8 +216,8 @@ runJazzLexerBatch fixtures =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readStdlibSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readStdlibSource "LexerTypes.jz"
+        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
+        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
         "src/List.jz" -> readStdlibSource "List.jz"
         "src/Char.jz" -> readStdlibSource "Char.jz"
         "src/Text.jz" -> readStdlibSource "Text.jz"
@@ -247,8 +249,8 @@ runJazzLexerCount source =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readStdlibSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readStdlibSource "LexerTypes.jz"
+        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
+        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
         "src/List.jz" -> readStdlibSource "List.jz"
         "src/Char.jz" -> readStdlibSource "Char.jz"
         "src/Text.jz" -> readStdlibSource "Text.jz"
@@ -263,15 +265,12 @@ resolverConfig =
     }
 
 readStdlibSource :: FilePath -> IO (Maybe Text)
-readStdlibSource fileName = readFirstExisting ["jazz-next/stdlib/" <> fileName, "stdlib/" <> fileName]
+readStdlibSource fileName =
+  Just <$> readCheckedInJazzSource StandardLibrarySource fileName
 
-readFirstExisting :: [FilePath] -> IO (Maybe Text)
-readFirstExisting candidates =
-  case candidates of
-    [] -> pure Nothing
-    candidate : rest -> do
-      exists <- doesFileExist candidate
-      if exists then Just <$> TextIO.readFile candidate else readFirstExisting rest
+readCompilerSource :: FilePath -> IO (Maybe Text)
+readCompilerSource fileName =
+  Just <$> readCheckedInJazzSource CompilerSource fileName
 
 fromString :: FilePath -> Text
 fromString = Text.pack

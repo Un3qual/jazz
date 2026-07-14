@@ -14,7 +14,6 @@ import Data.IORef
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runModuleGraphWithPrelude,
@@ -38,7 +37,10 @@ import JazzNext.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
 import JazzNext.Compiler.Modules.Loader.OperatorsTests (operatorTests)
 import JazzNext.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
 import JazzNext.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
-import System.Directory (doesFileExist)
+import JazzNext.TestSource
+  ( JazzSourceRole (StandardLibrarySource),
+    readCheckedInJazzSource,
+  )
 import System.Timeout (timeout)
 
 main :: IO ()
@@ -374,15 +376,4 @@ failingIOHost =
 
 readStdlibSource :: FilePath -> IO (Maybe Text)
 readStdlibSource fileName =
-  readFirstExisting
-    [ "stdlib/" <> fileName,
-      "jazz-next/stdlib/" <> fileName
-    ]
-
-readFirstExisting :: [FilePath] -> IO (Maybe Text)
-readFirstExisting [] = pure Nothing
-readFirstExisting (candidate : rest) = do
-  exists <- doesFileExist candidate
-  if exists
-    then Just <$> TextIO.readFile candidate
-    else readFirstExisting rest
+  Just <$> readCheckedInJazzSource StandardLibrarySource fileName

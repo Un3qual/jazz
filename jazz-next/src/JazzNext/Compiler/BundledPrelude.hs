@@ -3,8 +3,7 @@
 -- | Generates the compiler-owned bundled prelude used when callers do not
 -- supply an explicit prelude file.
 module JazzNext.Compiler.BundledPrelude
-  ( bundledPreludePath,
-    bundledPreludeSource,
+  ( bundledPreludeSource,
     loadBundledPreludeSource
   ) where
 
@@ -17,10 +16,6 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolKernelName,
     builtinSymbolName
   )
-
--- | Repository-relative location of the checked-in bundled prelude mirror.
-bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 
 -- | Pre-generated prelude text that exposes all builtin kernel bridges and
 -- their public aliases in a deterministic order.
@@ -60,7 +55,7 @@ bundledPreludeSource =
       Text.intercalate
         "\n"
         [ "impl Eq(" <> targetType <> ") {",
-          "equals = \\(left) -> \\(right) -> left == right.",
+          "equals = \\(left, right) -> left == right.",
           "}."
         ]
 

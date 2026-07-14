@@ -4,23 +4,13 @@ module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
-import System.Directory
-  ( doesFileExist,
-    getCurrentDirectory
-  )
-import System.FilePath
-  ( (</>),
-    takeDirectory
-  )
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.BundledPrelude
-  ( bundledPreludePath,
-    bundledPreludeSource
+  ( bundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinOwnership (..),
@@ -66,6 +56,10 @@ import JazzNext.TestHarness
     assertEqual,
     assertLeftDiagnosticContains,
     runTestSuite
+  )
+import JazzNext.TestSource
+  ( JazzSourceRole (StandardLibrarySource),
+    readCheckedInJazzSource
   )
 
 main :: IO ()
@@ -206,7 +200,7 @@ testDefaultConversionAliasesStayPreludeOnly = do
 
 testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
 testBundledPreludeFileStaysReproducibleFromCatalog = do
-  checkedInPrelude <- readCheckedInBundledPrelude
+  checkedInPrelude <- readCheckedInJazzSource StandardLibrarySource "Prelude.jz"
   assertEqual
     "checked-in bundled prelude file matches catalog-generated prelude"
     bundledPreludeSource
@@ -269,7 +263,7 @@ testBundledPreludeIncludesEqFloat64EqualsMethodBody =
     "bundled prelude renders Eq(Float64).equals body"
     ( """
     impl Eq(Float64) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
 
     """
@@ -280,34 +274,6 @@ normalizePreludeLineEndings :: Text -> Text
 normalizePreludeLineEndings text =
   let withoutCrLf = Text.replace "\r\n" "\n" text
    in Text.replace "\r" "\n" withoutCrLf
-
-readCheckedInBundledPrelude :: IO Text
-readCheckedInBundledPrelude = do
-  cwd <- getCurrentDirectory
-  maybePath <- findPreludeFrom cwd
-  case maybePath of
-    Just path -> TextIO.readFile path
-    Nothing ->
-      ioError $
-        userError
-          ( "could not find checked-in bundled prelude mirror '"
-              <> bundledPreludePath
-              <> "' from current directory '"
-              <> cwd
-              <> "' or any parent"
-          )
-  where
-    findPreludeFrom directory = do
-      let candidate = directory </> bundledPreludePath
-      exists <- doesFileExist candidate
-      if exists
-        then pure (Just candidate)
-        else
-          let parent = takeDirectory directory
-           in
-            if parent == directory
-              then pure Nothing
-              else findPreludeFrom parent
 
 testDirectCompileHelperStaysKernelOnly :: IO ()
 testDirectCompileHelperStaysKernelOnly = do

@@ -282,7 +282,7 @@ testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes = do
       ( runtimeEqSource
           <> """
           impl RuntimeEq(Bool) {
-          equals = \\(left) -> \\(right) -> left != right.
+          equals = \\(left, right) -> left != right.
           }.
           (RuntimeEq::equals 1 2, RuntimeEq::equals True False).
           """
@@ -302,8 +302,8 @@ testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall = do
       notEquals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> left == right.
-      notEquals = \\(left) -> \\(right) -> RuntimeEq::equals left right != True.
+      equals = \\(left, right) -> left == right.
+      notEquals = \\(left, right) -> RuntimeEq::equals left right != True.
       }.
       RuntimeEq::notEquals 1 2.
       """
@@ -322,10 +322,10 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int8) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(Int16) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       left :: Int8.
       left = 1.
@@ -348,10 +348,10 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int8) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(Int16) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       right :: Int8.
       right = 2.
@@ -372,10 +372,10 @@ testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       id :: @{RuntimeEq(a)}: a -> a.
       id = \\(value) -> value.
@@ -397,10 +397,10 @@ testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = d
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq((Int, Bool)) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq((UInt8, Bool)) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       pair = \\(value) -> (value, True).
       result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).
@@ -421,13 +421,13 @@ testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       select :: @{RuntimeEq(b)}: Int16 -> b -> b.
-      select = \\(width) -> \\(value) -> value.
+      select = \\(width, value) -> value.
       result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).
       result.
       """
@@ -452,7 +452,7 @@ testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate = do
       flag = \\(value) -> False.
       }.
       use :: @{RuntimeFlag(a)}: a -> b -> Bool.
-      use = \\(value) -> \\(ignored) -> RuntimeFlag::flag value.
+      use = \\(value, ignored) -> RuntimeFlag::flag value.
       use @Int32 1 True.
       """
       )
@@ -470,10 +470,10 @@ testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       id8 :: UInt8 -> UInt8.
       id8 = \\(value) -> value.
@@ -498,10 +498,10 @@ testQualifiedMethodDispatchPreservesDirectClosureResultSignature = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       id8 :: UInt8 -> UInt8.
       id8 = \\(value) -> value.
@@ -596,7 +596,7 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Float) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       left :: Float64.
       left = toFloat64 1.
@@ -693,7 +693,7 @@ testQualifiedMethodDispatchExecutesFloatEqualityBody = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Float) {
-      equals = \\(left) -> \\(right) -> left == right.
+      equals = \\(left, right) -> left == right.
       }.
       left :: Float.
       left = 1.5.
@@ -718,7 +718,7 @@ testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Float16) {
-      equals = \\(left) -> \\(right) -> left == right.
+      equals = \\(left, right) -> left == right.
       }.
       left :: Float16.
       left = 1.5.
@@ -743,7 +743,7 @@ testQualifiedMethodDispatchExecutesFloat32EqualityBody = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Float32) {
-      equals = \\(left) -> \\(right) -> left == right.
+      equals = \\(left, right) -> left == right.
       }.
       left :: Float32.
       left = 1.5.
@@ -768,7 +768,7 @@ testQualifiedMethodDispatchExecutesFloat64EqualityBody = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Float64) {
-      equals = \\(left) -> \\(right) -> left == right.
+      equals = \\(left, right) -> left == right.
       }.
       left :: Float64.
       left = toFloat64 1.
@@ -791,10 +791,10 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       left :: Int.
       left = 1.
@@ -1232,10 +1232,10 @@ testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
       pick :: Int -> a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(index) -> \\(value) -> False.
+      pick = \\(index, value) -> False.
       }.
       impl RuntimePick(Bool) {
-      pick = \\(index) -> \\(value) -> True.
+      pick = \\(index, value) -> True.
       }.
       one :: Int.
       one = 1.
@@ -1561,10 +1561,10 @@ testQualifiedMethodDispatchPreservesHdElementSignature = do
       equals :: a -> a -> Bool.
       }.
       impl RuntimeEq(Int) {
-      equals = \\(left) -> \\(right) -> True.
+      equals = \\(left, right) -> True.
       }.
       impl RuntimeEq(UInt8) {
-      equals = \\(left) -> \\(right) -> False.
+      equals = \\(left, right) -> False.
       }.
       values :: [UInt8].
       values = [1].
@@ -2057,7 +2057,7 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
               equals :: a -> a -> Bool.
               }.
               impl RuntimeEq(Int) {
-              equals = if True then RuntimeEq::equals else \\(left) -> \\(right) -> left == right.
+              equals = if True then RuntimeEq::equals else \\(left, right) -> left == right.
               }.
               RuntimeEq::equals 1 1.
               """
@@ -2199,10 +2199,10 @@ testQualifiedMethodDispatchExecutesLocalAdtImplBody = do
           data Token = Token Int.
           data Box a = Box a.
           impl RuntimeEq(Token) {
-          equals = \\(left) -> \\(right) -> True.
+          equals = \\(left, right) -> True.
           }.
           impl RuntimeEq(Box(Int)) {
-          equals = \\(left) -> \\(right) -> True.
+          equals = \\(left, right) -> True.
           }.
           result = (RuntimeEq::equals (Token 1) (Token 2), RuntimeEq::equals (Box 1) (Box 2)).
           result.

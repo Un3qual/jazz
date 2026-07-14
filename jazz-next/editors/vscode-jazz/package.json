@@ -1,0 +1,36 @@
+{
+  "name": "jazz-language",
+  "displayName": "Jazz Language",
+  "description": "Syntax highlighting for the Jazz programming language.",
+  "version": "0.1.0",
+  "publisher": "jazz-lang",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "jazz",
+        "aliases": [
+          "Jazz",
+          "jazz"
+        ],
+        "extensions": [
+          ".jz"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "jazz",
+        "scopeName": "source.jazz",
+        "path": "./syntaxes/jazz.tmLanguage.json"
+      }
+    ]
+  }
+}

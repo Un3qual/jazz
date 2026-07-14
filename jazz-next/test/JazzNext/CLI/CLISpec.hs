@@ -1087,4 +1087,5 @@ preludeConsumerSource = "inc 2."
 
 isBundledPreludePath :: FilePath -> Bool
 isBundledPreludePath path =
-  path == "jazz-next/stdlib/Prelude.jz" || path == "stdlib/Prelude.jz"
+  path == "jazz-next/jazz/stdlib/Prelude.jz"
+    || path == "jazz/stdlib/Prelude.jz"

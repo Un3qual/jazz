@@ -213,7 +213,7 @@ testRejectsUndeclaredOperatorSignature =
     "operator '%%' must be declared before signature"
     (parseSurfaceProgram """
     (%%) :: Int -> Int -> Int.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     """)
 
 testRejectsBuiltinOperatorSignature :: IO ()
@@ -233,7 +233,7 @@ testRejectsUndeclaredOperatorBinding =
     "undeclared operator binding"
     "E0001"
     "operator '%%' must be declared before binding"
-    (parseSurfaceProgram "(%%) = \\(left) -> \\(right) -> left + right.")
+    (parseSurfaceProgram "(%%) = \\(left, right) -> left + right.")
 
 testRejectsBuiltinOperatorBinding :: IO ()
 testRejectsBuiltinOperatorBinding =
@@ -241,7 +241,7 @@ testRejectsBuiltinOperatorBinding =
     "built-in operator binding"
     "E0001"
     "cannot bind built-in operator '+'"
-    (parseSurfaceProgram "(+) = \\(left) -> \\(right) -> left + right.")
+    (parseSurfaceProgram "(+) = \\(left, right) -> left + right.")
 
 testRejectsNestedOperatorBinding :: IO ()
 testRejectsNestedOperatorBinding =
@@ -251,7 +251,7 @@ testRejectsNestedOperatorBinding =
     "operator bindings are only allowed at file scope or directly in module bodies"
     (parseSurfaceProgram """
     operator %% tier 2.
-    x = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.
+    x = { (%%) = \\(left, right) -> left + right. 0. }.
     """)
 
 testRejectsNestedOperatorSignature :: IO ()

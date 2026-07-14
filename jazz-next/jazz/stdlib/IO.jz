@@ -23,7 +23,7 @@ module IO (value readText!, value writeText!, value readStdin!, value writeStdou
   }.
 
   writeText! :: Text -> Text -> Result(IOError, ()).
-  writeText! = \(path) -> \(contents) -> case __kernel_writeTextRaw! path contents {
+  writeText! = \(path, contents) -> case __kernel_writeTextRaw! path contents {
     | (True, _, _, _) -> Ok ()
     | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) (Just path) message)
   }.

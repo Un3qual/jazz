@@ -1,0 +1,175 @@
+{
+  "name": "Jazz",
+  "scopeName": "source.jazz",
+  "patterns": [
+    {"include": "#comments"},
+    {"include": "#strings"},
+    {"include": "#characters"},
+    {"include": "#numbers"},
+    {"include": "#data-declarations"},
+    {"include": "#keywords"},
+    {"include": "#exports"},
+    {"include": "#builtins"},
+    {"include": "#purity"},
+    {"include": "#types"},
+    {"include": "#signatures"},
+    {"include": "#lambdas"},
+    {"include": "#operators"},
+    {"include": "#punctuation"}
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.jazz",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.jazz",
+          "match": "\\\\(?:[\\\\'\"nrt0]|u\\{[0-9A-Fa-f]{1,6}\\})"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.jazz",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {"include": "#escapes"}
+          ]
+        }
+      ]
+    },
+    "characters": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.jazz",
+          "match": "'(?:\\\\(?:[\\\\'\"nrt0]|u\\{[0-9A-Fa-f]{1,6}\\})|[^\\\\'\\r\\n])'"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.jazz",
+          "match": "\\b(?:[0-9]+(?:\\.[0-9]+)?)(?:i8|i16|i32|i64|u8|u16|u32|u64|f16|f32|f64)?\\b"
+        }
+      ]
+    },
+    "data-declarations": {
+      "name": "meta.declaration.type.data.jazz",
+      "begin": "\\b(data)\\s+([A-Z][A-Za-z0-9_']*)",
+      "beginCaptures": {
+        "1": {"name": "keyword.declaration.jazz"},
+        "2": {"name": "entity.name.type.jazz"}
+      },
+      "end": "\\.",
+      "endCaptures": {
+        "0": {"name": "punctuation.terminator.statement.jazz"}
+      },
+      "patterns": [
+        {
+          "match": "(=|\\|)\\s*([A-Z][A-Za-z0-9_']*)",
+          "captures": {
+            "1": {"name": "keyword.operator.constructor.jazz"},
+            "2": {"name": "entity.name.function.constructor.jazz"}
+          }
+        },
+        {"include": "#comments"},
+        {"include": "#builtins"},
+        {"include": "#types"},
+        {"include": "#punctuation"}
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.jazz",
+          "match": "\\b(?:if|then|else|case)\\b"
+        },
+        {
+          "name": "keyword.declaration.jazz",
+          "match": "\\b(?:module|import|as|data|class|impl|operator|tier|precedence|left|right|nonassoc)\\b"
+        }
+      ]
+    },
+    "exports": {
+      "patterns": [
+        {
+          "name": "storage.modifier.export.jazz",
+          "match": "\\b(?:value|constructor|type|class)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.type.builtin.jazz",
+          "match": "\\b(?:Bool|Char|Text|Int|Float|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float16|Float32|Float64|List)\\b"
+        },
+        {
+          "name": "constant.language.jazz",
+          "match": "\\b(?:True|False)\\b"
+        }
+      ]
+    },
+    "purity": {
+      "patterns": [
+        {
+          "name": "entity.name.function.effectful.jazz",
+          "match": "\\b[a-z_][A-Za-z0-9_']*!(?![A-Za-z0-9_'])"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.jazz",
+          "match": "\\b[A-Z][A-Za-z0-9_']*\\b"
+        }
+      ]
+    },
+    "signatures": {
+      "patterns": [
+        {
+          "name": "keyword.operator.signature.jazz",
+          "match": "::|@|:"
+        }
+      ]
+    },
+    "lambdas": {
+      "patterns": [
+        {
+          "name": "keyword.operator.lambda.jazz",
+          "match": "\\\\|->"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.jazz",
+          "match": "==|!=|<=|>=|=>|[$+\\-*/|%&?^~<>:=@!]+"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.jazz",
+          "match": "[.,]"
+        },
+        {
+          "name": "punctuation.section.group.jazz",
+          "match": "[(){}\\[\\]]"
+        }
+      ]
+    }
+  }
+}

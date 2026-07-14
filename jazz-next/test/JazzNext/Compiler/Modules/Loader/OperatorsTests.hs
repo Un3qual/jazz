@@ -57,7 +57,7 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
           ("src/Lib/Ops.jz", """
           module Lib::Ops {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left + right.
+          (%%) = \\(left, right) -> left + right.
           plus = 1 %% 2.
           }
           """)
@@ -89,7 +89,7 @@ testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding = do
           module Lib::Ops {
           operator %% tier 2.
           (%%) :: Int -> Int -> Int.
-          (%%) = \\(left) -> \\(right) -> left + right.
+          (%%) = \\(left, right) -> left + right.
           plus = 1 %% 2.
           }
           """)
@@ -120,7 +120,7 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport = do
           ("src/Lib/Ops.jz", """
           module Lib::Ops {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left + right.
+          (%%) = \\(left, right) -> left + right.
           plus = 1 %% 2.
           }
           """)
@@ -158,7 +158,7 @@ testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter = do
           ("src/Lib/Ops.jz", """
           module Lib::Ops {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left + right.
+          (%%) = \\(left, right) -> left + right.
           plus = 1 %% 2.
           }
           """)
@@ -194,7 +194,7 @@ testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
           ("src/Lib/Ops.jz", """
           module Lib::Ops {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left - right.
+          (%%) = \\(left, right) -> left - right.
           section = (%% (1 / 0)).
           }
           """)
@@ -226,14 +226,14 @@ testRunModuleGraphIgnoresHiddenOperatorBindingCollisions = do
           ("src/Lib/A.jz", """
           module Lib::A {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left + right.
+          (%%) = \\(left, right) -> left + right.
           a = 1 %% 2.
           }
           """),
           ("src/Lib/B.jz", """
           module Lib::B {
           operator %% tier 2.
-          (%%) = \\(left) -> \\(right) -> left * right.
+          (%%) = \\(left, right) -> left * right.
           b = 1 %% 7.
           }
           """)

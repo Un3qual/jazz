@@ -443,7 +443,7 @@ explicitCapabilitySources =
         secret :: a -> Bool.
         }.
         impl Eq(Int) {
-        equals = \\(left) -> \\(right) -> True.
+        equals = \\(left, right) -> True.
         }.
         impl Hidden(Int) {
         secret = \\(value) -> False.

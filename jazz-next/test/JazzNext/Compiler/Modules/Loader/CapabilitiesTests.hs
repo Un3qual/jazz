@@ -706,10 +706,10 @@ testRunModuleGraphKeepsCharAndTextPrimitiveImplTargetsUnqualified = do
             equals :: a -> a -> Bool.
             }.
             impl RuntimeEq(Char) {
-            equals = \\(left) -> \\(right) -> True.
+            equals = \\(left, right) -> True.
             }.
             impl RuntimeEq(Text) {
-            equals = \\(left) -> \\(right) -> False.
+            equals = \\(left, right) -> False.
             }.
             (RuntimeEq::equals 'a' 'b', RuntimeEq::equals \"a\" \"b\").
             }
@@ -746,7 +746,7 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Eq(Int) {
-            equals = \\(left) -> \\(right) -> left == right.
+            equals = \\(left, right) -> left == right.
             }.
             }
             """
@@ -786,7 +786,7 @@ testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Eq(Int) {
-            equals = \\(left) -> \\(right) -> left == right.
+            equals = \\(left, right) -> left == right.
             }.
             }
             """
@@ -821,7 +821,7 @@ testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup = do
             equals :: a -> a -> Bool.
             }.
             impl Eq(Int) {
-            equals = \\(left) -> \\(right) -> left == right.
+            equals = \\(left, right) -> left == right.
             }.
             """
           )
@@ -1286,7 +1286,7 @@ testRunModuleGraphRebasesFallbackExplicitGenericAdtHints = do
             flag = \\(box) -> False.
             }.
             use :: a -> b -> a.
-            use = \\(value) -> \\(ignored) -> value.
+            use = \\(value, ignored) -> value.
             result = Flag::flag (use @Box([Int]) (Box []) True).
             result.
             }
@@ -1318,7 +1318,7 @@ testRunModuleGraphRebasesClassMethodArgumentSignatures = do
             check :: Token(Int) -> a -> Bool.
             }.
             impl Check(Int) {
-            check = \\(token) -> \\(value) -> True.
+            check = \\(token, value) -> True.
             }.
             result = Check::check (Token 1) 1.
             result.
@@ -1879,7 +1879,7 @@ testRunModuleGraphPublishesExplicitlyExportedClass = do
             }.
             class Hidden(a) { }.
             impl Eq(Int) {
-            equals = \\(left) -> \\(right) -> left == right.
+            equals = \\(left, right) -> left == right.
             }.
             }
             """
@@ -1912,7 +1912,7 @@ testCompileModuleGraphRejectsPrivateExplicitClassImport = do
             }.
             class Hidden(a) { }.
             impl Eq(Int) {
-            equals = \\(left) -> \\(right) -> left == right.
+            equals = \\(left, right) -> left == right.
             }.
             }
             """

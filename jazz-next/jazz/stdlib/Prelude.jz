@@ -9,19 +9,19 @@ class Showable(a) { }.
 class Default(a) { }.
 
 impl Eq(Int) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Eq(Float) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Eq(Bool) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Eq(Char) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Eq(Text) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Ord(Int) { }.
 impl Ord(Float) { }.
@@ -84,7 +84,7 @@ impl Integral(UInt64) { }.
 impl Default(UInt64) { }.
 impl Showable(UInt64) { }.
 impl Eq(Float16) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Ord(Float16) { }.
 impl Num(Float16) { }.
@@ -92,7 +92,7 @@ impl Fractional(Float16) { }.
 impl Default(Float16) { }.
 impl Showable(Float16) { }.
 impl Eq(Float32) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Ord(Float32) { }.
 impl Num(Float32) { }.
@@ -100,7 +100,7 @@ impl Fractional(Float32) { }.
 impl Default(Float32) { }.
 impl Showable(Float32) { }.
 impl Eq(Float64) {
-equals = \(left) -> \(right) -> left == right.
+equals = \(left, right) -> left == right.
 }.
 impl Ord(Float64) { }.
 impl Num(Float64) { }.

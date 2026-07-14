@@ -1,0 +1,27 @@
+# Jazz syntax-highlighting fixture.
+module Editor::Representative (type Choice, constructor Empty, constructor Chosen, class Matches, value compare!, value sample) {
+  import Text as TextTools.
+
+  operator %% precedence 25 right.
+  (%%) :: Int -> Int -> Int.
+  (%%) = \(left, right) -> left + right.
+
+  data Choice a = Empty | Chosen a.
+  data Point = XYPoint Int Int.
+
+  class Matches(a) {
+    matches :: a -> a -> Bool.
+  }.
+
+  impl Matches(Int) {
+    matches = \(left, right) -> left == right.
+  }.
+
+  compare! :: @{Matches(Int)}: Int -> Int -> Bool.
+  compare! = \(left, right) -> if left == right then True else False.
+
+  sample = case Chosen 42i16 {
+    | Empty -> (0, '\n', "empty")
+    | Chosen value -> (value %% 1, '\u{266B}', "Jazz \\u{1F3B7}")
+  }.
+}

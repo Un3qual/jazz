@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module JazzNext.Repository.StdlibFormat
-  ( StdlibFormatViolation (..),
-    renderStdlibFormatViolation,
-    validateStdlibModule
+module JazzNext.Repository.JazzSourceFormat
+  ( JazzSourceFormatViolation (..),
+    renderJazzSourceFormatViolation,
+    validateJazzModule
   )
 where
 
@@ -12,14 +12,14 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import System.FilePath (takeFileName)
 
-data StdlibFormatViolation
+data JazzSourceFormatViolation
   = InvalidModuleHeader FilePath
   | MissingFinalClosingBrace FilePath
   | InvalidBodyIndentation FilePath Int
   deriving (Eq, Show)
 
-validateStdlibModule :: FilePath -> Text -> [StdlibFormatViolation]
-validateStdlibModule path source
+validateJazzModule :: FilePath -> Text -> [JazzSourceFormatViolation]
+validateJazzModule path source
   | takeFileName path == "Prelude.jz" = []
   | otherwise = headerViolations <> closingViolations <> indentationViolations
   where
@@ -64,8 +64,8 @@ validateStdlibModule path source
         Just (closingLineNumber, _) ->
           filter (\(lineNumber, _) -> lineNumber > 1 && lineNumber < closingLineNumber) numberedLines
 
-renderStdlibFormatViolation :: StdlibFormatViolation -> Text
-renderStdlibFormatViolation violation =
+renderJazzSourceFormatViolation :: JazzSourceFormatViolation -> Text
+renderJazzSourceFormatViolation violation =
   case violation of
     InvalidModuleHeader path ->
       Text.pack path <> ":1: must be an unindented module header ending in {"

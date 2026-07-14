@@ -184,7 +184,7 @@ qualifiedEqSource =
   equals :: a -> a -> Bool.
   }.
   impl Eq(Int) {
-  equals = \\(left) -> \\(right) -> left == right.
+  equals = \\(left, right) -> left == right.
   }.
 
   """
