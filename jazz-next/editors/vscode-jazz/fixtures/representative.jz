@@ -7,6 +7,7 @@ module Editor::Representative (type Choice, constructor Empty, constructor Chose
   (%%) = \(left, right) -> left + right.
 
   data Choice a = Empty | Chosen a.
+  data Point = XYPoint Int Int.
 
   class Matches(a) {
     matches :: a -> a -> Bool.

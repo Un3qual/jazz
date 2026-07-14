@@ -260,6 +260,18 @@ testEditorPackageMetadata =
         language = firstValue languages
         contributedGrammar = firstValue grammars
         extensions = maybe [] jsonArray (language >>= jsonPath ["extensions"])
+        rootGrammarPatterns = maybe [] jsonArray (jsonPath ["patterns"] grammar)
+        rootGrammarIncludes =
+          [ includeName
+            | patternValue <- rootGrammarPatterns,
+              Just (String includeName) <- [jsonPath ["include"] patternValue]
+          ]
+        dataDeclarationPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "data-declarations", "patterns"] grammar)
+        constructorPattern = firstValue dataDeclarationPatterns
     assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
     assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
     assertEqual
@@ -283,6 +295,14 @@ testEditorPackageMetadata =
       (Just (String "#"))
       (jsonPath ["comments", "lineComment"] languageConfiguration)
     assertEqual "grammar root scope" (Just (String "source.jazz")) (jsonPath ["scopeName"] grammar)
+    assertEqual
+      "data declarations have a contextual grammar rule"
+      True
+      ("#data-declarations" `elem` rootGrammarIncludes)
+    assertEqual
+      "data constructors have a distinct grammar scope"
+      (Just (String "entity.name.function.constructor.jazz"))
+      (constructorPattern >>= jsonPath ["captures", "2", "name"])
 
 testEditorFixtureParses :: IO ()
 testEditorFixtureParses =

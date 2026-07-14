@@ -5,6 +5,10 @@ configuration for Jazz `.jz` files. It intentionally provides lexical editor
 support only: there is no language server, formatter, completion engine, or
 semantic-token implementation.
 
+Constructor names in `data` declarations use the dedicated
+`entity.name.function.constructor.jazz` TextMate scope, independently of their
+payload types. The active editor theme determines the rendered colors.
+
 The extension source lives in `jazz-next/editors/vscode-jazz`. To use it from a
 repository checkout, copy or symlink that directory into your VS Code extensions
 directory and reload the editor window. VS Code will then associate `.jz` files
