@@ -18,6 +18,8 @@ verification contract.
 
 ### Batch 1: Haskell toolchain and test-gate foundation
 
+Status: completed on 2026-07-13.
+
 Items: 6 and 15.
 
 - Upgrade the active `jazz-next` project to GHC 9.14.1 and its matching
