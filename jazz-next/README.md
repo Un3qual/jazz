@@ -37,6 +37,31 @@ executable and test components; there is no supported Haskell embedding API yet.
 These are implementation boundaries only. The module and import syntax exposed
 to Jazz programs is unchanged by the internal module pipeline.
 
+## Jazz-authored sources
+
+Shipped Jazz source lives under one package-owned root:
+
+- `jazz/stdlib/` contains general user-facing standard-library modules.
+- `jazz/compiler/` contains the Jazz-authored compiler implementation, currently
+  the hosted `Lexer` and `LexerTypes` modules.
+
+Compiler modules may import standard-library modules. Standard-library modules
+must not import compiler implementation modules; `repository-audit-spec`
+enforces that dependency direction from parsed module imports. Test fixtures
+and future benchmark programs remain in their owning test and benchmark trees,
+outside this shipped-source root.
+
+Ordinary multi-argument Jazz functions use compact lambdas such as
+`\(left, right) -> left == right`. The compiler preserves currying and partial
+application by lowering that surface form to nested unary core lambdas.
+
+## Editor support
+
+The dependency-free [`editors/vscode-jazz`](editors/vscode-jazz/README.md)
+package registers `.jz` files and supplies TextMate syntax highlighting plus
+basic VS Code language configuration. It is syntax-only; language-server and
+semantic editor features remain future work.
+
 ## Test layout
 
 - `test/JazzNext/TestHarness.hs`: shared assertion helpers and test runner plumbing.
@@ -101,4 +126,5 @@ cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=fai
 
 Cabal discovers every registered suite. Use a test component name, such as
 `repository-audit-spec`, for a focused run. The repository audit owns the
-stdlib source-format contract and the private-package policy.
+Jazz source-format and dependency-layering contracts, editor-package metadata,
+and the private-package policy.

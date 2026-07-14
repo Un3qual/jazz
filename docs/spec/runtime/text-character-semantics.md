@@ -54,7 +54,7 @@ The first child does not add interpolation or multiline text.
 
 ## Explicit-Import Traversal
 
-The ordinary [`Text`](../../../jazz-next/stdlib/Text.jz) module exports exactly:
+The ordinary [`Text`](../../../jazz-next/jazz/stdlib/Text.jz) module exports exactly:
 
 - `textEmpty :: Text`;
 - `textLength :: Text -> Int`;

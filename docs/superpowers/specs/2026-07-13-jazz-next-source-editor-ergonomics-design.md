@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved on `2026-07-13`.
+Approved and implemented on `2026-07-13`.
 
 This is the design checkpoint for Batch 2 of
 [`docs/jazz-improvement-backlog.md`](../../jazz-improvement-backlog.md). It

@@ -51,7 +51,7 @@
 - Consumes: `findJazzNextPackageRoot`, `parseSurfaceProgram`, `SurfaceExpr`, and `SurfaceStatement`.
 - Produces: `JazzSourceRole`, `JazzSourceModule`, `SourceLayoutViolation`, `sourceModuleFromSurface`, `validateSourceLayering`, and `renderSourceLayoutViolation`.
 
-- [ ] **Step 1: Add failing layout tests to `AuditSpec.hs`.**
+- [x] **Step 1: Add failing layout tests to `AuditSpec.hs`.**
 
 Import the future contract:
 
@@ -113,7 +113,7 @@ testCheckedInJazzSourceTree =
     assertEqual "legacy stdlib root is absent" False legacyExists
 ```
 
-- [ ] **Step 2: Run the repository audit and observe RED.**
+- [x] **Step 2: Run the repository audit and observe RED.**
 
 Run:
 
@@ -124,7 +124,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: FAIL because `JazzNext.Repository.SourceLayout` does not exist and the locked source directories have not been created.
 
-- [ ] **Step 3: Implement the pure source-layering contract.**
+- [x] **Step 3: Implement the pure source-layering contract.**
 
 Create `jazz-next/test/JazzNext/Repository/SourceLayout.hs`:
 
@@ -220,11 +220,11 @@ renderSourceLayoutViolation violation =
 Register `JazzNext.Repository.SourceLayout` only in the
 `repository-audit-spec` `other-modules` list.
 
-- [ ] **Step 4: Run the repository audit and confirm the contract functions are GREEN while the real-tree assertion remains RED.**
+- [x] **Step 4: Run the repository audit and confirm the contract functions are GREEN while the real-tree assertion remains RED.**
 
 Run the same focused Cabal test. Expected: the two in-memory dependency tests pass; `uses the locked checked-in Jazz source tree` fails because `jazz/stdlib` and `jazz/compiler` do not exist and `stdlib` still does.
 
-- [ ] **Step 5: Commit the RED repository contract.**
+- [x] **Step 5: Commit the RED repository contract.**
 
 ```sh
 git add jazz-next/test/JazzNext/Repository/AuditSpec.hs \
@@ -254,13 +254,13 @@ git commit -m "test: lock Jazz source layout"
 - Consumes: `findJazzNextPackageRoot`, `JazzSourceRole`, `sourceModuleFromSurface`, and `validateSourceLayering` from Task 1.
 - Produces: `readCheckedInJazzSource :: JazzSourceRole -> FilePath -> IO Text`, one physical source tree, and Cabal-packaged `.jz` assets.
 
-- [ ] **Step 1: Move the ten sources into their locked roles.**
+- [x] **Step 1: Move the ten sources into their locked roles.**
 
 Use `apply_patch` moves so Git records eight files under `jazz/stdlib` and two
 under `jazz/compiler`, then remove the empty legacy directory. Do not change
 module declarations or bodies in this step.
 
-- [ ] **Step 2: Add one checked-in-source loader for tests.**
+- [x] **Step 2: Add one checked-in-source loader for tests.**
 
 Create `jazz-next/test/JazzNext/TestSource.hs`:
 
@@ -317,7 +317,7 @@ Move `JazzNext.Repository.Root` and `JazzNext.Repository.SourceLayout` into the
 shared `test-common` `other-modules` list, add `JazzNext.TestSource` there, and
 remove duplicate declarations from `repository-audit-spec`.
 
-- [ ] **Step 3: Update active path consumers without fallback candidates.**
+- [x] **Step 3: Update active path consumers without fallback candidates.**
 
 Set:
 
@@ -340,7 +340,7 @@ path and the package-relative `jazz/stdlib/Prelude.jz` form. Keep
 `BuiltinCatalogSpec` searching parent directories through
 `bundledPreludePath`, since that is the production mirror-path contract.
 
-- [ ] **Step 4: Generalize the source-format audit.**
+- [x] **Step 4: Generalize the source-format audit.**
 
 Rename the module and exported vocabulary from `StdlibFormat` to
 `JazzSourceFormat`:
@@ -408,7 +408,7 @@ Call it with `"jazz" </> "stdlib"` and `"jazz" </> "compiler"`, concatenate
 both metadata lists, and render every format or layering violation before
 failing the suite.
 
-- [ ] **Step 5: Package the source tree in Cabal.**
+- [x] **Step 5: Package the source tree in Cabal.**
 
 Add near the Cabal package metadata:
 
@@ -420,7 +420,7 @@ extra-source-files:
 
 Do not add editor files yet; Task 4 adds those when they exist.
 
-- [ ] **Step 6: Run focused source consumers and the repository audit.**
+- [x] **Step 6: Run focused source consumers and the repository audit.**
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -433,7 +433,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 Expected: all six suites pass; no test reads `jazz-next/stdlib` or
 package-relative `stdlib`.
 
-- [ ] **Step 7: Verify the source distribution includes only the new tree.**
+- [x] **Step 7: Verify the source distribution includes only the new tree.**
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -445,7 +445,7 @@ tar -tf jazz-next/dist-newstyle/sdist/jazz-next-0.1.0.0.tar.gz | \
 Expected: entries under `jazz/stdlib` and `jazz/compiler`; no entry under a
 top-level package `stdlib/` directory.
 
-- [ ] **Step 8: Commit the source-root migration.**
+- [x] **Step 8: Commit the source-root migration.**
 
 ```sh
 git add jazz-next/jazz jazz-next/jazz-next.cabal jazz-next/src \
@@ -468,7 +468,7 @@ git commit -m "refactor: separate Jazz source trees"
 - Consumes: existing `\(x, y) -> expression` parsing and unary-core lowering.
 - Produces: compact authored source with the same observable types, currying, partial application, and runtime results.
 
-- [ ] **Step 1: Record the behavior baseline for compact and nested currying.**
+- [x] **Step 1: Record the behavior baseline for compact and nested currying.**
 
 Run:
 
@@ -482,7 +482,7 @@ Expected: existing tests pass, including multi-parameter surface lowering to
 nested unary core lambdas and partial application through
 `testClosureCaptureRuntime`.
 
-- [ ] **Step 2: Keep one explicit nested-lambda exception and make its purpose unmistakable.**
+- [x] **Step 2: Keep one explicit nested-lambda exception and make its purpose unmistakable.**
 
 Rename the test label and function to describe the retained surface:
 
@@ -500,7 +500,7 @@ testExplicitNestedLambdaClosureCaptureRuntime = do
   assertEqual "runtime output" (Just "5") (runOutput result)
 ```
 
-- [ ] **Step 3: Rewrite shipped source and generated Prelude chains.**
+- [x] **Step 3: Rewrite shipped source and generated Prelude chains.**
 
 For every immediate identifier-only chain, combine all parameters:
 
@@ -521,7 +521,7 @@ Update `BuiltinCatalogSpec` expected source accordingly. The checked-in Prelude
 must remain byte-for-byte equal to `bundledPreludeSource` after line-ending
 normalization.
 
-- [ ] **Step 4: Rewrite ordinary embedded programs and parser fixtures.**
+- [x] **Step 4: Rewrite ordinary embedded programs and parser fixtures.**
 
 Change immediate nested identifier lambdas in module capability, operator,
 signature, runtime, and parser fixtures to compact parameter lists. Do not
@@ -537,7 +537,7 @@ equals = \(left, right) -> left == right.
 select = \(width, value) -> value.
 ```
 
-- [ ] **Step 5: Audit the remaining nested spellings.**
+- [x] **Step 5: Audit the remaining nested spellings.**
 
 ```sh
 rg -n --glob '*.jz' '\\\([^)]*\) -> \\\(' jazz-next/jazz
@@ -549,7 +549,7 @@ nested-lambda semantic test and any parser case whose asserted surface is
 specifically nested. Inspect every remaining line and add a local explanation
 when the test name is not already explicit.
 
-- [ ] **Step 6: Run all directly affected suites.**
+- [x] **Step 6: Run all directly affected suites.**
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -563,7 +563,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: all listed suites pass with unchanged runtime and diagnostic results.
 
-- [ ] **Step 7: Commit the compact-lambda migration.**
+- [x] **Step 7: Commit the compact-lambda migration.**
 
 ```sh
 git add jazz-next/jazz jazz-next/src jazz-next/test
@@ -587,7 +587,7 @@ git commit -m "refactor: use compact Jazz lambdas"
 - Consumes: active lexer spellings, contextual declaration keywords, parser syntax, and the repository-audit package root.
 - Produces: VS Code language id `jazz`, extension `.jz`, scope `source.jazz`, JSON-validated grammar/configuration, and one parser-valid fixture.
 
-- [ ] **Step 1: Add the audit-only JSON dependency and failing editor tests.**
+- [x] **Step 1: Add the audit-only JSON dependency and failing editor tests.**
 
 Add only to `repository-audit-spec`:
 
@@ -644,7 +644,7 @@ families: `#`, `module`, `import`, `data`, `class`, `impl`, `operator`,
 single-quoted character, double-quoted text, a Unicode escape, a numeric suffix,
 and a purity-marked identifier.
 
-- [ ] **Step 2: Run the repository audit and observe RED.**
+- [x] **Step 2: Run the repository audit and observe RED.**
 
 Run:
 
@@ -656,7 +656,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 Expected: FAIL with a missing `editors/vscode-jazz/package.json` path after
 Cabal resolves the audit-only `aeson` dependency.
 
-- [ ] **Step 3: Add the VS Code manifest.**
+- [x] **Step 3: Add the VS Code manifest.**
 
 Create `package.json` with no scripts or dependencies:
 
@@ -692,7 +692,7 @@ Create `package.json` with no scripts or dependencies:
 }
 ```
 
-- [ ] **Step 4: Add the language configuration.**
+- [x] **Step 4: Add the language configuration.**
 
 ```json
 {
@@ -722,7 +722,7 @@ Create `package.json` with no scripts or dependencies:
 Do not auto-pair single quotes because apostrophe is a legal Jazz identifier
 continuation.
 
-- [ ] **Step 5: Add the TextMate grammar.**
+- [x] **Step 5: Add the TextMate grammar.**
 
 Create `syntaxes/jazz.tmLanguage.json` with root keys `name: "Jazz"`,
 `scopeName: "source.jazz"`, and ordered includes for comments, strings,
@@ -752,7 +752,7 @@ operators, and punctuation. Use these contract regexes:
 Place the repository entries under a root `repository` object and reference
 them through the root `patterns` array in the order listed above.
 
-- [ ] **Step 6: Add the valid representative fixture and README.**
+- [x] **Step 6: Add the valid representative fixture and README.**
 
 The fixture must parse without resolving imports or type checking. Use this
 active surface:
@@ -792,7 +792,7 @@ extensions directory followed by an editor reload, and notes that future VSIX
 packaging needs standard VS Code extension tooling but is not a repository
 dependency.
 
-- [ ] **Step 7: Add editor assets to the Cabal source distribution.**
+- [x] **Step 7: Add editor assets to the Cabal source distribution.**
 
 Extend `extra-source-files`:
 
@@ -804,7 +804,7 @@ Extend `extra-source-files`:
     editors/vscode-jazz/fixtures/*.jz
 ```
 
-- [ ] **Step 8: Run focused validation and inspect the source archive.**
+- [x] **Step 8: Run focused validation and inspect the source archive.**
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -819,7 +819,7 @@ tar -tf jazz-next/dist-newstyle/sdist/jazz-next-0.1.0.0.tar.gz | \
 Expected: tests pass and all five editor-package asset families are present in
 the archive.
 
-- [ ] **Step 9: Commit the editor package.**
+- [x] **Step 9: Commit the editor package.**
 
 ```sh
 git add jazz-next/editors jazz-next/jazz-next.cabal \
@@ -845,7 +845,7 @@ git commit -m "feat: add Jazz syntax highlighting"
 - Consumes: verified source paths, compact authored syntax, editor installation contract, and source-distribution evidence from Tasks 2-4.
 - Produces: accurate active documentation, Batch 2 completion state, and final verification evidence.
 
-- [ ] **Step 1: Update active path and editor instructions.**
+- [x] **Step 1: Update active path and editor instructions.**
 
 In `jazz-next/README.md`, add a `Jazz-authored sources` section describing
 `jazz/stdlib`, `jazz/compiler`, dependency direction, and the fact that test and
@@ -857,7 +857,7 @@ Change active path references in language-state and normative specs from
 `LexerTypes` as compiler sources under `jazz-next/jazz/compiler/`. Do not edit
 historical plans, archived closure evidence, or legacy-reference paths.
 
-- [ ] **Step 2: Mark the batch and design implemented.**
+- [x] **Step 2: Mark the batch and design implemented.**
 
 Change Batch 2 in `docs/jazz-improvement-backlog.md` to:
 
@@ -874,7 +874,7 @@ Approved and implemented on `2026-07-13`.
 Check every completed implementation-plan checkbox only after its associated
 command has passed.
 
-- [ ] **Step 3: Run active documentation gates and stale-path review.**
+- [x] **Step 3: Run active documentation gates and stale-path review.**
 
 ```sh
 bash scripts/check-execution-queue.sh
@@ -889,7 +889,7 @@ Expected: both gates pass, `git diff --check` is silent, and the active-path
 search returns no stale old-root consumer. Any match in a historical context is
 reviewed rather than mechanically rewritten.
 
-- [ ] **Step 4: Run complete pinned verification.**
+- [x] **Step 4: Run complete pinned verification.**
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -902,7 +902,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: all components build, all 37 suites pass, and `sdist` succeeds.
 
-- [ ] **Step 5: Inspect the final archive contract.**
+- [x] **Step 5: Inspect the final archive contract.**
 
 ```sh
 archive=jazz-next/dist-newstyle/sdist/jazz-next-0.1.0.0.tar.gz
@@ -916,7 +916,7 @@ fi
 Expected: both source roles and editor assets are present; no legacy package
 `stdlib/` tree is present.
 
-- [ ] **Step 6: Commit Batch 2 closeout.**
+- [x] **Step 6: Commit Batch 2 closeout.**
 
 ```sh
 git add jazz-next/README.md docs/jazz-improvement-backlog.md \
@@ -930,15 +930,15 @@ git commit -m "docs: close Jazz improvement batch 2"
 
 ## Final Review Checklist
 
-- [ ] `git status --short` is clean after the closeout commit.
-- [ ] `git diff --check origin/main...HEAD` is silent.
-- [ ] `git diff --name-only origin/main...HEAD` contains nothing under `jazz-hs/` or `jazz2/`.
-- [ ] `jazz-next/stdlib/` is absent.
-- [ ] `jazz-next/jazz/stdlib/` contains eight shipped modules.
-- [ ] `jazz-next/jazz/compiler/` contains `Lexer.jz` and `LexerTypes.jz`.
-- [ ] Every active checked-in-source consumer uses the new role-aware paths.
-- [ ] The explicit nested-lambda exception is documented and all ordinary authored chains are compact.
-- [ ] VS Code registers `.jz` as `jazz` with TextMate scope `source.jazz`.
-- [ ] All editor JSON parses and the representative fixture parses as Jazz.
-- [ ] Cabal `sdist` includes both source roles and all editor assets.
-- [ ] GHC 9.14.1 builds all components and all 37 test suites pass.
+- [x] `git status --short` is clean after the closeout commit.
+- [x] `git diff --check origin/main...HEAD` is silent.
+- [x] `git diff --name-only origin/main...HEAD` contains nothing under `jazz-hs/` or `jazz2/`.
+- [x] `jazz-next/stdlib/` is absent.
+- [x] `jazz-next/jazz/stdlib/` contains eight shipped modules.
+- [x] `jazz-next/jazz/compiler/` contains `Lexer.jz` and `LexerTypes.jz`.
+- [x] Every active checked-in-source consumer uses the new role-aware paths.
+- [x] The explicit nested-lambda exception is documented and all ordinary authored chains are compact.
+- [x] VS Code registers `.jz` as `jazz` with TextMate scope `source.jazz`.
+- [x] All editor JSON parses and the representative fixture parses as Jazz.
+- [x] Cabal `sdist` includes both source roles and all editor assets.
+- [x] GHC 9.14.1 builds all components and all 37 test suites pass.

@@ -47,7 +47,7 @@ planned.
 
 ## Bundled Prelude Contract
 
-- Bundled prelude path: `jazz-next/stdlib/Prelude.jz`
+- Bundled prelude path: `jazz-next/jazz/stdlib/Prelude.jz`
 - `JazzNext.Compiler.BundledPrelude.bundledPreludePath` owns that
   repository-relative checked-in mirror path for active tests.
 - Current bridge declarations use the `__kernel_` prefix, remain kernel

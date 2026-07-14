@@ -30,6 +30,8 @@ Items: 6 and 15.
 
 ### Batch 2: Jazz source organization and immediate editor ergonomics
 
+Status: completed on 2026-07-13.
+
 Items: 10, 1, and 9.
 
 - Move shipped Jazz-authored sources under the locked
