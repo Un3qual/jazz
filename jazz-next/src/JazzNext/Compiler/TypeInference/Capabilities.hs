@@ -1188,7 +1188,17 @@ inferQualifiedMethodRequirement ::
   InferState ->
   [ExpressionType] ->
   Maybe (Maybe ExpressionType, InferState)
-inferQualifiedMethodRequirement methodKey (ClassMethodType classParameter methodSignature) state argumentTypes = do
+inferQualifiedMethodRequirement methodKey classMethodType state argumentTypes =
+  {-# SCC "jazz-stage:capability-solving" #-}
+  inferQualifiedMethodRequirementWithoutCostCentre methodKey classMethodType state argumentTypes
+
+inferQualifiedMethodRequirementWithoutCostCentre ::
+  Text ->
+  ClassMethodType ->
+  InferState ->
+  [ExpressionType] ->
+  Maybe (Maybe ExpressionType, InferState)
+inferQualifiedMethodRequirementWithoutCostCentre methodKey (ClassMethodType classParameter methodSignature) state argumentTypes = do
   (capabilityName, _) <- splitQualifiedMethodKey methodKey
   classArity <- Map.lookup capabilityName (inferClassFacts state)
   if classArity /= 1

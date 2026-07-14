@@ -373,6 +373,7 @@ evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObse
   Expr ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved observationRequest host preludeStatementIndices builtinMode bindingTypeHints expr =
+  {-# SCC "jazz-stage:evaluation" #-}
   case observationRequest of
     RuntimeObservationDisabled -> do
       outcome <-

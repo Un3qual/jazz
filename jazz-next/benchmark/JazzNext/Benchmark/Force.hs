@@ -5,9 +5,12 @@ module JazzNext.Benchmark.Force
     forceInferenceResult,
     forceProgramCaseResult,
     forceRuntimeProgramResult,
+    forceSurfaceExpr,
+    forceTokens,
   )
 where
 
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST
@@ -30,6 +33,9 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan,
     WarningRecord (..),
   )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportSelector (..),
+  )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -39,6 +45,26 @@ import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.ModuleRuntime
   ( RuntimeModule (..),
     RuntimeProgram (..),
+  )
+import JazzNext.Compiler.Parser.AST
+  ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
+    SurfaceDataConstructor (..),
+    SurfaceDataConstructorArgument (..),
+    SurfaceExpr (..),
+    SurfaceImplMethod (..),
+    SurfaceLambdaParameter (..),
+    SurfaceLiteral (..),
+    SurfacePattern (..),
+    SurfaceSignatureConstraint (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
+    SurfaceStatement (..),
+  )
+import JazzNext.Compiler.Parser.Lexer
+  ( Token (..),
+    TokenKind (..),
   )
 import JazzNext.Compiler.Runtime.Types
   ( RuntimeClosure (..),
@@ -67,6 +93,177 @@ forceExpr expression =
     ESectionLeft value operator -> forceExpr value `seq` operator `seq` ()
     ESectionRight operator value -> operator `seq` forceExpr value
     EBlock statements -> forceListWith forceStatement statements
+
+forceTokens :: [Token] -> ()
+forceTokens = forceListWith forceToken
+
+forceToken :: Token -> ()
+forceToken token =
+  forceTokenKind (tokenKind token) `seq`
+    tokenLexeme token `seq`
+      forceSourceSpan (tokenSpan token)
+
+forceTokenKind :: TokenKind -> ()
+forceTokenKind tokenKindValue =
+  case tokenKindValue of
+    TIdentifier value -> value `seq` ()
+    TInt value -> value `seq` ()
+    TChar value -> value `seq` ()
+    TText value -> value `seq` ()
+    TOperator value -> value `seq` ()
+    _ -> tokenKindValue `seq` ()
+
+forceSurfaceExpr :: SurfaceExpr -> ()
+forceSurfaceExpr expression =
+  case expression of
+    SELit literal -> forceSurfaceLiteral literal
+    SEVar name -> name `seq` ()
+    SEQualifiedVar qualifier member -> qualifier `seq` member `seq` ()
+    SELambda parameters body ->
+      forceListWith forceSurfaceLambdaParameter (NonEmpty.toList parameters) `seq`
+        forceSurfaceExpr body
+    SEOperatorValue operator -> operator `seq` ()
+    SEList values -> forceListWith forceSurfaceExpr values
+    SETuple values -> forceListWith forceSurfaceExpr values
+    SEApply callable argument -> forceSurfaceExpr callable `seq` forceSurfaceExpr argument
+    SETypeApplication value sourceSpan signatureType ->
+      forceSurfaceExpr value `seq`
+        forceSourceSpan sourceSpan `seq`
+          forceSurfaceSignatureType signatureType
+    SEIf condition whenTrue whenFalse ->
+      forceSurfaceExpr condition `seq`
+        forceSurfaceExpr whenTrue `seq`
+          forceSurfaceExpr whenFalse
+    SECase value arms -> forceSurfaceExpr value `seq` forceListWith forceSurfaceCaseArm arms
+    SEBinary operator left right -> operator `seq` forceSurfaceExpr left `seq` forceSurfaceExpr right
+    SESectionLeft value operator -> forceSurfaceExpr value `seq` operator `seq` ()
+    SESectionRight operator value -> operator `seq` forceSurfaceExpr value
+    SEBlock statements -> forceListWith forceSurfaceStatement statements
+
+forceSurfaceLiteral :: SurfaceLiteral -> ()
+forceSurfaceLiteral literal =
+  case literal of
+    SLInt value -> value `seq` ()
+    SLFloat value source numericType -> value `seq` source `seq` numericType `seq` ()
+    SLBool value -> value `seq` ()
+    SLChar value -> value `seq` ()
+    SLText value -> value `seq` ()
+
+forceSurfaceLambdaParameter :: SurfaceLambdaParameter -> ()
+forceSurfaceLambdaParameter parameter =
+  case parameter of
+    SurfaceLambdaIdentifier name -> name `seq` ()
+    SurfaceLambdaPattern patternValue -> forceSurfacePattern patternValue
+
+forceSurfacePattern :: SurfacePattern -> ()
+forceSurfacePattern patternValue =
+  case patternValue of
+    SPWildcard -> ()
+    SPVariable name -> name `seq` ()
+    SPLiteral literal -> forceSurfaceLiteral literal
+    SPConstructor name patterns -> name `seq` forceListWith forceSurfacePattern patterns
+    SPList patterns -> forceListWith forceSurfacePattern patterns
+    SPConsList headPattern tailPattern -> forceSurfacePattern headPattern `seq` forceSurfacePattern tailPattern
+    SPTuple patterns -> forceListWith forceSurfacePattern patterns
+    SPAs name patternInner -> name `seq` forceSurfacePattern patternInner
+    SPOr patterns -> forceListWith forceSurfacePattern patterns
+
+forceSurfaceCaseArm :: SurfaceCaseArm -> ()
+forceSurfaceCaseArm (SurfaceCaseArm patternValue guard body) =
+  forceSurfacePattern patternValue `seq`
+    forceMaybeWith forceSurfaceExpr guard `seq`
+      forceSurfaceExpr body
+
+forceSurfaceStatement :: SurfaceStatement -> ()
+forceSurfaceStatement statement =
+  case statement of
+    SSLet name sourceSpan value -> name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceExpr value
+    SSSignature name sourceSpan payload ->
+      name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceSignaturePayload payload
+    SSData sourceSpan name parameters constructors ->
+      forceSourceSpan sourceSpan `seq`
+        name `seq`
+          forceListWhnf parameters `seq`
+            forceListWith forceSurfaceDataConstructor constructors
+    SSClass sourceSpan name parameters methods ->
+      forceSourceSpan sourceSpan `seq`
+        name `seq`
+          forceListWhnf parameters `seq`
+            forceListWith forceSurfaceClassMethod methods
+    SSImpl sourceSpan name targets methods ->
+      forceSourceSpan sourceSpan `seq`
+        name `seq`
+          forceListWith forceSurfaceSignatureType targets `seq`
+            forceListWith forceSurfaceImplMethod methods
+    SSModule sourceSpan path exports ->
+      forceSourceSpan sourceSpan `seq`
+        forceListWhnf path `seq`
+          forceMaybeWith (forceListWith forceModuleExportSelector) exports
+    SSImport sourceSpan path alias symbols ->
+      forceSourceSpan sourceSpan `seq`
+        forceListWhnf path `seq`
+          alias `seq`
+            forceMaybeWith forceListWhnf symbols
+    SSExpr sourceSpan value -> forceSourceSpan sourceSpan `seq` forceSurfaceExpr value
+
+forceSurfaceDataConstructor :: SurfaceDataConstructor -> ()
+forceSurfaceDataConstructor (SurfaceDataConstructor name arguments) =
+  name `seq` forceListWith forceSurfaceDataConstructorArgument arguments
+
+forceSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> ()
+forceSurfaceDataConstructorArgument argument =
+  case argument of
+    SurfaceDataConstructorArgumentName name -> name `seq` ()
+    SurfaceDataConstructorArgumentOpaque -> ()
+
+forceSurfaceClassMethod :: SurfaceClassMethodSignature -> ()
+forceSurfaceClassMethod (SurfaceClassMethodSignature name sourceSpan payload) =
+  name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceSignaturePayload payload
+
+forceSurfaceImplMethod :: SurfaceImplMethod -> ()
+forceSurfaceImplMethod (SurfaceImplMethod name sourceSpan body) =
+  name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceExpr body
+
+forceSurfaceSignaturePayload :: SurfaceSignaturePayload -> ()
+forceSurfaceSignaturePayload payload =
+  case payload of
+    SurfaceSignatureType signatureType -> forceSurfaceSignatureType signatureType
+    SurfaceConstrainedSignature constraints signatureType ->
+      forceListWith forceSurfaceSignatureConstraint constraints `seq`
+        forceSurfaceSignatureType signatureType
+    SurfaceUnsupportedSignature tokens -> forceListWith forceSurfaceSignatureToken tokens
+
+forceSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> ()
+forceSurfaceSignatureConstraint (SurfaceSignatureConstraint name arguments) =
+  name `seq` forceListWith forceSurfaceSignatureType arguments
+
+forceSurfaceSignatureType :: SurfaceSignatureType -> ()
+forceSurfaceSignatureType signatureType =
+  case signatureType of
+    SurfaceTypeNumeric numericType -> numericType `seq` ()
+    SurfaceTypeVariable name -> name `seq` ()
+    SurfaceTypeName name -> name `seq` ()
+    SurfaceTypeApplication name arguments -> name `seq` forceListWith forceSurfaceSignatureType arguments
+    SurfaceTypeList element -> forceSurfaceSignatureType element
+    SurfaceTypeTuple elements -> forceListWith forceSurfaceSignatureType elements
+    SurfaceTypeFunction argument result ->
+      forceSurfaceSignatureType argument `seq` forceSurfaceSignatureType result
+    _ -> signatureType `seq` ()
+
+forceSurfaceSignatureToken :: SurfaceSignatureToken -> ()
+forceSurfaceSignatureToken token =
+  case token of
+    SurfaceSignatureNameToken value -> value `seq` ()
+    SurfaceSignatureIntToken value -> value `seq` ()
+    SurfaceSignatureOperatorToken value -> value `seq` ()
+    SurfaceSignatureOtherToken value -> value `seq` ()
+    _ -> token `seq` ()
+
+forceModuleExportSelector :: ModuleExportSelector -> ()
+forceModuleExportSelector selector =
+  moduleExportSelectorNamespace selector `seq`
+    moduleExportSelectorName selector `seq`
+      ()
 
 forceInferenceResult :: InferenceResult -> ()
 forceInferenceResult result =

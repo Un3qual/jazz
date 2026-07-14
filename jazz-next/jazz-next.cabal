@@ -26,6 +26,11 @@ flag development
   default: False
   manual: True
 
+flag profiling-workflow
+  description: Link opt-in profiling executables with unrestricted RTS options.
+  default: False
+  manual: True
+
 common warning-settings
   ghc-options:
       -Wall
@@ -112,6 +117,8 @@ library jazz-next-internal
       megaparsec >= 9 && < 10,
       text >= 2.1 && < 2.2,
       transformers >= 0.6 && < 0.7
+  if flag(profiling-workflow)
+    cpp-options: -DJAZZ_GHC_PROFILING
 
 executable jazz-next
   import: warning-settings
@@ -121,6 +128,8 @@ executable jazz-next
   build-depends:
       base >= 4.22 && < 4.23,
       jazz-next:jazz-next-internal
+  if flag(profiling-workflow)
+    ghc-options: -rtsopts
 
 common test-common
   import: warning-settings
@@ -172,6 +181,8 @@ benchmark jazz-next-bench
   autogen-modules: Paths_jazz_next
   default-language: Haskell2010
   ghc-options: -fproc-alignment=64
+  if flag(profiling-workflow)
+    ghc-options: -rtsopts
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
@@ -214,6 +225,11 @@ test-suite runtime-observation-spec
       JazzNext.Compiler.Runtime.Observation.StatisticsTests
   build-depends:
       aeson >= 2.2 && < 2.3
+
+test-suite profiling-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/ProfilingSpec.hs
 
 test-suite cli-spec
   import: test-common

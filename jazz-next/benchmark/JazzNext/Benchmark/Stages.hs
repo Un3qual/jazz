@@ -20,6 +20,8 @@ import JazzNext.Benchmark.Force
     forceInferenceResult,
     forceProgramCaseResult,
     forceRuntimeProgramResult,
+    forceSurfaceExpr,
+    forceTokens,
   )
 import JazzNext.Benchmark.Metadata
   ( BenchmarkArtifactPaths (..),
@@ -35,12 +37,17 @@ import JazzNext.Benchmark.Metadata
     writeBenchmarkEnvironment,
   )
 import JazzNext.Compiler.AST (Expr)
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.Diagnostics (Diagnostic, renderDiagnostic)
 import JazzNext.Compiler.ModuleInterface (CompiledProgram (compiledProgramErrors))
 import JazzNext.Compiler.ModuleRuntime (evaluateCompiledProgram)
+import JazzNext.Compiler.Parser (parseSurfaceProgramTokens)
+import JazzNext.Compiler.Parser.Lexer (tokenize)
+import JazzNext.Compiler.Parser.Lower (lowerSurfaceExpr)
 import JazzNext.Compiler.Profiling
   ( BenchmarkGroup (..),
+    CompilerStage (..),
     benchmarkGroupName,
+    withCompilerStage,
   )
 import JazzNext.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import JazzNext.Compiler.TypeInference (inferExpressionDefault)
@@ -132,7 +139,11 @@ loadPreparedCases = do
 
 prepareCase :: ProgramCase -> IO PreparedCase
 prepareCase programCase = do
-  source <- loadProgramCaseEntrySource programCase
+  source <-
+    withCompilerStage SourceLoadingStage $ do
+      loadedSource <- loadProgramCaseEntrySource programCase
+      _ <- evaluate (Text.length loadedSource)
+      pure loadedSource
   lowered <-
     case parseAndLowerStandaloneSource source of
       Left diagnostic -> ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
@@ -199,27 +210,44 @@ isFastParticipant benchmarkGroup preparedCase =
 runStage :: BenchmarkGroup -> PreparedCase -> IO ()
 runStage benchmarkGroup preparedCase =
   case benchmarkGroup of
-    ParseLowerBenchmark ->
-      evaluate
-        ( case parseAndLowerStandaloneSource (preparedEntrySource preparedCase) of
-            Left diagnostic -> renderDiagnostic diagnostic `seq` ()
-            Right expression -> forceExpr expression
-        )
-    AnalysisBenchmark -> do
-      inference <- inferExpressionDefault (preparedLoweredEntry preparedCase)
-      evaluate (forceInferenceResult inference)
-    ModulePreparationBenchmark -> do
-      compiledResult <- prepareProgramCase (preparedProgramCase preparedCase)
-      evaluate (forceCompiledProgramResult compiledResult)
+    ParseLowerBenchmark -> do
+      tokens <-
+        withCompilerStage LexingStage $ do
+          tokenResult <- evaluate (tokenize (preparedEntrySource preparedCase))
+          case tokenResult of
+            Left diagnostic -> failBenchmarkDiagnostic diagnostic
+            Right values -> evaluate (forceTokens values) >> pure values
+      surfaceProgram <-
+        withCompilerStage ParsingStage $ do
+          parseResult <- evaluate (parseSurfaceProgramTokens tokens)
+          case parseResult of
+            Left diagnostic -> failBenchmarkDiagnostic diagnostic
+            Right value -> evaluate (forceSurfaceExpr value) >> pure value
+      withCompilerStage LoweringStage $ do
+        let expression = lowerSurfaceExpr surfaceProgram
+        evaluate (forceExpr expression)
+    AnalysisBenchmark ->
+      withCompilerStage TypeInferenceStage $ do
+        inference <- inferExpressionDefault (preparedLoweredEntry preparedCase)
+        evaluate (forceInferenceResult inference)
+    ModulePreparationBenchmark ->
+      withCompilerStage RuntimePreparationStage $ do
+        compiledResult <- prepareProgramCase (preparedProgramCase preparedCase)
+        evaluate (forceCompiledProgramResult compiledResult)
     RuntimeBenchmark ->
-      evaluate
-        ( forceRuntimeProgramResult
-            (evaluateCompiledProgram (preparedCompiledProgram preparedCase))
-        )
+      withCompilerStage EvaluationStage $
+        evaluate
+          ( forceRuntimeProgramResult
+              (evaluateCompiledProgram (preparedCompiledProgram preparedCase))
+          )
     WholeProgramBenchmark -> do
       result <- runProgramCase (preparedProgramCase preparedCase)
       evaluate (forceProgramCaseResult result)
       requireExpectedResult (preparedProgramCase preparedCase) result
+
+failBenchmarkDiagnostic :: Diagnostic -> IO value
+failBenchmarkDiagnostic diagnostic =
+  ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
 
 requireExpectedResult :: ProgramCase -> ProgramCaseResult -> IO ()
 requireExpectedResult programCase result

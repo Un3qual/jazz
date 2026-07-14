@@ -20,6 +20,10 @@ import qualified Data.Text.Encoding as TextEncoding
 import GHC.IO.Exception
   ( IOErrorType (Interrupted, UnsupportedOperation)
   )
+import JazzNext.Compiler.Profiling
+  ( CompilerStage (HostOperationStage),
+    withCompilerStage
+  )
 import System.Environment (getArgs)
 import System.Exit
   ( ExitCode (..),
@@ -85,19 +89,25 @@ disabledRuntimeHost =
 productionRuntimeHost :: RuntimeHost IO
 productionRuntimeHost =
   RuntimeHost
-    { runtimeHostReadText = readUtf8File,
-      runtimeHostWriteText = writeUtf8File,
-      runtimeHostReadStdin = readUtf8Handle stdin,
-      runtimeHostWriteStdout = writeUtf8Handle stdout,
-      runtimeHostWriteStderr = writeUtf8Handle stderr,
-      runtimeHostArguments = map Text.pack <$> getArgs,
+    { runtimeHostReadText = profileHostOperation . readUtf8File,
+      runtimeHostWriteText = \path contents -> profileHostOperation (writeUtf8File path contents),
+      runtimeHostReadStdin = profileHostOperation (readUtf8Handle stdin),
+      runtimeHostWriteStdout = profileHostOperation . writeUtf8Handle stdout,
+      runtimeHostWriteStderr = profileHostOperation . writeUtf8Handle stderr,
+      runtimeHostArguments = profileHostOperation (map Text.pack <$> getArgs),
       runtimeHostExit = \status ->
+        {-# SCC "jazz-stage:host-operation" #-}
         exitWith
           ( if status == 0
               then ExitSuccess
               else ExitFailure (fromInteger status)
           )
     }
+
+profileHostOperation :: IO value -> IO value
+profileHostOperation action =
+  {-# SCC "jazz-stage:host-operation" #-}
+  withCompilerStage HostOperationStage action
 
 readUtf8File :: Text -> IO (Either HostIOFailure Text)
 readUtf8File path = do

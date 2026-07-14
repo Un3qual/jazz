@@ -71,15 +71,17 @@ import JazzNext.Compiler.ModuleGraph
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
 lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
-lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
-  (declaredPath, declaredExports) <- validateDeclaration
-  pure
-    CoreModule
-      { coreModuleDeclaredPath = declaredPath,
-        coreModuleDeclaredExports = declaredExports,
-        coreModuleImports = imports,
-        coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
-      }
+lowerSurfaceModule sourcePath expectedPath surfaceExpr =
+  {-# SCC "jazz-stage:lowering" #-}
+  do
+    (declaredPath, declaredExports) <- validateDeclaration
+    pure
+      CoreModule
+        { coreModuleDeclaredPath = declaredPath,
+          coreModuleDeclaredExports = declaredExports,
+          coreModuleImports = imports,
+          coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
+        }
   where
     statements =
       case surfaceExpr of
@@ -113,7 +115,7 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
     loweredBody =
       case surfaceExpr of
         SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
-        _ -> lowerSurfaceExpr surfaceExpr
+        _ -> lowerSurfaceExprWithoutCostCentre surfaceExpr
 
     validateDeclaration =
       case declarations of
@@ -202,6 +204,11 @@ qualifyExprSourceSpans sourcePath expr =
 -- handling stays in later phases.
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
+  {-# SCC "jazz-stage:lowering" #-}
+  lowerSurfaceExprWithoutCostCentre surfaceExpr
+
+lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Expr
+lowerSurfaceExprWithoutCostCentre surfaceExpr =
   case surfaceExpr of
     SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar (sourceName name)
@@ -211,43 +218,43 @@ lowerSurfaceExpr surfaceExpr =
       lowerSurfaceLambda parameters bodyExpr
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     SEList elements ->
-      EList (map lowerSurfaceExpr elements)
+      EList (map lowerSurfaceExprWithoutCostCentre elements)
     SETuple elements ->
-      ETuple (map lowerSurfaceExpr elements)
+      ETuple (map lowerSurfaceExprWithoutCostCentre elements)
     SEApply functionExpr argumentExpr ->
-      EApply (lowerSurfaceExpr functionExpr) (lowerSurfaceExpr argumentExpr)
+      EApply (lowerSurfaceExprWithoutCostCentre functionExpr) (lowerSurfaceExprWithoutCostCentre argumentExpr)
     SETypeApplication functionExpr spanValue signatureType ->
-      ETypeApplication (lowerSurfaceExpr functionExpr) spanValue (lowerSurfaceSignatureType signatureType)
+      ETypeApplication (lowerSurfaceExprWithoutCostCentre functionExpr) spanValue (lowerSurfaceSignatureType signatureType)
     SEIf conditionExpr thenExpr elseExpr ->
       EIf
-        (lowerSurfaceExpr conditionExpr)
-        (lowerSurfaceExpr thenExpr)
-        (lowerSurfaceExpr elseExpr)
+        (lowerSurfaceExprWithoutCostCentre conditionExpr)
+        (lowerSurfaceExprWithoutCostCentre thenExpr)
+        (lowerSurfaceExprWithoutCostCentre elseExpr)
     SECase scrutineeExpr caseArms ->
       EPatternCase
-        (lowerSurfaceExpr scrutineeExpr)
+        (lowerSurfaceExprWithoutCostCentre scrutineeExpr)
         (map lowerSurfaceCaseArm caseArms)
     SEBinary operatorSymbol functionExpr argumentExpr
       | operatorSymbol == Text.pack "$" ->
           EApply
-            (lowerSurfaceExpr functionExpr)
-            (lowerSurfaceExpr argumentExpr)
+            (lowerSurfaceExprWithoutCostCentre functionExpr)
+            (lowerSurfaceExprWithoutCostCentre argumentExpr)
     SEBinary operatorSymbol leftExpr rightExpr ->
       EBinary
         operatorSymbol
-        (lowerSurfaceExpr leftExpr)
-        (lowerSurfaceExpr rightExpr)
+        (lowerSurfaceExprWithoutCostCentre leftExpr)
+        (lowerSurfaceExprWithoutCostCentre rightExpr)
     SESectionLeft leftExpr operatorSymbol ->
-      ESectionLeft (lowerSurfaceExpr leftExpr) operatorSymbol
+      ESectionLeft (lowerSurfaceExprWithoutCostCentre leftExpr) operatorSymbol
     SESectionRight operatorSymbol rightExpr ->
-      ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
+      ESectionRight operatorSymbol (lowerSurfaceExprWithoutCostCentre rightExpr)
     SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
 
 lowerSurfaceLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> Expr
 lowerSurfaceLambda parameters bodyExpr =
   foldr
     lowerParameter
-    (lowerSurfaceExpr bodyExpr)
+    (lowerSurfaceExprWithoutCostCentre bodyExpr)
     (zip [1 :: Int ..] (NonEmpty.toList parameters))
   where
     lowerParameter (_, SurfaceLambdaIdentifier parameterName) loweredBody =
@@ -297,15 +304,15 @@ lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
 lowerSurfaceCaseArm (SurfaceCaseArm patternExpr guardExpr bodyExpr) =
   CaseArm
     (lowerSurfacePattern patternExpr)
-    (fmap lowerSurfaceExpr guardExpr)
-    (lowerSurfaceExpr bodyExpr)
+    (fmap lowerSurfaceExprWithoutCostCentre guardExpr)
+    (lowerSurfaceExprWithoutCostCentre bodyExpr)
 
 -- | Lower a parsed statement without changing its span-carrying shape.
 lowerSurfaceStatement :: SurfaceStatement -> Statement
 lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of
     SSLet name spanValue valueExpr ->
-      SLet (lowerBindingName name) spanValue (lowerSurfaceExpr valueExpr)
+      SLet (lowerBindingName name) spanValue (lowerSurfaceExprWithoutCostCentre valueExpr)
     SSSignature name spanValue signaturePayload ->
       SSignature (lowerBindingName name) spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName typeParameters constructors ->
@@ -323,7 +330,7 @@ lowerSurfaceStatement surfaceStatement =
     SSImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols
     SSExpr spanValue expr ->
-      SExpr spanValue (lowerSurfaceExpr expr)
+      SExpr spanValue (lowerSurfaceExprWithoutCostCentre expr)
 
 lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
 lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =
@@ -331,7 +338,7 @@ lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanVal
 
 lowerSurfaceImplMethod :: SurfaceImplMethod -> ImplMethod
 lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
-  ImplMethod (sourceName methodName) spanValue (lowerSurfaceExpr methodExpr)
+  ImplMethod (sourceName methodName) spanValue (lowerSurfaceExprWithoutCostCentre methodExpr)
 
 lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
 lowerSurfaceSignaturePayload surfaceSignaturePayload =

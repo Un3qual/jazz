@@ -6,7 +6,8 @@
 module JazzNext.Compiler.Parser
   ( parseStatementsUntilBrace,
     parseSurfaceExpressionTokens,
-    parseSurfaceProgram
+    parseSurfaceProgram,
+    parseSurfaceProgramTokens
   ) where
 
 import Data.Set (Set)
@@ -54,6 +55,13 @@ type StatementParser = ParserContext -> Parser ([SurfaceStatement], ParserContex
 parseSurfaceProgram :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceProgram source = do
   tokens <- tokenize source
+  parseSurfaceProgramTokens tokens
+
+-- | Parse a complete surface program from an already-tokenized stream. This
+-- entrypoint keeps lexing and parsing as independently measurable phases.
+parseSurfaceProgramTokens :: [Token] -> Either Diagnostic SurfaceExpr
+parseSurfaceProgramTokens tokens =
+  {-# SCC "jazz-stage:parsing" #-}
   runTokenParser "program" programParser tokens
   where
     expressionParser = parseExpressionParser blockParser

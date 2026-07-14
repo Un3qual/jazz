@@ -38,10 +38,13 @@ module JazzNext.Compiler.Driver
     runModuleGraphWithResolvedPreludeAndHostObserved
   ) where
 
+import Control.Exception (evaluate)
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( SignatureType (..),
     Expr (..)
@@ -78,6 +81,11 @@ import JazzNext.Compiler.Prelude
     ResolvedPrelude (..),
     preparePrelude,
     resolvedExplicitPrelude
+  )
+import JazzNext.Compiler.Profiling
+  ( CompilerStage (..),
+    withCompilerStage,
+    withCompilerStageResult
   )
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
@@ -562,18 +570,26 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
     Left preludeError -> pure (Left preludeError)
     Right preparedPrelude -> do
       resolvedResult <-
-        resolveProgram
-          resolutionConfig
-          (preparedPreludeBuiltinMode preparedPrelude)
-          (preparedPreludeVisibleValues preparedPrelude)
-          (preparedPreludeVisibleClasses preparedPrelude)
-          sourceLookup
-          entryModulePath
+        withCompilerStage ModuleDiscoveryStage $
+          resolveProgram
+            resolutionConfig
+            (preparedPreludeBuiltinMode preparedPrelude)
+            (preparedPreludeVisibleValues preparedPrelude)
+            (preparedPreludeVisibleClasses preparedPrelude)
+            profiledSourceLookup
+            entryModulePath
       case resolvedResult of
         Left resolutionError -> pure (Left resolutionError)
-        Right resolvedProgram -> do
-          compiledPrelude <- compilePreparedPrelude settings preparedPrelude
-          Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+        Right resolvedProgram ->
+          withCompilerStage RuntimePreparationStage $ do
+            compiledPrelude <- compilePreparedPrelude settings preparedPrelude
+            Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+  where
+    profiledSourceLookup sourcePath =
+      withCompilerStageResult
+        SourceLoadingStage
+        (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
+        (sourceLookup sourcePath)
 
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
@@ -581,17 +597,29 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
 analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
 analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   inference <-
-    inferExpressionWithBuiltinsAndSourceUnitStatements
-      builtinMode
-      hiddenStatementIndices
-      preludeStatementIndices
-      settings
-      expr
+    withCompilerStageResult
+      TypeInferenceStage
+      forceInferenceSummary
+      ( inferExpressionWithBuiltinsAndSourceUnitStatements
+          builtinMode
+          hiddenStatementIndices
+          preludeStatementIndices
+          settings
+          expr
+      )
   let warnings = inferredWarnings inference
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
       errors = inferredErrors inference ++ promotedWarningErrors
   pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
+  where
+    forceInferenceSummary result =
+      evaluate
+        ( length (inferredWarnings result)
+            + length (inferredErrors result)
+            + Map.size (inferredRuntimeTypeHints result)
+        )
+        >> pure ()
 
 isPromoted :: WarningSettings -> WarningRecord -> Bool
 isPromoted settings warning = isWarningError settings (warningCategory warning)

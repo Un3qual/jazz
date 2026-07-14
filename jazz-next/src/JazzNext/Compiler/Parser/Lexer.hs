@@ -136,6 +136,7 @@ tokenize source =
 
 tokenizeDetailed :: Text -> Either LexicalFailure [Token]
 tokenizeDetailed source =
+  {-# SCC "jazz-stage:lexing" #-}
   case MP.runParser (skipIgnored *> lexerTokens <* MP.eof) "jazz-next source" source of
     Right tokens -> Right tokens
     Left bundle -> Left (lexerFailureFromBundle source bundle)

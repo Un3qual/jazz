@@ -94,7 +94,9 @@ compilePreparedPrelude settings preparedPrelude =
           }
 
 compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
-compileResolvedProgram inputs resolvedProgram = do
+compileResolvedProgram inputs resolvedProgram =
+  {-# SCC "jazz-stage:runtime-preparation" #-}
+  do
   compiledModules <- foldModules [] (resolvedProgramModules resolvedProgram)
   let compiledPrelude = compileInputPrelude inputs
       moduleWarnings = concatMap compiledModuleWarnings compiledModules

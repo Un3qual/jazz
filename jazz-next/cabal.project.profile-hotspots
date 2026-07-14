@@ -1,0 +1,8 @@
+packages: .
+
+profiling: True
+profiling-detail: late
+library-profiling-detail: late
+
+package jazz-next
+  flags: +development +profiling-workflow

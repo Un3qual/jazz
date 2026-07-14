@@ -215,6 +215,7 @@ evaluateCompiledProgramWithHostObserved ::
   CompiledProgram ->
   m (RuntimeObservationResult RuntimeProgram)
 evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
+  {-# SCC "jazz-stage:evaluation" #-}
   case compiledProgramErrors compiledProgram of
     firstError : _ -> pure (RuntimeObservationResult (Left firstError) Nothing)
     [] ->

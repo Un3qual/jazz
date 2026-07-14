@@ -259,6 +259,7 @@ resolveProgram ::
   [Text] ->
   IO (Either Diagnostic ModuleGraph.ResolvedProgram)
 resolveProgram config builtinMode ambientValues ambientClasses loadSource entryModulePath =
+  {-# SCC "jazz-stage:module-discovery" #-}
   fmap
     ( fmap
         ( \state ->
@@ -392,7 +393,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
       candidatesWithContents <-
         mapM
           (\candidatePath -> do
-             sourceText <- loadSource candidatePath
+             sourceText <- {-# SCC "jazz-stage:source-loading" #-} loadSource candidatePath
              pure (candidatePath, sourceText))
           candidatePaths
       let matchingCandidates =
@@ -445,6 +446,7 @@ modulePathToRelativeFileWithExt extension modulePath =
 -- resolver: declarations, imports, and top-level exports.
 parseModuleDetails :: FilePath -> [Text] -> Text -> Either Diagnostic ParsedModule
 parseModuleDetails sourcePath expectedModulePath sourceText =
+  {-# SCC "jazz-stage:module-resolution" #-}
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
