@@ -153,6 +153,7 @@ data ProgramPathField
 
 data ProgramCorpusViolation
   = MissingCorpusManifest FilePath
+  | UnreadableCorpusManifest FilePath Text
   | ManifestDecodeFailure Text
   | UnsupportedSchemaVersion Int
   | DuplicateCaseIdentifier Text

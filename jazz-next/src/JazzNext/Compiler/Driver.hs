@@ -49,17 +49,18 @@ import JazzNext.Compiler.AST
   ( SignatureType (..),
     Expr (..)
   )
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    RenderDiagnostic (..),
-    WarningRecord (..)
-  )
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
   )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    RenderDiagnostic (..),
+    WarningRecord (..)
+  )
+import JazzNext.Compiler.Force (forceCompiledProgramResult)
 import JazzNext.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
     compileResolvedProgram
@@ -581,7 +582,7 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
       case resolvedResult of
         Left resolutionError -> pure (Left resolutionError)
         Right resolvedProgram ->
-          withCompilerStage RuntimePreparationStage $ do
+          withCompilerStageResult RuntimePreparationStage (evaluate . forceCompiledProgramResult) $ do
             compiledPrelude <- compilePreparedPrelude settings preparedPrelude
             Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
   where

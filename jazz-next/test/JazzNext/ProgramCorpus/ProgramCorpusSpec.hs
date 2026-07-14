@@ -54,10 +54,12 @@ import System.Directory
     createDirectoryIfMissing,
     createFileLink,
     doesDirectoryExist,
+    emptyPermissions,
     getTemporaryDirectory,
     listDirectory,
     removeFile,
     removePathForcibly,
+    setPermissions,
   )
 import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -69,6 +71,7 @@ tests :: [NamedTest]
 tests =
   [ ("reports all manifest violations in stable order", testAggregateManifestViolations),
     ("reports malformed manifest JSON", testMalformedManifest),
+    ("reports unreadable manifests as corpus violations", testUnreadableManifest),
     ("rejects unknown budget fields", testUnknownBudgetField),
     ("reports canonicalization failures as corpus violations", testCanonicalizationFailure),
     ("reports every missing corpus path", testMissingCorpusPaths),
@@ -122,6 +125,23 @@ testMalformedManifest =
       Left violations ->
         failTest ("expected one manifest decode failure, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected malformed manifest failure, loaded " <> Text.pack (show corpus))
+
+testUnreadableManifest :: IO ()
+testUnreadableManifest =
+  withTemporaryDirectory $ \root -> do
+    let manifestPath = root </> "corpus.json"
+    writeManifest root "{}"
+    setPermissions manifestPath emptyPermissions
+    result <- loadProgramCorpusAt root
+    case result of
+      Left violations
+        | any
+            (Text.isInfixOf "could not read program corpus manifest" . renderProgramCorpusViolation)
+            violations ->
+            pure ()
+      Left violations ->
+        failTest ("expected an unreadable-manifest violation, got " <> Text.pack (show violations))
+      Right corpus -> failTest ("expected unreadable manifest failure, loaded " <> Text.pack (show corpus))
 
 testUnknownBudgetField :: IO ()
 testUnknownBudgetField =

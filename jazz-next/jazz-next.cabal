@@ -65,6 +65,7 @@ library jazz-next-internal
       JazzNext.Compiler.CapabilityFacts
       JazzNext.Compiler.Diagnostics
       JazzNext.Compiler.Driver
+      JazzNext.Compiler.Force
       JazzNext.Compiler.FractionalLiteral
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleExports

@@ -17,9 +17,9 @@ import Data.Aeson
     (.:),
     (.:?),
   )
-import Data.Aeson.Types (Parser, parseEither)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson.Types (Parser, parseEither)
 import qualified Data.ByteString as ByteString
 import Data.Either (partitionEithers)
 import Data.List (group, sort, sortOn)
@@ -139,13 +139,23 @@ loadProgramCorpusAt requestedRoot = do
   if not manifestExists
     then pure (Left [MissingCorpusManifest manifestPath])
     else do
-      bytes <- ByteString.readFile manifestPath
-      case eitherDecodeStrict' bytes of
-        Left message -> pure (Left [ManifestDecodeFailure (Text.pack message)])
-        Right value ->
-          case parseEither parseDocument value of
+      manifestResult <- try (ByteString.readFile manifestPath) :: IO (Either IOException ByteString.ByteString)
+      case manifestResult of
+        Left exception ->
+          pure
+            ( Left
+                [ UnreadableCorpusManifest
+                    manifestPath
+                    (Text.pack (show exception))
+                ]
+            )
+        Right bytes ->
+          case eitherDecodeStrict' bytes of
             Left message -> pure (Left [ManifestDecodeFailure (Text.pack message)])
-            Right document -> validateDocument requestedRoot document
+            Right value ->
+              case parseEither parseDocument value of
+                Left message -> pure (Left [ManifestDecodeFailure (Text.pack message)])
+                Right document -> validateDocument requestedRoot document
 
 programCaseById :: Text -> ProgramCorpus -> Maybe ProgramCase
 programCaseById identifier corpus =
@@ -402,6 +412,8 @@ renderProgramCorpusViolation :: ProgramCorpusViolation -> Text
 renderProgramCorpusViolation violation =
   case violation of
     MissingCorpusManifest path -> "missing program corpus manifest: " <> Text.pack path
+    UnreadableCorpusManifest path message ->
+      "could not read program corpus manifest " <> Text.pack path <> ": " <> message
     ManifestDecodeFailure message -> "could not decode program corpus manifest: " <> message
     UnsupportedSchemaVersion version -> "unsupported program corpus schema version: " <> Text.pack (show version)
     DuplicateCaseIdentifier identifier -> "duplicate program case identifier: " <> identifier
