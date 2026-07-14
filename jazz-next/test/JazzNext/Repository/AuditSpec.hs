@@ -7,12 +7,21 @@ import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
     validatePackagePolicy,
   )
 import JazzNext.Repository.Root (findJazzNextPackageRoot)
+import JazzNext.Repository.SourceLayout
+  ( JazzSourceModule,
+    JazzSourceRole (..),
+    SourceLayoutViolation (..),
+    sourceModuleFromSurface,
+    validateSourceLayering,
+  )
 import JazzNext.Repository.StdlibFormat
   ( StdlibFormatViolation (..),
     renderStdlibFormatViolation,
@@ -42,6 +51,9 @@ tests =
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
     ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
     ("rejects a private library without private visibility", testMissingPrivateVisibility),
+    ("rejects stdlib imports of compiler modules", testRejectsStdlibCompilerImport),
+    ("accepts compiler imports of stdlib modules", testAcceptsCompilerStdlibImport),
+    ("uses the locked checked-in Jazz source tree", testCheckedInJazzSourceTree),
     ("locates the active jazz-next package root", testPackageRoot),
     ("validates all checked-in stdlib modules", testCheckedInStdlib),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy)
@@ -166,6 +178,62 @@ testMissingPrivateVisibility =
           exposed-modules: Internal
         """
     )
+
+testRejectsStdlibCompilerImport :: IO ()
+testRejectsStdlibCompilerImport = do
+  compilerModule <-
+    parsedSourceModule
+      CompilerSource
+      "jazz/compiler/Lexer.jz"
+      "module Lexer { 0. }"
+  stdlibModule <-
+    parsedSourceModule
+      StandardLibrarySource
+      "jazz/stdlib/Bad.jz"
+      "module Bad { import Lexer. 0. }"
+  assertEqual
+    "stdlib compiler dependency"
+    [StandardLibraryImportsCompiler "jazz/stdlib/Bad.jz" ["Lexer"]]
+    (validateSourceLayering [compilerModule, stdlibModule])
+
+testAcceptsCompilerStdlibImport :: IO ()
+testAcceptsCompilerStdlibImport = do
+  stdlibModule <-
+    parsedSourceModule
+      StandardLibrarySource
+      "jazz/stdlib/Text.jz"
+      "module Text { 0. }"
+  compilerModule <-
+    parsedSourceModule
+      CompilerSource
+      "jazz/compiler/Lexer.jz"
+      "module Lexer { import Text. 0. }"
+  assertEqual
+    "compiler stdlib dependency"
+    []
+    (validateSourceLayering [stdlibModule, compilerModule])
+
+parsedSourceModule :: JazzSourceRole -> FilePath -> Text -> IO JazzSourceModule
+parsedSourceModule role path source =
+  case parseSurfaceProgram source of
+    Left diagnostic ->
+      failTest ("fixture did not parse: " <> renderDiagnostic diagnostic)
+    Right surfaceProgram ->
+      pure (sourceModuleFromSurface role path surfaceProgram)
+
+testCheckedInJazzSourceTree :: IO ()
+testCheckedInJazzSourceTree =
+  withPackageRoot $ \packageRoot -> do
+    let jazzRoot = packageRoot </> "jazz"
+        stdlibRoot = jazzRoot </> "stdlib"
+        compilerRoot = jazzRoot </> "compiler"
+        legacyRoot = packageRoot </> "stdlib"
+    stdlibExists <- doesDirectoryExist stdlibRoot
+    compilerExists <- doesDirectoryExist compilerRoot
+    legacyExists <- doesDirectoryExist legacyRoot
+    assertEqual "stdlib source root exists" True stdlibExists
+    assertEqual "compiler source root exists" True compilerExists
+    assertEqual "legacy stdlib root is absent" False legacyExists
 
 testPackageRoot :: IO ()
 testPackageRoot =
