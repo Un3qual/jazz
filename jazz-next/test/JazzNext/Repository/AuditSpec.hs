@@ -2,7 +2,12 @@
 
 module Main (main) where
 
-import Control.Monad (forM, unless, when)
+import Control.Monad (forM, forM_, unless, when)
+import Data.Aeson (Value (..), eitherDecodeStrict')
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.ByteString as ByteString
+import Data.Foldable (toList)
 import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -34,7 +39,7 @@ import JazzNext.TestHarness
     failTest,
     runTestSuite,
   )
-import System.Directory (doesDirectoryExist, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (makeRelative, takeExtension, (</>))
 
 main :: IO ()
@@ -55,6 +60,8 @@ tests =
     ("rejects stdlib imports of compiler modules", testRejectsStdlibCompilerImport),
     ("accepts compiler imports of stdlib modules", testAcceptsCompilerStdlibImport),
     ("uses the locked checked-in Jazz source tree", testCheckedInJazzSourceTree),
+    ("validates the Jazz editor package metadata", testEditorPackageMetadata),
+    ("parses the representative editor fixture", testEditorFixtureParses),
     ("locates the active jazz-next package root", testPackageRoot),
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy)
@@ -238,6 +245,132 @@ testCheckedInJazzSourceTree =
     assertEqual "stdlib source root exists" True stdlibExists
     assertEqual "compiler source root exists" True compilerExists
     assertEqual "legacy stdlib root is absent" False legacyExists
+
+testEditorPackageMetadata :: IO ()
+testEditorPackageMetadata =
+  withPackageRoot $ \packageRoot -> do
+    let editorRoot = packageRoot </> "editors" </> "vscode-jazz"
+        configurationPath = editorRoot </> "language-configuration.json"
+        grammarPath = editorRoot </> "syntaxes" </> "jazz.tmLanguage.json"
+    manifest <- decodeJsonFile (editorRoot </> "package.json")
+    languageConfiguration <- decodeJsonFile configurationPath
+    grammar <- decodeJsonFile grammarPath
+    let languages = maybe [] jsonArray (jsonPath ["contributes", "languages"] manifest)
+        grammars = maybe [] jsonArray (jsonPath ["contributes", "grammars"] manifest)
+        language = firstValue languages
+        contributedGrammar = firstValue grammars
+        extensions = maybe [] jsonArray (language >>= jsonPath ["extensions"])
+    assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
+    assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
+    assertEqual
+      "manifest language configuration path"
+      (Just (String "./language-configuration.json"))
+      (language >>= jsonPath ["configuration"])
+    assertEqual
+      "manifest grammar scope"
+      (Just (String "source.jazz"))
+      (contributedGrammar >>= jsonPath ["scopeName"])
+    assertEqual
+      "manifest grammar path"
+      (Just (String "./syntaxes/jazz.tmLanguage.json"))
+      (contributedGrammar >>= jsonPath ["path"])
+    configurationExists <- doesFileExist configurationPath
+    grammarExists <- doesFileExist grammarPath
+    assertEqual "language configuration exists" True configurationExists
+    assertEqual "TextMate grammar exists" True grammarExists
+    assertEqual
+      "language configuration comment marker"
+      (Just (String "#"))
+      (jsonPath ["comments", "lineComment"] languageConfiguration)
+    assertEqual "grammar root scope" (Just (String "source.jazz")) (jsonPath ["scopeName"] grammar)
+
+testEditorFixtureParses :: IO ()
+testEditorFixtureParses =
+  withPackageRoot $ \packageRoot -> do
+    let fixturePath =
+          packageRoot
+            </> "editors"
+            </> "vscode-jazz"
+            </> "fixtures"
+            </> "representative.jz"
+    source <- TextIO.readFile fixturePath
+    case parseSurfaceProgram source of
+      Left diagnostic ->
+        failTest
+          ( Text.pack fixturePath
+              <> ": failed to parse: "
+              <> renderDiagnostic diagnostic
+          )
+      Right _ -> pure ()
+    forM_ requiredEditorSyntax $ \(family, spelling) ->
+      unless (spelling `Text.isInfixOf` source) $
+        failTest
+          ( Text.pack fixturePath
+              <> ": missing "
+              <> family
+              <> " syntax (`"
+              <> spelling
+              <> "`)"
+          )
+
+requiredEditorSyntax :: [(Text, Text)]
+requiredEditorSyntax =
+  [ ("comment", "#"),
+    ("module declaration", "module"),
+    ("import declaration", "import"),
+    ("data declaration", "data"),
+    ("class declaration", "class"),
+    ("implementation declaration", "impl"),
+    ("operator declaration", "operator"),
+    ("operator precedence", "precedence"),
+    ("right associativity", "right"),
+    ("capability requirement", "@{"),
+    ("type signature", "::"),
+    ("lambda", "\\("),
+    ("function arrow", "->"),
+    ("case expression", "case"),
+    ("conditional", "if"),
+    ("then branch", "then"),
+    ("else branch", "else"),
+    ("character literal", "'\\n'"),
+    ("text literal", "\"empty\""),
+    ("Unicode escape", "\\u{"),
+    ("numeric suffix", "i16"),
+    ("purity marker", "compare!")
+  ]
+
+decodeJsonFile :: FilePath -> IO Value
+decodeJsonFile path = do
+  bytes <- ByteString.readFile path
+  case eitherDecodeStrict' bytes of
+    Left message ->
+      failTest
+        ( Text.pack path
+            <> ": invalid JSON: "
+            <> Text.pack message
+        )
+    Right value -> pure value
+
+jsonPath :: [Text] -> Value -> Maybe Value
+jsonPath keys value =
+  case keys of
+    [] -> Just value
+    key : remaining ->
+      case value of
+        Object object -> KeyMap.lookup (Key.fromText key) object >>= jsonPath remaining
+        _ -> Nothing
+
+jsonArray :: Value -> [Value]
+jsonArray value =
+  case value of
+    Array values -> toList values
+    _ -> []
+
+firstValue :: [Value] -> Maybe Value
+firstValue values =
+  case values of
+    [] -> Nothing
+    value : _ -> Just value
 
 testPackageRoot :: IO ()
 testPackageRoot =

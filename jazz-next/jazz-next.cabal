@@ -11,6 +11,11 @@ category: Language
 extra-source-files:
     jazz/stdlib/*.jz
     jazz/compiler/*.jz
+    editors/vscode-jazz/README.md
+    editors/vscode-jazz/package.json
+    editors/vscode-jazz/language-configuration.json
+    editors/vscode-jazz/syntaxes/*.json
+    editors/vscode-jazz/fixtures/*.jz
 
 flag development
   description: Treat compiler warnings as build failures in the repository workspace.
@@ -359,6 +364,8 @@ test-suite repository-audit-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Repository/AuditSpec.hs
+  build-depends:
+      aeson >= 2.2 && < 2.3
   other-modules:
       JazzNext.Repository.JazzSourceFormat
       JazzNext.Repository.PackagePolicy
