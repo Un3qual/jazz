@@ -55,7 +55,10 @@ testCompileModuleGraphUnresolved = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", "import Missing::Thing.\n1.")]
+        [("src/App/Main.jz", """
+        import Missing::Thing.
+        1.
+        """)]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphAmbiguousImport :: IO ()
@@ -84,7 +87,10 @@ testCompileModuleGraphAmbiguousImport = do
         }
     sourceMap =
       Map.fromList
-        [ ("rootA/App/Main.jz", "import Lib::Util.\nutil."),
+        [ ("rootA/App/Main.jz", """
+        import Lib::Util.
+        util.
+        """),
           ("rootA/Lib/Util.jz", "util = 1."),
           ("rootB/Lib/Util.jz", "util = 2.")
         ]
@@ -111,7 +117,10 @@ testCompileModuleGraphMissingImportSymbol = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (subtract).\n1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Math (subtract).
+        1.
+        """),
           ("src/Lib/Math.jz", "add = 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -136,7 +145,11 @@ testCompileModuleGraphModuleDeclarationMismatch = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
+        [("src/App/Main.jz", """
+        module Wrong::Name {
+        main = 1.
+        }
+        """)]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphCycle :: IO ()
@@ -157,8 +170,14 @@ testRunModuleGraphCycle = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/A/One.jz", "import B::Two.\na."),
-          ("src/B/Two.jz", "import A::One.\nb."),
+        [ ("src/A/One.jz", """
+        import B::Two.
+        a.
+        """),
+          ("src/B/Two.jz", """
+          import A::One.
+          b.
+          """),
           ("src/b.jz", "b = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

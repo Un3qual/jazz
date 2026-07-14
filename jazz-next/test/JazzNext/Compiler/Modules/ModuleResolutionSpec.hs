@@ -151,7 +151,13 @@ testResolvedModuleAuditIgnoresGenericTypeVariables = do
     sources =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nid :: a -> a.\nid = \\(value) -> value.\nid 1.\n}"
+            """
+            module App::Main {
+            id :: a -> a.
+            id = \\(value) -> value.
+            id 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sources)
@@ -183,8 +189,18 @@ testResolvedModuleCarriesExplicitPublicInventory = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value (answer).
+        answer.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value (answer) {
+          helper = 1.
+          answer = helper.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -215,8 +231,17 @@ testEmptyExportListProducesEmptyInventory = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value.\n0.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value () {\nhidden = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value.
+        0.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value () {
+          hidden = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -248,7 +273,12 @@ testNamespaceAwareExportsSelectExactEntries = do
     sources =
       Map.singleton
         "src/Lib/Box.jz"
-        "module Lib::Box (type Box, value Box) {\ndata Box = Box payload.\nBox = 1.\n}"
+        """
+        module Lib::Box (type Box, value Box) {
+        data Box = Box payload.
+        Box = 1.
+        }
+        """
     lookupSource path = pure (Map.lookup path sources)
 
 testNamespaceAwareExportsRejectWrongNamespace :: IO ()
@@ -270,7 +300,11 @@ testNamespaceAwareExportsRejectWrongNamespace = do
     sources =
       Map.singleton
         "src/Lib/Token.jz"
-        "module Lib::Token (type Token) {\ndata Box = Token.\n}"
+        """
+        module Lib::Token (type Token) {
+        data Box = Token.
+        }
+        """
     lookupSource path = pure (Map.lookup path sources)
 
 testNamespaceAwareExportDiagnosticRendersEmptyInventory :: IO ()
@@ -292,7 +326,11 @@ testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
     sources =
       Map.singleton
         "src/Lib/Empty.jz"
-        "module Lib::Empty (type Missing) {\n0.\n}"
+        """
+        module Lib::Empty (type Missing) {
+        0.
+        }
+        """
     lookupSource path = pure (Map.lookup path sources)
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()
@@ -302,8 +340,18 @@ testExplicitExportsKeepPrivateLocalsUsable = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value (answer).
+        answer.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value (answer) {
+          helper = 1.
+          answer = helper.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -322,7 +370,11 @@ testRejectsUnknownModuleExport = do
     (Just "missing")
     result
   where
-    sources = Map.singleton "src/Lib/Value.jz" "module Lib::Value (missing) {\nanswer = 1.\n}"
+    sources = Map.singleton "src/Lib/Value.jz" """
+    module Lib::Value (missing) {
+    answer = 1.
+    }
+    """
     lookupSource path = pure (Map.lookup path sources)
 
 testRejectsImportedOnlyModuleExport :: IO ()
@@ -336,8 +388,17 @@ testRejectsImportedOnlyModuleExport = do
   where
     sources =
       Map.fromList
-        [ ("src/Lib/Wrapper.jz", "module Lib::Wrapper (answer) {\nimport Lib::Origin (answer).\nwrapper = answer.\n}"),
-          ("src/Lib/Origin.jz", "module Lib::Origin {\nanswer = 1.\n}")
+        [ ("src/Lib/Wrapper.jz", """
+        module Lib::Wrapper (answer) {
+        import Lib::Origin (answer).
+        wrapper = answer.
+        }
+        """),
+          ("src/Lib/Origin.jz", """
+          module Lib::Origin {
+          answer = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -352,16 +413,32 @@ testExplicitImportRejectsPrivateModuleBinding = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (helper).\nhelper.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value (helper).
+        helper.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value (answer) {
+          helper = 1.
+          answer = helper.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
 sharedCycleSourceFiles :: Map.Map FilePath Text
 sharedCycleSourceFiles =
   Map.fromList
-    [ ("src/A/One.jz", "import B::Two.\na = 1."),
-      ("src/B/Two.jz", "import A::One.\nb = 2.")
+    [ ("src/A/One.jz", """
+    import B::Two.
+    a = 1.
+    """),
+      ("src/B/Two.jz", """
+      import A::One.
+      b = 2.
+      """)
     ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -374,7 +451,10 @@ testRejectsEmptyEntryModulePath =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        util.
+        """),
           ("src/Lib/Util.jz", "util = 1.")
         ]
 
@@ -413,7 +493,11 @@ testPreservesExactModulePathSegments =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nimport lib::Util.\nmain = upperValue."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        import lib::Util.
+        main = upperValue.
+        """),
           ("src/Lib/Util.jz", "upperValue = 1."),
           ("src/lib/Util.jz", "lowerValue = 2.")
         ]
@@ -464,7 +548,10 @@ testResolveDependencyGraph =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        main = util.
+        """),
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
@@ -490,7 +577,11 @@ testResolveImportsInLexicalRenderedPathOrder =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Zoo::Dep.\nimport Alpha::Dep.\nmain = alpha."),
+        [ ("src/App/Main.jz", """
+        import Zoo::Dep.
+        import Alpha::Dep.
+        main = alpha.
+        """),
           ("src/Alpha/Dep.jz", "alpha = 1."),
           ("src/Zoo/Dep.jz", "zoo = 2.")
         ]
@@ -522,7 +613,11 @@ testCollapsesDuplicateImports =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nimport Lib::Util.\nmain = util."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        import Lib::Util.
+        main = util.
+        """),
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
@@ -548,9 +643,19 @@ testReusesAlreadyResolvedModuleAcrossBranches =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import A::One.\nimport B::Two.\nmain = a."),
-          ("src/A/One.jz", "import Shared::Util.\na = shared."),
-          ("src/B/Two.jz", "import Shared::Util.\nb = shared."),
+        [ ("src/App/Main.jz", """
+        import A::One.
+        import B::Two.
+        main = a.
+        """),
+          ("src/A/One.jz", """
+          import Shared::Util.
+          a = shared.
+          """),
+          ("src/B/Two.jz", """
+          import Shared::Util.
+          b = shared.
+          """),
           ("src/Shared/Util.jz", "shared = 1.")
         ]
     expectedModules =
@@ -586,8 +691,17 @@ testAcceptsMatchingModuleDeclaration =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util = 1.
+          }
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -616,7 +730,10 @@ testDeduplicatesDuplicateRoots =
         }
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        util.
+        """),
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
@@ -646,8 +763,14 @@ testDeduplicatesEquivalentRoots =
         }
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/./App/Main.jz", "import Lib::Util.\nutil."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        util.
+        """),
+          ("src/./App/Main.jz", """
+          import Lib::Util.
+          util.
+          """),
           ("src/Lib/Util.jz", "util = 1."),
           ("src/./Lib/Util.jz", "util = 1.")
         ]
@@ -666,7 +789,10 @@ testReportsUnresolvedImport = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [("src/App/Main.jz", "import Missing::Thing.\nmain = 1.")]
+        [("src/App/Main.jz", """
+        import Missing::Thing.
+        main = 1.
+        """)]
 
 testReportsAmbiguousImport :: IO ()
 testReportsAmbiguousImport = do
@@ -679,7 +805,10 @@ testReportsAmbiguousImport = do
     config = ModuleResolutionConfig {moduleRoots = ["rootA", "rootB"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("rootA/App/Main.jz", "import Lib::Util.\nmain = util."),
+        [ ("rootA/App/Main.jz", """
+        import Lib::Util.
+        main = util.
+        """),
           ("rootA/Lib/Util.jz", "util = 1."),
           ("rootB/Lib/Util.jz", "util = 2.")
         ]
@@ -704,7 +833,10 @@ testReportsNestedCycleMinimalTrace = do
     sourceFiles =
       Map.insert
         "src/App/Main.jz"
-        "import A::One.\nmain = a."
+        """
+        import A::One.
+        main = a.
+        """
         sharedCycleSourceFiles
 
 testReportsImportedModuleParseFailure :: IO ()
@@ -716,7 +848,10 @@ testReportsImportedModuleParseFailure = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
+        [ ("src/App/Main.jz", """
+        import Lib::Util.
+        main = util.
+        """),
           ("src/Lib/Util.jz", "broken = .")
         ]
 
@@ -736,7 +871,10 @@ testModuleLexerFailureRetainsStructuredDetail = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Bad.\nmain = 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Bad.
+        main = 1.
+        """),
           ("src/Lib/Bad.jz", "broken = \"unterminated")
         ]
 
@@ -752,7 +890,12 @@ testImplMethodRejectsHiddenUnqualifiedReference = do
     sources =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "import Lib::Value (answer).\nclass Use(a) { use :: a -> Int. }.\nimpl Use(Int) { use = \\(value) -> helper. }.\nmain = answer."
+            """
+            import Lib::Value (answer).
+            class Use(a) { use :: a -> Int. }.
+            impl Use(Int) { use = \\(value) -> helper. }.
+            main = answer.
+            """
           ),
           ("src/Lib/Value.jz", "module Lib::Value { helper = 41. answer = 1. }")
         ]
@@ -770,7 +913,12 @@ testImplMethodRejectsHiddenQualifiedReference = do
     sources =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "import Lib::Value as Value.\nclass Use(a) { use :: a -> Int. }.\nimpl Use(Int) { use = \\(value) -> Value::helper. }.\nmain = 1."
+            """
+            import Lib::Value as Value.
+            class Use(a) { use :: a -> Int. }.
+            impl Use(Int) { use = \\(value) -> Value::helper. }.
+            main = 1.
+            """
           ),
           ("src/Lib/Value.jz", "module Lib::Value (answer) { helper = 41. answer = 1. }")
         ]
@@ -786,7 +934,11 @@ testReportsModuleDeclarationMismatch = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
+        [("src/App/Main.jz", """
+        module Wrong::Name {
+        main = 1.
+        }
+        """)]
 
 testReportsNestedModuleDeclarationParseFailure :: IO ()
 testReportsNestedModuleDeclarationParseFailure = do
@@ -798,7 +950,13 @@ testReportsNestedModuleDeclarationParseFailure = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nmodule App::Main {\nmain = 1.\n}\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        module App::Main {
+        main = 1.
+        }
+        }
+        """)
         ]
 
 testAcceptsValidImportSymbolList :: IO ()
@@ -811,8 +969,14 @@ testAcceptsValidImportSymbolList =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nmain = add."),
-          ("src/Lib/Math.jz", "add = 1.\nsub = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        main = add.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          sub = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -837,7 +1001,10 @@ testAcceptsDataConstructorImportSymbolList =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe (Just).\nmain = Just 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe (Just).
+        main = Just 1.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
     expectedModules =
@@ -863,8 +1030,14 @@ testAcceptsTypeApplicationsWhileCollectingModuleReferences =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util as Util.\nmain = Util::id @Int 1."),
-          ("src/Lib/Util.jz", "id = \\(value) -> value.\nvalue = id @Int 1.")
+        [ ("src/App/Main.jz", """
+        import Lib::Util as Util.
+        main = Util::id @Int 1.
+        """),
+          ("src/Lib/Util.jz", """
+          id = \\(value) -> value.
+          value = id @Int 1.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -889,8 +1062,14 @@ testAcceptsBareImportUnqualifiedExport =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math.\nmain = subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math.
+        main = subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -915,8 +1094,15 @@ testAcceptsLocalBindingOverHiddenExplicitImport =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract = 0.\nmain = subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        subtract = 0.
+        main = subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -948,7 +1134,10 @@ testReportsMissingImportSymbol = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (subtract).\nmain = 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Math (subtract).
+        main = 1.
+        """),
           ("src/Lib/Math.jz", "add = 1.")
         ]
 
@@ -969,8 +1158,14 @@ testReportsHiddenExplicitImportValueReference = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nmain = subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        main = subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
 
 testReportsImportSymbolCollision :: IO ()
@@ -991,15 +1186,27 @@ testReportsImportSymbolCollision = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import A::Ops (map).\nimport B::Ops (map).\nmain = map."),
+        [ ("src/App/Main.jz", """
+        import A::Ops (map).
+        import B::Ops (map).
+        main = map.
+        """),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]
 
 testReportsBareImportSymbolCollision :: IO ()
 testReportsBareImportSymbolCollision = do
-  assertCollision "A then B" "import A::Ops.\nimport B::Ops.\nmain = map."
-  assertCollision "B then A" "import B::Ops.\nimport A::Ops.\nmain = map."
+  assertCollision "A then B" """
+  import A::Ops.
+  import B::Ops.
+  main = map.
+  """
+  assertCollision "B then A" """
+  import B::Ops.
+  import A::Ops.
+  main = map.
+  """
   where
     assertCollision label importerSource = do
       let result = resolveModuleGraph config (sourceFiles importerSource) ["App", "Main"]
@@ -1035,7 +1242,11 @@ testReportsMixedImportSymbolCollision = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import A::Ops.\nimport B::Ops (map).\nmain = map."),
+        [ ("src/App/Main.jz", """
+        import A::Ops.
+        import B::Ops (map).
+        main = map.
+        """),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]
@@ -1058,7 +1269,11 @@ testReportsImportAliasCollision = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import A::Ops as Ops.\nimport B::Ops as Ops.\nmain = 1."),
+        [ ("src/App/Main.jz", """
+        import A::Ops as Ops.
+        import B::Ops as Ops.
+        main = 1.
+        """),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]
@@ -1080,7 +1295,10 @@ testReportsHiddenExplicitImportConstructorPatternReference = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe (Nothing).\nmain = case Nothing { | Just value -> value | _ -> 0 }."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe (Nothing).
+        main = case Nothing { | Just value -> value | _ -> 0 }.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
 
@@ -1102,8 +1320,14 @@ testReportsUnqualifiedAliasImportReference = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        main = subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
 
 testReportsHiddenAliasImportConstructorPatternReference :: IO ()
@@ -1124,7 +1348,10 @@ testReportsHiddenAliasImportConstructorPatternReference = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nmain = case Maybe::Nothing { | Just value -> value | _ -> 0 }."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        main = case Maybe::Nothing { | Just value -> value | _ -> 0 }.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
 
@@ -1138,8 +1365,14 @@ testAcceptsQualifiedAliasReferenceBeforeImport =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "main = Math::subtract.\nimport Lib::Math as Math."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        main = Math::subtract.
+        import Lib::Math as Math.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -1164,8 +1397,15 @@ testAcceptsLocalBindingSharingAliasName =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as math.\nmath = 0.\nmain = math::subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as math.
+        math = 0.
+        main = math::subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -1190,8 +1430,14 @@ testAcceptsQualifiedAliasImportReference =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        main = Math::subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     expectedModules =
       [ ResolvedModule
@@ -1216,7 +1462,10 @@ testAcceptsQualifiedAliasDataConstructorReference =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nmain = Maybe::Just 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        main = Maybe::Just 1.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
     expectedModules =
@@ -1288,7 +1537,10 @@ testReportsMissingQualifiedAliasExport = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        main = Math::subtract.
+        """),
           ("src/Lib/Math.jz", "add = 1.")
         ]
 
@@ -1306,8 +1558,15 @@ testAcceptsExplicitClassImportSymbol = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Facts (Eq).\nx :: @{Eq(Int)}: Int.\nx = 1."),
-          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.")
+        [ ("src/App/Main.jz", """
+        import Lib::Facts (Eq).
+        x :: @{Eq(Int)}: Int.
+        x = 1.
+        """),
+          ("src/Lib/Facts.jz", """
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -1322,7 +1581,10 @@ testRejectsTypeOnlyImportSymbol = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Types (Optional).\nx = 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Types (Optional).
+        x = 1.
+        """),
           ("src/Lib/Types.jz", "data Optional a = Some a | None.")
         ]
     lookupSource path = pure (Map.lookup path sources)
@@ -1338,7 +1600,11 @@ testReportsClassImportCollision = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import A::Facts.\nimport B::Facts.\nx = 1."),
+        [ ("src/App/Main.jz", """
+        import A::Facts.
+        import B::Facts.
+        x = 1.
+        """),
           ("src/A/Facts.jz", "class Eq(a) { }."),
           ("src/B/Facts.jz", "class Eq(a) { }.")
         ]
@@ -1356,7 +1622,12 @@ testReportsTypeImportCollision = do
     sources =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "import A::Types.\nimport B::Types.\nvalue :: Box(Int).\nvalue = ABox 1."
+            """
+            import A::Types.
+            import B::Types.
+            value :: Box(Int).
+            value = ABox 1.
+            """
           ),
           ("src/A/Types.jz", "data Box a = ABox a."),
           ("src/B/Types.jz", "data Box a = BBox a.")
@@ -1370,8 +1641,16 @@ testKeepsRepeatedClassImportsIdempotent = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Facts.\nimport Lib::Facts.\nx :: @{Eq(Int)}: Int.\nx = 1."),
-          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.")
+        [ ("src/App/Main.jz", """
+        import Lib::Facts.
+        import Lib::Facts.
+        x :: @{Eq(Int)}: Int.
+        x = 1.
+        """),
+          ("src/Lib/Facts.jz", """
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sources)
 

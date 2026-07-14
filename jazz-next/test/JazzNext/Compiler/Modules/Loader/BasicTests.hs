@@ -64,8 +64,17 @@ testCompileModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -84,8 +93,17 @@ testRunModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -102,8 +120,17 @@ testCompileModuleGraphDefaultLoadsBundledPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Data.
+        map hd values.
+        }
+        """),
+          ("src/Lib/Data.jz", """
+          module Lib::Data {
+          values = [[1, 2], [3], [4, 5]].
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -112,7 +139,12 @@ testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles = do
   result <-
     runModuleGraphWithResolvedPrelude
       defaultWarningSettings
-      (PreludeExplicit "__kernel_map = __kernel_map.\n__kernel_hd = __kernel_hd.\nmap = __kernel_map.\nhd = __kernel_hd.")
+      (PreludeExplicit """
+      __kernel_map = __kernel_map.
+      __kernel_hd = __kernel_hd.
+      map = __kernel_map.
+      hd = __kernel_hd.
+      """)
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -139,8 +171,18 @@ testRunModuleGraphIgnoresDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n1 / 0.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util = 1.
+          1 / 0.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -164,8 +206,19 @@ testCompileModuleGraphValidatesDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util :: Int.
+          True.
+          util = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -191,8 +244,19 @@ testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-          ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Util.
+        util.
+        }
+        """),
+          ("src/Lib/Util.jz", """
+          module Lib::Util {
+          util :: Int.
+          True.
+          util = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -214,8 +278,14 @@ testCompileModuleGraphQualifiesSemanticDiagnosticSpans = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Bad (x).\nx."),
-          ("src/Lib/Bad.jz", "x :: Int.\nx = True.")
+        [ ("src/App/Main.jz", """
+        import Lib::Bad (x).
+        x.
+        """),
+          ("src/Lib/Bad.jz", """
+          x :: Int.
+          x = True.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -237,7 +307,13 @@ testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nid = \\(value) -> value.\nresult = id @Unknown 1.\nresult.\n}"
+            """
+            module App::Main {
+            id = \\(value) -> value.
+            result = id @Unknown 1.
+            result.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -281,10 +357,20 @@ testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Util.\nutil.\n}"
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
           ),
           ( "src/Lib/Util.jz",
-            "module Lib::Util {\nutil = 1.\nbomb = 1 / 0.\n}"
+            """
+            module Lib::Util {
+            util = 1.
+            bomb = 1 / 0.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -305,10 +391,21 @@ testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (makeOuter).\nmakeOuter.\n}"
+            """
+            module App::Main {
+            import Lib::Api (makeOuter).
+            makeOuter.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\ndata Inner = Inner.\ndata Outer = Outer Inner.\nmakeOuter = Outer Inner.\n}"
+            """
+            module Lib::Api {
+            data Inner = Inner.
+            data Outer = Outer Inner.
+            makeOuter = Outer Inner.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -349,7 +446,16 @@ testMemoizedLookupReuse = do
         -- Without memoization this second read would replace the resolver-accepted
         -- source and fail compilation. Memoized lookup should keep first-read content.
         "src/App/Main.jz"
-          | readCount == 1 -> Just "module App::Main {\nimport Lib::Util.\nutil.\n}"
+          | readCount == 1 -> Just """
+          module App::Main {
+          import Lib::Util.
+          util.
+          }
+          """
           | otherwise -> Just "broken = ."
-        "src/Lib/Util.jz" -> Just "module Lib::Util {\nutil = 1.\n}"
+        "src/Lib/Util.jz" -> Just """
+        module Lib::Util {
+        util = 1.
+        }
+        """
         _ -> Nothing

@@ -500,8 +500,17 @@ testCliRunModeModuleGraphSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-                  ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                [ ("src/App/Main.jz", """
+                module App::Main {
+                import Lib::Util.
+                util.
+                }
+                """),
+                  ("src/Lib/Util.jz", """
+                  module Lib::Util {
+                  util = 1.
+                  }
+                  """)
                 ]
             )
         )
@@ -527,8 +536,17 @@ testCliModuleGraphDefaultRootSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-                  ("Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                [ ("App/Main.jz", """
+                module App::Main {
+                import Lib::Util.
+                util.
+                }
+                """),
+                  ("Lib/Util.jz", """
+                  module Lib::Util {
+                  util = 1.
+                  }
+                  """)
                 ]
             )
         )
@@ -551,8 +569,17 @@ testCliModuleGraphCompileSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-                  ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                [ ("src/App/Main.jz", """
+                module App::Main {
+                import Lib::Util.
+                util.
+                }
+                """),
+                  ("src/Lib/Util.jz", """
+                  module Lib::Util {
+                  util = 1.
+                  }
+                  """)
                 ]
             )
         )
@@ -570,7 +597,10 @@ testCliModuleGraphCompileError = do
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", "import Missing::Thing.\n1.")]))
+    fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", """
+    import Missing::Thing.
+    1.
+    """)]))
 
 testCliModuleGraphMissingImportSymbol :: IO ()
 testCliModuleGraphMissingImportSymbol = do
@@ -592,7 +622,10 @@ testCliModuleGraphMissingImportSymbol = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", "import Lib::Math (subtract).\n1."),
+                [ ("src/App/Main.jz", """
+                import Lib::Math (subtract).
+                1.
+                """),
                   ("src/Lib/Math.jz", "add = 1.")
                 ]
             )
@@ -617,7 +650,11 @@ testCliModuleGraphDeclarationMismatch = do
       pure
         ( Map.lookup
             key
-            (Map.fromList [("src/App/Main.jz", "module Wrong::Name {\n1.\n}")])
+            (Map.fromList [("src/App/Main.jz", """
+            module Wrong::Name {
+            1.
+            }
+            """)])
         )
 
 testCliModuleGraphParseFailure :: IO ()
@@ -980,22 +1017,43 @@ sampleSource :: Text
 sampleSource = "x = 1. x = 2."
 
 firstProgramSource :: Text
-firstProgramSource = "answer = 40 + 2.\nanswer."
+firstProgramSource = """
+answer = 40 + 2.
+answer.
+"""
 
 nestedModuleInModuleBodySource :: Text
-nestedModuleInModuleBodySource = "module App::Main {\nmodule Inner::Thing {\nx = 1.\n}\n}"
+nestedModuleInModuleBodySource = """
+module App::Main {
+module Inner::Thing {
+x = 1.
+}
+}
+"""
 
 concreteListSignatureSource :: Text
-concreteListSignatureSource = "xs :: [Int].\nxs = [1, 2]."
+concreteListSignatureSource = """
+xs :: [Int].
+xs = [1, 2].
+"""
 
 simpleFunctionSignatureSource :: Text
-simpleFunctionSignatureSource = "inc :: Int -> Int.\ninc = (+ 1)."
+simpleFunctionSignatureSource = """
+inc :: Int -> Int.
+inc = (+ 1).
+"""
 
 signatureMismatchSource :: Text
-signatureMismatchSource = "x :: Int.\nx = True."
+signatureMismatchSource = """
+x :: Int.
+x = True.
+"""
 
 signatureNameMismatchSource :: Text
-signatureNameMismatchSource = "x :: Int.\ny = 1."
+signatureNameMismatchSource = """
+x :: Int.
+y = 1.
+"""
 
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True then 1 else 2."
