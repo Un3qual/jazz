@@ -26,6 +26,7 @@ module JazzNext.Compiler.Driver
     runSourceWithPreludeAndHost,
     runSourceWithResolvedPrelude,
     runSourceWithResolvedPreludeAndHost,
+    runSourceWithResolvedPreludeAndHostObserved,
     runModuleGraph,
     runModuleGraphObserved,
     runModuleGraphWithHost,

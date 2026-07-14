@@ -3,6 +3,8 @@
 module Main (main) where
 
 import Control.Exception (finally)
+import Data.Aeson (Value, eitherDecode)
+import qualified Data.ByteString.Lazy as LazyByteString
 import Data.IORef
   ( IORef,
     newIORef,
@@ -12,22 +14,28 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Text.IO as TextIO
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
+    RuntimeProfileWriter,
+    RuntimeStatisticsFormat (..),
     parseCliOptions,
     runCliWith,
-    runCliWithHost
+    runCliWithHost,
+    runCliWithHostAndProfileWriter
   )
 import JazzNext.Compiler.Diagnostics
-  ( renderDiagnostic
+  ( mkMessageDiagnostic,
+    renderDiagnostic
   )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
 import JazzNext.Compiler.RuntimeHost
-  ( productionRuntimeHost
+  ( disabledRuntimeHost,
+    productionRuntimeHost
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -37,9 +45,15 @@ import JazzNext.TestHarness
     runTestSuite
   )
 import System.Directory
-  ( getTemporaryDirectory,
+  ( createDirectory,
+    doesDirectoryExist,
+    doesFileExist,
+    getTemporaryDirectory,
+    listDirectory,
+    removeDirectoryRecursive,
     removeFile
   )
+import System.FilePath ((</>))
 import System.IO
   ( hClose,
     openTempFile
@@ -52,6 +66,10 @@ tests :: [NamedTest]
 tests =
   [ ("parseCliOptions captures warning flags and config path", testParseOptions),
     ("parseCliOptions captures run mode", testParseRunMode),
+    ("parseCliOptions captures runtime statistics formats", testParseRuntimeStatistics),
+    ("parseCliOptions captures runtime profile paths", testParseRuntimeProfile),
+    ("parseCliOptions rejects invalid runtime observation flags", testParseInvalidRuntimeObservation),
+    ("parseCliOptions rejects runtime observation outside run mode", testRejectRuntimeObservationWithoutRun),
     ("parseCliOptions captures positional source path", testParseSourcePath),
     ("parseCliOptions rejects multiple positional source paths", testParseMultipleSourcePaths),
     ("parseCliOptions captures explicit stdin sentinel", testParseExplicitStdinSentinel),
@@ -96,6 +114,15 @@ tests =
     ("cli --no-prelude disables env-selected prelude path", testCliNoPreludeOverridesEnvPath),
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
+    ("cli runtime statistics preserve stdout and render on stderr", testCliRuntimeStatisticsOutput),
+    ("cli writes deterministic semantic profiles through an injected writer", testCliRuntimeProfileOutput),
+    ("cli combines statistics and semantic profiles in one run", testCliCombinedRuntimeObservation),
+    ("cli observes module-graph execution with the same artifact contract", testCliModuleGraphRuntimeObservation),
+    ("cli compile failures emit no runtime artifacts", testCliCompileFailureHasNoRuntimeArtifacts),
+    ("cli runtime failures emit partial runtime artifacts", testCliRuntimeFailureHasPartialArtifacts),
+    ("cli profile write failures are structured command failures", testCliProfileWriteFailure),
+    ("cli atomically replaces requested runtime profile files", testCliAtomicProfileReplacement),
+    ("cli atomic profile failures preserve destinations and clean temporary files", testCliAtomicProfileFailureCleanup),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
     ("cli explicit --warnings-config read failures return config error", testCliExplicitConfigPathFailure),
@@ -132,6 +159,72 @@ testParseRunMode = do
   assertEqual "warning flags" [] (cliWarningFlags options)
   assertEqual "prelude path" Nothing (cliPreludePath options)
   assertEqual "prelude disabled" False (cliDisablePrelude options)
+
+testParseRuntimeStatistics :: IO ()
+testParseRuntimeStatistics = do
+  defaultOptions <- requireParsedOptions ["--run", "--runtime-stats"]
+  humanOptions <- requireParsedOptions ["--run", "--runtime-stats=human", "--runtime-stats"]
+  jsonOptions <- requireParsedOptions ["--run", "--runtime-stats=json", "--runtime-stats=json"]
+  assertEqual
+    "default runtime statistics format"
+    (Just RuntimeStatisticsHuman)
+    (cliRuntimeStatisticsFormat defaultOptions)
+  assertEqual
+    "explicit human runtime statistics format"
+    (Just RuntimeStatisticsHuman)
+    (cliRuntimeStatisticsFormat humanOptions)
+  assertEqual
+    "JSON runtime statistics format"
+    (Just RuntimeStatisticsJson)
+    (cliRuntimeStatisticsFormat jsonOptions)
+
+testParseRuntimeProfile :: IO ()
+testParseRuntimeProfile = do
+  options <-
+    requireParsedOptions
+      ["--run", "--runtime-profile=profiles/program.speedscope.json", "--runtime-profile=profiles/program.speedscope.json"]
+  assertEqual
+    "runtime profile path"
+    (Just "profiles/program.speedscope.json")
+    (cliRuntimeProfilePath options)
+
+testParseInvalidRuntimeObservation :: IO ()
+testParseInvalidRuntimeObservation = do
+  assertParseErrorContains
+    "empty runtime statistics format"
+    "runtime statistics format"
+    ["--run", "--runtime-stats="]
+  assertParseErrorContains
+    "unknown runtime statistics format"
+    "runtime statistics format"
+    ["--run", "--runtime-stats=xml"]
+  assertParseErrorContains
+    "conflicting runtime statistics formats"
+    "conflicting runtime statistics"
+    ["--run", "--runtime-stats=human", "--runtime-stats=json"]
+  assertParseErrorContains
+    "missing runtime profile path"
+    "missing path"
+    ["--run", "--runtime-profile"]
+  assertParseErrorContains
+    "empty runtime profile path"
+    "empty runtime profile path"
+    ["--run", "--runtime-profile="]
+  assertParseErrorContains
+    "conflicting runtime profile paths"
+    "conflicting runtime profile"
+    ["--run", "--runtime-profile=first.json", "--runtime-profile=second.json"]
+
+testRejectRuntimeObservationWithoutRun :: IO ()
+testRejectRuntimeObservationWithoutRun = do
+  assertParseErrorContains
+    "statistics require run mode"
+    "requires --run"
+    ["--runtime-stats"]
+  assertParseErrorContains
+    "profile requires run mode"
+    "requires --run"
+    ["--runtime-profile=profile.json"]
 
 testParseSourcePath :: IO ()
 testParseSourcePath = do
@@ -288,6 +381,15 @@ withTemporaryPath action = do
   (path, handle) <- openTempFile temporaryDirectory "jazz-next-cli-host"
   hClose handle
   action path `finally` removeFile path
+
+withTemporaryDirectory :: (FilePath -> IO a) -> IO a
+withTemporaryDirectory action = do
+  temporaryDirectory <- getTemporaryDirectory
+  (path, handle) <- openTempFile temporaryDirectory "jazz-next-cli-profile"
+  hClose handle
+  removeFile path
+  createDirectory path
+  action path `finally` removeDirectoryRecursive path
 
 testCliHelpOutput :: IO ()
 testCliHelpOutput = do
@@ -824,6 +926,157 @@ testCliRunModeHdEmptyListRuntimeError = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliRuntimeStatisticsOutput :: IO ()
+testCliRuntimeStatisticsOutput = do
+  baseline <- runObservationFixture [] literalSuccessFixture
+  human <- runObservationFixture ["--runtime-stats"] literalSuccessFixture
+  json <- runObservationFixture ["--runtime-stats=json"] literalSuccessFixture
+  assertEqual "baseline exit" 0 (cliExitCode baseline)
+  assertEqual "human statistics exit" 0 (cliExitCode human)
+  assertEqual "JSON statistics exit" 0 (cliExitCode json)
+  assertEqual "human statistics preserve stdout" (cliStdout baseline) (cliStdout human)
+  assertEqual "JSON statistics preserve stdout" (cliStdout baseline) (cliStdout json)
+  assertContains "human statistics heading" "Jazz runtime statistics" (cliStderr human)
+  assertFinalStderrJson "JSON runtime statistics" json
+
+testCliRuntimeProfileOutput :: IO ()
+testCliRuntimeProfileOutput = do
+  capturedProfile <- newIORef Nothing
+  output <-
+    runObservationFixtureWithWriter
+      (capturingProfileWriter capturedProfile)
+      ["--runtime-profile=profile.speedscope.json"]
+      literalSuccessFixture
+  assertEqual "profile exit" 0 (cliExitCode output)
+  assertEqual "profile preserves stdout" "42\n" (cliStdout output)
+  assertEqual "profile keeps stderr empty" "" (cliStderr output)
+  captured <- readIORef capturedProfile
+  case captured of
+    Nothing -> failTest "runtime profile writer was not called"
+    Just (path, bytes) -> do
+      assertEqual "requested profile path" "profile.speedscope.json" path
+      assertJsonBytes "semantic profile JSON" bytes
+
+testCliCombinedRuntimeObservation :: IO ()
+testCliCombinedRuntimeObservation = do
+  capturedProfile <- newIORef Nothing
+  output <-
+    runObservationFixtureWithWriter
+      (capturingProfileWriter capturedProfile)
+      ["--runtime-stats=json", "--runtime-profile=combined.speedscope.json"]
+      literalSuccessFixture
+  assertEqual "combined observation exit" 0 (cliExitCode output)
+  assertEqual "combined observation stdout" "42\n" (cliStdout output)
+  assertFinalStderrJson "combined runtime statistics" output
+  captured <- readIORef capturedProfile
+  case captured of
+    Nothing -> failTest "combined observation did not write a semantic profile"
+    Just (_, bytes) -> assertJsonBytes "combined semantic profile JSON" bytes
+
+testCliModuleGraphRuntimeObservation :: IO ()
+testCliModuleGraphRuntimeObservation = do
+  capturedProfile <- newIORef Nothing
+  let fixtureRoot = "test/fixtures/runtime-observation/module-success"
+      fileLookup path = do
+        exists <- doesFileExist path
+        if exists then Just <$> TextIO.readFile path else pure Nothing
+  output <-
+    runCliWithHostAndProfileWriter
+      (capturingProfileWriter capturedProfile)
+      disabledRuntimeHost
+      [ "--run",
+        "--runtime-stats=json",
+        "--runtime-profile=module.speedscope.json",
+        "--entry-module",
+        "App::Main",
+        "--module-root",
+        fixtureRoot <> "/src"
+      ]
+      noEnvironment
+      fileLookup
+      (pure "")
+  assertEqual "module observation exit" 0 (cliExitCode output)
+  assertEqual "module observation stdout" "42\n" (cliStdout output)
+  assertFinalStderrJson "module runtime statistics" output
+  captured <- readIORef capturedProfile
+  case captured of
+    Nothing -> failTest "module observation did not write a semantic profile"
+    Just (_, bytes) -> assertJsonBytes "module semantic profile JSON" bytes
+
+testCliCompileFailureHasNoRuntimeArtifacts :: IO ()
+testCliCompileFailureHasNoRuntimeArtifacts = do
+  profileWritten <- newIORef False
+  output <-
+    runObservationFixtureWithWriter
+      (recordingProfileWriter profileWritten)
+      ["--runtime-stats=json", "--runtime-profile=compile-failure.json"]
+      compileFailureFixture
+  didWriteProfile <- readIORef profileWritten
+  assertEqual "compile failure exit" 1 (cliExitCode output)
+  assertContains "compile failure diagnostic" "error:" (cliStderr output)
+  assertEqual "compile failure has no statistics" False ("\"schemaVersion\"" `Text.isInfixOf` cliStderr output)
+  assertEqual "compile failure has no profile" False didWriteProfile
+
+testCliRuntimeFailureHasPartialArtifacts :: IO ()
+testCliRuntimeFailureHasPartialArtifacts = do
+  capturedProfile <- newIORef Nothing
+  output <-
+    runObservationFixtureWithWriter
+      (capturingProfileWriter capturedProfile)
+      ["--runtime-stats=json", "--runtime-profile=runtime-failure.json"]
+      runtimeFailureFixture
+  assertEqual "runtime failure exit" 1 (cliExitCode output)
+  assertContains "runtime failure diagnostic" "E3001" (cliStderr output)
+  assertFinalStderrJson "partial runtime statistics" output
+  captured <- readIORef capturedProfile
+  case captured of
+    Nothing -> failTest "runtime failure did not write its partial semantic profile"
+    Just (_, bytes) -> do
+      assertJsonBytes "partial semantic profile JSON" bytes
+      assertEqual
+        "partial profile is marked incomplete"
+        True
+        ("incomplete: failed" `Text.isInfixOf` TextEncoding.decodeUtf8 (LazyByteString.toStrict bytes))
+
+testCliProfileWriteFailure :: IO ()
+testCliProfileWriteFailure = do
+  output <-
+    runObservationFixtureWithWriter
+      (\_ _ -> pure (Left (mkMessageDiagnostic "runtime profile writer deliberately failed")))
+      ["--runtime-profile=unwritable/profile.json"]
+      literalSuccessFixture
+  assertEqual "profile write failure exit" 1 (cliExitCode output)
+  assertEqual "profile write failure preserves program stdout" "42\n" (cliStdout output)
+  assertContains "structured profile write diagnostic" "error: runtime profile writer deliberately failed" (cliStderr output)
+
+testCliAtomicProfileReplacement :: IO ()
+testCliAtomicProfileReplacement =
+  withTemporaryPath $ \path -> do
+    TextIO.writeFile path "existing profile"
+    output <-
+      runObservationFixture
+        ["--runtime-profile=" <> path]
+        literalSuccessFixture
+    bytes <- LazyByteString.readFile path
+    assertEqual "atomic profile replacement exit" 0 (cliExitCode output)
+    assertJsonBytes "atomically replaced semantic profile" bytes
+
+testCliAtomicProfileFailureCleanup :: IO ()
+testCliAtomicProfileFailureCleanup =
+  withTemporaryDirectory $ \directoryPath -> do
+    let destinationPath = directoryPath </> "profile.json"
+    createDirectory destinationPath
+    output <-
+      runObservationFixture
+        ["--runtime-profile=" <> destinationPath]
+        literalSuccessFixture
+    destinationPreserved <- doesDirectoryExist destinationPath
+    remainingEntries <- listDirectory directoryPath
+    assertEqual "atomic profile failure exit" 1 (cliExitCode output)
+    assertContains "atomic profile failure diagnostic" "runtime profile could not be written" (cliStderr output)
+    assertEqual "existing destination is preserved" True destinationPreserved
+    assertEqual "temporary profile is cleaned" ["profile.json"] remainingEntries
+
 testCliPrecedenceBehavior :: IO ()
 testCliPrecedenceBehavior = do
   let envMap =
@@ -950,6 +1203,69 @@ testCliAcceptsSimpleFunctionSignature = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+requireParsedOptions :: [String] -> IO CliOptions
+requireParsedOptions arguments =
+  case parseCliOptions arguments of
+    Left diagnostic -> failTest ("parseCliOptions failed: " <> renderDiagnostic diagnostic)
+    Right options -> pure options
+
+assertParseErrorContains :: Text -> Text -> [String] -> IO ()
+assertParseErrorContains label expected arguments =
+  case parseCliOptions arguments of
+    Left diagnostic -> assertContains label expected (renderDiagnostic diagnostic)
+    Right options -> failTest (label <> ": expected parse failure, got " <> Text.pack (show options))
+
+runObservationFixture :: [String] -> FilePath -> IO CliOutput
+runObservationFixture arguments fixturePath =
+  runCliWith
+    (["--run"] <> arguments <> [fixturePath])
+    noEnvironment
+    (fixtureLookup fixturePath)
+    (pure "")
+
+runObservationFixtureWithWriter :: RuntimeProfileWriter -> [String] -> FilePath -> IO CliOutput
+runObservationFixtureWithWriter profileWriter arguments fixturePath =
+  runCliWithHostAndProfileWriter
+    profileWriter
+    disabledRuntimeHost
+    (["--run"] <> arguments <> [fixturePath])
+    noEnvironment
+    (fixtureLookup fixturePath)
+    (pure "")
+
+fixtureLookup :: FilePath -> FilePath -> IO (Maybe Text)
+fixtureLookup expectedPath requestedPath
+  | requestedPath == expectedPath = Just <$> TextIO.readFile requestedPath
+  | otherwise = pure Nothing
+
+noEnvironment :: String -> IO (Maybe String)
+noEnvironment _ = pure Nothing
+
+capturingProfileWriter :: IORef (Maybe (FilePath, LazyByteString.ByteString)) -> RuntimeProfileWriter
+capturingProfileWriter captured path bytes = do
+  writeIORef captured (Just (path, bytes))
+  pure (Right ())
+
+recordingProfileWriter :: IORef Bool -> RuntimeProfileWriter
+recordingProfileWriter profileWritten _ _ = do
+  writeIORef profileWritten True
+  pure (Right ())
+
+assertFinalStderrJson :: Text -> CliOutput -> IO ()
+assertFinalStderrJson label output =
+  case reverse (Text.lines (cliStderr output)) of
+    [] -> failTest (label <> ": expected a final JSON line")
+    finalLine : _ ->
+      assertJsonBytes
+        label
+        (LazyByteString.fromStrict (TextEncoding.encodeUtf8 finalLine))
+
+assertJsonBytes :: Text -> LazyByteString.ByteString -> IO ()
+assertJsonBytes label bytes =
+  case eitherDecode bytes :: Either String Value of
+    Left message -> failTest (label <> ": invalid JSON: " <> Text.pack message)
+    Right _ -> pure ()
+
 recordSourceRead :: IORef Bool -> IO Text
 recordSourceRead sourceRead =
   recordSourceReadWith sourceRead sampleSource
@@ -984,6 +1300,8 @@ expectedHelpOutput =
       "Modes:",
       "  compile                         Parse/analyze source; success prints no stdout.",
       "  --run                           Execute source and print the final runtime value.",
+      "  --runtime-stats[=human|json]    Report deterministic Jazz runtime statistics.",
+      "  --runtime-profile=PATH          Write a deterministic Speedscope profile.",
       "",
       "Source:",
       "  source.jz                       Read one source file instead of stdin.",
@@ -1015,6 +1333,15 @@ testCliReportsSignatureTypeMismatch = do
 
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."
+
+literalSuccessFixture :: FilePath
+literalSuccessFixture = "test/fixtures/runtime-observation/literal-success.jz"
+
+compileFailureFixture :: FilePath
+compileFailureFixture = "test/fixtures/runtime-observation/compile-failure.jz"
+
+runtimeFailureFixture :: FilePath
+runtimeFailureFixture = "test/fixtures/runtime-observation/runtime-failure.jz"
 
 firstProgramSource :: Text
 firstProgramSource = """

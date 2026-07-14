@@ -5,17 +5,29 @@
 module JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
+    RuntimeProfileWriter,
+    RuntimeStatisticsFormat (..),
     parseCliOptions,
     runCliWith,
     runCliWithHost,
+    runCliWithHostAndProfileWriter,
     main
   ) where
 
-import Control.Exception (IOException, evaluate, try)
+import Control.Exception
+  ( IOException,
+    displayException,
+    evaluate,
+    onException,
+    try
+  )
+import qualified Data.ByteString.Lazy as LazyByteString
+import Data.Either (isRight)
 import Data.List (isPrefixOf)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
@@ -35,8 +47,8 @@ import JazzNext.Compiler.Driver
     RunResult (..),
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
-    runModuleGraphWithResolvedPreludeAndHost,
-    runSourceWithResolvedPreludeAndHost
+    runModuleGraphWithResolvedPreludeAndHostObserved,
+    runSourceWithResolvedPreludeAndHostObserved
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -47,6 +59,17 @@ import JazzNext.Compiler.RuntimeHost
     disabledRuntimeHost,
     productionRuntimeHost
   )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationReport (..),
+    RuntimeObservationRequest (..)
+  )
+import JazzNext.Compiler.Runtime.Observation.Profile
+  ( encodeRuntimeSemanticProfile
+  )
+import JazzNext.Compiler.Runtime.Observation.Render
+  ( encodeRuntimeObservationJson,
+    renderRuntimeObservationHuman
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     resolveWarningSettings
@@ -56,7 +79,29 @@ import JazzNext.Compiler.Warnings
   )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
-import System.IO (stderr, stdout)
+import System.Directory
+  ( removeFile,
+    renameFile
+  )
+import System.FilePath
+  ( takeDirectory,
+    takeFileName
+  )
+import System.IO
+  ( hClose,
+    hFlush,
+    openBinaryTempFile,
+    stderr,
+    stdout
+  )
+
+data RuntimeStatisticsFormat
+  = RuntimeStatisticsHuman
+  | RuntimeStatisticsJson
+  deriving (Eq, Show)
+
+type RuntimeProfileWriter =
+  FilePath -> LazyByteString.ByteString -> IO (Either Diagnostic ())
 
 -- | Parsed CLI configuration after argument validation.
 data CliOptions = CliOptions
@@ -65,6 +110,8 @@ data CliOptions = CliOptions
     cliRunMode :: Bool,
     cliPreludePath :: Maybe FilePath,
     cliDisablePrelude :: Bool,
+    cliRuntimeStatisticsFormat :: Maybe RuntimeStatisticsFormat,
+    cliRuntimeProfilePath :: Maybe FilePath,
     cliEntryModule :: Maybe [Text],
     cliModuleRoots :: [FilePath],
     cliSourcePath :: Maybe FilePath
@@ -88,6 +135,8 @@ helpUsageText =
       "Modes:",
       "  compile                         Parse/analyze source; success prints no stdout.",
       "  --run                           Execute source and print the final runtime value.",
+      "  --runtime-stats[=human|json]    Report deterministic Jazz runtime statistics.",
+      "  --runtime-profile=PATH          Write a deterministic Speedscope profile.",
       "",
       "Source:",
       "  source.jz                       Read one source file instead of stdin.",
@@ -118,7 +167,10 @@ isHelpArg arg =
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
 parseCliOptions args = do
-  options <- go (CliOptions [] Nothing False Nothing False Nothing [] Nothing) args
+  options <-
+    go
+      (CliOptions [] Nothing False Nothing False Nothing Nothing Nothing [] Nothing)
+      args
   finalize options
   where
     finalize options
@@ -126,6 +178,8 @@ parseCliOptions args = do
           Left (mkMessageDiagnostic "cannot combine --prelude with --no-prelude")
       | isJust (cliSourcePath options) && isJust (cliEntryModule options) =
           Left (mkMessageDiagnostic "cannot combine source file with --entry-module")
+      | not (cliRunMode options) && runtimeObservationRequested options =
+          Left (mkMessageDiagnostic "runtime observation requires --run")
       | null (cliModuleRoots options) =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}
       | isJust (cliEntryModule options) =
@@ -149,6 +203,11 @@ parseCliOptions args = do
       go options {cliDisablePrelude = True} rest
     go options ("--run" : rest) =
       go options {cliRunMode = True} rest
+    go options ("--runtime-stats" : rest) =
+      setRuntimeStatisticsFormat RuntimeStatisticsHuman options
+        >>= (`go` rest)
+    go _ ("--runtime-profile" : _) =
+      Left (mkMessageDiagnostic "missing path in --runtime-profile=PATH")
     go options ("--entry-module" : modulePathText : rest) =
       case parseModulePathText (Text.pack modulePathText) of
         Left err ->
@@ -164,6 +223,13 @@ parseCliOptions args = do
     go options (arg : rest)
       | isHelpArg arg =
           go options rest
+      | Just formatName <- Text.stripPrefix "--runtime-stats=" (Text.pack arg) =
+          parseRuntimeStatisticsFormat formatName
+            >>= \format -> setRuntimeStatisticsFormat format options
+            >>= (`go` rest)
+      | Just profilePath <- Text.stripPrefix "--runtime-profile=" (Text.pack arg) =
+          setRuntimeProfilePath profilePath options
+            >>= (`go` rest)
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
       | arg == "-" && isJust (cliSourcePath options) =
@@ -176,6 +242,43 @@ parseCliOptions args = do
           Left (mkMessageDiagnostic "multiple source files are not supported")
       | otherwise =
           go options {cliSourcePath = Just arg} rest
+
+    runtimeObservationRequested options =
+      isJust (cliRuntimeStatisticsFormat options)
+        || isJust (cliRuntimeProfilePath options)
+
+    parseRuntimeStatisticsFormat formatName =
+      case formatName of
+        "human" -> Right RuntimeStatisticsHuman
+        "json" -> Right RuntimeStatisticsJson
+        _ ->
+          Left
+            ( mkMessageDiagnostic
+                ( "unknown runtime statistics format '"
+                    <> formatName
+                    <> "'; expected human or json"
+                )
+            )
+
+    setRuntimeStatisticsFormat format options =
+      case cliRuntimeStatisticsFormat options of
+        Nothing -> Right options {cliRuntimeStatisticsFormat = Just format}
+        Just existingFormat
+          | existingFormat == format -> Right options
+          | otherwise ->
+              Left (mkMessageDiagnostic "conflicting runtime statistics formats")
+
+    setRuntimeProfilePath profilePath options
+      | Text.null profilePath =
+          Left (mkMessageDiagnostic "empty runtime profile path")
+      | otherwise =
+          case cliRuntimeProfilePath options of
+            Nothing ->
+              Right options {cliRuntimeProfilePath = Just (Text.unpack profilePath)}
+            Just existingPath
+              | existingPath == Text.unpack profilePath -> Right options
+              | otherwise ->
+                  Left (mkMessageDiagnostic "conflicting runtime profile paths")
 
 -- | End-to-end CLI entrypoint with injectable env/config/source lookups so the
 -- behavior stays testable without shelling out.
@@ -194,7 +297,17 @@ runCliWithHost ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWithHost host args envLookup fileLookup loadSource
+runCliWithHost = runCliWithHostAndProfileWriter writeRuntimeProfileAtomically
+
+runCliWithHostAndProfileWriter ::
+  RuntimeProfileWriter ->
+  RuntimeHost IO ->
+  [String] ->
+  (String -> IO (Maybe String)) ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO Text ->
+  IO CliOutput
+runCliWithHostAndProfileWriter profileWriter host args envLookup fileLookup loadSource
   | any isHelpArg args =
       pure
         CliOutput
@@ -235,7 +348,15 @@ runCliWithHost host args envLookup fileLookup loadSource
                   case cliEntryModule options of
                     Just entryModulePath ->
                       if cliRunMode options
-                        then runExecuteModuleGraph host settings options preludeSource entryModulePath fileLookup
+                        then
+                          runExecuteModuleGraph
+                            profileWriter
+                            host
+                            settings
+                            options
+                            preludeSource
+                            entryModulePath
+                            fileLookup
                         else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
                     Nothing -> do
                       sourceResult <- loadCliSource options fileLookup loadSource
@@ -249,7 +370,7 @@ runCliWithHost host args envLookup fileLookup loadSource
                               }
                         Right source ->
                           if cliRunMode options
-                            then runExecute host settings preludeSource source
+                            then runExecute profileWriter host settings options preludeSource source
                             else runCompile settings preludeSource source
 
 main :: IO ()
@@ -374,27 +495,23 @@ runCompile settings resolvedPrelude source = do
         cliStderr = stderrOutput
       }
 
-runExecute :: RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
-runExecute host settings resolvedPrelude source = do
-  result <- runSourceWithResolvedPreludeAndHost host settings resolvedPrelude source
-  let warningLines = map formatWarningLine (runWarnings result)
-      compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
-      runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
-      stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
-      stdoutOutput =
-        case runOutput result of
-          Just value -> value <> "\n"
-          Nothing -> ""
-      exitCode =
-        if null (runCompileErrors result) && null (runRuntimeErrors result)
-          then 0
-          else 1
-  pure
-    CliOutput
-      { cliExitCode = exitCode,
-        cliStdout = stdoutOutput,
-        cliStderr = stderrOutput
-      }
+runExecute ::
+  RuntimeProfileWriter ->
+  RuntimeHost IO ->
+  WarningSettings ->
+  CliOptions ->
+  ResolvedPrelude ->
+  Text ->
+  IO CliOutput
+runExecute profileWriter host settings options resolvedPrelude source = do
+  result <-
+    runSourceWithResolvedPreludeAndHostObserved
+      (cliRuntimeObservationRequest options)
+      host
+      settings
+      resolvedPrelude
+      source
+  renderRunResult profileWriter options result
 
 -- | Compile-mode module graph runs share the same diagnostics-only stdout
 -- contract as standalone compile mode.
@@ -431,6 +548,7 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
       }
 
 runExecuteModuleGraph ::
+  RuntimeProfileWriter ->
   RuntimeHost IO ->
   WarningSettings ->
   CliOptions ->
@@ -438,33 +556,125 @@ runExecuteModuleGraph ::
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runExecuteModuleGraph host settings options resolvedPrelude entryModulePath sourceLookup = do
+runExecuteModuleGraph profileWriter host settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    runModuleGraphWithResolvedPreludeAndHost
+    runModuleGraphWithResolvedPreludeAndHostObserved
+      (cliRuntimeObservationRequest options)
       host
       settings
       resolvedPrelude
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
+  renderRunResult profileWriter options result
+
+renderRunResult :: RuntimeProfileWriter -> CliOptions -> RunResult -> IO CliOutput
+renderRunResult profileWriter options result = do
+  profileWriteResult <- writeRequestedRuntimeProfile profileWriter options result
   let warningLines = map formatWarningLine (runWarnings result)
       compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
       runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
-      stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
+      profileErrorLines =
+        case profileWriteResult of
+          Left diagnostic -> ["error: " <> renderDiagnostic diagnostic]
+          Right () -> []
+      diagnosticOutput =
+        renderLines
+          (warningLines ++ compileErrorLines ++ runtimeErrorLines ++ profileErrorLines)
+      statisticsOutput =
+        case (cliRuntimeStatisticsFormat options, runRuntimeObservation result) of
+          (Just statisticsFormat, Just report) ->
+            renderRuntimeStatistics statisticsFormat report
+          _ -> ""
       stdoutOutput =
         case runOutput result of
           Just value -> value <> "\n"
           Nothing -> ""
       exitCode =
-        if null (runCompileErrors result) && null (runRuntimeErrors result)
+        if
+            null (runCompileErrors result)
+              && null (runRuntimeErrors result)
+              && isRight profileWriteResult
           then 0
           else 1
   pure
     CliOutput
       { cliExitCode = exitCode,
         cliStdout = stdoutOutput,
-        cliStderr = stderrOutput
+        cliStderr = diagnosticOutput <> statisticsOutput
       }
+
+writeRequestedRuntimeProfile :: RuntimeProfileWriter -> CliOptions -> RunResult -> IO (Either Diagnostic ())
+writeRequestedRuntimeProfile profileWriter options result =
+  case (cliRuntimeProfilePath options, runRuntimeObservation result) of
+    (Just profilePath, Just report) ->
+      case runtimeObservationProfile report of
+        Just profile ->
+          profileWriter profilePath (encodeRuntimeSemanticProfile profile)
+        Nothing ->
+          pure
+            ( Left
+                (mkMessageDiagnostic "runtime profile was requested but the runtime did not produce one")
+            )
+    _ -> pure (Right ())
+
+renderRuntimeStatistics :: RuntimeStatisticsFormat -> RuntimeObservationReport -> Text
+renderRuntimeStatistics statisticsFormat report =
+  case statisticsFormat of
+    RuntimeStatisticsHuman -> renderRuntimeObservationHuman report
+    RuntimeStatisticsJson ->
+      TextEncoding.decodeUtf8
+        (LazyByteString.toStrict (encodeRuntimeObservationJson report))
+        <> "\n"
+
+cliRuntimeObservationRequest :: CliOptions -> RuntimeObservationRequest
+cliRuntimeObservationRequest options =
+  case
+      ( isJust (cliRuntimeStatisticsFormat options),
+        isJust (cliRuntimeProfilePath options)
+      )
+    of
+      (False, False) -> RuntimeObservationDisabled
+      (True, False) -> RuntimeObservationStatistics
+      (False, True) -> RuntimeObservationProfile
+      (True, True) -> RuntimeObservationStatisticsAndProfile
+
+writeRuntimeProfileAtomically :: RuntimeProfileWriter
+writeRuntimeProfileAtomically destinationPath profileBytes = do
+  writeResult <- try writeProfile :: IO (Either IOException ())
+  pure $
+    case writeResult of
+      Right () -> Right ()
+      Left writeError ->
+        Left
+          ( mkMessageDiagnostic
+              ( "runtime profile could not be written at '"
+                  <> Text.pack destinationPath
+                  <> "': "
+                  <> Text.pack (displayException writeError)
+              )
+          )
+  where
+    writeProfile = do
+      let destinationDirectory = takeDirectory destinationPath
+          temporaryTemplate = takeFileName destinationPath <> ".tmp"
+      (temporaryPath, temporaryHandle) <-
+        openBinaryTempFile destinationDirectory temporaryTemplate
+      let cleanupTemporary = do
+            ignoreIOException (hClose temporaryHandle)
+            ignoreIOException (removeFile temporaryPath)
+      ( do
+          LazyByteString.hPut temporaryHandle profileBytes
+          hFlush temporaryHandle
+          hClose temporaryHandle
+          renameFile temporaryPath destinationPath
+        )
+        `onException` cleanupTemporary
+
+ignoreIOException :: IO () -> IO ()
+ignoreIOException action = do
+  _ <- try action :: IO (Either IOException ())
+  pure ()
 
 -- | Translate CLI module-root options into the resolver configuration used by
 -- compile/run module-graph entrypoints.
