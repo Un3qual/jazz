@@ -43,7 +43,7 @@ The benchmark tree has five boundaries:
 | Group                | Timed work                                                     |
 | -------------------- | -------------------------------------------------------------- |
 | `parse-lower`        | Tokenize, parse the surface program, and lower to the core AST |
-| `analysis`           | Infer and validate an already lowered expression               |
+| `analysis`           | Re-analyze the lowered entry module with imported interfaces   |
 | `module-preparation` | Discover, resolve, analyze, and prepare a module program       |
 | `runtime`            | Evaluate an already prepared program                           |
 | `whole-program`      | Load the entry program through final runtime result            |
@@ -80,9 +80,11 @@ write durable results.
 
 The environment document records the Git revision and dirty state, corpus and
 selected cases, tool/package versions, operating system, architecture, CPU
-identity when available, build mode, RTS capabilities and arguments, benchmark
-arguments, time mode, and timestamp. Before comparing CSV files, require the
-metadata to agree on schema, environment label, corpus, selected cases,
+identity, build mode, RTS capabilities and arguments, benchmark arguments, time
+mode, and timestamp. Git, Cabal, and CPU probes use explicit
+available/unavailable facts, so packaged trees and minimal CI images still
+produce results without inventing metadata. Before comparing CSV files, require
+the metadata to agree on schema, environment label, corpus, selected cases,
 tool/package versions, platform, CPU, build mode, RTS configuration, and time
 mode. The benchmark metadata API reports every mismatch and only permits an
 incompatible comparison through an explicit override. A timestamp or Git

@@ -3,6 +3,7 @@
 -- | Compile resolved modules once against explicit dependency interfaces.
 module JazzNext.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
+    compileResolvedModule,
     compileResolvedProgram
   ) where
 
@@ -114,40 +115,41 @@ compileResolvedProgram inputs resolvedProgram =
       case remaining of
         [] -> pure compiled
         resolvedModule : rest -> do
-          compiledModule <- compileModule compiled resolvedModule
+          compiledModule <- compileResolvedModule inputs compiled resolvedModule
           foldModules (compiled <> [compiledModule]) rest
 
-    compileModule compiledDependencies resolvedModule = do
-      let importedInterface =
-            foldl'
-              mergeModuleInterfaces
-              (ambientPreludeInterface (compileInputPrelude inputs))
-              [ dependencyImportInterface importDecl dependency
-                | importDecl <- resolvedModuleImports resolvedModule,
-                  Just dependency <- [lookupDependency (resolvedImportPath importDecl) compiledDependencies]
-              ]
-          modulePath = resolvedModulePath resolvedModule
-          moduleExpr = coreModuleExpr (resolvedModuleCore resolvedModule)
-      inference <-
-        inferExpressionWithInputs
-          InferenceInputs
-            { inferenceBuiltinMode = compileInputBuiltinMode inputs,
-              inferenceWarningSettings = compileInputWarningSettings inputs,
-              inferenceImportedTypes = interfaceTypeEnv importedInterface,
-              inferenceImportedDataTypes = importedDataTypes importedInterface,
-              inferenceImportedCapabilities = interfaceCapabilities importedInterface,
-              inferenceImportedClassNames = importedClassNames importedInterface,
-              inferenceCurrentModulePath = Just modulePath
-            }
-          moduleExpr
-      pure
-        CompiledModule
-          { compiledResolvedModule = resolvedModule,
-            compiledModuleInterface = inferredModuleInterface inference,
-            compiledModuleWarnings = inferredWarnings inference,
-            compiledModuleErrors = inferredErrors inference,
-            compiledModuleExpr = inferredExpr inference
-          }
+compileResolvedModule :: CompileInputs -> [CompiledModule] -> ResolvedModule -> IO CompiledModule
+compileResolvedModule inputs compiledDependencies resolvedModule = do
+  let importedInterface =
+        foldl'
+          mergeModuleInterfaces
+          (ambientPreludeInterface (compileInputPrelude inputs))
+          [ dependencyImportInterface importDecl dependency
+            | importDecl <- resolvedModuleImports resolvedModule,
+              Just dependency <- [lookupDependency (resolvedImportPath importDecl) compiledDependencies]
+          ]
+      modulePath = resolvedModulePath resolvedModule
+      moduleExpr = coreModuleExpr (resolvedModuleCore resolvedModule)
+  inference <-
+    inferExpressionWithInputs
+      InferenceInputs
+        { inferenceBuiltinMode = compileInputBuiltinMode inputs,
+          inferenceWarningSettings = compileInputWarningSettings inputs,
+          inferenceImportedTypes = interfaceTypeEnv importedInterface,
+          inferenceImportedDataTypes = importedDataTypes importedInterface,
+          inferenceImportedCapabilities = interfaceCapabilities importedInterface,
+          inferenceImportedClassNames = importedClassNames importedInterface,
+          inferenceCurrentModulePath = Just modulePath
+        }
+      moduleExpr
+  pure
+    CompiledModule
+      { compiledResolvedModule = resolvedModule,
+        compiledModuleInterface = inferredModuleInterface inference,
+        compiledModuleWarnings = inferredWarnings inference,
+        compiledModuleErrors = inferredErrors inference,
+        compiledModuleExpr = inferredExpr inference
+      }
 
 lookupDependency :: [Text] -> [CompiledModule] -> Maybe CompiledModule
 lookupDependency modulePath =

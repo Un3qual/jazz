@@ -180,13 +180,20 @@ testParseRuntimeStatistics = do
 
 testParseRuntimeProfile :: IO ()
 testParseRuntimeProfile = do
-  options <-
+  equalsOptions <-
     requireParsedOptions
       ["--run", "--runtime-profile=profiles/program.speedscope.json", "--runtime-profile=profiles/program.speedscope.json"]
+  spacedOptions <-
+    requireParsedOptions
+      ["--run", "--runtime-profile", "profiles/program.speedscope.json"]
   assertEqual
-    "runtime profile path"
+    "equals runtime profile path"
     (Just "profiles/program.speedscope.json")
-    (cliRuntimeProfilePath options)
+    (cliRuntimeProfilePath equalsOptions)
+  assertEqual
+    "space-separated runtime profile path"
+    (Just "profiles/program.speedscope.json")
+    (cliRuntimeProfilePath spacedOptions)
 
 testParseInvalidRuntimeObservation :: IO ()
 testParseInvalidRuntimeObservation = do

@@ -184,6 +184,7 @@ benchmark jazz-next-bench
   other-modules:
       JazzNext.Benchmark.Force
       JazzNext.Benchmark.Metadata
+      JazzNext.Benchmark.StageInputs
       JazzNext.Benchmark.Stages
       Paths_jazz_next
   autogen-modules: Paths_jazz_next
@@ -196,6 +197,7 @@ benchmark jazz-next-bench
       base >= 4.22 && < 4.23,
       bytestring >= 0.12 && < 0.13,
       containers >= 0.8 && < 0.9,
+      deepseq >= 1.5 && < 1.6,
       directory >= 1.3 && < 1.4,
       filepath >= 1.5 && < 1.6,
       jazz-next:jazz-next-internal,
@@ -211,18 +213,25 @@ test-suite benchmark-metadata-spec
   hs-source-dirs: benchmark
   main-is: JazzNext/Benchmark/MetadataSpec.hs
   other-modules:
-      JazzNext.Benchmark.Force
       JazzNext.Benchmark.Metadata
-      JazzNext.Benchmark.Stages
       Paths_jazz_next
   autogen-modules: Paths_jazz_next
   build-depends:
       aeson >= 2.2 && < 2.3,
       bytestring >= 0.12 && < 0.13,
       process >= 1.6 && < 1.7,
-      tasty >= 1.5 && < 1.6,
-      tasty-bench >= 0.4.1 && < 0.6,
       time >= 1.15 && < 1.16
+
+test-suite benchmark-stage-spec
+  import: test-common, program-support
+  type: exitcode-stdio-1.0
+  hs-source-dirs: benchmark
+  main-is: JazzNext/Benchmark/StageSpec.hs
+  other-modules:
+      JazzNext.Benchmark.Force
+      JazzNext.Benchmark.StageInputs
+  build-depends:
+      deepseq >= 1.5 && < 1.6
 
 test-suite runtime-observation-spec
   import: test-common

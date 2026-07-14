@@ -10,8 +10,9 @@ module JazzNext.Benchmark.Metadata
     CompatibilityField (..),
     CompatibilityMismatch (..),
     CompatibilityPolicy (..),
-    PlatformFact (..),
+    EnvironmentFact (..),
     benchmarkArtifactPaths,
+    benchmarkBuildModeForProfiling,
     benchmarkEnvironmentJson,
     benchmarkRunIdentity,
     benchmarkTimeModeFromArguments,
@@ -64,25 +65,25 @@ data BenchmarkTimeMode
   | MutatorWallBenchmarkTime
   deriving (Bounded, Enum, Eq, Ord, Show)
 
-data PlatformFact
-  = AvailablePlatformFact Text
-  | UnavailablePlatformFact Text
+data EnvironmentFact value
+  = AvailableEnvironmentFact value
+  | UnavailableEnvironmentFact Text
   deriving (Eq, Ord, Show)
 
 data BenchmarkEnvironment = BenchmarkEnvironment
   { environmentSchemaVersion :: Int,
     environmentRunIdentifier :: Text,
     environmentLabel :: Text,
-    environmentGitRevision :: Text,
-    environmentGitDirty :: Bool,
+    environmentGitRevision :: EnvironmentFact Text,
+    environmentGitDirty :: EnvironmentFact Bool,
     environmentCorpusSchemaVersion :: Int,
     environmentSelectedCases :: [Text],
     environmentGhcVersion :: Text,
-    environmentCabalVersion :: Text,
+    environmentCabalVersion :: EnvironmentFact Text,
     environmentPackageVersion :: Text,
     environmentOperatingSystem :: Text,
     environmentArchitecture :: Text,
-    environmentCpuIdentity :: PlatformFact,
+    environmentCpuIdentity :: EnvironmentFact Text,
     environmentBuildMode :: BenchmarkBuildMode,
     environmentRtsCapabilities :: Int,
     environmentRtsArguments :: [Text],
@@ -168,27 +169,27 @@ instance FromJSON BenchmarkTimeMode where
       Just timeMode -> pure timeMode
       Nothing -> fail ("unknown benchmark time mode: " <> Text.unpack name)
 
-instance ToJSON PlatformFact where
-  toJSON platformFact =
-    case platformFact of
-      AvailablePlatformFact value ->
+instance (ToJSON value) => ToJSON (EnvironmentFact value) where
+  toJSON environmentFact =
+    case environmentFact of
+      AvailableEnvironmentFact value ->
         object ["status" .= ("available" :: Text), "value" .= value]
-      UnavailablePlatformFact reason ->
+      UnavailableEnvironmentFact reason ->
         object ["status" .= ("unavailable" :: Text), "reason" .= reason]
-  toEncoding platformFact =
-    case platformFact of
-      AvailablePlatformFact value ->
+  toEncoding environmentFact =
+    case environmentFact of
+      AvailableEnvironmentFact value ->
         pairs ("status" .= ("available" :: Text) <> "value" .= value)
-      UnavailablePlatformFact reason ->
+      UnavailableEnvironmentFact reason ->
         pairs ("status" .= ("unavailable" :: Text) <> "reason" .= reason)
 
-instance FromJSON PlatformFact where
-  parseJSON = withObject "PlatformFact" $ \platformFact -> do
-    status <- platformFact .: "status"
+instance (FromJSON value) => FromJSON (EnvironmentFact value) where
+  parseJSON = withObject "EnvironmentFact" $ \environmentFact -> do
+    status <- environmentFact .: "status"
     case (status :: Text) of
-      "available" -> AvailablePlatformFact <$> platformFact .: "value"
-      "unavailable" -> UnavailablePlatformFact <$> platformFact .: "reason"
-      _ -> fail ("unknown platform fact status: " <> Text.unpack status)
+      "available" -> AvailableEnvironmentFact <$> environmentFact .: "value"
+      "unavailable" -> UnavailableEnvironmentFact <$> environmentFact .: "reason"
+      _ -> fail ("unknown environment fact status: " <> Text.unpack status)
 
 instance ToJSON BenchmarkEnvironment where
   toJSON environment =
@@ -304,19 +305,19 @@ benchmarkRunIdentity = do
 
 captureBenchmarkEnvironment :: BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment
 captureBenchmarkEnvironment capture = do
-  gitRevision <- requireProcessFact "Git revision" "git" ["-C", capturePackageRoot capture, "rev-parse", "HEAD"]
-  gitStatus <- requireProcessFact "Git status" "git" ["-C", capturePackageRoot capture, "status", "--porcelain"]
-  cabalVersion <- requireProcessFact "Cabal version" "cabal" ["--numeric-version"]
+  gitRevision <- captureProcessFact "Git revision" False "git" ["-C", capturePackageRoot capture, "rev-parse", "HEAD"]
+  gitStatus <- captureProcessFact "Git status" True "git" ["-C", capturePackageRoot capture, "status", "--porcelain"]
+  cabalVersion <- captureProcessFact "Cabal version" False "cabal" ["--numeric-version"]
   cpuIdentity <- captureCpuIdentity
   capabilities <- getNumCapabilities
   fullArguments <- getFullArgs
   pure
     BenchmarkEnvironment
-      { environmentSchemaVersion = 1,
+      { environmentSchemaVersion = 2,
         environmentRunIdentifier = captureRunIdentifier capture,
         environmentLabel = captureEnvironmentLabel capture,
         environmentGitRevision = gitRevision,
-        environmentGitDirty = not (Text.null gitStatus),
+        environmentGitDirty = mapEnvironmentFact (not . Text.null) gitStatus,
         environmentCorpusSchemaVersion = captureCorpusSchemaVersion capture,
         environmentSelectedCases = sort (captureSelectedCases capture),
         environmentGhcVersion = Text.pack (showVersion SystemInfo.compilerVersion),
@@ -406,6 +407,12 @@ benchmarkBuildModeFromName name =
     "profiling" -> Just ProfilingBenchmarkBuild
     _ -> Nothing
 
+benchmarkBuildModeForProfiling :: Bool -> BenchmarkBuildMode
+benchmarkBuildModeForProfiling profilingEnabled =
+  if profilingEnabled
+    then ProfilingBenchmarkBuild
+    else OptimizedBenchmarkBuild
+
 benchmarkTimeModeName :: BenchmarkTimeMode -> Text
 benchmarkTimeModeName timeMode =
   case timeMode of
@@ -437,46 +444,57 @@ validatePathSegment description maximumLength value
 renderRunTimestamp :: UTCTime -> Text
 renderRunTimestamp = Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
 
-requireProcessFact :: Text -> FilePath -> [String] -> IO Text
-requireProcessFact description executable arguments = do
+captureProcessFact :: Text -> Bool -> FilePath -> [String] -> IO (EnvironmentFact Text)
+captureProcessFact description allowEmpty executable arguments = do
   processResult <- try (readProcessWithExitCode executable arguments "")
   case processResult of
-    Left exception -> ioError (userError (Text.unpack (description <> " is unavailable: " <> Text.pack (show (exception :: IOException)))))
-    Right (ExitSuccess, output, _) -> pure (Text.strip (Text.pack output))
+    Left exception ->
+      pure
+        ( UnavailableEnvironmentFact
+            (description <> " is unavailable: " <> Text.pack (show (exception :: IOException)))
+        )
+    Right (ExitSuccess, output, _)
+      | let value = Text.strip (Text.pack output),
+        allowEmpty || not (Text.null value) ->
+          pure (AvailableEnvironmentFact value)
     Right (exitCode, _, standardError) ->
-      ioError
-        ( userError
-            ( Text.unpack
-                ( description
-                    <> " command failed ("
-                    <> Text.pack (show exitCode)
-                    <> "): "
-                    <> Text.strip (Text.pack standardError)
-                )
+      pure
+        ( UnavailableEnvironmentFact
+            ( description
+                <> " command failed ("
+                <> Text.pack (show exitCode)
+                <> "): "
+                <> Text.strip (Text.pack standardError)
             )
         )
 
-captureCpuIdentity :: IO PlatformFact
+mapEnvironmentFact :: (left -> right) -> EnvironmentFact left -> EnvironmentFact right
+mapEnvironmentFact mapValue environmentFact =
+  case environmentFact of
+    AvailableEnvironmentFact value -> AvailableEnvironmentFact (mapValue value)
+    UnavailableEnvironmentFact reason -> UnavailableEnvironmentFact reason
+
+captureCpuIdentity :: IO (EnvironmentFact Text)
 captureCpuIdentity =
   case SystemInfo.os of
-    "darwin" -> optionalProcessFact "sysctl" ["-n", "machdep.cpu.brand_string"]
+    "darwin" -> captureProcessFact "CPU identity" False "sysctl" ["-n", "machdep.cpu.brand_string"]
     "linux" -> captureLinuxCpuIdentity
-    operatingSystem -> pure (UnavailablePlatformFact ("CPU identity is not implemented for " <> Text.pack operatingSystem))
+    operatingSystem -> pure (UnavailableEnvironmentFact ("CPU identity is not implemented for " <> Text.pack operatingSystem))
 
-captureLinuxCpuIdentity :: IO PlatformFact
+captureLinuxCpuIdentity :: IO (EnvironmentFact Text)
 captureLinuxCpuIdentity = do
   let cpuInfoPath = "/proc/cpuinfo"
   exists <- doesFileExist cpuInfoPath
   if not exists
-    then pure (UnavailablePlatformFact "/proc/cpuinfo is unavailable")
+    then pure (UnavailableEnvironmentFact "/proc/cpuinfo is unavailable")
     else do
       cpuInfoResult <- try (readFile cpuInfoPath)
       case cpuInfoResult of
-        Left exception -> pure (UnavailablePlatformFact (Text.pack (show (exception :: IOException))))
+        Left exception -> pure (UnavailableEnvironmentFact (Text.pack (show (exception :: IOException))))
         Right cpuInfo ->
           case [value | line <- Text.lines (Text.pack cpuInfo), Just value <- [linuxCpuModelName line]] of
-            value : _ | not (Text.null value) -> pure (AvailablePlatformFact value)
-            _ -> pure (UnavailablePlatformFact "model name is absent from /proc/cpuinfo")
+            value : _ | not (Text.null value) -> pure (AvailableEnvironmentFact value)
+            _ -> pure (UnavailableEnvironmentFact "model name is absent from /proc/cpuinfo")
 
 linuxCpuModelName :: Text -> Maybe Text
 linuxCpuModelName line =
@@ -485,20 +503,6 @@ linuxCpuModelName line =
    in if Text.strip key == "model name" && not (Text.null valueWithSeparator) && not (Text.null value)
         then Just value
         else Nothing
-
-optionalProcessFact :: FilePath -> [String] -> IO PlatformFact
-optionalProcessFact executable arguments = do
-  processResult <- try (readProcessWithExitCode executable arguments "")
-  case processResult of
-    Left exception -> pure (UnavailablePlatformFact (Text.pack (show (exception :: IOException))))
-    Right (ExitSuccess, output, _)
-      | not (Text.null (Text.strip (Text.pack output))) ->
-          pure (AvailablePlatformFact (Text.strip (Text.pack output)))
-    Right (exitCode, _, standardError) ->
-      pure
-        ( UnavailablePlatformFact
-            (Text.pack (show exitCode) <> ": " <> Text.strip (Text.pack standardError))
-        )
 
 extractRtsArguments :: [String] -> [String]
 extractRtsArguments arguments =

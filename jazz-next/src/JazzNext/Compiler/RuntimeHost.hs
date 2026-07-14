@@ -96,11 +96,12 @@ productionRuntimeHost =
       runtimeHostWriteStderr = profileHostOperation . writeUtf8Handle stderr,
       runtimeHostArguments = profileHostOperation (map Text.pack <$> getArgs),
       runtimeHostExit = \status ->
-        {-# SCC "jazz-stage:host-operation" #-}
-        exitWith
-          ( if status == 0
-              then ExitSuccess
-              else ExitFailure (fromInteger status)
+        profileHostOperation
+          ( exitWith
+              ( if status == 0
+                  then ExitSuccess
+                  else ExitFailure (fromInteger status)
+              )
           )
     }
 

@@ -7,29 +7,18 @@ module JazzNext.Benchmark.Stages
   )
 where
 
-import Control.Exception (evaluate)
 import Control.Monad (forM_, void, (<=<))
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import JazzNext.Benchmark.Force
-  ( forceCompiledProgram,
-    forceCompiledProgramResult,
-    forceExpr,
-    forceInferenceResult,
-    forceProgramCaseResult,
-    forceRuntimeProgramResult,
-    forceSurfaceExpr,
-    forceTokens,
-  )
 import JazzNext.Benchmark.Metadata
   ( BenchmarkArtifactPaths (..),
-    BenchmarkBuildMode (OptimizedBenchmarkBuild),
     BenchmarkEnvironment,
     BenchmarkEnvironmentCapture (..),
     benchmarkArtifactPaths,
+    benchmarkBuildModeForProfiling,
     benchmarkRunIdentity,
     benchmarkTimeModeFromArguments,
     captureBenchmarkEnvironment,
@@ -37,30 +26,19 @@ import JazzNext.Benchmark.Metadata
     validateEnvironmentLabel,
     writeBenchmarkEnvironment,
   )
-import JazzNext.Compiler.AST (Expr)
-import JazzNext.Compiler.Diagnostics (Diagnostic, renderDiagnostic)
-import JazzNext.Compiler.ModuleInterface (CompiledProgram (compiledProgramErrors))
-import JazzNext.Compiler.ModuleRuntime (evaluateCompiledProgram)
-import JazzNext.Compiler.Parser (parseSurfaceProgramTokens)
-import JazzNext.Compiler.Parser.Lexer (tokenize)
-import JazzNext.Compiler.Parser.Lower (lowerSurfaceExpr)
+import JazzNext.Benchmark.StageInputs
+  ( prepareBenchmark,
+    runPreparedBenchmark,
+    selectProgramCases,
+  )
 import JazzNext.Compiler.Profiling
   ( BenchmarkGroup (..),
-    CompilerStage (..),
     benchmarkGroupName,
-    withCompilerStage,
+    compilerProfilingEnabled,
   )
-import JazzNext.Compiler.SourceProgram (parseAndLowerStandaloneSource)
-import JazzNext.Compiler.TypeInference (inferExpressionDefault)
 import JazzNext.ProgramCorpus.Manifest
   ( loadProgramCorpus,
     renderProgramCorpusViolation,
-  )
-import JazzNext.ProgramCorpus.Runner
-  ( ProgramCaseResult (..),
-    loadProgramCaseEntrySource,
-    prepareProgramCase,
-    runProgramCase,
   )
 import JazzNext.ProgramCorpus.Types
   ( ProgramCase (..),
@@ -76,19 +54,13 @@ import Test.Tasty.Bench
     benchIngredients,
     bgroup,
     defaultMain,
+    env,
     nfIO,
   )
 import Test.Tasty.Ingredients
   ( Ingredient (..),
     composeReporters,
   )
-
-data PreparedCase = PreparedCase
-  { preparedProgramCase :: ProgramCase,
-    preparedEntrySource :: Text,
-    preparedLoweredEntry :: Expr,
-    preparedCompiledProgram :: CompiledProgram
-  }
 
 data BenchmarkCommand = BenchmarkCommand
   { benchmarkCommandSmoke :: Bool,
@@ -111,10 +83,10 @@ runBenchmarkMainWithEnvironmentCapture ::
   IO ()
 runBenchmarkMainWithEnvironmentCapture captureEnvironment arguments = do
   benchmarkCommand <- fromEitherText (parseBenchmarkCommand arguments)
-  (corpus, preparedCases) <- loadPreparedCases
+  corpus <- loadCorpus
   selectedCases <-
     fromEitherText
-      (selectPreparedCases (benchmarkCommandSelectedCases benchmarkCommand) preparedCases)
+      (selectProgramCases (benchmarkCommandSelectedCases benchmarkCommand) (programCorpusCases corpus))
   if benchmarkCommandSmoke benchmarkCommand
     then runSmoke selectedCases
     else case benchmarkCommandEnvironmentLabel benchmarkCommand of
@@ -130,70 +102,43 @@ runBenchmarkMainWithEnvironmentCapture captureEnvironment arguments = do
           (programCorpusSchemaVersion corpus)
           selectedCases
 
-loadPreparedCases :: IO (ProgramCorpus, [PreparedCase])
-loadPreparedCases = do
+loadCorpus :: IO ProgramCorpus
+loadCorpus = do
   corpusResult <- loadProgramCorpus
-  corpus <-
-    case corpusResult of
-      Left violations ->
-        ioError
-          ( userError
-              ( Text.unpack
-                  (Text.unlines (map renderProgramCorpusViolation violations))
-              )
-          )
-      Right value -> pure value
-  preparedCases <- mapM prepareCase (programCorpusCases corpus)
-  pure (corpus, preparedCases)
+  case corpusResult of
+    Left violations ->
+      ioError
+        ( userError
+            ( Text.unpack
+                (Text.unlines (map renderProgramCorpusViolation violations))
+            )
+        )
+    Right corpus -> pure corpus
 
-prepareCase :: ProgramCase -> IO PreparedCase
-prepareCase programCase = do
-  source <-
-    withCompilerStage SourceLoadingStage $ do
-      loadedSource <- loadProgramCaseEntrySource programCase
-      _ <- evaluate (Text.length loadedSource)
-      pure loadedSource
-  lowered <-
-    case parseAndLowerStandaloneSource source of
-      Left diagnostic -> ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
-      Right value -> evaluate (forceExpr value) >> pure value
-  compiledResult <- prepareProgramCase programCase
-  compiled <-
-    case compiledResult of
-      Left diagnostic -> ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
-      Right value -> do
-        evaluate (forceCompiledProgram value)
-        case compiledProgramErrors value of
-          [] -> pure value
-          diagnostic : _ -> ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
-  pure
-    PreparedCase
-      { preparedProgramCase = programCase,
-        preparedEntrySource = source,
-        preparedLoweredEntry = lowered,
-        preparedCompiledProgram = compiled
-      }
-
-benchmarkTree :: [PreparedCase] -> [Benchmark]
-benchmarkTree preparedCases =
+benchmarkTree :: [ProgramCase] -> [Benchmark]
+benchmarkTree programCases =
   [ bgroup
       "jazz-next"
       [ bgroup
           (Text.unpack (benchmarkGroupName benchmarkGroup))
-          [ bench
-              (Text.unpack (programCaseIdentifier (preparedProgramCase preparedCase)))
-              (nfIO (runStage benchmarkGroup preparedCase))
-          | preparedCase <- preparedCases,
-            benchmarkGroup `elem` programCaseBenchmarks (preparedProgramCase preparedCase)
+          [ env
+              (prepareBenchmark benchmarkGroup programCase)
+              ( \preparedBenchmark ->
+                  bench
+                    (Text.unpack (programCaseIdentifier programCase))
+                    (nfIO (runPreparedBenchmark preparedBenchmark))
+              )
+          | programCase <- programCases,
+            benchmarkGroup `elem` programCaseBenchmarks programCase
           ]
       | benchmarkGroup <- [minBound .. maxBound]
       ]
   ]
 
-runSmoke :: [PreparedCase] -> IO ()
-runSmoke preparedCases =
+runSmoke :: [ProgramCase] -> IO ()
+runSmoke programCases =
   forM_ ([minBound .. maxBound] :: [BenchmarkGroup]) $ \benchmarkGroup ->
-    case find (isFastParticipant benchmarkGroup) preparedCases of
+    case find (isFastParticipant benchmarkGroup) programCases of
       Nothing ->
         ioError
           ( userError
@@ -201,99 +146,43 @@ runSmoke preparedCases =
                   <> Text.unpack (benchmarkGroupName benchmarkGroup)
               )
           )
-      Just preparedCase -> do
+      Just programCase -> do
         TextIO.putStrLn
           ( "SMOKE "
               <> benchmarkGroupName benchmarkGroup
               <> "/"
-              <> programCaseIdentifier (preparedProgramCase preparedCase)
+              <> programCaseIdentifier programCase
           )
-        runStage benchmarkGroup preparedCase
+        prepareBenchmark benchmarkGroup programCase >>= runPreparedBenchmark
 
-isFastParticipant :: BenchmarkGroup -> PreparedCase -> Bool
-isFastParticipant benchmarkGroup preparedCase =
-  let programCase = preparedProgramCase preparedCase
-   in programCaseWorkload programCase == FastWorkload
-        && benchmarkGroup `elem` programCaseBenchmarks programCase
-
-runStage :: BenchmarkGroup -> PreparedCase -> IO ()
-runStage benchmarkGroup preparedCase =
-  case benchmarkGroup of
-    ParseLowerBenchmark -> do
-      tokens <-
-        withCompilerStage LexingStage $ do
-          tokenResult <- evaluate (tokenize (preparedEntrySource preparedCase))
-          case tokenResult of
-            Left diagnostic -> failBenchmarkDiagnostic diagnostic
-            Right values -> evaluate (forceTokens values) >> pure values
-      surfaceProgram <-
-        withCompilerStage ParsingStage $ do
-          parseResult <- evaluate (parseSurfaceProgramTokens tokens)
-          case parseResult of
-            Left diagnostic -> failBenchmarkDiagnostic diagnostic
-            Right value -> evaluate (forceSurfaceExpr value) >> pure value
-      withCompilerStage LoweringStage $ do
-        let expression = lowerSurfaceExpr surfaceProgram
-        evaluate (forceExpr expression)
-    AnalysisBenchmark ->
-      withCompilerStage TypeInferenceStage $ do
-        inference <- inferExpressionDefault (preparedLoweredEntry preparedCase)
-        evaluate (forceInferenceResult inference)
-    ModulePreparationBenchmark ->
-      withCompilerStage RuntimePreparationStage $ do
-        compiledResult <- prepareProgramCase (preparedProgramCase preparedCase)
-        evaluate (forceCompiledProgramResult compiledResult)
-    RuntimeBenchmark ->
-      withCompilerStage EvaluationStage $
-        evaluate
-          ( forceRuntimeProgramResult
-              (evaluateCompiledProgram (preparedCompiledProgram preparedCase))
-          )
-    WholeProgramBenchmark -> do
-      result <- runProgramCase (preparedProgramCase preparedCase)
-      evaluate (forceProgramCaseResult result)
-      requireExpectedResult (preparedProgramCase preparedCase) result
-
-failBenchmarkDiagnostic :: Diagnostic -> IO value
-failBenchmarkDiagnostic diagnostic =
-  ioError (userError (Text.unpack (renderDiagnostic diagnostic)))
-
-requireExpectedResult :: ProgramCase -> ProgramCaseResult -> IO ()
-requireExpectedResult programCase result
-  | programCaseResultTermination result == programCaseExpectedTermination programCase,
-    programCaseResultStdout result == programCaseExpectedStdout programCase =
-      pure ()
-  | otherwise =
-      ioError
-        ( userError
-            ( "benchmark case did not preserve expected behavior: "
-                <> Text.unpack (programCaseIdentifier programCase)
-            )
-        )
+isFastParticipant :: BenchmarkGroup -> ProgramCase -> Bool
+isFastParticipant benchmarkGroup programCase =
+  programCaseWorkload programCase == FastWorkload
+    && benchmarkGroup `elem` programCaseBenchmarks programCase
 
 runRecordedBenchmarks ::
   (BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment) ->
   BenchmarkCommand ->
   Text ->
   Int ->
-  [PreparedCase] ->
+  [ProgramCase] ->
   IO ()
-runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpusSchemaVersion preparedCases = do
-  preparedCase <-
-    case preparedCases of
+runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpusSchemaVersion programCases = do
+  firstCase <-
+    case programCases of
       [] -> ioError (userError "no corpus cases were selected for the recorded benchmark")
       value : _ -> pure value
   timeMode <-
     fromEitherText
       (benchmarkTimeModeFromArguments (benchmarkCommandForwardedArguments benchmarkCommand))
   (runIdentifier, runTimestamp) <- benchmarkRunIdentity
-  let packageRoot = programCasePackageRoot (preparedProgramCase preparedCase)
+  let packageRoot = programCasePackageRoot firstCase
       resultRoot =
         case benchmarkCommandResultRoot benchmarkCommand of
           Nothing -> packageRoot </> "benchmark-results"
           Just configuredRoot -> configuredRoot
       selectedCaseIdentifiers =
-        map (programCaseIdentifier . preparedProgramCase) preparedCases
+        map programCaseIdentifier programCases
   artifactPaths <-
     fromEitherText (benchmarkArtifactPaths resultRoot environmentLabel runIdentifier)
   environment <-
@@ -304,7 +193,7 @@ runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpu
           captureEnvironmentLabel = environmentLabel,
           captureCorpusSchemaVersion = corpusSchemaVersion,
           captureSelectedCases = selectedCaseIdentifiers,
-          captureBuildMode = OptimizedBenchmarkBuild,
+          captureBuildMode = benchmarkBuildModeForProfiling compilerProfilingEnabled,
           captureBenchmarkArguments = benchmarkCommandForwardedArguments benchmarkCommand,
           captureTimeMode = timeMode,
           captureRunTimestamp = runTimestamp
@@ -316,7 +205,7 @@ runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpu
     )
     ( defaultMainWithIngredients
         (benchmarkIngredientsWithFinalizer (finalizeRecordedBenchmarks artifactPaths environment))
-        (bgroup "All" (benchmarkTree preparedCases))
+        (bgroup "All" (benchmarkTree programCases))
     )
 
 finalizeRecordedBenchmarks :: BenchmarkArtifactPaths -> BenchmarkEnvironment -> IO ()
@@ -419,21 +308,6 @@ addSelectedCase benchmarkCommand identifier
                 benchmarkCommandSelectedCases benchmarkCommand <> [identifier]
             }
         )
-
-selectPreparedCases :: [Text] -> [PreparedCase] -> Either Text [PreparedCase]
-selectPreparedCases requestedIdentifiers preparedCases
-  | null requestedIdentifiers = Right preparedCases
-  | not (null missingIdentifiers) =
-      Left ("unknown corpus case(s): " <> Text.intercalate ", " missingIdentifiers)
-  | otherwise =
-      Right
-        ( filter
-            ((`elem` requestedIdentifiers) . programCaseIdentifier . preparedProgramCase)
-            preparedCases
-        )
-  where
-    knownIdentifiers = map (programCaseIdentifier . preparedProgramCase) preparedCases
-    missingIdentifiers = filter (`notElem` knownIdentifiers) requestedIdentifiers
 
 fromEitherText :: Either Text value -> IO value
 fromEitherText value =

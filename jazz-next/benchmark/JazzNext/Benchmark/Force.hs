@@ -1,5 +1,6 @@
 module JazzNext.Benchmark.Force
   ( forceCompiledProgram,
+    forceCompiledModule,
     forceCompiledProgramResult,
     forceExpr,
     forceInferenceResult,

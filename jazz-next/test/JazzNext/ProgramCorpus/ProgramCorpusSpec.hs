@@ -19,7 +19,8 @@ import JazzNext.Compiler.Runtime.Observation
     emptyRuntimeStatistics,
   )
 import JazzNext.ProgramCorpus.Manifest
-  ( loadProgramCorpus,
+  ( canonicalizeValidatedPath,
+    loadProgramCorpus,
     loadProgramCorpusAt,
     programCaseById,
     renderProgramCorpusViolation,
@@ -68,6 +69,8 @@ tests :: [NamedTest]
 tests =
   [ ("reports all manifest violations in stable order", testAggregateManifestViolations),
     ("reports malformed manifest JSON", testMalformedManifest),
+    ("rejects unknown budget fields", testUnknownBudgetField),
+    ("reports canonicalization failures as corpus violations", testCanonicalizationFailure),
     ("reports every missing corpus path", testMissingCorpusPaths),
     ("rejects a source symlink that escapes the corpus root", testSymlinkEscape),
     ("loads and runs the checked-in identifier classifier", testIdentifierClassifier),
@@ -119,6 +122,36 @@ testMalformedManifest =
       Left violations ->
         failTest ("expected one manifest decode failure, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected malformed manifest failure, loaded " <> Text.pack (show corpus))
+
+testUnknownBudgetField :: IO ()
+testUnknownBudgetField =
+  withTemporaryDirectory $ \root -> do
+    let caseRoot = root </> "budget-typo"
+    createDirectory caseRoot
+    TextIO.writeFile (caseRoot </> "Main.jz") validMainSource
+    TextIO.writeFile (caseRoot </> "expected.stdout") "0\n"
+    writeManifest root unknownBudgetFieldManifest
+    result <- loadProgramCorpusAt root
+    case result of
+      Left [ManifestDecodeFailure message]
+        | "unknown program budget field: forcedValue" `Text.isInfixOf` message -> pure ()
+      Left violations ->
+        failTest ("expected an unknown-budget decode failure, got " <> Text.pack (show violations))
+      Right corpus -> failTest ("expected unknown budget field failure, loaded " <> Text.pack (show corpus))
+
+testCanonicalizationFailure :: IO ()
+testCanonicalizationFailure = do
+  result <-
+    canonicalizeValidatedPath
+      (\_ -> ioError (userError "simulated canonicalization failure"))
+      "/corpus"
+      "broken"
+      EntrySourcePath
+      "broken/Main.jz"
+  case result of
+    Left (UnreadableCorpusPath "broken" EntrySourcePath "broken/Main.jz" message)
+      | "simulated canonicalization failure" `Text.isInfixOf` message -> pure ()
+    other -> failTest ("expected canonicalization violation, got " <> Text.pack (show other))
 
 testMissingCorpusPaths :: IO ()
 testMissingCorpusPaths =
@@ -488,6 +521,33 @@ missingPathsManifest =
           "steps": 100,
           "applications": 10,
           "maxContinuationDepth": 10
+        }
+      }
+    ]
+  }
+  """
+
+unknownBudgetFieldManifest :: Text
+unknownBudgetFieldManifest =
+  """
+  {
+    "schemaVersion": 1,
+    "cases": [
+      {
+        "id": "budget-typo",
+        "directory": "budget-typo",
+        "entrySource": "Main.jz",
+        "moduleRoot": ".",
+        "expectedTermination": "success",
+        "expectedStdout": "expected.stdout",
+        "workload": "fast",
+        "features": ["deterministic-runtime"],
+        "benchmarks": ["runtime"],
+        "budgets": {
+          "steps": 100,
+          "applications": 10,
+          "maxContinuationDepth": 10,
+          "forcedValue": 20
         }
       }
     ]

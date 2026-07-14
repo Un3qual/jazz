@@ -8,6 +8,7 @@ module JazzNext.Compiler.Profiling
     CompilerStageBoundary (..),
     benchmarkGroupName,
     benchmarkGroupStages,
+    compilerProfilingEnabled,
     compilerStageMarkerName,
     compilerStageName,
     withCompilerStage,
@@ -52,6 +53,13 @@ data CompilerStageBoundary
   = CompilerStageBegin
   | CompilerStageEnd
   deriving (Eq, Ord, Show)
+
+compilerProfilingEnabled :: Bool
+#ifdef JAZZ_GHC_PROFILING
+compilerProfilingEnabled = True
+#else
+compilerProfilingEnabled = False
+#endif
 
 benchmarkGroupName :: BenchmarkGroup -> Text
 benchmarkGroupName group =

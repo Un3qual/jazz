@@ -225,7 +225,8 @@ become part of the `jazz-next` executable or runtime API.
 The benchmark tree mirrors compiler ownership and includes these groups:
 
 - `parse-lower`: source text through the lowered AST;
-- `analysis`: lowered program through static analysis and type inference;
+- `analysis`: the lowered entry module through static analysis and type
+  inference with its resolved imported interfaces;
 - `module-preparation`: module discovery, resolution, and runtime-ready program
   construction;
 - `runtime`: evaluation of an already prepared program; and
@@ -270,6 +271,10 @@ The versioned environment document records at least:
 - RTS capabilities and relevant RTS arguments;
 - benchmark arguments and time mode; and
 - run timestamp.
+
+Git, Cabal, and CPU probes use explicit available/unavailable facts. Missing
+tools or unsupported CPU probes do not abort a benchmark run, and unavailable
+facts remain visible to compatibility checks.
 
 Comparing result sets requires compatible corpus, GHC, build-mode, time-mode,
 and environment labels. The tool reports incompatibilities instead of

@@ -206,6 +206,9 @@ parseCliOptions args = do
     go options ("--runtime-stats" : rest) =
       setRuntimeStatisticsFormat RuntimeStatisticsHuman options
         >>= (`go` rest)
+    go options ("--runtime-profile" : profilePath : rest) =
+      setRuntimeProfilePath (Text.pack profilePath) options
+        >>= (`go` rest)
     go _ ("--runtime-profile" : _) =
       Left (mkMessageDiagnostic "missing path in --runtime-profile=PATH")
     go options ("--entry-module" : modulePathText : rest) =

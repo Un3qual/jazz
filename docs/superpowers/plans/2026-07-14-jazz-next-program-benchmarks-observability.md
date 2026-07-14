@@ -250,7 +250,11 @@ Cover source/module discovery, lex/parse/lower, resolution, analysis, type infer
 
 - [ ] **Step 4: Implement stage setup and forcing.**
 
-Use standalone parse/lower for source inputs, existing inference APIs for analysis, the driver's compiled-program builder for module preparation, prebuilt compiled programs for runtime, and the public driver path for whole-program measurement. Add narrow force functions for each returned artifact.
+Use standalone parse/lower for source inputs, re-run entry-module inference with
+the compiled dependency interfaces for analysis, use the driver's
+compiled-program builder for module preparation, prebuilt compiled programs for
+runtime, and the public driver path for whole-program measurement. Add narrow
+force functions for each returned artifact.
 
 - [ ] **Step 5: Confirm the smoke run and full benchmark discovery.**
 

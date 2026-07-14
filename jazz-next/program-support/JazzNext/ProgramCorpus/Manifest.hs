@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.ProgramCorpus.Manifest
-  ( loadProgramCorpus,
+  ( canonicalizeValidatedPath,
+    loadProgramCorpus,
     loadProgramCorpusAt,
     programCaseById,
     renderProgramCorpusViolation,
@@ -17,6 +18,8 @@ import Data.Aeson
     (.:?),
   )
 import Data.Aeson.Types (Parser, parseEither)
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString as ByteString
 import Data.Either (partitionEithers)
 import Data.List (group, sort, sortOn)
@@ -72,6 +75,9 @@ parseCase = withObject "program corpus case" $ \object ->
 
 parseBudgets :: Value -> Parser ProgramBudgets
 parseBudgets = withObject "program budgets" $ \object -> do
+  case unknownBudgetFields object of
+    [] -> pure ()
+    fields -> fail ("unknown program budget field: " <> Text.unpack (Text.intercalate ", " fields))
   optionalLimits <-
     Map.fromList . catMaybes
       <$> sequence
@@ -101,6 +107,17 @@ parseBudgets = withObject "program budgets" $ \object -> do
     <*> object .: "applications"
     <*> object .: "maxContinuationDepth"
     <*> pure optionalLimits
+
+unknownBudgetFields :: KeyMap.KeyMap Value -> [Text]
+unknownBudgetFields object =
+  sort
+    [ field
+      | key <- KeyMap.keys object,
+        let field = Key.toText key,
+        field `notElem` knownBudgetFields
+    ]
+  where
+    knownBudgetFields = map programBudgetMetricName ([minBound .. maxBound] :: [ProgramBudgetMetric])
 
 optionalBudget :: ProgramBudgetMetric -> Maybe limit -> Maybe (ProgramBudgetMetric, limit)
 optionalBudget metric maybeLimit =
@@ -287,11 +304,30 @@ validatePath pathExists corpusRoot identifier field parent rawPath
       exists <- pathExists candidatePath
       if not exists
         then pure (Left (MissingCorpusPath identifier field relativePath))
-        else do
-          canonicalPath <- canonicalizePath candidatePath
-          if isContainedBy corpusRoot canonicalPath
-            then pure (Right canonicalPath)
-            else pure (Left (EscapingCorpusPath identifier field relativePath))
+        else canonicalizeValidatedPath canonicalizePath corpusRoot identifier field relativePath
+
+canonicalizeValidatedPath ::
+  (FilePath -> IO FilePath) ->
+  FilePath ->
+  Text ->
+  ProgramPathField ->
+  FilePath ->
+  IO (Either ProgramCorpusViolation FilePath)
+canonicalizeValidatedPath canonicalize corpusRoot identifier field relativePath = do
+  canonicalResult <- try (canonicalize (corpusRoot </> relativePath)) :: IO (Either IOException FilePath)
+  pure $
+    case canonicalResult of
+      Left exception ->
+        Left
+          ( UnreadableCorpusPath
+              identifier
+              field
+              relativePath
+              (Text.pack (show exception))
+          )
+      Right canonicalPath
+        | isContainedBy corpusRoot canonicalPath -> Right canonicalPath
+        | otherwise -> Left (EscapingCorpusPath identifier field relativePath)
 
 readExpectedStdout :: Text -> Either ProgramCorpusViolation FilePath -> IO (Either ProgramCorpusViolation Text)
 readExpectedStdout _ (Left _) = pure (Right "")
