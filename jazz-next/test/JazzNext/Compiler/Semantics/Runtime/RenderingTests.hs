@@ -358,7 +358,7 @@ testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
 testDeclaredUserOperatorInfixRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% tier 2.
-  (%%) = \\(left) -> \\(right) -> left + right.
+  (%%) = \\(left, right) -> left + right.
   1 %% 2.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -369,7 +369,7 @@ testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
 testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% precedence 99.
-  (%%) = \\(left) -> \\(right) -> left - right.
+  (%%) = \\(left, right) -> left - right.
   20 + 10 %% 3 * 2.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -381,7 +381,7 @@ testDeclaredUserOperatorSignatureRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% tier 2.
   (%%) :: Int -> Int -> Int.
-  (%%) = \\(left) -> \\(right) -> left + right.
+  (%%) = \\(left, right) -> left + right.
   1 %% 2.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -392,7 +392,7 @@ testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
 testDeclaredUserOperatorValueRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% tier 2.
-  (%%) = \\(left) -> \\(right) -> left + right.
+  (%%) = \\(left, right) -> left + right.
   (%%) 1 2.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -403,7 +403,7 @@ testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% tier 2.
-  (%%) = \\(left) -> \\(right) -> left - right.
+  (%%) = \\(left, right) -> left - right.
   (2 %%) 10.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -414,7 +414,7 @@ testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserRightOperatorSectionRuntimeSuccess = do
   result <- runSource defaultWarningSettings """
   operator %% tier 2.
-  (%%) = \\(left) -> \\(right) -> left - right.
+  (%%) = \\(left, right) -> left - right.
   (%% 2) 10.
   """
   assertEqual "compile errors" [] (runCompileErrors result)

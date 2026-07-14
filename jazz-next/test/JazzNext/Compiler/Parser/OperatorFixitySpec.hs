@@ -166,11 +166,8 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
                 "$operator:%25%25"
                 (SourceSpan 2 2)
                 ( SELambda
-                    (SurfaceLambdaIdentifier "left" :| [])
-                    ( SELambda
-                        (SurfaceLambdaIdentifier "right" :| [])
-                        (SEBinary "+" (SEVar "left") (SEVar "right"))
-                    )
+                    (SurfaceLambdaIdentifier "left" :| [SurfaceLambdaIdentifier "right"])
+                    (SEBinary "+" (SEVar "left") (SEVar "right"))
                 ),
               SSLet
                 "result"
@@ -181,7 +178,7 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
     )
     (parseSurfaceProgram """
     operator %% tier 2.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     result = 1 %% 2 * 3.
     """)
 
@@ -204,11 +201,8 @@ testDeclaredOperatorSignatureParsesAsHiddenSignature =
                 "$operator:%25%25"
                 (SourceSpan 3 2)
                 ( SELambda
-                    (SurfaceLambdaIdentifier "left" :| [])
-                    ( SELambda
-                        (SurfaceLambdaIdentifier "right" :| [])
-                        (SEBinary "+" (SEVar "left") (SEVar "right"))
-                    )
+                    (SurfaceLambdaIdentifier "left" :| [SurfaceLambdaIdentifier "right"])
+                    (SEBinary "+" (SEVar "left") (SEVar "right"))
                 ),
               SSLet
                 "result"
@@ -220,7 +214,7 @@ testDeclaredOperatorSignatureParsesAsHiddenSignature =
     (parseSurfaceProgram """
     operator %% tier 2.
     (%%) :: Int -> Int -> Int.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     result = 1 %% 2.
     """)
 
@@ -235,11 +229,8 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
                 "$operator:%25%25"
                 (SourceSpan 3 2)
                 ( SELambda
-                    (SurfaceLambdaIdentifier "left" :| [])
-                    ( SELambda
-                        (SurfaceLambdaIdentifier "right" :| [])
-                        (SEBinary "+" (SEVar "left") (SEVar "right"))
-                    )
+                    (SurfaceLambdaIdentifier "left" :| [SurfaceLambdaIdentifier "right"])
+                    (SEBinary "+" (SEVar "left") (SEVar "right"))
                 )
             ]
         )
@@ -247,7 +238,7 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
     (parseSurfaceProgram """
     module Demo {
     operator %% tier 2.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     }
     """)
 

@@ -60,7 +60,7 @@ bundledPreludeSource =
       Text.intercalate
         "\n"
         [ "impl Eq(" <> targetType <> ") {",
-          "equals = \\(left) -> \\(right) -> left == right.",
+          "equals = \\(left, right) -> left == right.",
           "}."
         ]
 

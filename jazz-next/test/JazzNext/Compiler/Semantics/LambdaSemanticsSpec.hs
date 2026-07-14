@@ -34,7 +34,7 @@ tests =
     ("Unit case pattern runs", testUnitCasePatternRuntime),
     ("single-argument identity lambda runs", testIdentityLambdaRuntime),
     ("multi-argument const lambda runs", testConstLambdaRuntime),
-    ("lambda can close over outer variable", testClosureCaptureRuntime),
+    ("explicit nested lambdas capture between curry boundaries", testExplicitNestedLambdaClosureCaptureRuntime),
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
     ("self-recursive lambda runs", testSelfRecursiveLambdaRuntime),
     ("wrapped self-recursive lambda runs", testWrappedSelfRecursiveLambdaRuntime),
@@ -119,8 +119,10 @@ testConstLambdaRuntime = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1") (runOutput result)
 
-testClosureCaptureRuntime :: IO ()
-testClosureCaptureRuntime = do
+testExplicitNestedLambdaClosureCaptureRuntime :: IO ()
+testExplicitNestedLambdaClosureCaptureRuntime = do
+  -- The nested surface is intentional: this test covers closure capture at
+  -- each explicit unary lambda boundary rather than compact syntax.
   result <- runSource defaultWarningSettings "makeAdder = \\(x) -> \\(y) -> x + y. add2 = makeAdder 2. add2 3."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)

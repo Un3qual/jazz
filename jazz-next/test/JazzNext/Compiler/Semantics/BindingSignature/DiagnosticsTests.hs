@@ -79,7 +79,7 @@ testSourceRejectsGenericSignatureVariableCollapse =
   assertSourceSingleErrorContainsWithoutPrelude
     """
     bad :: a -> b -> a.
-    bad = \\(x) -> \\(y) -> y.
+    bad = \\(x, y) -> y.
     """
     "declared as"
 

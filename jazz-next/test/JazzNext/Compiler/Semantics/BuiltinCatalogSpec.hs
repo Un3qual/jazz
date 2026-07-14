@@ -269,7 +269,7 @@ testBundledPreludeIncludesEqFloat64EqualsMethodBody =
     "bundled prelude renders Eq(Float64).equals body"
     ( """
     impl Eq(Float64) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
 
     """

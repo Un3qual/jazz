@@ -530,7 +530,7 @@ testRecursiveDeclaredUserOperatorRuntimeSuccess = do
       defaultWarningSettings
       """
       operator %% tier 2.
-      (%%) = \\(left) -> \\(right) -> if left == 0 then right else (left - 1) %% right.
+      (%%) = \\(left, right) -> if left == 0 then right else (left - 1) %% right.
       x = 2 %% 3.
       x.
       """

@@ -424,7 +424,7 @@ testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding =
   assertCompiles
     """
     operator %% tier 2.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     x = 1 %% 2.
     """
 
@@ -434,7 +434,7 @@ testSourcePipelineAcceptsDeclaredUserOperatorSignature =
     """
     operator %% tier 2.
     (%%) :: Int -> Int -> Int.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     x = 1 %% 2.
     """
 
@@ -444,7 +444,7 @@ testSourcePipelineRejectsDeclaredUserOperatorSignatureMismatch =
     """
     operator %% tier 2.
     (%%) :: Int -> Int -> Bool.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     x = 1 %% 2.
     """
     "declared user operator signature mismatch"
@@ -457,7 +457,7 @@ testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature =
     operator %% tier 2.
     (%%) :: Int -> Int -> Int.
     gap = 0.
-    (%%) = \\(left) -> \\(right) -> toFloat64 1.
+    (%%) = \\(left, right) -> toFloat64 1.
     x = 1 %% 2.
     """
     "declared user operator signature adjacency"
@@ -468,7 +468,7 @@ testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
   assertCompiles
     """
     operator %% tier 2.
-    (%%) = \\(left) -> \\(right) -> left == right.
+    (%%) = \\(left, right) -> left == right.
     x = (%%) 1 1.
     """
 

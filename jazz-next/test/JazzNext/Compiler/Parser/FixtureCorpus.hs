@@ -285,14 +285,14 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0021.jz",
         parserFixtureSource = Text.pack """
         (%%) :: Int -> Int -> Int.
-        (%%) = \\(left) -> \\(right) -> left + right.
+        (%%) = \\(left, right) -> left + right.
         """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0022",
         parserFixturePath = "fixtures/parser/parser-corpus-0022.jz",
-        parserFixtureSource = Text.pack "(%%) = \\(left) -> \\(right) -> left + right.",
+        parserFixtureSource = Text.pack "(%%) = \\(left, right) -> left + right.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -325,7 +325,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0027",
         parserFixturePath = "fixtures/parser/parser-corpus-0027.jz",
-        parserFixtureSource = Text.pack "(+) = \\(left) -> \\(right) -> left + right.",
+        parserFixtureSource = Text.pack "(+) = \\(left, right) -> left + right.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -842,7 +842,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0103.jz",
         parserFixtureSource = Text.pack """
         impl Eq(Int) {
-        equals = \\(left) -> \\(right) -> left == right.
+        equals = \\(left, right) -> left == right.
         }.
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1222,7 +1222,7 @@ observedParserFixtures =
         parserFixtureSource = Text.pack """
         module Demo {
         operator %% tier 2.
-        (%%) = \\(left) -> \\(right) -> left + right.
+        (%%) = \\(left, right) -> left + right.
         }
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1380,7 +1380,7 @@ observedParserFixtures =
         parserFixtureSource = Text.pack """
         operator %% tier 2.
         (%%) :: Int -> Int -> Int.
-        (%%) = \\(left) -> \\(right) -> left + right.
+        (%%) = \\(left, right) -> left + right.
         result = 1 %% 2.
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1390,7 +1390,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0168.jz",
         parserFixtureSource = Text.pack """
         operator %% tier 2.
-        (%%) = \\(left) -> \\(right) -> left + right.
+        (%%) = \\(left, right) -> left + right.
         result = 1 %% 2 * 3.
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1447,7 +1447,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0174.jz",
         parserFixtureSource = Text.pack """
         operator %% tier 2.
-        x = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.
+        x = { (%%) = \\(left, right) -> left + right. 0. }.
         """,
         parserFixtureExpectation = ParserRejected
       },

@@ -101,7 +101,7 @@ testSourceInstantiatesPrimitiveConstrainedSignaturePerUse =
   impl Num(Int32) { }.
   impl Num(Int64) { }.
   add :: @{Num(a)}: a -> a -> a.
-  add = \\(x) -> \\(y) -> x + y.
+  add = \\(x, y) -> x + y.
   a32 :: Int32.
   a32 = 1.
   b32 :: Int32.
@@ -153,7 +153,7 @@ testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
   class Eq(a) { }.
   impl Eq(Int) { }.
   choose :: @{Eq(b)}: b -> a -> b.
-  choose = \\(x) -> \\(y) -> x.
+  choose = \\(x, y) -> x.
   value = choose @Int 1 True.
   value.
   """
@@ -165,8 +165,8 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
       defaultWarningSettings
       Nothing
       ( """
-      flip = \\(f) -> \\(x) -> \\(y) -> f y x.
-      value = flip @Int (\\(left) -> \\(right) -> left + 1) True 2.
+      flip = \\(f, x, y) -> f y x.
+      value = flip @Int (\\(left, right) -> left + 1) True 2.
       value.
       """
       )

@@ -6,7 +6,7 @@ module List (value listPrepend, value listReverse, value listLength) {
   listReverse = __kernel_listReverseRaw.
 
   listLengthFrom :: [a] -> Int -> Int.
-  listLengthFrom = \(items) -> \(length) -> case items {
+  listLengthFrom = \(items, length) -> case items {
     | [] -> length
     | [_ | rest] -> listLengthFrom rest (length + 1)
   }.

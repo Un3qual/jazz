@@ -15,13 +15,13 @@ module Lexer (value lexSource) {
   zeroUInt32 = 0.
 
   nextTabStop :: Int -> Int -> Int.
-  nextTabStop = \(stop) -> \(column) -> if stop > column then stop else nextTabStop (stop + 8) column.
+  nextTabStop = \(stop, column) -> if stop > column then stop else nextTabStop (stop + 8) column.
 
   advanceLine :: Char -> Int -> Int.
-  advanceLine = \(value) -> \(line) -> if value == '\n' then line + 1 else line.
+  advanceLine = \(value, line) -> if value == '\n' then line + 1 else line.
 
   advanceColumn :: Char -> Int -> Int.
-  advanceColumn = \(value) -> \(column) -> if value == '\n' then
+  advanceColumn = \(value, column) -> if value == '\n' then
     1
     else if value == '\t' then
       nextTabStop 1 column
@@ -112,23 +112,23 @@ module Lexer (value lexSource) {
       else (charToUInt32 digit) - (charToUInt32 'a') + 10.
 
   parseHex :: Text -> UInt32 -> UInt32.
-  parseHex = \(digits) -> \(value) -> case textUncons digits {
+  parseHex = \(digits, value) -> case textUncons digits {
     | Nothing -> value
     | Just (first, rest) -> parseHex rest (value * 16 + (hexDigitValue first))
   }.
 
   lexicalFailure :: CanonicalLexErrorReason -> Int -> Int -> ScanResult.
-  lexicalFailure = \(reason) -> \(line) -> \(column) -> ScanFailed (CanonicalLexError "E0001" reason (CanonicalSpan line column)).
+  lexicalFailure = \(reason, line, column) -> ScanFailed (CanonicalLexError "E0001" reason (CanonicalSpan line column)).
 
   singleToken :: CanonicalTokenKind -> Text -> Text -> Int -> Int -> ScanResult.
-  singleToken = \(kind) -> \(raw) -> \(remaining) -> \(line) -> \(column) ->
+  singleToken = \(kind, raw, remaining, line, column) ->
     Scanned (CanonicalToken kind raw (CanonicalSpan line column)) remaining line (column + (textLength raw)).
 
   textFromReversedChars :: [Char] -> Text.
   textFromReversedChars = \(reversed) -> textFromChars (listReverse reversed).
 
   scanTextRun :: (Char -> Bool) -> Text -> [Char] -> TextRun.
-  scanTextRun = \(accepts) -> \(remaining) -> \(reversed) -> case textUncons remaining {
+  scanTextRun = \(accepts, remaining, reversed) -> case textUncons remaining {
     | Nothing -> TextRun (textFromReversedChars reversed) remaining
     | Just (current, rest) -> if (accepts current) then
       scanTextRun accepts rest (listPrepend current reversed)
@@ -136,17 +136,17 @@ module Lexer (value lexSource) {
   }.
 
   scanIdentifier :: Text -> Int -> Int -> ScanResult.
-  scanIdentifier = \(source) -> \(line) -> \(column) -> case scanTextRun isIdentifierContinuation source [] {
+  scanIdentifier = \(source, line, column) -> case scanTextRun isIdentifierContinuation source [] {
     | TextRun raw remaining -> Scanned (CanonicalToken (identifierKind raw) raw (CanonicalSpan line column)) remaining line (column + (textLength raw))
   }.
 
   scanInteger :: Text -> Int -> Int -> ScanResult.
-  scanInteger = \(source) -> \(line) -> \(column) -> case scanTextRun charIsDigit source [] {
+  scanInteger = \(source, line, column) -> case scanTextRun charIsDigit source [] {
     | TextRun raw remaining -> Scanned (CanonicalToken (IntegerKind (canonicalInteger raw)) raw (CanonicalSpan line column)) remaining line (column + (textLength raw))
   }.
 
   scanColon :: Text -> Int -> Int -> ScanResult.
-  scanColon = \(remaining) -> \(line) -> \(column) -> case textUncons remaining {
+  scanColon = \(remaining, line, column) -> case textUncons remaining {
     | Just (next, rest) -> if next == ':' then
       singleToken (PunctuationKind DoubleColonPunctuation) "::" rest line column
       else singleToken (PunctuationKind ColonPunctuation) ":" remaining line column
@@ -154,7 +154,7 @@ module Lexer (value lexSource) {
   }.
 
   scanEquals :: Text -> Int -> Int -> ScanResult.
-  scanEquals = \(remaining) -> \(line) -> \(column) -> case textUncons remaining {
+  scanEquals = \(remaining, line, column) -> case textUncons remaining {
     | Just (next, rest) -> if next == '=' then
       singleToken (OperatorKind "==") "==" rest line column
       else if next == '>' then
@@ -164,14 +164,14 @@ module Lexer (value lexSource) {
   }.
 
   scanOperatorRun :: Text -> Int -> Int -> ScanResult.
-  scanOperatorRun = \(source) -> \(line) -> \(column) -> case scanTextRun isOperatorSymbol source [] {
+  scanOperatorRun = \(source, line, column) -> case scanTextRun isOperatorSymbol source [] {
     | TextRun raw remaining -> if raw == "->" then
       singleToken (PunctuationKind ArrowPunctuation) raw remaining line column
       else singleToken (OperatorKind raw) raw remaining line column
   }.
 
   scanBang :: Text -> Text -> Int -> Int -> ScanResult.
-  scanBang = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+  scanBang = \(remaining, source, line, column) -> case textUncons remaining {
     | Just (next, rest) -> if next == '=' then
       singleToken (OperatorKind "!=") "!=" rest line column
       else scanOperatorRun source line column
@@ -179,7 +179,7 @@ module Lexer (value lexSource) {
   }.
 
   scanLess :: Text -> Text -> Int -> Int -> ScanResult.
-  scanLess = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+  scanLess = \(remaining, source, line, column) -> case textUncons remaining {
     | Just (next, rest) -> if next == '=' then
       singleToken (OperatorKind "<=") "<=" rest line column
       else scanOperatorRun source line column
@@ -187,7 +187,7 @@ module Lexer (value lexSource) {
   }.
 
   scanGreater :: Text -> Text -> Int -> Int -> ScanResult.
-  scanGreater = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+  scanGreater = \(remaining, source, line, column) -> case textUncons remaining {
     | Just (next, rest) -> if next == '=' then
       singleToken (OperatorKind ">=") ">=" rest line column
       else scanOperatorRun source line column
@@ -195,7 +195,7 @@ module Lexer (value lexSource) {
   }.
 
   scanSymbol :: Text -> Int -> Int -> ScanResult.
-  scanSymbol = \(source) -> \(line) -> \(column) -> case textUncons source {
+  scanSymbol = \(source, line, column) -> case textUncons source {
     | Nothing -> lexicalFailure UnexpectedEndOfInput line column
     | Just (current, rest) -> if current == ':' then
       scanColon rest line column
@@ -235,7 +235,7 @@ module Lexer (value lexSource) {
   }.
 
   finishQuoted :: CanonicalLiteralKind -> [Char] -> [Char] -> Int -> Text -> Int -> Int -> Int -> ScanResult.
-  finishQuoted = \(literalKind) -> \(reversedRaw) -> \(reversedDecoded) -> \(count) -> \(remaining) -> \(line) -> \(startColumn) -> \(nextColumn) -> case literalKind {
+  finishQuoted = \(literalKind, reversedRaw, reversedDecoded, count, remaining, line, startColumn, nextColumn) -> case literalKind {
     | CharacterLiteral -> if count == 1 then
       case textUncons (textFromReversedChars reversedDecoded) {
         | Just (value, _) -> Scanned (CanonicalToken (CharacterKind value) (textFromReversedChars reversedRaw) (CanonicalSpan line startColumn)) remaining line nextColumn
@@ -246,7 +246,7 @@ module Lexer (value lexSource) {
   }.
 
   scanQuoted :: QuoteMode -> CanonicalLiteralKind -> Char -> Text -> [Char] -> [Char] -> Int -> Int -> Int -> Int -> ScanResult.
-  scanQuoted = \(mode) -> \(literalKind) -> \(delimiter) -> \(remaining) -> \(reversedRaw) -> \(reversedDecoded) -> \(count) -> \(line) -> \(startColumn) -> \(currentColumn) -> case textUncons remaining {
+  scanQuoted = \(mode, literalKind, delimiter, remaining, reversedRaw, reversedDecoded, count, line, startColumn, currentColumn) -> case textUncons remaining {
     | Nothing -> case mode {
       | QuoteNormal -> lexicalFailure (UnterminatedLiteral literalKind) line startColumn
       | QuoteEscape -> lexicalFailure (UnterminatedLiteral literalKind) line startColumn
@@ -293,19 +293,19 @@ module Lexer (value lexSource) {
   }.
 
   scanCharacter :: Text -> Int -> Int -> ScanResult.
-  scanCharacter = \(source) -> \(line) -> \(column) -> case textUncons source {
+  scanCharacter = \(source, line, column) -> case textUncons source {
     | Nothing -> lexicalFailure UnexpectedEndOfInput line column
     | Just (_, rest) -> scanQuoted QuoteNormal CharacterLiteral '\'' rest ['\''] [] 0 line column (column + 1)
   }.
 
   scanText :: Text -> Int -> Int -> ScanResult.
-  scanText = \(source) -> \(line) -> \(column) -> case textUncons source {
+  scanText = \(source, line, column) -> case textUncons source {
     | Nothing -> lexicalFailure UnexpectedEndOfInput line column
     | Just (_, rest) -> scanQuoted QuoteNormal TextLiteral '"' rest ['"'] [] 0 line column (column + 1)
   }.
 
   scanToken :: Text -> Int -> Int -> ScanResult.
-  scanToken = \(source) -> \(line) -> \(column) -> case textUncons source {
+  scanToken = \(source, line, column) -> case textUncons source {
     | Nothing -> lexicalFailure UnexpectedEndOfInput line column
     | Just (current, _) -> if current == '\'' then
       scanCharacter source line column
@@ -319,7 +319,7 @@ module Lexer (value lexSource) {
   }.
 
   lexLoop :: CanonicalSourcePath -> Text -> Int -> Int -> [CanonicalToken] -> Bool -> CanonicalLexResult.
-  lexLoop = \(path) -> \(remaining) -> \(line) -> \(column) -> \(reversedTokens) -> \(inComment) -> case textUncons remaining {
+  lexLoop = \(path, remaining, line, column, reversedTokens, inComment) -> case textUncons remaining {
     | Nothing -> CanonicalLexSuccess path (listReverse reversedTokens)
     | Just (current, rest) -> if inComment then
       if current == '\n' then
@@ -336,5 +336,5 @@ module Lexer (value lexSource) {
   }.
 
   lexSource :: CanonicalSourcePath -> Text -> CanonicalLexResult.
-  lexSource = \(path) -> \(source) -> lexLoop path source 1 1 [] False.
+  lexSource = \(path, source) -> lexLoop path source 1 1 [] False.
 }

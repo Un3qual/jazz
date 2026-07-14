@@ -383,7 +383,7 @@ testParsesImplMethodBindingMetadata =
     "surface impl method binding metadata parse"
     (parseSurfaceProgram """
     impl Eq(Int) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     """)
     ( \surfaceProgram -> do
@@ -399,7 +399,7 @@ testLowersImplMethodBindingMetadata =
     "surface impl method binding metadata parse"
     (parseSurfaceProgram """
     impl Eq(Int) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     """)
     ( \surfaceProgram -> do

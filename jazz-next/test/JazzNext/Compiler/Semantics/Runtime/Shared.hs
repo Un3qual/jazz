@@ -197,7 +197,7 @@ runtimeEqSource =
   equals :: a -> a -> Bool.
   }.
   impl RuntimeEq(Int) {
-  equals = \\(left) -> \\(right) -> left == right.
+  equals = \\(left, right) -> left == right.
   }.
 
   """

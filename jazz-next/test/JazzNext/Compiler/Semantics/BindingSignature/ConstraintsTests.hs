@@ -214,7 +214,7 @@ testSourceAnalyzesImplMethodBindingMetadata = do
   equals :: a -> a -> Bool.
   }.
   impl Eq(Int) {
-  equals = \\(left) -> \\(right) -> left == right.
+  equals = \\(left, right) -> left == right.
   }.
   x :: Int.
   x = 1.
@@ -272,7 +272,7 @@ testSourceRejectsWrongArityNamedImplTargets =
 testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse :: IO ()
 testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =
   assertSourceOk """
-  f = \\(x) -> \\(y) -> (x + x, y).
+  f = \\(x, y) -> (x + x, y).
   a = f 1 True.
   b = f 2 3.
   """
@@ -280,7 +280,7 @@ testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =
 testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse :: IO ()
 testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse =
   assertSourceOk """
-  f = \\(x) -> \\(y) -> (x == x, y).
+  f = \\(x, y) -> (x == x, y).
   a = f 1 True.
   b = f 2 3.
   """
@@ -291,7 +291,7 @@ testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes =
   class Eq(a) { }.
   impl Eq(Int) { }.
   impl Eq(Bool) { }.
-  same = \\(left) -> \\(right) -> left == right.
+  same = \\(left, right) -> left == right.
   intResult = same 1 1.
   boolResult = same True False.
   """
@@ -302,7 +302,7 @@ testSourceRejectsMissingInferredEqualityFactAtUseSite =
     """
     class Eq(a) { }.
     impl Eq(Int) { }.
-    same = \\(left) -> \\(right) -> left == right.
+    same = \\(left, right) -> left == right.
     intResult = same 1 1.
     bad = same True False.
     """
@@ -358,12 +358,12 @@ testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Int) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     impl Eq(Bool) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
-    same = \\(left) -> \\(right) -> Eq::equals left right.
+    same = \\(left, right) -> Eq::equals left right.
     intResult = same 1 1.
     boolResult = same True False.
     """
@@ -377,7 +377,7 @@ testSourceResolvesInferredMethodFactsThroughAliases =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Float) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     value :: Float64.
     value = 1.5.
@@ -446,7 +446,7 @@ testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings =
     class Eq(a) { }.
     class C(a) { }.
     same :: @{C(a)}: a -> a -> Bool.
-    same = \\(x) -> \\(y) -> x == y.
+    same = \\(x, y) -> x == y.
     """
     )
     "does not declare required constraint 'Eq"
@@ -682,7 +682,7 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
     ( qualifiedEqSource
         <> """
         impl Eq(Bool) {
-        equals = \\(left) -> \\(right) -> left == right.
+        equals = \\(left, right) -> left == right.
         }.
         result :: Bool.
         result = Eq::equals True False.
@@ -811,7 +811,7 @@ testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Float) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     left :: Float.
     left = 1.5.
@@ -831,7 +831,7 @@ testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Float16) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     left :: Float16.
     left = 1.5.
@@ -851,7 +851,7 @@ testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Float32) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     left :: Float32.
     left = 1.5.
@@ -871,7 +871,7 @@ testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes =
     equals :: a -> a -> Bool.
     }.
     impl Eq(Float64) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     left :: Float64.
     left = 1.5.
@@ -911,8 +911,8 @@ testSourceAcceptsSameImplQualifiedMethodBodyReferences =
     notEquals :: a -> a -> Bool.
     }.
     impl Eq(Int) {
-    equals = \\(left) -> \\(right) -> left == right.
-    notEquals = \\(left) -> \\(right) -> Eq::equals left right != True.
+    equals = \\(left, right) -> left == right.
+    notEquals = \\(left, right) -> Eq::equals left right != True.
     }.
     result :: Bool.
     result = Eq::notEquals 1 2.
@@ -1013,7 +1013,7 @@ testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate =
     ( qualifiedEqSource
         <> """
         impl Eq(Bool) {
-        equals = \\(left) -> \\(right) -> left == right.
+        equals = \\(left, right) -> left == right.
         }.
         result = Eq::equals 1 False.
         result.
@@ -1067,7 +1067,7 @@ testSourceRejectsQualifiedMethodMissingClassMethod =
     """
     class Eq(a) { }.
     impl Eq(Int) {
-    equals = \\(left) -> \\(right) -> left == right.
+    equals = \\(left, right) -> left == right.
     }.
     result = Eq::equals 1 1.
     result.
@@ -1224,7 +1224,7 @@ testSourceInstantiatesEqualityConstrainedSignaturePerUse =
   impl Eq(Int) { }.
   impl Eq(Bool) { }.
   same :: @{Eq(a)}: a -> a -> Bool.
-  same = \\(x) -> \\(y) -> x == y.
+  same = \\(x, y) -> x == y.
   intValue = same 1 2.
   boolValue = same True False.
   """
@@ -1233,7 +1233,7 @@ testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints :: IO ()
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =
   assertSourceOk """
   choose :: @{Eq(a)}: a -> b -> a.
-  choose = \\(x) -> \\(y) -> x.
+  choose = \\(x, y) -> x.
   intBool = choose 1 True.
   intInt = choose 2 3.
   """

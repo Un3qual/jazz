@@ -710,7 +710,7 @@ testSourcePipelineRejectsUserDefinedOperatorIntegerFloat64Promotion =
   assertCompileErrorWithBundledPrelude
     """
     operator %% tier 2.
-    (%%) = \\(left) -> \\(right) -> left + right.
+    (%%) = \\(left, right) -> left + right.
     integer :: Int64.
     integer = toInt64 1.
     floating :: Float64.
