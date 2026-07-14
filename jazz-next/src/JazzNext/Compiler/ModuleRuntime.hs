@@ -6,7 +6,9 @@ module JazzNext.Compiler.ModuleRuntime
     RuntimeModule (..),
     RuntimeProgram (..),
     evaluateCompiledProgram,
+    evaluateCompiledProgramObserved,
     evaluateCompiledProgramWithHost,
+    evaluateCompiledProgramWithHostObserved,
     lookupRuntimeModule
   ) where
 
@@ -65,7 +67,13 @@ import JazzNext.Compiler.Runtime
     evaluateModuleScope,
     evaluateModuleScopeWithRequiredEvaluationHost,
     runRuntimeHostEvaluation,
+    runRuntimeHostEvaluationWithObservation,
     runtimeExprRequiresHost
+  )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationRequest (..),
+    RuntimeObservationResult (..),
+    finishRuntimeObservationResult,
   )
 import JazzNext.Compiler.RuntimeHost
   ( RuntimeHost,
@@ -109,8 +117,14 @@ lookupRuntimeModule modulePath =
           | otherwise -> go rest
 
 evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgram compiledProgram =
-  runIdentity (evaluateCompiledProgramWithHost disabledRuntimeHost compiledProgram)
+evaluateCompiledProgram =
+  runtimeObservationOutcome
+    . evaluateCompiledProgramObserved RuntimeObservationDisabled
+
+evaluateCompiledProgramObserved :: RuntimeObservationRequest -> CompiledProgram -> RuntimeObservationResult RuntimeProgram
+evaluateCompiledProgramObserved observationRequest compiledProgram =
+  runIdentity
+    (evaluateCompiledProgramWithHostObserved observationRequest disabledRuntimeHost compiledProgram)
 
 evaluateCompiledProgramPure :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgramPure compiledProgram =
@@ -191,20 +205,57 @@ evaluateCompiledProgramWithHost ::
   CompiledProgram ->
   m (Either Diagnostic RuntimeProgram)
 evaluateCompiledProgramWithHost host compiledProgram =
+  runtimeObservationOutcome
+    <$> evaluateCompiledProgramWithHostObserved RuntimeObservationDisabled host compiledProgram
+
+evaluateCompiledProgramWithHostObserved ::
+  Monad m =>
+  RuntimeObservationRequest ->
+  RuntimeHost m ->
+  CompiledProgram ->
+  m (RuntimeObservationResult RuntimeProgram)
+evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
+  case compiledProgramErrors compiledProgram of
+    firstError : _ -> pure (RuntimeObservationResult (Left firstError) Nothing)
+    [] ->
+      case observationRequest of
+        RuntimeObservationDisabled -> do
+          outcome <- evaluateCompiledProgramWithHostUnobserved host compiledProgram
+          pure (RuntimeObservationResult outcome Nothing)
+        _ -> do
+          (outcome, observationState) <-
+            runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
+              evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
+          pure (finishRuntimeObservationResult outcome observationState)
+
+evaluateCompiledProgramWithHostUnobserved ::
+  Monad m =>
+  RuntimeHost m ->
+  CompiledProgram ->
+  m (Either Diagnostic RuntimeProgram)
+evaluateCompiledProgramWithHostUnobserved host compiledProgram =
   if compiledProgramRequiresHost compiledProgram
     then runRuntimeHostEvaluation host $ \evaluationHost ->
-      runExceptT $
-        case compiledProgramErrors compiledProgram of
-          firstError : _ -> throwE firstError
-          [] -> do
-            ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-            evaluateModules evaluationHost compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+      evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
     else pure (evaluateCompiledProgramPure compiledProgram)
+
+evaluateCompiledProgramWithEvaluationHost ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  CompiledProgram ->
+  RuntimeHostEvaluationT m (Either Diagnostic RuntimeProgram)
+evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
+  runExceptT $
+    case compiledProgramErrors compiledProgram of
+      firstError : _ -> throwE firstError
+      [] -> do
+        ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
+        evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
     compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
 
-    evaluateModules evaluationHost compiledModules ambientEnv runtimeModules output remainingModules =
+    evaluateModules compiledModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           pure
@@ -246,7 +297,7 @@ evaluateCompiledProgramWithHost host compiledProgram =
                 if modulePath == entryPath
                   then scopeResultValue scopeResult
                   else output
-          evaluateModules evaluationHost compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
+          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
 
 compiledProgramRequiresHost :: CompiledProgram -> Bool
 compiledProgramRequiresHost compiledProgram =

@@ -68,6 +68,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral (FractionalLiteralSource)
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import JazzNext.Compiler.Runtime.Observation (RuntimeObservationState)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -106,7 +107,8 @@ data DeferredHostBindingState
 
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
-    runtimeHostEvaluationNextScopeId :: Int
+    runtimeHostEvaluationNextScopeId :: Int,
+    runtimeHostEvaluationObservation :: RuntimeObservationState
   }
 
 type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m

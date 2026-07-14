@@ -1,0 +1,4 @@
+module App::Main {
+  answer = 42.
+  answer.
+}
