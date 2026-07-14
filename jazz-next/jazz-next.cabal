@@ -209,7 +209,7 @@ benchmark jazz-next-bench
       time >= 1.15 && < 1.16
 
 test-suite benchmark-metadata-spec
-  import: test-common, program-support
+  import: test-common
   type: exitcode-stdio-1.0
   hs-source-dirs: benchmark
   main-is: JazzNext/Benchmark/MetadataSpec.hs

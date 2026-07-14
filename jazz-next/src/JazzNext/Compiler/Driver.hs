@@ -40,7 +40,6 @@ module JazzNext.Compiler.Driver
 
 import Control.Exception (evaluate)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -60,7 +59,10 @@ import JazzNext.Compiler.Diagnostics
     RenderDiagnostic (..),
     WarningRecord (..)
   )
-import JazzNext.Compiler.Force (forceCompiledProgramResult)
+import JazzNext.Compiler.Force
+  ( forceCompiledProgramResult,
+    forceInferenceResult
+  )
 import JazzNext.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
     compileResolvedProgram
@@ -600,7 +602,7 @@ analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode s
   inference <-
     withCompilerStageResult
       TypeInferenceStage
-      forceInferenceSummary
+      (evaluate . forceInferenceResult)
       ( inferExpressionWithBuiltinsAndSourceUnitStatements
           builtinMode
           hiddenStatementIndices
@@ -613,14 +615,6 @@ analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode s
       promotedWarningErrors = map warningToError promotedWarnings
       errors = inferredErrors inference ++ promotedWarningErrors
   pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
-  where
-    forceInferenceSummary result =
-      evaluate
-        ( length (inferredWarnings result)
-            + length (inferredErrors result)
-            + Map.size (inferredRuntimeTypeHints result)
-        )
-        >> pure ()
 
 isPromoted :: WarningSettings -> WarningRecord -> Bool
 isPromoted settings warning = isWarningError settings (warningCategory warning)

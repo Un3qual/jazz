@@ -178,7 +178,10 @@ The JSON `.prof` file is directly loadable by Speedscope. Unlike the Jazz
 semantic profile, it describes sampled Haskell cost-centre stacks, has physical
 time/allocation data, and varies between runs. The eventlog includes RTS/GC
 events and paired user markers named
-`jazz-stage:<stage>:begin`/`jazz-stage:<stage>:end`.
+`jazz-stage:<stage>:begin`/`jazz-stage:<stage>:end` around forced IO phase
+boundaries. Pure sub-stages retain the same stable names as manual SCC frames in
+the `.prof` file; they do not manufacture eventlog intervals by changing pure
+compiler APIs or evaluation order.
 
 Stable stages are:
 
@@ -197,6 +200,9 @@ Stable stages are:
 | `host-operation`                | Invoke validated host effects                            |
 | `diagnostic-rendering`          | Render a user-facing diagnostic where measured           |
 
+Use the stage `.prof` file, rather than assuming every catalogue entry is an
+eventlog interval, to compare time and allocation for pure stages such as
+module resolution, static analysis, constraint solving, and capability solving.
 For discovery below those stable frames, use the late-cost-centre hotspot
 preset:
 

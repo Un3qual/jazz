@@ -29,6 +29,7 @@ import JazzNext.ProgramCorpus.Manifest
 import JazzNext.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
     programCaseBudgetViolations,
+    readProgramCaseSource,
     runProgramCase,
     runProgramCaseObserved,
   )
@@ -73,6 +74,7 @@ tests =
   [ ("reports all manifest violations in stable order", testAggregateManifestViolations),
     ("reports malformed manifest JSON", testMalformedManifest),
     ("reports unreadable manifests as corpus violations", testUnreadableManifest),
+    ("treats unreadable corpus sources as unavailable", testUnreadableCorpusSource),
     ("rejects unknown budget fields", testUnknownBudgetField),
     ("reports corpus-root canonicalization failures as corpus violations", testRootCanonicalizationFailure),
     ("reports case-path canonicalization failures as corpus violations", testCasePathCanonicalizationFailure),
@@ -145,6 +147,15 @@ testUnreadableManifest =
       Left violations ->
         failTest ("expected an unreadable-manifest violation, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected unreadable manifest failure, loaded " <> Text.pack (show corpus))
+
+testUnreadableCorpusSource :: IO ()
+testUnreadableCorpusSource =
+  withTemporaryDirectory $ \root -> do
+    let sourcePath = root </> "Main.jz"
+    TextIO.writeFile sourcePath validMainSource
+    setPermissions sourcePath emptyPermissions
+    source <- readProgramCaseSource sourcePath
+    assertEqual "unreadable corpus source" Nothing source
 
 testUnknownBudgetField :: IO ()
 testUnknownBudgetField =

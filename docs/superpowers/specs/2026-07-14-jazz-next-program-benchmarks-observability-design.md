@@ -404,15 +404,17 @@ stable rendered names. The catalogue covers:
 - diagnostic rendering where it is a measurable part of the requested work.
 
 Benchmark group names and eventlog marker names derive from this catalogue.
-Eventlog instrumentation emits paired begin/end user markers. Manual `SCC`
-annotations use the same literal namespace around the phase boundary
-functions. The set is intentionally small: GHC warns that excessive
-source-level cost centres can inhibit optimization and distort the program
-being measured.
+Forced IO phase boundaries emit paired begin/end user markers. Pure sub-stages
+remain manual `SCC` frames in the same literal namespace; the compiler does not
+change pure APIs or evaluation order merely to synthesize eventlog intervals.
+The set is intentionally small: GHC warns that excessive source-level cost
+centres can inhibit optimization and distort the program being measured.
 
-Phase boundary wrappers fully evaluate the documented result for that phase
-before recording the end marker. This keeps eventlog durations and benchmark
+Instrumented IO phase wrappers fully evaluate the documented result before
+recording the end marker. This keeps those eventlog durations and benchmark
 boundaries aligned instead of marking only construction of a lazy result.
+Pure-stage time and allocation are read from the stable SCC frames in the
+cost-centre profile.
 
 ### Profiling presets
 

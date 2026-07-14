@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module JazzNext.Compiler.Force
   ( forceCompiledProgram,
     forceCompiledModule,
@@ -75,8 +77,8 @@ import JazzNext.Compiler.Runtime.Types
     RuntimeMethodCandidate (..),
     RuntimeValue (..),
     foldRuntimeExplicitResultHints,
-    runtimeExplicitResultHintsView,
   )
+import qualified JazzNext.Compiler.Runtime.Types as RuntimeTypes
 import JazzNext.Compiler.TypeInference (InferenceResult (..))
 
 forceExpr :: Expr -> ()
@@ -273,7 +275,7 @@ forceInferenceResult result =
   forceExpr (inferredExpr result) `seq`
     forceListWith forceWarning (inferredWarnings result) `seq`
       forceListWith forceDiagnostic (inferredErrors result) `seq`
-        forceMapWhnf (inferredRuntimeTypeHints result) `seq`
+        forceMapWith forceSignatureType (inferredRuntimeTypeHints result) `seq`
           forceModuleInterface (inferredModuleInterface result)
 
 forceCompiledProgramResult :: Either Diagnostic CompiledProgram -> ()
@@ -431,7 +433,7 @@ forceModuleInterface interface =
           forceSetWhnf (interfaceConcreteImplFacts interface) `seq`
             forceMapWhnf (interfaceClassMethods interface) `seq`
               forceMapWhnf (interfaceConcreteImplMethods interface) `seq`
-                forceMapWhnf (interfaceRuntimeHints interface)
+                forceMapWith forceSignatureType (interfaceRuntimeHints interface)
 
 forceCompiledPrelude :: CompiledPrelude -> ()
 forceCompiledPrelude compiledPrelude =
@@ -440,7 +442,7 @@ forceCompiledPrelude compiledPrelude =
       forceListWith forceWarning (compiledPreludeWarnings compiledPrelude) `seq`
         forceListWith forceDiagnostic (compiledPreludeErrors compiledPrelude) `seq`
           forceMaybeWith forceExpr (compiledPreludeExpr compiledPrelude) `seq`
-            forceMapWhnf (compiledPreludeRuntimeHints compiledPrelude)
+            forceMapWith forceSignatureType (compiledPreludeRuntimeHints compiledPrelude)
 
 forceCompiledModule :: CompiledModule -> ()
 forceCompiledModule compiledModule =
@@ -466,18 +468,13 @@ forceRuntimeCell runtimeCell =
 
 forceRuntimeValue :: RuntimeValue -> ()
 forceRuntimeValue runtimeValue =
-  case runtimeExplicitResultHintsView runtimeValue of
-    Just (hints, innerValue) ->
+  case runtimeValue of
+    RuntimeTypes.VExplicitResultHints hints innerValue ->
       foldRuntimeExplicitResultHints
         (\() signatureType -> forceSignatureType signatureType)
         ()
         hints
         `seq` forceRuntimeValue innerValue
-    Nothing -> forceRuntimeValueWithoutExplicitResultHints runtimeValue
-
-forceRuntimeValueWithoutExplicitResultHints :: RuntimeValue -> ()
-forceRuntimeValueWithoutExplicitResultHints runtimeValue =
-  case runtimeValue of
     VInt value metadata -> value `seq` metadata `seq` ()
     VFloat value metadata -> value `seq` metadata `seq` ()
     VBool value -> value `seq` ()
@@ -516,11 +513,10 @@ forceRuntimeValueWithoutExplicitResultHints runtimeValue =
       key `seq`
         modulePath `seq`
           forceExpr body `seq`
-            forceMapWhnf runtimeHints `seq`
+            forceMapWith forceSignatureType runtimeHints `seq`
               numericType `seq`
                 signatureType `seq`
                   ()
-    _ -> error "unexpected explicit-result-hint runtime value"
 
 forceRuntimeMethodCandidate :: RuntimeMethodCandidate -> ()
 forceRuntimeMethodCandidate (RuntimeMethodCandidate evidence runtimeCell) =

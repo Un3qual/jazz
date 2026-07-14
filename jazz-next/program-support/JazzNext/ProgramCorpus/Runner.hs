@@ -12,6 +12,7 @@ module JazzNext.ProgramCorpus.Runner
   )
 where
 
+import Control.Exception (IOException, try)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text.IO as TextIO
@@ -40,7 +41,6 @@ import JazzNext.ProgramCorpus.Types
     ProgramCase (..),
     ProgramTermination (..),
   )
-import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
 data ProgramCaseResult = ProgramCaseResult
@@ -114,8 +114,8 @@ programCaseResolutionConfig programCase =
 
 readProgramCaseSource :: FilePath -> IO (Maybe Text)
 readProgramCaseSource path = do
-  exists <- doesFileExist path
-  if exists then Just <$> TextIO.readFile path else pure Nothing
+  readResult <- try (TextIO.readFile path) :: IO (Either IOException Text)
+  pure (either (const Nothing) Just readResult)
 
 caseResult :: RunResult -> ProgramCaseResult
 caseResult result

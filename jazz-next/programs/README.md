@@ -1,9 +1,10 @@
 # Jazz program corpus
 
-`programs/corpus.json` is the source of truth for production-shaped Jazz
+`jazz-next/programs/corpus.json` is the source of truth for production-shaped Jazz
 programs shared by correctness tests and benchmarks. Each case lives in its own
 directory so multi-module programs can be loaded exactly as user programs are.
-Focused parser, diagnostic, and failure fixtures remain under `test/fixtures/`.
+Focused parser, diagnostic, and failure fixtures remain under
+`jazz-next/test/fixtures/`.
 
 ## Manifest contract
 
@@ -12,7 +13,7 @@ The manifest has a `schemaVersion` and a stable, lexicographically ordered
 
 - `id`: a permanent, human-readable identifier used by tests, benchmark names,
   result metadata, and review discussions;
-- `directory`: the case directory relative to `programs/`;
+- `directory`: the case directory relative to `jazz-next/programs/`;
 - `entrySource`: the `.jz` entry file relative to the case directory;
 - `moduleRoot`: the module search root relative to the case directory;
 - `expectedTermination`: `success`, `compile-failure`, or `runtime-failure`;
