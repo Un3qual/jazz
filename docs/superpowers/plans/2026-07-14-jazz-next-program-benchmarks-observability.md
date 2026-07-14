@@ -36,34 +36,34 @@ This plan deliberately specifies contracts, observable behavior, test cases, ver
 
 ## File Structure
 
-| Path | Responsibility |
-| --- | --- |
-| `jazz-next/programs/corpus.json` | Versioned case metadata, workload classes, feature tags, benchmark participation, and deterministic budgets. |
-| `jazz-next/programs/*/*.jz` | Substantial multi-module Jazz workloads. |
-| `jazz-next/programs/*/expected.stdout` | Exact expected program output. |
-| `jazz-next/programs/README.md` | Corpus format, authoring rules, coverage, and budget-update policy. |
-| `jazz-next/program-support/JazzNext/ProgramCorpus/Types.hs` | Manifest and validated-corpus domain types. |
-| `jazz-next/program-support/JazzNext/ProgramCorpus/Manifest.hs` | Root discovery, JSON decoding, path safety, and aggregate validation. |
-| `jazz-next/program-support/JazzNext/ProgramCorpus/Runner.hs` | Correctness execution and reusable stage-ready case inputs. |
-| `jazz-next/test/JazzNext/ProgramCorpus/ProgramCorpusSpec.hs` | Manifest validation, correctness, and deterministic budget tests. |
-| `jazz-next/test/fixtures/runtime-observation/*.jz` | Small external source fixtures whose callable names or module behavior matter to observation tests. |
-| `jazz-next/benchmark/Main.hs` | `tasty-bench` component entrypoint and benchmark tree. |
-| `jazz-next/benchmark/JazzNext/Benchmark/Stages.hs` | Setup/timed boundaries for parse, analysis, preparation, runtime, and whole-program groups. |
-| `jazz-next/benchmark/JazzNext/Benchmark/Force.hs` | Focused result forcing for measured stages. |
-| `jazz-next/benchmark/JazzNext/Benchmark/Metadata.hs` | Environment identity, compatibility checks, and result-artifact support. |
-| `jazz-next/test/JazzNext/Benchmark/MetadataSpec.hs` | Pure metadata, compatibility, and temporary artifact behavior tests. |
-| `jazz-next/src/JazzNext/Compiler/Profiling.hs` | Stable compiler-stage catalog and GHC eventlog bracketing. |
-| `jazz-next/src/JazzNext/Compiler/Runtime/Observation.hs` | Observation request, strict semantic counters, report, and centralized recording operations. |
-| `jazz-next/src/JazzNext/Compiler/Runtime/Observation/Render.hs` | Stable human and compact JSON statistics encoders. |
-| `jazz-next/src/JazzNext/Compiler/Runtime/Observation/Profile.hs` | Deterministic logical call stack, event stream, and Speedscope encoding. |
-| `jazz-next/test/JazzNext/Compiler/Runtime/ObservationSpec.hs` | Runtime-observation test entrypoint. |
-| `jazz-next/test/JazzNext/Compiler/Runtime/Observation/StatisticsTests.hs` | Counter, disabled-mode, and failure-path behavior. |
-| `jazz-next/test/JazzNext/Compiler/Runtime/Observation/ProfileTests.hs` | Call identity, logical clock, balance, determinism, and failure closure. |
-| `jazz-next/cabal.project.profile-stages` | Manual stage/sub-stage cost-centre profiling preset. |
-| `jazz-next/cabal.project.profile-hotspots` | Late automatic cost-centre profiling preset for hotspot discovery. |
-| `jazz-next/PERFORMANCE.md` | Benchmarking, comparison, runtime observation, and GHC profiling guide. |
-| `jazz-next/benchmark-results/` | Ignored physical benchmark artifacts. |
-| `jazz-next/profile-results/` | Ignored Jazz and GHC profiling artifacts used during local analysis. |
+| Path                                                                      | Responsibility                                                                                               |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `jazz-next/programs/corpus.json`                                          | Versioned case metadata, workload classes, feature tags, benchmark participation, and deterministic budgets. |
+| `jazz-next/programs/*/*.jz`                                               | Substantial multi-module Jazz workloads.                                                                     |
+| `jazz-next/programs/*/expected.stdout`                                    | Exact expected program output.                                                                               |
+| `jazz-next/programs/README.md`                                            | Corpus format, authoring rules, coverage, and budget-update policy.                                          |
+| `jazz-next/program-support/JazzNext/ProgramCorpus/Types.hs`               | Manifest and validated-corpus domain types.                                                                  |
+| `jazz-next/program-support/JazzNext/ProgramCorpus/Manifest.hs`            | Root discovery, JSON decoding, path safety, and aggregate validation.                                        |
+| `jazz-next/program-support/JazzNext/ProgramCorpus/Runner.hs`              | Correctness execution and reusable stage-ready case inputs.                                                  |
+| `jazz-next/test/JazzNext/ProgramCorpus/ProgramCorpusSpec.hs`              | Manifest validation, correctness, and deterministic budget tests.                                            |
+| `jazz-next/test/fixtures/runtime-observation/*.jz`                        | Small external source fixtures whose callable names or module behavior matter to observation tests.          |
+| `jazz-next/benchmark/Main.hs`                                             | `tasty-bench` component entrypoint and benchmark tree.                                                       |
+| `jazz-next/benchmark/JazzNext/Benchmark/Stages.hs`                        | Setup/timed boundaries for parse, analysis, preparation, runtime, and whole-program groups.                  |
+| `jazz-next/benchmark/JazzNext/Benchmark/Force.hs`                         | Focused result forcing for measured stages.                                                                  |
+| `jazz-next/benchmark/JazzNext/Benchmark/Metadata.hs`                      | Environment identity, compatibility checks, and result-artifact support.                                     |
+| `jazz-next/test/JazzNext/Benchmark/MetadataSpec.hs`                       | Pure metadata, compatibility, and temporary artifact behavior tests.                                         |
+| `jazz-next/src/JazzNext/Compiler/Profiling.hs`                            | Stable compiler-stage catalog and GHC eventlog bracketing.                                                   |
+| `jazz-next/src/JazzNext/Compiler/Runtime/Observation.hs`                  | Observation request, strict semantic counters, report, and centralized recording operations.                 |
+| `jazz-next/src/JazzNext/Compiler/Runtime/Observation/Render.hs`           | Stable human and compact JSON statistics encoders.                                                           |
+| `jazz-next/src/JazzNext/Compiler/Runtime/Observation/Profile.hs`          | Deterministic logical call stack, event stream, and Speedscope encoding.                                     |
+| `jazz-next/test/JazzNext/Compiler/Runtime/ObservationSpec.hs`             | Runtime-observation test entrypoint.                                                                         |
+| `jazz-next/test/JazzNext/Compiler/Runtime/Observation/StatisticsTests.hs` | Counter, disabled-mode, and failure-path behavior.                                                           |
+| `jazz-next/test/JazzNext/Compiler/Runtime/Observation/ProfileTests.hs`    | Call identity, logical clock, balance, determinism, and failure closure.                                     |
+| `jazz-next/cabal.project.profile-stages`                                  | Manual stage/sub-stage cost-centre profiling preset.                                                         |
+| `jazz-next/cabal.project.profile-hotspots`                                | Late automatic cost-centre profiling preset for hotspot discovery.                                           |
+| `jazz-next/PERFORMANCE.md`                                                | Benchmarking, comparison, runtime observation, and GHC profiling guide.                                      |
+| `jazz-next/benchmark-results/`                                            | Ignored physical benchmark artifacts.                                                                        |
+| `jazz-next/profile-results/`                                              | Ignored Jazz and GHC profiling artifacts used during local analysis.                                         |
 
 ## Stable Contracts
 
@@ -107,6 +107,7 @@ This plan deliberately specifies contracts, observable behavior, test cases, ver
 ### Task 1: Establish the shared corpus contract and first end-to-end case
 
 **Files:**
+
 - Modify: `jazz-next/jazz-next.cabal`
 - Create: `jazz-next/program-support/JazzNext/ProgramCorpus/Types.hs`
 - Create: `jazz-next/program-support/JazzNext/ProgramCorpus/Manifest.hs`
@@ -117,6 +118,7 @@ This plan deliberately specifies contracts, observable behavior, test cases, ver
 - Create: `jazz-next/programs/identifier-classifier/expected.stdout`
 
 **Interfaces:**
+
 - Produce a validated corpus value that contains canonical in-root paths and decoded metadata.
 - Produce aggregate manifest violations with stable rendering.
 - Produce a case runner that returns termination, stdout, and observation data without invoking the CLI renderer.
@@ -163,6 +165,7 @@ git commit -m "test: establish shared Jazz program corpus"
 ### Task 2: Fill the production-shaped corpus and feature coverage
 
 **Files:**
+
 - Modify: `jazz-next/programs/corpus.json`
 - Modify: `jazz-next/test/JazzNext/ProgramCorpus/ProgramCorpusSpec.hs`
 - Create: `jazz-next/programs/expression-evaluator/**`
@@ -172,6 +175,7 @@ git commit -m "test: establish shared Jazz program corpus"
 - Create: `jazz-next/programs/mini-frontend/**`
 
 **Interfaces:**
+
 - Preserve the Task 1 schema and runner.
 - Associate every required language feature with at least one case through validated tags.
 - Give `fast` and `full` meaningful workloads without changing program semantics between test and benchmark use.
@@ -212,6 +216,7 @@ git commit -m "test: add production-shaped Jazz programs"
 ### Task 3: Lock the compiler-stage catalog and benchmark boundaries
 
 **Files:**
+
 - Modify: `jazz-next/jazz-next.cabal`
 - Modify: `jazz-next/src/JazzNext/Compiler/Driver.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/Profiling.hs`
@@ -220,6 +225,7 @@ git commit -m "test: add production-shaped Jazz programs"
 - Create: `jazz-next/benchmark/JazzNext/Benchmark/Force.hs`
 
 **Interfaces:**
+
 - Produce a closed compiler-stage catalog with stable human and artifact names.
 - Expose the existing compiled-program preparation boundary from the internal driver library for benchmark use; do not duplicate module resolution or compilation.
 - Produce one benchmark group for each locked stage and one whole-program group.
@@ -266,12 +272,14 @@ git commit -m "bench: add staged Jazz benchmark harness"
 ### Task 4: Add environment-labelled benchmark artifacts and compatibility checks
 
 **Files:**
+
 - Modify: `jazz-next/benchmark/Main.hs`
 - Create: `jazz-next/benchmark/JazzNext/Benchmark/Metadata.hs`
 - Create: `jazz-next/test/JazzNext/Benchmark/MetadataSpec.hs`
 - Modify: `.gitignore`
 
 **Interfaces:**
+
 - Require an explicit environment label when writing durable results.
 - Write `results.csv` and `environment.json` beneath a label/run-specific directory under `jazz-next/benchmark-results/`.
 - Include Git revision/dirty state, corpus schema and selected cases, GHC/Cabal/package versions, platform and architecture, explicit environment label, optimized or profiling build mode, RTS capabilities and arguments, benchmark arguments and time mode, and run timestamp. Include CPU identity when available.
@@ -305,6 +313,7 @@ git commit -m "bench: label Jazz benchmark environments"
 ### Task 5: Build the runtime-observation state and core counters
 
 **Files:**
+
 - Modify: `jazz-next/jazz-next.cabal`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Types.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
@@ -316,6 +325,7 @@ git commit -m "bench: label Jazz benchmark environments"
 - Create as needed: `jazz-next/test/fixtures/runtime-observation/*.jz`
 
 **Interfaces:**
+
 - Produce observation request, termination, statistics, report, application-kind, and construction-kind domain types.
 - Produce observed runtime, module-runtime, and driver entrypoints; preserve old entrypoints as disabled-mode delegates.
 - Carry one strict observation state through nested evaluator activity and retain it after runtime failure.
@@ -372,6 +382,7 @@ git commit -m "feat: add Jazz runtime observation core"
 ### Task 6: Complete semantic statistics and enforce corpus budgets
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Types.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Observation.hs`
@@ -382,6 +393,7 @@ git commit -m "feat: add Jazz runtime observation core"
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Add closure creation/capture width, list cell, tuple, saturated ADT, pattern, binding, builtin, host operation, and deferred-cache counters.
 - Render statistics in stable human form and one compact deterministic JSON value.
 - Return budget violations containing case, metric, upper limit, actual value, and percentage increase.
@@ -422,6 +434,7 @@ git commit -m "feat: report deterministic Jazz runtime statistics"
 ### Task 7: Produce deterministic Jazz semantic Speedscope profiles
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Types.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Observation.hs`
@@ -430,6 +443,7 @@ git commit -m "feat: report deterministic Jazz runtime statistics"
 - Modify or create as needed: `jazz-next/test/fixtures/runtime-observation/*.jz`
 
 **Interfaces:**
+
 - Convert positional closure payloads into a focused closure record that includes stable callable origin.
 - Carry enclosing callable identity and lambda-stage context while closures are created.
 - Produce an ordered frame table and open/close events using the evaluator-transition clock.
@@ -475,11 +489,13 @@ git commit -m "feat: add deterministic Jazz semantic profiles"
 ### Task 8: Expose runtime statistics and profiles through the CLI
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/CLI/Main.hs`
 - Modify: `jazz-next/test/JazzNext/CLI/CLISpec.hs`
 - Modify if component dependencies require it: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Accept `--runtime-stats`, `--runtime-stats=human`, `--runtime-stats=json`, and `--runtime-profile=PATH` only with `--run`.
 - Allow statistics and profile flags together.
 - Keep program stdout unchanged, write statistics to stderr after diagnostics, and atomically replace the requested profile path.
@@ -521,6 +537,7 @@ git commit -m "feat: expose Jazz runtime observation flags"
 ### Task 9: Add separate GHC stage and hotspot profiling workflows
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Profiling.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/SourceProgram.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`
@@ -538,6 +555,7 @@ git commit -m "feat: expose Jazz runtime observation flags"
 - Modify: `.gitignore`
 
 **Interfaces:**
+
 - Use the Task 3 stage catalog for manual cost-centre labels and paired eventlog begin/end markers.
 - Keep the manual stage preset free of broad automatic cost centres.
 - Use Cabal's late top-level profiling detail for hotspot discovery.
@@ -583,6 +601,7 @@ git commit -m "build: add GHC profiling workflows for Jazz"
 ### Task 10: Document the performance workflow and close repository integration
 
 **Files:**
+
 - Create: `jazz-next/programs/README.md`
 - Create: `jazz-next/PERFORMANCE.md`
 - Modify: `jazz-next/README.md`
@@ -591,6 +610,7 @@ git commit -m "build: add GHC profiling workflows for Jazz"
 - Modify if required by repository audit: `jazz-next/test/JazzNext/Repository/AuditSpec.hs`
 
 **Interfaces:**
+
 - Document one source of truth for corpus authoring and one for measurement/profiling operation.
 - Package corpus inputs in source distributions through Cabal `extra-source-files`.
 - Explain deterministic semantic budgets versus environment-dependent physical measurements.
