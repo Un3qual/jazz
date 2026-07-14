@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed for review on `2026-07-13`.
+Approved for implementation on `2026-07-13`.
 
 This is the design checkpoint for Batch 1 of
 [`docs/jazz-improvement-backlog.md`](../../jazz-improvement-backlog.md). It
@@ -62,8 +62,7 @@ deleted where they merely freeze an implementation detail.
   runtime counters, cost centres, eventlog markers, or heap-profile presets;
   those are Batch 3. The new toolchain must remain compatible with those later
   profiling additions.
-- It does not perform the broad documentation consolidation reserved for Batch
-  7. Active instructions are updated now, while historical plans and closure
+- It does not perform the broad documentation consolidation reserved for Batch 7. Active instructions are updated now, while historical plans and closure
   evidence retain the commands that were true when they were written.
 - It does not modify any file under `jazz-hs/` or `jazz2/`.
 
