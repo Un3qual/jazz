@@ -2,17 +2,25 @@
 
 module JazzNext.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
+    loadProgramCaseEntrySource,
+    prepareProgramCase,
+    programCaseResolutionConfig,
+    readProgramCaseSource,
     runProgramCase,
   )
 where
 
 import Data.Text (Text)
 import qualified Data.Text.IO as TextIO
+import JazzNext.Compiler.BundledPrelude (bundledPreludeSource)
 import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.Driver
-  ( RunResult (..),
+  ( ResolvedPrelude (PreludeBundled),
+    RunResult (..),
+    buildCompiledProgram,
     runModuleGraph,
   )
+import JazzNext.Compiler.ModuleInterface (CompiledProgram)
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.ProgramCorpus.Types
@@ -35,20 +43,37 @@ runProgramCase programCase = do
   runResult <-
     runModuleGraph
       defaultWarningSettings
-      ModuleResolutionConfig
-        { moduleRoots =
-            [ programCaseModuleRoot programCase,
-              programCasePackageRoot programCase </> "jazz" </> "stdlib"
-            ],
-          moduleExtension = ".jz"
-        }
+      (programCaseResolutionConfig programCase)
       (programCaseEntryModulePath programCase)
-      readSource
+      readProgramCaseSource
   pure (caseResult runResult)
-  where
-    readSource path = do
-      exists <- doesFileExist path
-      if exists then Just <$> TextIO.readFile path else pure Nothing
+
+loadProgramCaseEntrySource :: ProgramCase -> IO Text
+loadProgramCaseEntrySource = TextIO.readFile . programCaseEntrySource
+
+prepareProgramCase :: ProgramCase -> IO (Either Diagnostic CompiledProgram)
+prepareProgramCase programCase =
+  buildCompiledProgram
+    defaultWarningSettings
+    (PreludeBundled bundledPreludeSource)
+    (programCaseResolutionConfig programCase)
+    (programCaseEntryModulePath programCase)
+    readProgramCaseSource
+
+programCaseResolutionConfig :: ProgramCase -> ModuleResolutionConfig
+programCaseResolutionConfig programCase =
+  ModuleResolutionConfig
+    { moduleRoots =
+        [ programCaseModuleRoot programCase,
+          programCasePackageRoot programCase </> "jazz" </> "stdlib"
+        ],
+      moduleExtension = ".jz"
+    }
+
+readProgramCaseSource :: FilePath -> IO (Maybe Text)
+readProgramCaseSource path = do
+  exists <- doesFileExist path
+  if exists then Just <$> TextIO.readFile path else pure Nothing
 
 caseResult :: RunResult -> ProgramCaseResult
 caseResult result

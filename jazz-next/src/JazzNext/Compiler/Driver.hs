@@ -12,6 +12,7 @@ module JazzNext.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
+    buildCompiledProgram,
     RunResult (..),
     runExpr,
     runExprWithHost,

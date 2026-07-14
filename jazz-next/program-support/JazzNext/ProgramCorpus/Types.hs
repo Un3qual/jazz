@@ -24,14 +24,10 @@ module JazzNext.ProgramCorpus.Types
 where
 
 import Data.Text (Text)
-
-data BenchmarkGroup
-  = ParseLowerBenchmark
-  | AnalysisBenchmark
-  | ModulePreparationBenchmark
-  | RuntimeBenchmark
-  | WholeProgramBenchmark
-  deriving (Bounded, Enum, Eq, Ord, Show)
+import JazzNext.Compiler.Profiling
+  ( BenchmarkGroup (..),
+    benchmarkGroupName,
+  )
 
 data FeatureTag
   = ModulesFeature
@@ -131,15 +127,6 @@ data ProgramCorpusViolation
   | EntrySourceOutsideModuleRoot Text FilePath FilePath
   | InvalidEntrySourceExtension Text FilePath
   deriving (Eq, Ord, Show)
-
-benchmarkGroupName :: BenchmarkGroup -> Text
-benchmarkGroupName group =
-  case group of
-    ParseLowerBenchmark -> "parse-lower"
-    AnalysisBenchmark -> "analysis"
-    ModulePreparationBenchmark -> "module-preparation"
-    RuntimeBenchmark -> "runtime"
-    WholeProgramBenchmark -> "whole-program"
 
 parseBenchmarkGroup :: Text -> Maybe BenchmarkGroup
 parseBenchmarkGroup = lookupByName benchmarkGroupName
