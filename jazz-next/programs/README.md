@@ -33,6 +33,20 @@ Case IDs are durable data. Rename one only when intentionally invalidating
 existing benchmark history and references. Adding fields or vocabulary that an
 older loader cannot interpret requires a schema-version decision.
 
+## Current cases
+
+`corpus.json` remains the machine-readable source of truth; this inventory gives
+reviewers and benchmark users a quick map from its durable IDs to their intent.
+
+| Case ID | Workload | Purpose and principal features |
+| --- | --- | --- |
+| `identifier-classifier` | `fast` | Classifies realistic identifier text using recursion, patterns, lists, and bundled text/character utilities. |
+| `expression-evaluator` | `fast` | Evaluates a small expression ADT with environments, recursive interpretation, and multi-module inference. |
+| `tree-transformations` | `full` | Builds, maps, and folds a generic recursive tree to exercise generic ADTs and higher-order traversal. |
+| `dependency-planner` | `fast` | Computes a dependency plan over an association-list graph using modules, recursion, patterns, text, and lists. |
+| `capability-workflow` | `fast` | Processes workflow values through capability-constrained functions and multi-module dispatch. |
+| `mini-frontend` | `full` | Runs token classification, expression analysis, and evaluation across a production-shaped module graph. |
+
 ## Workloads, features, and benchmarks
 
 `fast` cases are eligible for the one-pass benchmark smoke run. `full` cases

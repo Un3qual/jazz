@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Exception (bracket)
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, unless)
 import Data.List (sort, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -22,6 +22,7 @@ import JazzNext.ProgramCorpus.Manifest
   ( canonicalizeValidatedPath,
     loadProgramCorpus,
     loadProgramCorpusAt,
+    loadProgramCorpusAtWithRootCanonicalizer,
     programCaseById,
     renderProgramCorpusViolation,
   )
@@ -73,11 +74,13 @@ tests =
     ("reports malformed manifest JSON", testMalformedManifest),
     ("reports unreadable manifests as corpus violations", testUnreadableManifest),
     ("rejects unknown budget fields", testUnknownBudgetField),
-    ("reports canonicalization failures as corpus violations", testCanonicalizationFailure),
+    ("reports corpus-root canonicalization failures as corpus violations", testRootCanonicalizationFailure),
+    ("reports case-path canonicalization failures as corpus violations", testCasePathCanonicalizationFailure),
     ("reports every missing corpus path", testMissingCorpusPaths),
     ("rejects a source symlink that escapes the corpus root", testSymlinkEscape),
     ("loads and runs the checked-in identifier classifier", testIdentifierClassifier),
     ("covers the production-shaped corpus contract", testCheckedInCorpusCoverage),
+    ("documents every checked-in corpus case", testCheckedInCorpusDocumentation),
     ("budget upper limits accept equal and lower work", testBudgetUpperLimits),
     ("optional budgets are enforced and violations are stably accumulated", testOptionalBudgetViolations),
     ("an in-memory checked-in budget override reports a useful violation", testCheckedInBudgetOverride),
@@ -159,8 +162,23 @@ testUnknownBudgetField =
         failTest ("expected an unknown-budget decode failure, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected unknown budget field failure, loaded " <> Text.pack (show corpus))
 
-testCanonicalizationFailure :: IO ()
-testCanonicalizationFailure = do
+testRootCanonicalizationFailure :: IO ()
+testRootCanonicalizationFailure =
+  withTemporaryDirectory $ \root -> do
+    writeManifest root "{\"schemaVersion\":1,\"cases\":[]}"
+    result <-
+      loadProgramCorpusAtWithRootCanonicalizer
+        (\_ -> ioError (userError "simulated root canonicalization failure"))
+        root
+    case result of
+      Left [UnreadableCorpusRoot path message]
+        | path == root,
+          "simulated root canonicalization failure" `Text.isInfixOf` message ->
+            pure ()
+      other -> failTest ("expected corpus-root violation, got " <> Text.pack (show other))
+
+testCasePathCanonicalizationFailure :: IO ()
+testCasePathCanonicalizationFailure = do
   result <-
     canonicalizeValidatedPath
       (\_ -> ioError (userError "simulated canonicalization failure"))
@@ -268,6 +286,30 @@ testCheckedInCorpusCoverage = do
   if any (> 1) sourceCounts
     then pure ()
     else failTest "expected at least one multi-module corpus case"
+
+testCheckedInCorpusDocumentation :: IO ()
+testCheckedInCorpusDocumentation = do
+  corpus <- loadCheckedInCorpus
+  readme <- TextIO.readFile (programCorpusRoot corpus </> "README.md")
+  let heading = "## Current cases"
+      (_, sectionAndFollowing) = Text.breakOn heading readme
+  whenMissingSection sectionAndFollowing
+  let currentCasesSection =
+        Text.unlines
+          ( takeWhile
+              (not . Text.isPrefixOf "## ")
+              (drop 1 (Text.lines sectionAndFollowing))
+          )
+  forM_ (programCorpusCases corpus) $ \programCase ->
+    unless (programCaseIdentifier programCase `Text.isInfixOf` currentCasesSection) $
+      failTest
+        ( "programs/README.md does not document corpus case "
+            <> programCaseIdentifier programCase
+        )
+  where
+    whenMissingSection section
+      | Text.null section = failTest "programs/README.md is missing a Current cases section"
+      | otherwise = pure ()
 
 testEveryCheckedInCase :: IO ()
 testEveryCheckedInCase = do

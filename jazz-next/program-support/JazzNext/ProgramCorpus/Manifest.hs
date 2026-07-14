@@ -4,6 +4,7 @@ module JazzNext.ProgramCorpus.Manifest
   ( canonicalizeValidatedPath,
     loadProgramCorpus,
     loadProgramCorpusAt,
+    loadProgramCorpusAtWithRootCanonicalizer,
     programCaseById,
     renderProgramCorpusViolation,
   )
@@ -112,9 +113,9 @@ unknownBudgetFields :: KeyMap.KeyMap Value -> [Text]
 unknownBudgetFields object =
   sort
     [ field
-      | key <- KeyMap.keys object,
-        let field = Key.toText key,
-        field `notElem` knownBudgetFields
+    | key <- KeyMap.keys object,
+      let field = Key.toText key,
+      field `notElem` knownBudgetFields
     ]
   where
     knownBudgetFields = map programBudgetMetricName ([minBound .. maxBound] :: [ProgramBudgetMetric])
@@ -133,7 +134,13 @@ loadProgramCorpus = do
     Right packageRoot -> loadProgramCorpusAt (packageRoot </> "programs")
 
 loadProgramCorpusAt :: FilePath -> IO (Either [ProgramCorpusViolation] ProgramCorpus)
-loadProgramCorpusAt requestedRoot = do
+loadProgramCorpusAt = loadProgramCorpusAtWithRootCanonicalizer canonicalizePath
+
+loadProgramCorpusAtWithRootCanonicalizer ::
+  (FilePath -> IO FilePath) ->
+  FilePath ->
+  IO (Either [ProgramCorpusViolation] ProgramCorpus)
+loadProgramCorpusAtWithRootCanonicalizer canonicalizeRoot requestedRoot = do
   let manifestPath = requestedRoot </> "corpus.json"
   manifestExists <- doesFileExist manifestPath
   if not manifestExists
@@ -155,7 +162,7 @@ loadProgramCorpusAt requestedRoot = do
             Right value ->
               case parseEither parseDocument value of
                 Left message -> pure (Left [ManifestDecodeFailure (Text.pack message)])
-                Right document -> validateDocument requestedRoot document
+                Right document -> validateDocument canonicalizeRoot requestedRoot document
 
 programCaseById :: Text -> ProgramCorpus -> Maybe ProgramCase
 programCaseById identifier corpus =
@@ -163,30 +170,44 @@ programCaseById identifier corpus =
     programCase : _ -> Just programCase
     [] -> Nothing
 
-validateDocument :: FilePath -> ProgramCorpusDocument -> IO (Either [ProgramCorpusViolation] ProgramCorpus)
-validateDocument requestedRoot document = do
-  canonicalRoot <- canonicalizePath requestedRoot
-  caseResults <- mapM (validateCase canonicalRoot) (programCorpusDocumentCases document)
-  let documentViolations =
-        [ UnsupportedSchemaVersion (programCorpusDocumentSchemaVersion document)
-        | programCorpusDocumentSchemaVersion document /= supportedSchemaVersion
-        ]
-      duplicateViolations =
-        map DuplicateCaseIdentifier (duplicates (map programCaseDocumentIdentifier (programCorpusDocumentCases document)))
-          <> map DuplicateCaseDirectory (duplicates (map programCaseDocumentDirectory (programCorpusDocumentCases document)))
-      caseViolations = concatMap fst caseResults
-      violations = sortOn renderProgramCorpusViolation (documentViolations <> duplicateViolations <> caseViolations)
-  if null violations
-    then
+validateDocument ::
+  (FilePath -> IO FilePath) ->
+  FilePath ->
+  ProgramCorpusDocument ->
+  IO (Either [ProgramCorpusViolation] ProgramCorpus)
+validateDocument canonicalizeRoot requestedRoot document = do
+  canonicalRootResult <- try (canonicalizeRoot requestedRoot) :: IO (Either IOException FilePath)
+  case canonicalRootResult of
+    Left exception ->
       pure
-        ( Right
-            ProgramCorpus
-              { programCorpusRoot = canonicalRoot,
-                programCorpusSchemaVersion = programCorpusDocumentSchemaVersion document,
-                programCorpusCases = mapMaybe snd caseResults
-              }
+        ( Left
+            [ UnreadableCorpusRoot
+                requestedRoot
+                (Text.pack (show exception))
+            ]
         )
-    else pure (Left violations)
+    Right canonicalRoot -> do
+      caseResults <- mapM (validateCase canonicalRoot) (programCorpusDocumentCases document)
+      let documentViolations =
+            [ UnsupportedSchemaVersion (programCorpusDocumentSchemaVersion document)
+            | programCorpusDocumentSchemaVersion document /= supportedSchemaVersion
+            ]
+          duplicateViolations =
+            map DuplicateCaseIdentifier (duplicates (map programCaseDocumentIdentifier (programCorpusDocumentCases document)))
+              <> map DuplicateCaseDirectory (duplicates (map programCaseDocumentDirectory (programCorpusDocumentCases document)))
+          caseViolations = concatMap fst caseResults
+          violations = sortOn renderProgramCorpusViolation (documentViolations <> duplicateViolations <> caseViolations)
+      if null violations
+        then
+          pure
+            ( Right
+                ProgramCorpus
+                  { programCorpusRoot = canonicalRoot,
+                    programCorpusSchemaVersion = programCorpusDocumentSchemaVersion document,
+                    programCorpusCases = mapMaybe snd caseResults
+                  }
+            )
+        else pure (Left violations)
 
 validateCase :: FilePath -> ProgramCaseDocument -> IO ([ProgramCorpusViolation], Maybe ProgramCase)
 validateCase corpusRoot document = do
@@ -414,6 +435,8 @@ renderProgramCorpusViolation violation =
     MissingCorpusManifest path -> "missing program corpus manifest: " <> Text.pack path
     UnreadableCorpusManifest path message ->
       "could not read program corpus manifest " <> Text.pack path <> ": " <> message
+    UnreadableCorpusRoot path message ->
+      "could not canonicalize program corpus root " <> Text.pack path <> ": " <> message
     ManifestDecodeFailure message -> "could not decode program corpus manifest: " <> message
     UnsupportedSchemaVersion version -> "unsupported program corpus schema version: " <> Text.pack (show version)
     DuplicateCaseIdentifier identifier -> "duplicate program case identifier: " <> identifier
