@@ -130,6 +130,26 @@ common test-common
       text >= 2.1 && < 2.2,
       transformers >= 0.6 && < 0.7
 
+common program-support
+  hs-source-dirs: program-support
+  other-modules:
+      JazzNext.ProgramCorpus.Manifest
+      JazzNext.ProgramCorpus.Runner
+      JazzNext.ProgramCorpus.Types
+  build-depends:
+      aeson >= 2.2 && < 2.3,
+      base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
+      directory >= 1.3 && < 1.4,
+      filepath >= 1.5 && < 1.6,
+      jazz-next:jazz-next-internal,
+      text >= 2.1 && < 2.2
+
+test-suite program-corpus-spec
+  import: test-common, program-support
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/ProgramCorpus/ProgramCorpusSpec.hs
+
 test-suite cli-spec
   import: test-common
   type: exitcode-stdio-1.0

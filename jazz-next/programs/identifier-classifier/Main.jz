@@ -1,0 +1,57 @@
+module Main {
+  import Char.
+  import Maybe.
+  import Text.
+
+  data IdentifierKind = Keyword Text | TypeIdentifier Text | ValueIdentifier Text | InvalidIdentifier Text.
+
+  isKeyword :: Text -> Bool.
+  isKeyword = \(name) -> if name == "module" then
+    True
+    else if name == "import" then
+      True
+      else if name == "data" then
+        True
+        else if name == "if" then
+          True
+          else if name == "then" then
+            True
+            else if name == "else" then
+              True
+              else name == "case".
+
+  isIdentifierStart :: Char -> Bool.
+  isIdentifierStart = \(value) -> if (charIsAlpha value) then True else value == '_'.
+
+  isIdentifierContinuation :: Char -> Bool.
+  isIdentifierContinuation = \(value) -> if (charIsAlphaNum value) then
+    True
+    else if value == '_' then
+      True
+      else if value == '\'' then
+        True
+        else value == '!'.
+
+  allIdentifierContinuations :: Text -> Bool.
+  allIdentifierContinuations = \(remaining) -> case textUncons remaining {
+    | Nothing -> True
+    | Just (current, rest) -> if (isIdentifierContinuation current) then allIdentifierContinuations rest else False
+  }.
+
+  isTypeStart :: Char -> Bool.
+  isTypeStart = \(value) -> if (charIsAlpha value) then charToUInt32 value < charToUInt32 'a' else False.
+
+  classifyIdentifier :: Text -> IdentifierKind.
+  classifyIdentifier = \(name) -> if (isKeyword name) then
+    Keyword name
+    else case textUncons name {
+      | Nothing -> InvalidIdentifier name
+      | Just (first, rest) -> if (isIdentifierStart first) then
+        if (allIdentifierContinuations rest) then
+          if (isTypeStart first) then TypeIdentifier name else ValueIdentifier name
+          else InvalidIdentifier name
+        else InvalidIdentifier name
+    }.
+
+  map classifyIdentifier ["module", "Point", "point2", "_private", "bad-name", "case", "result!"].
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "identifier-classifier",
+      "directory": "identifier-classifier",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 100000,
+        "applications": 10000,
+        "maxContinuationDepth": 1000
+      }
+    }
+  ]
+}
