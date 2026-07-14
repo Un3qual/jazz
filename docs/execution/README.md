@@ -125,8 +125,8 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
 verification:
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
+  - cabal build --project-dir=jazz-next all
+  - cabal test --project-dir=jazz-next all --test-show-details=failures
 deliverable: Constructor-pattern `case` runtime evaluation works in `jazz-next`.
 supersedes: []
 ---
