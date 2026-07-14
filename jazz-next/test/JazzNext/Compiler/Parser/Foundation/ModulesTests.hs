@@ -51,7 +51,12 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core {\noperator = 1.\nvalue = operator.\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    operator = 1.
+    value = operator.
+    }
+    """)
 
 testParsesTraitAsImportAlias :: IO ()
 testParsesTraitAsImportAlias =
@@ -64,13 +69,19 @@ testParsesTraitAsImportAlias =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as trait.
+    trait::subtract.
+    """)
 
 testLowersClassQualifiedMethodReference :: IO ()
 testLowersClassQualifiedMethodReference =
   assertRight
     "parse + lower class-qualified method reference"
-    (parseSurfaceProgram "result = Eq::equals 1 1.\nresult.")
+    (parseSurfaceProgram """
+    result = Eq::equals 1 1.
+    result.
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered class-qualified method reference"
@@ -100,4 +111,9 @@ testParsesCapabilityDeclarationsInModuleBody =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    }
+    """)

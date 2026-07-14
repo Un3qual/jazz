@@ -77,14 +77,20 @@ testRejectsUnsupportedExplicitTypeApplicationArgument =
   assertLeftDiagnosticContains
     "unsupported explicit type application argument"
     "unsupported explicit type application argument after '@'"
-    (parseSurfaceProgram "value = id @ 1.\nvalue.")
+    (parseSurfaceProgram """
+    value = id @ 1.
+    value.
+    """)
 
 testRejectsEmptyNamedExplicitTypeApplicationArguments :: IO ()
 testRejectsEmptyNamedExplicitTypeApplicationArguments =
   assertLeftDiagnosticContains
     "empty named explicit type application arguments"
     "unsupported explicit type application argument after '@'"
-    (parseSurfaceProgram "value = id @Maybe().\nvalue.")
+    (parseSurfaceProgram """
+    value = id @Maybe().
+    value.
+    """)
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =
@@ -105,14 +111,20 @@ testRejectsMissingSignatureDot =
   assertLeftDiagnosticContains
     "missing signature dot error"
     "expected '.'"
-    (parseSurfaceProgram "x :: Int\nx = 1.")
+    (parseSurfaceProgram """
+    x :: Int
+    x = 1.
+    """)
 
 testRejectsMissingSignatureDotBeforeClass :: IO ()
 testRejectsMissingSignatureDotBeforeClass =
   assertLeftDiagnosticContains
     "missing signature dot before class"
     "expected '.' before 'class'"
-    (parseSurfaceProgram "x :: Int\nclass Eq { }.")
+    (parseSurfaceProgram """
+    x :: Int
+    class Eq { }.
+    """)
 
 testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =
@@ -224,4 +236,8 @@ testRejectsTraitAbstractionSyntaxInModuleBody =
   assertLeftDiagnosticContains
     "trait abstraction syntax in module body"
     "unsupported abstraction syntax 'trait'"
-    (parseSurfaceProgram "module App::Core {\ntrait Eq { }.\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    trait Eq { }.
+    }
+    """)

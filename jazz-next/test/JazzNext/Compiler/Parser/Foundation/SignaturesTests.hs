@@ -76,6 +76,7 @@ signatureTests =
 
 testParseSignatureSpan :: IO ()
 testParseSignatureSpan =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   assertEqual
     "signature span"
     ( Right
@@ -102,7 +103,11 @@ testParsesCharAndTextSignatures =
             ]
         )
     )
-    (parseSurfaceProgram "character :: Char.\nmessage :: Text.\nrender :: Char -> Text.")
+    (parseSurfaceProgram """
+    character :: Char.
+    message :: Text.
+    render :: Char -> Text.
+    """)
 
 testParsesGenericNamedSignatures :: IO ()
 testParsesGenericNamedSignatures =
@@ -131,7 +136,10 @@ testParsesGenericNamedSignatures =
             ]
         )
     )
-    (parseSurfaceProgram "value :: Maybe(Char).\nmap :: (a -> b) -> List(a) -> [b].")
+    (parseSurfaceProgram """
+    value :: Maybe(Char).
+    map :: (a -> b) -> List(a) -> [b].
+    """)
 
 testNormalizesListApplicationSyntax :: IO ()
 testNormalizesListApplicationSyntax =
@@ -150,7 +158,10 @@ testNormalizesListApplicationSyntax =
             ]
         )
     )
-    (parseSurfaceProgram "left :: List(a).\nright :: [a].")
+    (parseSurfaceProgram """
+    left :: List(a).
+    right :: [a].
+    """)
 
 testParseParenthesizedFunctionSignature :: IO ()
 testParseParenthesizedFunctionSignature =
@@ -171,7 +182,10 @@ testParseParenthesizedFunctionSignature =
             ]
         )
     )
-    (parseSurfaceProgram "f :: ([Int]) -> ([Int]).\nf = (+).")
+    (parseSurfaceProgram """
+    f :: ([Int]) -> ([Int]).
+    f = (+).
+    """)
 
 testParseTupleSignature :: IO ()
 testParseTupleSignature =
@@ -187,7 +201,10 @@ testParseTupleSignature =
             ]
         )
     )
-    (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+    (parseSurfaceProgram """
+    pair :: (Int, Bool).
+    pair = (1, True).
+    """)
 
 testParseUnitValueAndSignature :: IO ()
 testParseUnitValueAndSignature =
@@ -203,7 +220,10 @@ testParseUnitValueAndSignature =
             ]
         )
     )
-    (parseSurfaceProgram "unit :: ().\nunit = ().")
+    (parseSurfaceProgram """
+    unit :: ().
+    unit = ().
+    """)
 
 testParseConstrainedUnitSignature :: IO ()
 testParseConstrainedUnitSignature =
@@ -219,7 +239,10 @@ testParseConstrainedUnitSignature =
             ]
         )
     )
-    (parseSurfaceProgram "unit :: @{}: ().\nunit = ().")
+    (parseSurfaceProgram """
+    unit :: @{}: ().
+    unit = ().
+    """)
 
 testParseNumericWidthSignatureTypes :: IO ()
 testParseNumericWidthSignatureTypes = do
@@ -232,7 +255,10 @@ testParseNumericWidthSignatureTypes = do
             ]
         )
     )
-    (parseSurfaceProgram "x :: Int8.\nx = 1.")
+    (parseSurfaceProgram """
+    x :: Int8.
+    x = 1.
+    """)
   assertEqual
     "Float alias signature"
     ( Right
@@ -247,7 +273,10 @@ testParseNumericWidthSignatureTypes = do
             ]
         )
     )
-    (parseSurfaceProgram "f :: Float -> Float64.\nf = (+).")
+    (parseSurfaceProgram """
+    f :: Float -> Float64.
+    f = (+).
+    """)
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -265,7 +294,10 @@ testParseChainedFunctionSignature =
             ]
         )
     )
-    (parseSurfaceProgram "f :: Int -> Int -> Int.\nf = (+).")
+    (parseSurfaceProgram """
+    f :: Int -> Int -> Int.
+    f = (+).
+    """)
 
 testParseParenthesizedFunctionOverrideSignature :: IO ()
 testParseParenthesizedFunctionOverrideSignature =
@@ -283,7 +315,10 @@ testParseParenthesizedFunctionOverrideSignature =
             ]
         )
     )
-    (parseSurfaceProgram "f :: (Int -> Int) -> Int.\nf = applyToOne.")
+    (parseSurfaceProgram """
+    f :: (Int -> Int) -> Int.
+    f = applyToOne.
+    """)
 
 testParseFunctionListSignature :: IO ()
 testParseFunctionListSignature =
@@ -301,7 +336,10 @@ testParseFunctionListSignature =
             ]
         )
     )
-    (parseSurfaceProgram "fns :: [(Int -> Int)].\nfns = [(+ 1)].")
+    (parseSurfaceProgram """
+    fns :: [(Int -> Int)].
+    fns = [(+ 1)].
+    """)
 
 testParseConstrainedSignaturePayload :: IO ()
 testParseConstrainedSignaturePayload =
@@ -325,7 +363,10 @@ testParseConstrainedSignaturePayload =
             ]
         )
     )
-    (parseSurfaceProgram "f :: @{Eq(a), Ord(b)}: a -> b -> c.\nf = combine.")
+    (parseSurfaceProgram """
+    f :: @{Eq(a), Ord(b)}: a -> b -> c.
+    f = combine.
+    """)
 
 testParseEmptyConstraintBlockSignaturePayload :: IO ()
 testParseEmptyConstraintBlockSignaturePayload =
@@ -341,7 +382,10 @@ testParseEmptyConstraintBlockSignaturePayload =
             ]
         )
     )
-    (parseSurfaceProgram "f :: @{}: Int.\nf = value.")
+    (parseSurfaceProgram """
+    f :: @{}: Int.
+    f = value.
+    """)
 
 testParseConstrainedTupleSignaturePayload :: IO ()
 testParseConstrainedTupleSignaturePayload =
@@ -360,13 +404,19 @@ testParseConstrainedTupleSignaturePayload =
             ]
         )
     )
-    (parseSurfaceProgram "pair :: @{}: (Int, Bool).\npair = (1, True).")
+    (parseSurfaceProgram """
+    pair :: @{}: (Int, Bool).
+    pair = (1, True).
+    """)
 
 testParseExplicitTypeApplicationExpression :: IO ()
 testParseExplicitTypeApplicationExpression =
   assertRight
     "explicit type application parse"
-    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    (parseSurfaceProgram """
+    value = id @Int 1.
+    value.
+    """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface type application" "SETypeApplication" rendered
@@ -377,7 +427,10 @@ testLowerExplicitTypeApplicationExpression :: IO ()
 testLowerExplicitTypeApplicationExpression =
   assertRight
     "explicit type application lowering"
-    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    (parseSurfaceProgram """
+    value = id @Int 1.
+    value.
+    """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered type application" "ETypeApplication" rendered
@@ -388,7 +441,10 @@ testLoweredExplicitTypeApplicationIsCanonical :: IO ()
 testLoweredExplicitTypeApplicationIsCanonical =
   assertRight
     "parse + canonical lower explicit type application"
-    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    (parseSurfaceProgram """
+    value = id @Int 1.
+    value.
+    """)
     ( \surfaceProgram ->
         assertEqual
           "canonical lowered type application AST"
@@ -409,7 +465,10 @@ testLowerTupleLiteralAndSignatureProgram :: IO ()
 testLowerTupleLiteralAndSignatureProgram =
   assertRight
     "parse + lower tuple literal/signature"
-    (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+    (parseSurfaceProgram """
+    pair :: (Int, Bool).
+    pair = (1, True).
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered tuple AST"
@@ -431,7 +490,10 @@ testLowerUnitValueAndSignature :: IO ()
 testLowerUnitValueAndSignature =
   assertRight
     "parse + lower Unit value/signature"
-    (parseSurfaceProgram "unit :: ().\nunit = ().")
+    (parseSurfaceProgram """
+    unit :: ().
+    unit = ().
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered Unit AST"
@@ -450,7 +512,10 @@ testLowerNumericWidthSignatureProgram :: IO ()
 testLowerNumericWidthSignatureProgram =
   assertRight
     "parse + lower numeric width signatures"
-    (parseSurfaceProgram "f :: UInt8 -> Int64 -> Float.\nf = (+).")
+    (parseSurfaceProgram """
+    f :: UInt8 -> Int64 -> Float.
+    f = (+).
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered numeric width signature AST"
@@ -474,7 +539,10 @@ testLowerStructuredSignatureProgram :: IO ()
 testLowerStructuredSignatureProgram =
   assertRight
     "parse + lower structured signature"
-    (parseSurfaceProgram "x :: [[Bool]].\nx = [[True], [False]].")
+    (parseSurfaceProgram """
+    x :: [[Bool]].
+    x = [[True], [False]].
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered signature AST"
@@ -496,7 +564,10 @@ testLowerRightAssociativeFunctionSignatureProgram :: IO ()
 testLowerRightAssociativeFunctionSignatureProgram =
   assertRight
     "parse + lower right-associated function signature"
-    (parseSurfaceProgram "f :: Int -> Int -> Int.\nf = (+).")
+    (parseSurfaceProgram """
+    f :: Int -> Int -> Int.
+    f = (+).
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered right-associated signature AST"
@@ -515,7 +586,10 @@ testLowerFunctionListSignatureProgram :: IO ()
 testLowerFunctionListSignatureProgram =
   assertRight
     "parse + lower list of function signature"
-    (parseSurfaceProgram "fns :: [(Int -> Int)].\nfns = [(+ 1)].")
+    (parseSurfaceProgram """
+    fns :: [(Int -> Int)].
+    fns = [(+ 1)].
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered list of function signature AST"
@@ -537,7 +611,10 @@ testLowerConstrainedSignatureProgram :: IO ()
 testLowerConstrainedSignatureProgram =
   assertRight
     "parse + lower constrained signature"
-    (parseSurfaceProgram "f :: @{Eq(a)}: a -> a.\nf = identity.")
+    (parseSurfaceProgram """
+    f :: @{Eq(a)}: a -> a.
+    f = identity.
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered constrained signature AST"
@@ -559,7 +636,10 @@ testLowerConstrainedTupleSignatureProgram :: IO ()
 testLowerConstrainedTupleSignatureProgram =
   assertRight
     "parse + lower constrained tuple signature"
-    (parseSurfaceProgram "pair :: @{}: (Int, Bool).\npair = (1, True).")
+    (parseSurfaceProgram """
+    pair :: @{}: (Int, Bool).
+    pair = (1, True).
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered constrained tuple signature AST"
@@ -595,7 +675,14 @@ testParsesAbstractionKeywordsAsSignatureNames =
             ]
         )
     )
-    (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.\ntrait :: Int.\ntrait = 2.")
+    (parseSurfaceProgram """
+    class :: Int.
+    class = 1.
+    impl :: Bool.
+    impl = True.
+    trait :: Int.
+    trait = 2.
+    """)
 
 testParsesOperatorKeywordAsSignatureName :: IO ()
 testParsesOperatorKeywordAsSignatureName =
@@ -608,13 +695,21 @@ testParsesOperatorKeywordAsSignatureName =
             ]
         )
     )
-    (parseSurfaceProgram "operator :: Int.\noperator = 1.")
+    (parseSurfaceProgram """
+    operator :: Int.
+    operator = 1.
+    """)
 
 testParsesClassMethodSignatureMetadata :: IO ()
 testParsesClassMethodSignatureMetadata =
   assertRight
     "surface class method signature parse"
-    (parseSurfaceProgram "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.")
+    (parseSurfaceProgram """
+    class Eq(a) {
+    equals :: a -> a -> Bool.
+    notEquals :: a -> a -> Bool.
+    }.
+    """)
     ( \surfaceProgram -> do
         let surfacePayload =
               SurfaceSignatureType

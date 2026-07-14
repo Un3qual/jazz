@@ -71,12 +71,18 @@ testParseLetAndExpr =
             ]
         )
     )
-    (parseSurfaceProgram "x = 1.\nx.")
+    (parseSurfaceProgram """
+    x = 1.
+    x.
+    """)
 
 testParseSurfaceProgramAcceptsTextInput :: IO ()
 testParseSurfaceProgramAcceptsTextInput = do
   let sourceText :: Text
-      sourceText = "x = 1.\nx."
+      sourceText = """
+      x = 1.
+      x.
+      """
   assertEqual
     "surface AST from Text source"
     ( Right
@@ -111,7 +117,10 @@ testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
   assertRight
     "fractional literal parse"
-    (parseSurfaceProgram "x = 1.5.\ny = 2.")
+    (parseSurfaceProgram """
+    x = 1.5.
+    y = 2.
+    """)
     ( \surfaceProgram ->
         assertContains
           "surface fractional literal"
@@ -123,7 +132,11 @@ testParseFractionalLiteralSuffixes :: IO ()
 testParseFractionalLiteralSuffixes =
   assertRight
     "fractional literal suffix parse"
-    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    (parseSurfaceProgram """
+    x16 = 1.5f16.
+    x32 = 2.5f32.
+    x64 = 3.5f64.
+    """)
     ( \surfaceProgram -> do
         let renderedProgram = Text.pack (show surfaceProgram)
         assertContains "Float16 suffix target" "Just SurfaceNumericFloat16" renderedProgram
@@ -133,6 +146,7 @@ testParseFractionalLiteralSuffixes =
 
 testIgnoresHashLineComments :: IO ()
 testIgnoresHashLineComments =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   assertEqual
     "comments ignored"
     ( Right
@@ -171,7 +185,10 @@ testParseNestedScopeExpression =
             ]
         )
     )
-    (parseSurfaceProgram "x = 1.\n{ x. }.")
+    (parseSurfaceProgram """
+    x = 1.
+    { x. }.
+    """)
 
 testParseBlockArgumentExpression :: IO ()
 testParseBlockArgumentExpression =
@@ -193,13 +210,21 @@ testParseBlockArgumentExpression =
             ]
         )
     )
-    (parseSurfaceProgram "result = f {\n  x = 1.\n  x.\n}.")
+    (parseSurfaceProgram """
+    result = f {
+      x = 1.
+      x.
+    }.
+    """)
 
 testLowerSurfaceProgram :: IO ()
 testLowerSurfaceProgram =
   assertRight
     "parse + lower"
-    (parseSurfaceProgram "x = 1.\nx.")
+    (parseSurfaceProgram """
+    x = 1.
+    x.
+    """)
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -224,7 +249,11 @@ testLowerFractionalLiteralSuffixesProgram :: IO ()
 testLowerFractionalLiteralSuffixesProgram =
   assertRight
     "parse + lower suffixed fractional literals"
-    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    (parseSurfaceProgram """
+    x16 = 1.5f16.
+    x32 = 2.5f32.
+    x64 = 3.5f64.
+    """)
     ( \surfaceProgram -> do
         let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
@@ -257,7 +286,11 @@ testParsesAbstractionKeywordsAsBindingNames =
             ]
         )
     )
-    (parseSurfaceProgram "class = 1.\nimpl = class.\ntrait = impl.")
+    (parseSurfaceProgram """
+    class = 1.
+    impl = class.
+    trait = impl.
+    """)
 
 testParsesOperatorKeywordAsBindingName :: IO ()
 testParsesOperatorKeywordAsBindingName =
@@ -270,7 +303,10 @@ testParsesOperatorKeywordAsBindingName =
             ]
         )
     )
-    (parseSurfaceProgram "operator = 1.\nvalue = operator.")
+    (parseSurfaceProgram """
+    operator = 1.
+    value = operator.
+    """)
 
 testParsesOperatorKeywordAsNestedBlockBindingName :: IO ()
 testParsesOperatorKeywordAsNestedBlockBindingName =
@@ -289,7 +325,12 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
             ]
         )
     )
-    (parseSurfaceProgram "scope = {\n  operator = 1.\n  operator.\n}.")
+    (parseSurfaceProgram """
+    scope = {
+      operator = 1.
+      operator.
+    }.
+    """)
 
 testParsesParameterizedClassCapabilityDeclaration :: IO ()
 testParsesParameterizedClassCapabilityDeclaration =
@@ -321,7 +362,10 @@ testLowersCapabilityDeclarations :: IO ()
 testLowersCapabilityDeclarations =
   assertRight
     "surface parse"
-    (parseSurfaceProgram "class Eq(a) { }.\nimpl Eq(Int) { }.")
+    (parseSurfaceProgram """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered capability declarations"
@@ -337,7 +381,11 @@ testParsesImplMethodBindingMetadata :: IO ()
 testParsesImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.")
+    (parseSurfaceProgram """
+    impl Eq(Int) {
+    equals = \\(left) -> \\(right) -> left == right.
+    }.
+    """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
@@ -349,7 +397,11 @@ testLowersImplMethodBindingMetadata :: IO ()
 testLowersImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.")
+    (parseSurfaceProgram """
+    impl Eq(Int) {
+    equals = \\(left) -> \\(right) -> left == right.
+    }.
+    """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered impl method metadata" "ImplMethod" rendered

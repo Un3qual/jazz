@@ -111,7 +111,11 @@ testParsesModuleDeclaration =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core {\nx = 1.\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    x = 1.
+    }
+    """)
 
 testParsesModuleExportList :: IO ()
 testParsesModuleExportList =
@@ -134,7 +138,11 @@ testParsesModuleExportList =
         )
     )
     ( parseSurfaceProgram
-        "module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {\nmapMaybe = 1.\n}"
+        """
+        module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {
+        mapMaybe = 1.
+        }
+        """
     )
 
 testParsesNamespaceAwareModuleExportList :: IO ()
@@ -159,7 +167,11 @@ testParsesNamespaceAwareModuleExportList =
         )
     )
     ( parseSurfaceProgram
-        "module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {\nlegacy = 1.\n}"
+        """
+        module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {
+        legacy = 1.
+        }
+        """
     )
 
 testParsesNamespacePrefixWordsAsBareExports :: IO ()
@@ -183,7 +195,11 @@ testParsesNamespacePrefixWordsAsBareExports =
         )
     )
     ( parseSurfaceProgram
-        "module Lib::Keywords (value, constructor, type, class) {\nanswer = 1.\n}"
+        """
+        module Lib::Keywords (value, constructor, type, class) {
+        answer = 1.
+        }
+        """
     )
 
 testParsesEmptyModuleExportList :: IO ()
@@ -197,13 +213,21 @@ testParsesEmptyModuleExportList =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Internal () {\nhelper = 1.\n}")
+    (parseSurfaceProgram """
+    module App::Internal () {
+    helper = 1.
+    }
+    """)
 
 testLowersModuleExportList :: IO ()
 testLowersModuleExportList =
   assertRight
     "parse module export list"
-    (parseSurfaceProgram "module Lib::Value (answer) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer) {
+    answer = 1.
+    }
+    """)
     ( \surfaceProgram ->
         assertEqual
           "lowered module export metadata"
@@ -232,10 +256,16 @@ testParsesCanonicalModuleDeclarationBoundary =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Main {\nimport Lib::Math as Math.\nresult = Math::answer.\n}")
+    (parseSurfaceProgram """
+    module App::Main {
+    import Lib::Math as Math.
+    result = Math::answer.
+    }
+    """)
 
 testParsesModuleImportsWithStableIndentedSpans :: IO ()
 testParsesModuleImportsWithStableIndentedSpans =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   assertEqual
     "module import indented spans"
     ( Right
@@ -267,7 +297,10 @@ testParsesImportAlias =
             ]
         )
     )
-    (parseSurfaceProgram "import Std::List as List.\nList.")
+    (parseSurfaceProgram """
+    import Std::List as List.
+    List.
+    """)
 
 testParsesQualifiedAliasLookup :: IO ()
 testParsesQualifiedAliasLookup =
@@ -280,7 +313,10 @@ testParsesQualifiedAliasLookup =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as Math.
+    Math::subtract.
+    """)
 
 testParsesAbstractionKeywordAliasLookup :: IO ()
 testParsesAbstractionKeywordAliasLookup =
@@ -293,7 +329,10 @@ testParsesAbstractionKeywordAliasLookup =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as class.\nclass::subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as class.
+    class::subtract.
+    """)
 
 testParsesLowercaseQualifiedAliasLookup :: IO ()
 testParsesLowercaseQualifiedAliasLookup =
@@ -306,7 +345,10 @@ testParsesLowercaseQualifiedAliasLookup =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as math.\nmath::subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as math.
+    math::subtract.
+    """)
 
 testParsesLowercaseQualifiedAliasLookupBeforeImport :: IO ()
 testParsesLowercaseQualifiedAliasLookupBeforeImport =
@@ -319,7 +361,10 @@ testParsesLowercaseQualifiedAliasLookupBeforeImport =
             ]
         )
     )
-    (parseSurfaceProgram "math::subtract.\nimport Lib::Math as math.")
+    (parseSurfaceProgram """
+    math::subtract.
+    import Lib::Math as math.
+    """)
 
 testParsesNestedLowercaseQualifiedAliasLookup :: IO ()
 testParsesNestedLowercaseQualifiedAliasLookup =
@@ -335,7 +380,12 @@ testParsesNestedLowercaseQualifiedAliasLookup =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as math.\nresult = {\n  math::subtract.\n}.")
+    (parseSurfaceProgram """
+    import Lib::Math as math.
+    result = {
+      math::subtract.
+    }.
+    """)
 
 testParsesUppercaseQualifiedAliasMemberLookup :: IO ()
 testParsesUppercaseQualifiedAliasMemberLookup =
@@ -348,7 +398,10 @@ testParsesUppercaseQualifiedAliasMemberLookup =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as Math.\nMath::Result.")
+    (parseSurfaceProgram """
+    import Lib::Math as Math.
+    Math::Result.
+    """)
 
 testParsesConstructorStyleSignatureWhenNotAlias :: IO ()
 testParsesConstructorStyleSignatureWhenNotAlias =
@@ -361,7 +414,10 @@ testParsesConstructorStyleSignatureWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "Result :: Int.\nResult = 1.")
+    (parseSurfaceProgram """
+    Result :: Int.
+    Result = 1.
+    """)
 
 testParsesCompactSignatureWhenNotAlias :: IO ()
 testParsesCompactSignatureWhenNotAlias =
@@ -374,7 +430,10 @@ testParsesCompactSignatureWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "value::Int.\nvalue = 1.")
+    (parseSurfaceProgram """
+    value::Int.
+    value = 1.
+    """)
 
 testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias :: IO ()
 testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias =
@@ -387,7 +446,10 @@ testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "value::Int.\nother = 1.")
+    (parseSurfaceProgram """
+    value::Int.
+    other = 1.
+    """)
 
 testParsesConstructorStyleTypeVariableSignatureWhenNotAlias :: IO ()
 testParsesConstructorStyleTypeVariableSignatureWhenNotAlias =
@@ -400,7 +462,10 @@ testParsesConstructorStyleTypeVariableSignatureWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "Result :: a.\nResult = 1.")
+    (parseSurfaceProgram """
+    Result :: a.
+    Result = 1.
+    """)
 
 testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias :: IO ()
 testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias =
@@ -413,7 +478,10 @@ testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "Result::a.\nother = 1.")
+    (parseSurfaceProgram """
+    Result::a.
+    other = 1.
+    """)
 
 testParsesSignatureForBindingSharingAliasName :: IO ()
 testParsesSignatureForBindingSharingAliasName =
@@ -427,7 +495,11 @@ testParsesSignatureForBindingSharingAliasName =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as math.\nmath :: Int.\nmath = 1.")
+    (parseSurfaceProgram """
+    import Lib::Math as math.
+    math :: Int.
+    math = 1.
+    """)
 
 testParsesLowercaseSignaturePayloadForBindingSharingAliasName :: IO ()
 testParsesLowercaseSignaturePayloadForBindingSharingAliasName =
@@ -441,7 +513,11 @@ testParsesLowercaseSignaturePayloadForBindingSharingAliasName =
             ]
         )
     )
-    (parseSurfaceProgram "import Lib::Math as math.\nmath :: a.\nmath = 1.")
+    (parseSurfaceProgram """
+    import Lib::Math as math.
+    math :: a.
+    math = 1.
+    """)
 
 testParsesLowercaseSignaturePayloadWhenNotAlias :: IO ()
 testParsesLowercaseSignaturePayloadWhenNotAlias =
@@ -454,7 +530,10 @@ testParsesLowercaseSignaturePayloadWhenNotAlias =
             ]
         )
     )
-    (parseSurfaceProgram "value :: a.\nvalue = 1.")
+    (parseSurfaceProgram """
+    value :: a.
+    value = 1.
+    """)
 
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =
@@ -471,13 +550,21 @@ testParsesImportSymbolList =
             ]
         )
     )
-    (parseSurfaceProgram "import Std::List (map, filter).\nmap.")
+    (parseSurfaceProgram """
+    import Std::List (map, filter).
+    map.
+    """)
 
 testLowersModuleImportStatements :: IO ()
 testLowersModuleImportStatements =
   assertRight
     "parse + lower module/import"
-    (parseSurfaceProgram "module App::Core {\nimport Std::List (map).\nmap.\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    import Std::List (map).
+    map.
+    }
+    """)
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -491,7 +578,10 @@ testLowersQualifiedAliasLookup :: IO ()
 testLowersQualifiedAliasLookup =
   assertRight
     "parse + lower qualified alias lookup"
-    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as Math.
+    Math::subtract.
+    """)
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -505,14 +595,20 @@ testRejectsSpacedQualifiedAliasLookupInBindingExpression =
   assertLeftDiagnosticContains
     "spaced qualified alias lookup in binding expression"
     "expected '.' at"
-    (parseSurfaceProgram "import Lib::Math as Math.\nmain = Math :: subtract.")
+    (parseSurfaceProgram """
+    import Lib::Math as Math.
+    main = Math :: subtract.
+    """)
 
 testRejectsNonIdentifierQualifiedMember :: IO ()
 testRejectsNonIdentifierQualifiedMember =
   assertLeftDiagnosticContains
     "non-identifier qualified alias member"
     "expected member name after '::'"
-    (parseSurfaceProgram "import Lib::Math as Math.\nMath::1.")
+    (parseSurfaceProgram """
+    import Lib::Math as Math.
+    Math::1.
+    """)
 
 testRejectsConstructorQualifiedNonIdentifierMember :: IO ()
 testRejectsConstructorQualifiedNonIdentifierMember =
@@ -537,6 +633,7 @@ testRejectsLegacyEqualsStyleModuleDeclaration =
 
 testRejectsLegacyNewlineModuleDeclaration :: IO ()
 testRejectsLegacyNewlineModuleDeclaration =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   assertLeftDiagnosticContains
     "legacy newline module declaration rejected"
     "expected '{'"
@@ -547,28 +644,48 @@ testRejectsTrailingTopLevelStatementsAfterModuleBody =
   assertLeftDiagnosticContains
     "trailing statement after module body"
     "after module declaration"
-    (parseSurfaceProgram "module App::Core {\nx = 1.\n}\ny = 2.")
+    (parseSurfaceProgram """
+    module App::Core {
+    x = 1.
+    }
+    y = 2.
+    """)
 
 testRejectsModuleDeclarationAfterTopLevelStatement :: IO ()
 testRejectsModuleDeclarationAfterTopLevelStatement =
   assertLeftDiagnosticContains
     "module declaration after top-level statement"
     "first top-level form"
-    (parseSurfaceProgram "x = 1.\nmodule App::Core {\ny = 2.\n}")
+    (parseSurfaceProgram """
+    x = 1.
+    module App::Core {
+    y = 2.
+    }
+    """)
 
 testRejectsModuleDeclarationNestedInsideModuleBody :: IO ()
 testRejectsModuleDeclarationNestedInsideModuleBody =
   assertLeftDiagnosticContains
     "module declaration nested inside module body"
     "top-level"
-    (parseSurfaceProgram "module App::Core {\nmodule Inner::Thing {\ny = 1.\n}\n}")
+    (parseSurfaceProgram """
+    module App::Core {
+    module Inner::Thing {
+    y = 1.
+    }
+    }
+    """)
 
 testRejectsModuleDeclarationNestedInsideBlock :: IO ()
 testRejectsModuleDeclarationNestedInsideBlock =
   assertLeftDiagnosticContains
     "module declaration nested inside block expression"
     "top-level"
-    (parseSurfaceProgram "x = { module App::Core {\ny = 1.\n} y. }.")
+    (parseSurfaceProgram """
+    x = { module App::Core {
+    y = 1.
+    } y. }.
+    """)
 
 testRejectsModuleMissingPath :: IO ()
 testRejectsModuleMissingPath =
@@ -589,29 +706,49 @@ testRejectsDuplicateModuleExport = do
   assertLeftDiagnosticContains
     "duplicate module export code"
     "E0001"
-    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer, answer) {
+    answer = 1.
+    }
+    """)
   assertLeftDiagnosticContains
     "duplicate module export message"
     "duplicate module export 'answer'"
-    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer, answer) {
+    answer = 1.
+    }
+    """)
   assertLeftDiagnosticContains
     "duplicate module export span"
     "1:28"
-    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer, answer) {
+    answer = 1.
+    }
+    """)
 
 testRejectsDuplicateNamespaceAwareModuleExport :: IO ()
 testRejectsDuplicateNamespaceAwareModuleExport = do
   assertRight
     "same-name different namespace module exports"
     ( parseSurfaceProgram
-        "module Lib::Box (type Box, constructor Box) {\ndata Box = Box value.\n}"
+        """
+        module Lib::Box (type Box, constructor Box) {
+        data Box = Box value.
+        }
+        """
     )
     (const (pure ()))
   assertLeftDiagnosticContains
     "duplicate namespace-aware module export"
     "duplicate module export type 'Box'"
     ( parseSurfaceProgram
-        "module Lib::Box (type Box, type Box) {\ndata Box = Box value.\n}"
+        """
+        module Lib::Box (type Box, type Box) {
+        data Box = Box value.
+        }
+        """
     )
 
 testRejectsTrailingCommaInModuleExportList :: IO ()
@@ -619,18 +756,30 @@ testRejectsTrailingCommaInModuleExportList = do
   assertLeftDiagnosticContains
     "trailing module export comma code"
     "E0001"
-    (parseSurfaceProgram "module Lib::Value (answer,) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer,) {
+    answer = 1.
+    }
+    """)
   assertLeftDiagnosticContains
     "trailing module export comma message"
     "expected module export name"
-    (parseSurfaceProgram "module Lib::Value (answer,) {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer,) {
+    answer = 1.
+    }
+    """)
 
 testRejectsUnclosedModuleExportList :: IO ()
 testRejectsUnclosedModuleExportList =
   assertLeftDiagnosticContains
     "unclosed module export list"
     "expected ',' or ')'"
-    (parseSurfaceProgram "module Lib::Value (answer {\nanswer = 1.\n}")
+    (parseSurfaceProgram """
+    module Lib::Value (answer {
+    answer = 1.
+    }
+    """)
 
 testRejectsMissingBodyAfterModuleExportList :: IO ()
 testRejectsMissingBodyAfterModuleExportList =

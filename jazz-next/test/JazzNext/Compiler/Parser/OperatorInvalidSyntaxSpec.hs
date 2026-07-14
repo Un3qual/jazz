@@ -91,7 +91,10 @@ testRejectsDuplicateOperatorDeclaration =
     "duplicate operator declaration"
     "E0001"
     "duplicate operator declaration '%%'"
-    (parseSurfaceProgram "operator %% tier 2.\noperator %% tier 3.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    operator %% tier 3.
+    """)
 
 testRejectsNestedOperatorDeclaration :: IO ()
 testRejectsNestedOperatorDeclaration =
@@ -131,7 +134,10 @@ testRejectsNonAssociativeOperatorChain =
     "non-associative operator chain"
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
-    (parseSurfaceProgram "operator ?> precedence 10 nonassoc.\nx = 1 ?> 2 ?> 3.")
+    (parseSurfaceProgram """
+    operator ?> precedence 10 nonassoc.
+    x = 1 ?> 2 ?> 3.
+    """)
 
 testRejectsSamePrecedenceChainBeforeNonAssociativeOperator :: IO ()
 testRejectsSamePrecedenceChainBeforeNonAssociativeOperator =
@@ -139,7 +145,10 @@ testRejectsSamePrecedenceChainBeforeNonAssociativeOperator =
     "same-precedence chain before non-associative operator"
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
-    (parseSurfaceProgram "operator ?> precedence 4 nonassoc.\nx = 1 + 2 ?> 3.")
+    (parseSurfaceProgram """
+    operator ?> precedence 4 nonassoc.
+    x = 1 + 2 ?> 3.
+    """)
 
 testRejectsRightAssociativeSamePrecedenceNonAssociativeChain :: IO ()
 testRejectsRightAssociativeSamePrecedenceNonAssociativeChain =
@@ -147,7 +156,10 @@ testRejectsRightAssociativeSamePrecedenceNonAssociativeChain =
     "right-associative same-precedence non-associative chain"
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
-    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = 1 $ 2 ?> 3.")
+    (parseSurfaceProgram """
+    operator ?> precedence 1 nonassoc.
+    x = 1 $ 2 ?> 3.
+    """)
 
 testRejectsCaseArmBodySamePrecedenceNonAssociativeChain :: IO ()
 testRejectsCaseArmBodySamePrecedenceNonAssociativeChain =
@@ -155,7 +167,10 @@ testRejectsCaseArmBodySamePrecedenceNonAssociativeChain =
     "case-arm body same-precedence non-associative chain"
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
-    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ -> 1 $ 2 ?> 3 }.")
+    (parseSurfaceProgram """
+    operator ?> precedence 1 nonassoc.
+    x = case value { | _ -> 1 $ 2 ?> 3 }.
+    """)
 
 testRejectsCaseGuardSamePrecedenceNonAssociativeChain :: IO ()
 testRejectsCaseGuardSamePrecedenceNonAssociativeChain =
@@ -163,7 +178,10 @@ testRejectsCaseGuardSamePrecedenceNonAssociativeChain =
     "case guard same-precedence non-associative chain"
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
-    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ if 1 $ 2 ?> 3 -> 1 }.")
+    (parseSurfaceProgram """
+    operator ?> precedence 1 nonassoc.
+    x = case value { | _ if 1 $ 2 ?> 3 -> 1 }.
+    """)
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorInfixUseBeforeDeclaration =
@@ -171,7 +189,10 @@ testRejectsUserOperatorInfixUseBeforeDeclaration =
     "user operator infix use before declaration"
     "E0001"
     "operator '%%' must be declared before use"
-    (parseSurfaceProgram "x = 1 %% 2.\noperator %% tier 2.")
+    (parseSurfaceProgram """
+    x = 1 %% 2.
+    operator %% tier 2.
+    """)
 
 testRejectsUserOperatorValueUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorValueUseBeforeDeclaration =
@@ -179,7 +200,10 @@ testRejectsUserOperatorValueUseBeforeDeclaration =
     "user operator value use before declaration"
     "E0001"
     "operator '%%' must be declared before use"
-    (parseSurfaceProgram "x = (%%).\noperator %% tier 2.")
+    (parseSurfaceProgram """
+    x = (%%).
+    operator %% tier 2.
+    """)
 
 testRejectsUndeclaredOperatorSignature :: IO ()
 testRejectsUndeclaredOperatorSignature =
@@ -187,7 +211,10 @@ testRejectsUndeclaredOperatorSignature =
     "undeclared operator signature"
     "E0001"
     "operator '%%' must be declared before signature"
-    (parseSurfaceProgram "(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.")
+    (parseSurfaceProgram """
+    (%%) :: Int -> Int -> Int.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    """)
 
 testRejectsBuiltinOperatorSignature :: IO ()
 testRejectsBuiltinOperatorSignature =
@@ -195,7 +222,10 @@ testRejectsBuiltinOperatorSignature =
     "built-in operator signature"
     "E0001"
     "cannot sign built-in operator '+'"
-    (parseSurfaceProgram "(+) :: Int -> Int -> Int.\noperator %% tier 2.")
+    (parseSurfaceProgram """
+    (+) :: Int -> Int -> Int.
+    operator %% tier 2.
+    """)
 
 testRejectsUndeclaredOperatorBinding :: IO ()
 testRejectsUndeclaredOperatorBinding =
@@ -219,7 +249,10 @@ testRejectsNestedOperatorBinding =
     "nested operator binding"
     "E0001"
     "operator bindings are only allowed at file scope or directly in module bodies"
-    (parseSurfaceProgram "operator %% tier 2.\nx = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    x = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.
+    """)
 
 testRejectsNestedOperatorSignature :: IO ()
 testRejectsNestedOperatorSignature =
@@ -227,7 +260,10 @@ testRejectsNestedOperatorSignature =
     "nested operator signature"
     "E0001"
     "operator signatures are only allowed at file scope or directly in module bodies"
-    (parseSurfaceProgram "operator %% tier 2.\nx = { (%%) :: Int -> Int -> Int. 0. }.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    x = { (%%) :: Int -> Int -> Int. 0. }.
+    """)
 
 testRejectsModuleAfterOperatorDeclaration :: IO ()
 testRejectsModuleAfterOperatorDeclaration =
@@ -235,7 +271,10 @@ testRejectsModuleAfterOperatorDeclaration =
     "module after operator declaration"
     "E0001"
     "module declaration must be the first top-level form"
-    (parseSurfaceProgram "operator %% tier 2.\nmodule Foo { x = 1. }")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    module Foo { x = 1. }
+    """)
 
 testRejectsUndeclaredPercentOperator :: IO ()
 testRejectsUndeclaredPercentOperator =
