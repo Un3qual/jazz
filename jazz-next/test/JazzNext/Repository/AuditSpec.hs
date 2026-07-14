@@ -272,6 +272,13 @@ testEditorPackageMetadata =
             jsonArray
             (jsonPath ["repository", "data-declarations", "patterns"] grammar)
         constructorPattern = firstValue dataDeclarationPatterns
+        operatorPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "operators", "patterns"] grammar)
+        operatorPattern = firstValue operatorPatterns
+        operatorMatch = operatorPattern >>= jsonPath ["match"]
     assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
     assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
     assertEqual
@@ -303,6 +310,12 @@ testEditorPackageMetadata =
       "data constructors have a distinct grammar scope"
       (Just (String "entity.name.function.constructor.jazz"))
       (constructorPattern >>= jsonPath ["captures", "2", "name"])
+    assertEqual
+      "operator grammar includes the Jazz bang operator symbol"
+      True
+      (case operatorMatch of
+        Just (String patternText) -> ":=@!]" `Text.isInfixOf` patternText
+        _ -> False)
 
 testEditorFixtureParses :: IO ()
 testEditorFixtureParses =

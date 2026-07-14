@@ -59,29 +59,38 @@ The ordinary [`Text`](../../../jazz-next/jazz/stdlib/Text.jz) module exports exa
 - `textEmpty :: Text`;
 - `textLength :: Text -> Int`;
 - `textIsEmpty :: Text -> Bool`; and
-- `textUncons :: Text -> Maybe((Char, Text))`.
+- `textUncons :: Text -> Maybe((Char, Text))`;
+- `textAppend :: Text -> Text -> Text`;
+- `textAppendChar :: Text -> Char -> Text`; and
+- `textFromChars :: [Char] -> Text`.
 
 Programs must import `Text` explicitly. The module imports the ordinary
 `Maybe` module and does not re-export `Maybe`, `Nothing`, or `Just`.
 `textLength` counts Unicode scalar values. `textUncons` returns `Nothing` for
 empty text and `Just (first, rest)` otherwise, where `first` is the first scalar
-and `rest` is the exact remaining scalar sequence. Neither operation performs
-normalization, byte conversion, locale-sensitive processing, or external I/O.
+and `rest` is the exact remaining scalar sequence. `textAppend` concatenates
+two scalar sequences, `textAppendChar` appends one scalar, and `textFromChars`
+constructs text from a list of scalars in list order. None of these operations
+performs normalization, byte conversion, locale-sensitive processing, or
+external I/O.
 
 The stage-0 interpreter implements these semantics through private
 `__kernel_textLength :: Text -> Int` and
-`__kernel_textUnconsRaw :: Text -> [(Char, Text)]` adapters. The raw uncons
-adapter returns only `[]` or one tuple; it is not a public API. Both adapters are
-backend-neutral semantic hooks: future LLVM lowering and the native runtime
-must preserve the Jazz-visible signatures and behavior without exposing the
-Haskell representation.
+`__kernel_textUnconsRaw :: Text -> [(Char, Text)]`,
+`__kernel_textAppend :: Text -> Text -> Text`,
+`__kernel_textAppendChar :: Text -> Char -> Text`, and
+`__kernel_textFromChars :: [Char] -> Text` adapters. The raw uncons adapter
+returns only `[]` or one tuple; none of the adapters is a public API. All five
+are backend-neutral semantic hooks: future LLVM lowering and the native
+runtime must preserve the Jazz-visible signatures and behavior without
+exposing the Haskell representation.
 
 ## Staged Follow-Ups
 
 The following remain separate bootstrap children:
 
 - total ordering and scalar classification;
-- checked indexing, slicing, concatenation, builders, prefix/suffix checks, and
+- checked indexing, slicing, richer builders, prefix/suffix checks, and
   substring search;
 - host text I/O and process arguments;
 - stack-safe interpreter evaluation;

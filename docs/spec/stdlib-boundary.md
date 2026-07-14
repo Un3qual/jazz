@@ -47,9 +47,11 @@ planned.
 
 ## Bundled Prelude Contract
 
-- Bundled prelude path: `jazz-next/jazz/stdlib/Prelude.jz`
-- `JazzNext.Compiler.BundledPrelude.bundledPreludePath` owns that
-  repository-relative checked-in mirror path for active tests.
+- Checked-in bundled prelude mirror: `jazz/stdlib/Prelude.jz`, relative to the
+  `jazz-next` package root.
+- Active tests resolve that mirror through the shared, role-aware
+  `JazzNext.TestSource` package-root loader rather than a repository-relative
+  compiler constant.
 - Current bridge declarations use the `__kernel_` prefix, remain kernel
   self-bridges, and satisfy `PreludeContract` validation.
 - Current bundled exports must alias the matching `__kernel_*` bridge names.

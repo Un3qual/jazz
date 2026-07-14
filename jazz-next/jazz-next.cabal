@@ -118,11 +118,7 @@ common test-common
   hs-source-dirs: test
   default-extensions: MultilineStrings
   other-modules:
-      JazzNext.Compiler.Parser.TestSupport
-      JazzNext.Repository.Root
-      JazzNext.Repository.SourceLayout
       JazzNext.TestHarness
-      JazzNext.TestSource
   default-language: Haskell2010
   build-depends:
       base >= 4.22 && < 4.23,
@@ -160,6 +156,9 @@ test-suite loader-spec
       JazzNext.Compiler.Modules.Loader.OperatorsTests
       JazzNext.Compiler.Modules.Loader.Shared
       JazzNext.Compiler.Modules.Loader.VisibilityTests
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
 
 test-suite module-resolution-spec
   import: test-common
@@ -188,6 +187,9 @@ test-suite canonical-lexer-comparison-spec
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
       JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
 
 test-suite jazz-lexer-parity-spec
   import: test-common
@@ -196,6 +198,9 @@ test-suite jazz-lexer-parity-spec
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
       JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
 
 test-suite adt-pattern-parser-spec
   import: test-common
@@ -211,11 +216,15 @@ test-suite declaration-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/DeclarationParserSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.TestSupport
 
 test-suite expression-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/ExpressionParserSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.TestSupport
 
 test-suite if-expression-parser-spec
   import: test-common
@@ -262,11 +271,15 @@ test-suite pattern-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/PatternParserSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.TestSupport
 
 test-suite token-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/TokenParserSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.TestSupport
 
 test-suite adt-pattern-runtime-spec
   import: test-common
@@ -295,6 +308,10 @@ test-suite builtin-catalog-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  other-modules:
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
 
 test-suite core-normalization-spec
   import: test-common
@@ -369,3 +386,5 @@ test-suite repository-audit-spec
   other-modules:
       JazzNext.Repository.JazzSourceFormat
       JazzNext.Repository.PackagePolicy
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
