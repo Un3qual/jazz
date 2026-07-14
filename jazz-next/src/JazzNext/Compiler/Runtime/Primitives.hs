@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -67,7 +68,7 @@ import JazzNext.Compiler.Runtime.Types
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
-    pattern VExplicitResultHints
+    data VExplicitResultHints
   )
 
 -- | The only evaluator capability needed by primitive value semantics.

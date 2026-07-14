@@ -7,7 +7,7 @@ module JazzNext.Compiler.TypeInference.Scope
     instantiateNonBuiltinTypeBinding
   ) where
 
-import Data.List (foldl')
+import Data.List (uncons, unsnoc)
 import Data.Maybe (isNothing)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -653,17 +653,18 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
     rememberRecursiveGroupStart statementIndex state groupStartStates =
       case Map.lookup statementIndex recursiveGroupsByStatement of
         Just groupMembers
-          | not (null groupMembers),
-            statementIndex == head groupMembers ->
-              Map.insert (head groupMembers) state groupStartStates
+          | Just (firstMember, _) <- uncons groupMembers,
+            statementIndex == firstMember ->
+              Map.insert firstMember state groupStartStates
         _ -> groupStartStates
 
     generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> Map Int InferState -> InferState -> (TypeEnv, InferState)
     generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv groupStartStates state =
       case Map.lookup statementIndex recursiveGroupsByStatement of
         Just groupMembers
-          | not (null groupMembers),
-            statementIndex == last groupMembers ->
+          | Just (firstMember, _) <- uncons groupMembers,
+            Just (_, lastMember) <- unsnoc groupMembers,
+            statementIndex == lastMember ->
               let groupBindingNames =
                     Set.fromList
                       [ bindingName
@@ -678,7 +679,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                       currentEnv
                       groupMembers
                   groupStartState =
-                    Map.findWithDefault state (head groupMembers) groupStartStates
+                    Map.findWithDefault state firstMember groupStartStates
                   groupBindings =
                     [ binding
                       | memberIndex <- groupMembers,
@@ -698,41 +699,43 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
         recursiveGroups =
           Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
 
-        exposeGroup (envAcc, stateAcc) groupMembers
-          | null groupMembers =
+        exposeGroup (envAcc, stateAcc) groupMembers =
+          case unsnoc groupMembers of
+            Nothing ->
               (envAcc, stateAcc)
-          | statementIndex `elem` groupMembers =
-              (envAcc, stateAcc)
-          | statementIndex > last groupMembers =
-              (envAcc, stateAcc)
-          | any (`Set.member` signedBindingStatements) groupMembers =
-              (envAcc, stateAcc)
-          | interleavedBindingFeedsLaterGroup statementIndex groupMembers =
-              (envAcc, stateAcc)
-          | laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
-              (envAcc, stateAcc)
-          | null processedMembers =
-              (envAcc, stateAcc)
-          | otherwise =
-              case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
-                Nothing ->
+            Just (_, lastMember)
+              | statementIndex `elem` groupMembers ->
                   (envAcc, stateAcc)
-                Just previewState ->
-                  let groupBindingNames =
-                        Set.fromList
-                          [ bindingName
-                            | memberIndex <- groupMembers,
-                              Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
-                          ]
-                      envOutsideGroup =
-                        foldl' (flip Map.delete) envAcc groupBindingNames
-                      nextEnv =
-                        foldl'
-                          (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
-                          envAcc
-                          processedMembers
-                      nextState = rollbackPreviewState stateAcc previewState
-                   in (nextEnv, nextState)
+              | statementIndex > lastMember ->
+                  (envAcc, stateAcc)
+              | any (`Set.member` signedBindingStatements) groupMembers ->
+                  (envAcc, stateAcc)
+              | interleavedBindingFeedsLaterGroup statementIndex groupMembers ->
+                  (envAcc, stateAcc)
+              | laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers ->
+                  (envAcc, stateAcc)
+              | null processedMembers ->
+                  (envAcc, stateAcc)
+              | otherwise ->
+                  case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
+                    Nothing ->
+                      (envAcc, stateAcc)
+                    Just previewState ->
+                      let groupBindingNames =
+                            Set.fromList
+                              [ bindingName
+                                | memberIndex <- groupMembers,
+                                  Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                              ]
+                          envOutsideGroup =
+                            foldl' (flip Map.delete) envAcc groupBindingNames
+                          nextEnv =
+                            foldl'
+                              (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
+                              envAcc
+                              processedMembers
+                          nextState = rollbackPreviewState stateAcc previewState
+                       in (nextEnv, nextState)
           where
             processedMembers = filter (< statementIndex) groupMembers
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -33,7 +34,7 @@ module JazzNext.Compiler.Runtime.Types
         VExplicitTypeApplication,
         VDeferredHostBinding
       ),
-    pattern VExplicitResultHints,
+    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,

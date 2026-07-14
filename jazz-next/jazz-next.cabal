@@ -86,14 +86,14 @@ library jazz-next-internal
       JazzNext.Compiler.WarningConfig
       JazzNext.Compiler.Warnings
   build-depends:
-      base >= 4.17 && < 4.18,
-      bytestring >= 0.11 && < 0.12,
-      containers >= 0.6 && < 0.7,
+      base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
+      containers >= 0.8 && < 0.9,
       directory >= 1.3 && < 1.4,
-      filepath >= 1.4 && < 1.5,
-      megaparsec >= 9.0 && < 10,
-      text >= 2.0 && < 2.1,
-      transformers >= 0.5 && < 0.7
+      filepath >= 1.5 && < 1.6,
+      megaparsec >= 9 && < 10,
+      text >= 2.1 && < 2.2,
+      transformers >= 0.6 && < 0.7
 
 executable jazz-next
   import: warning-settings
@@ -101,25 +101,26 @@ executable jazz-next
   main-is: Main.hs
   default-language: Haskell2010
   build-depends:
-      base >= 4.17 && < 4.18,
+      base >= 4.22 && < 4.23,
       jazz-next:jazz-next-internal
 
 common test-common
   import: warning-settings
   hs-source-dirs: test
+  default-extensions: MultilineStrings
   other-modules:
       JazzNext.Compiler.Parser.TestSupport
       JazzNext.TestHarness
   default-language: Haskell2010
   build-depends:
-      base >= 4.17 && < 4.18,
-      bytestring >= 0.11 && < 0.12,
-      containers >= 0.6 && < 0.7,
+      base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
+      containers >= 0.8 && < 0.9,
       directory >= 1.3 && < 1.4,
-      filepath >= 1.4 && < 1.5,
+      filepath >= 1.5 && < 1.6,
       jazz-next:jazz-next-internal,
-      text >= 2.0 && < 2.1,
-      transformers >= 0.5 && < 0.7
+      text >= 2.1 && < 2.2,
+      transformers >= 0.6 && < 0.7
 
 test-suite cli-spec
   import: test-common

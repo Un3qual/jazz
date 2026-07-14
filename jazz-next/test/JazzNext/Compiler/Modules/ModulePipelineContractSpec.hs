@@ -643,11 +643,11 @@ testTransitiveVisibilityContract = do
   assertContains
     "unbound code"
     "E1001"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   assertContains
     "alias-hidden transitive export"
     "unbound variable 'subtract'"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   where
     sources =
       Map.fromList
@@ -663,11 +663,11 @@ testSourcePathContract = do
   assertContains
     "dependency primary source path"
     "src/Lib/Bad.jz:1:1"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   assertContains
     "dependency related source path"
     "related src/Lib/Bad.jz:2:1"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   where
     sources =
       Map.fromList
@@ -686,6 +686,12 @@ compileGraph sources =
   compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
   where
     lookupSource path = pure (Map.lookup path sources)
+
+renderFirstCompileError :: CompileResult -> Text
+renderFirstCompileError result =
+  case compileErrors result of
+    [] -> "<no compile error>"
+    firstError : _ -> renderDiagnostic firstError
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}

@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -11,7 +12,7 @@ module JazzNext.Compiler.Runtime
     RuntimeHostEvaluationT,
     RuntimeValue (..),
     RuntimeExplicitResultHints,
-    pattern VExplicitResultHints,
+    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
@@ -47,7 +48,7 @@ import Control.Monad.Trans.State.Strict
     put
   )
 import Data.Functor.Identity (runIdentity)
-import Data.List (foldl', scanl')
+import Data.List (scanl')
 import Data.Maybe (fromMaybe)
 import qualified Data.IntMap.Lazy as LazyIntMap
 import qualified Data.Map.Lazy as LazyMap
@@ -165,7 +166,7 @@ import JazzNext.Compiler.Runtime.Types
     ScopeResult (..),
     attachRuntimeExplicitResultHints,
     foldRuntimeExplicitResultHints,
-    pattern VExplicitResultHints,
+    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder
   )

@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -105,7 +106,7 @@ import JazzNext.Compiler.Runtime.Types
     RuntimeValue (..),
     attachRuntimeExplicitResultHints,
     constructorIsSaturated,
-    pattern VExplicitResultHints,
+    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeEvidenceTarget
   )

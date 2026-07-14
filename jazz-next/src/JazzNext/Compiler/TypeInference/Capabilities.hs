@@ -35,7 +35,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
   ) where
 
 import Control.Applicative ((<|>))
-import Data.List (foldl')
+import Data.List (uncons)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -938,11 +938,12 @@ resolveDeferredExplicitConstraint state deferredConstraint =
             | classArity /= 1 ->
                 addTypeError state (mkExplicitConstraintArityError constraintName classArity)
             | otherwise ->
-                case constraintRuntimeHintsForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType of
-                  [] ->
+                case uncons (constraintRuntimeHintsForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
+                  Nothing ->
                     addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
-                  argumentHints ->
-                    let implFactHints =
+                  Just (firstArgumentHint, remainingArgumentHints) ->
+                    let argumentHints = firstArgumentHint : remainingArgumentHints
+                        implFactHints =
                           filter
                             (constraintImplFactExistsForDeferred facts inferredConstraint constraintName)
                             argumentHints
@@ -956,7 +957,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          constraintName <> "(" <> renderCapabilityType (head argumentHints) <> ")"
+                          constraintName <> "(" <> renderCapabilityType firstArgumentHint <> ")"
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->

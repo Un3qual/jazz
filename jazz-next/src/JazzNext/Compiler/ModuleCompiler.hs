@@ -6,7 +6,6 @@ module JazzNext.Compiler.ModuleCompiler
     compileResolvedProgram
   ) where
 
-import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
