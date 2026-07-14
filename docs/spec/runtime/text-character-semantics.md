@@ -58,7 +58,7 @@ The ordinary [`Text`](../../../jazz-next/jazz/stdlib/Text.jz) module exports exa
 
 - `textEmpty :: Text`;
 - `textLength :: Text -> Int`;
-- `textIsEmpty :: Text -> Bool`; and
+- `textIsEmpty :: Text -> Bool`;
 - `textUncons :: Text -> Maybe((Char, Text))`;
 - `textAppend :: Text -> Text -> Text`;
 - `textAppendChar :: Text -> Char -> Text`; and
@@ -75,7 +75,7 @@ performs normalization, byte conversion, locale-sensitive processing, or
 external I/O.
 
 The stage-0 interpreter implements these semantics through private
-`__kernel_textLength :: Text -> Int` and
+`__kernel_textLength :: Text -> Int`,
 `__kernel_textUnconsRaw :: Text -> [(Char, Text)]`,
 `__kernel_textAppend :: Text -> Text -> Text`,
 `__kernel_textAppendChar :: Text -> Char -> Text`, and
