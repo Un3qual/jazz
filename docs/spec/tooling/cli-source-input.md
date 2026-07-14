@@ -45,11 +45,11 @@ compile and run invocations.
 Compile a file quietly:
 
 ```bash
-bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs first.jz
+cabal run --project-dir=jazz-next jazz-next -- first.jz
 ```
 
 Run a file:
 
 ```bash
-bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run first.jz
+cabal run --project-dir=jazz-next jazz-next -- --run first.jz
 ```

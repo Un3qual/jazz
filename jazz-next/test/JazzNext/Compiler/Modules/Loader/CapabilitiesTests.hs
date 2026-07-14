@@ -92,7 +92,12 @@ testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nx :: @{Eq(Int)}: Int.\nx = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        x :: @{Eq(Int)}: Int.
+        x = 1.
+        }
+        """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -118,8 +123,16 @@ testCompileModuleGraphExplicitImportListHidesCapabilityFacts = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Facts (facts).\nuse :: @{Hidden(Int)}: Int.\nuse = 1."),
-          ("src/Lib/Facts.jz", "facts = 0.\nclass Hidden(a) { }.\nimpl Hidden(Int) { }.")
+        [ ("src/App/Main.jz", """
+        import Lib::Facts (facts).
+        use :: @{Hidden(Int)}: Int.
+        use = 1.
+        """),
+          ("src/Lib/Facts.jz", """
+          facts = 0.
+          class Hidden(a) { }.
+          impl Hidden(Int) { }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -142,7 +155,13 @@ testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Box as L.\ndata Box a = Box a.\nleft = L::Box 1.\nright = Box 1.\nsame = left == right."),
+        [ ("src/App/Main.jz", """
+        import Lib::Box as L.
+        data Box a = Box a.
+        left = L::Box 1.
+        right = Box 1.
+        same = left == right.
+        """),
           ("src/Lib/Box.jz", "data Box a = Box a.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -159,7 +178,16 @@ testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nclass Sample(a) {\nmethod :: Int.\n}.\nimpl Sample(Int) {\nmethod = Math::one.\n}.\nx = 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        class Sample(a) {
+        method :: Int.
+        }.
+        impl Sample(Int) {
+        method = Math::one.
+        }.
+        x = 1.
+        """),
           ("src/Lib/Math.jz", "one = 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -176,8 +204,19 @@ testCompileModuleGraphRewritesHiddenImplMethodReferences = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Thing as Thing.\nx = 0."),
-          ("src/Lib/Thing.jz", "helper = 1.\nclass Sample(a) {\nmethod :: Int.\n}.\nimpl Sample(Int) {\nmethod = helper.\n}.")
+        [ ("src/App/Main.jz", """
+        import Lib::Thing as Thing.
+        x = 0.
+        """),
+          ("src/Lib/Thing.jz", """
+          helper = 1.
+          class Sample(a) {
+          method :: Int.
+          }.
+          impl Sample(Int) {
+          method = helper.
+          }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -204,8 +243,18 @@ testCompileModuleGraphKeepsModuleAdtImplFactsDistinct = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Box (Box).\ndata Box a = Box a.\nclass Eq(a) { }.\nuse :: @{Eq(Box(Int))}: Int.\nuse = 1."),
-          ("src/Lib/Box.jz", "data Box a = Box a.\nclass Eq(a) { }.\nimpl Eq(Box(Int)) { }.")
+        [ ("src/App/Main.jz", """
+        import Lib::Box (Box).
+        data Box a = Box a.
+        class Eq(a) { }.
+        use :: @{Eq(Box(Int))}: Int.
+        use = 1.
+        """),
+          ("src/Lib/Box.jz", """
+          data Box a = Box a.
+          class Eq(a) { }.
+          impl Eq(Box(Int)) { }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -222,8 +271,25 @@ testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly.\nintValue :: Int.\nintValue = id 1.\nboolValue :: Bool.\nboolValue = id True.\nboolValue.\n}"),
-          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Poly.
+        intValue :: Int.
+        intValue = id 1.
+        boolValue :: Bool.
+        boolValue = id True.
+        boolValue.
+        }
+        """),
+          ("src/Lib/Poly.jz", """
+          module Lib::Poly {
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          impl Eq(Bool) { }.
+          id :: @{Eq(a)}: a -> a.
+          id = \\(x) -> x.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -242,8 +308,20 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same 1.\nresult.\n}"),
-          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Poly (same).
+        result = same 1.
+        result.
+        }
+        """),
+          ("src/Lib/Poly.jz", """
+          module Lib::Poly {
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          same = \\(x) -> x == x.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -262,8 +340,19 @@ testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = 
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same [1].\nresult.\n}"),
-          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nsame = \\(xs) -> xs == xs.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Poly (same).
+        result = same [1].
+        result.
+        }
+        """),
+          ("src/Lib/Poly.jz", """
+          module Lib::Poly {
+          class Eq(a) { }.
+          same = \\(xs) -> xs == xs.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -309,6 +398,7 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
       pure (Map.lookup path (sourceMap sameDefinition appUse))
 
     sourceMap sameDefinition appUse =
+      -- Explicit fragments are intentional: these programs embed test-specific declarations.
       Map.fromList
         [ ( "src/App/Main.jz",
             "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\n" <> appUse <> "\n}"
@@ -346,16 +436,41 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport App::Direct.\nimport App::HelperOnly.\nresult = helperResult.\nresult.\n}"
+            """
+            module App::Main {
+            import App::Direct.
+            import App::HelperOnly.
+            result = helperResult.
+            result.
+            }
+            """
           ),
           ( "src/App/Direct.jz",
-            "module App::Direct {\nimport Lib::Poly (Eq).\ndirect = 0.\n}"
+            """
+            module App::Direct {
+            import Lib::Poly (Eq).
+            direct = 0.
+            }
+            """
           ),
           ( "src/App/HelperOnly.jz",
-            "module App::HelperOnly {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nhelperResult = same True.\n}"
+            """
+            module App::HelperOnly {
+            import Lib::Poly (same).
+            class Eq(a) { }.
+            impl Eq(Bool) { }.
+            helperResult = same True.
+            }
+            """
           ),
           ( "src/Lib/Poly.jz",
-            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+            """
+            module Lib::Poly {
+            class Eq(a) { }.
+            impl Eq(Int) { }.
+            same = \\(x) -> x == x.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -384,10 +499,23 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nresult = same True.\n}"
+            """
+            module App::Main {
+            import Lib::Poly (same).
+            class Eq(a) { }.
+            impl Eq(Bool) { }.
+            result = same True.
+            }
+            """
           ),
           ( "src/Lib/Poly.jz",
-            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+            """
+            module Lib::Poly {
+            class Eq(a) { }.
+            impl Eq(Int) { }.
+            same = \\(x) -> x == x.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -407,9 +535,25 @@ testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport =
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"),
-          ("src/Lib/Facts.jz", "module Lib::Facts {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}"),
-          ("src/Lib/Wrapper.jz", "module Lib::Wrapper {\nimport Lib::Facts.\nsame = \\(x) -> x == x.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Wrapper (same).
+        result = same 1.
+        result.
+        }
+        """),
+          ("src/Lib/Facts.jz", """
+          module Lib::Facts {
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          }
+          """),
+          ("src/Lib/Wrapper.jz", """
+          module Lib::Wrapper {
+          import Lib::Facts.
+          same = \\(x) -> x == x.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -429,13 +573,29 @@ testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"
+            """
+            module App::Main {
+            import Lib::Wrapper (same).
+            result = same 1.
+            result.
+            }
+            """
           ),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts {\nclass Eq(a) { }.\n}"
+            """
+            module Lib::Facts {
+            class Eq(a) { }.
+            }
+            """
           ),
           ( "src/Lib/Wrapper.jz",
-            "module Lib::Wrapper {\nimport Lib::Facts (Eq).\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+            """
+            module Lib::Wrapper {
+            import Lib::Facts (Eq).
+            impl Eq(Int) { }.
+            same = \\(x) -> x == x.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -459,9 +619,20 @@ testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Facts.\nimport Lib::UsesEq.\nuses."),
-          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.\nfacts = 0."),
-          ("src/Lib/UsesEq.jz", "uses :: @{Eq(Int)}: Int.\nuses = 1.")
+        [ ("src/App/Main.jz", """
+        import Lib::Facts.
+        import Lib::UsesEq.
+        uses.
+        """),
+          ("src/Lib/Facts.jz", """
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          facts = 0.
+          """),
+          ("src/Lib/UsesEq.jz", """
+          uses :: @{Eq(Int)}: Int.
+          uses = 1.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -478,8 +649,16 @@ testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Facts.\nuse :: @{Eq(Int)}: Int.\nuse = 1."),
-          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.\nfacts = 0.")
+        [ ("src/App/Main.jz", """
+        import Lib::Facts.
+        use :: @{Eq(Int)}: Int.
+        use = 1.
+        """),
+          ("src/Lib/Facts.jz", """
+          class Eq(a) { }.
+          impl Eq(Int) { }.
+          facts = 0.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -497,7 +676,11 @@ testRunModuleGraphAllowsBundledClassQualifiedMethodLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nEq::equals 1 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        Eq::equals 1 1.
+        }
+        """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -517,7 +700,20 @@ testRunModuleGraphKeepsCharAndTextPrimitiveImplTargetsUnqualified = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nclass RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl RuntimeEq(Char) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl RuntimeEq(Text) {\nequals = \\(left) -> \\(right) -> False.\n}.\n(RuntimeEq::equals 'a' 'b', RuntimeEq::equals \"a\" \"b\").\n}"
+            """
+            module App::Main {
+            class RuntimeEq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl RuntimeEq(Char) {
+            equals = \\(left) -> \\(right) -> True.
+            }.
+            impl RuntimeEq(Text) {
+            equals = \\(left) -> \\(right) -> False.
+            }.
+            (RuntimeEq::equals 'a' 'b', RuntimeEq::equals \"a\" \"b\").
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -537,9 +733,23 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts.\nEq::equals 1 1.\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Facts.
+        Eq::equals 1 1.
+        }
+        """),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+            """
+            module Lib::Facts {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Int) {
+            equals = \\(left) -> \\(right) -> left == right.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -563,9 +773,23 @@ testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts as Facts.\nEq::equals 1 1.\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Facts as Facts.
+        Eq::equals 1 1.
+        }
+        """),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+            """
+            module Lib::Facts {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Int) {
+            equals = \\(left) -> \\(right) -> left == right.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -585,9 +809,21 @@ testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts.\nEq::equals 1 1.\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Facts.
+        Eq::equals 1 1.
+        }
+        """),
           ( "src/Lib/Facts.jz",
-            "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}."
+            """
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Int) {
+            equals = \\(left) -> \\(right) -> left == right.
+            }.
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -608,13 +844,36 @@ testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (Choice).\nimport Lib::Hidden (val).\nChoice::pick 1.\n}"
+            """
+            module App::Main {
+            import Lib::Api (Choice).
+            import Lib::Hidden (val).
+            Choice::pick 1.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\n}"
+            """
+            module Lib::Api {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> True.
+            }.
+            }
+            """
           ),
           ( "src/Lib/Hidden.jz",
-            "module Lib::Hidden {\nimport Lib::Api (Choice).\nval = 0.\nimpl Choice(UInt8) {\npick = \\(value) -> False.\n}.\n}"
+            """
+            module Lib::Hidden {
+            import Lib::Api (Choice).
+            val = 0.
+            impl Choice(UInt8) {
+            pick = \\(value) -> False.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -635,10 +894,25 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (foo).\nfoo.\n}"
+            """
+            module App::Main {
+            import Lib::Api (foo).
+            foo.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\nfoo = Choice::pick 1.\n}"
+            """
+            module Lib::Api {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> True.
+            }.
+            foo = Choice::pick 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -659,10 +933,30 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (Choice).\nChoice::pick 1.\n}"
+            """
+            module App::Main {
+            import Lib::Api (Choice).
+            Choice::pick 1.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"
+            """
+            module Lib::Api {
+            class Flag(a) {
+            enabled :: Bool.
+            }.
+            impl Flag(Int) {
+            enabled = True.
+            }.
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> Flag::enabled.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -683,10 +977,36 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (Choice).\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = False.\n}.\n(Choice::pick 1, Flag::enabled).\n}"
+            """
+            module App::Main {
+            import Lib::Api (Choice).
+            class Flag(a) {
+            enabled :: Bool.
+            }.
+            impl Flag(Int) {
+            enabled = False.
+            }.
+            (Choice::pick 1, Flag::enabled).
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"
+            """
+            module Lib::Api {
+            class Flag(a) {
+            enabled :: Bool.
+            }.
+            impl Flag(Int) {
+            enabled = True.
+            }.
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> Flag::enabled.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -707,10 +1027,25 @@ testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (Choice).\nChoice::pick 1.\n}"
+            """
+            module App::Main {
+            import Lib::Api (Choice).
+            Choice::pick 1.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nhelper = True.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> helper.\n}.\n}"
+            """
+            module Lib::Api {
+            helper = True.
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> helper.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -731,13 +1066,50 @@ testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\nresult = (A::picked, B::picked).\nresult.\n}"
+            """
+            module App::Main {
+            import Lib::A as A.
+            import Lib::B as B.
+            result = (A::picked, B::picked).
+            result.
+            }
+            """
           ),
           ( "src/Lib/A.jz",
-            "module Lib::A {\ndata Box a = Box a.\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nbox = Box 1.\npicked = RuntimePick::pick box.\n}"
+            """
+            module Lib::A {
+            data Box a = Box a.
+            class RuntimePick(a) {
+            pick :: a -> Bool.
+            }.
+            impl RuntimePick(Box(Int)) {
+            pick = \\(box) -> True.
+            }.
+            impl RuntimePick(Box(UInt8)) {
+            pick = \\(box) -> False.
+            }.
+            box = Box 1.
+            picked = RuntimePick::pick box.
+            }
+            """
           ),
           ( "src/Lib/B.jz",
-            "module Lib::B {\ndata Box a = Box a.\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nbox = Box (__kernel_toUInt8 1).\npicked = RuntimePick::pick box.\n}"
+            """
+            module Lib::B {
+            data Box a = Box a.
+            class RuntimePick(a) {
+            pick :: a -> Bool.
+            }.
+            impl RuntimePick(Box(Int)) {
+            pick = \\(box) -> True.
+            }.
+            impl RuntimePick(Box(UInt8)) {
+            pick = \\(box) -> False.
+            }.
+            box = Box (__kernel_toUInt8 1).
+            picked = RuntimePick::pick box.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -758,10 +1130,31 @@ testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Pick (picked).\npicked.\n}"
+            """
+            module App::Main {
+            import Lib::Pick (picked).
+            picked.
+            }
+            """
           ),
           ( "src/Lib/Pick.jz",
-            "module Lib::Pick {\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True then 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}.\n}"
+            """
+            module Lib::Pick {
+            class RuntimePick(a) {
+            pick :: a -> Bool.
+            }.
+            impl RuntimePick(Int) {
+            pick = \\(value) -> True.
+            }.
+            impl RuntimePick(UInt8) {
+            pick = \\(value) -> False.
+            }.
+            picked = {
+            x = if True then 1 else __kernel_toUInt8 2.
+            RuntimePick::pick x.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -782,13 +1175,47 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\n(A::picked, B::picked).\n}"
+            """
+            module App::Main {
+            import Lib::A as A.
+            import Lib::B as B.
+            (A::picked, B::picked).
+            }
+            """
           ),
           ( "src/Lib/A.jz",
-            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True then 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}."
+            """
+            class RuntimePick(a) {
+            pick :: a -> Bool.
+            }.
+            impl RuntimePick(Int) {
+            pick = \\(value) -> True.
+            }.
+            impl RuntimePick(UInt8) {
+            pick = \\(value) -> False.
+            }.
+            picked = {
+            x = if True then 1 else __kernel_toUInt8 2.
+            RuntimePick::pick x.
+            }.
+            """
           ),
           ( "src/Lib/B.jz",
-            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = 1.\nRuntimePick::pick x.\n}."
+            """
+            class RuntimePick(a) {
+            pick :: a -> Bool.
+            }.
+            impl RuntimePick(Int) {
+            pick = \\(value) -> True.
+            }.
+            impl RuntimePick(UInt8) {
+            pick = \\(value) -> False.
+            }.
+            picked = {
+            x = 1.
+            RuntimePick::pick x.
+            }.
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -809,7 +1236,23 @@ testRunModuleGraphRebasesExplicitGenericAdtApplicationHints = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\ndata Box a = Box a.\nclass RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\nimpl RuntimeFlag(Box([Int])) {\nflag = \\(box) -> True.\n}.\nimpl RuntimeFlag(Box([Bool])) {\nflag = \\(box) -> False.\n}.\nidentity = \\(value) -> value.\nresult = RuntimeFlag::flag (identity @Box([Int]) (Box [])).\nresult.\n}"
+            """
+            module App::Main {
+            data Box a = Box a.
+            class RuntimeFlag(a) {
+            flag :: a -> Bool.
+            }.
+            impl RuntimeFlag(Box([Int])) {
+            flag = \\(box) -> True.
+            }.
+            impl RuntimeFlag(Box([Bool])) {
+            flag = \\(box) -> False.
+            }.
+            identity = \\(value) -> value.
+            result = RuntimeFlag::flag (identity @Box([Int]) (Box [])).
+            result.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -830,7 +1273,24 @@ testRunModuleGraphRebasesFallbackExplicitGenericAdtHints = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\ndata Box a = Box a.\nclass Flag(a) {\nflag :: a -> Bool.\n}.\nimpl Flag(Box([Int])) {\nflag = \\(box) -> True.\n}.\nimpl Flag(Box([Bool])) {\nflag = \\(box) -> False.\n}.\nuse :: a -> b -> a.\nuse = \\(value) -> \\(ignored) -> value.\nresult = Flag::flag (use @Box([Int]) (Box []) True).\nresult.\n}"
+            """
+            module App::Main {
+            data Box a = Box a.
+            class Flag(a) {
+            flag :: a -> Bool.
+            }.
+            impl Flag(Box([Int])) {
+            flag = \\(box) -> True.
+            }.
+            impl Flag(Box([Bool])) {
+            flag = \\(box) -> False.
+            }.
+            use :: a -> b -> a.
+            use = \\(value) -> \\(ignored) -> value.
+            result = Flag::flag (use @Box([Int]) (Box []) True).
+            result.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -851,7 +1311,19 @@ testRunModuleGraphRebasesClassMethodArgumentSignatures = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\ndata Token a = Token a.\nclass Check(a) {\ncheck :: Token(Int) -> a -> Bool.\n}.\nimpl Check(Int) {\ncheck = \\(token) -> \\(value) -> True.\n}.\nresult = Check::check (Token 1) 1.\nresult.\n}"
+            """
+            module App::Main {
+            data Token a = Token a.
+            class Check(a) {
+            check :: Token(Int) -> a -> Bool.
+            }.
+            impl Check(Int) {
+            check = \\(token) -> \\(value) -> True.
+            }.
+            result = Check::check (Token 1) 1.
+            result.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -872,10 +1344,24 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (foo).\nfoo.\n}"
+            """
+            module App::Main {
+            import Lib::Api (foo).
+            foo.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\nclass Need(a) {\n}.\nimpl Need(Int) {\n}.\nfoo :: @{Need(Int)}: Int.\nfoo = 1.\n}"
+            """
+            module Lib::Api {
+            class Need(a) {
+            }.
+            impl Need(Int) {
+            }.
+            foo :: @{Need(Int)}: Int.
+            foo = 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -896,13 +1382,39 @@ testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::A (pickedA).\nimport Lib::B (pickedB).\n(pickedA, pickedB).\n}"
+            """
+            module App::Main {
+            import Lib::A (pickedA).
+            import Lib::B (pickedB).
+            (pickedA, pickedB).
+            }
+            """
           ),
           ( "src/Lib/A.jz",
-            "module Lib::A {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\npickedA = Choice::pick 1.\n}"
+            """
+            module Lib::A {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> True.
+            }.
+            pickedA = Choice::pick 1.
+            }
+            """
           ),
           ( "src/Lib/B.jz",
-            "module Lib::B {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> False.\n}.\npickedB = Choice::pick 1.\n}"
+            """
+            module Lib::B {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> False.
+            }.
+            pickedB = Choice::pick 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -923,13 +1435,39 @@ testRunModuleGraphNamespacesAliasRetainedLocalCapabilities = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\n(A::pickedA, B::pickedB).\n}"
+            """
+            module App::Main {
+            import Lib::A as A.
+            import Lib::B as B.
+            (A::pickedA, B::pickedB).
+            }
+            """
           ),
           ( "src/Lib/A.jz",
-            "module Lib::A {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\npickedA = Choice::pick 1.\n}"
+            """
+            module Lib::A {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> True.
+            }.
+            pickedA = Choice::pick 1.
+            }
+            """
           ),
           ( "src/Lib/B.jz",
-            "module Lib::B {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> False.\n}.\npickedB = Choice::pick 1.\n}"
+            """
+            module Lib::B {
+            class Choice(a) {
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            pick = \\(value) -> False.
+            }.
+            pickedB = Choice::pick 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -950,10 +1488,28 @@ testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::A as A.\nA::picked.\n}"
+            """
+            module App::Main {
+            import Lib::A as A.
+            A::picked.
+            }
+            """
           ),
           ( "src/Lib/A.jz",
-            "module Lib::A {\ndata Marker = Choice.\nclass Choice(a) {\nflag :: a -> Bool.\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\nflag = \\(value) -> True.\npick = \\(value) -> Choice::flag value.\n}.\npicked = Choice::pick 1.\n}"
+            """
+            module Lib::A {
+            data Marker = Choice.
+            class Choice(a) {
+            flag :: a -> Bool.
+            pick :: a -> Bool.
+            }.
+            impl Choice(Int) {
+            flag = \\(value) -> True.
+            pick = \\(value) -> Choice::flag value.
+            }.
+            picked = Choice::pick 1.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -974,10 +1530,25 @@ testRunModuleGraphExposesDataReferencedByImportedClassMethods = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api (Make).\nMake::make.\n}"
+            """
+            module App::Main {
+            import Lib::Api (Make).
+            Make::make.
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\ndata Box = Box.\nclass Make(a) {\nmake :: Box.\n}.\nimpl Make(Int) {\nmake = Box.\n}.\n}"
+            """
+            module Lib::Api {
+            data Box = Box.
+            class Make(a) {
+            make :: Box.
+            }.
+            impl Make(Int) {
+            make = Box.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -997,9 +1568,29 @@ testRunModuleGraphPreservesImportedGenericConstructorPayloadDispatch = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box.\n(Pick::pick intBox, Pick::pick byteBox).\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Box.
+        (Pick::pick intBox, Pick::pick byteBox).
+        }
+        """),
           ( "src/Lib/Box.jz",
-            "module Lib::Box {\ndata Box a = Box a.\nclass Pick(a) {\npick :: a -> Bool.\n}.\nimpl Pick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl Pick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nintBox = Box 1.\nbyteBox = Box (__kernel_toUInt8 1).\n}"
+            """
+            module Lib::Box {
+            data Box a = Box a.
+            class Pick(a) {
+            pick :: a -> Bool.
+            }.
+            impl Pick(Box(Int)) {
+            pick = \\(box) -> True.
+            }.
+            impl Pick(Box(UInt8)) {
+            pick = \\(box) -> False.
+            }.
+            intBox = Box 1.
+            byteBox = Box (__kernel_toUInt8 1).
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1020,9 +1611,25 @@ testRunModuleGraphKeepsImportedAdtNamesInTypePositions = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Box.\nclass Pick(a) {\npick :: a -> Bool.\n}.\nimpl Pick(Box(UInt8)) {\npick = \\(box) -> True.\n}.\nbox = Box (__kernel_toUInt8 1).\nPick::pick box.\n}"
+            """
+            module App::Main {
+            import Lib::Box.
+            class Pick(a) {
+            pick :: a -> Bool.
+            }.
+            impl Pick(Box(UInt8)) {
+            pick = \\(box) -> True.
+            }.
+            box = Box (__kernel_toUInt8 1).
+            Pick::pick box.
+            }
+            """
           ),
-          ("src/Lib/Box.jz", "module Lib::Box {\ndata Box a = Box a.\n}")
+          ("src/Lib/Box.jz", """
+          module Lib::Box {
+          data Box a = Box a.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1050,10 +1657,25 @@ testRunModuleGraphRebasesDependencyClassMethodResultHints = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Factory.\n(\\(Box value) -> value + 255) (Make::make 0).\n}"
+            """
+            module App::Main {
+            import Lib::Factory.
+            (\\(Box value) -> value + 255) (Make::make 0).
+            }
+            """
           ),
           ( "src/Lib/Factory.jz",
-            "module Lib::Factory {\ndata Box = Box UInt8.\nclass Make(a) {\nmake :: a -> Box.\n}.\nimpl Make(Int) {\nmake = \\(value) -> Box 1.\n}.\n}"
+            """
+            module Lib::Factory {
+            data Box = Box UInt8.
+            class Make(a) {
+            make :: a -> Box.
+            }.
+            impl Make(Int) {
+            make = \\(value) -> Box 1.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1082,10 +1704,25 @@ testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Api.\nimpl Make(Int) {\nmake = \\(value) -> Box 1.\n}.\n(\\(Box value) -> value + 255) (Make::make 0).\n}"
+            """
+            module App::Main {
+            import Lib::Api.
+            impl Make(Int) {
+            make = \\(value) -> Box 1.
+            }.
+            (\\(Box value) -> value + 255) (Make::make 0).
+            }
+            """
           ),
           ( "src/Lib/Api.jz",
-            "module Lib::Api {\ndata Box = Box UInt8.\nclass Make(a) {\nmake :: a -> Box.\n}.\n}"
+            """
+            module Lib::Api {
+            data Box = Box UInt8.
+            class Make(a) {
+            make :: a -> Box.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1113,7 +1750,13 @@ testCompileModuleGraphRejectsAmbientClassCollision = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+            """
+            module App::Main {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1142,10 +1785,23 @@ testCompileModuleGraphRejectsImportedClassCollision = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Facts (Eq).\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+            """
+            module App::Main {
+            import Lib::Facts (Eq).
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            }
+            """
           ),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+            """
+            module Lib::Facts {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1175,13 +1831,27 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Wrapper (Eq).\nx = 1.\n}"
+            """
+            module App::Main {
+            import Lib::Wrapper (Eq).
+            x = 1.
+            }
+            """
           ),
           ( "src/Lib/Wrapper.jz",
-            "module Lib::Wrapper {\nimport Lib::Facts (Eq).\nwrapper = 0.\n}"
+            """
+            module Lib::Wrapper {
+            import Lib::Facts (Eq).
+            wrapper = 0.
+            }
+            """
           ),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts {\nclass Eq(a) { }.\n}"
+            """
+            module Lib::Facts {
+            class Eq(a) { }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1195,9 +1865,24 @@ testRunModuleGraphPublishesExplicitlyExportedClass = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Eq).\nEq::equals 1 1.\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Facts (Eq).
+        Eq::equals 1 1.
+        }
+        """),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) { }.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+            """
+            module Lib::Facts (Eq) {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            class Hidden(a) { }.
+            impl Eq(Int) {
+            equals = \\(left) -> \\(right) -> left == right.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1213,9 +1898,24 @@ testCompileModuleGraphRejectsPrivateExplicitClassImport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Hidden).\n0.\n}"),
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Facts (Hidden).
+        0.
+        }
+        """),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) { }.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+            """
+            module Lib::Facts (Eq) {
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            class Hidden(a) { }.
+            impl Eq(Int) {
+            equals = \\(left) -> \\(right) -> left == right.
+            }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1228,10 +1928,21 @@ testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Facts.\nclass Hidden(a) { }.\n0.\n}"
+            """
+            module App::Main {
+            import Lib::Facts.
+            class Hidden(a) { }.
+            0.
+            }
+            """
           ),
           ( "src/Lib/Facts.jz",
-            "module Lib::Facts (Eq) {\nclass Eq(a) { }.\nclass Hidden(a) { }.\n}"
+            """
+            module Lib::Facts (Eq) {
+            class Eq(a) { }.
+            class Hidden(a) { }.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

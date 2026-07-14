@@ -528,7 +528,12 @@ testRecursiveDeclaredUserOperatorRuntimeSuccess = do
   result <-
     runSource
       defaultWarningSettings
-      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 then right else (left - 1) %% right.\nx = 2 %% 3.\nx."
+      """
+      operator %% tier 2.
+      (%%) = \\(left) -> \\(right) -> if left == 0 then right else (left - 1) %% right.
+      x = 2 %% 3.
+      x.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
@@ -539,7 +544,11 @@ testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = (%%).\n1 %% 2.")
+          (runSource defaultWarningSettings """
+          operator %% tier 2.
+          (%%) = (%%).
+          1 %% 2.
+          """)
           :: IO (Either SomeException RunResult)
       )
   case maybeResult of
@@ -565,7 +574,12 @@ testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = alias.\nalias = (%%).\n1 %% 2.")
+          (runSource defaultWarningSettings """
+          operator %% tier 2.
+          (%%) = alias.
+          alias = (%%).
+          1 %% 2.
+          """)
           :: IO (Either SomeException RunResult)
       )
   case maybeResult of
@@ -590,11 +604,19 @@ testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> Bool) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
-          <> "eq1 = (1 ==).\n"
-          <> "RuntimeApply::apply eq1."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> Bool) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(UInt8) {
+      apply = \\(fn) -> False.
+      }.
+      eq1 = (1 ==).
+      RuntimeApply::apply eq1.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -608,9 +630,17 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
       ( try
           ( runSource
               defaultWarningSettings
-              ( "class RuntimeFlag(a) {\nenabled :: Bool.\nother :: Bool.\n}.\n"
-                  <> "impl RuntimeFlag(Int) {\nenabled = RuntimeFlag::other.\nother = RuntimeFlag::enabled.\n}.\n"
-                  <> "RuntimeFlag::enabled."
+              ( """
+              class RuntimeFlag(a) {
+              enabled :: Bool.
+              other :: Bool.
+              }.
+              impl RuntimeFlag(Int) {
+              enabled = RuntimeFlag::other.
+              other = RuntimeFlag::enabled.
+              }.
+              RuntimeFlag::enabled.
+              """
               )
           ) ::
           IO (Either SomeException RunResult)

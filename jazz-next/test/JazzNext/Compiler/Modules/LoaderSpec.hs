@@ -99,17 +99,21 @@ testImportedTailRecursiveClosureIsStackSafe = do
       assertEqual "imported tail output" (Just "0") (runOutput result)
   where
     counterSource =
-      "module Library::Counter (countDown) {\n"
-        <> "countDown = \\(remaining) -> case remaining {\n"
-        <> "| 0 -> 0\n"
-        <> "| _ -> countDown (remaining - 1)\n"
-        <> "}.\n"
-        <> "}"
+      """
+      module Library::Counter (countDown) {
+      countDown = \\(remaining) -> case remaining {
+      | 0 -> 0
+      | _ -> countDown (remaining - 1)
+      }.
+      }
+      """
     entrySource =
-      "module App::Main {\n"
-        <> "import Library::Counter.\n"
-        <> "countDown 20000.\n"
-        <> "}"
+      """
+      module App::Main {
+      import Library::Counter.
+      countDown 20000.
+      }
+      """
     lookupSource "src/Library/Counter.jz" = pure (Just counterSource)
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource _ = pure Nothing
@@ -128,17 +132,19 @@ testBootstrapMaybeAndResultModules = do
   assertEqual "runtime output" (Just "(41, 1)") (runOutput result)
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import Maybe.\n"
-        <> "import Result.\n"
-        <> "maybeValue :: Maybe(Int).\n"
-        <> "maybeValue = Just 41.\n"
-        <> "resultValue :: Result(Text, Int).\n"
-        <> "resultValue = Ok 1.\n"
-        <> "maybeNumber = case maybeValue { | Nothing -> 0 | Just value -> value }.\n"
-        <> "resultNumber = case resultValue { | Err message -> 0 | Ok value -> value }.\n"
-        <> "(maybeNumber, resultNumber).\n"
-        <> "}"
+      """
+      module App::Main {
+      import Maybe.
+      import Result.
+      maybeValue :: Maybe(Int).
+      maybeValue = Just 41.
+      resultValue :: Result(Text, Int).
+      resultValue = Ok 1.
+      maybeNumber = case maybeValue { | Nothing -> 0 | Just value -> value }.
+      resultNumber = case resultValue { | Err message -> 0 | Ok value -> value }.
+      (maybeNumber, resultNumber).
+      }
+      """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource "src/Result.jz" = readStdlibSource "Result.jz"
@@ -158,17 +164,19 @@ testBootstrapTextModule = do
   assertEqual "runtime output" (Just "(True, 3, True, '🙂', 'x', True)") (runOutput result)
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import Text.\n"
-        <> "import Maybe.\n"
-        <> "case textUncons \"🙂x\" {\n"
-        <> "| Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, '?', '?', False)\n"
-        <> "| Just (first, rest) -> case textUncons rest {\n"
-        <> "| Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, '?', False)\n"
-        <> "| Just (second, tail) -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, second, textIsEmpty tail)\n"
-        <> "}\n"
-        <> "}.\n"
-        <> "}"
+      """
+      module App::Main {
+      import Text.
+      import Maybe.
+      case textUncons \"🙂x\" {
+      | Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, '?', '?', False)
+      | Just (first, rest) -> case textUncons rest {
+      | Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, '?', False)
+      | Just (second, tail) -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, second, textIsEmpty tail)
+      }
+      }.
+      }
+      """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
@@ -191,15 +199,17 @@ testBootstrapCollectionScalarModules = do
     (runOutput result)
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import List.\n"
-        <> "import Char.\n"
-        <> "import Text.\n"
-        <> "items = listPrepend \"first\" [\"second\"].\n"
-        <> "surrogate :: UInt32.\n"
-        <> "surrogate = 55296.\n"
-        <> "(listReverse items, listLength items, charFromUInt32 (charToUInt32 '🙂'), charFromUInt32 surrogate, (charIsAlpha 'é', charIsAlphaNum '9', charIsDigit '9', charIsSpace '\\t', charIsHexDigit 'F', charIsNewline '\\n'), textAppendChar (textAppend \"Ja\" \"z\") 'z').\n"
-        <> "}"
+      """
+      module App::Main {
+      import List.
+      import Char.
+      import Text.
+      items = listPrepend \"first\" [\"second\"].
+      surrogate :: UInt32.
+      surrogate = 55296.
+      (listReverse items, listLength items, charFromUInt32 (charToUInt32 '🙂'), charFromUInt32 surrogate, (charIsAlpha 'é', charIsAlphaNum '9', charIsDigit '9', charIsSpace '\\t', charIsHexDigit 'F', charIsNewline '\\n'), textAppendChar (textAppend \"Ja\" \"z\") 'z').
+      }
+      """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/List.jz" = readStdlibSource "List.jz"
     lookupSource "src/Char.jz" = readStdlibSource "Char.jz"
@@ -221,17 +231,19 @@ testBootstrapListReversePreservesConcreteHints = do
   assertEqual "list reverse hint output" (Just "(False, False)") (runOutput result)
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import List.\n"
-        <> "class RuntimePick(a) { pick :: [a] -> Bool. }.\n"
-        <> "impl RuntimePick(Bool) { pick = \\(values) -> True. }.\n"
-        <> "impl RuntimePick(Int64) { pick = \\(values) -> False. }.\n"
-        <> "values :: [Int64].\n"
-        <> "values = [1].\n"
-        <> "emptyValues :: [Int64].\n"
-        <> "emptyValues = [].\n"
-        <> "(RuntimePick::pick (listReverse values), RuntimePick::pick (listReverse emptyValues)).\n"
-        <> "}"
+      """
+      module App::Main {
+      import List.
+      class RuntimePick(a) { pick :: [a] -> Bool. }.
+      impl RuntimePick(Bool) { pick = \\(values) -> True. }.
+      impl RuntimePick(Int64) { pick = \\(values) -> False. }.
+      values :: [Int64].
+      values = [1].
+      emptyValues :: [Int64].
+      emptyValues = [].
+      (RuntimePick::pick (listReverse values), RuntimePick::pick (listReverse emptyValues)).
+      }
+      """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/List.jz" = readStdlibSource "List.jz"
     lookupSource _ = pure Nothing
@@ -267,15 +279,17 @@ testBootstrapIOSuccesses = do
     calls
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import IO.\n"
-        <> "read! = readText! \"source.jz\".\n"
-        <> "write! = writeText! \"output.txt\" \"Jazz\".\n"
-        <> "stdin! = readStdin! ().\n"
-        <> "stdout! = writeStdout! \"out\".\n"
-        <> "stderr! = writeStderr! \"err\".\n"
-        <> "(read!, write!, stdin!, stdout!, stderr!, arguments! (), exit! 7).\n"
-        <> "}"
+      """
+      module App::Main {
+      import IO.
+      read! = readText! \"source.jz\".
+      write! = writeText! \"output.txt\" \"Jazz\".
+      stdin! = readStdin! ().
+      stdout! = writeStdout! \"out\".
+      stderr! = writeStderr! \"err\".
+      (read!, write!, stdin!, stdout!, stderr!, arguments! (), exit! 7).
+      }
+      """
     lookupSource = lookupIOSource entrySource
 
 testBootstrapIOErrors :: IO ()
@@ -298,10 +312,12 @@ testBootstrapIOErrors = do
     (runOutput result)
   where
     entrySource =
-      "module App::Main {\n"
-        <> "import IO.\n"
-        <> "(readText! \"not-found\", readText! \"permission-denied\", readText! \"already-exists\", readText! \"invalid-data\", readText! \"resource-exhausted\", readText! \"interrupted\", readText! \"unsupported\", readText! \"other\", readStdin! ()).\n"
-        <> "}"
+      """
+      module App::Main {
+      import IO.
+      (readText! \"not-found\", readText! \"permission-denied\", readText! \"already-exists\", readText! \"invalid-data\", readText! \"resource-exhausted\", readText! \"interrupted\", readText! \"unsupported\", readText! \"other\", readStdin! ()).
+      }
+      """
     lookupSource = lookupIOSource entrySource
 
 lookupIOSource :: Text -> FilePath -> IO (Maybe Text)

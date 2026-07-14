@@ -14,8 +14,14 @@ import JazzNext.Compiler.ModuleResolver
 
 moduleGraphProjectedSources :: Text -> Map.Map FilePath Text
 moduleGraphProjectedSources projectedExpr =
+  -- Explicit fragments are intentional: this program embeds a caller-supplied expression.
   Map.fromList
-    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
+    [ ("src/App/Main.jz", """
+    module App::Main {
+    import Lib::Data.
+    projected.
+    }
+    """),
       ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = " <> projectedExpr <> ".\n}")
     ]
 

@@ -371,12 +371,20 @@ testBlockReturnedLambdaAliasTypeMismatch = do
 
 testLambdaEqualityRejected :: IO ()
 testLambdaEqualityRejected = do
-  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\ng = \\(x) -> x.\nsame = f == g."
+  result <- compileSource defaultWarningSettings """
+  f = \\(x) -> x.
+  g = \\(x) -> x.
+  same = f == g.
+  """
   assertCallableEqualityDiagnostic "lambda equality" result
 
 testLambdaInequalityRejected :: IO ()
 testLambdaInequalityRejected = do
-  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\ng = \\(x) -> x.\ndifferent = f != g."
+  result <- compileSource defaultWarningSettings """
+  f = \\(x) -> x.
+  g = \\(x) -> x.
+  different = f != g.
+  """
   assertCallableEqualityDiagnostic "lambda inequality" result
 
 testRejectsNonCallableApplication :: IO ()

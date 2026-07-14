@@ -334,9 +334,18 @@ testLexicalBindersShadowImportedAndBuiltinNames = do
     sources =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\n  import Lib::Value.\n  ((\\(x) -> x) 1, case 2 { | x -> x }, { x = 3. x. }, (\\(map) -> map) 4).\n}"
+            """
+            module App::Main {
+              import Lib::Value.
+              ((\\(x) -> x) 1, case 2 { | x -> x }, { x = 3. x. }, (\\(map) -> map) 4).
+            }
+            """
           ),
-          ("src/Lib/Value.jz", "module Lib::Value {\n  x = 99.\n}")
+          ("src/Lib/Value.jz", """
+          module Lib::Value {
+            x = 99.
+          }
+          """)
         ]
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
@@ -401,16 +410,46 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
 explicitExportSources :: Map.Map FilePath Text
 explicitExportSources =
   Map.fromList
-    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer 41.\n}"),
-      ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = \\(x) -> x + 1.\nanswer = \\(x) -> helper x.\n}")
+    [ ("src/App/Main.jz", """
+    module App::Main {
+    import Lib::Value (answer).
+    answer 41.
+    }
+    """),
+      ("src/Lib/Value.jz", """
+      module Lib::Value (answer) {
+      helper = \\(x) -> x + 1.
+      answer = \\(x) -> helper x.
+      }
+      """)
     ]
 
 explicitCapabilitySources :: Map.Map FilePath Text
 explicitCapabilitySources =
   Map.fromList
-    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Eq).\nEq::equals 1 1.\n}"),
+    [ ("src/App/Main.jz", """
+    module App::Main {
+    import Lib::Facts (Eq).
+    Eq::equals 1 1.
+    }
+    """),
       ( "src/Lib/Facts.jz",
-        "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) {\nsecret :: a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl Hidden(Int) {\nsecret = \\(value) -> False.\n}.\n}"
+        """
+        module Lib::Facts (Eq) {
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        class Hidden(a) {
+        secret :: a -> Bool.
+        }.
+        impl Eq(Int) {
+        equals = \\(left) -> \\(right) -> True.
+        }.
+        impl Hidden(Int) {
+        secret = \\(value) -> False.
+        }.
+        }
+        """
       )
     ]
 
@@ -643,16 +682,22 @@ testTransitiveVisibilityContract = do
   assertContains
     "unbound code"
     "E1001"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   assertContains
     "alias-hidden transitive export"
     "unbound variable 'subtract'"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMath.\nsubtract."),
-          ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = 0."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMath.
+        subtract.
+        """),
+          ("src/App/UsesMath.jz", """
+          import Lib::Math as Math.
+          use = 0.
+          """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
 
@@ -663,16 +708,22 @@ testSourcePathContract = do
   assertContains
     "dependency primary source path"
     "src/Lib/Bad.jz:1:1"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   assertContains
     "dependency related source path"
     "related src/Lib/Bad.jz:2:1"
-    (renderDiagnostic (head (compileErrors result)))
+    (renderFirstCompileError result)
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Bad (x).\nx."),
-          ("src/Lib/Bad.jz", "x :: Int.\nx = True.")
+        [ ("src/App/Main.jz", """
+        import Lib::Bad (x).
+        x.
+        """),
+          ("src/Lib/Bad.jz", """
+          x :: Int.
+          x = True.
+          """)
         ]
 
 runGraph :: Map.Map FilePath Text -> IO RunResult
@@ -686,6 +737,12 @@ compileGraph sources =
   compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
   where
     lookupSource path = pure (Map.lookup path sources)
+
+renderFirstCompileError :: CompileResult -> Text
+renderFirstCompileError result =
+  case compileErrors result of
+    [] -> "<no compile error>"
+    firstError : _ -> renderDiagnostic firstError
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}

@@ -249,7 +249,11 @@ testRecursiveForwardReferenceCountsAsUseUnderPromotion = do
   result <-
     compileSource
       settings
-      "left = if True then \\(x) -> x else right.\nright = if False then \\(x) -> x else left.\nleft 1."
+      """
+      left = if True then \\(x) -> x else right.
+      right = if False then \\(x) -> x else left.
+      left 1.
+      """
   assertEqual "recursive pair compile errors" [] (compileErrors result)
   assertEqual "recursive pair warnings" [] (compileWarnings result)
 

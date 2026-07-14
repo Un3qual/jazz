@@ -179,7 +179,15 @@ assertSourceSingleErrorCodeAndPrimarySpan src expectedCode expectedSpan = do
 
 qualifiedEqSource :: Text.Text
 qualifiedEqSource =
-  "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+  """
+  class Eq(a) {
+  equals :: a -> a -> Bool.
+  }.
+  impl Eq(Int) {
+  equals = \\(left) -> \\(right) -> left == right.
+  }.
+
+  """
 
 importedQualifiedMethodFactsProgram :: Expr
 importedQualifiedMethodFactsProgram =

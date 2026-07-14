@@ -236,7 +236,8 @@ Each blocked item should answer these questions:
 - Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
   `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
   `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
-  `bash jazz-next/scripts/test-warning-config.sh`;
+  `cabal build --project-dir=jazz-next all`;
+  `cabal test --project-dir=jazz-next all --test-show-details=failures`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
 - Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the

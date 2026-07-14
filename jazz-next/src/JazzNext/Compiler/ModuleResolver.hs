@@ -20,7 +20,7 @@ import Data.Functor.Identity
   ( Identity (..),
     runIdentity
   )
-import Data.List (find, foldl', sortOn)
+import Data.List (find, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)

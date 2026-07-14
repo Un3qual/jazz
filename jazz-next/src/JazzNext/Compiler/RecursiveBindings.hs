@@ -15,7 +15,7 @@ import Data.Graph
     stronglyConnComp
   )
 import Data.List
-  ( foldl'
+  ( unsnoc
   )
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -216,9 +216,9 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
               | otherwise -> closestFutureDeclaration declarationStatements
       where
         closestPriorDeclaration declarations =
-          case filter (< statementIndex) declarations of
-            [] -> Nothing
-            priorDeclarations -> Just (last priorDeclarations)
+          case unsnoc (filter (< statementIndex) declarations) of
+            Nothing -> Nothing
+            Just (_, priorDeclaration) -> Just priorDeclaration
 
         closestFutureDeclaration declarations =
           case filter (> statementIndex) declarations of

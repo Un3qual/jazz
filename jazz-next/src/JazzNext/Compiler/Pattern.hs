@@ -5,7 +5,6 @@ module JazzNext.Compiler.Pattern
     patternBinderNames
   ) where
 
-import Data.List (foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST (Pattern (..))

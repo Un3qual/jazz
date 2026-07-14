@@ -124,6 +124,7 @@ testUnterminatedLiterals = do
 
 testRawNewline :: IO ()
 testRawNewline =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   assertDetailedFailure
     "raw text newline"
     (LexicalFailure (RawNewline TextLiteral) (SourceSpan 1 1))
@@ -297,12 +298,13 @@ runJazzCanonicalFixture lexerTypesSource =
 
 jazzCanonicalFixtureSource :: Text.Text
 jazzCanonicalFixtureSource =
-  Text.unlines
-    [ "module App::Main {",
-      "  import LexerTypes (CanonicalLexSuccess, CanonicalSourcePath, CanonicalToken, KeywordKind, ModuleKeyword, CanonicalSpan).",
-      "  CanonicalLexSuccess (CanonicalSourcePath \"fixtures/parser/basic.jz\") [CanonicalToken (KeywordKind ModuleKeyword) \"module\" (CanonicalSpan 1 1)].",
-      "}"
-    ]
+  """
+  module App::Main {
+    import LexerTypes (CanonicalLexSuccess, CanonicalSourcePath, CanonicalToken, KeywordKind, ModuleKeyword, CanonicalSpan).
+    CanonicalLexSuccess (CanonicalSourcePath \"fixtures/parser/basic.jz\") [CanonicalToken (KeywordKind ModuleKeyword) \"module\" (CanonicalSpan 1 1)].
+  }
+
+  """
 
 readLexerTypesSource :: IO Text.Text
 readLexerTypesSource = readFirstExisting ["jazz-next/stdlib/LexerTypes.jz", "stdlib/LexerTypes.jz"]

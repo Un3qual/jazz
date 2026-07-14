@@ -68,19 +68,29 @@ diagnosticTests =
 testSourceRejectsGenericSignatureSpecialization :: IO ()
 testSourceRejectsGenericSignatureSpecialization =
   assertSourceSingleErrorContainsWithoutPrelude
-    "bad :: a -> a.\nbad = \\(x) -> 1."
+    """
+    bad :: a -> a.
+    bad = \\(x) -> 1.
+    """
     "declared as"
 
 testSourceRejectsGenericSignatureVariableCollapse :: IO ()
 testSourceRejectsGenericSignatureVariableCollapse =
   assertSourceSingleErrorContainsWithoutPrelude
-    "bad :: a -> b -> a.\nbad = \\(x) -> \\(y) -> y."
+    """
+    bad :: a -> b -> a.
+    bad = \\(x) -> \\(y) -> y.
+    """
     "declared as"
 
 testSourceRejectsGenericNamedSignatureSpecialization :: IO ()
 testSourceRejectsGenericNamedSignatureSpecialization =
   assertSourceSingleErrorContainsWithoutPrelude
-    "data Box a = Box a.\nbad :: Box(a) -> Box(a).\nbad = \\(x) -> Box 1."
+    """
+    data Box a = Box a.
+    bad :: Box(a) -> Box(a).
+    bad = \\(x) -> Box 1.
+    """
     "declared as Box"
 
 testSignatureTypeMismatch :: IO ()
@@ -141,19 +151,33 @@ testUseBeforeDefinition = do
 
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
-  assertSourceErrorContains "x :: Int.\nclass Eq(a) { }.\nx = 1." "E1002"
+  assertSourceErrorContains """
+  x :: Int.
+  class Eq(a) { }.
+  x = 1.
+  """ "E1002"
 
 testSourceRejectsSeparatedSignature :: IO ()
 testSourceRejectsSeparatedSignature =
-  assertSourceErrorContains "x :: Int.\n1.\nx = 2." "E1002"
+  assertSourceErrorContains """
+  x :: Int.
+  1.
+  x = 2.
+  """ "E1002"
 
 testSourceRejectsSignatureNameMismatch :: IO ()
 testSourceRejectsSignatureNameMismatch =
-  assertSourceErrorContains "x :: Int.\ny = 2." "E1003"
+  assertSourceErrorContains """
+  x :: Int.
+  y = 2.
+  """ "E1003"
 
 testSourceRejectsSignatureTypeMismatch :: IO ()
 testSourceRejectsSignatureTypeMismatch = do
-  result <- compileSource defaultWarningSettings "x :: Int.\nx = True."
+  result <- compileSource defaultWarningSettings """
+  x :: Int.
+  x = True.
+  """
   assertSingleDiagnosticCode
     "source signature type mismatch code"
     "E2005"
@@ -174,68 +198,137 @@ testSourceRejectsSignatureTypeMismatch = do
 testSourceRejectsUnknownNamedSignatureType :: IO ()
 testSourceRejectsUnknownNamedSignatureType =
   assertSourceSingleErrorContainsWithoutPrelude
-    "value :: Unknown.\nvalue = 1."
+    """
+    value :: Unknown.
+    value = 1.
+    """
     "unknown named type 'Unknown'"
 
 testSourceRejectsNamedSignatureTypeArityMismatch :: IO ()
 testSourceRejectsNamedSignatureTypeArityMismatch =
   assertSourceSingleErrorContainsWithoutPrelude
-    "data Box a = Box a.\nvalue :: Box(Int, Bool).\nvalue = Box 1."
+    """
+    data Box a = Box a.
+    value :: Box(Int, Bool).
+    value = Box 1.
+    """
     "type 'Box' expects 1 argument(s), found 2"
 
 testSourceRejectsPartialNamedSignatureType :: IO ()
 testSourceRejectsPartialNamedSignatureType =
   assertSourceSingleErrorContainsWithoutPrelude
-    "data Box a = Box a.\nvalue :: Box.\nvalue = Box 1."
+    """
+    data Box a = Box a.
+    value :: Box.
+    value = Box 1.
+    """
     "type 'Box' expects 1 argument(s), found 0"
 
 testSourcePreservesLocalTypeDeclarationOrder :: IO ()
 testSourcePreservesLocalTypeDeclarationOrder =
   assertSourceSingleErrorContainsWithoutPrelude
-    "value :: Box(Int).\nvalue = 1.\ndata Box a = Box a."
+    """
+    value :: Box(Int).
+    value = 1.
+    data Box a = Box a.
+    """
     "unknown named type 'Box'"
 
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
-  assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
-  assertSourceSingleErrorContains "x :: Int8.\nx = 128." "E2005"
-  assertSourceSingleErrorContains "x :: UInt64.\nx = 18446744073709551616." "E2005"
-  assertSourceSingleErrorContains "xs :: [UInt8].\nxs = [1, 300]." "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = 300.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: Int8.
+  x = 128.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt64.
+  x = 18446744073709551616.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  xs :: [UInt8].
+  xs = [1, 300].
+  """ "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificBranchLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
-  assertSourceSingleErrorContains "x :: UInt8.\nx = if True then 1 else 300." "E2005"
-  assertSourceSingleErrorContains "x :: UInt8.\nx = case 0 { | 0 -> 1 | _ -> 300 }." "E2005"
-  assertSourceSingleErrorContains "x :: (UInt8, UInt8).\nx = if True then (1, 1) else (2, 300)." "E2005"
-  assertSourceSingleErrorContains "f :: UInt8 -> UInt8.\nf = if True then (\\(x) -> 1) else (\\(x) -> 300)." "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = if True then 1 else 300.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = case 0 { | 0 -> 1 | _ -> 300 }.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: (UInt8, UInt8).
+  x = if True then (1, 1) else (2, 300).
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  f :: UInt8 -> UInt8.
+  f = if True then (\\(x) -> 1) else (\\(x) -> 300).
+  """ "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do
-  assertSourceSingleErrorContains "x :: UInt8.\nx = 1 + 300." "E2005"
-  assertSourceSingleErrorContains "x :: UInt8.\nx = 200 + 100." "E2005"
-  assertSourceSingleErrorContains "x :: UInt8.\nx = 0 - 1." "E2005"
-  assertSourceSingleErrorContains "x :: UInt8.\nx = 16 * 16." "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = 1 + 300.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = 200 + 100.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = 0 - 1.
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  x :: UInt8.
+  x = 16 * 16.
+  """ "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificSectionLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificSectionLiterals = do
-  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (+ 300)." "E2005"
-  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (300 +)." "E2005"
+  assertSourceSingleErrorContains """
+  inc :: UInt8 -> UInt8.
+  inc = (+ 300).
+  """ "E2005"
+  assertSourceSingleErrorContains """
+  inc :: UInt8 -> UInt8.
+  inc = (300 +).
+  """ "E2005"
 
 testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
 testSourceRejectsMixedWidthNumericOperatorSignatures =
-  assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
+  assertSourceSingleErrorContains """
+  add :: Int8 -> UInt8 -> Int8.
+  add = (+).
+  """ "E2005"
 
 testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
 testSourceRejectsFloatSignatureForIntegerLiteral =
-  assertSourceSingleErrorContains "x :: Float64.\nx = 1." "E2005"
+  assertSourceSingleErrorContains """
+  x :: Float64.
+  x = 1.
+  """ "E2005"
 
 testSourceRejectsIntegralFractionalLiteralTargets :: IO ()
 testSourceRejectsIntegralFractionalLiteralTargets = do
-  assertSourceSingleErrorContains "x :: Int.\nx = 1.5." "E2005"
+  assertSourceSingleErrorContains """
+  x :: Int.
+  x = 1.5.
+  """ "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
 testSourceRejectsTupleSignatureMismatch = do
-  result <- compileSource defaultWarningSettings "pair :: (Int, Bool).\npair = (1, 2)."
+  result <- compileSource defaultWarningSettings """
+  pair :: (Int, Bool).
+  pair = (1, 2).
+  """
   assertSingleDiagnosticCode
     "source tuple signature mismatch code"
     "E2005"
@@ -243,7 +336,10 @@ testSourceRejectsTupleSignatureMismatch = do
 
 testSourceRejectsTupleSignatureArityMismatch :: IO ()
 testSourceRejectsTupleSignatureArityMismatch = do
-  result <- compileSource defaultWarningSettings "pair :: (Int, Bool).\npair = (1, True, 3)."
+  result <- compileSource defaultWarningSettings """
+  pair :: (Int, Bool).
+  pair = (1, True, 3).
+  """
   assertSingleDiagnosticCode
     "source tuple signature arity mismatch code"
     "E2005"
@@ -251,33 +347,66 @@ testSourceRejectsTupleSignatureArityMismatch = do
 
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
-  assertSourceSingleErrorContainsWithoutPrelude "x :: @{Eq(Int)}: Int.\nx = 1.\nclass Eq(a) { }.\nimpl Eq(Int) { }." "missing class declaration 'Eq'"
+  assertSourceSingleErrorContainsWithoutPrelude """
+  x :: @{Eq(Int)}: Int.
+  x = 1.
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  """ "missing class declaration 'Eq'"
 
 testSourceRejectsTypeApplicationConstrainedSignatureArgument :: IO ()
 testSourceRejectsTypeApplicationConstrainedSignatureArgument =
-  assertSourceSingleErrorContains "x :: @{Eq(Maybe(Int))}: Int.\nx = 1." "E2009"
+  assertSourceSingleErrorContains """
+  x :: @{Eq(Maybe(Int))}: Int.
+  x = 1.
+  """ "E2009"
 
 testSourceRejectsFunctionConstrainedSignatureArgument :: IO ()
 testSourceRejectsFunctionConstrainedSignatureArgument =
-  assertSourceSingleErrorContains "x :: @{Eq(Int -> Int)}: Int.\nx = 1." "E2009"
+  assertSourceSingleErrorContains """
+  x :: @{Eq(Int -> Int)}: Int.
+  x = 1.
+  """ "E2009"
 
 testSourceRejectsUnsupportedConstrainedSignatureSpans :: IO ()
 testSourceRejectsUnsupportedConstrainedSignatureSpans = do
   let assertSignatureSpan signatureSource =
+        -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
         assertSourceSingleErrorCodeAndPrimarySpan
           ("prefix = 0.\n" <> signatureSource <> "\n")
           "E2009"
           (SourceSpan 2 1)
-  assertSignatureSpan "x :: @{Unknown(Int)}: Int.\nx = 1."
-  assertSignatureSpan "x :: @{Eq(Int, Bool)}: Int.\nx = 1."
-  assertSignatureSpan "x :: @{Eq(Maybe(Int))}: Int.\nx = 1."
-  assertSignatureSpan "x :: @{Eq(Int -> Int)}: Int.\nx = 1."
-  assertSignatureSpan "f :: @{Eq(a), Eq(a)}: a -> a.\nf = \\(x) -> x."
-  assertSignatureSpan "f :: @{Eq(a)}: Int -> Int.\nf = \\(x) -> x."
+  assertSignatureSpan """
+  x :: @{Unknown(Int)}: Int.
+  x = 1.
+  """
+  assertSignatureSpan """
+  x :: @{Eq(Int, Bool)}: Int.
+  x = 1.
+  """
+  assertSignatureSpan """
+  x :: @{Eq(Maybe(Int))}: Int.
+  x = 1.
+  """
+  assertSignatureSpan """
+  x :: @{Eq(Int -> Int)}: Int.
+  x = 1.
+  """
+  assertSignatureSpan """
+  f :: @{Eq(a), Eq(a)}: a -> a.
+  f = \\(x) -> x.
+  """
+  assertSignatureSpan """
+  f :: @{Eq(a)}: Int -> Int.
+  f = \\(x) -> x.
+  """
 
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
-  result <- compileSource defaultWarningSettings "x :: [Bool].\nx = [1]."
+  result <- compileSource defaultWarningSettings """
+  x :: [Bool].
+  x = [1].
+  """
   assertSingleDiagnosticCode
     "source list signature mismatch code"
     "E2005"
@@ -285,23 +414,42 @@ testSourceRejectsListSignatureMismatch = do
 
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
-  assertSourceSingleErrorContains "x :: forall a.\nx = 1." "E2009"
+  assertSourceSingleErrorContains """
+  x :: forall a.
+  x = 1.
+  """ "E2009"
 
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nok = id 1.\nbad = id True."
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    id :: @{Eq(a)}: a -> a.
+    id = \\(x) -> x.
+    ok = id 1.
+    bad = id True.
+    """
     "missing impl fact 'Eq(Bool)'"
 
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse :: IO ()
 testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nambiguous = id []."
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    id :: @{Eq(a)}: a -> a.
+    id = \\(x) -> x.
+    ambiguous = id [].
+    """
     "ambiguous/defaulting explicit constraint"
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
-  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: b -> b.\nf = \\(x) -> x."
+  result <- compileSource defaultWarningSettings """
+  f :: @{Eq(a)}: b -> b.
+  f = \\(x) -> x.
+  """
   assertSingleDiagnosticCode
     "source unsupported variable constrained signature code"
     "E2009"
@@ -317,7 +465,10 @@ testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
-  result <- compileSource defaultWarningSettings "f :: @{Eq(a), Ord(b)}: a -> c.\nf = \\(x) -> x."
+  result <- compileSource defaultWarningSettings """
+  f :: @{Eq(a), Ord(b)}: a -> c.
+  f = \\(x) -> x.
+  """
   assertSingleDiagnosticCode
     "source constrained signature code"
     "E2009"
@@ -329,8 +480,17 @@ testSourceRejectsConstrainedSignatureSurface = do
 
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
 testSignatureMismatchKeepsDeclaredTypeDownstream =
-  assertSourceSingleErrorContains "x :: Int.\nx = True.\ny = x + 1." "E2005"
+  assertSourceSingleErrorContains """
+  x :: Int.
+  x = True.
+  y = x + 1.
+  """ "E2005"
 
 testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding :: IO ()
 testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding =
-  assertSourceSingleErrorContains "x :: Int.\nid = \\(value) -> value.\nintValue = id 1.\nboolValue = id True." "E1003"
+  assertSourceSingleErrorContains """
+  x :: Int.
+  id = \\(value) -> value.
+  intValue = id 1.
+  boolValue = id True.
+  """ "E1003"

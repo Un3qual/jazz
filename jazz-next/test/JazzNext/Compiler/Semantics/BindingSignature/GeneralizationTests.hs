@@ -45,63 +45,118 @@ generalizationTests =
 
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
 testSourceInstantiatesOrdinaryBindingSchemesPerUse =
-  assertSourceOk "id = \\(x) -> x.\nintValue = id 1.\nboolValue = id True."
+  assertSourceOk """
+  id = \\(x) -> x.
+  intValue = id 1.
+  boolValue = id True.
+  """
 
 testSourceInstantiatesSignedGenericSchemesPerUse :: IO ()
 testSourceInstantiatesSignedGenericSchemesPerUse =
   assertSourceOkWithoutPrelude
-    "id :: a -> a.\nid = \\(x) -> x.\nintValue = id 1.\nboolValue = id True."
+    """
+    id :: a -> a.
+    id = \\(x) -> x.
+    intValue = id 1.
+    boolValue = id True.
+    """
 
 testSourceInstantiatesSignedGenericAdtSchemesPerUse :: IO ()
 testSourceInstantiatesSignedGenericAdtSchemesPerUse =
   assertSourceOkWithoutPrelude
-    ( "data Box a = Box a.\n"
-        <> "keep :: Box(a) -> Box(a).\n"
-        <> "keep = \\(value) -> value.\n"
-        <> "intBox = keep (Box 1).\n"
-        <> "boolBox = keep (Box True)."
+    ( """
+    data Box a = Box a.
+    keep :: Box(a) -> Box(a).
+    keep = \\(value) -> value.
+    intBox = keep (Box 1).
+    boolBox = keep (Box True).
+    """
     )
 
 testSourceInstantiatesSignedGenericConstructorAliasesPerUse :: IO ()
 testSourceInstantiatesSignedGenericConstructorAliasesPerUse =
   assertSourceOkWithoutPrelude
-    ( "data Box a = Box a.\n"
-        <> "make :: a -> Box(a).\n"
-        <> "make = Box.\n"
-        <> "first = make 1.\n"
-        <> "second = make True."
+    ( """
+    data Box a = Box a.
+    make :: a -> Box(a).
+    make = Box.
+    first = make 1.
+    second = make True.
+    """
     )
 
 testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesVariableConstrainedSignaturePerUse =
-  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+  assertSourceOk """
+  id :: @{Eq(a)}: a -> a.
+  id = \\(x) -> x.
+  x = id 1.
+  y = id True.
+  """
 
 testSourceInstantiatesPrimitiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesPrimitiveConstrainedSignaturePerUse =
-  assertSourceOkWithoutPrelude "class Num(a) { }.\nimpl Num(Int32) { }.\nimpl Num(Int64) { }.\nadd :: @{Num(a)}: a -> a -> a.\nadd = \\(x) -> \\(y) -> x + y.\na32 :: Int32.\na32 = 1.\nb32 :: Int32.\nb32 = 2.\nsmall = add a32 b32.\na64 :: Int64.\na64 = 3.\nb64 :: Int64.\nb64 = 4.\nwide = add a64 b64."
+  assertSourceOkWithoutPrelude """
+  class Num(a) { }.
+  impl Num(Int32) { }.
+  impl Num(Int64) { }.
+  add :: @{Num(a)}: a -> a -> a.
+  add = \\(x) -> \\(y) -> x + y.
+  a32 :: Int32.
+  a32 = 1.
+  b32 :: Int32.
+  b32 = 2.
+  small = add a32 b32.
+  a64 :: Int64.
+  a64 = 3.
+  b64 :: Int64.
+  b64 = 4.
+  wide = add a64 b64.
+  """
 
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int 1.\nvalue."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  id :: @{Eq(a)}: a -> a.
+  id = \\(x) -> x.
+  value = id @Int 1.
+  value.
+  """
 
 testSourceAppliesExplicitNamedTypeApplication :: IO ()
 testSourceAppliesExplicitNamedTypeApplication =
   assertSourceOkWithoutPrelude
-    "data Box a = Box a.\nidentity :: a -> a.\nidentity = \\(value) -> value.\nvalue = identity @Box(Char) (Box 'x')."
+    """
+    data Box a = Box a.
+    identity :: a -> a.
+    identity = \\(value) -> value.
+    value = identity @Box(Char) (Box 'x').
+    """
 
 testSourceAppliesNestedExplicitNamedTypeApplication :: IO ()
 testSourceAppliesNestedExplicitNamedTypeApplication =
   assertSourceOkWithoutPrelude
-    ( "data IOError = IOError.\n"
-        <> "data Result a b = Ok a | Err b.\n"
-        <> "identity :: a -> a.\n"
-        <> "identity = \\(value) -> value.\n"
-        <> "value = identity @Result(IOError, Text) (Err \"bad\")."
+    ( """
+    data IOError = IOError.
+    data Result a b = Ok a | Err b.
+    identity :: a -> a.
+    identity = \\(value) -> value.
+    value = identity @Result(IOError, Text) (Err \"bad\").
+    """
     )
 
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nchoose :: @{Eq(b)}: b -> a -> b.\nchoose = \\(x) -> \\(y) -> x.\nvalue = choose @Int 1 True.\nvalue."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  choose :: @{Eq(b)}: b -> a -> b.
+  choose = \\(x) -> \\(y) -> x.
+  value = choose @Int 1 True.
+  value.
+  """
 
 testSourceAppliesExplicitTypeApplicationToInferredTypeOrder :: IO ()
 testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
@@ -109,9 +164,11 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
     runSourceWithPrelude
       defaultWarningSettings
       Nothing
-      ( "flip = \\(f) -> \\(x) -> \\(y) -> f y x.\n"
-          <> "value = flip @Int (\\(left) -> \\(right) -> left + 1) True 2.\n"
-          <> "value."
+      ( """
+      flip = \\(f) -> \\(x) -> \\(y) -> f y x.
+      value = flip @Int (\\(left) -> \\(right) -> left + 1) True 2.
+      value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -120,24 +177,44 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
 testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication :: IO ()
 testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Num(a) { }.\nimpl Num(Bool) { }.\naddSelf :: @{Num(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf @Bool True."
+    """
+    class Num(a) { }.
+    impl Num(Bool) { }.
+    addSelf :: @{Num(a)}: a -> a.
+    addSelf = \\(x) -> x + x.
+    bad = addSelf @Bool True.
+    """
     "primitive numeric constraint"
 
 testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding :: IO ()
 testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding =
   assertSourceSingleErrorContains
-    "inc :: Int -> Int.\ninc = \\(x) -> x + 1.\nvalue = inc @Int 1."
+    """
+    inc :: Int -> Int.
+    inc = \\(x) -> x + 1.
+    value = inc @Int 1.
+    """
     "explicit type application target must be a generalized binding"
 
 testSourceRejectsExtraExplicitTypeApplicationArgument :: IO ()
 testSourceRejectsExtraExplicitTypeApplicationArgument =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int @Bool 1."
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    id :: @{Eq(a)}: a -> a.
+    id = \\(x) -> x.
+    value = id @Int @Bool 1.
+    """
     "explicit type application target must be a generalized binding"
 
 testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState :: IO ()
 testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing "bad :: @{Eq(f), Ord(a)}: f(a) -> a.\nbad = \\(x) -> x.\nuse = [] 1."
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing """
+  bad :: @{Eq(f), Ord(a)}: f(a) -> a.
+  bad = \\(x) -> x.
+  use = [] 1.
+  """
   assertContains
     "later diagnostic keeps deterministic type variable id"
     "cannot apply function of type [t3] to argument of type Int"

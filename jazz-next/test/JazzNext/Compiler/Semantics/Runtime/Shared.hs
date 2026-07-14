@@ -192,7 +192,15 @@ ambiguousQualifiedMethodRuntimeExpr =
 
 runtimeEqSource :: Text
 runtimeEqSource =
-  "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+  """
+  class RuntimeEq(a) {
+  equals :: a -> a -> Bool.
+  }.
+  impl RuntimeEq(Int) {
+  equals = \\(left) -> \\(right) -> left == right.
+  }.
+
+  """
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =

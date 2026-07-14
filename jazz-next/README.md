@@ -31,7 +31,8 @@ executable and test components; there is no supported Haskell embedding API yet.
   compilation, warning promotion, and optional runtime evaluation.
 - `jazz-next.cabal` defines the private `jazz-next-internal` implementation
   library, the `jazz-next` executable, and the registered test suites.
-- `scripts/test-warning-config.sh` runs the compatibility and structural audit.
+- Cabal discovers and runs every registered test suite; `repository-audit-spec`
+  owns stdlib formatting and private-package policy.
 
 These are implementation boundaries only. The module and import syntax exposed
 to Jazz programs is unchanged by the internal module pipeline.
@@ -88,12 +89,16 @@ cabal run --project-dir=jazz-next jazz-next -- --help
 The help path prints usage to stdout and does not read stdin, source files,
 warning config files, or Prelude files.
 
-## Run tests
+## Build and test
 
 ```bash
 # from repository root:
-cabal test --project-dir=jazz-next all
-
-# compatibility runner for the same spec programs:
-bash jazz-next/scripts/test-warning-config.sh
+nix --extra-experimental-features 'nix-command flakes' develop
+cabal build --project-dir=jazz-next all
+cabal test --project-dir=jazz-next all --test-show-details=failures
+cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=failures
 ```
+
+Cabal discovers every registered suite. Use a test component name, such as
+`repository-audit-spec`, for a focused run. The repository audit owns the
+stdlib source-format contract and the private-package policy.

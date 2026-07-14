@@ -166,6 +166,7 @@ runJazzLexer logicalPath source =
     ["App", "Main"]
     lookupSource
   where
+    -- Explicit fragments are intentional: this program embeds runtime fixture data.
     entrySource =
       "module App::Main {\n"
         <> "  import Lexer.\n"
@@ -196,6 +197,7 @@ runJazzLexerBatch fixtures =
     ["App", "Main"]
     lookupSource
   where
+    -- Explicit fragments are intentional: this program embeds runtime fixture data.
     entrySource =
       "module App::Main {\n"
         <> "  import Lexer.\n"
@@ -229,6 +231,7 @@ runJazzLexerCount source =
     ["App", "Main"]
     lookupSource
   where
+    -- Explicit fragments are intentional: this program embeds runtime fixture data.
     entrySource =
       "module App::Main {\n"
         <> "  import Lexer.\n"

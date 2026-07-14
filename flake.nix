@@ -2,44 +2,35 @@
   description = "Jazz development and spec-cleanup checks";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs-tools.url = "github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-tools, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-        };
-        ghcForStack = pkgs.haskell.compiler.ghc948;
-        hsPkgs = pkgs.haskell.packages.ghc948.override {
-          overrides = self: super: {
-            diagnose = pkgs.haskell.lib.dontCheck
-              (pkgs.haskell.lib.doJailbreak
-                (pkgs.haskell.lib.markUnbroken super.diagnose));
-            qbe = pkgs.haskell.lib.dontCheck
-              (pkgs.haskell.lib.markUnbroken super.qbe);
-          };
-        };
-        jazzHs = hsPkgs.callCabal2nix "jazz" ./jazz-hs { };
+        pkgs = import nixpkgs { inherit system; };
+        toolPkgs = import nixpkgs-tools { inherit system; };
+        ghc = pkgs.haskell.compiler.ghc9141;
+        hsPkgs = pkgs.haskell.packages.ghc9141;
+        jazzNext = pkgs.haskell.lib.enableCabalFlag
+          (hsPkgs.callCabal2nix "jazz-next" ./jazz-next { })
+          "development";
       in {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            stack
-            ghcForStack
+            ghc
             cabal-install
             ormolu
             hlint
             git
             ripgrep
-            nodePackages.prettier
+            toolPkgs.nodePackages.prettier
           ];
         };
 
-        # Use Nix-native package checks to avoid Stack's network-dependent
-        # snapshot/package fetch path inside sandboxed flake checks.
-        checks.jazz-test-suite = pkgs.haskell.lib.overrideCabal jazzHs (_: {
+        checks.jazz-next-test-suite = pkgs.haskell.lib.overrideCabal jazzNext (_: {
           doCheck = true;
         });
       });

@@ -75,7 +75,10 @@ testDeclaredTier2OperatorPrecedence =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% tier 2.\nx = 1 + 2 %% 3 * 4.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    x = 1 + 2 %% 3 * 4.
+    """)
 
 testDeclaredCustomPrecedenceOperatorPrecedence :: IO ()
 testDeclaredCustomPrecedenceOperatorPrecedence =
@@ -94,7 +97,10 @@ testDeclaredCustomPrecedenceOperatorPrecedence =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% precedence 99.\nx = 1 + 2 %% 3 * 4.")
+    (parseSurfaceProgram """
+    operator %% precedence 99.
+    x = 1 + 2 %% 3 * 4.
+    """)
 
 testDeclaredCustomPrecedenceOperatorAssociativity :: IO ()
 testDeclaredCustomPrecedenceOperatorAssociativity =
@@ -109,7 +115,10 @@ testDeclaredCustomPrecedenceOperatorAssociativity =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% precedence 25.\nx = 10 %% 3 %% 1.")
+    (parseSurfaceProgram """
+    operator %% precedence 25.
+    x = 10 %% 3 %% 1.
+    """)
 
 testDeclaredOperatorExplicitLeftAssociativity :: IO ()
 testDeclaredOperatorExplicitLeftAssociativity =
@@ -124,7 +133,10 @@ testDeclaredOperatorExplicitLeftAssociativity =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% tier 2 left.\nx = 10 %% 3 %% 1.")
+    (parseSurfaceProgram """
+    operator %% tier 2 left.
+    x = 10 %% 3 %% 1.
+    """)
 
 testDeclaredOperatorExplicitRightAssociativity :: IO ()
 testDeclaredOperatorExplicitRightAssociativity =
@@ -139,7 +151,10 @@ testDeclaredOperatorExplicitRightAssociativity =
             ]
         )
     )
-    (parseSurfaceProgram "operator <| precedence 10 right.\nx = a <| b <| c.")
+    (parseSurfaceProgram """
+    operator <| precedence 10 right.
+    x = a <| b <| c.
+    """)
 
 testDeclaredOperatorBindingParsesAsHiddenBinding :: IO ()
 testDeclaredOperatorBindingParsesAsHiddenBinding =
@@ -164,7 +179,11 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nresult = 1 %% 2 * 3.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    result = 1 %% 2 * 3.
+    """)
 
 testDeclaredOperatorSignatureParsesAsHiddenSignature :: IO ()
 testDeclaredOperatorSignatureParsesAsHiddenSignature =
@@ -198,7 +217,12 @@ testDeclaredOperatorSignatureParsesAsHiddenSignature =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\nresult = 1 %% 2.")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    (%%) :: Int -> Int -> Int.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    result = 1 %% 2.
+    """)
 
 testDeclaredOperatorBindingParsesInsideModuleBody :: IO ()
 testDeclaredOperatorBindingParsesInsideModuleBody =
@@ -220,7 +244,12 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
             ]
         )
     )
-    (parseSurfaceProgram "module Demo {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n}")
+    (parseSurfaceProgram """
+    module Demo {
+    operator %% tier 2.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    }
+    """)
 
 testDeclaredTier5OperatorAssociativity :: IO ()
 testDeclaredTier5OperatorAssociativity =
@@ -235,7 +264,10 @@ testDeclaredTier5OperatorAssociativity =
             ]
         )
     )
-    (parseSurfaceProgram "operator ~~ tier 5.\nx = f ~~ g ~~ z.")
+    (parseSurfaceProgram """
+    operator ~~ tier 5.
+    x = f ~~ g ~~ z.
+    """)
 
 testDeclaredArrowPrefixedOperator :: IO ()
 testDeclaredArrowPrefixedOperator =
@@ -250,7 +282,10 @@ testDeclaredArrowPrefixedOperator =
             ]
         )
     )
-    (parseSurfaceProgram "operator ->? tier 4.\nx = 1 ->? 2.")
+    (parseSurfaceProgram """
+    operator ->? tier 4.
+    x = 1 ->? 2.
+    """)
 
 testDeclaredOperatorValueAndSections :: IO ()
 testDeclaredOperatorValueAndSections =
@@ -264,7 +299,12 @@ testDeclaredOperatorValueAndSections =
             ]
         )
     )
-    (parseSurfaceProgram "operator %% tier 2.\nop = (%%).\nleft = (10 %%).\nright = (%% 10).")
+    (parseSurfaceProgram """
+    operator %% tier 2.
+    op = (%%).
+    left = (10 %%).
+    right = (%% 10).
+    """)
 
 testMultiplicationBeforeAddition :: IO ()
 testMultiplicationBeforeAddition =

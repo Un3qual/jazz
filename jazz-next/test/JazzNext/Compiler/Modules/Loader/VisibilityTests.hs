@@ -185,8 +185,17 @@ testRunModuleGraphDefaultLoadsBundledPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Data.
+        map hd values.
+        }
+        """),
+          ("src/Lib/Data.jz", """
+          module Lib::Data {
+          values = [[1, 2], [3], [4, 5]].
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -296,8 +305,14 @@ testCompileModuleGraphValidatesHiddenDependencyExports = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nadd."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = missingName.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        add.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = missingName.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -315,8 +330,15 @@ testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe (x).\nx."),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value.\nx = 1.\nJust 1.")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe (x).
+        x.
+        """),
+          ("src/Lib/Maybe.jz", """
+          data Maybe = Just value.
+          x = 1.
+          Just 1.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -341,8 +363,14 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -360,8 +388,14 @@ testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\n1."),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value.\nx = Just 1.")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        1.
+        """),
+          ("src/Lib/Maybe.jz", """
+          data Maybe = Just value.
+          x = Just 1.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -379,8 +413,14 @@ testCompileModuleGraphExplicitImportAllowsPreludeBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -406,8 +446,14 @@ testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -425,8 +471,14 @@ testCompileModuleGraphAliasImportAllowsPreludeBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -445,8 +497,14 @@ testRunModuleGraphVisibleExportRewritesHiddenConstructorDependency = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe (x).\nx."),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value.\nx = Just 1.")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe (x).
+        x.
+        """),
+          ("src/Lib/Maybe.jz", """
+          data Maybe = Just value.
+          x = Just 1.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -465,8 +523,14 @@ testRunModuleGraphExplicitImportHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math (add).
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -485,8 +549,14 @@ testRunModuleGraphAliasImportHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -505,7 +575,10 @@ testRunModuleGraphAliasHiddenDataConstructorUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nNothing."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        Nothing.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Nothing.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -525,7 +598,10 @@ testRunModuleGraphQualifiedAliasDataConstructorLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nMaybe::Just 1."),
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        Maybe::Just 1.
+        """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -543,7 +619,12 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
+        [ ("src/App/Main.jz", """
+        import Lib::Box as Box.
+        first = Box::Box 1.
+        second = Box::Box True.
+        second.
+        """),
           ("src/Lib/Box.jz", "data Box a = Box a.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -564,10 +645,21 @@ testRunModuleGraphResolvesAliasQualifiedTypesInSignatures = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Box as B.\nvalue :: B::Box(Int).\nvalue = B::Box 1.\nvalue.\n}"
+            """
+            module App::Main {
+            import Lib::Box as B.
+            value :: B::Box(Int).
+            value = B::Box 1.
+            value.
+            }
+            """
           ),
           ( "src/Lib/Box.jz",
-            "module Lib::Box {\ndata Box a = Box a.\n}"
+            """
+            module Lib::Box {
+            data Box a = Box a.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -590,10 +682,21 @@ testCompileModuleGraphRejectsPrivateAliasQualifiedType = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Types as T.\nclass Marker(a) { }.\nimpl Marker(T::Secret(Int)) { }.\n0.\n}"
+            """
+            module App::Main {
+            import Lib::Types as T.
+            class Marker(a) { }.
+            impl Marker(T::Secret(Int)) { }.
+            0.
+            }
+            """
           ),
           ( "src/Lib/Types.jz",
-            "module Lib::Types () {\ndata Secret a = Secret a.\n}"
+            """
+            module Lib::Types () {
+            data Secret a = Secret a.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -614,10 +717,21 @@ testRunModuleGraphResolvesLowercaseAliasZeroArityType = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Token as t.\nvalue :: t::Token.\nvalue = t::Token.\nvalue.\n}"
+            """
+            module App::Main {
+            import Lib::Token as t.
+            value :: t::Token.
+            value = t::Token.
+            value.
+            }
+            """
           ),
           ( "src/Lib/Token.jz",
-            "module Lib::Token {\ndata Token = Token.\n}"
+            """
+            module Lib::Token {
+            data Token = Token.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -638,10 +752,25 @@ testRunModuleGraphAcceptsLowercaseAliasImplTarget = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Token as t.\nclass Marker(a) {\nmark :: a -> Bool.\n}.\nimpl Marker(t::Token) {\nmark = \\(value) -> True.\n}.\nMarker::mark t::Token.\n}"
+            """
+            module App::Main {
+            import Lib::Token as t.
+            class Marker(a) {
+            mark :: a -> Bool.
+            }.
+            impl Marker(t::Token) {
+            mark = \\(value) -> True.
+            }.
+            Marker::mark t::Token.
+            }
+            """
           ),
           ( "src/Lib/Token.jz",
-            "module Lib::Token {\ndata Token = Token.\n}"
+            """
+            module Lib::Token {
+            data Token = Token.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -662,10 +791,21 @@ testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport lib::Types.\nvalue :: Box(Int).\nvalue = Box 1.\nvalue.\n}"
+            """
+            module App::Main {
+            import lib::Types.
+            value :: Box(Int).
+            value = Box 1.
+            value.
+            }
+            """
           ),
           ( "src/lib/Types.jz",
-            "module lib::Types {\ndata Box a = Box a.\n}"
+            """
+            module lib::Types {
+            data Box a = Box a.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -686,10 +826,23 @@ testRunModuleGraphTransportsSignedGenericNamedSchemes = do
     sourceMap =
       Map.fromList
         [ ( "src/App/Main.jz",
-            "module App::Main {\nimport Lib::Box.\nintBox = keep (Box 1).\nboolBox = keep (Box True).\nboolBox.\n}"
+            """
+            module App::Main {
+            import Lib::Box.
+            intBox = keep (Box 1).
+            boolBox = keep (Box True).
+            boolBox.
+            }
+            """
           ),
           ( "src/Lib/Box.jz",
-            "module Lib::Box {\ndata Box a = Box a.\nkeep :: Box(a) -> Box(a).\nkeep = \\(value) -> value.\n}"
+            """
+            module Lib::Box {
+            data Box a = Box a.
+            keep :: Box(a) -> Box(a).
+            keep = \\(value) -> value.
+            }
+            """
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -709,8 +862,16 @@ testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMaybe.\nimport Lib::Maybe (Just).\ndata Pair = Just left right.\nJust 1 2."),
-          ("src/App/UsesMaybe.jz", "import Lib::Maybe as Maybe.\nuse = 0."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMaybe.
+        import Lib::Maybe (Just).
+        data Pair = Just left right.
+        Just 1 2.
+        """),
+          ("src/App/UsesMaybe.jz", """
+          import Lib::Maybe as Maybe.
+          use = 0.
+          """),
           ("src/Lib/Maybe.jz", "data Maybe = Just value.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -730,8 +891,16 @@ testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Floats as Floats.\n(Floats::x16, Floats::x32)."),
-          ("src/Lib/Floats.jz", "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.")
+        [ ("src/App/Main.jz", """
+        import Lib::Floats as Floats.
+        (Floats::x16, Floats::x32).
+        """),
+          ("src/Lib/Floats.jz", """
+          x16 :: Float16.
+          x16 = 2049.0.
+          x32 :: Float32.
+          x32 = 1.00000001.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -750,8 +919,15 @@ testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nMaybe::fromDefault."),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.\ndefault = Just 7.\nfromDefault = case default { | Just value -> value | Nothing -> 0 }.")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe as Maybe.
+        Maybe::fromDefault.
+        """),
+          ("src/Lib/Maybe.jz", """
+          data Maybe = Just value | Nothing.
+          default = Just 7.
+          fromDefault = case default { | Just value -> value | Nothing -> 0 }.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -770,8 +946,16 @@ testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe.\nvalue = Also 41.\ncase value { | Just item | Also item -> item + 1 | Nothing -> 0 }."),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Nothing | Just value | Also value.\n}")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe.
+        value = Also 41.
+        case value { | Just item | Also item -> item + 1 | Nothing -> 0 }.
+        """),
+          ("src/Lib/Maybe.jz", """
+          module Lib::Maybe {
+          data Maybe = Nothing | Just value | Also value.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -790,8 +974,16 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Maybe.\nchoose = \\(Just item | Also item) -> item + 1.\nchoose (Also 41)."),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Nothing | Just value | Also value.\n}")
+        [ ("src/App/Main.jz", """
+        import Lib::Maybe.
+        choose = \\(Just item | Also item) -> item + 1.
+        choose (Also 41).
+        """),
+          ("src/Lib/Maybe.jz", """
+          module Lib::Maybe {
+          data Maybe = Nothing | Just value | Also value.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -810,8 +1002,14 @@ testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        Math::subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -830,8 +1028,14 @@ testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMath.\nuse."),
-          ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = subtract."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMath.
+        use.
+        """),
+          ("src/App/UsesMath.jz", """
+          import Lib::Math as Math.
+          use = subtract.
+          """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -855,8 +1059,14 @@ testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMath.\nsubtract."),
-          ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = 0."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMath.
+        subtract.
+        """),
+          ("src/App/UsesMath.jz", """
+          import Lib::Math as Math.
+          use = 0.
+          """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -876,9 +1086,19 @@ testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMath.\nimport App::UsesPrelude.\npreludeValue."),
-          ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
-          ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMath.
+        import App::UsesPrelude.
+        preludeValue.
+        """),
+          ("src/App/UsesMath.jz", """
+          import Lib::Math.
+          mathValue = subtract.
+          """),
+          ("src/App/UsesPrelude.jz", """
+          import Lib::Math as Math.
+          preludeValue = subtract.
+          """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -898,9 +1118,19 @@ testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import App::UsesMath.\nimport App::UsesPrelude.\nmathValue."),
-          ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
-          ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
+        [ ("src/App/Main.jz", """
+        import App::UsesMath.
+        import App::UsesPrelude.
+        mathValue.
+        """),
+          ("src/App/UsesMath.jz", """
+          import Lib::Math.
+          mathValue = subtract.
+          """),
+          ("src/App/UsesPrelude.jz", """
+          import Lib::Math as Math.
+          preludeValue = subtract.
+          """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -920,8 +1150,14 @@ testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::use."),
-          ("src/Lib/Math.jz", "subtract = 2.\nuse = subtract.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        Math::use.
+        """),
+          ("src/Lib/Math.jz", """
+          subtract = 2.
+          use = subtract.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -940,8 +1176,14 @@ testRunModuleGraphQualifiedAliasLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::subtract."),
-          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        [ ("src/App/Main.jz", """
+        import Lib::Math as Math.
+        Math::subtract.
+        """),
+          ("src/Lib/Math.jz", """
+          add = 1.
+          subtract = 2.
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -960,7 +1202,11 @@ testRunModuleGraphQualifiedAliasLookupUsesDependencyExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "subtract = 99.\nimport Lib::Math as Math.\nMath::subtract."),
+        [ ("src/App/Main.jz", """
+        subtract = 99.
+        import Lib::Math as Math.
+        Math::subtract.
+        """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -978,7 +1224,10 @@ testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "math::subtract.\nimport Lib::Math as math."),
+        [ ("src/App/Main.jz", """
+        math::subtract.
+        import Lib::Math as math.
+        """),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -998,7 +1247,13 @@ testRunModuleGraphOrdinaryBindingShadowsLocalConstructor = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\ndata Maybe = Just value.\nJust = 1.\nJust.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        data Maybe = Just value.
+        Just = 1.
+        Just.
+        }
+        """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1017,8 +1272,18 @@ testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Maybe (Just).\nJust.\n}"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Just value.\nJust = 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Maybe (Just).
+        Just.
+        }
+        """),
+          ("src/Lib/Maybe.jz", """
+          module Lib::Maybe {
+          data Maybe = Just value.
+          Just = 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1031,8 +1296,18 @@ testRunModuleGraphExecutesPublicClosureWithPrivateHelper = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer 41.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = \\(x) -> x + 1.\nanswer = \\(x) -> helper x.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value (answer).
+        answer 41.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value (answer) {
+          helper = \\(x) -> x + 1.
+          answer = \\(x) -> helper x.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1047,8 +1322,18 @@ testCompileModuleGraphRejectsPrivateAliasMember = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value as Value.\nValue::helper.\n}"),
-          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Value as Value.
+        Value::helper.
+        }
+        """),
+          ("src/Lib/Value.jz", """
+          module Lib::Value (answer) {
+          helper = 1.
+          answer = helper.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1059,8 +1344,24 @@ testCompileModuleGraphSupportsOpaqueExportedType = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box.\nclass Use(a) {\nuse :: a -> Bool.\n}.\nimpl Use(Box) {\nuse = \\(value) -> True.\n}.\nUse::use boxed.\n}"),
-          ("src/Lib/Box.jz", "module Lib::Box (Box, boxed) {\ndata Box = Pack Int.\nboxed = Pack 1.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Box.
+        class Use(a) {
+        use :: a -> Bool.
+        }.
+        impl Use(Box) {
+        use = \\(value) -> True.
+        }.
+        Use::use boxed.
+        }
+        """),
+          ("src/Lib/Box.jz", """
+          module Lib::Box (Box, boxed) {
+          data Box = Pack Int.
+          boxed = Pack 1.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1073,8 +1374,17 @@ testRunModuleGraphImportsExportedConstructorWithoutTypeName = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box (Pack).\nPack 1.\n}"),
-          ("src/Lib/Box.jz", "module Lib::Box (Pack) {\ndata Box = Pack Int.\n}")
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Box (Pack).
+        Pack 1.
+        }
+        """),
+          ("src/Lib/Box.jz", """
+          module Lib::Box (Pack) {
+          data Box = Pack Int.
+          }
+          """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1085,5 +1395,10 @@ testRunModuleGraphKeepsPrivateEntryBindingsUsable = do
   assertEqual "private entry binding runtime errors" [] (runRuntimeErrors result)
   assertEqual "private entry binding output" (Just "41") (runOutput result)
   where
-    sourceMap = Map.singleton "src/App/Main.jz" "module App::Main () {\nhelper = 41.\nhelper.\n}"
+    sourceMap = Map.singleton "src/App/Main.jz" """
+    module App::Main () {
+    helper = 41.
+    helper.
+    }
+    """
     lookupSource path = pure (Map.lookup path sourceMap)

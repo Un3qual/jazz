@@ -116,6 +116,7 @@ testAcceptsNestedOpaquePayloads = do
 
 testRejectsNestedImport :: IO ()
 testRejectsNestedImport =
+  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   case parseSurfaceProgram "main = {\n  import Lib::Value.\n  value.\n}." of
     Left diagnostic -> do
       assertEqual "nested import code" "E0001" (diagnosticCode diagnostic)
@@ -124,7 +125,12 @@ testRejectsNestedImport =
 
 testAcceptsModuleBodyImport :: IO ()
 testAcceptsModuleBodyImport =
-  case parseSurfaceProgram "module App::Main {\n  import Lib::Value.\n  value.\n}" of
+  case parseSurfaceProgram """
+  module App::Main {
+    import Lib::Value.
+    value.
+  }
+  """ of
     Right _ -> pure ()
     Left diagnostic -> failTest ("expected module-body import to parse, got " <> diagnosticSummary diagnostic)
 
