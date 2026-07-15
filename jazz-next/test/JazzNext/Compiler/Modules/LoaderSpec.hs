@@ -17,6 +17,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
+    runModuleGraph,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
     runRuntimeErrors
@@ -190,9 +191,8 @@ testBootstrapTextModule = do
 testBootstrapCollectionScalarModules :: IO ()
 testBootstrapCollectionScalarModules = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraph
       defaultWarningSettings
-      Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -225,9 +225,8 @@ testBootstrapCollectionScalarModules = do
 testBootstrapListReversePreservesConcreteHints :: IO ()
 testBootstrapListReversePreservesConcreteHints = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraph
       defaultWarningSettings
-      Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -251,6 +250,7 @@ testBootstrapListReversePreservesConcreteHints = do
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/List.jz" = readStdlibSource "List.jz"
+    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource _ = pure Nothing
 
 testBootstrapIOSuccesses :: IO ()

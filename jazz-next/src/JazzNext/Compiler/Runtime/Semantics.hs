@@ -10,6 +10,7 @@ module JazzNext.Compiler.Runtime.Semantics
     renderRuntimeType,
     runtimeDiagnostic,
     runtimeDefinitionName,
+    runtimeDefinitionNameIn,
     runtimeConstructorArgument,
     runtimeConstraintType,
     literalRuntimeValue,
@@ -98,7 +99,7 @@ import JazzNext.Compiler.FractionalLiteral
   )
 import JazzNext.Compiler.Name
   ( Name (..),
-    NameNamespace (ConstructorNamespace),
+    NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText
   )
@@ -185,8 +186,21 @@ runtimeDefinitionName :: Maybe [Text] -> Name -> Name
 runtimeDefinitionName maybeModulePath name =
   case (maybeModulePath, name) of
     (Just modulePath, ResolvedName CurrentModule namespace identifier) ->
-      ResolvedName (ImportedModule modulePath) namespace identifier
+      ResolvedName (runtimeDefinitionOrigin modulePath) namespace identifier
     _ -> name
+
+runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> Name -> Name
+runtimeDefinitionNameIn namespace maybeModulePath name =
+  case (maybeModulePath, name) of
+    (Just [], SourceName identifier) ->
+      ResolvedName AmbientPrelude namespace identifier
+    _ -> runtimeDefinitionName maybeModulePath name
+
+runtimeDefinitionOrigin :: [Text] -> ResolvedNameOrigin
+runtimeDefinitionOrigin modulePath =
+  case modulePath of
+    [] -> AmbientPrelude
+    _ -> ImportedModule modulePath
 
 runtimeConstructorArgument :: Maybe [Text] -> DataConstructorArgument -> DataConstructorArgument
 runtimeConstructorArgument maybeModulePath argument =
@@ -217,7 +231,7 @@ runtimeTypeName maybeModulePath name
   | identifierText name `elem` ["Int", "Float", "Bool", "Char", "Text"] = name
   | Just _ <- numericTypeFromName (identifierText name) = name
   | identifierLooksLikeTypeVariable name = name
-  | otherwise = runtimeDefinitionName maybeModulePath name
+  | otherwise = runtimeDefinitionNameIn TypeNamespace maybeModulePath name
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -462,7 +476,7 @@ matchPattern currentModulePath scrutineeValue casePattern =
     PConstructor constructorName patterns ->
       case constructorPatternScrutinee scrutineeValue of
         VConstructor _ _ valueConstructorName constructorArguments capturedArgs
-          | valueConstructorName == runtimeDefinitionName currentModulePath constructorName,
+          | valueConstructorName == runtimeDefinitionNameIn ConstructorNamespace currentModulePath constructorName,
             constructorIsSaturated constructorArguments capturedArgs,
             length capturedArgs == length patterns ->
               matchPatternList currentModulePath capturedArgs patterns

@@ -1,0 +1,32 @@
+module Stdlib::Foundations::ListBoundaries {
+  import List.
+  import Maybe.
+  emptyInts :: [Int].
+  emptyInts = [].
+  emptyPairs :: [(Int, Text)].
+  emptyPairs = [].
+  values = [1, 2, 3].
+  (listPrepend 0 values, listReverse values, listLength values,
+   listLast [1], listInit [1],
+   listTake (0 - 1) values, listDrop (0 - 1) values, listSplitAt (0 - 1) values,
+   listAppend emptyInts values, listConcat [],
+   listRepeat 0 1, listRepeat (0 - 1) 1,
+   listIntersperse 0 emptyInts, listIntersperse 0 [1],
+   listIntercalate [0] [], listIntercalate [0] [[1, 2]],
+   listMap (\(value) -> value + 1) emptyInts,
+   listFilter (\(value) -> value > 0) emptyInts,
+   listFilterMap (\(value) -> Just value) emptyInts,
+   listPartition (\(value) -> value > 0) emptyInts,
+   listFoldLeft (\(total, value) -> total + value) 7 emptyInts,
+   listFoldRight (\(value, total) -> value + total) 7 emptyInts,
+   listScanLeft (\(total, value) -> total + value) 7 emptyInts,
+   listAny (\(value) -> value > 0) emptyInts,
+   listAll (\(value) -> value > 0) emptyInts,
+   listContains 1 emptyInts,
+   listFind (\(value) -> value > 0) emptyInts,
+   listFindIndex (\(value) -> value > 0) emptyInts,
+   listZip emptyInts ["a"], listUnzip emptyPairs, listIndexed emptyInts,
+   listDistinct emptyInts, listGroup emptyInts,
+   listGroupBy (\(left, right) -> left == right) emptyInts,
+   listSort emptyInts).
+}

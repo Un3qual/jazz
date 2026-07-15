@@ -1,3 +1,65 @@
-module Result (type Result, constructor Err, constructor Ok) {
+module Result (type Result(..), value resultMap, value resultMapError, value resultAndThen, value resultRecover, value resultWithDefault, value resultIsOk, value resultIsErr, value resultToMaybe, value resultErrorToMaybe, value resultFromMaybe) {
+  import Maybe.
+
   data Result e a = Err e | Ok a.
+
+  resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
+  resultMap = \(transform, result) -> case result {
+    | Err error -> Err error
+    | Ok value -> Ok (transform value)
+  }.
+
+  resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
+  resultMapError = \(transform, result) -> case result {
+    | Err error -> Err (transform error)
+    | Ok value -> Ok value
+  }.
+
+  resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
+  resultAndThen = \(transform, result) -> case result {
+    | Err error -> Err error
+    | Ok value -> transform value
+  }.
+
+  resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
+  resultRecover = \(recover, result) -> case result {
+    | Err error -> recover error
+    | Ok value -> Ok value
+  }.
+
+  resultWithDefault :: a -> Result(e, a) -> a.
+  resultWithDefault = \(defaultValue, result) -> case result {
+    | Err error -> defaultValue
+    | Ok value -> value
+  }.
+
+  resultIsOk :: Result(e, a) -> Bool.
+  resultIsOk = \(result) -> case result {
+    | Err error -> False
+    | Ok value -> True
+  }.
+
+  resultIsErr :: Result(e, a) -> Bool.
+  resultIsErr = \(result) -> case result {
+    | Err error -> True
+    | Ok value -> False
+  }.
+
+  resultToMaybe :: Result(e, a) -> Maybe(a).
+  resultToMaybe = \(result) -> case result {
+    | Err error -> Nothing
+    | Ok value -> Just value
+  }.
+
+  resultErrorToMaybe :: Result(e, a) -> Maybe(e).
+  resultErrorToMaybe = \(result) -> case result {
+    | Err error -> Just error
+    | Ok value -> Nothing
+  }.
+
+  resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
+  resultFromMaybe = \(error, maybeValue) -> case maybeValue {
+    | Nothing -> Err error
+    | Just value -> Ok value
+  }.
 }

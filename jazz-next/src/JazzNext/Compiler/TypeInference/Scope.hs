@@ -398,8 +398,9 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                       _ -> stateAfterBindingSeedCheck
                   stateAfterExplicitConstraintCheck =
                     restoreRigidTypeVariables stateForStatement $
-                      finalizeDeferredExplicitConstraintsAt
+                      finalizeDeferredExplicitConstraintsAtWithEntailments
                         bindingSpan
+                        (maybe [] pendingSignatureExplicitConstraints matchingPendingSignature)
                         stateForStatement
                         stateAfterSignatureCheck
                   stateAfterSignatureContractCheck =

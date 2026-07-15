@@ -97,6 +97,7 @@ import JazzNext.Compiler.CapabilityFacts
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
+    NameNamespace (..),
     ResolvedNameOrigin (..),
     generatedName,
     identifierText,
@@ -183,6 +184,7 @@ import JazzNext.Compiler.Runtime.Semantics
     runtimeConstraintType,
     runtimeConstructorArgument,
     runtimeDefinitionName,
+    runtimeDefinitionNameIn,
     runtimeDiagnostic,
     runtimeQualifiedMethodIsFullyApplied,
     runtimeValueExactlyMatchesConstraint,
@@ -1336,9 +1338,9 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
             constructorName
             ( Right
                 ( VConstructor
-                    (runtimeDefinitionName definitionModulePath typeName)
+                    (runtimeDefinitionNameIn TypeNamespace definitionModulePath typeName)
                     typeParameters
-                    (runtimeDefinitionName definitionModulePath constructorName)
+                    (runtimeDefinitionNameIn ConstructorNamespace definitionModulePath constructorName)
                     (map (runtimeConstructorArgument definitionModulePath) constructorArguments)
                     []
                 )

@@ -1,0 +1,62 @@
+module NonEmpty (type NonEmpty(..), value nonEmptySingleton, value nonEmptyFromList, value nonEmptyToList, value nonEmptyHead, value nonEmptyTail, value nonEmptyLast, value nonEmptyPrepend, value nonEmptyAppendList, value nonEmptyMap, value nonEmptyLength, value nonEmptyFoldLeft, value nonEmptyFoldRight) {
+  import List.
+  import Maybe.
+
+  data NonEmpty a = NonEmpty a [a].
+
+  nonEmptySingleton :: a -> NonEmpty(a).
+  nonEmptySingleton = \(value) -> NonEmpty value [].
+
+  nonEmptyFromList :: [a] -> Maybe(NonEmpty(a)).
+  nonEmptyFromList = \(values) -> case values {
+    | [] -> Nothing
+    | [first | rest] -> Just (NonEmpty first rest)
+  }.
+
+  nonEmptyToList :: NonEmpty(a) -> [a].
+  nonEmptyToList = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> listPrepend first rest
+  }.
+
+  nonEmptyHead :: NonEmpty(a) -> a.
+  nonEmptyHead = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> first
+  }.
+
+  nonEmptyTail :: NonEmpty(a) -> [a].
+  nonEmptyTail = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> rest
+  }.
+
+  nonEmptyLast :: NonEmpty(a) -> a.
+  nonEmptyLast = \(nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> case listLast rest {
+      | Nothing -> first
+      | Just value -> value
+    }
+  }.
+
+  nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
+  nonEmptyPrepend = \(value, nonEmpty) -> NonEmpty value (nonEmptyToList nonEmpty).
+
+  nonEmptyAppendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
+  nonEmptyAppendList = \(nonEmpty, suffix) -> case nonEmpty {
+    | NonEmpty first rest -> NonEmpty first (listAppend rest suffix)
+  }.
+
+  nonEmptyMap :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
+  nonEmptyMap = \(transform, nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> NonEmpty (transform first) (listMap transform rest)
+  }.
+
+  nonEmptyLength :: NonEmpty(a) -> Int.
+  nonEmptyLength = \(nonEmpty) -> 1 + (listLength (nonEmptyTail nonEmpty)).
+
+  nonEmptyFoldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
+  nonEmptyFoldLeft = \(combine, initial, nonEmpty) -> case nonEmpty {
+    | NonEmpty first rest -> listFoldLeft combine (combine initial first) rest
+  }.
+
+  nonEmptyFoldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
+  nonEmptyFoldRight = \(combine, initial, nonEmpty) -> listFoldRight combine initial (nonEmptyToList nonEmpty).
+}

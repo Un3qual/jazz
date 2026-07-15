@@ -1,0 +1,14 @@
+module Stdlib::Foundations::ListShape {
+  import List.
+  import Maybe.
+  values = [1, 2, 3].
+  (listIsEmpty [], listIsEmpty values,
+   listHead [], listHead values,
+   listTail [], listTail values,
+   listLast [], listLast values,
+   listInit [], listInit values,
+   listAt (0 - 1) values, listAt 1 values, listAt 5 values,
+   listTake 2 values, listTake 5 values,
+   listDrop 0 values, listDrop 2 values, listDrop 5 values,
+   listSplitAt 2 values).
+}

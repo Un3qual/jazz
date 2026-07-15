@@ -102,7 +102,7 @@ collectPreludeValues expression =
     statementValues statement =
       case statement of
         SLet name _ _ -> [name]
-        SData _ _ _ constructors -> [name | DataConstructor name _ <- constructors]
+        SData _ typeName _ constructors -> typeName : [name | DataConstructor name _ <- constructors]
         _ -> []
 
 collectPreludeClasses :: Expr -> Set Name

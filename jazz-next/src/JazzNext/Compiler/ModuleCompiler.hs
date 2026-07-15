@@ -34,7 +34,7 @@ import JazzNext.Compiler.ModuleExports
 import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace),
+    NameNamespace (CapabilityNamespace, TypeNamespace),
     ResolvedNameOrigin (..),
     identifierText,
     mkIdentifier
@@ -292,7 +292,7 @@ rebaseTypeBinding origin dataTypeNames classNames binding =
       OperatorAliasSchemeTypeBinding operatorSymbol (rebaseTypeScheme origin dataTypeNames classNames typeScheme)
     ConstructorTypeBinding typeName parameters arguments ->
       ConstructorTypeBinding
-        (rebaseKnownName origin dataTypeNames typeName)
+        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
         parameters
         (map (rebaseConstructorArgument origin dataTypeNames) arguments)
 
@@ -317,7 +317,7 @@ rebaseExpressionType origin dataTypeNames expressionType =
     TTupleType elementTypes -> TTupleType (map (rebaseExpressionType origin dataTypeNames) elementTypes)
     TDataType typeName arguments ->
       TDataType
-        (rebaseKnownName origin dataTypeNames typeName)
+        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
         (map (rebaseExpressionType origin dataTypeNames) arguments)
     TFunctionType argumentType resultType ->
       TFunctionType
@@ -386,7 +386,7 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
     ConstrainedSignature constraints signatureType ->
       ConstrainedSignature
         [ SignatureConstraint
-            (rebaseKnownName origin classNames capabilityName)
+            (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
             (map (rebaseSignatureType origin dataTypeNames classNames) arguments)
           | SignatureConstraint capabilityName arguments <- constraints
         ]
@@ -394,7 +394,7 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
     UnsupportedSignature tokens ->
       UnsupportedSignature
         [ case token of
-            SignatureNameToken name -> SignatureNameToken (rebaseKnownName origin dataTypeNames name)
+            SignatureNameToken name -> SignatureNameToken (rebaseKnownName origin TypeNamespace dataTypeNames name)
             _ -> token
           | token <- tokens
         ]
@@ -403,10 +403,10 @@ rebaseSignatureType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> Sig
 rebaseSignatureType origin dataTypeNames _ signatureType =
   case signatureType of
     TypeVariable typeName -> TypeVariable typeName
-    TypeName typeName -> TypeName (rebaseKnownName origin dataTypeNames typeName)
+    TypeName typeName -> TypeName (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
     TypeApplication typeName arguments ->
       TypeApplication
-        (rebaseKnownName origin dataTypeNames typeName)
+        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
         (map (rebaseSignatureType origin dataTypeNames Set.empty) arguments)
     TypeList elementType -> TypeList (rebaseSignatureType origin dataTypeNames Set.empty elementType)
     TypeTuple elementTypes -> TypeTuple (map (rebaseSignatureType origin dataTypeNames Set.empty) elementTypes)
@@ -416,10 +416,13 @@ rebaseSignatureType origin dataTypeNames _ signatureType =
         (rebaseSignatureType origin dataTypeNames Set.empty resultType)
     _ -> signatureType
 
-rebaseKnownName :: ResolvedNameOrigin -> Set.Set Text -> Name -> Name
-rebaseKnownName origin knownNames name =
+rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> Name -> Name
+rebaseKnownName origin namespace knownNames name =
   case name of
-    ResolvedName CurrentModule namespace identifier
+    SourceName identifier
+      | Set.member (identifierText identifier) knownNames ->
+          ResolvedName origin namespace identifier
+    ResolvedName CurrentModule _ identifier
       | Set.member (identifierText identifier) knownNames ->
           ResolvedName origin namespace identifier
     _ -> name

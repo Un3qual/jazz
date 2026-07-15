@@ -14,7 +14,7 @@ import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
-    runModuleGraphWithPrelude,
+    runModuleGraph,
     runRuntimeErrors
   )
 import JazzNext.Compiler.ModuleResolver
@@ -163,9 +163,8 @@ expectedCorpusRendering fixtures = do
 
 runJazzLexer :: FilePath -> Text -> IO RunResult
 runJazzLexer logicalPath source =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource
@@ -194,9 +193,8 @@ runJazzLexer logicalPath source =
 
 runJazzLexerBatch :: [ParserFixture] -> IO RunResult
 runJazzLexerBatch fixtures =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource
@@ -228,9 +226,8 @@ runJazzLexerBatch fixtures =
 
 runJazzLexerCount :: Text -> IO RunResult
 runJazzLexerCount source =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource

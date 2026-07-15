@@ -15,6 +15,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     deferExplicitConstraintsWithFacts,
     enterModuleCapabilityScope,
     finalizeDeferredExplicitConstraintsAt,
+    finalizeDeferredExplicitConstraintsAtWithEntailments,
     flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
     freshTypeVars,
@@ -784,14 +785,6 @@ resolveTypeSchemeConstraint state constraint =
     TypeSchemeMethodConstraint constraintName methodKey argumentType ->
       TypeSchemeMethodConstraint constraintName methodKey (resolveType state argumentType)
 
-resolveTypeSchemePrimitiveConstraint :: InferState -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
-resolveTypeSchemePrimitiveConstraint state primitiveConstraint =
-  case primitiveConstraint of
-    TypeSchemeNumericConstraint numericConstraint argumentType ->
-      TypeSchemeNumericConstraint numericConstraint (resolveType state argumentType)
-    TypeSchemeStrictEqualityConstraint argumentType ->
-      TypeSchemeStrictEqualityConstraint (resolveType state argumentType)
-
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
 freeTypeVariablesInEnv state =
   Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
@@ -802,27 +795,30 @@ freeTypeVariablesInBinding state binding =
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
     SchemeTypeBinding typeScheme ->
-      Set.difference
-        ( Set.unions
-            [ freeTypeVariables (resolveType state (schemeResultType typeScheme)),
-              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) (schemeClassConstraints typeScheme)),
-              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) (schemePrimitiveConstraints typeScheme))
-            ]
-        )
-        (schemeQuantifiedVariables typeScheme)
+      freeTypeVariablesInScheme state typeScheme
     OperatorAliasSchemeTypeBinding _ typeScheme ->
-      Set.difference
-        ( Set.unions
-            [ freeTypeVariables (resolveType state (schemeResultType typeScheme)),
-              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) (schemeClassConstraints typeScheme)),
-              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) (schemePrimitiveConstraints typeScheme))
-            ]
-        )
-        (schemeQuantifiedVariables typeScheme)
+      freeTypeVariablesInScheme state typeScheme
     BuiltinAliasTypeBinding {} -> Set.empty
     BuiltinOperatorAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding _ _ argumentTypes ->
       Set.unions (map (freeTypeVariablesInConstructorArgument state) argumentTypes)
+
+freeTypeVariablesInScheme :: InferState -> TypeScheme -> Set Int
+freeTypeVariablesInScheme state typeScheme =
+  Set.unions
+    [ freeTypeVariables (resolveType state (TVarType typeVar))
+      | typeVar <- Set.toList unquantifiedVariables
+    ]
+  where
+    unquantifiedVariables =
+      Set.difference
+        ( Set.unions
+            [ freeTypeVariables (schemeResultType typeScheme),
+              freeTypeVariablesInTypeSchemeConstraints (schemeClassConstraints typeScheme),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
+            ]
+        )
+        (schemeQuantifiedVariables typeScheme)
 
 freeTypeVariablesInConstructorArgument :: InferState -> ConstructorArgumentType -> Set Int
 freeTypeVariablesInConstructorArgument state argumentType =
@@ -906,23 +902,44 @@ typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts constrain
 
 finalizeDeferredExplicitConstraintsAt :: SourceSpan -> InferState -> InferState -> InferState
 finalizeDeferredExplicitConstraintsAt spanValue statementStartState state =
+  finalizeDeferredExplicitConstraintsAtWithEntailments spanValue [] statementStartState state
+
+finalizeDeferredExplicitConstraintsAtWithEntailments :: SourceSpan -> [TypeSchemeConstraint] -> InferState -> InferState -> InferState
+finalizeDeferredExplicitConstraintsAtWithEntailments spanValue entailingConstraints statementStartState state =
   annotateNewErrorsWithPrimarySpan
     spanValue
     state
-    (resolveStatementDeferredExplicitConstraints statementStartState state)
+    (resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state)
 
-resolveStatementDeferredExplicitConstraints :: InferState -> InferState -> InferState
-resolveStatementDeferredExplicitConstraints statementStartState state =
+resolveStatementDeferredExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState -> InferState
+resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state =
   foldl' resolveDeferredExplicitConstraint stateWithoutStatementConstraints statementConstraints
   where
     priorConstraints = inferDeferredExplicitConstraints statementStartState
     currentConstraints = inferDeferredExplicitConstraints state
     statementConstraints =
-      drop (length priorConstraints) currentConstraints
+      filter
+        (not . deferredConstraintIsEntailed state entailingConstraints)
+        (drop (length priorConstraints) currentConstraints)
     stateWithoutStatementConstraints =
       modifyInferenceOutput
         (\output -> output {outputDeferredConstraints = priorConstraints})
         state
+
+deferredConstraintIsEntailed :: InferState -> [TypeSchemeConstraint] -> DeferredExplicitConstraint -> Bool
+deferredConstraintIsEntailed state entailingConstraints deferredConstraint =
+  any entails entailingConstraints
+  where
+    entails constraint =
+      case constraint of
+        TypeSchemeConstraint constraintName argumentType -> matches constraintName argumentType
+        TypeSchemeInferredConstraint constraintName argumentType -> matches constraintName argumentType
+        TypeSchemeMethodConstraint constraintName _ argumentType -> matches constraintName argumentType
+
+    matches constraintName argumentType =
+      constraintName == deferredConstraintName deferredConstraint
+        && resolveType state argumentType
+          == resolveType state (deferredArgumentType deferredConstraint)
 
 resolveDeferredExplicitConstraint :: InferState -> DeferredExplicitConstraint -> InferState
 resolveDeferredExplicitConstraint state deferredConstraint =
