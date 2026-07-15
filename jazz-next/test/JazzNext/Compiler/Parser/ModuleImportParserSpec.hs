@@ -594,7 +594,7 @@ testRejectsSpacedQualifiedAliasLookupInBindingExpression :: IO ()
 testRejectsSpacedQualifiedAliasLookupInBindingExpression =
   assertLeftDiagnosticContains
     "spaced qualified alias lookup in binding expression"
-    "expected '.' at"
+    "2:13: expected '.'"
     (parseSurfaceProgram """
     import Lib::Math as Math.
     main = Math :: subtract.

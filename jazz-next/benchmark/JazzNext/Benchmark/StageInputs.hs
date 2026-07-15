@@ -23,13 +23,16 @@ import JazzNext.Benchmark.Force
     forceSurfaceExpr,
     forceTokens,
   )
-import JazzNext.Compiler.Diagnostics (Diagnostic, renderDiagnostic)
+import JazzNext.Compiler.Diagnostics (Diagnostic)
+import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
 import JazzNext.Compiler.ModuleCompiler (compileResolvedModule)
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (..))
 import JazzNext.Compiler.ModuleInterface
   ( CompileInputs,
     CompiledModule (..),
     CompiledProgram (..),
+    compiledModuleErrors,
+    compiledProgramErrors,
     compileInputs,
     lookupCompiledModule,
   )

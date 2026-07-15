@@ -43,6 +43,7 @@ import JazzNext.Compiler.CapabilityFacts
   ( constraintSignatureTypesCompatible
   )
 import JazzNext.Compiler.Diagnostics (Diagnostic)
+import JazzNext.Compiler.DiagnosticCatalog (ErrorCode (..))
 import JazzNext.Compiler.Name (identifierText)
 import JazzNext.Compiler.Runtime.Semantics
   ( applyRuntimeTypeHint,
@@ -97,7 +98,7 @@ evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
           throwE
             ( injectDiagnostic
                 ( runtimeDiagnostic
-                    "E3015"
+                    E3015
                     ("runtime primitive 'map' expects a function as its first argument, found " <> renderRuntimeType mapper)
                 )
             )
@@ -111,7 +112,7 @@ evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
               throwE
                 ( injectDiagnostic
                     ( runtimeDiagnostic
-                        "E3013"
+                        E3013
                         ("runtime primitive 'map' expects a list as its second argument, found " <> renderRuntimeType other)
                     )
                 )
@@ -120,7 +121,7 @@ evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
           throwE
             ( injectDiagnostic
                 ( runtimeDiagnostic
-                    "E3017"
+                    E3017
                     ("runtime primitive 'filter' expects a function as its first argument, found " <> renderRuntimeType predicate)
                 )
             )
@@ -132,7 +133,7 @@ evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
               throwE
                 ( injectDiagnostic
                     ( runtimeDiagnostic
-                        "E3018"
+                        E3018
                         ("runtime primitive 'filter' expects a list as its second argument, found " <> renderRuntimeType other)
                     )
                 )
@@ -145,7 +146,7 @@ evalBuiltinPure builtinFunction arguments =
       | Just targetType <- builtinSymbolNumericConversionTarget builtinFunction ->
           evalNumericConversion builtinFunction targetType value
     (BuiltinHd, [VList [] _]) ->
-      Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
+      Left (runtimeDiagnostic E3009 "runtime primitive 'hd' failed: empty list")
     (BuiltinHd, [VList (headValue : _) maybeTypeHint]) ->
       case maybeTypeHint of
         Just (TypeList elementType) ->
@@ -155,17 +156,17 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinHd, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3011"
+            E3011
             ("runtime primitive 'hd' expects a list argument, found " <> renderRuntimeType other)
         )
     (BuiltinTl, [VList [] _]) ->
-      Left (runtimeDiagnostic "E3010" "runtime primitive 'tl' failed: empty list")
+      Left (runtimeDiagnostic E3010 "runtime primitive 'tl' failed: empty list")
     (BuiltinTl, [VList (_ : tailValues) maybeTypeHint]) ->
       Right (VList tailValues maybeTypeHint)
     (BuiltinTl, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3012"
+            E3012
             ("runtime primitive 'tl' expects a list argument, found " <> renderRuntimeType other)
         )
     -- Stub-v1 keeps `print!` side effects out of runtime plumbing; it returns
@@ -182,7 +183,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinListPrependRaw, [_, other]) ->
       Left
         ( runtimeDiagnostic
-            "E3032"
+            E3032
             ("runtime primitive 'listPrependRaw' expects a list as its second argument, found " <> renderRuntimeType other)
         )
     (BuiltinListReverseRaw, [VList elements maybeTypeHint]) ->
@@ -190,7 +191,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinListReverseRaw, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3038"
+            E3038
             ("runtime primitive 'listReverseRaw' expects a list argument, found " <> renderRuntimeType other)
         )
     (BuiltinCharToUInt32, [VChar value]) ->
@@ -198,7 +199,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinCharToUInt32, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3033"
+            E3033
             ("runtime primitive 'charToUInt32' expects a Char argument, found " <> renderRuntimeType other)
         )
     (BuiltinCharFromUInt32Raw, [value@(VInt scalar _)])
@@ -211,7 +212,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinCharFromUInt32Raw, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3034"
+            E3034
             ("runtime primitive 'charFromUInt32Raw' expects a UInt32 argument, found " <> renderRuntimeType other)
         )
     (BuiltinCharIsAlpha, [VChar value]) -> Right (VBool (isAlpha value))
@@ -229,7 +230,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinTextLength, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3028"
+            E3028
             ("runtime primitive 'textLength' expects a Text argument, found " <> renderRuntimeType other)
         )
     (BuiltinTextUnconsRaw, [VText textValue]) ->
@@ -243,7 +244,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinTextUnconsRaw, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3029"
+            E3029
             ("runtime primitive 'textUnconsRaw' expects a Text argument, found " <> renderRuntimeType other)
         )
     (BuiltinTextAppend, [VText left, VText right]) ->
@@ -251,7 +252,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinTextAppend, [left, right]) ->
       Left
         ( runtimeDiagnostic
-            "E3036"
+            E3036
             ( "runtime primitive 'textAppend' expects Text arguments, found "
                 <> renderRuntimeType left
                 <> " and "
@@ -263,7 +264,7 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinTextAppendChar, [textValue, charValue]) ->
       Left
         ( runtimeDiagnostic
-            "E3037"
+            E3037
             ( "runtime primitive 'textAppendChar' expects Text then Char, found "
                 <> renderRuntimeType textValue
                 <> " and "
@@ -276,19 +277,19 @@ evalBuiltinPure builtinFunction arguments =
         Nothing ->
           Left
             ( runtimeDiagnostic
-                "E3039"
+                E3039
                 "runtime primitive 'textFromChars' expects a list containing only Char values"
             )
     (BuiltinTextFromChars, [other]) ->
       Left
         ( runtimeDiagnostic
-            "E3039"
+            E3039
             ("runtime primitive 'textFromChars' expects a list of Char, found " <> renderRuntimeType other)
         )
     _ ->
       Left
         ( runtimeDiagnostic
-            "E3016"
+            E3016
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
 
@@ -296,7 +297,7 @@ invalidCharPredicate :: BuiltinSymbol -> RuntimeValue -> Either Diagnostic Runti
 invalidCharPredicate builtin other =
   Left
     ( runtimeDiagnostic
-        "E3035"
+        E3035
         ( "runtime primitive '"
             <> builtinSymbolName builtin
             <> "' expects a Char argument, found "
@@ -336,7 +337,7 @@ filterElements injectDiagnostic applyRuntimeValue predicate values = do
           throwE
             ( injectDiagnostic
                 ( runtimeDiagnostic
-                    "E3019"
+                    E3019
                     ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other)
                 )
             )
@@ -418,7 +419,7 @@ evalBinaryPure operatorSymbol leftValue rightValue
     ("*", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerArithmetic "*" leftMetadata rightMetadata (leftInt * rightInt)
     ("/", VInt _ _, VInt 0 _) ->
-      Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+      Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerArithmetic "/" leftMetadata rightMetadata (leftInt `div` rightInt)
     ("+", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
@@ -429,7 +430,7 @@ evalBinaryPure operatorSymbol leftValue rightValue
       evalFloatArithmetic "*" leftMetadata rightMetadata (leftFloat * rightFloat)
     ("/", VFloat _ _, VFloat rightFloat _)
       | floatIsZero rightFloat ->
-          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+          Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
     ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
@@ -453,13 +454,13 @@ evalBinaryPure operatorSymbol leftValue rightValue
     ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
       | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
         floatIsZero rightFloat ->
-          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+          Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
       | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
           evalIntegerFloat64Arithmetic "/" rightMetadata leftInt rightFloat (/)
     ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
       | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+          Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
       | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
           evalFloat64IntegerArithmetic "/" leftMetadata leftFloat rightInt (/)
@@ -538,7 +539,7 @@ evalBinaryPure operatorSymbol leftValue rightValue
     _ ->
       Left
         ( runtimeDiagnostic
-            "E3007"
+            E3007
             ( "runtime primitive '"
                 <> operatorSymbol
                 <> "' cannot be applied to "
@@ -606,7 +607,7 @@ runtimeTypeHintRequiresStructuralEquality signatureType =
 runtimeCallableEqualityDiagnostic :: Text -> RuntimeValue -> RuntimeValue -> Diagnostic
 runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue =
   runtimeDiagnostic
-    "E3007"
+    E3007
     ( "runtime primitive '"
         <> operatorSymbol
         <> "' cannot compare callable values; callable values are not equality-supported, found "
@@ -653,7 +654,7 @@ evalIntegerBinary operatorSymbol maybeTarget result =
 mixedIntegerArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
 mixedIntegerArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
   runtimeDiagnostic
-    "E3007"
+    E3007
     ( "runtime primitive '"
         <> operatorSymbol
         <> "' cannot mix "
@@ -671,7 +672,7 @@ renderIntegerOperandTarget maybeTarget =
 runtimeIntegerArithmeticOverflowDiagnostic :: Text -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
 runtimeIntegerArithmeticOverflowDiagnostic operatorSymbol targetType result (lowerBound, upperBound) =
   runtimeDiagnostic
-    "E3025"
+    E3025
     ( "runtime primitive '"
         <> operatorSymbol
         <> "' failed: integer value "
@@ -717,7 +718,7 @@ evalFloatBinary operatorSymbol targetType result
   | isNaN result || isInfinite result =
       Left
         ( runtimeDiagnostic
-            "E3025"
+            E3025
             ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
         )
   | Just floatTarget <- targetType,
@@ -796,7 +797,7 @@ promotedIntegerFloat64Operand integerValue =
 mixedFloatArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
 mixedFloatArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
   runtimeDiagnostic
-    "E3007"
+    E3007
     ( "runtime primitive '"
         <> operatorSymbol
         <> "' cannot mix "
@@ -814,7 +815,7 @@ renderFloatOperandTarget maybeTarget =
 runtimeFloatArithmeticOverflowDiagnostic :: Text -> NumericType -> Diagnostic
 runtimeFloatArithmeticOverflowDiagnostic operatorSymbol targetType =
   runtimeDiagnostic
-    "E3025"
+    E3025
     ( "runtime primitive '"
         <> operatorSymbol
         <> "' failed: value cannot be represented as finite "
@@ -838,7 +839,7 @@ evalStructuralEquality operatorSymbol leftValue rightValue =
         Nothing ->
           Left
             ( runtimeDiagnostic
-                "E3007"
+                E3007
                 ( "runtime primitive '"
                     <> operatorSymbol
                     <> "' cannot be applied to "
@@ -931,7 +932,7 @@ evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata 
     False ->
       Left
         ( runtimeDiagnostic
-            "E3007"
+            E3007
             ( "runtime primitive '"
                 <> operatorSymbol
                 <> "' cannot compare "
@@ -955,7 +956,7 @@ evalIntegerEquality operatorSymbol leftInt leftMetadata rightInt rightMetadata =
     False ->
       Left
         ( runtimeDiagnostic
-            "E3007"
+            E3007
             ( "runtime primitive '"
                 <> operatorSymbol
                 <> "' cannot compare "
@@ -972,7 +973,7 @@ evalFloatPredicate operatorSymbol leftMetadata rightMetadata predicateResult =
     else
       Left
         ( runtimeDiagnostic
-            "E3007"
+            E3007
             ( "runtime primitive '"
                 <> operatorSymbol
                 <> "' cannot compare "

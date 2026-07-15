@@ -15,8 +15,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan,
-    renderSourceSpan
+    SourceSpan
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
@@ -43,6 +42,7 @@ import JazzNext.Compiler.Parser.Operator (OperatorInfo)
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
+    failTokenParserAt,
     parseAnyToken,
     peekToken,
     runTokenParser,
@@ -111,22 +111,20 @@ parseProgramStatements parseStatement context = do
           case leadingModuleDeclaration statements of
             Just moduleSpan
               | seenPriorTopLevelForm ->
-                  failTokenParser
-                    ( "module declaration must be the first top-level form at "
-                        <> renderSourceSpan moduleSpan
-                    )
+                  failTokenParserAt
+                    moduleSpan
+                    "module declaration must be the first top-level form"
               | otherwise -> do
                   trailingToken <- peekToken
                   case trailingToken of
                     Nothing ->
                       pure (reverse (reversePrepend statements reversedStatements))
                     Just token ->
-                      failTokenParser
+                      failTokenParserAt
+                        (tokenSpan token)
                         ( "unexpected token '"
                             <> tokenLexeme token
-                            <> "' at "
-                            <> renderSourceSpan (tokenSpan token)
-                            <> " after module declaration"
+                            <> "' after module declaration"
                         )
             Nothing ->
               go

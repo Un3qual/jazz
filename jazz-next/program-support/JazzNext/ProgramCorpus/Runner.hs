@@ -20,13 +20,21 @@ import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Data.Word (Word64)
 import JazzNext.Compiler.BundledPrelude (bundledPreludeSource)
-import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord, mkMessageDiagnostic)
+import JazzNext.Compiler.DiagnosticCatalog (ErrorCode (E5004))
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    DiagnosticOrigin (ToolingOrigin),
+    mkErrorDiagnostic,
+  )
 import JazzNext.Compiler.Driver
   ( ResolvedPrelude (PreludeBundled),
     RunResult (..),
     buildCompiledProgram,
+    runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runRuntimeErrors,
+    runWarnings,
   )
 import JazzNext.Compiler.ModuleInterface (CompiledProgram)
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
@@ -49,7 +57,7 @@ data ProgramCaseResult = ProgramCaseResult
   { programCaseResultTermination :: ProgramTermination,
     programCaseResultStdout :: Text,
     programCaseResultDiagnostics :: [Diagnostic],
-    programCaseResultWarnings :: [WarningRecord],
+    programCaseResultWarnings :: [Diagnostic],
     programCaseResultObservation :: Maybe RuntimeObservationReport
   }
   deriving (Eq, Show)
@@ -101,7 +109,9 @@ loadProgramCaseEntrySource programCase = do
         Right source -> Right source
         Left exception ->
           Left
-            ( mkMessageDiagnostic
+            ( mkErrorDiagnostic
+                E5004
+                ToolingOrigin
                 ( "could not read corpus entry source for case '"
                     <> programCaseIdentifier programCase
                     <> "' at '"

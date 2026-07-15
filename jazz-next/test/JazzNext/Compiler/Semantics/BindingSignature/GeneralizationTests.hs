@@ -5,13 +5,15 @@ module JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
   ) where
 
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    RunResult (..),
+  ( RunResult (..),
+    compileErrors,
     compileSourceWithPrelude,
+    runCompileErrors,
+    runRuntimeErrors,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig

@@ -43,8 +43,10 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
-    renderDiagnostic
+    SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource

@@ -14,7 +14,7 @@ import JazzNext.Compiler.AST
     Literal (..)
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( compileErrors,
     compileExpr
   )
 import JazzNext.Compiler.Semantics.PrimitiveSemantics.Shared

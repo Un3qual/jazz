@@ -2,12 +2,23 @@
 
 module Main (main) where
 
+import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..),
+    diagnosticPrimarySpan
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
+    assertEqual,
     assertLeftDiagnosticCodeAndContains,
+    failTest,
     runTestSuite
   )
 
@@ -26,6 +37,7 @@ tests =
     ("rejects zero custom operator precedence declarations", testRejectsZeroCustomOperatorPrecedenceDeclaration),
     ("rejects high custom operator precedence declarations", testRejectsHighCustomOperatorPrecedenceDeclaration),
     ("rejects invalid operator associativity keyword", testRejectsInvalidOperatorAssociativityKeyword),
+    ("reports missing operator declaration terminators at the declaration", testReportsMissingOperatorDeclarationTerminator),
     ("rejects non-associative operator chains", testRejectsNonAssociativeOperatorChain),
     ("rejects same-precedence chain before non-associative operator", testRejectsSamePrecedenceChainBeforeNonAssociativeOperator),
     ("rejects right-associative same-precedence non-associative chains", testRejectsRightAssociativeSamePrecedenceNonAssociativeChain),
@@ -127,6 +139,21 @@ testRejectsInvalidOperatorAssociativityKeyword =
     "E0001"
     "expected operator associativity 'left', 'right', or 'nonassoc'"
     (parseSurfaceProgram "operator %% tier 2 sideways.")
+
+testReportsMissingOperatorDeclarationTerminator :: IO ()
+testReportsMissingOperatorDeclarationTerminator =
+  case parseSurfaceProgram "operator %% tier 2" of
+    Left diagnostic -> do
+      assertContains
+        "missing operator declaration terminator diagnostic"
+        "expected '.' after operator declaration tier before end of input"
+        (renderDiagnostic diagnostic)
+      assertEqual
+        "missing operator declaration terminator span"
+        (Just (SourceSpan 1 1))
+        (diagnosticPrimarySpan diagnostic)
+    Right value ->
+      failTest ("expected missing operator declaration terminator rejection, got " <> Text.pack (show value))
 
 testRejectsNonAssociativeOperatorChain :: IO ()
 testRejectsNonAssociativeOperatorChain =

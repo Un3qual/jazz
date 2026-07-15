@@ -3,14 +3,18 @@
 module Main (main) where
 
 import Data.Text (Text)
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     RunResult (..),
+    compileErrors,
     compileSource,
-    runSource
+    runCompileErrors,
+    runRuntimeErrors,
+    runSource,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

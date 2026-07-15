@@ -1,33 +1,58 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Shared diagnostic and warning record types used across parser, analyzer,
--- resolver, runtime, and CLI layers.
+-- | Presentation-neutral diagnostics shared by compiler, runtime, and tooling
+-- layers. Raw construction stays private so native errors and configurable
+-- warnings cannot be assembled in contradictory states.
 module JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
-    RenderDiagnostic (..),
+  ( Diagnostic,
+    DiagnosticLabel,
+    DiagnosticOrigin (..),
     SourceSpan (..),
-    WarningRecord (..),
     appendDiagnosticNote,
-    mkDiagnostic,
-    mkMessageDiagnostic,
+    appendDiagnosticSecondaryLabel,
+    diagnosticCode,
+    diagnosticHelp,
+    diagnosticNotes,
+    diagnosticOrigin,
+    diagnosticPrimaryLabel,
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSecondaryLabels,
+    diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticSummary,
+    diagnosticWarningCategory,
+    isCompilationDiagnostic,
+    isErrorDiagnostic,
+    isRuntimeDiagnostic,
+    isToolingDiagnostic,
+    isWarningDiagnostic,
+    labelMessage,
+    labelSpan,
+    mkErrorDiagnostic,
+    mkWarningDiagnostic,
     prependDiagnosticSummary,
+    promoteDiagnostic,
+    qualifyDiagnosticSpans,
     qualifySourceSpan,
-    setDiagnosticCode,
+    setDiagnosticErrorCode,
+    setDiagnosticHelp,
+    setDiagnosticPrimaryLabel,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject,
-    renderDiagnostic,
-    renderDiagnosticRecord,
-    renderSourceSpan,
     mkSameScopeRebindingWarning,
     sortWarnings
   ) where
 
 import Data.List (sortOn)
 import Data.Text (Text)
-import qualified Data.Text as Text
-import JazzNext.Compiler.WarningCatalog
-  ( WarningCategory (..),
+import JazzNext.Compiler.DiagnosticCatalog
+  ( DiagnosticCode,
+    DiagnosticSeverity (..),
+    ErrorCode,
+    WarningCategory (..),
+    errorCode,
     warningCode
   )
 
@@ -46,112 +71,126 @@ data SourceSpan
       }
   deriving (Eq, Ord, Show)
 
--- | Structured error payload that can carry stable codes, source spans, and
--- extra notes as compilation moves between phases.
+-- | Broad ownership needed by result filtering without coupling the common
+-- report to phase-specific compiler types.
+data DiagnosticOrigin
+  = CompilationOrigin
+  | RuntimeOrigin
+  | ToolingOrigin
+  deriving (Eq, Ord, Show)
+
+-- | A source span plus phase-owned explanatory text. Presentation punctuation
+-- remains the renderer's responsibility.
+data DiagnosticLabel = DiagnosticLabel
+  { labelSpan :: SourceSpan,
+    labelMessage :: Text
+  }
+  deriving (Eq, Ord, Show)
+
 data Diagnostic = Diagnostic
-  { diagnosticCode :: Text,
+  { diagnosticSeverity :: DiagnosticSeverity,
+    diagnosticCode :: DiagnosticCode,
+    diagnosticWarningCategory :: Maybe WarningCategory,
+    diagnosticOrigin :: DiagnosticOrigin,
     diagnosticSummary :: Text,
-    diagnosticPrimarySpan :: Maybe SourceSpan,
-    diagnosticRelatedSpan :: Maybe SourceSpan,
+    diagnosticPrimaryLabel :: Maybe DiagnosticLabel,
+    diagnosticSecondaryLabels :: [DiagnosticLabel],
     diagnosticSubject :: Maybe Text,
-    diagnosticNotes :: [Text]
+    diagnosticNotes :: [Text],
+    diagnosticHelp :: Maybe Text
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
--- | Structured warning payload preserved separately from errors so warning
--- policy can decide later whether to render or promote it.
-data WarningRecord = WarningRecord
-  { warningCategory :: WarningCategory,
-    warningCodeText :: Text,
-    warningVariableName :: Text,
-    warningPrimarySpan :: SourceSpan,
-    warningPreviousSpan :: Maybe SourceSpan,
-    warningMessage :: Text
-  }
-  deriving (Eq, Show)
-
-class RenderDiagnostic a where
-  toDiagnostic :: a -> Diagnostic
-
-instance RenderDiagnostic Diagnostic where
-  toDiagnostic = id
-
-instance RenderDiagnostic Text where
-  toDiagnostic = mkMessageDiagnostic
-
-instance RenderDiagnostic WarningRecord where
-  toDiagnostic warning =
-    Diagnostic
-      { diagnosticCode = warningCodeText warning,
-        diagnosticSummary = warningMessage warning,
-        diagnosticPrimarySpan = Just (warningPrimarySpan warning),
-        diagnosticRelatedSpan = Nothing,
-        diagnosticSubject = Just (warningVariableName warning),
-        diagnosticNotes =
-          case warningPreviousSpan warning of
-            Nothing -> []
-            Just previousSpan ->
-              ["previous " <> renderSourceSpan previousSpan]
-      }
-
-renderDiagnostic :: RenderDiagnostic a => a -> Text
-renderDiagnostic = renderDiagnosticRecord . toDiagnostic
-
--- | Render diagnostics into the CLI/test string form while preserving source
--- locations and supplemental notes when present.
-renderDiagnosticRecord :: Diagnostic -> Text
-renderDiagnosticRecord diagnostic =
-  {-# SCC "jazz-stage:diagnostic-rendering" #-}
-  renderCodePrefix (diagnosticCode diagnostic)
-    <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
-    <> diagnosticSummary diagnostic
-    <> renderNotes noteTexts
-  where
-    noteTexts =
-      case diagnosticRelatedSpan diagnostic of
-        Nothing -> diagnosticNotes diagnostic
-        Just relatedSpan ->
-          ("related " <> renderSourceSpan relatedSpan) : diagnosticNotes diagnostic
-
-    renderCodePrefix code
-      | Text.null code = ""
-      | otherwise = code <> ": "
-
-    renderPrimarySpan maybeSpan =
-      case maybeSpan of
-        Nothing -> ""
-        Just spanValue -> renderSourceSpan spanValue <> ": "
-
-    renderNotes notes =
-      case notes of
-        [] -> ""
-        _ -> " (" <> Text.intercalate "; " notes <> ")"
-
-mkDiagnostic :: Text -> Text -> Diagnostic
-mkDiagnostic code summary =
+mkErrorDiagnostic :: ErrorCode -> DiagnosticOrigin -> Text -> Diagnostic
+mkErrorDiagnostic code origin summary =
   Diagnostic
-    { diagnosticCode = code,
+    { diagnosticSeverity = SeverityError,
+      diagnosticCode = errorCode code,
+      diagnosticWarningCategory = Nothing,
+      diagnosticOrigin = origin,
       diagnosticSummary = summary,
-      diagnosticPrimarySpan = Nothing,
-      diagnosticRelatedSpan = Nothing,
+      diagnosticPrimaryLabel = Nothing,
+      diagnosticSecondaryLabels = [],
       diagnosticSubject = Nothing,
-      diagnosticNotes = []
+      diagnosticNotes = [],
+      diagnosticHelp = Nothing
     }
 
-mkMessageDiagnostic :: Text -> Diagnostic
-mkMessageDiagnostic = mkDiagnostic ""
+mkWarningDiagnostic :: WarningCategory -> DiagnosticOrigin -> Text -> Diagnostic
+mkWarningDiagnostic category origin summary =
+  Diagnostic
+    { diagnosticSeverity = SeverityWarning,
+      diagnosticCode = warningCode category,
+      diagnosticWarningCategory = Just category,
+      diagnosticOrigin = origin,
+      diagnosticSummary = summary,
+      diagnosticPrimaryLabel = Nothing,
+      diagnosticSecondaryLabels = [],
+      diagnosticSubject = Nothing,
+      diagnosticNotes = [],
+      diagnosticHelp = Nothing
+    }
 
-setDiagnosticCode :: Text -> Diagnostic -> Diagnostic
-setDiagnosticCode code diagnostic =
-  diagnostic {diagnosticCode = code}
+promoteDiagnostic :: Diagnostic -> Diagnostic
+promoteDiagnostic diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Nothing -> diagnostic
+    Just _ -> diagnostic {diagnosticSeverity = SeverityError}
 
+isWarningDiagnostic :: Diagnostic -> Bool
+isWarningDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityWarning
+
+isErrorDiagnostic :: Diagnostic -> Bool
+isErrorDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityError
+
+isCompilationDiagnostic :: Diagnostic -> Bool
+isCompilationDiagnostic diagnostic = diagnosticOrigin diagnostic == CompilationOrigin
+
+isRuntimeDiagnostic :: Diagnostic -> Bool
+isRuntimeDiagnostic diagnostic = diagnosticOrigin diagnostic == RuntimeOrigin
+
+isToolingDiagnostic :: Diagnostic -> Bool
+isToolingDiagnostic diagnostic = diagnosticOrigin diagnostic == ToolingOrigin
+
+-- | Recode a native error after wrapping lower-level compilation context.
+-- Warning identity cannot be replaced through this helper.
+setDiagnosticErrorCode :: ErrorCode -> Diagnostic -> Diagnostic
+setDiagnosticErrorCode code diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Nothing -> diagnostic {diagnosticCode = errorCode code}
+    Just _ -> diagnostic
+
+setDiagnosticPrimaryLabel :: SourceSpan -> Text -> Diagnostic -> Diagnostic
+setDiagnosticPrimaryLabel spanValue message diagnostic =
+  diagnostic {diagnosticPrimaryLabel = Just (DiagnosticLabel spanValue message)}
+
+appendDiagnosticSecondaryLabel :: SourceSpan -> Text -> Diagnostic -> Diagnostic
+appendDiagnosticSecondaryLabel spanValue message diagnostic =
+  diagnostic
+    { diagnosticSecondaryLabels =
+        diagnosticSecondaryLabels diagnostic <> [DiagnosticLabel spanValue message]
+    }
+
+-- | Compatibility helper for producers that do not yet have a useful label.
 setDiagnosticPrimarySpan :: SourceSpan -> Diagnostic -> Diagnostic
-setDiagnosticPrimarySpan spanValue diagnostic =
-  diagnostic {diagnosticPrimarySpan = Just spanValue}
+setDiagnosticPrimarySpan spanValue = setDiagnosticPrimaryLabel spanValue ""
 
+-- | Compatibility helper for the former single related-span representation.
 setDiagnosticRelatedSpan :: SourceSpan -> Diagnostic -> Diagnostic
 setDiagnosticRelatedSpan spanValue diagnostic =
-  diagnostic {diagnosticRelatedSpan = Just spanValue}
+  diagnostic
+    { diagnosticSecondaryLabels =
+        DiagnosticLabel spanValue "related" : drop 1 (diagnosticSecondaryLabels diagnostic)
+    }
+
+diagnosticPrimarySpan :: Diagnostic -> Maybe SourceSpan
+diagnosticPrimarySpan = fmap labelSpan . diagnosticPrimaryLabel
+
+diagnosticRelatedSpan :: Diagnostic -> Maybe SourceSpan
+diagnosticRelatedSpan diagnostic =
+  case diagnosticSecondaryLabels diagnostic of
+    [] -> Nothing
+    diagnosticLabel : _ -> Just (labelSpan diagnosticLabel)
 
 setDiagnosticSubject :: Text -> Diagnostic -> Diagnostic
 setDiagnosticSubject subject diagnostic =
@@ -165,44 +204,45 @@ appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
 appendDiagnosticNote note diagnostic =
   diagnostic {diagnosticNotes = diagnosticNotes diagnostic <> [note]}
 
+setDiagnosticHelp :: Text -> Diagnostic -> Diagnostic
+setDiagnosticHelp helpText diagnostic =
+  diagnostic {diagnosticHelp = Just helpText}
+
+qualifyDiagnosticSpans :: FilePath -> Diagnostic -> Diagnostic
+qualifyDiagnosticSpans sourcePath diagnostic =
+  diagnostic
+    { diagnosticPrimaryLabel = qualifyLabel <$> diagnosticPrimaryLabel diagnostic,
+      diagnosticSecondaryLabels = map qualifyLabel (diagnosticSecondaryLabels diagnostic)
+    }
+  where
+    qualifyLabel diagnosticLabel =
+      diagnosticLabel
+        { labelSpan = qualifySourceSpan sourcePath (labelSpan diagnosticLabel)
+        }
+
 qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan
 qualifySourceSpan sourcePath spanValue =
   SourceSpanIn sourcePath (spanLine spanValue) (spanColumn spanValue)
 
-renderSourceSpan :: SourceSpan -> Text
-renderSourceSpan spanValue =
-  renderSourcePath spanValue
-    <> Text.pack (show (spanLine spanValue))
-    <> ":"
-    <> Text.pack (show (spanColumn spanValue))
-  where
-    renderSourcePath sourceSpan =
-      case sourceSpan of
-        SourceSpan {} -> ""
-        SourceSpanIn sourcePath _ _ -> Text.pack sourcePath <> ":"
-
-mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> WarningRecord
+mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =
-  WarningRecord
-    { warningCategory = SameScopeRebinding,
-      warningCodeText = warningCode SameScopeRebinding,
-      warningVariableName = variableName,
-      warningPrimarySpan = primarySpan,
-      warningPreviousSpan = Just previousSpan,
-      warningMessage =
-        "same-scope rebinding: '"
-          <> variableName
-          <> "' shadows previous same-scope binding (last declaration wins)"
-    }
+  appendDiagnosticSecondaryLabel previousSpan "previous" $
+    setDiagnosticPrimaryLabel primarySpan "warning emitted here" $
+      setDiagnosticSubject variableName $
+        mkWarningDiagnostic
+          SameScopeRebinding
+          CompilationOrigin
+          ( "same-scope rebinding: '"
+              <> variableName
+              <> "' shadows previous same-scope binding (last declaration wins)"
+          )
 
--- | Sort warnings deterministically so CLI output and tests do not depend on
--- evaluation order inside earlier compiler phases.
-sortWarnings :: [WarningRecord] -> [WarningRecord]
+sortWarnings :: [Diagnostic] -> [Diagnostic]
 sortWarnings =
   sortOn
-    ( \warning ->
-        ( warningPrimarySpan warning,
-          warningCategory warning,
-          warningVariableName warning
+    ( \diagnostic ->
+        ( diagnosticPrimarySpan diagnostic,
+          diagnosticWarningCategory diagnostic,
+          diagnosticSubject diagnostic
         )
     )

@@ -33,8 +33,17 @@ statistics, Jazz semantic flame graphs, and GHC profiling are documented in
   explicit runtime exports and executes only the entry module's expressions.
 - `Compiler.TypeInference` is the public façade over focused internal type,
   state, solver, capability, pattern, scope, and diagnostic modules.
+- `Compiler.DiagnosticCatalog` owns every published diagnostic code and its
+  metadata; `Compiler.Diagnostics` owns the presentation-neutral report, and
+  `Compiler.Diagnostics.Render` owns stable human-readable output.
+- `Compiler.SignatureRendering` owns canonical source-signature text. Inferred
+  expression types retain their separate type-inference renderer because they
+  represent a different compiler layer and surface.
 - `Compiler.Driver` coordinates prelude preparation, resolution, per-module
-  compilation, warning promotion, and optional runtime evaluation.
+  compilation, warning promotion, and optional runtime evaluation. Compile and
+  run results each store one ordered diagnostic stream; severity/origin accessors
+  provide warning, compile-error, and runtime-error views without duplicate
+  storage.
 - `jazz-next.cabal` defines the private `jazz-next-internal` implementation
   library, the `jazz-next` executable, and the registered test suites.
 - Cabal discovers and runs every registered test suite; `repository-audit-spec`

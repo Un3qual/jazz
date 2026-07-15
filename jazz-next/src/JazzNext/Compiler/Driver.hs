@@ -4,6 +4,8 @@
 -- resolution, analysis/type checking, warning promotion, and runtime execution.
 module JazzNext.Compiler.Driver
   ( CompileResult (..),
+    compileErrors,
+    compileWarnings,
     ResolvedPrelude (..),
     compileExpr,
     compileSource,
@@ -14,6 +16,9 @@ module JazzNext.Compiler.Driver
     compileModuleGraphWithResolvedPrelude,
     buildCompiledProgram,
     RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
+    runWarnings,
     runExpr,
     runExprObserved,
     runExprWithHost,
@@ -56,8 +61,9 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    RenderDiagnostic (..),
-    WarningRecord (..)
+    isErrorDiagnostic,
+    isRuntimeDiagnostic,
+    isWarningDiagnostic
   )
 import JazzNext.Compiler.Force
   ( forceCompiledProgramResult,
@@ -116,29 +122,44 @@ import JazzNext.Compiler.TypeInference
     inferExpressionWithBuiltinsAndSourceUnitStatements
   )
 import JazzNext.Compiler.WarningConfig
-  ( WarningSettings,
-    isWarningError
+  ( WarningSettings
   )
 
--- | Result of a compile-only invocation, including warnings and any promoted or
--- semantic errors.
+-- | Result of a compile-only invocation. Severity views are derived from the
+-- one ordered diagnostic stream below.
 data CompileResult = CompileResult
-  { compileWarnings :: [WarningRecord],
-    compileErrors :: [Diagnostic]
+  { compileDiagnostics :: [Diagnostic]
   }
   deriving (Eq, Show)
 
--- | Result of a run invocation, which may include compile-time and runtime
--- diagnostics separately.
+compileWarnings :: CompileResult -> [Diagnostic]
+compileWarnings = filter isWarningDiagnostic . compileDiagnostics
+
+compileErrors :: CompileResult -> [Diagnostic]
+compileErrors = filter isErrorDiagnostic . compileDiagnostics
+
+-- | Result of a run invocation. Compile diagnostics precede runtime
+-- diagnostics because evaluation only begins after compilation succeeds.
 data RunResult = RunResult
-  { runWarnings :: [WarningRecord],
-    runCompileErrors :: [Diagnostic],
-    runRuntimeErrors :: [Diagnostic],
+  { runDiagnostics :: [Diagnostic],
     runOutput :: Maybe Text,
     runExitStatus :: Maybe Integer,
     runRuntimeObservation :: Maybe RuntimeObservationReport
   }
   deriving (Eq, Show)
+
+runWarnings :: RunResult -> [Diagnostic]
+runWarnings = filter isWarningDiagnostic . runDiagnostics
+
+runCompileErrors :: RunResult -> [Diagnostic]
+runCompileErrors =
+  filter (\diagnostic -> isErrorDiagnostic diagnostic && not (isRuntimeDiagnostic diagnostic))
+    . runDiagnostics
+
+runRuntimeErrors :: RunResult -> [Diagnostic]
+runRuntimeErrors =
+  filter (\diagnostic -> isErrorDiagnostic diagnostic && isRuntimeDiagnostic diagnostic)
+    . runDiagnostics
 
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
@@ -165,12 +186,10 @@ compileExprWithBuiltinsAndSourceUnitStatements ::
   Expr ->
   IO CompileResult
 compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  (warnings, errors, _, _) <- analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
+  (diagnostics, _, _) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   pure
     CompileResult
-      { compileWarnings = warnings,
-        compileErrors = errors
-      }
+      { compileDiagnostics = diagnostics }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source = do
@@ -187,9 +206,7 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
     Left parseErrorCode ->
       pure
         CompileResult
-          { compileWarnings = [],
-            compileErrors = [parseErrorCode]
-          }
+          { compileDiagnostics = [parseErrorCode] }
     Right loweredProgram ->
       compileExprWithBuiltinsAndSourceUnitStatements
         (parsedHiddenStatementIndices loweredProgram)
@@ -242,17 +259,11 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
     Left diagnostic ->
       pure
         CompileResult
-          { compileWarnings = [],
-            compileErrors = [diagnostic]
-          }
+          { compileDiagnostics = [diagnostic] }
     Right compiledProgram ->
-      let warnings = compiledProgramWarnings compiledProgram
-          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
-       in pure
-            CompileResult
-              { compileWarnings = warnings,
-                compileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
-              }
+      pure
+        CompileResult
+          { compileDiagnostics = compiledProgramDiagnostics compiledProgram }
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprObserved RuntimeObservationDisabled
@@ -297,15 +308,13 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
   Expr ->
   IO RunResult
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  (warnings, analysisErrors, canonicalExpr, runtimeTypeHints) <-
-    analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
-  if not (null analysisErrors)
+  (compilePhaseDiagnostics, canonicalExpr, runtimeTypeHints) <-
+    analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr
+  if any isErrorDiagnostic compilePhaseDiagnostics
     then
       pure
         RunResult
-          { runWarnings = warnings,
-            runCompileErrors = analysisErrors,
-            runRuntimeErrors = [],
+          { runDiagnostics = compilePhaseDiagnostics,
             runOutput = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
@@ -323,9 +332,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
         RuntimeOutcomeFailed runtimeError ->
           pure
             RunResult
-              { runWarnings = warnings,
-                runCompileErrors = [],
-                runRuntimeErrors = [runtimeError],
+              { runDiagnostics = compilePhaseDiagnostics <> [runtimeError],
                 runOutput = Nothing,
                 runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -333,9 +340,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
         RuntimeOutcomeExited status ->
           pure
             RunResult
-              { runWarnings = warnings,
-                runCompileErrors = [],
-                runRuntimeErrors = [],
+              { runDiagnostics = compilePhaseDiagnostics,
                 runOutput = Nothing,
                 runExitStatus = Just status,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -343,9 +348,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
         RuntimeOutcomeCompleted runtimeValue ->
           pure
             RunResult
-              { runWarnings = warnings,
-                runCompileErrors = [],
-                runRuntimeErrors = [],
+              { runDiagnostics = compilePhaseDiagnostics,
                 runOutput = fmap renderRuntimeValue runtimeValue,
                 runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -391,9 +394,7 @@ runSourceWithResolvedPreludeAndHostObserved observationRequest host settings res
     Left parseErrorCode ->
       pure
         RunResult
-          { runWarnings = [],
-            runCompileErrors = [parseErrorCode],
-            runRuntimeErrors = [],
+          { runDiagnostics = [parseErrorCode],
             runOutput = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
@@ -535,24 +536,18 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
     Left diagnostic ->
       pure
         RunResult
-          { runWarnings = [],
-            runCompileErrors = [diagnostic],
-            runRuntimeErrors = [],
+          { runDiagnostics = [diagnostic],
             runOutput = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
     Right compiledProgram ->
-      let warnings = compiledProgramWarnings compiledProgram
-          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
-          promotedCompileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
-       in if not (null promotedCompileErrors)
+      let moduleDiagnostics = compiledProgramDiagnostics compiledProgram
+       in if any isErrorDiagnostic moduleDiagnostics
             then
               pure
                 RunResult
-                  { runWarnings = warnings,
-                    runCompileErrors = promotedCompileErrors,
-                    runRuntimeErrors = [],
+                  { runDiagnostics = moduleDiagnostics,
                     runOutput = Nothing,
                     runExitStatus = Nothing,
                     runRuntimeObservation = Nothing
@@ -563,9 +558,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                 RuntimeOutcomeFailed runtimeError ->
                   pure
                     RunResult
-                      { runWarnings = warnings,
-                        runCompileErrors = [],
-                        runRuntimeErrors = [runtimeError],
+                      { runDiagnostics = moduleDiagnostics <> [runtimeError],
                         runOutput = Nothing,
                         runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -573,9 +566,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                 RuntimeOutcomeExited status ->
                   pure
                     RunResult
-                      { runWarnings = warnings,
-                        runCompileErrors = [],
-                        runRuntimeErrors = [],
+                      { runDiagnostics = moduleDiagnostics,
                         runOutput = Nothing,
                         runExitStatus = Just status,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -583,9 +574,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                 RuntimeOutcomeCompleted runtimeProgram ->
                   pure
                     RunResult
-                      { runWarnings = warnings,
-                        runCompileErrors = [],
-                        runRuntimeErrors = [],
+                      { runDiagnostics = moduleDiagnostics,
                         runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram,
                         runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
@@ -624,11 +613,10 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
         (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
         (sourceLookup sourcePath)
 
--- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
--- promote configured warnings into errors, and return the canonicalized
--- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
-analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
+-- | Run inference/canonicalization and retain the canonical diagnostic order
+-- for downstream compile/run results.
+analyzeForDriver :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
+analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   inference <-
     withCompilerStageResult
       TypeInferenceStage
@@ -640,17 +628,8 @@ analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode s
           settings
           expr
       )
-  let warnings = inferredWarnings inference
-      promotedWarnings = filter (isPromoted settings) warnings
-      promotedWarningErrors = map warningToError promotedWarnings
-      errors = inferredErrors inference ++ promotedWarningErrors
-  pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
-
-isPromoted :: WarningSettings -> WarningRecord -> Bool
-isPromoted settings warning = isWarningError settings (warningCategory warning)
-
-warningToError :: WarningRecord -> Diagnostic
-warningToError = toDiagnostic
+  let diagnostics = inferredDiagnostics inference
+  pure (diagnostics, inferredExpr inference, inferredRuntimeTypeHints inference)
 
 -- | Parse the incoming source and splice in prelude statements when required,
 -- tracking which synthetic statements should stay hidden from user diagnostics.

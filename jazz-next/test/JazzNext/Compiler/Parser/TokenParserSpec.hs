@@ -5,7 +5,11 @@ module Main (main) where
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    renderDiagnostic
+    diagnosticPrimarySpan,
+    diagnosticSummary
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
@@ -117,10 +121,10 @@ testRejectsMalformedCharAndTextLiterals = do
           ("multi-scalar Char", "'ab'", "character literal must contain exactly one Unicode scalar"),
           ("unterminated Char", "'a", "unterminated character literal"),
           ("unterminated Text", "\"abc", "unterminated text literal"),
-          ("unterminated Char escape", Text.pack ['\'', '\\'], "unterminated character literal at 1:1"),
-          ("unterminated Text escape", Text.pack ['\"', '\\'], "unterminated text literal at 1:1"),
-          ("unterminated Char Unicode escape", Text.pack ['\'', '\\', 'u'], "unterminated Unicode escape at 1:1"),
-          ("unterminated Text Unicode escape", Text.pack ['\"', '\\', 'u'], "unterminated Unicode escape at 1:1"),
+          ("unterminated Char escape", Text.pack ['\'', '\\'], "unterminated character literal"),
+          ("unterminated Text escape", Text.pack ['\"', '\\'], "unterminated text literal"),
+          ("unterminated Char Unicode escape", Text.pack ['\'', '\\', 'u'], "unterminated Unicode escape"),
+          ("unterminated Text Unicode escape", Text.pack ['\"', '\\', 'u'], "unterminated Unicode escape"),
           ("invalid escape", "'\\x'", "invalid escape '\\x'"),
           ("empty scalar escape", "'\\u{}'", "Unicode escape must contain 1-6 hexadecimal digits"),
           ("surrogate scalar", "'\\u{D800}'", "Unicode escape is not a scalar value"),
@@ -142,8 +146,10 @@ testTokenParserDiagnostic = do
   tokens <- lexSource "value 42."
   let result = runTokenParser "token parser spec" (parseIdentifier *> parseTokenKind TEquals) tokens
   case result of
-    Left diagnostic ->
+    Left diagnostic -> do
       assertContains "diagnostic" "expected '='" (renderDiagnostic diagnostic)
+      assertEqual "diagnostic primary span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "diagnostic summary excludes rendered coordinates" False ("1:7" `Text.isInfixOf` diagnosticSummary diagnostic)
     Right value ->
       fail ("expected diagnostic, got " <> show value)
 
@@ -167,8 +173,10 @@ testLiteralTokenParserDiagnostics = do
 testInvalidCharacterLexerDiagnostic :: IO ()
 testInvalidCharacterLexerDiagnostic =
   case tokenize "value ` 42." of
-    Left diagnostic ->
-      assertContains "lexer diagnostic" "unexpected character '`' at 1:7" (renderDiagnostic diagnostic)
+    Left diagnostic -> do
+      assertContains "lexer diagnostic" "unexpected character '`'" (renderDiagnostic diagnostic)
+      assertEqual "lexer diagnostic primary span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "lexer summary excludes rendered coordinates" False ("1:7" `Text.isInfixOf` diagnosticSummary diagnostic)
     Right tokens ->
       failTest ("expected invalid character diagnostic, got tokens " <> Text.pack (show tokens))
 

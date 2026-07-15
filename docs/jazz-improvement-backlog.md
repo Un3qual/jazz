@@ -57,15 +57,22 @@ Items: 2, 3, and 4.
 
 ### Batch 4: Unified diagnostics and focused Haskell structure improvements
 
+Status: completed on 2026-07-14. See the
+[approved design](superpowers/specs/2026-07-14-jazz-next-unified-diagnostics-design.md)
+and [implementation plan](superpowers/plans/2026-07-14-jazz-next-unified-diagnostics.md).
+
 Items: 14, 13, 11, and 12.
 
-- Unify warnings and errors as diagnostics with explicit severity.
-- Consolidate duplicated rendering through shared pretty-printing functions
-  and narrowly appropriate typeclasses.
-- Remove trivial aliases and strengthen types only where the touched code shows
-  a concrete invariant or invalid state worth encoding.
-- Use the Batch 3 benchmarks to detect performance regressions during the
-  diagnostic and rendering refactor.
+- Unified warnings and errors as one catalog-backed diagnostic report with
+  explicit severity, ordered result streams, labeled spans, notes, and help.
+- Centralized human diagnostic rendering and canonical `SignatureType`
+  rendering without introducing a universal rendering typeclass.
+- Removed the two constructor aliases whose call sites expressed no semantic
+  transition; stronger types remained limited to catalog and diagnostic
+  invariants exposed by the work.
+- Used the Batch 3 deterministic corpus, stage smoke checks, GHC profiling
+  build, and same-machine benchmark runs as correctness and performance
+  evidence rather than a fixed percentage gate.
 
 ### Batch 5: Module export ergonomics and stdlib growth
 

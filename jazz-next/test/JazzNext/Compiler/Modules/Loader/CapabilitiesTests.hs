@@ -6,16 +6,19 @@ module JazzNext.Compiler.Modules.Loader.CapabilitiesTests
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    RunResult (..),
+  ( RunResult (..),
+    compileErrors,
     compileModuleGraph,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraph,
-    runModuleGraphWithPrelude
+    runModuleGraphWithPrelude,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

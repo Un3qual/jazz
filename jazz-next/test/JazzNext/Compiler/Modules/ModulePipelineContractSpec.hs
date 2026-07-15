@@ -18,15 +18,21 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     RunResult (..),
+    compileErrors,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraphWithPrelude,
-    runModuleGraphWithPreludeAndHost
+    runModuleGraphWithPreludeAndHost,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.ModuleResolver (resolveProgram)
@@ -48,6 +54,7 @@ import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledProgram (..),
     ModuleInterface (..),
+    compiledProgramErrors,
     emptyCompiledPrelude,
     emptyCompileInputs,
     emptyModuleInterface,
@@ -67,8 +74,8 @@ import JazzNext.Compiler.ModuleGraph
   )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Name
-  ( NameNamespace (ConstructorNamespace, ValueNamespace),
-    builtinName,
+  ( Name (BuiltinName),
+    NameNamespace (ConstructorNamespace, ValueNamespace),
     mkIdentifier,
     resolvedImportedName,
     resolvedLocalName
@@ -168,8 +175,7 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
         { compiledProgramPrelude = emptyCompiledPrelude,
           compiledProgramEntryPath = ["App", "Main"],
           compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
-          compiledProgramWarnings = [],
-          compiledProgramErrors = []
+          compiledProgramDiagnostics = []
         }
 
 compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
@@ -244,8 +250,7 @@ compiledChainProgram moduleCount requiresHost =
     { compiledProgramPrelude = emptyCompiledPrelude,
       compiledProgramEntryPath = ["App", "Main"],
       compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount],
-      compiledProgramWarnings = [],
-      compiledProgramErrors = []
+      compiledProgramDiagnostics = []
     }
 
 chainDependency :: Int -> CompiledModule
@@ -272,7 +277,7 @@ chainEntry requiresHost moduleCount =
           hostResultName
           (SourceSpan 1 1)
           ( EApply
-              (EVar (builtinName (mkIdentifier "__kernel_arguments!")))
+              (EVar (BuiltinName (mkIdentifier "__kernel_arguments!")))
               (ETuple [])
           )
       | requiresHost
@@ -298,8 +303,7 @@ compiledModule path imports statements inventory moduleInterface =
             resolvedModuleCore = CoreModule (Just path) Nothing imports (EBlock statements)
           },
       compiledModuleInterface = moduleInterface,
-      compiledModuleWarnings = [],
-      compiledModuleErrors = [],
+      compiledModuleDiagnostics = [],
       compiledModuleExpr = EBlock statements
     }
 

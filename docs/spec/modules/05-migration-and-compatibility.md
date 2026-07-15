@@ -110,7 +110,8 @@ Migration failures should use existing deterministic diagnostics:
 | alias-only export is used unqualified | `E4012` |
 | qualified alias is undeclared | `E4013` |
 | qualified alias member is not exported | `E4014` |
-| invalid CLI source/module-root combination | CLI option diagnostic, exit `2` |
+| invalid or empty entry module path | `E4016` |
+| invalid CLI source/module-root combination | `E5002`, exit `2` |
 
 Diagnostics should not silently fall back to standalone source mode once `--entry-module` is selected.
 

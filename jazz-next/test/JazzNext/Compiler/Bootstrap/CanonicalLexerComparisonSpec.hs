@@ -12,8 +12,13 @@ import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticCode,
-    diagnosticPrimarySpan,
-    renderDiagnostic
+    diagnosticPrimarySpan
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
@@ -63,7 +68,7 @@ tests =
     ("preserves unterminated literals structurally", testUnterminatedLiterals),
     ("preserves raw newlines structurally", testRawNewline),
     ("preserves malformed Unicode escapes structurally", testMalformedUnicodeEscapes),
-    ("keeps the legacy diagnostic wrapper", testLegacyDiagnosticWrapper),
+    ("keeps the structured diagnostic wrapper", testStructuredDiagnosticWrapper),
     ("normalizes logical source paths", testNormalizesLogicalPaths),
     ("rejects non-logical source paths", testRejectsNonLogicalPaths),
     ("renders canonical tokens through the runtime renderer", testRendersCanonicalTokens),
@@ -143,13 +148,13 @@ testMalformedUnicodeEscapes = do
     (LexicalFailure (MalformedUnicodeEscape "xyz") (SourceSpan 1 1))
     "'\\u{xyz}'"
 
-testLegacyDiagnosticWrapper :: IO ()
-testLegacyDiagnosticWrapper =
+testStructuredDiagnosticWrapper :: IO ()
+testStructuredDiagnosticWrapper =
   case tokenize "value ` 42." of
     Left diagnostic -> do
-      assertEqual "legacy code" "E0001" (diagnosticCode diagnostic)
-      assertEqual "legacy span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
-      assertContains "legacy summary" "unexpected character '`' at 1:7" (renderDiagnostic diagnostic)
+      assertEqual "diagnostic code" "E0001" (diagnosticCodeText (diagnosticCode diagnostic))
+      assertEqual "diagnostic span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
+      assertContains "structured location and summary" "1:7: unexpected character '`'" (renderDiagnostic diagnostic)
     Right tokens -> failTest ("expected lexical failure, got " <> showText tokens)
 
 testNormalizesLogicalPaths :: IO ()

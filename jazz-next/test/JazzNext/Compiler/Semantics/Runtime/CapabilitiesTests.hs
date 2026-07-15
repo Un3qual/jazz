@@ -27,13 +27,18 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    renderDiagnostic
+    isErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource,
     runSourceWithPrelude
   )
@@ -1008,7 +1013,7 @@ testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
             SExpr (SourceSpan 2 1) (EVar "empty")
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
 
 testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate :: IO ()
@@ -1020,7 +1025,7 @@ testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
             SExpr (SourceSpan 3 1) (EVar "identity")
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "signed polymorphic function runtime template"
     (Just (TypeFunction (TypeVariable "t0") (TypeVariable "t0")))
@@ -1038,7 +1043,7 @@ testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
             SExpr (SourceSpan 4 1) (ETypeApplication (EVar "identity") typeArgumentSpan boxCharType)
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "concrete explicit named application hint"
     (Just (TypeFunction boxCharType boxCharType))
@@ -1939,7 +1944,7 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
       (Set.singleton 0)
       defaultWarningSettings
       expr
-  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "nested binding hint source-unit path"
     (Just (TypeNumeric NumericInt64))

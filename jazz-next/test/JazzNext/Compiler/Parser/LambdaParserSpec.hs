@@ -388,7 +388,7 @@ testRejectsGroupedOrPatternLambdaParameter :: IO ()
 testRejectsGroupedOrPatternLambdaParameter =
   assertLeftDiagnosticContains
     "grouped lambda or-pattern"
-    "expected case pattern"
+    "expected ',', found '|'"
     (parseSurfaceProgram "f = \\((Just item | Also item)) -> item.")
 
 testRejectsLambdaOrPatternParameterGuard :: IO ()

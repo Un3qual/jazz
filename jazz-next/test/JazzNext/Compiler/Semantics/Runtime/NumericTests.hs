@@ -9,9 +9,11 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..)
   )
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource
   )
 import JazzNext.Compiler.Runtime

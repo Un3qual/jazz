@@ -6,6 +6,12 @@ module JazzNext.Compiler.ModuleInterface
     CompiledModule (..),
     CompiledPrelude (..),
     CompiledProgram (..),
+    compiledModuleErrors,
+    compiledModuleWarnings,
+    compiledPreludeErrors,
+    compiledPreludeWarnings,
+    compiledProgramErrors,
+    compiledProgramWarnings,
     ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
@@ -24,7 +30,11 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.AST (SignatureType, Expr)
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
-import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    isErrorDiagnostic,
+    isWarningDiagnostic
+  )
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -91,8 +101,7 @@ emptyModuleInterface =
 data CompiledPrelude = CompiledPrelude
   { compiledPreludeBuiltinMode :: BuiltinResolutionMode,
     compiledPreludeInterface :: ModuleInterface,
-    compiledPreludeWarnings :: [WarningRecord],
-    compiledPreludeErrors :: [Diagnostic],
+    compiledPreludeDiagnostics :: [Diagnostic],
     compiledPreludeExpr :: Maybe Expr,
     compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey SignatureType
   }
@@ -103,8 +112,7 @@ emptyCompiledPrelude =
   CompiledPrelude
     { compiledPreludeBuiltinMode = ResolveKernelOnly,
       compiledPreludeInterface = emptyModuleInterface,
-      compiledPreludeWarnings = [],
-      compiledPreludeErrors = [],
+      compiledPreludeDiagnostics = [],
       compiledPreludeExpr = Nothing,
       compiledPreludeRuntimeHints = Map.empty
     }
@@ -112,8 +120,7 @@ emptyCompiledPrelude =
 data CompiledModule = CompiledModule
   { compiledResolvedModule :: ResolvedModule,
     compiledModuleInterface :: ModuleInterface,
-    compiledModuleWarnings :: [WarningRecord],
-    compiledModuleErrors :: [Diagnostic],
+    compiledModuleDiagnostics :: [Diagnostic],
     compiledModuleExpr :: Expr
   }
   deriving (Eq, Show)
@@ -122,10 +129,27 @@ data CompiledProgram = CompiledProgram
   { compiledProgramPrelude :: CompiledPrelude,
     compiledProgramEntryPath :: [Text],
     compiledProgramModules :: [CompiledModule],
-    compiledProgramWarnings :: [WarningRecord],
-    compiledProgramErrors :: [Diagnostic]
+    compiledProgramDiagnostics :: [Diagnostic]
   }
   deriving (Eq, Show)
+
+compiledPreludeWarnings :: CompiledPrelude -> [Diagnostic]
+compiledPreludeWarnings = filter isWarningDiagnostic . compiledPreludeDiagnostics
+
+compiledPreludeErrors :: CompiledPrelude -> [Diagnostic]
+compiledPreludeErrors = filter isErrorDiagnostic . compiledPreludeDiagnostics
+
+compiledModuleWarnings :: CompiledModule -> [Diagnostic]
+compiledModuleWarnings = filter isWarningDiagnostic . compiledModuleDiagnostics
+
+compiledModuleErrors :: CompiledModule -> [Diagnostic]
+compiledModuleErrors = filter isErrorDiagnostic . compiledModuleDiagnostics
+
+compiledProgramWarnings :: CompiledProgram -> [Diagnostic]
+compiledProgramWarnings = filter isWarningDiagnostic . compiledProgramDiagnostics
+
+compiledProgramErrors :: CompiledProgram -> [Diagnostic]
+compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,

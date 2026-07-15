@@ -5,6 +5,7 @@ module JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     failDiagnosticTokenParser,
     failTokenParser,
+    failTokenParserAt,
     parseAnyToken,
     parseIdentifier,
     parseOperator,
@@ -12,6 +13,7 @@ module JazzNext.Compiler.Parser.TokenParser
     parseTokenKind,
     parseTokenWhere,
     parseDiagnostic,
+    parseDiagnosticAt,
     peekToken,
     runTokenParser,
     runTokenParserPrefix
@@ -30,10 +32,15 @@ import Data.Text
   )
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
-    renderSourceSpan
+  ( Diagnostic,
+    SourceSpan,
+    diagnosticSummary,
+    setDiagnosticPrimaryLabel
   )
 import qualified JazzNext.Compiler.Diagnostics as Diagnostics
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
+  )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..)
@@ -49,20 +56,7 @@ import Text.Megaparsec.Error
   )
 
 data ParserError = ParserError Diagnostic
-  deriving (Eq, Show)
-
-instance Ord ParserError where
-  compare (ParserError left) (ParserError right) =
-    compare (diagnosticKey left) (diagnosticKey right)
-    where
-      diagnosticKey diagnostic =
-        ( diagnosticCode diagnostic,
-          diagnosticSummary diagnostic,
-          diagnosticPrimarySpan diagnostic,
-          diagnosticRelatedSpan diagnostic,
-          diagnosticSubject diagnostic,
-          diagnosticNotes diagnostic
-        )
+  deriving (Eq, Ord, Show)
 
 instance ShowErrorComponent ParserError where
   showErrorComponent (ParserError diagnostic) = Text.unpack (diagnosticSummary diagnostic)
@@ -130,11 +124,10 @@ parseTokenWhere matches expectedDescription = do
     Just token
       | matches token -> parseAnyToken
       | otherwise ->
-          failTokenParser
+          failTokenParserAt
+            (tokenSpan token)
             ( "expected "
                 <> expectedDescription
-                <> " at "
-                <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
                 <> "'"
@@ -143,6 +136,10 @@ parseTokenWhere matches expectedDescription = do
 failTokenParser :: Text -> Parser a
 failTokenParser message =
   failDiagnosticTokenParser (parseDiagnostic message)
+
+failTokenParserAt :: SourceSpan -> Text -> Parser a
+failTokenParserAt spanValue message =
+  failDiagnosticTokenParser (parseDiagnosticAt spanValue message)
 
 failDiagnosticTokenParser :: Diagnostic -> Parser a
 failDiagnosticTokenParser diagnostic =
@@ -205,4 +202,8 @@ renderExpectedTokenKind expectedKind =
     TComma -> "','"
 
 parseDiagnostic :: Text -> Diagnostic
-parseDiagnostic = Diagnostics.mkDiagnostic "E0001"
+parseDiagnostic = Diagnostics.mkErrorDiagnostic E0001 Diagnostics.CompilationOrigin
+
+parseDiagnosticAt :: SourceSpan -> Text -> Diagnostic
+parseDiagnosticAt spanValue =
+  setDiagnosticPrimaryLabel spanValue "here" . parseDiagnostic

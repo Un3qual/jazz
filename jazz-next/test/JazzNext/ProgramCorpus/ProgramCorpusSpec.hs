@@ -10,7 +10,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationReport (..),
     RuntimeObservationRequest (RuntimeObservationStatistics),

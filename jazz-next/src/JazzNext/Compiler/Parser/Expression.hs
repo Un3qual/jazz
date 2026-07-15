@@ -12,11 +12,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan,
-    renderSourceSpan
-  )
+import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
     mkFractionalLiteralSource
@@ -55,6 +51,7 @@ import JazzNext.Compiler.Parser.Signature (parseSignatureTypeParser)
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
+    failTokenParserAt,
     parseAnyToken,
     parseToken,
     peekToken,
@@ -132,10 +129,9 @@ parseTypeApplicationArgument typeApplicationToken = do
   case parsedType of
     Right signatureType -> pure signatureType
     Left _ ->
-      failTokenParser
-        ( "unsupported explicit type application argument after '@' at "
-            <> renderSourceSpan (tokenSpan typeApplicationToken)
-        )
+      failTokenParserAt
+        (tokenSpan typeApplicationToken)
+        "unsupported explicit type application argument after '@'"
 
 neverStop :: Stop
 neverStop _ = False
@@ -219,11 +215,11 @@ rejectNonAssociativeContinuation context operatorInfo operatorToken = do
           | operatorPrecedence nextInfo == operatorPrecedence operatorInfo,
             operatorAssociativity operatorInfo == AssocNonAssoc
               || operatorAssociativity nextInfo == AssocNonAssoc ->
-              failTokenParser
+              failTokenParserAt
+                (tokenSpan operatorToken)
                 ( "non-associative operator '"
                     <> nonAssociativeSymbol nextInfo
-                    <> "' cannot be chained without parentheses at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
+                    <> "' cannot be chained without parentheses"
                 )
         _ -> pure ()
     _ -> pure ()
@@ -293,12 +289,11 @@ parsePrimaryExpr parseBlock context stop = do
         TLBracket ->
           parseListExpr parseBlock context
         _ ->
-          failTokenParser
+          failTokenParserAt
+            (tokenSpan token)
             ( "unexpected token '"
                 <> tokenLexeme token
-                <> "' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> "; expected expression"
+                <> "'; expected expression"
             )
 
 parseIdentifierExpr :: Token -> Text -> Parser SurfaceExpr
@@ -315,10 +310,9 @@ parseIdentifierExpr identifierToken name = do
           failTokenParser "expected member name after '::' before end of input"
     colonToken@Token {tokenKind = TColonColon} : memberToken : _
       | isImmediatelyAfter identifierToken colonToken ->
-          failTokenParser
-            ( "expected member name after '::' at "
-                <> renderSourceSpan (tokenSpan memberToken)
-                <> ", found '"
+          failTokenParserAt
+            (tokenSpan memberToken)
+            ( "expected member name after '::', found '"
                 <> tokenLexeme memberToken
                 <> "'"
             )
@@ -342,10 +336,10 @@ parseNumericSurfaceLiteral wholeToken wholeValue = do
                   fractionalValue
                   (Text.length (tokenLexeme fractionalToken))
           floatValue <-
-            either failTokenParser pure
-              (parseFloatLiteral (tokenSpan wholeToken) literalText)
+            either (failTokenParserAt (tokenSpan wholeToken)) pure
+              (parseFloatLiteral literalText)
           if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
-            then failTokenParser (invalidFloatLiteralMessage (tokenSpan wholeToken) literalText)
+            then failTokenParserAt (tokenSpan wholeToken) (invalidFloatLiteralMessage literalText)
             else pure (SLFloat floatValue literalSource maybeTargetType)
     _ ->
       pure (SLInt wholeValue)
@@ -368,13 +362,13 @@ fractionalLiteralSuffixTarget suffixName =
     "f64" -> Just SurfaceNumericFloat64
     _ -> Nothing
 
-parseFloatLiteral :: SourceSpan -> Text -> Either Text Double
-parseFloatLiteral literalSpan literalText =
+parseFloatLiteral :: Text -> Either Text Double
+parseFloatLiteral literalText =
   case TextRead.double literalText of
     Right (value, trailing)
       | Text.null trailing,
         finiteFloat value -> Right value
-    _ -> Left (invalidFloatLiteralMessage literalSpan literalText)
+    _ -> Left (invalidFloatLiteralMessage literalText)
 
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
@@ -387,12 +381,11 @@ float64MaxFinite =
   where
     sample = 0 :: Double
 
-invalidFloatLiteralMessage :: SourceSpan -> Text -> Text
-invalidFloatLiteralMessage literalSpan literalText =
+invalidFloatLiteralMessage :: Text -> Text
+invalidFloatLiteralMessage literalText =
   "invalid fractional literal '"
     <> literalText
-    <> "' at "
-    <> renderSourceSpan literalSpan
+    <> "'"
 
 requireOperatorVisible :: ParserContext -> Token -> Parser ()
 requireOperatorVisible context operatorToken =
@@ -402,19 +395,17 @@ requireOperatorVisible context operatorToken =
         Just _ -> pure ()
         Nothing -> failUndeclaredOperator operatorToken symbol
     _ ->
-      failTokenParser
-        ( "internal parser error at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-            <> ": expected operator token"
-        )
+      failTokenParserAt
+        (tokenSpan operatorToken)
+        "internal parser error: expected operator token"
 
 failUndeclaredOperator :: Token -> Text -> Parser a
 failUndeclaredOperator operatorToken symbol =
-  failTokenParser
+  failTokenParserAt
+    (tokenSpan operatorToken)
     ( "operator '"
         <> symbol
-        <> "' must be declared before use at "
-        <> renderSourceSpan (tokenSpan operatorToken)
+        <> "' must be declared before use"
     )
 
 parseParenExpr :: StatementBlockParser -> ParserContext -> Parser SurfaceExpr
@@ -505,15 +496,13 @@ parseIfExpr parseBlock context stop ifToken = do
   case maybeThen of
     Just Token {tokenKind = TThen} -> void parseAnyToken
     Nothing ->
-      failTokenParser
-        ( "expected 'then' before end of input after 'if' at "
-            <> renderSourceSpan (tokenSpan ifToken)
-        )
+      failTokenParserAt
+        (tokenSpan ifToken)
+        "expected 'then' before end of input after 'if'"
     Just token ->
-      failTokenParser
-        ( "expected 'then' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
+      failTokenParserAt
+        (tokenSpan token)
+        ( "expected 'then', found '"
             <> tokenLexeme token
             <> "'"
         )
@@ -525,15 +514,13 @@ parseIfExpr parseBlock context stop ifToken = do
       elseExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
       pure (SEIf conditionExpr thenExpr elseExpr)
     Nothing ->
-      failTokenParser
-        ( "expected 'else' before end of input after 'if' at "
-            <> renderSourceSpan (tokenSpan ifToken)
-        )
+      failTokenParserAt
+        (tokenSpan ifToken)
+        "expected 'else' before end of input after 'if'"
     Just token ->
-      failTokenParser
-        ( "expected 'else' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
+      failTokenParserAt
+        (tokenSpan token)
+        ( "expected 'else', found '"
             <> tokenLexeme token
             <> "'"
         )
@@ -549,10 +536,9 @@ parseCaseExpr parseBlock context caseToken = do
       caseArms <- parseCaseArms parseBlock context
       pure (SECase scrutineeExpr caseArms)
     _ ->
-      failTokenParser
-        ( "expected '{' before end of input after 'case' at "
-            <> renderSourceSpan (tokenSpan caseToken)
-        )
+      failTokenParserAt
+        (tokenSpan caseToken)
+        "expected '{' before end of input after 'case'"
 
 caseBodyStarts :: Stop
 caseBodyStarts tokens =
@@ -569,10 +555,9 @@ parseCaseArms parseBlock context = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TRBrace, tokenSpan = rightBraceSpan} ->
-      failTokenParser
-        ( "expected case arm before '}' at "
-            <> renderSourceSpan rightBraceSpan
-        )
+      failTokenParserAt
+        rightBraceSpan
+        "expected case arm before '}'"
     _ -> do
       firstArm <- parseCaseArm parseBlock context
       collect [firstArm]
@@ -594,11 +579,9 @@ parseCaseArm parseBlock context = do
     Token {tokenKind = TOperator "|"} : _ -> void parseAnyToken
     [] -> failTokenParser "expected '|' before end of input in case expression"
     token : _ ->
-      failTokenParser
-        ( "expected '|' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> " to start case arm"
-        )
+      failTokenParserAt
+        (tokenSpan token)
+        "expected '|' to start case arm"
   casePattern <- Pattern.parseCaseArmPatternParser
   guardExpr <- parseOptionalCaseArmGuard
   bodyExpr <- parseCaseArmBodyExpr parseBlock context neverStop Nothing 1
@@ -1012,29 +995,24 @@ parseLambdaExpr parseBlock context stop lambdaToken = do
           bodyExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
           pure (SELambda parameters bodyExpr)
         [] ->
-          failTokenParser
-            ( "expected '->' before end of input after lambda parameters at "
-                <> renderSourceSpan (tokenSpan lambdaToken)
-            )
+          failTokenParserAt
+            (tokenSpan lambdaToken)
+            "expected '->' before end of input after lambda parameters"
         token : _ ->
-          failTokenParser
-            ( "expected '->' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+          failTokenParserAt
+            (tokenSpan token)
+            ( "expected '->', found '"
                 <> tokenLexeme token
                 <> "'"
             )
     [] ->
-      failTokenParser
-        ( "expected '(' before end of input after lambda introducer at "
-            <> renderSourceSpan (tokenSpan lambdaToken)
-        )
+      failTokenParserAt
+        (tokenSpan lambdaToken)
+        "expected '(' before end of input after lambda introducer"
     token : _ ->
-      failTokenParser
-        ( "expected '(' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> " after lambda introducer"
-        )
+      failTokenParserAt
+        (tokenSpan token)
+        "expected '(' after lambda introducer"
 
 parseLambdaParameters :: Parser (NonEmpty SurfaceLambdaParameter)
 parseLambdaParameters = do
@@ -1060,10 +1038,9 @@ parseLambdaParameters = do
         [] ->
           failTokenParser "expected ')' before end of input in lambda parameter list"
         token : _ ->
-          failTokenParser
-            ( "expected ',' or ')' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+          failTokenParserAt
+            (tokenSpan token)
+            ( "expected ',' or ')', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1075,10 +1052,9 @@ consumeArrow endOfInputMessage = do
     Token {tokenKind = TArrow} : _ -> void parseAnyToken
     [] -> failTokenParser endOfInputMessage
     token : _ ->
-      failTokenParser
-        ( "expected '->' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
+      failTokenParserAt
+        (tokenSpan token)
+        ( "expected '->', found '"
             <> tokenLexeme token
             <> "'"
         )

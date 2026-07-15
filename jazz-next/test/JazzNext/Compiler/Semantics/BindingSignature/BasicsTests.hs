@@ -22,10 +22,12 @@ import JazzNext.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    RunResult (..),
+  ( RunResult (..),
+    compileErrors,
     compileExpr,
     compileSource,
+    runCompileErrors,
+    runRuntimeErrors,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig

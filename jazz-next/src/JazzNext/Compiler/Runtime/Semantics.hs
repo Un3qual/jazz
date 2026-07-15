@@ -85,7 +85,11 @@ import JazzNext.Compiler.CapabilityFacts
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    mkDiagnostic
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
@@ -1009,7 +1013,7 @@ applyConstructor typeName typeParameters constructorName constructorArguments ar
   | otherwise =
       Left
         ( runtimeDiagnostic
-            "E3023"
+            E3023
             ( "runtime constructor '"
                 <> identifierText constructorName
                 <> "' expected "
@@ -1046,7 +1050,7 @@ evalNumericConversion builtinFunction targetType value =
     other ->
       Left
         ( runtimeDiagnostic
-            "E3024"
+            E3024
             ( "runtime numeric conversion '"
                 <> builtinSymbolName builtinFunction
                 <> "' expects a numeric value, found "
@@ -1084,7 +1088,7 @@ convertFloatToNumericTarget builtinFunction targetType floatValue literalSource
   | isNaN floatValue || isInfinite floatValue =
       Left
         ( runtimeDiagnostic
-            "E3024"
+            E3024
             ( "runtime numeric conversion '"
                 <> builtinSymbolName builtinFunction
                 <> "' cannot convert non-finite Float value"
@@ -1194,7 +1198,7 @@ integerValueWithinBounds value (lowerBound, upperBound) =
 numericConversionRangeDiagnostic :: BuiltinSymbol -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
 numericConversionRangeDiagnostic builtinFunction targetType value (lowerBound, upperBound) =
   runtimeDiagnostic
-    "E3024"
+    E3024
     ( "runtime numeric conversion '"
         <> builtinSymbolName builtinFunction
         <> "' failed: integer value "
@@ -1210,7 +1214,7 @@ numericConversionRangeDiagnostic builtinFunction targetType value (lowerBound, u
 numericConversionFloatToIntegralDiagnostic :: BuiltinSymbol -> NumericType -> Double -> (Integer, Integer) -> Diagnostic
 numericConversionFloatToIntegralDiagnostic builtinFunction targetType value (lowerBound, upperBound) =
   runtimeDiagnostic
-    "E3024"
+    E3024
     ( "runtime numeric conversion '"
         <> builtinSymbolName builtinFunction
         <> "' failed: Float value "
@@ -1226,7 +1230,7 @@ numericConversionFloatToIntegralDiagnostic builtinFunction targetType value (low
 numericConversionFloatOverflowDiagnostic :: BuiltinSymbol -> NumericType -> Diagnostic
 numericConversionFloatOverflowDiagnostic builtinFunction targetType =
   runtimeDiagnostic
-    "E3024"
+    E3024
     ( "runtime numeric conversion '"
         <> builtinSymbolName builtinFunction
         <> "' failed: value cannot be represented as finite "
@@ -1306,12 +1310,12 @@ preferredRuntimeMethodCandidates classParameter methodSignature arguments candid
         (runtimeMethodCandidateMatches classParameter methodSignature arguments)
         candidates
 
--- | Runtime-specific wrapper for mkDiagnostic.
+-- | Runtime-specific wrapper for canonical error construction.
 -- This alias exists solely to improve readability and make it clear that
 -- diagnostics are being created in a runtime evaluation context rather than
 -- during parsing or type checking.
-runtimeDiagnostic :: Text -> Text -> Diagnostic
-runtimeDiagnostic = mkDiagnostic
+runtimeDiagnostic :: ErrorCode -> Text -> Diagnostic
+runtimeDiagnostic code = mkErrorDiagnostic code RuntimeOrigin
 
 -- | Render coarse runtime type names for diagnostics.
 renderRuntimeType :: RuntimeValue -> Text

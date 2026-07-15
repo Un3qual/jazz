@@ -5,16 +5,20 @@ module Main (main) where
 import qualified Data.Text as Text
 import Data.Text (Text)
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( compileErrors,
     compileSource,
     RunResult (..),
     compileSourceWithPrelude,
+    runCompileErrors,
+    runRuntimeErrors,
     runSource,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -398,9 +402,9 @@ testCompileWithoutPreludeRejectsNumericConversionAliases = do
       )
   assertEqual
     "public numeric conversion aliases are unavailable without prelude"
-    [ "E1001: unbound variable 'toUInt8'",
-      "E1001: unbound variable 'toInt'",
-      "E1001: unbound variable 'toFloat'"
+    [ "error: E1001: unbound variable 'toUInt8'",
+      "error: E1001: unbound variable 'toInt'",
+      "error: E1001: unbound variable 'toFloat'"
     ]
     (map renderDiagnostic (compileErrors result))
 
@@ -738,7 +742,7 @@ testCompileWithoutPreludeRejectsPreludeAliases = do
   result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = map hd [[1], [2]]."
   assertEqual
     "public aliases are unavailable without prelude"
-    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    ["error: E1001: unbound variable 'map'", "error: E1001: unbound variable 'hd'"]
     (map renderDiagnostic (compileErrors result))
 
 testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable :: IO ()

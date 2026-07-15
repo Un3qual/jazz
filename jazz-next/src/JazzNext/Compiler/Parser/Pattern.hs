@@ -14,10 +14,7 @@ import Control.Monad (void)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    renderSourceSpan
-  )
+import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.Name (mkIdentifier)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
@@ -32,6 +29,7 @@ import JazzNext.Compiler.Parser.Lexer
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
+    failTokenParserAt,
     parseAnyToken,
     parseIdentifier,
     parseToken,
@@ -95,7 +93,7 @@ parseCasePatternParser = do
     Nothing ->
       failTokenParser "expected case pattern before end of input"
     Just token ->
-      failTokenParser (expectedCasePatternMessage token)
+      failTokenParserAt (tokenSpan token) (expectedCasePatternMessage token)
 
 parseIdentifierCasePattern :: Text -> Parser SurfacePattern
 parseIdentifierCasePattern name =
@@ -111,9 +109,7 @@ parseIdentifierCasePattern name =
 
 expectedCasePatternMessage :: Token -> Text
 expectedCasePatternMessage token =
-  "expected case pattern at "
-    <> renderSourceSpan (tokenSpan token)
-    <> ", found '"
+  "expected case pattern, found '"
     <> tokenLexeme token
     <> "'"
 
@@ -133,8 +129,17 @@ parseTuplePattern leftParenToken = do
           tuplePatterns <- parseTuplePatternElements [firstPattern]
           void (parseToken TRParen)
           pure (SPTuple tuplePatterns)
-        _ ->
-          failTokenParser (expectedCasePatternMessage leftParenToken)
+        Nothing ->
+          failTokenParserAt
+            (tokenSpan leftParenToken)
+            "expected ',' before end of input in tuple pattern"
+        Just token ->
+          failTokenParserAt
+            (tokenSpan token)
+            ( "expected ',', found '"
+                <> tokenLexeme token
+                <> "'"
+            )
 
 parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do
@@ -199,10 +204,9 @@ parseConstructorArgumentPattern = do
     Nothing ->
       failTokenParser "expected constructor pattern argument before end of input"
     Just token ->
-      failTokenParser
-        ( "expected constructor pattern argument at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
+      failTokenParserAt
+        (tokenSpan token)
+        ( "expected constructor pattern argument, found '"
             <> tokenLexeme token
             <> "'"
         )
@@ -217,10 +221,9 @@ parseIntegralPatternLiteral wholeToken wholeValue = do
           case maybeFractionalToken of
             Just fractionalToken@Token {tokenKind = TInt _}
               | isImmediatelyAfter dotToken fractionalToken ->
-                  failTokenParser
-                    ( "fractional literal patterns are not supported at "
-                        <> renderSourceSpan (tokenSpan wholeToken)
-                    )
+                  failTokenParserAt
+                    (tokenSpan wholeToken)
+                    "fractional literal patterns are not supported"
             _ -> pure (SPLiteral (SLInt wholeValue))
     _ -> pure (SPLiteral (SLInt wholeValue))
 
@@ -291,10 +294,9 @@ parseListPattern = do
         Nothing ->
           failTokenParser "expected ']' before end of input in list pattern"
         Just token ->
-          failTokenParser
-            ( "expected ',' or ']' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+          failTokenParserAt
+            (tokenSpan token)
+            ( "expected ',' or ']', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -333,10 +335,9 @@ parseLambdaParameterParser = do
     Nothing ->
       failTokenParser "expected identifier before end of input in lambda parameter list"
     Just token ->
-      failTokenParser
-        ( "expected identifier at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
+      failTokenParserAt
+        (tokenSpan token)
+        ( "expected identifier, found '"
             <> tokenLexeme token
             <> "'"
         )

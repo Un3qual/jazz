@@ -27,8 +27,10 @@ import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
     RunResult (..),
+    runCompileErrors,
     runModuleGraphObserved,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runRuntimeErrors,
     runSource,
     runSourceObserved,
   )
@@ -101,6 +103,7 @@ testDriverTransport = do
   result <- runSourceObserved RuntimeObservationStatistics defaultWarningSettings source
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "successful diagnostic stream" [] (runDiagnostics result)
   assertEqual "output" (Just "42") (runOutput result)
   report <- requireReport result
   assertEqual "successful termination" RuntimeSucceeded (runtimeObservationTermination report)
@@ -386,6 +389,7 @@ testRuntimeFailureReport = do
   case runRuntimeErrors result of
     [] -> failTest "expected a runtime diagnostic"
     _ -> pure ()
+  assertEqual "runtime failure stream" (runRuntimeErrors result) (runDiagnostics result)
   report <- requireReport result
   assertEqual "failed termination" RuntimeFailed (runtimeObservationTermination report)
   assertPositive "partial transitions" (runtimeEvaluatorTransitions (runtimeObservationStatistics report))
@@ -398,6 +402,7 @@ testCompileFailureHasNoReport = do
     [] -> failTest "expected a compile diagnostic"
     _ -> pure ()
   assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "compile failure stream" (runCompileErrors result) (runDiagnostics result)
   assertEqual "runtime report" Nothing (runRuntimeObservation result)
 
 requireReport :: RunResult -> IO RuntimeObservationReport

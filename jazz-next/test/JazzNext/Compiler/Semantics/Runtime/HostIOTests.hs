@@ -38,6 +38,8 @@ import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSourceWithPreludeAndHost
   )
 import JazzNext.Compiler.Name (Name, qualifiedName)

@@ -35,20 +35,22 @@ import JazzNext.Compiler.BundledPrelude
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
-    WarningRecord (..),
-    mkDiagnostic,
-    mkMessageDiagnostic,
-    renderDiagnostic,
-    renderSourceSpan
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
     RunResult (..),
+    compileErrors,
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
+    runCompileErrors,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runRuntimeErrors,
     runSourceWithResolvedPreludeAndHostObserved
   )
 import JazzNext.Compiler.ModuleResolver
@@ -75,8 +77,8 @@ import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     resolveWarningSettings
   )
-import JazzNext.Compiler.Warnings
-  ( warningToken
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
@@ -165,6 +167,9 @@ isHelpArg :: String -> Bool
 isHelpArg arg =
   arg == "--help" || arg == "-h"
 
+cliArgumentDiagnostic :: Text -> Diagnostic
+cliArgumentDiagnostic = mkErrorDiagnostic E5002 ToolingOrigin
+
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
 parseCliOptions args = do
@@ -176,11 +181,11 @@ parseCliOptions args = do
   where
     finalize options
       | cliDisablePrelude options && isJust (cliPreludePath options) =
-          Left (mkMessageDiagnostic "cannot combine --prelude with --no-prelude")
+          Left (cliArgumentDiagnostic "cannot combine --prelude with --no-prelude")
       | isJust (cliSourcePath options) && isJust (cliEntryModule options) =
-          Left (mkMessageDiagnostic "cannot combine source file with --entry-module")
+          Left (cliArgumentDiagnostic "cannot combine source file with --entry-module")
       | not (cliRunMode options) && runtimeObservationRequested options =
-          Left (mkMessageDiagnostic "runtime observation requires --run")
+          Left (cliArgumentDiagnostic "runtime observation requires --run")
       | null (cliModuleRoots options) =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}
       | isJust (cliEntryModule options) =
@@ -190,16 +195,16 @@ parseCliOptions args = do
                 cliModuleRoots = reverse (cliModuleRoots options)
               }
       | otherwise =
-          Left (mkMessageDiagnostic "cannot use --module-root without --entry-module")
+          Left (cliArgumentDiagnostic "cannot use --module-root without --entry-module")
     go options [] = Right options
     go options ("--warnings-config" : path : rest) =
       go options {cliWarningsConfigPath = Just path} rest
     go _ ("--warnings-config" : []) =
-      Left (mkMessageDiagnostic "missing path after --warnings-config")
+      Left (cliArgumentDiagnostic "missing path after --warnings-config")
     go options ("--prelude" : path : rest) =
       go options {cliPreludePath = Just path} rest
     go _ ("--prelude" : []) =
-      Left (mkMessageDiagnostic "missing path after --prelude")
+      Left (cliArgumentDiagnostic "missing path after --prelude")
     go options ("--no-prelude" : rest) =
       go options {cliDisablePrelude = True} rest
     go options ("--run" : rest) =
@@ -211,7 +216,7 @@ parseCliOptions args = do
       setRuntimeProfilePath (Text.pack profilePath) options
         >>= (`go` rest)
     go _ ("--runtime-profile" : _) =
-      Left (mkMessageDiagnostic "missing path in --runtime-profile=PATH")
+      Left (cliArgumentDiagnostic "missing path in --runtime-profile=PATH")
     go options ("--entry-module" : modulePathText : rest) =
       case parseModulePathText (Text.pack modulePathText) of
         Left err ->
@@ -219,11 +224,11 @@ parseCliOptions args = do
         Right modulePath ->
           go options {cliEntryModule = Just modulePath} rest
     go _ ("--entry-module" : []) =
-      Left (mkMessageDiagnostic "missing module path after --entry-module")
+      Left (cliArgumentDiagnostic "missing module path after --entry-module")
     go options ("--module-root" : moduleRoot : rest) =
       go options {cliModuleRoots = moduleRoot : cliModuleRoots options} rest
     go _ ("--module-root" : []) =
-      Left (mkMessageDiagnostic "missing path after --module-root")
+      Left (cliArgumentDiagnostic "missing path after --module-root")
     go options (arg : rest)
       | isHelpArg arg =
           go options rest
@@ -237,13 +242,13 @@ parseCliOptions args = do
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
       | arg == "-" && isJust (cliSourcePath options) =
-          Left (mkMessageDiagnostic "multiple source files are not supported")
+          Left (cliArgumentDiagnostic "multiple source files are not supported")
       | arg == "-" =
           go options {cliSourcePath = Just arg} rest
       | "-" `isPrefixOf` arg =
-          Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
+          Left (cliArgumentDiagnostic ("unknown argument: " <> Text.pack arg))
       | isJust (cliSourcePath options) =
-          Left (mkMessageDiagnostic "multiple source files are not supported")
+          Left (cliArgumentDiagnostic "multiple source files are not supported")
       | otherwise =
           go options {cliSourcePath = Just arg} rest
 
@@ -257,7 +262,7 @@ parseCliOptions args = do
         "json" -> Right RuntimeStatisticsJson
         _ ->
           Left
-            ( mkMessageDiagnostic
+            ( cliArgumentDiagnostic
                 ( "unknown runtime statistics format '"
                     <> formatName
                     <> "'; expected human or json"
@@ -270,11 +275,11 @@ parseCliOptions args = do
         Just existingFormat
           | existingFormat == format -> Right options
           | otherwise ->
-              Left (mkMessageDiagnostic "conflicting runtime statistics formats")
+              Left (cliArgumentDiagnostic "conflicting runtime statistics formats")
 
     setRuntimeProfilePath profilePath options
       | Text.null profilePath =
-          Left (mkMessageDiagnostic "empty runtime profile path")
+          Left (cliArgumentDiagnostic "empty runtime profile path")
       | otherwise =
           case cliRuntimeProfilePath options of
             Nothing ->
@@ -282,7 +287,7 @@ parseCliOptions args = do
             Just existingPath
               | existingPath == Text.unpack profilePath -> Right options
               | otherwise ->
-                  Left (mkMessageDiagnostic "conflicting runtime profile paths")
+                  Left (cliArgumentDiagnostic "conflicting runtime profile paths")
 
 -- | End-to-end CLI entrypoint with injectable env/config/source lookups so the
 -- behavior stays testable without shelling out.
@@ -351,7 +356,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
             CliOutput
               { cliExitCode = 2,
                 cliStdout = "",
-                cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
+                cliStderr = renderDiagnostic parseError <> "\n"
               }
         Right options -> do
           settingsResult <- resolveSettings options envLookup fileLookup
@@ -361,7 +366,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                 CliOutput
                   { cliExitCode = 2,
                     cliStdout = "",
-                    cliStderr = "error: " <> renderDiagnostic configError <> "\n"
+                    cliStderr = renderDiagnostic configError <> "\n"
                   }
             Right settings -> do
               preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
@@ -371,7 +376,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                     CliOutput
                       { cliExitCode = 2,
                         cliStdout = "",
-                        cliStderr = "error: " <> renderDiagnostic preludeError <> "\n"
+                        cliStderr = renderDiagnostic preludeError <> "\n"
                       }
                 Right preludeSource -> do
                   case cliEntryModule options of
@@ -395,7 +400,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                             CliOutput
                               { cliExitCode = 2,
                                 cliStdout = "",
-                                cliStderr = "error: " <> renderDiagnostic sourceError <> "\n"
+                                cliStderr = renderDiagnostic sourceError <> "\n"
                               }
                         Right source ->
                           if cliRunMode options
@@ -461,7 +466,7 @@ loadWarningConfig configSelection configLookup =
           Just contents -> Right (Just contents)
           Nothing ->
             Left
-              ( mkMessageDiagnostic
+              ( mkErrorDiagnostic E5003 ToolingOrigin
                   ("warning config file could not be read at '" <> Text.pack configPath <> "'")
               )
     DefaultWarningConfigProbe configPath ->
@@ -483,7 +488,7 @@ loadCliSource options fileLookup loadStdin =
           Just contents -> Right contents
           Nothing ->
             Left
-              (mkMessageDiagnostic ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
+              (mkErrorDiagnostic E5004 ToolingOrigin ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
 
 -- | Resolve the prelude source according to CLI/env flags, defaulting to the
 -- bundled prelude when neither an explicit path nor `--no-prelude` is given.
@@ -512,17 +517,16 @@ resolvePreludeSource options envLookup fileLookup = do
           Just contents -> Right (PreludeExplicit contents)
           Nothing ->
             Left
-              ( mkDiagnostic
-                  "E0003"
+              ( mkErrorDiagnostic
+                  E0003
+                  CompilationOrigin
                   ("prelude file could not be read at '" <> Text.pack preludePath <> "'")
               )
 
 runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
 runCompile settings resolvedPrelude source = do
   result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
-  let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
-      stderrOutput = renderLines (warningLines ++ errorLines)
+  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
       -- Compile mode is diagnostics-only; evaluated program output belongs to
       -- `--run`.
       stdoutOutput = ""
@@ -572,9 +576,7 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
-  let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
-      stderrOutput = renderLines (warningLines ++ errorLines)
+  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
       -- Keep module-graph compile output aligned with standalone compile mode:
       -- success is quiet unless warnings or errors need to be reported.
       stdoutOutput = ""
@@ -613,16 +615,14 @@ runExecuteModuleGraph profileWriter host settings options resolvedPrelude entryM
 renderRunResult :: RuntimeProfileWriter -> CliOptions -> RunResult -> IO CliOutput
 renderRunResult profileWriter options result = do
   profileWriteResult <- writeRequestedRuntimeProfile profileWriter options result
-  let warningLines = map formatWarningLine (runWarnings result)
-      compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
-      runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
+  let resultDiagnosticLines = map renderDiagnostic (runDiagnostics result)
       profileErrorLines =
         case profileWriteResult of
-          Left diagnostic -> ["error: " <> renderDiagnostic diagnostic]
+          Left diagnostic -> [renderDiagnostic diagnostic]
           Right () -> []
       diagnosticOutput =
         renderLines
-          (warningLines ++ compileErrorLines ++ runtimeErrorLines ++ profileErrorLines)
+          (resultDiagnosticLines ++ profileErrorLines)
       statisticsOutput =
         case (cliRuntimeStatisticsFormat options, runRuntimeObservation result) of
           (Just statisticsFormat, Just report) ->
@@ -659,7 +659,7 @@ writeRequestedRuntimeProfile profileWriter options result =
         Nothing ->
           pure
             ( Left
-                (mkMessageDiagnostic "runtime profile was requested but the runtime did not produce one")
+                (mkErrorDiagnostic E5005 ToolingOrigin "runtime profile was requested but the runtime did not produce one")
             )
     _ -> pure (Right ())
 
@@ -692,7 +692,7 @@ writeRuntimeProfileAtomically destinationPath profileBytes = do
       Right () -> Right ()
       Left writeError ->
         Left
-          ( mkMessageDiagnostic
+          ( mkErrorDiagnostic E5005 ToolingOrigin
               ( "runtime profile could not be written at '"
                   <> Text.pack destinationPath
                   <> "': "
@@ -733,27 +733,9 @@ cliModuleConfig options =
       moduleExtension = ".jz"
     }
 
--- | Render warnings in the CLI's stable single-line format.
-formatWarningLine :: WarningRecord -> Text
-formatWarningLine warning =
-  warningCodeText warning
-    <> " ["
-    <> warningToken (warningCategory warning)
-    <> "] "
-    <> renderSourceSpan (warningPrimarySpan warning)
-    <> ": "
-    <> warningMessage warning
-    <> renderPreviousSpan (warningPreviousSpan warning)
-
 renderLines :: [Text] -> Text
 renderLines [] = ""
 renderLines linesOut = Text.unlines linesOut
-
-renderPreviousSpan :: Maybe SourceSpan -> Text
-renderPreviousSpan previous =
-  case previous of
-    Nothing -> ""
-    Just previousSpan -> " (previous " <> renderSourceSpan previousSpan <> ")"
 
 -- | Read a warning config file as an optional blob. `resolveSettings` decides
 -- whether a missing result is acceptable (the implicit default probe) or a

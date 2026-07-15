@@ -10,21 +10,21 @@ import JazzNext.Compiler.WarningConfig
     isWarningEnabled,
     isWarningError,
     parseCliWarningDirective,
+    parseWarningCategory,
     resolveWarningSettings
   )
-import JazzNext.Compiler.WarningCatalog
-  ( warningHasAnalyzerEmitter
-  )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory (..),
-    parseWarningCategory,
+    diagnosticCodeText,
     warningCode,
+    warningHasAnalyzerEmitter,
     warningToken
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftContains,
+    assertLeftDiagnosticCodeAndContains,
     assertRight,
     runTestSuite
   )
@@ -91,7 +91,7 @@ testReservedWarningConfigParsing =
 
 testParseWarningCategoryUnknown :: IO ()
 testParseWarningCategoryUnknown =
-  assertLeftContains "unknown category" "unknown warning category" (parseWarningCategory "nope")
+  assertLeftDiagnosticCodeAndContains "unknown category" "E5001" "unknown warning category" (parseWarningCategory "nope")
 
 testParseCliWarningDirectiveForms :: IO ()
 testParseCliWarningDirectiveForms = do
@@ -218,6 +218,6 @@ assertCategoryState settings category expectedEnabled expectedError = do
 
 assertWarningMetadata :: WarningCategory -> Text -> Text -> Bool -> IO ()
 assertWarningMetadata category expectedCode expectedToken expectedEmitter = do
-  assertEqual ("warning code for " <> expectedToken) expectedCode (warningCode category)
+  assertEqual ("warning code for " <> expectedToken) expectedCode (diagnosticCodeText (warningCode category))
   assertEqual ("warning token for " <> expectedToken) expectedToken (warningToken category)
   assertEqual ("analyzer emitter for " <> expectedToken) expectedEmitter (warningHasAnalyzerEmitter category)

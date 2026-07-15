@@ -5,7 +5,7 @@ module JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
   ) where
 
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( compileErrors,
     compileExpr
   )
 import JazzNext.Compiler.WarningConfig

@@ -6,7 +6,7 @@ import Data.Text
   ( Text
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     compileExpr,
     compileSource,
     compileErrors
@@ -20,6 +20,9 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     diagnosticCode
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -509,7 +512,7 @@ testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies = do
   assertSingleDiagnosticContains
     "one-sided or-pattern binder body scope text"
     "unbound variable 'item'"
-    (filter ((== "E1001") . diagnosticCode) (compileErrors result))
+    (filter ((== "E1001") . diagnosticCodeText . diagnosticCode) (compileErrors result))
 
 testSourcePipelineRejectsIncompatibleOrPatternBinderTypes :: IO ()
 testSourcePipelineRejectsIncompatibleOrPatternBinderTypes = do
@@ -803,4 +806,4 @@ assertContainsDiagnosticCode label expectedCode diagnostics =
   assertEqual
     label
     True
-    (any ((== expectedCode) . diagnosticCode) diagnostics)
+    (any ((== expectedCode) . diagnosticCodeText . diagnosticCode) diagnostics)

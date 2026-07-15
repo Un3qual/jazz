@@ -12,6 +12,6 @@ forceProgramCaseResult result =
   programCaseResultTermination result `seq`
     programCaseResultStdout result `seq`
       forceListWith forceDiagnostic (programCaseResultDiagnostics result) `seq`
-        forceListWith forceWarning (programCaseResultWarnings result) `seq`
+        forceListWith forceDiagnostic (programCaseResultWarnings result) `seq`
           programCaseResultObservation result `seq`
             ()

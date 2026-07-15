@@ -12,8 +12,21 @@ import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.AST
+  ( SignatureType (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( DiagnosticOrigin (ToolingOrigin),
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (E5001)
+  )
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
+import JazzNext.Compiler.SignatureRendering
+  ( renderSignatureType
+  )
 import JazzNext.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
     renderJazzSourceFormatViolation,
@@ -65,6 +78,7 @@ tests =
     ("locates the active jazz-next package root", testPackageRoot),
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
+    ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
     ("documents the shared program corpus and performance workflows", testPerformanceDocumentation)
   ]
 
@@ -487,6 +501,17 @@ testCheckedInPackagePolicy =
     let violations = validatePackagePolicy packageSource
     unless (null violations) $ do
       failTest (Text.intercalate "\n" (map renderPackagePolicyViolation violations))
+
+testDiagnosticRenderingBoundaries :: IO ()
+testDiagnosticRenderingBoundaries = do
+  assertEqual
+    "tooling diagnostic rendering"
+    "error: E5001: invalid command-line option"
+    (renderDiagnostic (mkErrorDiagnostic E5001 ToolingOrigin "invalid command-line option"))
+  assertEqual
+    "source-signature rendering"
+    "[Int] -> Text"
+    (renderSignatureType (TypeFunction (TypeList TypeInt) TypeText))
 
 testPerformanceDocumentation :: IO ()
 testPerformanceDocumentation =

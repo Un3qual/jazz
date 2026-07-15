@@ -35,7 +35,7 @@ import JazzNext.Compiler.ModuleGraph
     ResolvedModule (..),
   )
 import JazzNext.Compiler.ModuleInterface
-  ( CompiledModule (CompiledModule),
+  ( CompiledModule (..),
     ModuleInterface (..),
     emptyModuleInterface,
   )
@@ -136,8 +136,7 @@ testDeepInferenceForcing = do
       inference =
         InferenceResult
           { inferredExpr = ELit (LInt 0),
-            inferredWarnings = [],
-            inferredErrors = [],
+            inferredDiagnostics = [],
             inferredRuntimeTypeHints = Map.singleton runtimeHintKey (TypeList deferredFailure),
             inferredModuleInterface = emptyModuleInterface
           }
@@ -190,8 +189,7 @@ testDeepModuleInterfaceForcing =
       let inference =
             InferenceResult
               { inferredExpr = ELit (LInt 0),
-                inferredWarnings = [],
-                inferredErrors = [],
+                inferredDiagnostics = [],
                 inferredRuntimeTypeHints = Map.empty,
                 inferredModuleInterface = interface
               }
@@ -227,11 +225,11 @@ testDeepResolvedModuleForcing =
     assertResolvedMetadataForced (label, resolvedModule) = do
       let compiledModule =
             CompiledModule
-              resolvedModule
-              emptyModuleInterface
-              []
-              []
-              (ELit (LInt 0))
+              { compiledResolvedModule = resolvedModule,
+                compiledModuleInterface = emptyModuleInterface,
+                compiledModuleDiagnostics = [],
+                compiledModuleExpr = ELit (LInt 0)
+              }
       result <- try (evaluate (forceCompiledModule compiledModule)) :: IO (Either IOException ())
       case result of
         Left _ -> pure ()

@@ -5,12 +5,14 @@ module JazzNext.Compiler.Modules.Loader.OperatorsTests
   ) where
 
 import qualified Data.Map.Strict as Map
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runModuleGraphWithPrelude
+    runCompileErrors,
+    runModuleGraphWithPrelude,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

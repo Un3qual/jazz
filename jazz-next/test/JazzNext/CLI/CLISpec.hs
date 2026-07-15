@@ -28,8 +28,14 @@ import JazzNext.CLI.Main
     runCliWithHostAndProfileWriter
   )
 import JazzNext.Compiler.Diagnostics
-  ( mkMessageDiagnostic,
-    renderDiagnostic
+  ( DiagnosticOrigin (..),
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
@@ -339,8 +345,10 @@ testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
   output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
-  assertContains "stderr includes warning code" "W0001" (cliStderr output)
-  assertContains "stderr includes warning category" "same-scope-rebinding" (cliStderr output)
+  assertEqual
+    "warning line"
+    "warning: W0001 [same-scope-rebinding] 1:8: same-scope rebinding: 'x' shadows previous same-scope binding (last declaration wins) (warning emitted here; previous 1:1)\n"
+    (cliStderr output)
   assertEqual "stdout stays empty for compile-only success" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -350,8 +358,11 @@ testCliPromotedWarningBehavior :: IO ()
 testCliPromotedWarningBehavior = do
   output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 1 (cliExitCode output)
-  assertContains "stderr includes warning code" "W0001" (cliStderr output)
-  assertContains "stderr includes error marker" "error:" (cliStderr output)
+  assertEqual
+    "promoted warning line"
+    "error: W0001 [same-scope-rebinding] 1:8: same-scope rebinding: 'x' shadows previous same-scope binding (last declaration wins) (warning emitted here; previous 1:1)\n"
+    (cliStderr output)
+  assertEqual "promoted warning is rendered once" 1 (Text.count "W0001" (cliStderr output))
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -554,10 +565,12 @@ testCliSourceFileMissing :: IO ()
 testCliSourceFileMissing = do
   output <- runCliWith ["--run", "missing.jz"] envLookup fileLookup (pure "ignored = 1.")
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "missing source diagnostic code" "E5004" (cliStderr output)
   assertContains "missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   compileOutput <- runCliWith ["missing.jz"] envLookup fileLookup (pure "ignored = 1.")
   assertEqual "compile exit code" 2 (cliExitCode compileOutput)
+  assertContains "compile missing source diagnostic code" "E5004" (cliStderr compileOutput)
   assertContains "compile missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr compileOutput)
   assertEqual "compile stdout is suppressed" "" (cliStdout compileOutput)
   where
@@ -806,7 +819,7 @@ testCliBundledPreludePreservesUserDiagnosticSpans = do
   output <- runCliWith [] envLookup configLookup (pure signatureNameMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E1003" (cliStderr output)
-  assertContains "stderr keeps user line numbers" "E1003: 1:1:" (cliStderr output)
+  assertContains "stderr keeps user line numbers" "error: E1003 1:1:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -1144,12 +1157,12 @@ testCliProfileWriteFailure :: IO ()
 testCliProfileWriteFailure = do
   output <-
     runObservationFixtureWithWriter
-      (\_ _ -> pure (Left (mkMessageDiagnostic "runtime profile writer deliberately failed")))
+      (\_ _ -> pure (Left (mkErrorDiagnostic E5005 ToolingOrigin "runtime profile writer deliberately failed")))
       ["--runtime-profile=unwritable/profile.json"]
       literalSuccessFixture
   assertEqual "profile write failure exit" 1 (cliExitCode output)
   assertEqual "profile write failure preserves program stdout" "42\n" (cliStdout output)
-  assertContains "structured profile write diagnostic" "error: runtime profile writer deliberately failed" (cliStderr output)
+  assertContains "structured profile write diagnostic" "error: E5005: runtime profile writer deliberately failed" (cliStderr output)
 
 testCliAtomicProfileReplacement :: IO ()
 testCliAtomicProfileReplacement =
@@ -1208,6 +1221,7 @@ testCliExplicitConfigPathFailure :: IO ()
 testCliExplicitConfigPathFailure = do
   output <- runCliWith ["--warnings-config", "missing/warnings.txt"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "config read failure code" "E5003" (cliStderr output)
   assertContains "stderr reports config read failure" "warning config file could not be read at 'missing/warnings.txt'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
@@ -1218,6 +1232,7 @@ testCliExplicitEnvConfigPathFailure :: IO ()
 testCliExplicitEnvConfigPathFailure = do
   output <- runCliWith [] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "env config read failure code" "E5003" (cliStderr output)
   assertContains "stderr reports env config read failure" "warning config file could not be read at 'env/warnings.txt'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
@@ -1230,7 +1245,7 @@ testCliDefersSourceReadOnArgError = do
   output <- runCliWith ["--bad-arg"] envLookup configLookup (recordSourceRead sourceRead)
   didRead <- readIORef sourceRead
   assertEqual "exit code" 2 (cliExitCode output)
-  assertContains "stderr parse error prefix" "error: unknown argument" (cliStderr output)
+  assertContains "stderr parse error prefix" "error: E5002: unknown argument" (cliStderr output)
   assertEqual "source should not be read when arg parse fails" False didRead
   where
     envLookup _ = pure Nothing
@@ -1426,7 +1441,7 @@ testCliReportsSignatureTypeMismatch = do
   output <- runCliWith [] envLookup configLookup (pure signatureMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E2005" (cliStderr output)
-  assertContains "stderr includes signature mismatch primary span" "E2005: 1:1:" (cliStderr output)
+  assertContains "stderr includes signature mismatch primary span" "error: E2005 1:1:" (cliStderr output)
   assertContains "stderr includes signature mismatch related span" "related 2:1" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where

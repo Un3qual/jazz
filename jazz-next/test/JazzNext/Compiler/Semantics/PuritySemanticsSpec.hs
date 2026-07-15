@@ -10,7 +10,8 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
+    compileErrors,
     compileSource,
     compileSourceWithPrelude
   )

@@ -23,10 +23,13 @@ import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan (..),
-    mkDiagnostic,
-    renderSourceSpan,
+    mkErrorDiagnostic,
     setDiagnosticPrimarySpan
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Parser.Operator
   ( isStage2OperatorSymbolChar
@@ -467,13 +470,11 @@ lexicalFailureDiagnostic :: LexicalFailure -> Diagnostic
 lexicalFailureDiagnostic failure =
   setDiagnosticPrimarySpan
     (lexicalFailureSpan failure)
-    (mkDiagnostic "E0001" (renderLexicalFailure failure))
+    (mkErrorDiagnostic E0001 CompilationOrigin (renderLexicalFailure failure))
 
 renderLexicalFailure :: LexicalFailure -> Text
 renderLexicalFailure failure =
   renderLexicalFailureReason (lexicalFailureReason failure)
-    <> " at "
-    <> renderSourceSpan (lexicalFailureSpan failure)
 
 renderLexicalFailureReason :: LexicalFailureReason -> Text
 renderLexicalFailureReason reason =

@@ -59,8 +59,12 @@ import JazzNext.Compiler.Name
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    mkDiagnostic,
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic,
     qualifySourceSpan
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.ModuleGraph
   ( CoreModule (..),
@@ -130,8 +134,8 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
                 )
           | otherwise ->
               Left
-                ( mkDiagnostic
-                    "E4006"
+                ( mkErrorDiagnostic
+                    E4006 CompilationOrigin
                     ( "module declaration mismatch at '"
                         <> Text.pack sourcePath
                         <> "': expected '"
@@ -143,8 +147,8 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
                 )
         declaredModules ->
           Left
-            ( mkDiagnostic
-                "E4005"
+            ( mkErrorDiagnostic
+                E4005 CompilationOrigin
                 ( "multiple module declarations in '"
                     <> Text.pack sourcePath
                     <> "': "

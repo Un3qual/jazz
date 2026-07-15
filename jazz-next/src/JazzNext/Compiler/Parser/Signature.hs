@@ -62,7 +62,7 @@ splitTopLevelCommaTokens =
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =
   constrainedSignaturePayloadParser
-    <|> (surfaceSignaturePayloadFromType <$> signatureTypeParser)
+    <|> (SurfaceSignatureType <$> signatureTypeParser)
 
 constrainedSignaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 constrainedSignaturePayloadParser = do
@@ -292,9 +292,6 @@ parseSurfaceNumericType typeName =
     "Float32" -> Just SurfaceNumericFloat32
     "Float64" -> Just SurfaceNumericFloat64
     _ -> Nothing
-
-surfaceSignaturePayloadFromType :: SurfaceSignatureType -> SurfaceSignaturePayload
-surfaceSignaturePayloadFromType = SurfaceSignatureType
 
 surfaceSignatureTokenFromToken :: Token -> SurfaceSignatureToken
 surfaceSignatureTokenFromToken token =

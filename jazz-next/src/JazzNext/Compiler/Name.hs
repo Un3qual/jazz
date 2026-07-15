@@ -15,7 +15,6 @@ module JazzNext.Compiler.Name
     Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
-    builtinName,
     generatedName,
     namePurity,
     operatorBindingName,
@@ -158,9 +157,6 @@ resolvedImportedName modulePath = ResolvedName (ImportedModule modulePath)
 
 resolvedAmbientName :: NameNamespace -> Identifier -> Name
 resolvedAmbientName = ResolvedName AmbientPrelude
-
-builtinName :: Identifier -> Name
-builtinName = BuiltinName
 
 generatedName :: GeneratedNameKind -> Name
 generatedName = GeneratedName

@@ -8,8 +8,10 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
-    renderDiagnostic
+    SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource

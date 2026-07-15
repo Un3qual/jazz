@@ -6,18 +6,22 @@ module JazzNext.Compiler.Modules.Loader.VisibilityTests
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    ResolvedPrelude (..),
+  ( ResolvedPrelude (..),
     RunResult (..),
+    compileErrors,
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraph,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithPrelude
+    runModuleGraphWithPrelude,
+    runRuntimeErrors,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -230,7 +234,7 @@ testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual
     "public aliases are unavailable across module graph without prelude"
-    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    ["error: E1001: unbound variable 'map'", "error: E1001: unbound variable 'hd'"]
     (map renderDiagnostic (compileErrors result))
   where
     sourceMap = moduleGraphProjectedSources "map hd values"
@@ -248,7 +252,7 @@ testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
   assertEqual "warnings" [] (runWarnings result)
   assertEqual
     "run-mode public aliases are unavailable across module graph without prelude"
-    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    ["error: E1001: unbound variable 'map'", "error: E1001: unbound variable 'hd'"]
     (map renderDiagnostic (runCompileErrors result))
   assertEqual "runtime errors stay empty on compile failure" [] (runRuntimeErrors result)
   assertEqual "runtime output is suppressed on compile failure" Nothing (runOutput result)

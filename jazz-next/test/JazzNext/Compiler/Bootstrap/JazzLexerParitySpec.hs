@@ -13,7 +13,9 @@ import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runModuleGraphWithPrelude
+    runCompileErrors,
+    runModuleGraphWithPrelude,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..)

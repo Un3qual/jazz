@@ -7,6 +7,8 @@ import Data.Text
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource
   )
 import JazzNext.Compiler.WarningConfig

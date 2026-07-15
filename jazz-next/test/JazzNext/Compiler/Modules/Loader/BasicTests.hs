@@ -11,17 +11,21 @@ import Data.IORef
     writeIORef
   )
 import Data.Text (Text)
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    ResolvedPrelude (..),
+  ( ResolvedPrelude (..),
     RunResult (..),
+    compileErrors,
     compileModuleGraph,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithPrelude
+    runModuleGraphWithPrelude,
+    runRuntimeErrors,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

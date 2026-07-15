@@ -18,22 +18,38 @@ import JazzNext.Compiler.BundledPrelude
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    WarningRecord (..),
-    renderDiagnostic
+    diagnosticCode,
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticWarningCategory
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    RunResult (..),
+    compileErrors,
     compileExpr,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
+    compileWarnings,
+    runCompileErrors,
+    runRuntimeErrors,
+    runSource,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
     resolveWarningSettings
   )
-import JazzNext.Compiler.Warnings
-  ( WarningCategory (..)
+import JazzNext.Compiler.DiagnosticCatalog
+  ( DiagnosticSeverity (..),
+    WarningCategory (..),
+    diagnosticCodeText
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -72,7 +88,9 @@ tests =
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
-    ("driver reports promoted warnings as compile errors", testDriverReportsPromotedWarningsAsCompileErrors)
+    ("driver stores native compile failures in one diagnostic stream", testDriverStoresNativeCompileFailure),
+    ("driver reports promoted warnings as compile errors", testDriverReportsPromotedWarningsAsCompileErrors),
+    ("driver orders compile warnings before runtime failures", testDriverOrdersCompileWarningsBeforeRuntimeFailures)
   ]
 
 testDisabledCategoryEmitsNoWarnings :: IO ()
@@ -86,12 +104,13 @@ testEnabledCategoryEmitsWarning = do
   warnings <- analyzeRebindingWarnings settings sampleProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
-      assertEqual "warning code" "W0001" (warningCodeText warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
-    _ -> failTest "expected exactly one warning record"
+      assertEqual "warning severity" SeverityWarning (diagnosticSeverity warning)
+      assertEqual "warning category" (Just SameScopeRebinding) (diagnosticWarningCategory warning)
+      assertEqual "warning code" "W0001" (diagnosticCodeText (diagnosticCode warning))
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
+    _ -> failTest "expected exactly one warning diagnostic"
 
 testDeterministicWarningOrder :: IO ()
 testDeterministicWarningOrder = do
@@ -99,10 +118,10 @@ testDeterministicWarningOrder = do
   warnings <- analyzeRebindingWarnings settings repeatedProgram
   case warnings of
     [firstWarning, secondWarning] -> do
-      assertEqual "first warning span" (SourceSpan 2 1) (warningPrimarySpan firstWarning)
-      assertEqual "first previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan firstWarning)
-      assertEqual "second warning span" (SourceSpan 3 1) (warningPrimarySpan secondWarning)
-      assertEqual "second previous span" (Just (SourceSpan 2 1)) (warningPreviousSpan secondWarning)
+      assertEqual "first warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan firstWarning)
+      assertEqual "first previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan firstWarning)
+      assertEqual "second warning span" (Just (SourceSpan 3 1)) (diagnosticPrimarySpan secondWarning)
+      assertEqual "second previous span" (Just (SourceSpan 2 1)) (diagnosticRelatedSpan secondWarning)
     _ -> failTest "expected exactly two warning records"
 
 testConstructorRebindingEmitsWarning :: IO ()
@@ -111,11 +130,11 @@ testConstructorRebindingEmitsWarning = do
   warnings <- analyzeRebindingWarnings settings constructorRebindingProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
-      assertEqual "warning code" "W0001" (warningCodeText warning)
-      assertEqual "warning variable" "Nothing" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+      assertEqual "warning category" (Just SameScopeRebinding) (diagnosticWarningCategory warning)
+      assertEqual "warning code" "W0001" (diagnosticCodeText (diagnosticCode warning))
+      assertEqual "warning variable" (Just "Nothing") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
     _ -> failTest "expected exactly one warning record"
 
 testNestedScopeShadowingNoWarning :: IO ()
@@ -135,11 +154,11 @@ testNestedLetShadowingEmitsWarning = do
   warnings <- analyzeRebindingWarnings settings nestedScopeProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
-      assertEqual "warning code" "W0002" (warningCodeText warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 3) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+      assertEqual "warning category" (Just ShadowingOuterScope) (diagnosticWarningCategory warning)
+      assertEqual "warning code" "W0002" (diagnosticCodeText (diagnosticCode warning))
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
     _ -> failTest "expected exactly one outer-scope shadowing warning record"
 
 testLambdaParameterShadowingEmitsWarning :: IO ()
@@ -148,11 +167,11 @@ testLambdaParameterShadowingEmitsWarning = do
   warnings <- analyzeRebindingWarnings settings lambdaShadowingProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
-      assertEqual "warning code" "W0002" (warningCodeText warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+      assertEqual "warning category" (Just ShadowingOuterScope) (diagnosticWarningCategory warning)
+      assertEqual "warning code" "W0002" (diagnosticCodeText (diagnosticCode warning))
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
     _ -> failTest "expected exactly one lambda-parameter shadowing warning record"
 
 testLambdaExpressionShadowingUsesStatementSpan :: IO ()
@@ -161,10 +180,10 @@ testLambdaExpressionShadowingUsesStatementSpan = do
   warnings <- analyzeRebindingWarnings settings lambdaExpressionShadowingProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+      assertEqual "warning category" (Just ShadowingOuterScope) (diagnosticWarningCategory warning)
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
     _ -> failTest "expected exactly one expression lambda shadowing warning record"
 
 testPromotedOuterScopeShadowingReportsCompileErrors :: IO ()
@@ -172,7 +191,7 @@ testPromotedOuterScopeShadowingReportsCompileErrors = do
   settings <- shadowingPromotedSettings
   result <- compileExpr settings nestedScopeProgram
   assertEqual "error count" 1 (length (compileErrors result))
-  assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning count" 0 (length (compileWarnings result))
 
 testOuterScopeShadowingIgnoresSameScopeRebinding :: IO ()
 testOuterScopeShadowingIgnoresSameScopeRebinding = do
@@ -191,11 +210,11 @@ testUnusedBindingEmitsWarning = do
   warnings <- analyzeRebindingWarnings settings unusedBindingProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" UnusedBinding (warningCategory warning)
-      assertEqual "warning code" "W0003" (warningCodeText warning)
-      assertEqual "warning variable" "unused" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
-      assertEqual "previous span" Nothing (warningPreviousSpan warning)
+      assertEqual "warning category" (Just UnusedBinding) (diagnosticWarningCategory warning)
+      assertEqual "warning code" "W0003" (diagnosticCodeText (diagnosticCode warning))
+      assertEqual "warning variable" (Just "unused") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 1 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" Nothing (diagnosticRelatedSpan warning)
     _ -> failTest "expected exactly one unused-binding warning record"
 
 testUsedOrdinaryLetEmitsNoWarning :: IO ()
@@ -216,9 +235,9 @@ testPreDeclarationReferenceDoesNotCountAsUse = do
   warnings <- analyzeRebindingWarnings settings preDeclarationReferenceProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" UnusedBinding (warningCategory warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "warning category" (Just UnusedBinding) (diagnosticWarningCategory warning)
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
     _ -> failTest "expected pre-declaration reference not to satisfy use"
 
 testSameNameRebindingKeepsEarlierBindingUnused :: IO ()
@@ -227,9 +246,9 @@ testSameNameRebindingKeepsEarlierBindingUnused = do
   warnings <- analyzeRebindingWarnings settings sameNameRebindingUsedProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" UnusedBinding (warningCategory warning)
-      assertEqual "warning variable" "x" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
+      assertEqual "warning category" (Just UnusedBinding) (diagnosticWarningCategory warning)
+      assertEqual "warning variable" (Just "x") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 1 1)) (diagnosticPrimarySpan warning)
     _ -> failTest "expected later same-name use to belong to the rebinding only"
 
 testSelfReferentialRhsStillUnused :: IO ()
@@ -238,9 +257,9 @@ testSelfReferentialRhsStillUnused = do
   warnings <- analyzeRebindingWarnings settings selfReferentialUnusedProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" UnusedBinding (warningCategory warning)
-      assertEqual "warning variable" "loop" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
+      assertEqual "warning category" (Just UnusedBinding) (diagnosticWarningCategory warning)
+      assertEqual "warning variable" (Just "loop") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 1 1)) (diagnosticPrimarySpan warning)
     _ -> failTest "expected self-referential binding to remain unused"
 
 testRecursiveForwardReferenceCountsAsUseUnderPromotion :: IO ()
@@ -263,10 +282,10 @@ testUnusedBindingSuppressesRebindingSiteDuplicate = do
   warnings <- analyzeRebindingWarnings settings sampleProgram
   case warnings of
     [firstWarning, secondWarning] -> do
-      assertEqual "first warning category" UnusedBinding (warningCategory firstWarning)
-      assertEqual "first warning span" (SourceSpan 1 1) (warningPrimarySpan firstWarning)
-      assertEqual "second warning category" SameScopeRebinding (warningCategory secondWarning)
-      assertEqual "second warning span" (SourceSpan 2 1) (warningPrimarySpan secondWarning)
+      assertEqual "first warning category" (Just UnusedBinding) (diagnosticWarningCategory firstWarning)
+      assertEqual "first warning span" (Just (SourceSpan 1 1)) (diagnosticPrimarySpan firstWarning)
+      assertEqual "second warning category" (Just SameScopeRebinding) (diagnosticWarningCategory secondWarning)
+      assertEqual "second warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan secondWarning)
     _ -> failTest "expected first binding unused and rebinding site to emit only W0001"
 
 testUnusedBindingSuppressesConstructorRebindingSiteDuplicate :: IO ()
@@ -275,10 +294,10 @@ testUnusedBindingSuppressesConstructorRebindingSiteDuplicate = do
   warnings <- analyzeRebindingWarnings settings letRebindsConstructorProgram
   case warnings of
     [warning] -> do
-      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
-      assertEqual "warning variable" "Just" (warningVariableName warning)
-      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+      assertEqual "warning category" (Just SameScopeRebinding) (diagnosticWarningCategory warning)
+      assertEqual "warning variable" (Just "Just") (diagnosticSubject warning)
+      assertEqual "warning span" (Just (SourceSpan 2 1)) (diagnosticPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (diagnosticRelatedSpan warning)
     _ -> failTest "expected constructor rebinding site to emit W0001 without W0003"
 
 testPromotedUnusedBindingReportsCompileErrors :: IO ()
@@ -286,7 +305,7 @@ testPromotedUnusedBindingReportsCompileErrors = do
   settings <- unusedBindingPromotedSettings
   result <- compileExpr settings unusedBindingProgram
   assertEqual "error count" 1 (length (compileErrors result))
-  assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning count" 0 (length (compileWarnings result))
 
 testBundledPreludeAliasShadowingNoWarning :: IO ()
 testBundledPreludeAliasShadowingNoWarning = do
@@ -299,7 +318,7 @@ testExplicitPreludeMatchingBundledSourceEmitsWarning :: IO ()
 testExplicitPreludeMatchingBundledSourceEmitsWarning = do
   settings <- promotedSettings
   result <- compileSourceWithPrelude settings (Just bundledPreludeSource) "map = (+ 1). map 2."
-  assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning count" 0 (length (compileWarnings result))
   assertEqual "error count" 1 (length (compileErrors result))
 
 testDriverKeepsWarningOnlySuccessDiagnosticOnly :: IO ()
@@ -308,13 +327,35 @@ testDriverKeepsWarningOnlySuccessDiagnosticOnly = do
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 0 (length (compileErrors result))
   assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning-only stream" (compileWarnings result) (compileDiagnostics result)
+
+testDriverStoresNativeCompileFailure :: IO ()
+testDriverStoresNativeCompileFailure = do
+  result <- compileSource defaultWarningSettings "missing."
+  assertEqual "native warning count" 0 (length (compileWarnings result))
+  assertEqual "native error count" 1 (length (compileErrors result))
+  assertEqual "native error stream" (compileErrors result) (compileDiagnostics result)
 
 testDriverReportsPromotedWarningsAsCompileErrors :: IO ()
 testDriverReportsPromotedWarningsAsCompileErrors = do
   settings <- promotedSettings
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 1 (length (compileErrors result))
-  assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning count" 0 (length (compileWarnings result))
+  assertEqual "promoted stream count" 1 (length (compileDiagnostics result))
+  assertEqual "promoted stream membership" (compileErrors result) (compileDiagnostics result)
+
+testDriverOrdersCompileWarningsBeforeRuntimeFailures :: IO ()
+testDriverOrdersCompileWarningsBeforeRuntimeFailures = do
+  settings <- enabledSettings
+  result <- runSource settings "x = 1. x = 2. hd []."
+  assertEqual "compile error count" 0 (length (runCompileErrors result))
+  assertEqual "warning count" 1 (length (runWarnings result))
+  assertEqual "runtime error count" 1 (length (runRuntimeErrors result))
+  assertEqual
+    "compile-before-runtime stream"
+    (runWarnings result <> runRuntimeErrors result)
+    (runDiagnostics result)
 
 enabledSettings :: IO WarningSettings
 enabledSettings =

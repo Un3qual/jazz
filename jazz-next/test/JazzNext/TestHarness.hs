@@ -26,13 +26,17 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    RenderDiagnostic,
     SourceSpan,
     diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticRelatedSpan,
-    diagnosticSubject,
-    renderDiagnostic
+    diagnosticSubject
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
   )
 import System.Exit (exitFailure, exitSuccess)
 
@@ -97,7 +101,7 @@ assertJust label value =
     Just _ -> pure ()
     Nothing -> failTest (label <> ": expected Just, got Nothing")
 
-assertLeftContains :: (Show a, RenderDiagnostic e) => Text -> Text -> Either e a -> IO ()
+assertLeftContains :: Show a => Text -> Text -> Either Diagnostic a -> IO ()
 assertLeftContains label needle value =
   case value of
     Left err ->
@@ -125,7 +129,7 @@ assertLeftDiagnosticCodeAndContains :: Show a => Text -> Text -> Text -> Either 
 assertLeftDiagnosticCodeAndContains label expectedCode needle value =
   case value of
     Left diagnostic -> do
-      assertEqual (label <> " code") expectedCode (diagnosticCode diagnostic)
+      assertEqual (label <> " code") expectedCode (diagnosticCodeText (diagnosticCode diagnostic))
       assertDiagnosticContains label needle diagnostic
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
@@ -146,7 +150,7 @@ assertSingleDiagnosticCode :: Text -> Text -> [Diagnostic] -> IO ()
 assertSingleDiagnosticCode label expectedCode diagnostics =
   case diagnostics of
     [diagnostic] ->
-      assertEqual label expectedCode (diagnosticCode diagnostic)
+      assertEqual label expectedCode (diagnosticCodeText (diagnosticCode diagnostic))
     _ ->
       failTest
         ( label
