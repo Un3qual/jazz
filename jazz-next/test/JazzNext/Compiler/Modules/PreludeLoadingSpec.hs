@@ -61,6 +61,7 @@ tests =
     ("bundled default prelude exposes Eq Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
     ("bundled default prelude exposes Eq Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
+    ("bundled default prelude equals every integer width", testBundledPreludeEqualsEveryIntegerWidth),
     ("bundled default prelude compares primitive ordered values", testBundledPreludeComparesPrimitiveValues),
     ("bundled default prelude compares every numeric width", testBundledPreludeComparesEveryNumericWidth),
     ("bundled default prelude shows primitive values deterministically", testBundledPreludeShowsPrimitiveValues),
@@ -390,6 +391,41 @@ testBundledPreludeExposesEqBoolEqualsMethodBody = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testBundledPreludeEqualsEveryIntegerWidth :: IO ()
+testBundledPreludeEqualsEveryIntegerWidth = do
+  result <- runSource defaultWarningSettings """
+  int8Value :: Int8.
+  int8Value = toInt8 1.
+  int16Value :: Int16.
+  int16Value = toInt16 1.
+  int32Value :: Int32.
+  int32Value = toInt32 1.
+  int64Value :: Int64.
+  int64Value = toInt64 1.
+  uint8Value :: UInt8.
+  uint8Value = toUInt8 1.
+  uint16Value :: UInt16.
+  uint16Value = toUInt16 1.
+  uint32Value :: UInt32.
+  uint32Value = toUInt32 1.
+  uint64Value :: UInt64.
+  uint64Value = toUInt64 1.
+  (Eq::equals int8Value (toInt8 1), Eq::equals int8Value (toInt8 2),
+   Eq::equals int16Value (toInt16 1), Eq::equals int16Value (toInt16 2),
+   Eq::equals int32Value (toInt32 1), Eq::equals int32Value (toInt32 2),
+   Eq::equals int64Value (toInt64 1), Eq::equals int64Value (toInt64 2),
+   Eq::equals uint8Value (toUInt8 1), Eq::equals uint8Value (toUInt8 2),
+   Eq::equals uint16Value (toUInt16 1), Eq::equals uint16Value (toUInt16 2),
+   Eq::equals uint32Value (toUInt32 1), Eq::equals uint32Value (toUInt32 2),
+   Eq::equals uint64Value (toUInt64 1), Eq::equals uint64Value (toUInt64 2)).
+  """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "integer-width equality output"
+    (Just "(True, False, True, False, True, False, True, False, True, False, True, False, True, False, True, False)")
+    (runOutput result)
 
 testBundledPreludeComparesPrimitiveValues :: IO ()
 testBundledPreludeComparesPrimitiveValues = do
