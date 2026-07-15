@@ -1,0 +1,14 @@
+module Main {
+  import List.
+  import Text.
+
+  raw = "  Jazz🙂Jazz\r\nfunctional  languages\nJAZZ  ".
+  lowercaseNames = textReplaceAll "JAZZ" "jazz" (textReplaceAll "Jazz" "jazz" raw).
+  cleanedLines = listMap textTrim (textLines raw).
+  (textWords lowercaseNames,
+   textJoin " | " cleanedLines,
+   textSplit "" "🙂é",
+   textPadLeft 6 '.' "猫",
+   textFind "languages" raw,
+   textContains "missing" raw).
+}

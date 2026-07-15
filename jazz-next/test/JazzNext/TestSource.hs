@@ -5,6 +5,7 @@ module JazzNext.TestSource
     checkedInJazzSourcePath,
     readCheckedInJazzSource,
     readCheckedInJazzModuleSource,
+    readCheckedInJazzProjectModuleSource,
     readCheckedInJazzTestFixture,
   )
 where
@@ -68,6 +69,13 @@ readCheckedInJazzModuleSource role sourcePath =
       if exists
         then Just <$> TextIO.readFile path
         else pure Nothing
+
+readCheckedInJazzProjectModuleSource :: FilePath -> IO (Maybe Text.Text)
+readCheckedInJazzProjectModuleSource sourcePath = do
+  compilerSource <- readCheckedInJazzModuleSource CompilerSource sourcePath
+  case compilerSource of
+    Just source -> pure (Just source)
+    Nothing -> readCheckedInJazzModuleSource StandardLibrarySource sourcePath
 
 readCheckedInJazzTestFixture :: FilePath -> IO Text.Text
 readCheckedInJazzTestFixture relativePath = do

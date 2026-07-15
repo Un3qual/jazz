@@ -1,0 +1,10 @@
+module Main {
+  import List.
+  import Queue.
+  import Traversal.
+
+  original = queueSingleton 1.
+  visited = breadthFirst 1.
+  (visited, queueToList original, listLength visited,
+   listFoldLeft (\(total, value) -> total + value) 0 visited).
+}

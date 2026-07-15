@@ -1,6 +1,7 @@
 module Lexer (value lexSource) {
   import List.
   import Char.
+  import Dictionary.
   import Text.
   import Maybe.
   import LexerTypes.
@@ -39,24 +40,20 @@ module Lexer (value lexSource) {
         True
         else value == '!'.
 
+  keywordKinds :: Dictionary(Text, CanonicalTokenKind).
+  keywordKinds = dictionaryFromList [
+    ("module", KeywordKind ModuleKeyword),
+    ("import", KeywordKind ImportKeyword),
+    ("as", KeywordKind AsKeyword),
+    ("data", KeywordKind DataKeyword),
+    ("if", KeywordKind IfKeyword),
+    ("then", KeywordKind ThenKeyword),
+    ("else", KeywordKind ElseKeyword),
+    ("case", KeywordKind CaseKeyword)
+  ].
+
   identifierKind :: Text -> CanonicalTokenKind.
-  identifierKind = \(name) -> if name == "module" then
-    KeywordKind ModuleKeyword
-    else if name == "import" then
-      KeywordKind ImportKeyword
-      else if name == "as" then
-        KeywordKind AsKeyword
-        else if name == "data" then
-          KeywordKind DataKeyword
-          else if name == "if" then
-            KeywordKind IfKeyword
-            else if name == "then" then
-              KeywordKind ThenKeyword
-              else if name == "else" then
-                KeywordKind ElseKeyword
-                else if name == "case" then
-                  KeywordKind CaseKeyword
-                  else IdentifierKind name.
+  identifierKind = \(name) -> dictionaryGetOr keywordKinds name (IdentifierKind name).
 
   canonicalInteger :: Text -> Text.
   canonicalInteger = \(digits) -> case textUncons digits {
@@ -64,32 +61,11 @@ module Lexer (value lexSource) {
     | Just (first, rest) -> if first == '0' then canonicalInteger rest else digits
   }.
 
+  operatorSymbols :: [Char].
+  operatorSymbols = ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
+
   isOperatorSymbol :: Char -> Bool.
-  isOperatorSymbol = \(value) -> if value == '!' then
-    True
-    else if value == '%' then
-      True
-      else if value == '&' then
-        True
-        else if value == '*' then
-          True
-          else if value == '+' then
-            True
-            else if value == '-' then
-              True
-              else if value == '/' then
-                True
-                else if value == '<' then
-                  True
-                  else if value == '>' then
-                    True
-                    else if value == '?' then
-                      True
-                      else if value == '^' then
-                        True
-                        else if value == '|' then
-                          True
-                          else value == '~'.
+  isOperatorSymbol = \(value) -> listContains value operatorSymbols.
 
   allHexDigits :: Text -> Bool.
   allHexDigits = \(digits) -> case textUncons digits {

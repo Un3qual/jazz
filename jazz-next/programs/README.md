@@ -47,6 +47,11 @@ reviewers and benchmark users a quick map from its durable IDs to their intent.
 | `dependency-planner` | `fast` | Computes a dependency plan over an association-list graph using modules, recursion, patterns, text, and lists. |
 | `capability-workflow` | `fast` | Processes workflow values through capability-constrained functions and multi-module dispatch. |
 | `mini-frontend` | `full` | Runs token classification, expression analysis, and evaluation across a production-shaped module graph. |
+| `word-frequency` | `fast` | Counts words with insertion-ordered `Dictionary` updates and Unicode-aware text tokenization. |
+| `sorted-index` | `fast` | Builds a persistent AVL `Map` and `Set`, then traverses their ascending views across a module boundary. |
+| `queue-traversal` | `fast` | Performs a breadth-first traversal with the persistent FIFO `Queue`. |
+| `text-processing` | `fast` | Normalizes Unicode text through lines, words, replacement, splitting, search, joining, and padding. |
+| `collection-boundaries` | `fast` | Passes abstract `Dictionary`, `Map`, `Set`, and `Queue` values between modules without exposing constructors. |
 
 ## Workloads, features, and benchmarks
 
@@ -58,7 +63,8 @@ filtered.
 The version-1 feature vocabulary is:
 
 - `modules`, `generic-adts`, `patterns`, `recursion`, and `inference`;
-- `capabilities`, `text`, and `lists`; and
+- `capabilities`, `text`, `lists`, `dictionaries`, `ordered-collections`, and
+  `queues`; and
 - `deterministic-runtime`.
 
 The benchmark groups are `parse-lower`, `analysis`, `module-preparation`,

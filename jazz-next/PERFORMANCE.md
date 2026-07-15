@@ -99,6 +99,38 @@ Use several samples, inspect variance, and reproduce a suspected regression on
 the same quiet machine. Benchmark timing is evidence, not a deterministic test
 expectation.
 
+### Focused standard-library cases
+
+The corpus includes five fast cases that isolate common library workloads
+without reducing them to single-call microbenchmarks:
+
+| Case | Intended performance shape |
+| --- | --- |
+| `word-frequency` | Repeated insertion-ordered `Dictionary` lookup and update over tokenized Unicode text |
+| `sorted-index` | AVL `Map` and `Set` construction followed by ascending traversal and boundary queries |
+| `queue-traversal` | Persistent FIFO enqueue/dequeue during breadth-first traversal |
+| `text-processing` | Multiple scalar-aware text passes, including splitting, searching, replacement, and padding |
+| `collection-boundaries` | Collection construction and consumption across module abstraction boundaries |
+
+The collection contracts predict different growth curves. `Dictionary` is an
+insertion-ordered association list, so key lookup and updates are linear in the
+number of distinct keys. `Map` and `Set` use balanced trees, so key operations
+are logarithmic and ordered materialization is linear. `Queue` uses front and
+rear lists, giving amortized constant-time enqueue/dequeue and linear
+materialization. Whole-text transforms are linear in the scalar input and
+output they traverse, except that repeated transformations necessarily make
+repeated passes.
+
+Use semantic statistics to explain a timing change before attributing it to
+host noise. For example, more `operatorApplications` in `sorted-index` can
+indicate extra comparisons, while more `listCellsConstructed` in
+`text-processing` can indicate an avoidable intermediate representation.
+`bindingsCaptured` includes imported runtime environments, so adding public
+library bindings can raise it without changing a case's algorithm. The
+case-specific ceilings in `programs/corpus.json` are deterministic regression
+guards; recorded machine timings remain evidence and are not universal
+pass/fail thresholds.
+
 ## Jazz runtime statistics
 
 Runtime observation is opt-in and implemented inside the Jazz evaluator. The

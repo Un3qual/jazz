@@ -1,0 +1,19 @@
+module Main {
+  import Dictionary.
+  import List.
+  import Maybe.
+  import Text.
+
+  increment :: Maybe(Int) -> Maybe(Int).
+  increment = \(current) -> case current {
+    | Nothing -> Just 1
+    | Just count -> Just (count + 1)
+  }.
+  countWord :: Dictionary(Text, Int) -> Text -> Dictionary(Text, Int).
+  countWord = \(frequencies, word) -> dictionaryUpdate frequencies word increment.
+  words = textWords "jazz makes jazz expressive\nand jazz stays readable".
+  frequencies :: Dictionary(Text, Int).
+  frequencies = listFoldLeft countWord dictionaryEmpty words.
+  (dictionaryToList frequencies, dictionarySize frequencies,
+   dictionaryLookup frequencies "jazz", dictionaryKeys frequencies).
+}

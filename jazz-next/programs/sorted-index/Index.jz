@@ -1,0 +1,15 @@
+module Index (value summarizeIndex) {
+  import Map.
+  import Maybe.
+  import Set.
+
+  summarizeIndex :: [(Int, Text)] -> [Text] -> ([(Int, Text)], Maybe((Int, Text)), Maybe((Int, Text)), [Text], [Text], [Text]).
+  summarizeIndex = \(entries, labels) -> {
+    index = mapFromList entries.
+    labelSet = setFromList labels.
+    required = setFromList ["compiler", "runtime", "stdlib"].
+    (mapToList index, mapMinimum index, mapMaximum index,
+     setToList labelSet, setToList (setIntersection labelSet required),
+     setToList (setDifference required labelSet)).
+  }.
+}
