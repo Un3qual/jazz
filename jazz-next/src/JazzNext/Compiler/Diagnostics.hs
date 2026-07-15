@@ -101,6 +101,7 @@ renderDiagnostic = renderDiagnosticRecord . toDiagnostic
 -- locations and supplemental notes when present.
 renderDiagnosticRecord :: Diagnostic -> Text
 renderDiagnosticRecord diagnostic =
+  {-# SCC "jazz-stage:diagnostic-rendering" #-}
   renderCodePrefix (diagnosticCode diagnostic)
     <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
     <> diagnosticSummary diagnostic

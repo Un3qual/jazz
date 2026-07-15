@@ -1,3 +1,6 @@
 __pycache__/
 *.py[cod]
 jazz-next/dist-newstyle/
+jazz-next/dist-newstyle-profile-*/
+jazz-next/benchmark-results/
+jazz-next/profile-results/

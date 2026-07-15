@@ -95,6 +95,11 @@ applySubstitution substitution expressionType =
 
 unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypes leftType rightType state =
+  {-# SCC "jazz-stage:constraint-solving" #-}
+  unifyTypesWithoutCostCentre leftType rightType state
+
+unifyTypesWithoutCostCentre :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
+unifyTypesWithoutCostCentre leftType rightType state =
   let resolvedLeft = resolveType state leftType
       resolvedRight = resolveType state rightType
    in case (resolvedLeft, resolvedRight) of
@@ -119,17 +124,17 @@ unifyTypes leftType rightType state =
         (TDataType leftName leftArguments, TDataType rightName rightArguments)
           | leftName == rightName,
             length leftArguments == length rightArguments ->
-              unifyTypeLists leftArguments rightArguments state
+              unifyTypeListsWithoutCostCentre leftArguments rightArguments state
         (TListType leftElementType, TListType rightElementType) ->
-          unifyTypes leftElementType rightElementType state
+          unifyTypesWithoutCostCentre leftElementType rightElementType state
         (TTupleType leftElementTypes, TTupleType rightElementTypes)
           | length leftElementTypes == length rightElementTypes ->
-              unifyTypeLists leftElementTypes rightElementTypes state
+              unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes state
         ( TFunctionType leftInputType leftOutputType,
           TFunctionType rightInputType rightOutputType
           ) -> do
-          stateAfterInput <- unifyTypes leftInputType rightInputType state
-          unifyTypes leftOutputType rightOutputType stateAfterInput
+          stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType state
+          unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
         (TVarType leftVar, TVarType rightVar)
           | leftVar == rightVar ->
               Just state
@@ -151,12 +156,17 @@ unifyTypes leftType rightType state =
     rigidVariables = inferRigidTypeVars state
 
 unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeLists leftTypes rightTypes state
+unifyTypeLists leftTypes rightTypes state =
+  {-# SCC "jazz-stage:constraint-solving" #-}
+  unifyTypeListsWithoutCostCentre leftTypes rightTypes state
+
+unifyTypeListsWithoutCostCentre :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
+unifyTypeListsWithoutCostCentre leftTypes rightTypes state
   | length leftTypes /= length rightTypes = Nothing
   | otherwise = foldl' step (Just state) (zip leftTypes rightTypes)
   where
     step maybeState (leftType, rightType) =
-      maybeState >>= unifyTypes leftType rightType
+      maybeState >>= unifyTypesWithoutCostCentre leftType rightType
 
 bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state

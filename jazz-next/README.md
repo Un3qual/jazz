@@ -3,6 +3,7 @@
 This directory is the only active target for new compiler implementation work.
 
 Legacy references:
+
 - `jazz-hs/` is read-only historical reference code.
 - `jazz2/` is read-only experimental/reference code.
 
@@ -11,6 +12,11 @@ Do not implement new compiler functionality in legacy directories.
 `jazz-next` is currently a CLI/compiler package. Its Haskell implementation is
 provided through the private `jazz-next-internal` package library solely for the
 executable and test components; there is no supported Haskell embedding API yet.
+
+The shared production-shaped program corpus is documented in
+[`programs/README.md`](programs/README.md). Benchmarking, deterministic runtime
+statistics, Jazz semantic flame graphs, and GHC profiling are documented in
+[`PERFORMANCE.md`](PERFORMANCE.md).
 
 ## Current architecture
 
@@ -47,9 +53,9 @@ Shipped Jazz source lives under one package-owned root:
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
-enforces that dependency direction from parsed module imports. Test fixtures
-and future benchmark programs remain in their owning test and benchmark trees,
-outside this shipped-source root.
+enforces that dependency direction from parsed module imports. Production-shaped
+correctness and benchmark programs live in the shared `programs/` corpus,
+outside this shipped-source root. Small, focused fixtures remain under `test/`.
 
 Ordinary multi-argument Jazz functions use compact lambdas such as
 `\(left, right) -> left == right`. The compiler preserves currying and partial
@@ -71,6 +77,7 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
+- `programs/`: shared multi-module correctness and benchmark corpus.
 
 ## Run a first program
 
@@ -127,4 +134,5 @@ cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=fai
 Cabal discovers every registered suite. Use a test component name, such as
 `repository-audit-spec`, for a focused run. The repository audit owns the
 Jazz source-format and dependency-layering contracts, editor-package metadata,
-and the private-package policy.
+documentation entry points, and the private-package policy. Git's actual ignore
+behavior for generated performance artifacts is checked at the repository gate.

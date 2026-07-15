@@ -29,6 +29,7 @@ import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
     RuntimeHost (..),
+    RuntimeHostExit (..),
     hostIOFailureMessage
   )
 import JazzNext.Compiler.Modules.Loader.BasicTests (basicTests)
@@ -341,7 +342,7 @@ successfulIOHost callsRef =
       runtimeHostWriteStdout = \contents -> record ("stdout:" <> contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record ("stderr:" <> contents) (Right ()),
       runtimeHostArguments = record "arguments" ["one", "two"],
-      runtimeHostExit = \status -> record ("exit:" <> Text.pack (show status)) (Right ())
+      runtimeHostExit = \status -> record ("exit:" <> Text.pack (show status)) (Right RuntimeHostExitReturned)
     }
   where
     record call value = do
@@ -357,7 +358,7 @@ failingIOHost =
       runtimeHostWriteStdout = \_ -> pure (Left (failure HostOther)),
       runtimeHostWriteStderr = \_ -> pure (Left (failure HostOther)),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure (Right ())
+      runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
   where
     failureForToken token =

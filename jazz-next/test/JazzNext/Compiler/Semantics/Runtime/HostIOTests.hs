@@ -55,11 +55,16 @@ import JazzNext.Compiler.Runtime
     runRuntimeHostEvaluation,
     runtimeValueExactlyMatchesConstraint
   )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeCallableIdentity (ClosureCallable)
+  )
+import JazzNext.Compiler.Runtime.Types (RuntimeClosure (..))
 import JazzNext.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
 import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
     RuntimeHost (..),
+    RuntimeHostExit (..),
     hostIOCategoryToken,
     hostIOFailureMessage,
     productionRuntimeHost
@@ -175,7 +180,7 @@ deterministicHost =
       runtimeHostWriteStdout = \_ -> pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (Right ()),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure (Right ())
+      runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
 
 data HostCall
@@ -623,7 +628,17 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
 
 testStackedResultObligationsPreserveRecursiveUnwindOrder :: IO ()
 testStackedResultObligationsPreserveRecursiveUnwindOrder = do
-  let identityClosure = VClosure Map.empty False "value" (EVar "value") Nothing Nothing
+  let identityClosure =
+        VClosure
+          RuntimeClosure
+            { runtimeClosureEnvironment = Map.empty,
+              runtimeClosureEnvironmentMayReachHostCells = False,
+              runtimeClosureParameter = "value",
+              runtimeClosureBody = EVar "value",
+              runtimeClosureTypeHint = Nothing,
+              runtimeClosureModulePath = Nothing,
+              runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "value"
+            }
       stackedFunction =
         VTyped
           (TypeFunction TypeInt TypeInt)
@@ -839,7 +854,7 @@ recordingIOHost callsRef =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) (Right ())
+      runtimeHostExit = \status -> record (ExitCall status) (Right RuntimeHostExitReturned)
     }
   where
     record call result = do
@@ -902,7 +917,7 @@ statefulHost =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) (Right ())
+      runtimeHostExit = \status -> record (ExitCall status) (Right RuntimeHostExitReturned)
     }
   where
     record call result = do

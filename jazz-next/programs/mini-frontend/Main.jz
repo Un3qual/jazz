@@ -1,0 +1,11 @@
+module Main {
+  import Analysis.
+  import Evaluation.
+  import Syntax.
+  import Token.
+
+  sourceTokens :: [Text].
+  sourceTokens = ["let", "answer", "=", "40", "+", "2"].
+
+  (classifyTokens sourceTokens, analyze sampleExpression, evaluate [] sampleExpression).
+}

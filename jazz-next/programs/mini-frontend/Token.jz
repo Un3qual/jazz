@@ -1,0 +1,29 @@
+module Token {
+  import List.
+
+  data Token = LetToken | NameToken Text | EqualsToken | IntegerToken Int | PlusToken | UnknownToken Text.
+
+  classifyToken :: Text -> Token.
+  classifyToken = \(text) -> if text == "let" then
+    LetToken
+    else if text == "=" then
+      EqualsToken
+      else if text == "+" then
+        PlusToken
+        else if text == "40" then
+          IntegerToken 40
+          else if text == "2" then
+            IntegerToken 2
+            else if text == "answer" then
+              NameToken text
+              else UnknownToken text.
+
+  classifyTokensReversed :: [Text] -> [Token] -> [Token].
+  classifyTokensReversed = \(texts, reversed) -> case texts {
+    | [] -> reversed
+    | [text | rest] -> classifyTokensReversed rest (listPrepend (classifyToken text) reversed)
+  }.
+
+  classifyTokens :: [Text] -> [Token].
+  classifyTokens = \(texts) -> listReverse (classifyTokensReversed texts []).
+}

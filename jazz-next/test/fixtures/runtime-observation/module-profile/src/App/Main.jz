@@ -1,0 +1,4 @@
+module App::Main {
+  identity = \(left, right) -> left.
+  identity 42 7.
+}

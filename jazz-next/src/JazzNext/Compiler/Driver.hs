@@ -12,41 +12,56 @@ module JazzNext.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
+    buildCompiledProgram,
     RunResult (..),
     runExpr,
+    runExprObserved,
     runExprWithHost,
+    runExprWithHostObserved,
     runSource,
+    runSourceObserved,
     runSourceWithHost,
+    runSourceWithHostObserved,
     runSourceWithPrelude,
     runSourceWithPreludeAndHost,
     runSourceWithResolvedPrelude,
     runSourceWithResolvedPreludeAndHost,
+    runSourceWithResolvedPreludeAndHostObserved,
     runModuleGraph,
+    runModuleGraphObserved,
     runModuleGraphWithHost,
+    runModuleGraphWithHostObserved,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithResolvedPreludeAndHost
+    runModuleGraphWithResolvedPreludeAndHost,
+    runModuleGraphWithResolvedPreludeAndHostObserved
   ) where
 
+import Control.Exception (evaluate)
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( SignatureType (..),
     Expr (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    RenderDiagnostic (..),
-    WarningRecord (..)
   )
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    RenderDiagnostic (..),
+    WarningRecord (..)
+  )
+import JazzNext.Compiler.Force
+  ( forceCompiledProgramResult,
+    forceInferenceResult
   )
 import JazzNext.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
@@ -62,7 +77,7 @@ import JazzNext.Compiler.ModuleResolver
   )
 import JazzNext.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
-    evaluateCompiledProgramWithHost
+    evaluateCompiledProgramWithHostObserved
   )
 import JazzNext.Compiler.Prelude
   ( PreparedPrelude (..),
@@ -70,9 +85,20 @@ import JazzNext.Compiler.Prelude
     preparePrelude,
     resolvedExplicitPrelude
   )
+import JazzNext.Compiler.Profiling
+  ( CompilerStage (..),
+    withCompilerStage,
+    withCompilerStageResult
+  )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements,
+  ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
     renderRuntimeValue
+  )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationReport,
+    RuntimeObservationRequest (..),
+    RuntimeObservationResult (..),
+    RuntimeOutcome (..)
   )
 import JazzNext.Compiler.RuntimeHost
   ( RuntimeHost,
@@ -108,7 +134,9 @@ data RunResult = RunResult
   { runWarnings :: [WarningRecord],
     runCompileErrors :: [Diagnostic],
     runRuntimeErrors :: [Diagnostic],
-    runOutput :: Maybe Text
+    runOutput :: Maybe Text,
+    runExitStatus :: Maybe Integer,
+    runRuntimeObservation :: Maybe RuntimeObservationReport
   }
   deriving (Eq, Show)
 
@@ -227,31 +255,40 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
               }
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
-runExpr = runExprWithHost disabledRuntimeHost
+runExpr = runExprObserved RuntimeObservationDisabled
+
+runExprObserved :: RuntimeObservationRequest -> WarningSettings -> Expr -> IO RunResult
+runExprObserved observationRequest =
+  runExprWithHostObserved observationRequest disabledRuntimeHost
 
 runExprWithHost :: RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
-runExprWithHost host = runExprWithBuiltinsAndHost host ResolveKernelOnly
+runExprWithHost = runExprWithHostObserved RuntimeObservationDisabled
 
-runExprWithBuiltinsAndHost :: RuntimeHost IO -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
-runExprWithBuiltinsAndHost host = runExprWithBuiltinsAndHiddenStatementsAndHost host Set.empty
+runExprWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
+runExprWithHostObserved observationRequest host =
+  runExprWithBuiltinsAndHostObserved observationRequest host ResolveKernelOnly
 
-runExprWithBuiltinsAndHiddenStatementsAndHost ::
+runExprWithBuiltinsAndHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
+runExprWithBuiltinsAndHostObserved observationRequest host =
+  runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host Set.empty
+
+runExprWithBuiltinsAndHiddenStatementsAndHostObserved ::
+  RuntimeObservationRequest ->
   RuntimeHost IO ->
   Set Int ->
   BuiltinResolutionMode ->
   WarningSettings ->
   Expr ->
   IO RunResult
-runExprWithBuiltinsAndHiddenStatementsAndHost host hiddenStatementIndices builtinMode settings expr =
-  runExprWithBuiltinsAndSourceUnitStatementsAndHost
+runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host hiddenStatementIndices =
+  runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved
+    observationRequest
     host
     hiddenStatementIndices
     hiddenStatementIndices
-    builtinMode
-    settings
-    expr
 
-runExprWithBuiltinsAndSourceUnitStatementsAndHost ::
+runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
+  RuntimeObservationRequest ->
   RuntimeHost IO ->
   Set Int ->
   Set Int ->
@@ -259,7 +296,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHost ::
   WarningSettings ->
   Expr ->
   IO RunResult
-runExprWithBuiltinsAndSourceUnitStatementsAndHost host hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
+runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   (warnings, analysisErrors, canonicalExpr, runtimeTypeHints) <-
     analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   if not (null analysisErrors)
@@ -269,41 +306,70 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHost host hiddenStatementIndices pr
           { runWarnings = warnings,
             runCompileErrors = analysisErrors,
             runRuntimeErrors = [],
-            runOutput = Nothing
+            runOutput = Nothing,
+            runExitStatus = Nothing,
+            runRuntimeObservation = Nothing
           }
     else do
       runtimeResult <-
-        evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
+        evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
+          observationRequest
           host
           preludeStatementIndices
           builtinMode
           runtimeTypeHints
           canonicalExpr
-      case runtimeResult of
-        Left runtimeError ->
+      case runtimeObservationOutcome runtimeResult of
+        RuntimeOutcomeFailed runtimeError ->
           pure
             RunResult
               { runWarnings = warnings,
                 runCompileErrors = [],
                 runRuntimeErrors = [runtimeError],
-                runOutput = Nothing
+                runOutput = Nothing,
+                runExitStatus = Nothing,
+                runRuntimeObservation = runtimeObservationReport runtimeResult
               }
-        Right runtimeValue ->
+        RuntimeOutcomeExited status ->
           pure
             RunResult
               { runWarnings = warnings,
                 runCompileErrors = [],
                 runRuntimeErrors = [],
-                runOutput = fmap renderRuntimeValue runtimeValue
+                runOutput = Nothing,
+                runExitStatus = Just status,
+                runRuntimeObservation = runtimeObservationReport runtimeResult
+              }
+        RuntimeOutcomeCompleted runtimeValue ->
+          pure
+            RunResult
+              { runWarnings = warnings,
+                runCompileErrors = [],
+                runRuntimeErrors = [],
+                runOutput = fmap renderRuntimeValue runtimeValue,
+                runExitStatus = Nothing,
+                runRuntimeObservation = runtimeObservationReport runtimeResult
               }
 
 runSource :: WarningSettings -> Text -> IO RunResult
-runSource = runSourceWithHost disabledRuntimeHost
+runSource = runSourceObserved RuntimeObservationDisabled
+
+runSourceObserved :: RuntimeObservationRequest -> WarningSettings -> Text -> IO RunResult
+runSourceObserved observationRequest =
+  runSourceWithHostObserved observationRequest disabledRuntimeHost
 
 runSourceWithHost :: RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
-runSourceWithHost host settings source = do
+runSourceWithHost = runSourceWithHostObserved RuntimeObservationDisabled
+
+runSourceWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
+runSourceWithHostObserved observationRequest host settings source = do
   bundledPreludeSource <- loadBundledPreludeSource
-  runSourceWithResolvedPreludeAndHost host settings (PreludeBundled bundledPreludeSource) source
+  runSourceWithResolvedPreludeAndHostObserved
+    observationRequest
+    host
+    settings
+    (PreludeBundled bundledPreludeSource)
+    source
 
 runSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO RunResult
 runSourceWithPrelude = runSourceWithPreludeAndHost disabledRuntimeHost
@@ -316,7 +382,11 @@ runSourceWithResolvedPrelude :: WarningSettings -> ResolvedPrelude -> Text -> IO
 runSourceWithResolvedPrelude = runSourceWithResolvedPreludeAndHost disabledRuntimeHost
 
 runSourceWithResolvedPreludeAndHost :: RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
-runSourceWithResolvedPreludeAndHost host settings resolvedPrelude source =
+runSourceWithResolvedPreludeAndHost =
+  runSourceWithResolvedPreludeAndHostObserved RuntimeObservationDisabled
+
+runSourceWithResolvedPreludeAndHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
+runSourceWithResolvedPreludeAndHostObserved observationRequest host settings resolvedPrelude source =
   case parseAndLowerSource resolvedPrelude source of
     Left parseErrorCode ->
       pure
@@ -324,10 +394,13 @@ runSourceWithResolvedPreludeAndHost host settings resolvedPrelude source =
           { runWarnings = [],
             runCompileErrors = [parseErrorCode],
             runRuntimeErrors = [],
-            runOutput = Nothing
+            runOutput = Nothing,
+            runExitStatus = Nothing,
+            runRuntimeObservation = Nothing
           }
     Right loweredProgram ->
-      runExprWithBuiltinsAndSourceUnitStatementsAndHost
+      runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved
+        observationRequest
         host
         (parsedHiddenStatementIndices loweredProgram)
         (parsedPreludeStatementIndices loweredProgram)
@@ -341,8 +414,17 @@ runModuleGraph ::
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
-runModuleGraph settings resolutionConfig entryModulePath sourceLookup = do
-  runModuleGraphWithHost disabledRuntimeHost settings resolutionConfig entryModulePath sourceLookup
+runModuleGraph = runModuleGraphObserved RuntimeObservationDisabled
+
+runModuleGraphObserved ::
+  RuntimeObservationRequest ->
+  WarningSettings ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO RunResult
+runModuleGraphObserved observationRequest =
+  runModuleGraphWithHostObserved observationRequest disabledRuntimeHost
 
 runModuleGraphWithHost ::
   RuntimeHost IO ->
@@ -351,9 +433,20 @@ runModuleGraphWithHost ::
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
-runModuleGraphWithHost host settings resolutionConfig entryModulePath sourceLookup = do
+runModuleGraphWithHost = runModuleGraphWithHostObserved RuntimeObservationDisabled
+
+runModuleGraphWithHostObserved ::
+  RuntimeObservationRequest ->
+  RuntimeHost IO ->
+  WarningSettings ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO RunResult
+runModuleGraphWithHostObserved observationRequest host settings resolutionConfig entryModulePath sourceLookup = do
   bundledPreludeSource <- loadBundledPreludeSource
-  runModuleGraphWithResolvedPreludeAndHost
+  runModuleGraphWithResolvedPreludeAndHostObserved
+    observationRequest
     host
     settings
     (PreludeBundled bundledPreludeSource)
@@ -412,6 +505,25 @@ runModuleGraphWithResolvedPreludeAndHost ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPreludeAndHost host settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
+  runModuleGraphWithResolvedPreludeAndHostObserved
+    RuntimeObservationDisabled
+    host
+    settings
+    resolvedPrelude
+    resolutionConfig
+    entryModulePath
+    sourceLookup
+
+runModuleGraphWithResolvedPreludeAndHostObserved ::
+  RuntimeObservationRequest ->
+  RuntimeHost IO ->
+  WarningSettings ->
+  ResolvedPrelude ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO RunResult
+runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
   compiledResult <-
     buildCompiledProgram
       settings
@@ -426,7 +538,9 @@ runModuleGraphWithResolvedPreludeAndHost host settings resolvedPrelude resolutio
           { runWarnings = [],
             runCompileErrors = [diagnostic],
             runRuntimeErrors = [],
-            runOutput = Nothing
+            runOutput = Nothing,
+            runExitStatus = Nothing,
+            runRuntimeObservation = Nothing
           }
     Right compiledProgram ->
       let warnings = compiledProgramWarnings compiledProgram
@@ -439,26 +553,42 @@ runModuleGraphWithResolvedPreludeAndHost host settings resolvedPrelude resolutio
                   { runWarnings = warnings,
                     runCompileErrors = promotedCompileErrors,
                     runRuntimeErrors = [],
-                    runOutput = Nothing
+                    runOutput = Nothing,
+                    runExitStatus = Nothing,
+                    runRuntimeObservation = Nothing
                   }
             else do
-              runtimeResult <- evaluateCompiledProgramWithHost host compiledProgram
-              case runtimeResult of
-                Left runtimeError ->
+              runtimeResult <- evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram
+              case runtimeObservationOutcome runtimeResult of
+                RuntimeOutcomeFailed runtimeError ->
                   pure
                     RunResult
                       { runWarnings = warnings,
                         runCompileErrors = [],
                         runRuntimeErrors = [runtimeError],
-                        runOutput = Nothing
+                        runOutput = Nothing,
+                        runExitStatus = Nothing,
+                        runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
-                Right runtimeProgram ->
+                RuntimeOutcomeExited status ->
                   pure
                     RunResult
                       { runWarnings = warnings,
                         runCompileErrors = [],
                         runRuntimeErrors = [],
-                        runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram
+                        runOutput = Nothing,
+                        runExitStatus = Just status,
+                        runRuntimeObservation = runtimeObservationReport runtimeResult
+                      }
+                RuntimeOutcomeCompleted runtimeProgram ->
+                  pure
+                    RunResult
+                      { runWarnings = warnings,
+                        runCompileErrors = [],
+                        runRuntimeErrors = [],
+                        runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram,
+                        runExitStatus = Nothing,
+                        runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
 
 buildCompiledProgram ::
@@ -473,18 +603,26 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
     Left preludeError -> pure (Left preludeError)
     Right preparedPrelude -> do
       resolvedResult <-
-        resolveProgram
-          resolutionConfig
-          (preparedPreludeBuiltinMode preparedPrelude)
-          (preparedPreludeVisibleValues preparedPrelude)
-          (preparedPreludeVisibleClasses preparedPrelude)
-          sourceLookup
-          entryModulePath
+        withCompilerStage ModuleDiscoveryStage $
+          resolveProgram
+            resolutionConfig
+            (preparedPreludeBuiltinMode preparedPrelude)
+            (preparedPreludeVisibleValues preparedPrelude)
+            (preparedPreludeVisibleClasses preparedPrelude)
+            profiledSourceLookup
+            entryModulePath
       case resolvedResult of
         Left resolutionError -> pure (Left resolutionError)
-        Right resolvedProgram -> do
-          compiledPrelude <- compilePreparedPrelude settings preparedPrelude
-          Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+        Right resolvedProgram ->
+          withCompilerStageResult RuntimePreparationStage (evaluate . forceCompiledProgramResult) $ do
+            compiledPrelude <- compilePreparedPrelude settings preparedPrelude
+            Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+  where
+    profiledSourceLookup sourcePath =
+      withCompilerStageResult
+        SourceLoadingStage
+        (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
+        (sourceLookup sourcePath)
 
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
@@ -492,12 +630,16 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
 analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
 analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   inference <-
-    inferExpressionWithBuiltinsAndSourceUnitStatements
-      builtinMode
-      hiddenStatementIndices
-      preludeStatementIndices
-      settings
-      expr
+    withCompilerStageResult
+      TypeInferenceStage
+      (evaluate . forceInferenceResult)
+      ( inferExpressionWithBuiltinsAndSourceUnitStatements
+          builtinMode
+          hiddenStatementIndices
+          preludeStatementIndices
+          settings
+          expr
+      )
   let warnings = inferredWarnings inference
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings

@@ -156,6 +156,7 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
 
 analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
 analyzeProgramWithInputs inputs hiddenStatementIndices expr =
+  {-# SCC "jazz-stage:static-analysis" #-}
   let (warnings, errors) =
         case expr of
           EBlock statements ->

@@ -8,17 +8,34 @@ license: GPL-3.0-only
 maintainer: un3qual
 category: Language
 
+extra-doc-files:
+    README.md
+    PERFORMANCE.md
+    programs/README.md
+
 extra-source-files:
     jazz/stdlib/*.jz
     jazz/compiler/*.jz
+    programs/corpus.json
+    programs/**/*.jz
+    programs/**/*.stdout
     editors/vscode-jazz/README.md
     editors/vscode-jazz/package.json
     editors/vscode-jazz/language-configuration.json
     editors/vscode-jazz/syntaxes/*.json
     editors/vscode-jazz/fixtures/*.jz
+    test/fixtures/runtime-observation/*.jz
+    test/fixtures/runtime-observation/module-success/src/App/*.jz
+    test/fixtures/runtime-observation/module-cache/src/App/*.jz
+    test/fixtures/runtime-observation/module-profile/src/App/*.jz
 
 flag development
   description: Treat compiler warnings as build failures in the repository workspace.
+  default: False
+  manual: True
+
+flag profiling-workflow
+  description: Link opt-in profiling executables with unrestricted RTS options.
   default: False
   manual: True
 
@@ -48,6 +65,7 @@ library jazz-next-internal
       JazzNext.Compiler.CapabilityFacts
       JazzNext.Compiler.Diagnostics
       JazzNext.Compiler.Driver
+      JazzNext.Compiler.Force
       JazzNext.Compiler.FractionalLiteral
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleExports
@@ -70,9 +88,13 @@ library jazz-next-internal
       JazzNext.Compiler.Pattern
       JazzNext.Compiler.PreludeContract
       JazzNext.Compiler.Prelude
+      JazzNext.Compiler.Profiling
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
+      JazzNext.Compiler.Runtime.Observation
+      JazzNext.Compiler.Runtime.Observation.Profile
+      JazzNext.Compiler.Runtime.Observation.Render
       JazzNext.Compiler.Runtime.Primitives
       JazzNext.Compiler.Runtime.ScopePlan
       JazzNext.Compiler.Runtime.Semantics
@@ -95,6 +117,7 @@ library jazz-next-internal
       JazzNext.Compiler.WarningConfig
       JazzNext.Compiler.Warnings
   build-depends:
+      aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
       bytestring >= 0.12 && < 0.13,
       containers >= 0.8 && < 0.9,
@@ -103,6 +126,8 @@ library jazz-next-internal
       megaparsec >= 9 && < 10,
       text >= 2.1 && < 2.2,
       transformers >= 0.6 && < 0.7
+  if flag(profiling-workflow)
+    cpp-options: -DJAZZ_GHC_PROFILING
 
 executable jazz-next
   import: warning-settings
@@ -112,6 +137,8 @@ executable jazz-next
   build-depends:
       base >= 4.22 && < 4.23,
       jazz-next:jazz-next-internal
+  if flag(profiling-workflow)
+    ghc-options: -rtsopts
 
 common test-common
   import: warning-settings
@@ -130,10 +157,104 @@ common test-common
       text >= 2.1 && < 2.2,
       transformers >= 0.6 && < 0.7
 
+common program-support
+  hs-source-dirs: program-support
+  other-modules:
+      JazzNext.ProgramCorpus.Manifest
+      JazzNext.ProgramCorpus.Runner
+      JazzNext.ProgramCorpus.Types
+  build-depends:
+      aeson >= 2.2 && < 2.3,
+      base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
+      directory >= 1.3 && < 1.4,
+      filepath >= 1.5 && < 1.6,
+      jazz-next:jazz-next-internal,
+      text >= 2.1 && < 2.2
+
+test-suite program-corpus-spec
+  import: test-common, program-support
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/ProgramCorpus/ProgramCorpusSpec.hs
+
+benchmark jazz-next-bench
+  import: warning-settings, program-support
+  type: exitcode-stdio-1.0
+  hs-source-dirs: benchmark
+  main-is: Main.hs
+  other-modules:
+      JazzNext.Benchmark.Force
+      JazzNext.Benchmark.Metadata
+      JazzNext.Benchmark.StageInputs
+      JazzNext.Benchmark.Stages
+      Paths_jazz_next
+  autogen-modules: Paths_jazz_next
+  default-language: Haskell2010
+  ghc-options: -fproc-alignment=64
+  if flag(profiling-workflow)
+    ghc-options: -rtsopts
+  build-depends:
+      aeson >= 2.2 && < 2.3,
+      base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
+      containers >= 0.8 && < 0.9,
+      deepseq >= 1.5 && < 1.6,
+      directory >= 1.3 && < 1.4,
+      filepath >= 1.5 && < 1.6,
+      jazz-next:jazz-next-internal,
+      process >= 1.6 && < 1.7,
+      tasty >= 1.5 && < 1.6,
+      tasty-bench >= 0.4.1 && < 0.6,
+      text >= 2.1 && < 2.2,
+      time >= 1.15 && < 1.16
+
+test-suite benchmark-metadata-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  hs-source-dirs: benchmark
+  main-is: JazzNext/Benchmark/MetadataSpec.hs
+  other-modules:
+      JazzNext.Benchmark.Metadata
+      Paths_jazz_next
+  autogen-modules: Paths_jazz_next
+  build-depends:
+      aeson >= 2.2 && < 2.3,
+      bytestring >= 0.12 && < 0.13,
+      process >= 1.6 && < 1.7,
+      time >= 1.15 && < 1.16
+
+test-suite benchmark-stage-spec
+  import: test-common, program-support
+  type: exitcode-stdio-1.0
+  hs-source-dirs: benchmark
+  main-is: JazzNext/Benchmark/StageSpec.hs
+  other-modules:
+      JazzNext.Benchmark.Force
+      JazzNext.Benchmark.StageInputs
+  build-depends:
+      deepseq >= 1.5 && < 1.6
+
+test-suite runtime-observation-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Runtime/ObservationSpec.hs
+  other-modules:
+      JazzNext.Compiler.Runtime.Observation.ProfileTests
+      JazzNext.Compiler.Runtime.Observation.StatisticsTests
+  build-depends:
+      aeson >= 2.2 && < 2.3
+
+test-suite profiling-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/ProfilingSpec.hs
+
 test-suite cli-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/CLI/CLISpec.hs
+  build-depends:
+      aeson >= 2.2 && < 2.3
 
 test-suite warning-config-spec
   import: test-common

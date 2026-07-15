@@ -199,7 +199,9 @@ inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr 
   inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices hiddenStatementIndices expr
 
 inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr = do
+inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr =
+  {-# SCC "jazz-stage:type-inference" #-}
+  do
   AnalysisResult _ warnings errors <-
     analyzeProgramWithInputs
       (analysisInputsForInference inputs)

@@ -12,9 +12,11 @@ module JazzNext.Compiler.Runtime.Types
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
     DeferredHostBindingState (..),
+    RuntimeControl (..),
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
     RuntimeExplicitResultHints,
+    RuntimeClosure (..),
     RuntimeValue
       ( VInt,
         VFloat,
@@ -53,6 +55,7 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
+import Data.Word (Word64)
 import JazzNext.Compiler.AST
   ( DataConstructorArgument,
     Expr,
@@ -68,6 +71,10 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral (FractionalLiteralSource)
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeCallableIdentity,
+    RuntimeObservationState,
+  )
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -102,14 +109,34 @@ data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe 
 
 data DeferredHostBindingState
   = DeferredHostBindingEvaluating
-  | DeferredHostBindingEvaluated (Either Diagnostic RuntimeValue)
+  | DeferredHostBindingEvaluated (Either RuntimeControl RuntimeValue)
+
+-- | Interpreter-internal non-local control. Runtime diagnostics and requested
+-- process exits share the evaluator's unwind path without conflating exit with
+-- an error visible to Jazz programs.
+data RuntimeControl
+  = RuntimeDiagnostic Diagnostic
+  | RuntimeExitRequested Integer
 
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
-    runtimeHostEvaluationNextScopeId :: Int
+    runtimeHostEvaluationNextScopeId :: Int,
+    runtimeHostEvaluationActiveMachineCount :: Int,
+    runtimeHostEvaluationContinuationDepth :: Word64,
+    runtimeHostEvaluationObservation :: RuntimeObservationState
   }
 
 type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
+
+data RuntimeClosure = RuntimeClosure
+  { runtimeClosureEnvironment :: RuntimeEnv,
+    runtimeClosureEnvironmentMayReachHostCells :: Bool,
+    runtimeClosureParameter :: Name,
+    runtimeClosureBody :: Expr,
+    runtimeClosureTypeHint :: Maybe SignatureType,
+    runtimeClosureModulePath :: Maybe [Text],
+    runtimeClosureCallableIdentity :: RuntimeCallableIdentity
+  }
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -119,7 +146,7 @@ data RuntimeValue
   | VText Text
   | VList [RuntimeValue] (Maybe SignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Bool Name Expr (Maybe SignatureType) (Maybe [Text])
+  | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -131,6 +158,7 @@ data RuntimeValue
   | VRuntimeExplicitResultHints RuntimeExplicitResultHints RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
+      Diagnostic
       (Maybe [Text])
       Expr
       RuntimeEnv
@@ -180,8 +208,15 @@ instance Show RuntimeValue where
       VText textValue -> "VText " <> show textValue
       VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
-      VClosure _ _ parameterName bodyExpr maybeTypeHint modulePath ->
-        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint <> " " <> show modulePath
+      VClosure closure ->
+        "VClosure <env> "
+          <> show (runtimeClosureParameter closure)
+          <> " "
+          <> show (runtimeClosureBody closure)
+          <> " "
+          <> show (runtimeClosureTypeHint closure)
+          <> " "
+          <> show (runtimeClosureModulePath closure)
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
       VOperator operatorSymbol capturedArgs ->

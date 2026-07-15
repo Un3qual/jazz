@@ -1,0 +1,20 @@
+module Tree {
+  data Tree a = Leaf a | Branch (Tree(a)) (Tree(a)).
+
+  mapTree :: (a -> b) -> Tree(a) -> Tree(b).
+  mapTree = \(transform, tree) -> case tree {
+    | Leaf value -> Leaf (transform value)
+    | Branch left right -> Branch (mapTree transform left) (mapTree transform right)
+  }.
+
+  foldTree :: (a -> b) -> (b -> b -> b) -> Tree(a) -> b.
+  foldTree = \(fromLeaf, combine, tree) -> case tree {
+    | Leaf value -> fromLeaf value
+    | Branch left right -> combine (foldTree fromLeaf combine left) (foldTree fromLeaf combine right)
+  }.
+
+  buildTree :: Int -> Int -> Tree(Int).
+  buildTree = \(depth, seed) -> if depth == 0 then
+    Leaf seed
+    else Branch (buildTree (depth - 1) seed) (buildTree (depth - 1) (seed + depth)).
+}

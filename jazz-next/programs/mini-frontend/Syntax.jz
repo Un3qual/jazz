@@ -1,0 +1,6 @@
+module Syntax {
+  data Expression a = Literal a | Add (Expression(a)) (Expression(a)) | Reference Text | LetExpression Text (Expression(a)) (Expression(a)).
+
+  sampleExpression :: Expression(Int).
+  sampleExpression = LetExpression "answer" (Add (Literal 40) (Literal 2)) (Add (Reference "answer") (Literal 8)).
+}

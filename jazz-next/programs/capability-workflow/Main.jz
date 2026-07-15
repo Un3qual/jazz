@@ -1,0 +1,11 @@
+module Main {
+  import Workflow.
+
+  describeAll [
+    WorkItem "parser" Critical,
+    WorkItem "analyzer" Normal,
+    WorkItem "runtime" Critical,
+    WorkItem "native-backend" Deferred,
+    WorkItem "diagnostics" Normal
+  ].
+}

@@ -6,6 +6,7 @@
 module JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
+    RuntimeHostExit (..),
     RuntimeHost (..),
     disabledRuntimeHost,
     productionRuntimeHost,
@@ -20,11 +21,11 @@ import qualified Data.Text.Encoding as TextEncoding
 import GHC.IO.Exception
   ( IOErrorType (Interrupted, UnsupportedOperation)
   )
-import System.Environment (getArgs)
-import System.Exit
-  ( ExitCode (..),
-    exitWith
+import JazzNext.Compiler.Profiling
+  ( CompilerStage (HostOperationStage),
+    withCompilerStage
   )
+import System.Environment (getArgs)
 import System.IO
   ( Handle,
     stderr,
@@ -58,6 +59,14 @@ data HostIOFailure = HostIOFailure
   }
   deriving (Eq, Show)
 
+-- | Host exit handlers either return normally (useful for deterministic test
+-- hosts) or request that the runtime unwind and let the CLI apply the status
+-- after pending observation artifacts have been finalized.
+data RuntimeHostExit
+  = RuntimeHostExitReturned
+  | RuntimeHostExitRequested
+  deriving (Eq, Show)
+
 data RuntimeHost m = RuntimeHost
   { runtimeHostReadText :: Text -> m (Either HostIOFailure Text),
     runtimeHostWriteText :: Text -> Text -> m (Either HostIOFailure ()),
@@ -65,7 +74,7 @@ data RuntimeHost m = RuntimeHost
     runtimeHostWriteStdout :: Text -> m (Either HostIOFailure ()),
     runtimeHostWriteStderr :: Text -> m (Either HostIOFailure ()),
     runtimeHostArguments :: m [Text],
-    runtimeHostExit :: Integer -> m (Either HostIOFailure ())
+    runtimeHostExit :: Integer -> m (Either HostIOFailure RuntimeHostExit)
   }
 
 disabledRuntimeHost :: Applicative m => RuntimeHost m
@@ -85,19 +94,20 @@ disabledRuntimeHost =
 productionRuntimeHost :: RuntimeHost IO
 productionRuntimeHost =
   RuntimeHost
-    { runtimeHostReadText = readUtf8File,
-      runtimeHostWriteText = writeUtf8File,
-      runtimeHostReadStdin = readUtf8Handle stdin,
-      runtimeHostWriteStdout = writeUtf8Handle stdout,
-      runtimeHostWriteStderr = writeUtf8Handle stderr,
-      runtimeHostArguments = map Text.pack <$> getArgs,
-      runtimeHostExit = \status ->
-        exitWith
-          ( if status == 0
-              then ExitSuccess
-              else ExitFailure (fromInteger status)
-          )
+    { runtimeHostReadText = profileHostOperation . readUtf8File,
+      runtimeHostWriteText = \path contents -> profileHostOperation (writeUtf8File path contents),
+      runtimeHostReadStdin = profileHostOperation (readUtf8Handle stdin),
+      runtimeHostWriteStdout = profileHostOperation . writeUtf8Handle stdout,
+      runtimeHostWriteStderr = profileHostOperation . writeUtf8Handle stderr,
+      runtimeHostArguments = profileHostOperation (map Text.pack <$> getArgs),
+      runtimeHostExit = \_ ->
+        profileHostOperation (pure (Right RuntimeHostExitRequested))
     }
+
+profileHostOperation :: IO value -> IO value
+profileHostOperation action =
+  {-# SCC "jazz-stage:host-operation" #-}
+  withCompilerStage HostOperationStage action
 
 readUtf8File :: Text -> IO (Either HostIOFailure Text)
 readUtf8File path = do

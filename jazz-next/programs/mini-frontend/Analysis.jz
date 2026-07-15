@@ -1,0 +1,25 @@
+module Analysis {
+  import List.
+  import Syntax.
+
+  data Summary = Summary Int [Text].
+
+  nodeCount :: Expression(a) -> Int.
+  nodeCount = \(expression) -> case expression {
+    | Literal value -> 1
+    | Add left right -> 1 + nodeCount left + nodeCount right
+    | Reference name -> 1
+    | LetExpression name value body -> 1 + nodeCount value + nodeCount body
+  }.
+
+  collectReferences :: Expression(a) -> [Text] -> [Text].
+  collectReferences = \(expression, reversed) -> case expression {
+    | Literal value -> reversed
+    | Add left right -> collectReferences right (collectReferences left reversed)
+    | Reference name -> listPrepend name reversed
+    | LetExpression name value body -> collectReferences body (collectReferences value reversed)
+  }.
+
+  analyze :: Expression(a) -> Summary.
+  analyze = \(expression) -> Summary (nodeCount expression) (listReverse (collectReferences expression [])).
+}

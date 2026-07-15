@@ -41,7 +41,8 @@ import JazzNext.Compiler.ModuleRuntime
   )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.RuntimeHost
-  ( RuntimeHost (..)
+  ( RuntimeHost (..),
+    RuntimeHostExit (..)
   )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
@@ -588,7 +589,7 @@ recordingHost callsRef =
         pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (error "unexpected writeStderr host call"),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure (Right ())
+      runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
 
 compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram

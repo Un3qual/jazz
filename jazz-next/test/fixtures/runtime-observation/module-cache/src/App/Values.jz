@@ -1,0 +1,3 @@
+module App::Values {
+  answer = 42.
+}

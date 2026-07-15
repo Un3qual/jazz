@@ -64,7 +64,8 @@ import JazzNext.Compiler.Runtime.Semantics
     untypedIntMetadata
   )
 import JazzNext.Compiler.Runtime.Types
-  ( RuntimeFloatMetadata (..),
+  ( RuntimeClosure (..),
+    RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
@@ -72,30 +73,33 @@ import JazzNext.Compiler.Runtime.Types
   )
 
 -- | The only evaluator capability needed by primitive value semantics.
-type RuntimeApplication m =
-  RuntimeValue -> RuntimeValue -> ExceptT Diagnostic m RuntimeValue
+type RuntimeApplication error m =
+  RuntimeValue -> RuntimeValue -> ExceptT error m RuntimeValue
 
-liftRuntimeResult :: Monad m => Either Diagnostic value -> ExceptT Diagnostic m value
-liftRuntimeResult result =
+liftRuntimeResult :: Monad m => (Diagnostic -> error) -> Either Diagnostic value -> ExceptT error m value
+liftRuntimeResult injectDiagnostic result =
   case result of
-    Left diagnostic -> throwE diagnostic
+    Left diagnostic -> throwE (injectDiagnostic diagnostic)
     Right value -> pure value
 
 -- | Evaluate builtin semantics once enough arguments have been collected.
 evalBuiltin ::
   Monad m =>
-  RuntimeApplication m ->
+  (Diagnostic -> error) ->
+  RuntimeApplication error m ->
   BuiltinSymbol ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m RuntimeValue
-evalBuiltin applyRuntimeValue builtinFunction arguments =
+  ExceptT error m RuntimeValue
+evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinMap, [mapper, collection])
       | not (isFunctionValue mapper) ->
           throwE
-            ( runtimeDiagnostic
-                "E3015"
-                ("runtime primitive 'map' expects a function as its first argument, found " <> renderRuntimeType mapper)
+            ( injectDiagnostic
+                ( runtimeDiagnostic
+                    "E3015"
+                    ("runtime primitive 'map' expects a function as its first argument, found " <> renderRuntimeType mapper)
+                )
             )
       | otherwise ->
           case collection of
@@ -105,28 +109,34 @@ evalBuiltin applyRuntimeValue builtinFunction arguments =
               pure (VList mappedElements maybeMappedTypeHint)
             other ->
               throwE
-                ( runtimeDiagnostic
-                    "E3013"
-                    ("runtime primitive 'map' expects a list as its second argument, found " <> renderRuntimeType other)
+                ( injectDiagnostic
+                    ( runtimeDiagnostic
+                        "E3013"
+                        ("runtime primitive 'map' expects a list as its second argument, found " <> renderRuntimeType other)
+                    )
                 )
     (BuiltinFilter, [predicate, collection])
       | not (isFunctionValue predicate) ->
           throwE
-            ( runtimeDiagnostic
-                "E3017"
-                ("runtime primitive 'filter' expects a function as its first argument, found " <> renderRuntimeType predicate)
+            ( injectDiagnostic
+                ( runtimeDiagnostic
+                    "E3017"
+                    ("runtime primitive 'filter' expects a function as its first argument, found " <> renderRuntimeType predicate)
+                )
             )
       | otherwise ->
           case collection of
             VList elements maybeTypeHint ->
-              (`VList` maybeTypeHint) <$> filterElements applyRuntimeValue predicate elements
+              (`VList` maybeTypeHint) <$> filterElements injectDiagnostic applyRuntimeValue predicate elements
             other ->
               throwE
-                ( runtimeDiagnostic
-                    "E3018"
-                    ("runtime primitive 'filter' expects a list as its second argument, found " <> renderRuntimeType other)
+                ( injectDiagnostic
+                    ( runtimeDiagnostic
+                        "E3018"
+                        ("runtime primitive 'filter' expects a list as its second argument, found " <> renderRuntimeType other)
+                    )
                 )
-    _ -> liftRuntimeResult (evalBuiltinPure builtinFunction arguments)
+    _ -> liftRuntimeResult injectDiagnostic (evalBuiltinPure builtinFunction arguments)
 
 evalBuiltinPure :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 evalBuiltinPure builtinFunction arguments =
@@ -307,11 +317,12 @@ runtimeChar runtimeValue =
 -- predicate application returns a Bool.
 filterElements ::
   Monad m =>
-  RuntimeApplication m ->
+  (Diagnostic -> error) ->
+  RuntimeApplication error m ->
   RuntimeValue ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m [RuntimeValue]
-filterElements applyRuntimeValue predicate values = do
+  ExceptT error m [RuntimeValue]
+filterElements injectDiagnostic applyRuntimeValue predicate values = do
   results <- traverse applyPredicate values
   pure [value | (value, True) <- results]
   where
@@ -323,9 +334,11 @@ filterElements applyRuntimeValue predicate values = do
         VBool shouldKeep -> pure (value, shouldKeep)
         other ->
           throwE
-            ( runtimeDiagnostic
-                "E3019"
-                ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other)
+            ( injectDiagnostic
+                ( runtimeDiagnostic
+                    "E3019"
+                    ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other)
+                )
             )
 
 runtimeFunctionResultType :: RuntimeValue -> Maybe SignatureType
@@ -337,8 +350,9 @@ runtimeFunctionResultType runtimeValue =
       runtimeFunctionResultType innerValue
     VTyped (TypeFunction _ resultType) _ ->
       Just resultType
-    VClosure _ _ _ _ (Just (TypeFunction _ resultType)) _ ->
-      Just resultType
+    VClosure closure
+      | Just (TypeFunction _ resultType) <- runtimeClosureTypeHint closure ->
+          Just resultType
     _ ->
       Nothing
 
@@ -355,8 +369,10 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (TypeList (TypeList elementType))) ->
       Just elementType
-    (VClosure _ _ parameterName (EVar resultName) Nothing _, Just (TypeList elementType))
-      | resultName == parameterName ->
+    (VClosure closure, Just (TypeList elementType))
+      | EVar resultName <- runtimeClosureBody closure,
+        Nothing <- runtimeClosureTypeHint closure,
+        resultName == runtimeClosureParameter closure ->
           Just elementType
     _ ->
       Nothing
@@ -364,14 +380,15 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
 -- | Evaluate the builtin operator subset supported by the runtime.
 evalBinary ::
   Monad m =>
-  RuntimeApplication m ->
+  (Diagnostic -> error) ->
+  RuntimeApplication error m ->
   Text ->
   RuntimeValue ->
   RuntimeValue ->
-  ExceptT Diagnostic m RuntimeValue
-evalBinary applyRuntimeValue operatorSymbol leftValue rightValue
+  ExceptT error m RuntimeValue
+evalBinary injectDiagnostic applyRuntimeValue operatorSymbol leftValue rightValue
   | operatorSymbol == "$" = applyRuntimeValue leftValue rightValue
-  | otherwise = liftRuntimeResult (evalBinaryPure operatorSymbol leftValue rightValue)
+  | otherwise = liftRuntimeResult injectDiagnostic (evalBinaryPure operatorSymbol leftValue rightValue)
 
 evalBinaryPure :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalBinaryPure operatorSymbol leftValue rightValue
