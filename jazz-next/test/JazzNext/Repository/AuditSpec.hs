@@ -13,19 +13,19 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
-  ( SignatureType (..)
+  ( SignatureType (..),
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (E5001),
   )
 import JazzNext.Compiler.Diagnostics
   ( DiagnosticOrigin (ToolingOrigin),
-    mkErrorDiagnostic
+    mkErrorDiagnostic,
   )
 import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
-import JazzNext.Compiler.DiagnosticCatalog
-  ( ErrorCode (E5001)
-  )
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.Compiler.SignatureRendering
-  ( renderSignatureType
+  ( renderSignatureType,
   )
 import JazzNext.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
@@ -61,6 +61,7 @@ main = runTestSuite "RepositoryAudit" tests
 tests :: [NamedTest]
 tests =
   [ ("accepts a valid Jazz source module", testValidJazzModule),
+    ("accepts a multiline module export header", testMultilineModuleHeader),
     ("rejects a missing module header", testMissingModuleHeader),
     ("rejects a missing final closing brace", testMissingClosingBrace),
     ("rejects blank lines after the final closing brace", testTrailingBlankLines),
@@ -103,6 +104,23 @@ testValidJazzModule =
     "valid Jazz source violations"
     []
     (validateJazzModule "jazz/stdlib/Good.jz" validJazzSource)
+
+testMultilineModuleHeader :: IO ()
+testMultilineModuleHeader =
+  assertEqual
+    "multiline module header violations"
+    []
+    ( validateJazzModule
+        "jazz/stdlib/Good.jz"
+        """
+        module Good (
+          type Good,
+          value makeGood
+        ) {
+          makeGood = 1.
+        }
+        """
+    )
 
 testMissingModuleHeader :: IO ()
 testMissingModuleHeader =

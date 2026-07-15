@@ -1,4 +1,16 @@
-module Result (type Result(..), value resultMap, value resultMapError, value resultAndThen, value resultRecover, value resultWithDefault, value resultIsOk, value resultIsErr, value resultToMaybe, value resultErrorToMaybe, value resultFromMaybe) {
+module Result (
+  type Result(..),
+  value resultMap,
+  value resultMapError,
+  value resultAndThen,
+  value resultRecover,
+  value resultWithDefault,
+  value resultIsOk,
+  value resultIsErr,
+  value resultToMaybe,
+  value resultErrorToMaybe,
+  value resultFromMaybe
+) {
   import Maybe.
 
   data Result e a = Err e | Ok a.

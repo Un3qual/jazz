@@ -8,9 +8,7 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
-    runRuntimeErrors,
+  ( RunResult (runRuntimeObservation),
   )
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationReport (runtimeObservationStatistics),
@@ -18,35 +16,30 @@ import JazzNext.Compiler.Runtime.Observation
     RuntimeStatistics (runtimeListCellsConstructed),
   )
 import JazzNext.Compiler.Stdlib.Shared
-  ( runStdlibFixture,
+  ( assertSuccessfulStdlibOutput,
+    runStdlibFixtureExpecting,
     runStdlibSource,
     runStdlibSourceObserved,
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertEqual,
     failTest,
   )
 
 foundationTests :: [NamedTest]
 foundationTests =
-  [ ("list shape and slicing operations are total", fixtureTest ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
-    ("list transformations and folds preserve order", fixtureTest ["Stdlib", "Foundations", "ListTransform"] "stdlib/foundations/ListTransform.jz" expectedListTransform),
-    ("list operations define empty and clamped boundaries", fixtureTest ["Stdlib", "Foundations", "ListBoundaries"] "stdlib/foundations/ListBoundaries.jz" expectedListBoundaries),
-    ("list equality and ordering operations are deterministic", fixtureTest ["Stdlib", "Foundations", "ListNormalize"] "stdlib/foundations/ListNormalize.jz" expectedListNormalize),
-    ("list partial applications and stable sorting stay generic", fixtureTest ["Stdlib", "Foundations", "ListPartialStable"] "stdlib/foundations/ListPartialStable.jz" expectedListPartialStable),
-    ("Maybe and Result helpers preserve branch semantics", fixtureTest ["Stdlib", "Foundations", "MaybeResult"] "stdlib/foundations/MaybeResult.jz" expectedMaybeResult),
-    ("Maybe and Result helpers preserve alternate branches", fixtureTest ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
-    ("NonEmpty keeps its head-tail invariant", fixtureTest ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty),
+  [ ("list shape and slicing operations are total", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListShape"] "stdlib/foundations/ListShape.jz" expectedListShape),
+    ("list transformations and folds preserve order", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListTransform"] "stdlib/foundations/ListTransform.jz" expectedListTransform),
+    ("list operations define empty and clamped boundaries", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListBoundaries"] "stdlib/foundations/ListBoundaries.jz" expectedListBoundaries),
+    ("list equality and ordering operations are deterministic", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListNormalize"] "stdlib/foundations/ListNormalize.jz" expectedListNormalize),
+    ("list partial applications and stable sorting stay generic", runStdlibFixtureExpecting ["Stdlib", "Foundations", "ListPartialStable"] "stdlib/foundations/ListPartialStable.jz" expectedListPartialStable),
+    ("Maybe and Result helpers preserve branch semantics", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResult"] "stdlib/foundations/MaybeResult.jz" expectedMaybeResult),
+    ("Maybe and Result helpers preserve alternate branches", runStdlibFixtureExpecting ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
+    ("NonEmpty keeps its head-tail invariant", runStdlibFixtureExpecting ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty),
     ("large Jazz-written list traversals stay stack safe", testLargeListTraversal),
     ("stable list sorting stays within its logarithmic work bound", testStableSortWorkBound),
     ("list combination stays within a linear allocation bound", testListCombinationWorkBound)
   ]
-
-fixtureTest :: [Text] -> FilePath -> Text -> IO ()
-fixtureTest modulePath fixturePath expectedOutput = do
-  result <- runStdlibFixture modulePath fixturePath
-  assertSuccessfulOutput expectedOutput result
 
 testLargeListTraversal :: IO ()
 testLargeListTraversal = do
@@ -64,7 +57,7 @@ testLargeListTraversal = do
         listLength (listMap (\\(value) -> value + 1) values).
       }
       """
-  assertSuccessfulOutput "50000" result
+  assertSuccessfulStdlibOutput "50000" result
 
 testStableSortWorkBound :: IO ()
 testStableSortWorkBound = do
@@ -84,7 +77,7 @@ testStableSortWorkBound = do
         (listLength sorted, listHead sorted, listLast sorted).
       }
       """
-  assertSuccessfulOutput "(512, Just(1), Just(512))" result
+  assertSuccessfulStdlibOutput "(512, Just(1), Just(512))" result
   case runRuntimeObservation result of
     Nothing -> failTest "sorting work-bound run did not produce runtime statistics"
     Just report ->
@@ -112,7 +105,7 @@ testListCombinationWorkBound = do
         (listLength combined, listLength separated).
       }
       """
-  assertSuccessfulOutput "(256, 511)" result
+  assertSuccessfulStdlibOutput "(256, 511)" result
   case runRuntimeObservation result of
     Nothing -> failTest "list-combination work-bound run did not produce runtime statistics"
     Just report ->
@@ -120,12 +113,6 @@ testListCombinationWorkBound = do
        in if constructedCells <= 10000
             then pure ()
             else failTest ("list combination constructed too many list cells: " <> Text.pack (show constructedCells))
-
-assertSuccessfulOutput :: Text -> RunResult -> IO ()
-assertSuccessfulOutput expectedOutput result = do
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just expectedOutput) (runOutput result)
 
 expectedListShape, expectedListTransform, expectedListBoundaries, expectedListNormalize, expectedListPartialStable, expectedMaybeResult, expectedMaybeResultBranches, expectedNonEmpty :: Text
 expectedListShape = "(True, False, Nothing, Just(1), Nothing, Just([2, 3]), Nothing, Just(3), Nothing, Just([1, 2]), Nothing, Just(2), Nothing, [1, 2], [1, 2, 3], [1, 2, 3], [3], [], ([1, 2], [3]))"

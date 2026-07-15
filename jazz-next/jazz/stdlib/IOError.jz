@@ -1,4 +1,16 @@
-module IOError (type IOErrorCategory, constructor NotFound, constructor PermissionDenied, constructor AlreadyExists, constructor InvalidData, constructor ResourceExhausted, constructor Interrupted, constructor Unsupported, constructor Other, type IOError, constructor IOError) {
+module IOError (
+  type IOErrorCategory,
+  constructor NotFound,
+  constructor PermissionDenied,
+  constructor AlreadyExists,
+  constructor InvalidData,
+  constructor ResourceExhausted,
+  constructor Interrupted,
+  constructor Unsupported,
+  constructor Other,
+  type IOError,
+  constructor IOError
+) {
   import Maybe.
 
   data IOErrorCategory = NotFound | PermissionDenied | AlreadyExists | InvalidData | ResourceExhausted | Interrupted | Unsupported | Other.

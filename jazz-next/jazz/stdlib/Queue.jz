@@ -1,4 +1,19 @@
-module Queue (type Queue, value queueEmpty, value queueSingleton, value queueFromList, value queueToList, value queueSize, value queueIsEmpty, value queueEnqueue, value queueEnqueueAll, value queuePeek, value queueDequeue, value queueMap, value queueFoldLeft, value queueFoldRight) {
+module Queue (
+  type Queue,
+  value queueEmpty,
+  value queueSingleton,
+  value queueFromList,
+  value queueToList,
+  value queueSize,
+  value queueIsEmpty,
+  value queueEnqueue,
+  value queueEnqueueAll,
+  value queuePeek,
+  value queueDequeue,
+  value queueMap,
+  value queueFoldLeft,
+  value queueFoldRight
+) {
   import List.
   import Maybe.
 

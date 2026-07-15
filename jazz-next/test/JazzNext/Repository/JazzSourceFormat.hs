@@ -3,7 +3,7 @@
 module JazzNext.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
     renderJazzSourceFormatViolation,
-    validateJazzModule
+    validateJazzModule,
   )
 where
 
@@ -24,10 +24,6 @@ validateJazzModule path source
   | otherwise = headerViolations <> closingViolations <> indentationViolations
   where
     numberedLines = zip [1 ..] (Text.lines source)
-    firstLine =
-      case numberedLines of
-        [] -> Nothing
-        (_, line) : _ -> Just line
     finalLine =
       case reverse numberedLines of
         [] -> Nothing
@@ -38,31 +34,49 @@ validateJazzModule path source
         [] -> Nothing
         line : _ -> Just line
     headerViolations =
-      case firstLine of
-        Just line
-          | "module " `Text.isPrefixOf` line,
-            "{" `Text.isSuffixOf` line -> []
+      case moduleHeaderEndLineNumber of
+        Just _ -> []
         _ -> [InvalidModuleHeader path]
+    moduleHeaderEndLineNumber =
+      case numberedLines of
+        (1, firstLine) : rest
+          | "module " `Text.isPrefixOf` firstLine,
+            "{" `Text.isSuffixOf` firstLine ->
+              Just 1
+          | "module " `Text.isPrefixOf` firstLine,
+            "(" `Text.isSuffixOf` firstLine ->
+              case break ((== ") {") . Text.strip . snd) rest of
+                (exportLines, (lineNumber, _) : _)
+                  | not (null exportLines),
+                    all validExportLine exportLines ->
+                      Just lineNumber
+                _ -> Nothing
+        _ -> Nothing
+    validExportLine (_, line) =
+      not (Text.null (Text.strip line))
+        && Text.takeWhile isSpace line == "  "
     closingViolations =
       case finalLine of
         Just (_, "}") -> []
         _ -> [MissingFinalClosingBrace path]
     indentationViolations =
       [ InvalidBodyIndentation path lineNumber
-        | (lineNumber, line) <- bodyLines,
-          let leadingWhitespace = Text.takeWhile isSpace line,
-          not (Text.null (Text.strip line)),
-          not
-            ( Text.all (== ' ') leadingWhitespace
-                && Text.length leadingWhitespace >= 2
-                && even (Text.length leadingWhitespace)
-            )
+      | (lineNumber, line) <- bodyLines,
+        let leadingWhitespace = Text.takeWhile isSpace line,
+        not (Text.null (Text.strip line)),
+        not
+          ( Text.all (== ' ') leadingWhitespace
+              && Text.length leadingWhitespace >= 2
+              && even (Text.length leadingWhitespace)
+          )
       ]
     bodyLines =
-      case finalNonBlankLine of
-        Nothing -> []
-        Just (closingLineNumber, _) ->
-          filter (\(lineNumber, _) -> lineNumber > 1 && lineNumber < closingLineNumber) numberedLines
+      case (moduleHeaderEndLineNumber, finalNonBlankLine) of
+        (Just headerEndLineNumber, Just (closingLineNumber, _)) ->
+          filter
+            (\(lineNumber, _) -> lineNumber > headerEndLineNumber && lineNumber < closingLineNumber)
+            numberedLines
+        _ -> []
 
 renderJazzSourceFormatViolation :: JazzSourceFormatViolation -> Text
 renderJazzSourceFormatViolation violation =

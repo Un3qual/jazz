@@ -1,4 +1,18 @@
-module NonEmpty (type NonEmpty(..), value nonEmptySingleton, value nonEmptyFromList, value nonEmptyToList, value nonEmptyHead, value nonEmptyTail, value nonEmptyLast, value nonEmptyPrepend, value nonEmptyAppendList, value nonEmptyMap, value nonEmptyLength, value nonEmptyFoldLeft, value nonEmptyFoldRight) {
+module NonEmpty (
+  type NonEmpty(..),
+  value nonEmptySingleton,
+  value nonEmptyFromList,
+  value nonEmptyToList,
+  value nonEmptyHead,
+  value nonEmptyTail,
+  value nonEmptyLast,
+  value nonEmptyPrepend,
+  value nonEmptyAppendList,
+  value nonEmptyMap,
+  value nonEmptyLength,
+  value nonEmptyFoldLeft,
+  value nonEmptyFoldRight
+) {
   import List.
   import Maybe.
 

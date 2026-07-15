@@ -1,4 +1,23 @@
-module Set (type Set, value setEmpty, value setSingleton, value setFromList, value setToList, value setSize, value setIsEmpty, value setContains, value setInsert, value setRemove, value setUnion, value setIntersection, value setDifference, value setIsSubset, value setFilter, value setMap, value setFoldLeft, value setFoldRight) {
+module Set (
+  type Set,
+  value setEmpty,
+  value setSingleton,
+  value setFromList,
+  value setToList,
+  value setSize,
+  value setIsEmpty,
+  value setContains,
+  value setInsert,
+  value setRemove,
+  value setUnion,
+  value setIntersection,
+  value setDifference,
+  value setIsSubset,
+  value setFilter,
+  value setMap,
+  value setFoldLeft,
+  value setFoldRight
+) {
   import List.
   import Map.
 

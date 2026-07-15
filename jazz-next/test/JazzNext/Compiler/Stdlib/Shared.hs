@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.Stdlib.Shared
-  ( runStdlibFixture,
-    runStdlibPrivateProbe,
+  ( assertStdlibConstructorPrivate,
+    assertSuccessfulStdlibOutput,
+    runStdlibFixtureExpecting,
+    runStdlibPrivateProbeValue,
     runStdlibSource,
     runStdlibSourceObserved,
   )
@@ -22,11 +24,16 @@ import JazzNext.Compiler.Diagnostics
     DiagnosticOrigin (CompilationOrigin),
     mkErrorDiagnostic,
   )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic,
+  )
 import JazzNext.Compiler.Driver
-  ( RunResult,
+  ( RunResult (..),
     buildCompiledProgram,
+    runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runRuntimeErrors,
   )
 import JazzNext.Compiler.ModuleGraph
   ( ResolvedModule (resolvedModulePath),
@@ -56,22 +63,27 @@ import JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
     RuntimeEnv,
+    RuntimeValue,
     ScopeResult (..),
     evaluateModuleScope,
-    renderRuntimeValue,
   )
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationRequest,
-  )
-import JazzNext.Compiler.WarningConfig
-  ( defaultWarningSettings,
   )
 import JazzNext.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
   )
+import JazzNext.Compiler.WarningConfig
+  ( defaultWarningSettings,
+  )
 import JazzNext.Repository.SourceLayout
   ( JazzSourceRole (StandardLibrarySource),
+  )
+import JazzNext.TestHarness
+  ( assertContains,
+    assertEqual,
+    failTest,
   )
 import JazzNext.TestSource
   ( readCheckedInJazzModuleSource,
@@ -83,8 +95,30 @@ runStdlibFixture modulePath fixturePath = do
   source <- readCheckedInJazzTestFixture fixturePath
   runStdlibSource modulePath source
 
-runStdlibPrivateProbe :: [Text] -> Text -> IO (Either Diagnostic (Maybe Text))
-runStdlibPrivateProbe targetModulePath probeSource = do
+runStdlibFixtureExpecting :: [Text] -> FilePath -> Text -> IO ()
+runStdlibFixtureExpecting modulePath fixturePath expectedOutput = do
+  result <- runStdlibFixture modulePath fixturePath
+  assertSuccessfulStdlibOutput expectedOutput result
+
+assertSuccessfulStdlibOutput :: Text -> RunResult -> IO ()
+assertSuccessfulStdlibOutput expectedOutput result = do
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just expectedOutput) (runOutput result)
+
+assertStdlibConstructorPrivate :: [Text] -> Text -> Text -> IO ()
+assertStdlibConstructorPrivate modulePath constructorName source = do
+  result <- runStdlibSource modulePath source
+  case runCompileErrors result of
+    [] -> failTest (constructorName <> " constructor was unexpectedly public")
+    diagnostics ->
+      assertContains
+        (constructorName <> " private-constructor diagnostic")
+        ("unbound variable '" <> constructorName <> "'")
+        (Text.unlines (map renderDiagnostic diagnostics))
+
+runStdlibPrivateProbeValue :: [Text] -> Text -> IO (Either Diagnostic (Maybe RuntimeValue))
+runStdlibPrivateProbeValue targetModulePath probeSource = do
   bundledPreludeSource <- loadBundledPreludeSource
   compiledResult <-
     buildCompiledProgram
@@ -97,7 +131,7 @@ runStdlibPrivateProbe targetModulePath probeSource = do
     compiledProgram <- compiledResult
     case compiledProgramErrors compiledProgram of
       firstError : _ -> Left firstError
-      [] -> evaluateCompiledPrivateProbe targetModulePath probeSource compiledProgram
+      [] -> evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram
 
 runStdlibSource :: [Text] -> Text -> IO RunResult
 runStdlibSource modulePath entrySource =
@@ -139,8 +173,8 @@ modulePathFile :: [Text] -> FilePath
 modulePathFile =
   foldr1 (\segment suffix -> segment <> "/" <> suffix) . map Text.unpack
 
-evaluateCompiledPrivateProbe :: [Text] -> Text -> CompiledProgram -> Either Diagnostic (Maybe Text)
-evaluateCompiledPrivateProbe targetModulePath probeSource compiledProgram = do
+evaluateCompiledPrivateProbeValue :: [Text] -> Text -> CompiledProgram -> Either Diagnostic (Maybe RuntimeValue)
+evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram = do
   ambientEnvironment <- evaluateTestPrelude (compiledProgramPrelude compiledProgram)
   targetScope <- evaluateModules ambientEnvironment Nothing (compiledProgramModules compiledProgram)
   case targetScope of
@@ -155,7 +189,7 @@ evaluateCompiledPrivateProbe targetModulePath probeSource compiledProgram = do
           (interfaceRuntimeHints (compiledModuleInterface compiledModule))
           (withSourceAliases environment)
           (scopeStatements probeExpression)
-      pure (renderRuntimeValue <$> scopeResultValue probeResult)
+      pure (scopeResultValue probeResult)
   where
     evaluateModules _ targetScope [] = Right targetScope
     evaluateModules availableEnvironment targetScope (compiledModule : rest) = do
@@ -201,7 +235,7 @@ publishTestScope origin = Map.fromList . concatMap publishCell . Map.toList
       case name of
         SourceName identifier ->
           [ (ResolvedName origin namespace identifier, cell)
-            | namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
+          | namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
           ]
         QualifiedName qualifier member ->
           [ ( ResolvedName
@@ -223,7 +257,7 @@ withSourceAliases environment = Map.union aliases environment
     aliases =
       Map.fromList
         [ (sourceName identifier, cell)
-          | (ResolvedName CurrentModule _ identifier, cell) <- Map.toList environment
+        | (ResolvedName CurrentModule _ identifier, cell) <- Map.toList environment
         ]
 
 privateProbeDiagnostic :: [Text] -> Diagnostic

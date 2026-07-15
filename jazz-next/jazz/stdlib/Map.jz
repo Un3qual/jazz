@@ -1,4 +1,29 @@
-module Map (type Map, value mapEmpty, value mapSingleton, value mapFromList, value mapToList, value mapSize, value mapIsEmpty, value mapLookup, value mapGetOr, value mapContainsKey, value mapInsert, value mapReplace, value mapRemove, value mapUpdate, value mapMinimum, value mapMaximum, value mapPopMinimum, value mapPopMaximum, value mapKeys, value mapValues, value mapMapValues, value mapFilter, value mapFoldLeft, value mapFoldRight) {
+module Map (
+  type Map,
+  value mapEmpty,
+  value mapSingleton,
+  value mapFromList,
+  value mapToList,
+  value mapSize,
+  value mapIsEmpty,
+  value mapLookup,
+  value mapGetOr,
+  value mapContainsKey,
+  value mapInsert,
+  value mapReplace,
+  value mapRemove,
+  value mapUpdate,
+  value mapMinimum,
+  value mapMaximum,
+  value mapPopMinimum,
+  value mapPopMaximum,
+  value mapKeys,
+  value mapValues,
+  value mapMapValues,
+  value mapFilter,
+  value mapFoldLeft,
+  value mapFoldRight
+) {
   import List.
   import Maybe.
 
@@ -245,50 +270,4 @@ module Map (type Map, value mapEmpty, value mapSingleton, value mapFromList, val
   mapFilter = \(map, predicate) -> mapFoldLeft map mapEmpty (\(result, key, value) ->
     if predicate key value then mapInsert result key value else result
   ).
-
-  mapKeysLessThanBy :: (k -> k -> Ordering) -> k -> Map(k, v) -> Bool.
-  mapKeysLessThanBy = \(compare, upper, map) -> case map {
-    | MapEmpty -> True
-    | MapNode height size left key value right -> case compare key upper {
-      | LT -> if mapKeysLessThanBy compare upper left then mapKeysLessThanBy compare upper right else False
-      | EQ -> False
-      | GT -> False
-    }
-  }.
-
-  mapKeysGreaterThanBy :: (k -> k -> Ordering) -> k -> Map(k, v) -> Bool.
-  mapKeysGreaterThanBy = \(compare, lower, map) -> case map {
-    | MapEmpty -> True
-    | MapNode height size left key value right -> case compare key lower {
-      | LT -> False
-      | EQ -> False
-      | GT -> if mapKeysGreaterThanBy compare lower left then mapKeysGreaterThanBy compare lower right else False
-    }
-  }.
-
-  mapInvariantHoldsBy :: (k -> k -> Ordering) -> Map(k, v) -> Bool.
-  mapInvariantHoldsBy = \(compare, map) -> case map {
-    | MapEmpty -> True
-    | MapNode height size left key value right -> {
-      expectedHeight = 1 + mapMaximumInt (mapHeight left) (mapHeight right).
-      expectedSize = 1 + mapSize left + mapSize right.
-      balance = mapHeight left - mapHeight right.
-      if height == expectedHeight then
-        if size == expectedSize then
-          if balance >= (0 - 1) then
-            if balance <= 1 then
-              if mapKeysLessThanBy compare key left then
-                if mapKeysGreaterThanBy compare key right then
-                  if mapInvariantHoldsBy compare left then mapInvariantHoldsBy compare right else False
-                else False
-              else False
-            else False
-          else False
-        else False
-      else False.
-    }
-  }.
-
-  mapInvariantHolds :: @{Ord(k)}: Map(k, v) -> Bool.
-  mapInvariantHolds = \(map) -> mapInvariantHoldsBy (\(left, right) -> Ord::compare left right) map.
 }

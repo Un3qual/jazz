@@ -1,4 +1,15 @@
-module Maybe (type Maybe(..), value maybeMap, value maybeAndThen, value maybeWithDefault, value maybeOrElse, value maybeFilter, value maybeIsJust, value maybeIsNothing, value maybeToList, value maybeFromList) {
+module Maybe (
+  type Maybe(..),
+  value maybeMap,
+  value maybeAndThen,
+  value maybeWithDefault,
+  value maybeOrElse,
+  value maybeFilter,
+  value maybeIsJust,
+  value maybeIsNothing,
+  value maybeToList,
+  value maybeFromList
+) {
   data Maybe a = Nothing | Just a.
 
   maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).

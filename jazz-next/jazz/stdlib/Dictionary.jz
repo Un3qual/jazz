@@ -1,4 +1,25 @@
-module Dictionary (type Dictionary, value dictionaryEmpty, value dictionarySingleton, value dictionaryFromList, value dictionaryToList, value dictionarySize, value dictionaryIsEmpty, value dictionaryLookup, value dictionaryGetOr, value dictionaryContainsKey, value dictionaryInsert, value dictionaryReplace, value dictionaryRemove, value dictionaryUpdate, value dictionaryKeys, value dictionaryValues, value dictionaryMapValues, value dictionaryFilter, value dictionaryFoldLeft, value dictionaryFoldRight) {
+module Dictionary (
+  type Dictionary,
+  value dictionaryEmpty,
+  value dictionarySingleton,
+  value dictionaryFromList,
+  value dictionaryToList,
+  value dictionarySize,
+  value dictionaryIsEmpty,
+  value dictionaryLookup,
+  value dictionaryGetOr,
+  value dictionaryContainsKey,
+  value dictionaryInsert,
+  value dictionaryReplace,
+  value dictionaryRemove,
+  value dictionaryUpdate,
+  value dictionaryKeys,
+  value dictionaryValues,
+  value dictionaryMapValues,
+  value dictionaryFilter,
+  value dictionaryFoldLeft,
+  value dictionaryFoldRight
+) {
   import List.
   import Maybe.
 

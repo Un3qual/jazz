@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.Stdlib.OrderedCollectionsTests
@@ -5,45 +6,45 @@ module JazzNext.Compiler.Stdlib.OrderedCollectionsTests
   )
 where
 
+import Control.Monad (guard)
+import qualified Data.Map.Strict as ReferenceMap
+import Data.Maybe (isJust)
+import qualified Data.Set as ReferenceSet
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Map.Strict as ReferenceMap
-import qualified Data.Set as ReferenceSet
-import JazzNext.Compiler.Diagnostics.Render
-  ( renderDiagnostic,
+import JazzNext.Compiler.Name
+  ( IdentifierLike (identifierText),
+    Name (..),
   )
-import JazzNext.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
-    runRuntimeErrors,
+import JazzNext.Compiler.Runtime
+  ( RuntimeValue (..),
+    data VExplicitResultHints,
   )
 import JazzNext.Compiler.Stdlib.Shared
-  ( runStdlibFixture,
-    runStdlibPrivateProbe,
+  ( assertStdlibConstructorPrivate,
+    assertSuccessfulStdlibOutput,
+    runStdlibFixtureExpecting,
+    runStdlibPrivateProbeValue,
     runStdlibSource,
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
-    failTest,
   )
 
 orderedCollectionTests :: [NamedTest]
 orderedCollectionTests =
-  [ ("Map preserves ordered persistent behavior", fixtureTest ["Stdlib", "OrderedCollections", "Map"] "stdlib/ordered-collections/Map.jz" expectedMap),
-    ("Map handles every AVL rotation and removal shape", fixtureTest ["Stdlib", "OrderedCollections", "MapShapes"] "stdlib/ordered-collections/MapShapes.jz" expectedMapShapes),
-    ("Set reuses ordered map behavior for set algebra", fixtureTest ["Stdlib", "OrderedCollections", "Set"] "stdlib/ordered-collections/Set.jz" expectedSet),
+  [ ("Map constructs and looks up ordered entries", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "Map"] "stdlib/ordered-collections/Map.jz" expectedMapBasics),
+    ("Map updates preserve prior versions", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "MapPersistence"] "stdlib/ordered-collections/MapPersistence.jz" expectedMapPersistence),
+    ("Map extrema expose the remaining persistent map", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "MapExtrema"] "stdlib/ordered-collections/MapExtrema.jz" expectedMapExtrema),
+    ("Map traversals and transformations preserve order", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "MapTraversal"] "stdlib/ordered-collections/MapTraversal.jz" expectedMapTraversal),
+    ("Map handles every AVL rotation and removal shape", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "MapShapes"] "stdlib/ordered-collections/MapShapes.jz" expectedMapShapes),
+    ("Set reuses ordered map behavior for set algebra", runStdlibFixtureExpecting ["Stdlib", "OrderedCollections", "Set"] "stdlib/ordered-collections/Set.jz" expectedSet),
     ("Map matches a deterministic Data.Map trace", testMapModelTrace),
     ("Set matches a deterministic Data.Set trace", testSetModelTrace),
     ("Map invariants hold after every generated trace prefix", testMapInvariants),
     ("ordered collection constructors remain private", testPrivateConstructors)
   ]
-
-fixtureTest :: [Text] -> FilePath -> Text -> IO ()
-fixtureTest modulePath fixturePath expectedOutput = do
-  result <- runStdlibFixture modulePath fixturePath
-  assertSuccessfulOutput expectedOutput result
 
 testMapModelTrace :: IO ()
 testMapModelTrace = do
@@ -70,7 +71,7 @@ testMapModelTrace = do
          mapFoldLeft final 0 (\\(total, key, value) -> total + key + value)).
       }
       """
-  assertSuccessfulOutput expectedMapModel result
+  assertSuccessfulStdlibOutput expectedMapModel result
 
 testSetModelTrace :: IO ()
 testSetModelTrace = do
@@ -93,12 +94,12 @@ testSetModelTrace = do
          setFoldLeft final 0 (\\(total, value) -> total + value)).
       }
       """
-  assertSuccessfulOutput expectedSetModel result
+  assertSuccessfulStdlibOutput expectedSetModel result
 
 testMapInvariants :: IO ()
 testMapInvariants = do
   result <-
-    runStdlibPrivateProbe
+    runStdlibPrivateProbeValue
       ["Map"]
       """
       leftLeft = mapFromList [(3, "c"), (2, "b"), (1, "a")].
@@ -109,29 +110,108 @@ testMapInvariants = do
         | 0 -> map
         | _ -> build (remaining - 1) (mapInsert map remaining (remaining * 2))
       }.
-      insertTraceHolds = \\(remaining, map) -> if mapInvariantHolds map then case remaining {
-        | 0 -> True
-        | _ -> insertTraceHolds (remaining - 1) (mapInsert map remaining remaining)
-      } else False.
-      removeTraceHolds = \\(remaining, map) -> if mapInvariantHolds map then case remaining {
-        | 0 -> True
-        | _ -> removeTraceHolds (remaining - 1) (mapRemove map remaining)
-      } else False.
+      insertTrace = \\(remaining, map, versions) -> case remaining {
+        | 0 -> __kernel_listPrependRaw map versions
+        | _ -> insertTrace (remaining - 1) (mapInsert map remaining remaining) (__kernel_listPrependRaw map versions)
+      }.
+      removeTrace = \\(remaining, map, versions) -> case remaining {
+        | 0 -> __kernel_listPrependRaw map versions
+        | _ -> removeTrace (remaining - 1) (mapRemove map remaining) (__kernel_listPrependRaw map versions)
+      }.
       large = build 1000 mapEmpty.
-      (mapInvariantHolds leftLeft, mapInvariantHolds rightRight,
-       mapInvariantHolds leftRight, mapInvariantHolds rightLeft,
-       insertTraceHolds 100 mapEmpty,
-       removeTraceHolds 100 (build 100 mapEmpty),
-       mapInvariantHolds large, mapHeight large < 20).
+      ([leftLeft, rightRight, leftRight, rightLeft],
+       insertTrace 100 mapEmpty [],
+       removeTrace 100 (build 100 mapEmpty) [],
+       large).
       """
   assertEqual
     "private invariant probe"
-    (Right (Just "(True, True, True, True, True, True, True, True)"))
-    result
+    (Right (Just []))
+    (fmap (fmap mapProbeInvariantFailures) result)
+
+mapProbeInvariantFailures :: RuntimeValue -> [Text]
+mapProbeInvariantFailures runtimeValue =
+  case runtimeValueCore runtimeValue of
+    VTuple [VList rotationMaps _, VList insertTrace _, VList removeTrace _, largeMap] ->
+      invalidMaps "rotation" rotationMaps
+        <> invalidMaps "insert trace" insertTrace
+        <> invalidMaps "remove trace" removeTrace
+        <> invalidMaps "large map" [largeMap]
+        <> ["large map height is not below 20" | maybe True ((>= 20) . mapSummaryHeight) (mapSummary largeMap)]
+    _ -> ["private probe returned an unexpected runtime shape"]
+  where
+    invalidMaps label maps =
+      [ label
+          <> " map "
+          <> Text.pack (show index)
+          <> " violates an AVL invariant"
+        | (index, mapValue) <- zip [0 :: Int ..] maps,
+          not (mapInvariantHolds mapValue)
+      ]
+
+mapInvariantHolds :: RuntimeValue -> Bool
+mapInvariantHolds = isJust . mapSummary
+
+data MapSummary = MapSummary
+  { mapSummaryHeight :: Integer,
+    mapSummarySize :: Integer,
+    mapSummaryMinimum :: Maybe Integer,
+    mapSummaryMaximum :: Maybe Integer
+  }
+
+mapSummary :: RuntimeValue -> Maybe MapSummary
+mapSummary runtimeValue =
+  case runtimeValueCore runtimeValue of
+    VConstructor _ _ constructorName _ []
+      | constructorHasName "MapEmpty" constructorName ->
+          Just (MapSummary 0 0 Nothing Nothing)
+    VConstructor _ _ constructorName _ [heightValue, sizeValue, leftMap, keyValue, _, rightMap]
+      | constructorHasName "MapNode" constructorName -> do
+          height <- runtimeInteger heightValue
+          size <- runtimeInteger sizeValue
+          key <- runtimeInteger keyValue
+          leftSummary <- mapSummary leftMap
+          rightSummary <- mapSummary rightMap
+          guard (height == 1 + max (mapSummaryHeight leftSummary) (mapSummaryHeight rightSummary))
+          guard (size == 1 + mapSummarySize leftSummary + mapSummarySize rightSummary)
+          guard (abs (mapSummaryHeight leftSummary - mapSummaryHeight rightSummary) <= 1)
+          guard (maybe True (< key) (mapSummaryMaximum leftSummary))
+          guard (maybe True (> key) (mapSummaryMinimum rightSummary))
+          pure
+            MapSummary
+              { mapSummaryHeight = height,
+                mapSummarySize = size,
+                mapSummaryMinimum = Just (maybe key id (mapSummaryMinimum leftSummary)),
+                mapSummaryMaximum = Just (maybe key id (mapSummaryMaximum rightSummary))
+              }
+    _ -> Nothing
+
+constructorHasName :: Text -> Name -> Bool
+constructorHasName expectedName constructorName =
+  case constructorName of
+    SourceName identifier -> identifierText identifier == expectedName
+    QualifiedName _ member -> identifierText member == expectedName
+    ResolvedName _ _ identifier -> identifierText identifier == expectedName
+    BuiltinName identifier -> identifierText identifier == expectedName
+    GeneratedName _ -> False
+
+runtimeInteger :: RuntimeValue -> Maybe Integer
+runtimeInteger runtimeValue =
+  case runtimeValueCore runtimeValue of
+    VInt value _ -> Just value
+    _ -> Nothing
+
+runtimeValueCore :: RuntimeValue -> RuntimeValue
+runtimeValueCore runtimeValue =
+  case runtimeValue of
+    VTyped _ innerValue -> runtimeValueCore innerValue
+    VExplicitTypeApplication _ innerValue -> runtimeValueCore innerValue
+    VExplicitResultHints _ innerValue -> runtimeValueCore innerValue
+    _ -> runtimeValue
 
 testPrivateConstructors :: IO ()
 testPrivateConstructors = do
-  assertConstructorPrivate
+  assertStdlibConstructorPrivate
     ["Stdlib", "OrderedCollections", "PrivateMap"]
     "MapNode"
     """
@@ -140,7 +220,7 @@ testPrivateConstructors = do
       MapNode.
     }
     """
-  assertConstructorPrivate
+  assertStdlibConstructorPrivate
     ["Stdlib", "OrderedCollections", "PrivateSet"]
     "Set"
     """
@@ -150,25 +230,11 @@ testPrivateConstructors = do
     }
     """
 
-assertConstructorPrivate :: [Text] -> Text -> Text -> IO ()
-assertConstructorPrivate modulePath constructorName source = do
-  result <- runStdlibSource modulePath source
-  case runCompileErrors result of
-    [] -> failTest (constructorName <> " constructor was unexpectedly public")
-    diagnostics ->
-      assertContains
-        (constructorName <> " private-constructor diagnostic")
-        ("unbound variable '" <> constructorName <> "'")
-        (Text.unlines (map renderDiagnostic diagnostics))
-
-assertSuccessfulOutput :: Text -> RunResult -> IO ()
-assertSuccessfulOutput expectedOutput result = do
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just expectedOutput) (runOutput result)
-
-expectedMap, expectedMapShapes, expectedSet, expectedMapModel, expectedSetModel :: Text
-expectedMap = "([], 0, True, [(9, \"nine\")], [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], 3, Just(\"TWO\"), Nothing, \"fallback\", True, [(1, \"one\"), (2, \"replaced\"), (3, \"three\")], [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], Just([(1, \"one\"), (2, \"two!\"), (3, \"three\")]), Nothing, [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], [(1, \"one\"), (3, \"three\"), (4, \"four\"), (5, \"five\")], [(2, \"replaced\"), (3, \"THREE\"), (4, \"four\")], Just((1, \"one\")), Just((3, \"three\")), Just(((1, \"one\"), [(2, \"TWO\"), (3, \"three\")])), Just(((3, \"three\"), [(1, \"one\"), (2, \"TWO\")])), [1, 2, 3], [\"one\", \"TWO\", \"three\"], [(1, \"one!\"), (2, \"TWO!\"), (3, \"three!\")], [(2, \"TWO\"), (3, \"three\")], \"123\", \"123\")"
+expectedMapBasics, expectedMapPersistence, expectedMapExtrema, expectedMapTraversal, expectedMapShapes, expectedSet, expectedMapModel, expectedSetModel :: Text
+expectedMapBasics = "([], 0, True, [(9, \"nine\")], [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], 3, Just(\"TWO\"), Nothing, \"fallback\", True)"
+expectedMapPersistence = "([(1, \"one\"), (2, \"replaced\"), (3, \"three\")], [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], Just([(1, \"one\"), (2, \"two!\"), (3, \"three\")]), Nothing, [(1, \"one\"), (2, \"TWO\"), (3, \"three\")], [(1, \"one\"), (3, \"three\"), (4, \"four\"), (5, \"five\")], [(2, \"replaced\"), (3, \"THREE\"), (4, \"four\")])"
+expectedMapExtrema = "(Just((1, \"one\")), Just((3, \"three\")), Just(((1, \"one\"), [(2, \"TWO\"), (3, \"three\")])), Just(((3, \"three\"), [(1, \"one\"), (2, \"TWO\")])))"
+expectedMapTraversal = "([1, 2, 3], [\"one\", \"TWO\", \"three\"], [(1, \"one!\"), (2, \"TWO!\"), (3, \"three!\")], [(2, \"TWO\"), (3, \"three\")], \"123\", \"123\")"
 expectedMapShapes = "([(1, \"a\"), (2, \"b\"), (3, \"c\")], [(1, \"a\"), (2, \"b\"), (3, \"c\")], [(1, \"a\"), (2, \"b\"), (3, \"c\")], [(1, \"a\"), (2, \"b\"), (3, \"c\")], [(2, \"b\"), (3, \"c\")], [(1, \"a\"), (2, \"b\"), (4, \"d\")], [(1, \"a\"), (3, \"c\"), (4, \"d\"), (5, \"e\")], [(1, \"c\")])"
 expectedSet = "([], 0, True, [9], [1, 2, 3], 3, True, False, [1, 2, 3, 4], [2], [1, 3], True, False, [2, 3], [0, 1], \"123\", \"123\")"
 expectedMapModel =

@@ -1,4 +1,17 @@
-module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value charIsAlphaNum, value charIsDigit, value charIsSpace, value charIsHexDigit, value charIsLower, value charIsUpper, value charToLower, value charToUpper, value charIsNewline) {
+module Char (
+  value charToUInt32,
+  value charFromUInt32,
+  value charIsAlpha,
+  value charIsAlphaNum,
+  value charIsDigit,
+  value charIsSpace,
+  value charIsHexDigit,
+  value charIsLower,
+  value charIsUpper,
+  value charToLower,
+  value charToUpper,
+  value charIsNewline
+) {
   import Maybe.
 
   charToUInt32 :: Char -> UInt32.

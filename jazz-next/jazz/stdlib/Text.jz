@@ -1,4 +1,34 @@
-module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons, value textAppend, value textAppendChar, value textFromChars, value textAt, value textTake, value textDrop, value textSlice, value textToChars, value textReverse, value textRepeat, value textConcat, value textJoin, value textStartsWith, value textEndsWith, value textContains, value textFind, value textSplit, value textLines, value textWords, value textReplaceAll, value textTrim, value textTrimStart, value textTrimEnd, value textPadLeft, value textPadRight) {
+module Text (
+  value textEmpty,
+  value textLength,
+  value textIsEmpty,
+  value textUncons,
+  value textAppend,
+  value textAppendChar,
+  value textFromChars,
+  value textAt,
+  value textTake,
+  value textDrop,
+  value textSlice,
+  value textToChars,
+  value textReverse,
+  value textRepeat,
+  value textConcat,
+  value textJoin,
+  value textStartsWith,
+  value textEndsWith,
+  value textContains,
+  value textFind,
+  value textSplit,
+  value textLines,
+  value textWords,
+  value textReplaceAll,
+  value textTrim,
+  value textTrimStart,
+  value textTrimEnd,
+  value textPadLeft,
+  value textPadRight
+) {
   import Char.
   import List.
   import Maybe.
