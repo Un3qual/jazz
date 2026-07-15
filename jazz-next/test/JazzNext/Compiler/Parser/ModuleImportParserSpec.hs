@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -14,7 +15,9 @@ import JazzNext.Compiler.ModuleGraph
     DeclaredModuleExports (..)
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector (..)
+  ( LocatedModuleExportName (..),
+    ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..)
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
@@ -50,9 +53,11 @@ tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses populated module export list", testParsesModuleExportList),
     ("parses namespace-aware module export list", testParsesNamespaceAwareModuleExportList),
+    ("parses grouped type constructor exports", testParsesGroupedTypeConstructorExports),
     ("keeps namespace prefix words contextual in module export lists", testParsesNamespacePrefixWordsAsBareExports),
     ("parses empty module export list", testParsesEmptyModuleExportList),
     ("lowers module export list into core metadata", testLowersModuleExportList),
+    ("qualifies grouped module export spans during lowering", testLowersGroupedModuleExportList),
     ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
     ("parses module imports with stable indented spans", testParsesModuleImportsWithStableIndentedSpans),
     ("parses import statement bare dot", testParsesImportBare),
@@ -88,6 +93,12 @@ tests =
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects duplicate module export", testRejectsDuplicateModuleExport),
     ("rejects duplicate namespace-aware module export", testRejectsDuplicateNamespaceAwareModuleExport),
+    ("rejects empty grouped constructor export", testRejectsEmptyGroupedConstructorExport),
+    ("rejects malformed all-constructor export", testRejectsMalformedAllConstructorExport),
+    ("rejects missing grouped constructor comma", testRejectsMissingGroupedConstructorComma),
+    ("rejects unclosed grouped constructor export", testRejectsUnclosedGroupedConstructorExport),
+    ("rejects non-identifier grouped constructor export", testRejectsNonIdentifierGroupedConstructorExport),
+    ("rejects duplicate grouped constructor export", testRejectsDuplicateGroupedConstructorExport),
     ("rejects trailing comma in module export list", testRejectsTrailingCommaInModuleExportList),
     ("rejects unclosed module export list", testRejectsUnclosedModuleExportList),
     ("rejects missing body after module export list", testRejectsMissingBodyAfterModuleExportList),
@@ -155,7 +166,7 @@ testParsesNamespaceAwareModuleExportList =
                 (SourceSpan 1 1)
                 ["Lib", "Box"]
                 ( Just
-                    [ ModuleExportSelector (Just TypeNamespace) "Box",
+                    [ ModuleTypeExportSelector "Box" (SourceSpan 1 23) AbstractType,
                       ModuleExportSelector (Just ConstructorNamespace) "Box",
                       ModuleExportSelector (Just ValueNamespace) "Box",
                       ModuleExportSelector (Just CapabilityNamespace) "Printable",
@@ -173,6 +184,33 @@ testParsesNamespaceAwareModuleExportList =
         }
         """
     )
+
+testParsesGroupedTypeConstructorExports :: IO ()
+testParsesGroupedTypeConstructorExports =
+  assertEqual
+    "grouped type constructor exports"
+    ( Right
+        ( SEBlock
+            [ SSModule
+                (SourceSpan 1 1)
+                ["Lib", "Choice"]
+                ( Just
+                    [ ModuleTypeExportSelector "Hidden" (SourceSpan 1 26) AbstractType,
+                      ModuleTypeExportSelector "Choice" (SourceSpan 1 39) (AllTypeConstructors (SourceSpan 1 46)),
+                      ModuleTypeExportSelector
+                        "Pair"
+                        (SourceSpan 1 56)
+                        ( SelectedTypeConstructors
+                            ( LocatedModuleExportName "Pair" (SourceSpan 1 61)
+                                :| [LocatedModuleExportName "Unit" (SourceSpan 1 67)]
+                            )
+                        )
+                    ]
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "module Lib::Choice (type Hidden, type Choice(..), type Pair(Pair, Unit)) {}")
 
 testParsesNamespacePrefixWordsAsBareExports :: IO ()
 testParsesNamespacePrefixWordsAsBareExports =
@@ -241,6 +279,35 @@ testLowersModuleExportList =
           )
           ( coreModuleDeclaredExports
               <$> lowerSurfaceModule "src/Lib/Value.jz" ["Lib", "Value"] surfaceProgram
+          )
+    )
+
+testLowersGroupedModuleExportList :: IO ()
+testLowersGroupedModuleExportList =
+  assertRight
+    "parse grouped module export list"
+    (parseSurfaceProgram "module Lib::Choice (type Choice(First, Second)) {}")
+    ( \surfaceProgram ->
+        assertEqual
+          "qualified grouped module export spans"
+          ( Right
+              ( Just
+                  ( DeclaredModuleExports
+                      (SourceSpanIn "src/Lib/Choice.jz" 1 1)
+                      [ ModuleTypeExportSelector
+                          "Choice"
+                          (SourceSpanIn "src/Lib/Choice.jz" 1 26)
+                          ( SelectedTypeConstructors
+                              ( LocatedModuleExportName "First" (SourceSpanIn "src/Lib/Choice.jz" 1 33)
+                                  :| [LocatedModuleExportName "Second" (SourceSpanIn "src/Lib/Choice.jz" 1 40)]
+                              )
+                          )
+                      ]
+                  )
+              )
+          )
+          ( coreModuleDeclaredExports
+              <$> lowerSurfaceModule "src/Lib/Choice.jz" ["Lib", "Choice"] surfaceProgram
           )
     )
 
@@ -750,6 +817,64 @@ testRejectsDuplicateNamespaceAwareModuleExport = do
         }
         """
     )
+
+testRejectsEmptyGroupedConstructorExport :: IO ()
+testRejectsEmptyGroupedConstructorExport = do
+  assertLeftDiagnosticContains
+    "empty grouped constructor export code"
+    "E0001"
+    (parseSurfaceProgram "module Lib::Box (type Box()) {}")
+  assertLeftDiagnosticContains
+    "empty grouped constructor export span"
+    "1:27"
+    (parseSurfaceProgram "module Lib::Box (type Box()) {}")
+
+testRejectsMalformedAllConstructorExport :: IO ()
+testRejectsMalformedAllConstructorExport = do
+  assertLeftDiagnosticContains
+    "malformed all-constructor export code"
+    "E0001"
+    (parseSurfaceProgram "module Lib::Box (type Box(.)) {}")
+  assertLeftDiagnosticContains
+    "malformed all-constructor export span"
+    "1:28"
+    (parseSurfaceProgram "module Lib::Box (type Box(.)) {}")
+
+testRejectsMissingGroupedConstructorComma :: IO ()
+testRejectsMissingGroupedConstructorComma =
+  assertLeftDiagnosticContains
+    "missing grouped constructor comma"
+    "1:31"
+    (parseSurfaceProgram "module Lib::Box (type Box(One Two)) {}")
+
+testRejectsUnclosedGroupedConstructorExport :: IO ()
+testRejectsUnclosedGroupedConstructorExport =
+  assertLeftDiagnosticContains
+    "unclosed grouped constructor export"
+    "expected ',' or ')'"
+    (parseSurfaceProgram "module Lib::Box (type Box(One, Two) {")
+
+testRejectsNonIdentifierGroupedConstructorExport :: IO ()
+testRejectsNonIdentifierGroupedConstructorExport =
+  assertLeftDiagnosticContains
+    "non-identifier grouped constructor export"
+    "1:27"
+    (parseSurfaceProgram "module Lib::Box (type Box(1)) {}")
+
+testRejectsDuplicateGroupedConstructorExport :: IO ()
+testRejectsDuplicateGroupedConstructorExport = do
+  assertLeftDiagnosticContains
+    "duplicate grouped constructor export code"
+    "E0001"
+    (parseSurfaceProgram "module Lib::Box (type Box(One, One)) {}")
+  assertLeftDiagnosticContains
+    "duplicate grouped constructor export message"
+    "duplicate constructor export 'One'"
+    (parseSurfaceProgram "module Lib::Box (type Box(One, One)) {}")
+  assertLeftDiagnosticContains
+    "duplicate grouped constructor export span"
+    "1:32"
+    (parseSurfaceProgram "module Lib::Box (type Box(One, One)) {}")
 
 testRejectsTrailingCommaInModuleExportList :: IO ()
 testRejectsTrailingCommaInModuleExportList = do

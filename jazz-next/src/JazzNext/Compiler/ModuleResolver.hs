@@ -75,6 +75,8 @@ import JazzNext.Compiler.ModuleExports
     exportNamesInNamespaces,
     firstExportNamespace,
     inventoryHasSelector,
+    moduleExportSelectorName,
+    moduleExportSelectorNamespace,
     renderModuleExportSelector,
     selectorEligibleNames,
     selectModuleExportSelectors,

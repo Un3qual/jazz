@@ -71,6 +71,7 @@ import JazzNext.Compiler.ModuleGraph
     DeclaredModuleExports (..),
     ResolvedImport (..)
   )
+import JazzNext.Compiler.ModuleExports (qualifyModuleExportSelectorSpans)
 
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
@@ -130,6 +131,7 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
                 ( Just declaredPath,
                   DeclaredModuleExports
                     (qualifySourceSpan sourcePath declarationSpan)
+                    . map (qualifyModuleExportSelectorSpans sourcePath)
                     <$> declaredExportSelectors
                 )
           | otherwise ->
