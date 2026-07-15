@@ -84,11 +84,16 @@ data BuiltinSymbol
   | BuiltinCharIsDigit
   | BuiltinCharIsSpace
   | BuiltinCharIsHexDigit
+  | BuiltinCharIsLower
+  | BuiltinCharIsUpper
+  | BuiltinCharToLower
+  | BuiltinCharToUpper
   | BuiltinTextLength
   | BuiltinTextUnconsRaw
   | BuiltinTextAppend
   | BuiltinTextAppendChar
   | BuiltinTextFromChars
+  | BuiltinTextConcat
   | BuiltinRenderValue
   | BuiltinReadTextRaw
   | BuiltinWriteTextRaw
@@ -154,11 +159,16 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinCharIsDigit -> KernelIntrinsic
     BuiltinCharIsSpace -> KernelIntrinsic
     BuiltinCharIsHexDigit -> KernelIntrinsic
+    BuiltinCharIsLower -> KernelIntrinsic
+    BuiltinCharIsUpper -> KernelIntrinsic
+    BuiltinCharToLower -> KernelIntrinsic
+    BuiltinCharToUpper -> KernelIntrinsic
     BuiltinTextLength -> KernelIntrinsic
     BuiltinTextUnconsRaw -> KernelIntrinsic
     BuiltinTextAppend -> KernelIntrinsic
     BuiltinTextAppendChar -> KernelIntrinsic
     BuiltinTextFromChars -> KernelIntrinsic
+    BuiltinTextConcat -> KernelIntrinsic
     BuiltinRenderValue -> KernelIntrinsic
     BuiltinReadTextRaw -> KernelIntrinsic
     BuiltinWriteTextRaw -> KernelIntrinsic
@@ -198,11 +208,16 @@ builtinSymbolName builtinSymbol =
     BuiltinCharIsDigit -> "charIsDigit"
     BuiltinCharIsSpace -> "charIsSpace"
     BuiltinCharIsHexDigit -> "charIsHexDigit"
+    BuiltinCharIsLower -> "charIsLower"
+    BuiltinCharIsUpper -> "charIsUpper"
+    BuiltinCharToLower -> "charToLower"
+    BuiltinCharToUpper -> "charToUpper"
     BuiltinTextLength -> "textLength"
     BuiltinTextUnconsRaw -> "textUnconsRaw"
     BuiltinTextAppend -> "textAppend"
     BuiltinTextAppendChar -> "textAppendChar"
     BuiltinTextFromChars -> "textFromChars"
+    BuiltinTextConcat -> "textConcat"
     BuiltinRenderValue -> "renderValue"
     BuiltinReadTextRaw -> "readTextRaw!"
     BuiltinWriteTextRaw -> "writeTextRaw!"
@@ -246,11 +261,16 @@ builtinSymbolArity builtinSymbol =
     BuiltinCharIsDigit -> 1
     BuiltinCharIsSpace -> 1
     BuiltinCharIsHexDigit -> 1
+    BuiltinCharIsLower -> 1
+    BuiltinCharIsUpper -> 1
+    BuiltinCharToLower -> 1
+    BuiltinCharToUpper -> 1
     BuiltinTextLength -> 1
     BuiltinTextUnconsRaw -> 1
     BuiltinTextAppend -> 2
     BuiltinTextAppendChar -> 2
     BuiltinTextFromChars -> 1
+    BuiltinTextConcat -> 1
     BuiltinRenderValue -> 1
     BuiltinReadTextRaw -> 1
     BuiltinWriteTextRaw -> 2

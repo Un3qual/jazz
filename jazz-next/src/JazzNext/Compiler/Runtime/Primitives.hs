@@ -21,8 +21,12 @@ import Data.Char
     isAlphaNum,
     isDigit,
     isHexDigit,
+    isLower,
     isSpace,
-    ord
+    isUpper,
+    ord,
+    toLower,
+    toUpper
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -221,11 +225,19 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinCharIsDigit, [VChar value]) -> Right (VBool (isDigit value))
     (BuiltinCharIsSpace, [VChar value]) -> Right (VBool (isSpace value))
     (BuiltinCharIsHexDigit, [VChar value]) -> Right (VBool (isHexDigit value))
+    (BuiltinCharIsLower, [VChar value]) -> Right (VBool (isLower value))
+    (BuiltinCharIsUpper, [VChar value]) -> Right (VBool (isUpper value))
+    (BuiltinCharToLower, [VChar value]) -> Right (VChar (toLower value))
+    (BuiltinCharToUpper, [VChar value]) -> Right (VChar (toUpper value))
     (builtin@BuiltinCharIsAlpha, [other]) -> invalidCharPredicate builtin other
     (builtin@BuiltinCharIsAlphaNum, [other]) -> invalidCharPredicate builtin other
     (builtin@BuiltinCharIsDigit, [other]) -> invalidCharPredicate builtin other
     (builtin@BuiltinCharIsSpace, [other]) -> invalidCharPredicate builtin other
     (builtin@BuiltinCharIsHexDigit, [other]) -> invalidCharPredicate builtin other
+    (builtin@BuiltinCharIsLower, [other]) -> invalidCharPrimitive builtin other
+    (builtin@BuiltinCharIsUpper, [other]) -> invalidCharPrimitive builtin other
+    (builtin@BuiltinCharToLower, [other]) -> invalidCharPrimitive builtin other
+    (builtin@BuiltinCharToUpper, [other]) -> invalidCharPrimitive builtin other
     (BuiltinTextLength, [VText textValue]) ->
       Right (VInt (fromIntegral (Text.length textValue)) untypedIntMetadata)
     (BuiltinTextLength, [other]) ->
@@ -287,6 +299,21 @@ evalBuiltinPure builtinFunction arguments =
             E3039
             ("runtime primitive 'textFromChars' expects a list of Char, found " <> renderRuntimeType other)
         )
+    (BuiltinTextConcat, [VList elements _]) ->
+      case traverse runtimeText elements of
+        Just fragments -> Right (VText (Text.concat fragments))
+        Nothing ->
+          Left
+            ( runtimeDiagnostic
+                E3040
+                "runtime primitive 'textConcat' expects a list containing only Text values"
+            )
+    (BuiltinTextConcat, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            E3040
+            ("runtime primitive 'textConcat' expects a list of Text, found " <> renderRuntimeType other)
+        )
     (BuiltinRenderValue, [value]) ->
       Right (VText (renderRuntimeValue value))
     _ ->
@@ -297,7 +324,10 @@ evalBuiltinPure builtinFunction arguments =
         )
 
 invalidCharPredicate :: BuiltinSymbol -> RuntimeValue -> Either Diagnostic RuntimeValue
-invalidCharPredicate builtin other =
+invalidCharPredicate = invalidCharPrimitive
+
+invalidCharPrimitive :: BuiltinSymbol -> RuntimeValue -> Either Diagnostic RuntimeValue
+invalidCharPrimitive builtin other =
   Left
     ( runtimeDiagnostic
         E3035
@@ -315,6 +345,15 @@ runtimeChar runtimeValue =
     VTyped _ innerValue -> runtimeChar innerValue
     VExplicitTypeApplication _ innerValue -> runtimeChar innerValue
     VExplicitResultHints _ innerValue -> runtimeChar innerValue
+    _ -> Nothing
+
+runtimeText :: RuntimeValue -> Maybe Text
+runtimeText runtimeValue =
+  case runtimeValue of
+    VText value -> Just value
+    VTyped _ innerValue -> runtimeText innerValue
+    VExplicitTypeApplication _ innerValue -> runtimeText innerValue
+    VExplicitResultHints _ innerValue -> runtimeText innerValue
     _ -> Nothing
 
 -- | Evaluate filter predicates element-by-element and enforce that each

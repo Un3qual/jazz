@@ -3151,11 +3151,16 @@ runtimeBuiltinKind builtinFunction =
     BuiltinCharIsDigit -> CharacterBuiltinCall
     BuiltinCharIsSpace -> CharacterBuiltinCall
     BuiltinCharIsHexDigit -> CharacterBuiltinCall
+    BuiltinCharIsLower -> CharacterBuiltinCall
+    BuiltinCharIsUpper -> CharacterBuiltinCall
+    BuiltinCharToLower -> CharacterBuiltinCall
+    BuiltinCharToUpper -> CharacterBuiltinCall
     BuiltinTextLength -> TextBuiltinCall
     BuiltinTextUnconsRaw -> TextBuiltinCall
     BuiltinTextAppend -> TextBuiltinCall
     BuiltinTextAppendChar -> TextBuiltinCall
     BuiltinTextFromChars -> TextBuiltinCall
+    BuiltinTextConcat -> TextBuiltinCall
     BuiltinRenderValue -> TextBuiltinCall
     BuiltinReadTextRaw -> HostBuiltinCall
     BuiltinWriteTextRaw -> HostBuiltinCall

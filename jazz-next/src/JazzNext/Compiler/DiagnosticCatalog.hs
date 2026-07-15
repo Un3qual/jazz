@@ -92,6 +92,7 @@ data ErrorCode
   | E3037
   | E3038
   | E3039
+  | E3040
   | E4001
   | E4002
   | E4003
@@ -244,7 +245,7 @@ errorSubsystem code
   | code <= E0005 = SyntaxDiagnostics
   | code <= E1010 = AnalysisDiagnostics
   | code <= E2017 = TypeDiagnostics
-  | code <= E3039 = RuntimeDiagnostics
+  | code <= E3040 = RuntimeDiagnostics
   | code <= E4016 = ModuleDiagnostics
   | otherwise = ToolingDiagnostics
 

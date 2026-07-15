@@ -1,0 +1,14 @@
+module Stdlib::Text::LargeConcat {
+  import List.
+  import Text.
+
+  build = \(remaining, fragments) -> case remaining {
+    | 0 -> fragments
+    | _ -> build (remaining - 1) (listPrepend "Jazz" fragments)
+  }.
+  fragments = build 5000 [].
+  joined = textJoin "-" (build 1000 []).
+  first = textConcat fragments.
+  second = textConcat fragments.
+  (textLength first, textLength joined, first == second).
+}

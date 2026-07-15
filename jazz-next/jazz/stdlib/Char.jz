@@ -1,4 +1,4 @@
-module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value charIsAlphaNum, value charIsDigit, value charIsSpace, value charIsHexDigit, value charIsNewline) {
+module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value charIsAlphaNum, value charIsDigit, value charIsSpace, value charIsHexDigit, value charIsLower, value charIsUpper, value charToLower, value charToUpper, value charIsNewline) {
   import Maybe.
 
   charToUInt32 :: Char -> UInt32.
@@ -24,6 +24,18 @@ module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value 
 
   charIsHexDigit :: Char -> Bool.
   charIsHexDigit = __kernel_charIsHexDigit.
+
+  charIsLower :: Char -> Bool.
+  charIsLower = __kernel_charIsLower.
+
+  charIsUpper :: Char -> Bool.
+  charIsUpper = __kernel_charIsUpper.
+
+  charToLower :: Char -> Char.
+  charToLower = __kernel_charToLower.
+
+  charToUpper :: Char -> Char.
+  charToUpper = __kernel_charToUpper.
 
   charIsNewline :: Char -> Bool.
   charIsNewline = \(value) -> if value == '\n' then True else value == '\r'.

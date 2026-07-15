@@ -1,0 +1,8 @@
+module Stdlib::Text::SplitCleanup {
+  import Text.
+
+  (textSplit "," ",a,,b,", textSplit "" "a🙂é", textSplit "" "",
+   textLines "", textLines "a\nb\r\nc\rd\n",
+   textWords "  Jazz\t🙂\nrocks  ",
+   textTrim "\u{A0} Jazz \t", textTrimStart "  Jazz  \t", textTrimEnd "  Jazz  \t").
+}

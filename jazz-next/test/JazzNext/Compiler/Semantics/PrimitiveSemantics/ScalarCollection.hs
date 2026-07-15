@@ -110,12 +110,18 @@ testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
     scalar = __kernel_charToUInt32 '\\u{1F642}'.
     decoded :: [Char].
     decoded = __kernel_charFromUInt32Raw scalar.
-    classes :: (Bool, Bool, Bool, Bool, Bool).
-    classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F').
+    classes :: (Bool, Bool, Bool, Bool, Bool, Bool, Bool).
+    classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F', __kernel_charIsLower 'é', __kernel_charIsUpper 'É').
+    lower :: Char.
+    lower = __kernel_charToLower 'É'.
+    upper :: Char.
+    upper = __kernel_charToUpper 'é'.
     built :: Text.
     built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.
     fromChars :: Text.
     fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z'].
+    concatenated :: Text.
+    concatenated = __kernel_textConcat ["Ja", "zz"].
     """
     )
 
@@ -124,11 +130,23 @@ testSourcePipelineRejectsInvalidBootstrapScalarArguments = do
   assertCompileError "bad = __kernel_charToUInt32 1." "charToUInt32 argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_charFromUInt32Raw 'a'." "charFromUInt32Raw argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_charIsAlpha \"a\"." "charIsAlpha argument type mismatch" "E2006"
+  assertCompileError
+    """
+    bad = __kernel_charToLower "a".
+    """
+    "charToLower argument type mismatch"
+    "E2006"
   assertCompileError "bad = __kernel_textAppend \"a\" True." "textAppend argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_textAppendChar \"a\" 1." "textAppendChar argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_listReverseRaw 1." "listReverseRaw argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_textFromChars \"Jazz\"." "textFromChars argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_textFromChars [1]." "textFromChars argument type mismatch" "E2006"
+  assertCompileError
+    """
+    bad = __kernel_textConcat [1].
+    """
+    "textConcat argument type mismatch"
+    "E2006"
 
 testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
 testSourcePipelineTypesPrivateHostIOPrimitives =

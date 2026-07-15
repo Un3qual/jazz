@@ -1,4 +1,6 @@
-module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons, value textAppend, value textAppendChar, value textFromChars) {
+module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons, value textAppend, value textAppendChar, value textFromChars, value textAt, value textTake, value textDrop, value textSlice, value textToChars, value textReverse, value textRepeat, value textConcat, value textJoin, value textStartsWith, value textEndsWith, value textContains, value textFind, value textSplit, value textLines, value textWords, value textReplaceAll, value textTrim, value textTrimStart, value textTrimEnd, value textPadLeft, value textPadRight) {
+  import Char.
+  import List.
   import Maybe.
 
   textEmpty :: Text.
@@ -24,4 +26,162 @@ module Text (value textEmpty, value textLength, value textIsEmpty, value textUnc
 
   textFromChars :: [Char] -> Text.
   textFromChars = __kernel_textFromChars.
+
+  textAtFrom :: Int -> Text -> Maybe(Char).
+  textAtFrom = \(index, text) -> case textUncons text {
+    | Nothing -> Nothing
+    | Just (first, rest) -> if index == 0 then Just first else textAtFrom (index - 1) rest
+  }.
+
+  textAt :: Int -> Text -> Maybe(Char).
+  textAt = \(index, text) -> if index < 0 then Nothing else textAtFrom index text.
+
+  textTakeFrom :: Int -> Text -> [Char] -> Text.
+  textTakeFrom = \(count, text, reversed) -> if count <= 0 then textFromChars (listReverse reversed) else case textUncons text {
+    | Nothing -> textFromChars (listReverse reversed)
+    | Just (first, rest) -> textTakeFrom (count - 1) rest (listPrepend first reversed)
+  }.
+
+  textTake :: Int -> Text -> Text.
+  textTake = \(count, text) -> textTakeFrom count text [].
+
+  textDrop :: Int -> Text -> Text.
+  textDrop = \(count, text) -> if count <= 0 then text else case textUncons text {
+    | Nothing -> textEmpty
+    | Just (first, rest) -> textDrop (count - 1) rest
+  }.
+
+  textSlice :: Int -> Int -> Text -> Text.
+  textSlice = \(start, count, text) -> textTake count (textDrop start text).
+
+  textToCharsFrom :: Text -> [Char] -> [Char].
+  textToCharsFrom = \(text, reversed) -> case textUncons text {
+    | Nothing -> listReverse reversed
+    | Just (first, rest) -> textToCharsFrom rest (listPrepend first reversed)
+  }.
+
+  textToChars :: Text -> [Char].
+  textToChars = \(text) -> textToCharsFrom text [].
+
+  textReverse :: Text -> Text.
+  textReverse = \(text) -> textFromChars (listReverse (textToChars text)).
+
+  textConcat :: [Text] -> Text.
+  textConcat = __kernel_textConcat.
+
+  textRepeat :: Int -> Text -> Text.
+  textRepeat = \(count, text) -> if count <= 0 then textEmpty else textConcat (listRepeat count text).
+
+  textJoin :: Text -> [Text] -> Text.
+  textJoin = \(delimiter, fragments) -> textConcat (listIntersperse delimiter fragments).
+
+  textStartsWith :: Text -> Text -> Bool.
+  textStartsWith = \(prefix, text) -> case textUncons prefix {
+    | Nothing -> True
+    | Just (prefixFirst, prefixRest) -> case textUncons text {
+      | Nothing -> False
+      | Just (textFirst, textRest) -> if prefixFirst == textFirst then textStartsWith prefixRest textRest else False
+    }
+  }.
+
+  textEndsWith :: Text -> Text -> Bool.
+  textEndsWith = \(suffix, text) -> {
+    suffixLength = textLength suffix.
+    textLengthValue = textLength text.
+    if suffixLength > textLengthValue then False else textStartsWith suffix (textDrop (textLengthValue - suffixLength) text).
+  }.
+
+  textFindFrom :: Text -> Text -> Int -> Maybe(Int).
+  textFindFrom = \(needle, text, index) -> if textStartsWith needle text then Just index else case textUncons text {
+    | Nothing -> Nothing
+    | Just (first, rest) -> textFindFrom needle rest (index + 1)
+  }.
+
+  textFind :: Text -> Text -> Maybe(Int).
+  textFind = \(needle, text) -> textFindFrom needle text 0.
+
+  textContains :: Text -> Text -> Bool.
+  textContains = \(needle, text) -> maybeIsJust (textFind needle text).
+
+  textFromReversedChars :: [Char] -> Text.
+  textFromReversedChars = \(reversed) -> textFromChars (listReverse reversed).
+
+  textSplitFrom :: Text -> Int -> Text -> [Char] -> [Text] -> [Text].
+  textSplitFrom = \(delimiter, delimiterLength, text, reversedCurrent, reversedFragments) ->
+    if textStartsWith delimiter text
+      then textSplitFrom delimiter delimiterLength (textDrop delimiterLength text) [] (listPrepend (textFromReversedChars reversedCurrent) reversedFragments)
+      else case textUncons text {
+        | Nothing -> listReverse (listPrepend (textFromReversedChars reversedCurrent) reversedFragments)
+        | Just (first, rest) -> textSplitFrom delimiter delimiterLength rest (listPrepend first reversedCurrent) reversedFragments
+      }.
+
+  textSplit :: Text -> Text -> [Text].
+  textSplit = \(delimiter, text) -> if textIsEmpty delimiter
+    then listMap (\(value) -> textFromChars [value]) (textToChars text)
+    else textSplitFrom delimiter (textLength delimiter) text [] [].
+
+  textLinesFrom :: Text -> [Char] -> [Text] -> [Text].
+  textLinesFrom = \(text, reversedCurrent, reversedLines) -> case textUncons text {
+    | Nothing -> if listIsEmpty reversedCurrent then listReverse reversedLines else listReverse (listPrepend (textFromReversedChars reversedCurrent) reversedLines)
+    | Just (first, rest) -> if first == '\n'
+      then textLinesFrom rest [] (listPrepend (textFromReversedChars reversedCurrent) reversedLines)
+      else if first == '\r' then case textUncons rest {
+        | Nothing -> listReverse (listPrepend (textFromReversedChars reversedCurrent) reversedLines)
+        | Just (next, afterNext) -> if next == '\n'
+          then textLinesFrom afterNext [] (listPrepend (textFromReversedChars reversedCurrent) reversedLines)
+          else textLinesFrom rest [] (listPrepend (textFromReversedChars reversedCurrent) reversedLines)
+      } else textLinesFrom rest (listPrepend first reversedCurrent) reversedLines
+  }.
+
+  textLines :: Text -> [Text].
+  textLines = \(text) -> textLinesFrom text [] [].
+
+  textWordsFrom :: Text -> [Char] -> [Text] -> [Text].
+  textWordsFrom = \(text, reversedCurrent, reversedWords) -> case textUncons text {
+    | Nothing -> if listIsEmpty reversedCurrent then listReverse reversedWords else listReverse (listPrepend (textFromReversedChars reversedCurrent) reversedWords)
+    | Just (first, rest) -> if charIsSpace first
+      then if listIsEmpty reversedCurrent
+        then textWordsFrom rest [] reversedWords
+        else textWordsFrom rest [] (listPrepend (textFromReversedChars reversedCurrent) reversedWords)
+      else textWordsFrom rest (listPrepend first reversedCurrent) reversedWords
+  }.
+
+  textWords :: Text -> [Text].
+  textWords = \(text) -> textWordsFrom text [] [].
+
+  textReplaceAllFrom :: Text -> Int -> Text -> Text -> [Text] -> Text.
+  textReplaceAllFrom = \(needle, needleLength, replacement, text, reversedFragments) ->
+    if textStartsWith needle text
+      then textReplaceAllFrom needle needleLength replacement (textDrop needleLength text) (listPrepend replacement reversedFragments)
+      else case textUncons text {
+        | Nothing -> textConcat (listReverse reversedFragments)
+        | Just (first, rest) -> textReplaceAllFrom needle needleLength replacement rest (listPrepend (textFromChars [first]) reversedFragments)
+      }.
+
+  textReplaceAll :: Text -> Text -> Text -> Text.
+  textReplaceAll = \(needle, replacement, text) -> if textIsEmpty needle then text else textReplaceAllFrom needle (textLength needle) replacement text [].
+
+  textTrimStart :: Text -> Text.
+  textTrimStart = \(text) -> case textUncons text {
+    | Nothing -> textEmpty
+    | Just (first, rest) -> if charIsSpace first then textTrimStart rest else text
+  }.
+
+  textTrimEnd :: Text -> Text.
+  textTrimEnd = \(text) -> textReverse (textTrimStart (textReverse text)).
+
+  textTrim :: Text -> Text.
+  textTrim = \(text) -> textTrimEnd (textTrimStart text).
+
+  textPadLeft :: Int -> Char -> Text -> Text.
+  textPadLeft = \(width, padding, text) -> {
+    count = width - textLength text.
+    if count <= 0 then text else textAppend (textRepeat count (textFromChars [padding])) text.
+  }.
+
+  textPadRight :: Int -> Char -> Text -> Text.
+  textPadRight = \(width, padding, text) -> {
+    count = width - textLength text.
+    if count <= 0 then text else textAppend text (textRepeat count (textFromChars [padding])).
+  }.
 }

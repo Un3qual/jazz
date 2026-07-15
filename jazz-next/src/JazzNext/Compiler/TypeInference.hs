@@ -974,6 +974,14 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       Just (TFunctionType TCharType TBoolType, state)
     "charIsHexDigit" ->
       Just (TFunctionType TCharType TBoolType, state)
+    "charIsLower" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charIsUpper" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charToLower" ->
+      Just (TFunctionType TCharType TCharType, state)
+    "charToUpper" ->
+      Just (TFunctionType TCharType TCharType, state)
     "textLength" ->
       Just (TFunctionType TTextType TIntType, state)
     "textUnconsRaw" ->
@@ -989,6 +997,8 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       Just (TFunctionType TTextType (TFunctionType TCharType TTextType), state)
     "textFromChars" ->
       Just (TFunctionType (TListType TCharType) TTextType, state)
+    "textConcat" ->
+      Just (TFunctionType (TListType TTextType) TTextType, state)
     "renderValue" ->
       let (valueType, stateAfterValueType) = freshTypeVar state
        in Just (TFunctionType valueType TTextType, stateAfterValueType)

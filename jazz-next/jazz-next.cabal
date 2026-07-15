@@ -321,6 +321,7 @@ test-suite stdlib-spec
       JazzNext.Compiler.Stdlib.LinearCollectionsTests
       JazzNext.Compiler.Stdlib.OrderedCollectionsTests
       JazzNext.Compiler.Stdlib.Shared
+      JazzNext.Compiler.Stdlib.TextTests
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource

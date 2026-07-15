@@ -1,0 +1,12 @@
+module Stdlib::Text::Core {
+  import Text.
+
+  (textAt (0 - 1) "a🙂é", textAt 0 "a🙂é", textAt 1 "a🙂é", textAt 2 "a🙂é", textAt 3 "a🙂é",
+   textTake (0 - 2) "a🙂é", textTake 2 "a🙂é", textTake 9 "a🙂é",
+   textDrop (0 - 2) "a🙂é", textDrop 2 "a🙂é", textDrop 9 "a🙂é",
+   textSlice (0 - 2) 2 "a🙂é", textSlice 1 2 "a🙂é", textSlice 1 0 "a🙂é",
+   textToChars "a🙂é", textReverse "a🙂é", textRepeat 0 "Ja", textRepeat 3 "Ja",
+   textConcat ["Ja", "zz", "🙂"], textConcat [], textJoin "," ["a🙂é"],
+   textJoin "-" ["a", "🙂", "é"],
+   textPadLeft 5 '.' "猫", textPadRight 2 '.' "猫", textPadLeft 0 '.' "猫").
+}
