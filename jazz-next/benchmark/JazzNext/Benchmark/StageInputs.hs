@@ -88,9 +88,12 @@ prepareBenchmark benchmarkGroup programCase =
     ParseLowerBenchmark -> do
       source <-
         withCompilerStage SourceLoadingStage $ do
-          loadedSource <- loadProgramCaseEntrySource programCase
-          _ <- evaluate (Text.length loadedSource)
-          pure loadedSource
+          sourceResult <- loadProgramCaseEntrySource programCase
+          case sourceResult of
+            Left diagnostic -> failBenchmarkDiagnostic diagnostic
+            Right loadedSource -> do
+              _ <- evaluate (Text.length loadedSource)
+              pure loadedSource
       pure (PreparedParseLower programCase source)
     AnalysisBenchmark -> do
       compiledProgram <- prepareValidProgram programCase

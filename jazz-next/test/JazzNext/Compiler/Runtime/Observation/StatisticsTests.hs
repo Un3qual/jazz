@@ -20,7 +20,7 @@ import JazzNext.Compiler.AST
     Statement (..),
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (BuiltinArguments, BuiltinTextLength, BuiltinTextUnconsRaw),
+  ( BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
@@ -69,6 +69,7 @@ tests =
     ("observed module runtime shares one report", testModuleRuntimeTransport),
     ("literal evaluation has an exact minimal transition count", testLiteralTransitions),
     ("closure application records forcing and continuation depth", testClosureApplication),
+    ("nested evaluator machines preserve outer continuation depth", testNestedContinuationDepth),
     ("builtin application is classified independently", testBuiltinApplication),
     ("infix operator evaluation is classified independently", testOperatorApplication),
     ("constructor application is classified independently", testConstructorApplication),
@@ -154,6 +155,29 @@ testClosureApplication = do
   assertPositive "forced values" (runtimeForcedValues statistics)
   assertPositive "maximum continuation depth" (runtimeMaximumContinuationDepth statistics)
   assertEqual "final continuation depth" 0 (runtimeCurrentContinuationDepth statistics)
+
+testNestedContinuationDepth :: IO ()
+testNestedContinuationDepth = do
+  let value = ELit (LInt 7)
+      callback =
+        ELambda
+          "value"
+          (EList [EList [EList [EVar "value"]]])
+  directStatistics <- statisticsFor (EApply callback value)
+  nestedStatistics <-
+    statisticsFor
+      ( EApply
+          (EApply (kernelBuiltin BuiltinMap) callback)
+          (EList [value, value])
+      )
+  assertEqual
+    "higher-order callback adds its implicit outer continuation"
+    (runtimeMaximumContinuationDepth directStatistics + 1)
+    (runtimeMaximumContinuationDepth nestedStatistics)
+  assertEqual
+    "nested evaluation restores final continuation depth"
+    0
+    (runtimeCurrentContinuationDepth nestedStatistics)
 
 testBuiltinApplication :: IO ()
 testBuiltinApplication = do

@@ -31,6 +31,7 @@ module JazzNext.Compiler.Runtime.Observation
     recordRuntimeProfileClose,
     recordRuntimeProfileOpen,
     recordRuntimeTransition,
+    restoreRuntimeContinuationDepth,
     runtimeObservationEnabled,
     runtimeObservationProfileEnabled,
     runtimeObservationStatisticsEnabled,
@@ -150,6 +151,8 @@ data RuntimeSemanticProfile = RuntimeSemanticProfile
 -- count the names introduced by that pattern. Host operations increment only
 -- when a validated builtin dispatch invokes the host. Deferred-cache outcomes
 -- are recorded at the cache lookup that returns, begins, or rejects evaluation.
+-- Continuation depth includes explicit machine frames plus the implicit frame
+-- retained when one evaluator machine invokes another.
 data RuntimeStatistics = RuntimeStatistics
   { runtimeEvaluatorTransitions :: !Word64,
     runtimeForcedValues :: !Word64,
@@ -250,7 +253,7 @@ runtimeObservationEnabled = (/= RuntimeObservationDisabled) . observationRequest
 runtimeObservationProfileEnabled :: RuntimeObservationState -> Bool
 runtimeObservationProfileEnabled = isJust . observationProfile
 
-recordRuntimeTransition :: Int -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeTransition :: Word64 -> RuntimeObservationState -> RuntimeObservationState
 recordRuntimeTransition continuationDepth observationState
   | not (runtimeObservationEnabled observationState) = observationState
   | otherwise =
@@ -264,7 +267,16 @@ recordRuntimeTransition continuationDepth observationState
         }
   where
     statistics = observationStatistics observationState
-    depth = fromIntegral continuationDepth
+    depth = continuationDepth
+
+restoreRuntimeContinuationDepth :: Word64 -> RuntimeObservationState -> RuntimeObservationState
+restoreRuntimeContinuationDepth continuationDepth observationState =
+  observationState
+    { observationStatistics =
+        (observationStatistics observationState)
+          { runtimeCurrentContinuationDepth = continuationDepth
+          }
+    }
 
 recordRuntimeForcedValue :: RuntimeObservationState -> RuntimeObservationState
 recordRuntimeForcedValue observationState

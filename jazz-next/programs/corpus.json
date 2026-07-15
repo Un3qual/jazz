@@ -28,7 +28,7 @@
       "budgets": {
         "steps": 3500,
         "applications": 350,
-        "maxContinuationDepth": 6,
+        "maxContinuationDepth": 7,
         "forcedValues": 650,
         "operatorApplications": 70,
         "closuresCreated": 10,

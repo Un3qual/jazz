@@ -23,6 +23,7 @@ import Control.Exception
   )
 import qualified Data.ByteString.Lazy as LazyByteString
 import Data.Either (isRight)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (isPrefixOf)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -55,7 +56,7 @@ import JazzNext.Compiler.ModuleResolver
     parseModulePathText
   )
 import JazzNext.Compiler.RuntimeHost
-  ( RuntimeHost,
+  ( RuntimeHost (..),
     disabledRuntimeHost,
     productionRuntimeHost
   )
@@ -310,7 +311,32 @@ runCliWithHostAndProfileWriter ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWithHostAndProfileWriter profileWriter host args envLookup fileLookup loadSource
+runCliWithHostAndProfileWriter profileWriter host args envLookup fileLookup loadSource = do
+  stderrLineState <- newIORef Nothing
+  output <-
+    runCliWithHostAndProfileWriterCore
+      profileWriter
+      (trackRuntimeHostStderr stderrLineState host)
+      args
+      envLookup
+      fileLookup
+      loadSource
+  lineState <- readIORef stderrLineState
+  pure
+    ( if lineState == Just False && not (Text.null (cliStderr output))
+        then output {cliStderr = "\n" <> cliStderr output}
+        else output
+    )
+
+runCliWithHostAndProfileWriterCore ::
+  RuntimeProfileWriter ->
+  RuntimeHost IO ->
+  [String] ->
+  (String -> IO (Maybe String)) ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO Text ->
+  IO CliOutput
+runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup loadSource
   | any isHelpArg args =
       pure
         CliOutput
@@ -375,6 +401,19 @@ runCliWithHostAndProfileWriter profileWriter host args envLookup fileLookup load
                           if cliRunMode options
                             then runExecute profileWriter host settings options preludeSource source
                             else runCompile settings preludeSource source
+
+trackRuntimeHostStderr :: IORef (Maybe Bool) -> RuntimeHost IO -> RuntimeHost IO
+trackRuntimeHostStderr lineState host =
+  host
+    { runtimeHostWriteStderr = \contents -> do
+        result <- runtimeHostWriteStderr host contents
+        case result of
+          Right ()
+            | not (Text.null contents) ->
+                writeIORef lineState (Just (Text.isSuffixOf "\n" contents))
+          _ -> pure ()
+        pure result
+    }
 
 main :: IO ()
 main = do

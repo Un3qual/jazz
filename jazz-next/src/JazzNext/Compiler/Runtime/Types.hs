@@ -54,6 +54,7 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
+import Data.Word (Word64)
 import JazzNext.Compiler.AST
   ( DataConstructorArgument,
     Expr,
@@ -112,6 +113,8 @@ data DeferredHostBindingState
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
     runtimeHostEvaluationNextScopeId :: Int,
+    runtimeHostEvaluationActiveMachineCount :: Int,
+    runtimeHostEvaluationContinuationDepth :: Word64,
     runtimeHostEvaluationObservation :: RuntimeObservationState
   }
 

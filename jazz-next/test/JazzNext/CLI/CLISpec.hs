@@ -7,6 +7,7 @@ import Data.Aeson (Value, eitherDecode)
 import qualified Data.ByteString.Lazy as LazyByteString
 import Data.IORef
   ( IORef,
+    modifyIORef',
     newIORef,
     readIORef,
     writeIORef
@@ -34,7 +35,8 @@ import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
 import JazzNext.Compiler.RuntimeHost
-  ( disabledRuntimeHost,
+  ( RuntimeHost (..),
+    disabledRuntimeHost,
     productionRuntimeHost
   )
 import JazzNext.TestHarness
@@ -115,6 +117,7 @@ tests =
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
     ("cli runtime statistics preserve stdout and render on stderr", testCliRuntimeStatisticsOutput),
+    ("cli separates JSON statistics from unterminated host stderr", testCliRuntimeStatisticsAfterHostStderr),
     ("cli writes deterministic semantic profiles through an injected writer", testCliRuntimeProfileOutput),
     ("cli combines statistics and semantic profiles in one run", testCliCombinedRuntimeObservation),
     ("cli observes module-graph execution with the same artifact contract", testCliModuleGraphRuntimeObservation),
@@ -945,6 +948,28 @@ testCliRuntimeStatisticsOutput = do
   assertEqual "JSON statistics preserve stdout" (cliStdout baseline) (cliStdout json)
   assertContains "human statistics heading" "Jazz runtime statistics" (cliStderr human)
   assertFinalStderrJson "JSON runtime statistics" json
+
+testCliRuntimeStatisticsAfterHostStderr :: IO ()
+testCliRuntimeStatisticsAfterHostStderr = do
+  hostStderr <- newIORef ""
+  let host =
+        disabledRuntimeHost
+          { runtimeHostWriteStderr = \contents -> do
+              modifyIORef' hostStderr (<> contents)
+              pure (Right ())
+          }
+      source = "__kernel_writeStderrRaw! \"unterminated\"."
+  output <-
+    runCliWithHost
+      host
+      ["--run", "--no-prelude", "--runtime-stats=json"]
+      noEnvironment
+      (const (pure Nothing))
+      (pure source)
+  writtenByHost <- readIORef hostStderr
+  assertEqual "host stderr remains byte-for-byte unchanged" "unterminated" writtenByHost
+  assertEqual "buffered stderr starts with a separating newline" "\n" (Text.take 1 (cliStderr output))
+  assertFinalStderrJson "JSON statistics after host stderr" output
 
 testCliRuntimeProfileOutput :: IO ()
 testCliRuntimeProfileOutput = do

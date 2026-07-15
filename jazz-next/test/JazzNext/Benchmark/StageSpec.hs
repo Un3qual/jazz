@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Control.Exception (IOException, try)
+import Control.Monad (void)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Benchmark.StageInputs
@@ -22,6 +23,7 @@ tests :: [NamedTest]
 tests =
   [ ("selects requested cases before stage preparation", testCaseSelection),
     ("parse-lower setup does not require module compilation", testParseLowerSetupBoundary),
+    ("parse-lower setup reports entry-source read failures", testParseLowerSourceReadFailure),
     ("analysis uses module-aware imported interfaces", testModuleAwareAnalysis),
     ("runtime benchmarks reject unexpected results", testRuntimeResultValidation)
   ]
@@ -47,6 +49,26 @@ testParseLowerSetupBoundary = do
       ParseLowerBenchmark
       programCase {programCaseModuleRoot = "/path/that/cannot-resolve-modules"}
   runPreparedBenchmark prepared
+
+testParseLowerSourceReadFailure :: IO ()
+testParseLowerSourceReadFailure = do
+  programCase <- loadCase "identifier-classifier"
+  result <-
+    try
+      ( void
+          ( prepareBenchmark
+              ParseLowerBenchmark
+              programCase {programCaseEntrySource = programCaseEntrySource programCase <> ".missing"}
+          )
+      ) :: IO (Either IOException ())
+  case result of
+    Left exception
+      | "could not read corpus entry source for case 'identifier-classifier'"
+          `Text.isInfixOf` Text.pack (show exception) ->
+          pure ()
+    Left exception ->
+      failTest ("expected a structured entry-source read failure, got " <> Text.pack (show exception))
+    Right () -> failTest "expected parse-lower setup to reject an unreadable entry source"
 
 testModuleAwareAnalysis :: IO ()
 testModuleAwareAnalysis = do

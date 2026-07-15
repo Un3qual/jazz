@@ -136,6 +136,7 @@ import JazzNext.Compiler.Runtime.Observation
     recordRuntimeProfileClose,
     recordRuntimeProfileOpen,
     recordRuntimeTransition,
+    restoreRuntimeContinuationDepth,
     runtimeObservationEnabled,
     runtimeObservationProfileEnabled,
     runtimeObservationStatisticsEnabled
@@ -240,6 +241,8 @@ runRuntimeHostEvaluationWithObservation observationRequest host action = do
       RuntimeHostEvaluationState
         { runtimeHostEvaluationBindingCache = Map.empty,
           runtimeHostEvaluationNextScopeId = 0,
+          runtimeHostEvaluationActiveMachineCount = 0,
+          runtimeHostEvaluationContinuationDepth = 0,
           runtimeHostEvaluationObservation = initialRuntimeObservationState observationRequest
         }
   pure (value, runtimeHostEvaluationObservation finalState)
@@ -1573,30 +1576,69 @@ runEvaluationControl ::
   EvaluationControl ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 runEvaluationControl host builtinMode bindingTypeHints initialControl =
-  do
-    observationState <-
-      lift (runtimeHostEvaluationObservation <$> get)
-    let observeTransitions = runtimeObservationEnabled observationState
+  ExceptT $ do
+    initialState <- get
+    let activeMachineCount = runtimeHostEvaluationActiveMachineCount initialState
+        parentContinuationDepth = runtimeHostEvaluationContinuationDepth initialState
+        continuationBaseDepth =
+          if activeMachineCount == 0
+            then 0
+            else parentContinuationDepth + 1
+        observationState = runtimeHostEvaluationObservation initialState
+        observeTransitions = runtimeObservationEnabled observationState
         observeStatistics = runtimeObservationStatisticsEnabled observationState
         observeProfile = runtimeObservationProfileEnabled observationState
         advance machine = do
-          if observeTransitions
-            then
-              lift
-                ( modifyRuntimeObservation
-                    (recordRuntimeTransition (length (evaluationContinuations machine)))
+          let continuationDepth =
+                continuationBaseDepth
+                  + fromIntegral (length (evaluationContinuations machine))
+          lift
+            ( modify'
+                ( \evaluationState ->
+                    evaluationState
+                      { runtimeHostEvaluationContinuationDepth = continuationDepth,
+                        runtimeHostEvaluationObservation =
+                          if observeTransitions
+                            then
+                              recordRuntimeTransition
+                                continuationDepth
+                                (runtimeHostEvaluationObservation evaluationState)
+                            else runtimeHostEvaluationObservation evaluationState
+                      }
                 )
-            else pure ()
+            )
           progress <- stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingTypeHints machine
           case progress of
             EvaluationFinished value -> pure value
             EvaluationContinues nextMachine -> advance nextMachine
-    advance
-      EvaluationMachine
-        { evaluationControl = initialControl,
-          evaluationContinuations = [],
-          evaluationReturnPolicy = RuntimeReturnPolicy []
+    put
+      initialState
+        { runtimeHostEvaluationActiveMachineCount = activeMachineCount + 1
         }
+    result <-
+      runExceptT
+        ( advance
+            EvaluationMachine
+              { evaluationControl = initialControl,
+                evaluationContinuations = [],
+                evaluationReturnPolicy = RuntimeReturnPolicy []
+              }
+        )
+    modify'
+      ( \evaluationState ->
+          evaluationState
+            { runtimeHostEvaluationActiveMachineCount = activeMachineCount,
+              runtimeHostEvaluationContinuationDepth = parentContinuationDepth,
+              runtimeHostEvaluationObservation =
+                if observeTransitions && activeMachineCount > 0
+                  then
+                    restoreRuntimeContinuationDepth
+                      parentContinuationDepth
+                      (runtimeHostEvaluationObservation evaluationState)
+                  else runtimeHostEvaluationObservation evaluationState
+            }
+      )
+    pure result
 
 stepEvaluationMachine ::
   Monad m =>

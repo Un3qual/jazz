@@ -13,13 +13,14 @@ module JazzNext.ProgramCorpus.Runner
   )
 where
 
-import Control.Exception (IOException, try)
+import Control.Exception (IOException, displayException, try)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Data.Word (Word64)
 import JazzNext.Compiler.BundledPrelude (bundledPreludeSource)
-import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
+import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord, mkMessageDiagnostic)
 import JazzNext.Compiler.Driver
   ( ResolvedPrelude (PreludeBundled),
     RunResult (..),
@@ -91,8 +92,25 @@ programCaseBudgetViolations programCase report =
           programBudgetViolationPercentageIncrease = percentageIncrease limit actual
         }
 
-loadProgramCaseEntrySource :: ProgramCase -> IO Text
-loadProgramCaseEntrySource = TextIO.readFile . programCaseEntrySource
+loadProgramCaseEntrySource :: ProgramCase -> IO (Either Diagnostic Text)
+loadProgramCaseEntrySource programCase = do
+  let sourcePath = programCaseEntrySource programCase
+  readResult <- try (TextIO.readFile sourcePath) :: IO (Either IOException Text)
+  pure
+    ( case readResult of
+        Right source -> Right source
+        Left exception ->
+          Left
+            ( mkMessageDiagnostic
+                ( "could not read corpus entry source for case '"
+                    <> programCaseIdentifier programCase
+                    <> "' at '"
+                    <> Text.pack sourcePath
+                    <> "': "
+                    <> Text.pack (displayException exception)
+                )
+            )
+    )
 
 prepareProgramCase :: ProgramCase -> IO (Either Diagnostic CompiledProgram)
 prepareProgramCase programCase =
