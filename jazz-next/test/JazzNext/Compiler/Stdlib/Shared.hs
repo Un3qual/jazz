@@ -3,6 +3,7 @@
 module JazzNext.Compiler.Stdlib.Shared
   ( runStdlibFixture,
     runStdlibSource,
+    runStdlibSourceObserved,
   )
 where
 
@@ -11,9 +12,13 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult,
     runModuleGraph,
+    runModuleGraphObserved,
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
+  )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationRequest,
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -34,6 +39,21 @@ runStdlibFixture modulePath fixturePath = do
 runStdlibSource :: [Text] -> Text -> IO RunResult
 runStdlibSource modulePath entrySource =
   runModuleGraph
+    defaultWarningSettings
+    resolverConfig
+    modulePath
+    lookupSource
+  where
+    entryPath = "src/" <> modulePathFile modulePath <> ".jz"
+
+    lookupSource path
+      | path == entryPath = pure (Just entrySource)
+      | otherwise = readCheckedInJazzModuleSource StandardLibrarySource path
+
+runStdlibSourceObserved :: RuntimeObservationRequest -> [Text] -> Text -> IO RunResult
+runStdlibSourceObserved observationRequest modulePath entrySource =
+  runModuleGraphObserved
+    observationRequest
     defaultWarningSettings
     resolverConfig
     modulePath

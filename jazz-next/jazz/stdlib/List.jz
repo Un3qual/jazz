@@ -246,18 +246,45 @@ module List (value listPrepend, value listReverse, value listLength, value listI
     | [first | rest] -> Just (listFoldLeft (\(best, item) -> case Ord::compare item best { | LT -> best | EQ -> best | GT -> item }) first rest)
   }.
 
-  listInsertByFrom :: (a -> a -> Ordering) -> a -> [a] -> [a] -> [a].
-  listInsertByFrom = \(compare, item, remaining, reversedPrefix) -> case remaining {
-    | [] -> listAppend (listReverse reversedPrefix) [item]
-    | [first | rest] -> case compare item first {
-      | LT -> listAppend (listReverse reversedPrefix) (listPrepend item remaining)
-      | EQ -> listInsertByFrom compare item rest (listPrepend first reversedPrefix)
-      | GT -> listInsertByFrom compare item rest (listPrepend first reversedPrefix)
+  listMergeByFrom :: (a -> a -> Ordering) -> [a] -> [a] -> [a] -> [a].
+  listMergeByFrom = \(compare, left, right, reversed) -> case left {
+    | [] -> listFoldLeft (\(result, item) -> listPrepend item result) right reversed
+    | [leftFirst | leftRest] -> case right {
+      | [] -> listFoldLeft (\(result, item) -> listPrepend item result) left reversed
+      | [rightFirst | rightRest] -> case compare leftFirst rightFirst {
+        | LT -> listMergeByFrom compare leftRest right (listPrepend leftFirst reversed)
+        | EQ -> listMergeByFrom compare leftRest right (listPrepend leftFirst reversed)
+        | GT -> listMergeByFrom compare left rightRest (listPrepend rightFirst reversed)
+      }
+    }
+  }.
+
+  listMergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a].
+  listMergeBy = \(compare, left, right) -> listMergeByFrom compare left right [].
+
+  listMergePairsByFrom :: (a -> a -> Ordering) -> [[a]] -> [[a]] -> [[a]].
+  listMergePairsByFrom = \(compare, runs, reversed) -> case runs {
+    | [] -> listReverse reversed
+    | [first | remaining] -> case remaining {
+      | [] -> listReverse (listPrepend first reversed)
+      | [second | rest] -> listMergePairsByFrom compare rest (listPrepend (listMergeBy compare first second) reversed)
+    }
+  }.
+
+  listMergePairsBy :: (a -> a -> Ordering) -> [[a]] -> [[a]].
+  listMergePairsBy = \(compare, runs) -> listMergePairsByFrom compare runs [].
+
+  listMergeRunsBy :: (a -> a -> Ordering) -> [[a]] -> [a].
+  listMergeRunsBy = \(compare, runs) -> case runs {
+    | [] -> []
+    | [first | remaining] -> case remaining {
+      | [] -> first
+      | [second | rest] -> listMergeRunsBy compare (listMergePairsBy compare runs)
     }
   }.
 
   listSortBy :: (a -> a -> Ordering) -> [a] -> [a].
-  listSortBy = \(compare, items) -> listFoldLeft (\(sorted, item) -> listInsertByFrom compare item sorted []) [] items.
+  listSortBy = \(compare, items) -> listMergeRunsBy compare (listMap (\(item) -> [item]) items).
 
   listSort :: @{Ord(a)}: [a] -> [a].
   listSort = \(items) -> listSortBy (\(left, right) -> Ord::compare left right) items.

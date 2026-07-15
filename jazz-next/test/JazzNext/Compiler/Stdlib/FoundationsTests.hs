@@ -6,18 +6,26 @@ module JazzNext.Compiler.Stdlib.FoundationsTests
 where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
     runRuntimeErrors,
   )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationReport (runtimeObservationStatistics),
+    RuntimeObservationRequest (RuntimeObservationStatistics),
+    RuntimeStatistics (runtimeListCellsConstructed),
+  )
 import JazzNext.Compiler.Stdlib.Shared
   ( runStdlibFixture,
     runStdlibSource,
+    runStdlibSourceObserved,
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
+    failTest,
   )
 
 foundationTests :: [NamedTest]
@@ -30,7 +38,8 @@ foundationTests =
     ("Maybe and Result helpers preserve branch semantics", fixtureTest ["Stdlib", "Foundations", "MaybeResult"] "stdlib/foundations/MaybeResult.jz" expectedMaybeResult),
     ("Maybe and Result helpers preserve alternate branches", fixtureTest ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
     ("NonEmpty keeps its head-tail invariant", fixtureTest ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty),
-    ("large Jazz-written list traversals stay stack safe", testLargeListTraversal)
+    ("large Jazz-written list traversals stay stack safe", testLargeListTraversal),
+    ("stable list sorting stays within its logarithmic work bound", testStableSortWorkBound)
   ]
 
 fixtureTest :: [Text] -> FilePath -> Text -> IO ()
@@ -55,6 +64,33 @@ testLargeListTraversal = do
       }
       """
   assertSuccessfulOutput "50000" result
+
+testStableSortWorkBound :: IO ()
+testStableSortWorkBound = do
+  result <-
+    runStdlibSourceObserved
+      RuntimeObservationStatistics
+      ["Stdlib", "Foundations", "SortWorkBound"]
+      """
+      module Stdlib::Foundations::SortWorkBound {
+        import List.
+        import Maybe.
+        build = \\(remaining, values) -> case remaining {
+          | 0 -> values
+          | _ -> build (remaining - 1) (listPrepend remaining values)
+        }.
+        sorted = listSort (build 512 []).
+        (listLength sorted, listHead sorted, listLast sorted).
+      }
+      """
+  assertSuccessfulOutput "(512, Just(1), Just(512))" result
+  case runRuntimeObservation result of
+    Nothing -> failTest "sorting work-bound run did not produce runtime statistics"
+    Just report ->
+      let constructedCells = runtimeListCellsConstructed (runtimeObservationStatistics report)
+       in if constructedCells <= 25000
+            then pure ()
+            else failTest ("sorting constructed too many list cells: " <> Text.pack (show constructedCells))
 
 assertSuccessfulOutput :: Text -> RunResult -> IO ()
 assertSuccessfulOutput expectedOutput result = do
