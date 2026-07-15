@@ -22,6 +22,7 @@ import JazzNext.ProgramCorpus.Manifest
   ( canonicalizeValidatedPath,
     loadProgramCorpus,
     loadProgramCorpusAt,
+    loadProgramCorpusAtWithManifestReader,
     loadProgramCorpusAtWithRootCanonicalizer,
     loadProgramCorpusWithRootCanonicalizer,
     programCaseById,
@@ -30,7 +31,7 @@ import JazzNext.ProgramCorpus.Manifest
 import JazzNext.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
     programCaseBudgetViolations,
-    readProgramCaseSource,
+    readProgramCaseSourceWith,
     runProgramCase,
     runProgramCaseObserved,
   )
@@ -58,12 +59,10 @@ import System.Directory
     createDirectoryLink,
     createFileLink,
     doesDirectoryExist,
-    emptyPermissions,
     getTemporaryDirectory,
     listDirectory,
     removeFile,
     removePathForcibly,
-    setPermissions,
   )
 import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -172,10 +171,11 @@ testMalformedManifest =
 testUnreadableManifest :: IO ()
 testUnreadableManifest =
   withTemporaryDirectory $ \root -> do
-    let manifestPath = root </> "corpus.json"
     writeManifest root "{}"
-    setPermissions manifestPath emptyPermissions
-    result <- loadProgramCorpusAt root
+    result <-
+      loadProgramCorpusAtWithManifestReader
+        (\_ -> ioError (userError "simulated unreadable manifest"))
+        root
     case result of
       Left violations
         | any
@@ -191,8 +191,10 @@ testUnreadableCorpusSource =
   withTemporaryDirectory $ \root -> do
     let sourcePath = root </> "Main.jz"
     TextIO.writeFile sourcePath validMainSource
-    setPermissions sourcePath emptyPermissions
-    source <- readProgramCaseSource sourcePath
+    source <-
+      readProgramCaseSourceWith
+        (\_ -> ioError (userError "simulated unreadable source"))
+        sourcePath
     assertEqual "unreadable corpus source" Nothing source
 
 testUnknownBudgetField :: IO ()

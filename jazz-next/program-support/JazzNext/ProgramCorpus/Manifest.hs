@@ -4,6 +4,7 @@ module JazzNext.ProgramCorpus.Manifest
   ( canonicalizeValidatedPath,
     loadProgramCorpus,
     loadProgramCorpusAt,
+    loadProgramCorpusAtWithManifestReader,
     loadProgramCorpusAtWithRootCanonicalizer,
     loadProgramCorpusWithRootCanonicalizer,
     programCaseById,
@@ -143,19 +144,33 @@ loadProgramCorpusWithRootCanonicalizer canonicalizeRoot = do
         (packageRoot </> "programs")
 
 loadProgramCorpusAt :: FilePath -> IO (Either [ProgramCorpusViolation] ProgramCorpus)
-loadProgramCorpusAt = loadProgramCorpusAtWithRootCanonicalizer canonicalizePath
+loadProgramCorpusAt = loadProgramCorpusAtWithDependencies canonicalizePath ByteString.readFile
+
+loadProgramCorpusAtWithManifestReader ::
+  (FilePath -> IO ByteString.ByteString) ->
+  FilePath ->
+  IO (Either [ProgramCorpusViolation] ProgramCorpus)
+loadProgramCorpusAtWithManifestReader = loadProgramCorpusAtWithDependencies canonicalizePath
 
 loadProgramCorpusAtWithRootCanonicalizer ::
   (FilePath -> IO FilePath) ->
   FilePath ->
   IO (Either [ProgramCorpusViolation] ProgramCorpus)
-loadProgramCorpusAtWithRootCanonicalizer canonicalizeRoot requestedRoot = do
+loadProgramCorpusAtWithRootCanonicalizer canonicalizeRoot =
+  loadProgramCorpusAtWithDependencies canonicalizeRoot ByteString.readFile
+
+loadProgramCorpusAtWithDependencies ::
+  (FilePath -> IO FilePath) ->
+  (FilePath -> IO ByteString.ByteString) ->
+  FilePath ->
+  IO (Either [ProgramCorpusViolation] ProgramCorpus)
+loadProgramCorpusAtWithDependencies canonicalizeRoot readManifest requestedRoot = do
   let manifestPath = requestedRoot </> "corpus.json"
   manifestExists <- doesFileExist manifestPath
   if not manifestExists
     then pure (Left [MissingCorpusManifest manifestPath])
     else do
-      manifestResult <- try (ByteString.readFile manifestPath) :: IO (Either IOException ByteString.ByteString)
+      manifestResult <- try (readManifest manifestPath) :: IO (Either IOException ByteString.ByteString)
       case manifestResult of
         Left exception ->
           pure

@@ -22,12 +22,21 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import JazzNext.Compiler.Force
-  ( forceInferenceResult,
+  ( forceCompiledModule,
+    forceInferenceResult,
     forceRuntimeProgramOutputResult,
   )
-import JazzNext.Compiler.ModuleExports (ModuleExport (ModuleExport))
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (ModuleExport),
+    exportInventory,
+  )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (CoreModule),
+    ResolvedModule (..),
+  )
 import JazzNext.Compiler.ModuleInterface
-  ( ModuleInterface (..),
+  ( CompiledModule (CompiledModule),
+    ModuleInterface (..),
     emptyModuleInterface,
   )
 import JazzNext.Compiler.ModuleRuntime
@@ -71,6 +80,7 @@ tests =
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
+    ("compiled-module forcing evaluates resolved runtime metadata", testDeepResolvedModuleForcing),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
@@ -189,6 +199,43 @@ testDeepModuleInterfaceForcing =
       case result of
         Left _ -> pure ()
         Right () -> ioError (userError (Text.unpack (label <> " payload stayed lazy")))
+
+testDeepResolvedModuleForcing :: IO ()
+testDeepResolvedModuleForcing =
+  mapM_
+    assertResolvedMetadataForced
+    [ ( "imports",
+        baseResolvedModule
+          { resolvedModuleImports = throw (userError "resolved imports were forced")
+          }
+      ),
+      ( "export inventory",
+        baseResolvedModule
+          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
+          }
+      )
+    ]
+  where
+    baseResolvedModule =
+      ResolvedModule
+        { resolvedModulePath = ["App", "Main"],
+          resolvedSourcePath = "src/App/Main.jz",
+          resolvedModuleImports = [],
+          resolvedModuleExportInventory = exportInventory [],
+          resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+        }
+    assertResolvedMetadataForced (label, resolvedModule) = do
+      let compiledModule =
+            CompiledModule
+              resolvedModule
+              emptyModuleInterface
+              []
+              []
+              (ELit (LInt 0))
+      result <- try (evaluate (forceCompiledModule compiledModule)) :: IO (Either IOException ())
+      case result of
+        Left _ -> pure ()
+        Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do

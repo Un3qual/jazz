@@ -41,7 +41,16 @@ import JazzNext.Compiler.Diagnostics
     WarningRecord (..),
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector (..),
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    ModuleExportSelector (..),
+    exportInventoryEntries,
+  )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (..),
+    DeclaredModuleExports (..),
+    ResolvedImport (..),
+    ResolvedModule (..),
   )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
@@ -552,11 +561,47 @@ forceCompiledPrelude compiledPrelude =
 
 forceCompiledModule :: CompiledModule -> ()
 forceCompiledModule compiledModule =
-  compiledResolvedModule compiledModule `seq`
+  forceResolvedModule (compiledResolvedModule compiledModule) `seq`
     forceModuleInterface (compiledModuleInterface compiledModule) `seq`
       forceListWith forceWarning (compiledModuleWarnings compiledModule) `seq`
         forceListWith forceDiagnostic (compiledModuleErrors compiledModule) `seq`
           forceExpr (compiledModuleExpr compiledModule)
+
+forceResolvedModule :: ResolvedModule -> ()
+forceResolvedModule resolvedModule =
+  forceListWhnf (resolvedModulePath resolvedModule) `seq`
+    forceListWhnf (resolvedSourcePath resolvedModule) `seq`
+      forceListWith forceResolvedImport (resolvedModuleImports resolvedModule) `seq`
+        forceModuleExportInventory (resolvedModuleExportInventory resolvedModule) `seq`
+          forceCoreModule (resolvedModuleCore resolvedModule)
+
+forceResolvedImport :: ResolvedImport -> ()
+forceResolvedImport resolvedImport =
+  forceSourceSpan (resolvedImportSpan resolvedImport) `seq`
+    forceListWhnf (resolvedImportPath resolvedImport) `seq`
+      forceMaybeWith (`seq` ()) (resolvedImportAlias resolvedImport) `seq`
+        forceMaybeWith forceListWhnf (resolvedImportSymbols resolvedImport)
+
+forceModuleExportInventory :: ModuleExportInventory -> ()
+forceModuleExportInventory = forceSetWith forceModuleExport . exportInventoryEntries
+
+forceModuleExport :: ModuleExport -> ()
+forceModuleExport moduleExport =
+  moduleExportNamespace moduleExport `seq`
+    moduleExportName moduleExport `seq`
+      ()
+
+forceCoreModule :: CoreModule -> ()
+forceCoreModule coreModule =
+  forceMaybeWith forceListWhnf (coreModuleDeclaredPath coreModule) `seq`
+    forceMaybeWith forceDeclaredModuleExports (coreModuleDeclaredExports coreModule) `seq`
+      forceListWith forceResolvedImport (coreModuleImports coreModule) `seq`
+        forceExpr (coreModuleExpr coreModule)
+
+forceDeclaredModuleExports :: DeclaredModuleExports -> ()
+forceDeclaredModuleExports declaredExports =
+  forceSourceSpan (declaredModuleExportsSpan declaredExports) `seq`
+    forceListWith forceModuleExportSelector (declaredModuleExportSelectors declaredExports)
 
 forceCompiledModules :: [CompiledModule] -> ()
 forceCompiledModules = forceListWith forceCompiledModule
@@ -580,4 +625,7 @@ forceMapWith :: (value -> ()) -> Map.Map key value -> ()
 forceMapWith forceValue = Map.foldrWithKey (\key value rest -> key `seq` forceValue value `seq` rest) ()
 
 forceSetWhnf :: Set.Set value -> ()
-forceSetWhnf = Set.foldr seq ()
+forceSetWhnf = forceSetWith (`seq` ())
+
+forceSetWith :: (value -> ()) -> Set.Set value -> ()
+forceSetWith forceValue = Set.foldr (\value rest -> forceValue value `seq` rest) ()

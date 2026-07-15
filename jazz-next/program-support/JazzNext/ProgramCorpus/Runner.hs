@@ -9,6 +9,7 @@ module JazzNext.ProgramCorpus.Runner
     readProgramCaseSource,
     runProgramCase,
     runProgramCaseObserved,
+    readProgramCaseSourceWith,
   )
 where
 
@@ -113,8 +114,11 @@ programCaseResolutionConfig programCase =
     }
 
 readProgramCaseSource :: FilePath -> IO (Maybe Text)
-readProgramCaseSource path = do
-  readResult <- try (TextIO.readFile path) :: IO (Either IOException Text)
+readProgramCaseSource = readProgramCaseSourceWith TextIO.readFile
+
+readProgramCaseSourceWith :: (FilePath -> IO Text) -> FilePath -> IO (Maybe Text)
+readProgramCaseSourceWith readSource path = do
+  readResult <- try (readSource path) :: IO (Either IOException Text)
   pure (either (const Nothing) Just readResult)
 
 caseResult :: RunResult -> ProgramCaseResult
