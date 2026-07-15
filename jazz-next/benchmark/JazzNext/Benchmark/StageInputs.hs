@@ -19,7 +19,7 @@ import JazzNext.Benchmark.Force
     forceCompiledProgramResult,
     forceExpr,
     forceProgramCaseResult,
-    forceRuntimeProgramResult,
+    forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
   )
@@ -139,7 +139,7 @@ runPreparedBenchmark preparedBenchmark =
     PreparedRuntime programCase compiledProgram ->
       withCompilerStage EvaluationStage $ do
         let runtimeResult = evaluateCompiledProgram compiledProgram
-        evaluate (forceRuntimeProgramResult runtimeResult)
+        evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedRuntimeResult programCase runtimeResult
     PreparedWholeProgram programCase -> do
       result <- runProgramCase programCase

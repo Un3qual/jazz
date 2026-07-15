@@ -23,6 +23,7 @@ import JazzNext.ProgramCorpus.Manifest
     loadProgramCorpus,
     loadProgramCorpusAt,
     loadProgramCorpusAtWithRootCanonicalizer,
+    loadProgramCorpusWithRootCanonicalizer,
     programCaseById,
     renderProgramCorpusViolation,
   )
@@ -54,6 +55,7 @@ import JazzNext.TestHarness
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
+    createDirectoryLink,
     createFileLink,
     doesDirectoryExist,
     emptyPermissions,
@@ -72,10 +74,13 @@ main = runTestSuite "ProgramCorpus" tests
 tests :: [NamedTest]
 tests =
   [ ("reports all manifest violations in stable order", testAggregateManifestViolations),
+    ("rejects equivalent normalized case directories", testEquivalentCaseDirectories),
+    ("rejects equivalent symlinked case directories", testEquivalentSymlinkedCaseDirectories),
     ("reports malformed manifest JSON", testMalformedManifest),
     ("reports unreadable manifests as corpus violations", testUnreadableManifest),
     ("treats unreadable corpus sources as unavailable", testUnreadableCorpusSource),
     ("rejects unknown budget fields", testUnknownBudgetField),
+    ("reports package-root canonicalization failures as corpus violations", testPackageRootCanonicalizationFailure),
     ("reports corpus-root canonicalization failures as corpus violations", testRootCanonicalizationFailure),
     ("reports case-path canonicalization failures as corpus violations", testCasePathCanonicalizationFailure),
     ("reports every missing corpus path", testMissingCorpusPaths),
@@ -118,6 +123,39 @@ testAggregateManifestViolations =
           "stable rendered violation order"
           (sortOn renderProgramCorpusViolation violations)
           violations
+
+testEquivalentCaseDirectories :: IO ()
+testEquivalentCaseDirectories =
+  withTemporaryDirectory $ \root -> do
+    let caseRoot = root </> "same"
+    createDirectory caseRoot
+    TextIO.writeFile (caseRoot </> "Main.jz") validMainSource
+    TextIO.writeFile (caseRoot </> "expected.stdout") "0\n"
+    writeManifest root equivalentDirectoriesManifest
+    result <- loadProgramCorpusAt root
+    case result of
+      Left violations
+        | DuplicateCaseDirectory "same" `elem` violations -> pure ()
+      Left violations ->
+        failTest ("expected a normalized duplicate-directory violation, got " <> Text.pack (show violations))
+      Right corpus -> failTest ("expected duplicate directory failure, loaded " <> Text.pack (show corpus))
+
+testEquivalentSymlinkedCaseDirectories :: IO ()
+testEquivalentSymlinkedCaseDirectories =
+  withTemporaryDirectory $ \root -> do
+    let caseRoot = root </> "same"
+    createDirectory caseRoot
+    TextIO.writeFile (caseRoot </> "Main.jz") validMainSource
+    TextIO.writeFile (caseRoot </> "expected.stdout") "0\n"
+    createDirectoryLink caseRoot (root </> "alias")
+    writeManifest root (Text.replace "\"same/.\"" "\"alias\"" equivalentDirectoriesManifest)
+    result <- loadProgramCorpusAt root
+    case result of
+      Left violations
+        | DuplicateCaseDirectory "same" `elem` violations -> pure ()
+      Left violations ->
+        failTest ("expected a canonical duplicate-directory violation, got " <> Text.pack (show violations))
+      Right corpus -> failTest ("expected symlinked duplicate directory failure, loaded " <> Text.pack (show corpus))
 
 testMalformedManifest :: IO ()
 testMalformedManifest =
@@ -172,6 +210,16 @@ testUnknownBudgetField =
       Left violations ->
         failTest ("expected an unknown-budget decode failure, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected unknown budget field failure, loaded " <> Text.pack (show corpus))
+
+testPackageRootCanonicalizationFailure :: IO ()
+testPackageRootCanonicalizationFailure = do
+  result <-
+    loadProgramCorpusWithRootCanonicalizer
+      (\_ -> ioError (userError "simulated package-root canonicalization failure"))
+  case result of
+    Left [UnreadableCorpusRoot _ message]
+      | "simulated package-root canonicalization failure" `Text.isInfixOf` message -> pure ()
+    other -> failTest ("expected package-root violation, got " <> Text.pack (show other))
 
 testRootCanonicalizationFailure :: IO ()
 testRootCanonicalizationFailure =
@@ -564,6 +612,48 @@ invalidAggregateManifest =
         "workload": "overnight",
         "features": ["telepathy"],
         "benchmarks": ["llvm"],
+        "budgets": {
+          "steps": 100,
+          "applications": 10,
+          "maxContinuationDepth": 10
+        }
+      }
+    ]
+  }
+  """
+
+equivalentDirectoriesManifest :: Text
+equivalentDirectoriesManifest =
+  """
+  {
+    "schemaVersion": 1,
+    "cases": [
+      {
+        "id": "first",
+        "directory": "same",
+        "entrySource": "Main.jz",
+        "moduleRoot": ".",
+        "expectedTermination": "success",
+        "expectedStdout": "expected.stdout",
+        "workload": "fast",
+        "features": ["modules"],
+        "benchmarks": ["whole-program"],
+        "budgets": {
+          "steps": 100,
+          "applications": 10,
+          "maxContinuationDepth": 10
+        }
+      },
+      {
+        "id": "second",
+        "directory": "same/.",
+        "entrySource": "Main.jz",
+        "moduleRoot": ".",
+        "expectedTermination": "success",
+        "expectedStdout": "expected.stdout",
+        "workload": "fast",
+        "features": ["modules"],
+        "benchmarks": ["whole-program"],
         "budgets": {
           "steps": 100,
           "applications": 10,

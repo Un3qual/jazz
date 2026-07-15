@@ -5,6 +5,7 @@ module JazzNext.ProgramCorpus.Manifest
     loadProgramCorpus,
     loadProgramCorpusAt,
     loadProgramCorpusAtWithRootCanonicalizer,
+    loadProgramCorpusWithRootCanonicalizer,
     programCaseById,
     renderProgramCorpusViolation,
   )
@@ -127,11 +128,19 @@ optionalBudget metric maybeLimit =
     Just limit -> Just (metric, limit)
 
 loadProgramCorpus :: IO (Either [ProgramCorpusViolation] ProgramCorpus)
-loadProgramCorpus = do
-  packageRootResult <- findPackageRoot
+loadProgramCorpus = loadProgramCorpusWithRootCanonicalizer canonicalizePath
+
+loadProgramCorpusWithRootCanonicalizer ::
+  (FilePath -> IO FilePath) ->
+  IO (Either [ProgramCorpusViolation] ProgramCorpus)
+loadProgramCorpusWithRootCanonicalizer canonicalizeRoot = do
+  packageRootResult <- findPackageRoot canonicalizeRoot
   case packageRootResult of
     Left violation -> pure (Left [violation])
-    Right packageRoot -> loadProgramCorpusAt (packageRoot </> "programs")
+    Right packageRoot ->
+      loadProgramCorpusAtWithRootCanonicalizer
+        canonicalizeRoot
+        (packageRoot </> "programs")
 
 loadProgramCorpusAt :: FilePath -> IO (Either [ProgramCorpusViolation] ProgramCorpus)
 loadProgramCorpusAt = loadProgramCorpusAtWithRootCanonicalizer canonicalizePath
@@ -176,16 +185,9 @@ validateDocument ::
   ProgramCorpusDocument ->
   IO (Either [ProgramCorpusViolation] ProgramCorpus)
 validateDocument canonicalizeRoot requestedRoot document = do
-  canonicalRootResult <- try (canonicalizeRoot requestedRoot) :: IO (Either IOException FilePath)
+  canonicalRootResult <- canonicalizeCorpusRoot canonicalizeRoot requestedRoot
   case canonicalRootResult of
-    Left exception ->
-      pure
-        ( Left
-            [ UnreadableCorpusRoot
-                requestedRoot
-                (Text.pack (show exception))
-            ]
-        )
+    Left violation -> pure (Left [violation])
     Right canonicalRoot -> do
       caseResults <- mapM (validateCase canonicalRoot) (programCorpusDocumentCases document)
       let documentViolations =
@@ -194,8 +196,10 @@ validateDocument canonicalizeRoot requestedRoot document = do
             ]
           duplicateViolations =
             map DuplicateCaseIdentifier (duplicates (map programCaseDocumentIdentifier (programCorpusDocumentCases document)))
-              <> map DuplicateCaseDirectory (duplicates (map programCaseDocumentDirectory (programCorpusDocumentCases document)))
-          caseViolations = concatMap fst caseResults
+              <> map
+                (DuplicateCaseDirectory . makeRelative canonicalRoot)
+                (duplicates (mapMaybe validatedCaseDirectory caseResults))
+          caseViolations = concatMap validatedCaseViolations caseResults
           violations = sortOn renderProgramCorpusViolation (documentViolations <> duplicateViolations <> caseViolations)
       if null violations
         then
@@ -204,12 +208,18 @@ validateDocument canonicalizeRoot requestedRoot document = do
                 ProgramCorpus
                   { programCorpusRoot = canonicalRoot,
                     programCorpusSchemaVersion = programCorpusDocumentSchemaVersion document,
-                    programCorpusCases = mapMaybe snd caseResults
+                    programCorpusCases = mapMaybe validatedProgramCase caseResults
                   }
             )
         else pure (Left violations)
 
-validateCase :: FilePath -> ProgramCaseDocument -> IO ([ProgramCorpusViolation], Maybe ProgramCase)
+data ValidatedCase = ValidatedCase
+  { validatedCaseViolations :: [ProgramCorpusViolation],
+    validatedCaseDirectory :: Maybe FilePath,
+    validatedProgramCase :: Maybe ProgramCase
+  }
+
+validateCase :: FilePath -> ProgramCaseDocument -> IO ValidatedCase
 validateCase corpusRoot document = do
   directoryResult <- validateDirectoryPath corpusRoot identifier CaseDirectoryPath "" (programCaseDocumentDirectory document)
   entryResult <- validateFilePath corpusRoot identifier EntrySourcePath (programCaseDocumentDirectory document) (programCaseDocumentEntrySource document)
@@ -258,21 +268,24 @@ validateCase corpusRoot document = do
           _ -> []
       violations = valueViolations <> pathViolations <> extensionViolations <> moduleViolations
   pure
-    ( violations,
-      buildCase
-        corpusRoot
-        document
-        terminationResult
-        workloadResult
-        features
-        benchmarks
-        directoryResult
-        entryResult
-        moduleRootResult
-        expectedResult
-        expectedContentsResult
-        violations
-    )
+    ValidatedCase
+      { validatedCaseViolations = violations,
+        validatedCaseDirectory = either (const Nothing) Just directoryResult,
+        validatedProgramCase =
+          buildCase
+            corpusRoot
+            document
+            terminationResult
+            workloadResult
+            features
+            benchmarks
+            directoryResult
+            entryResult
+            moduleRootResult
+            expectedResult
+            expectedContentsResult
+            violations
+      }
   where
     identifier = programCaseDocumentIdentifier document
 
@@ -406,8 +419,8 @@ modulePathFromFile :: FilePath -> FilePath -> [Text]
 modulePathFromFile moduleRoot entrySource =
   map Text.pack (filter (`notElem` ["", "."]) (splitDirectories (dropExtension (makeRelative moduleRoot entrySource))))
 
-findPackageRoot :: IO (Either ProgramCorpusViolation FilePath)
-findPackageRoot = do
+findPackageRoot :: (FilePath -> IO FilePath) -> IO (Either ProgramCorpusViolation FilePath)
+findPackageRoot canonicalizeRoot = do
   currentDirectory <- getCurrentDirectory
   search (candidateRoots currentDirectory)
   where
@@ -417,8 +430,24 @@ findPackageRoot = do
         candidate : remaining -> do
           markerExists <- doesFileExist (candidate </> "jazz-next.cabal")
           if markerExists
-            then Right <$> canonicalizePath candidate
+            then canonicalizeCorpusRoot canonicalizeRoot candidate
             else search remaining
+
+canonicalizeCorpusRoot ::
+  (FilePath -> IO FilePath) ->
+  FilePath ->
+  IO (Either ProgramCorpusViolation FilePath)
+canonicalizeCorpusRoot canonicalizeRoot requestedRoot = do
+  canonicalResult <- try (canonicalizeRoot requestedRoot) :: IO (Either IOException FilePath)
+  pure $
+    case canonicalResult of
+      Left exception ->
+        Left
+          ( UnreadableCorpusRoot
+              requestedRoot
+              (Text.pack (show exception))
+          )
+      Right canonicalRoot -> Right canonicalRoot
 
 candidateRoots :: FilePath -> [FilePath]
 candidateRoots currentDirectory =

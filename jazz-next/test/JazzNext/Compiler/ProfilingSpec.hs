@@ -14,13 +14,28 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (ELit),
+  ( DataConstructorArgument (DataConstructorArgumentOpaque),
+    Expr (ELit),
     Literal (LInt),
+    SignaturePayload (SignatureType),
     SignatureType (TypeList),
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (SourceSpan))
-import JazzNext.Compiler.Force (forceInferenceResult)
-import JazzNext.Compiler.ModuleInterface (emptyModuleInterface)
+import JazzNext.Compiler.Force
+  ( forceInferenceResult,
+    forceRuntimeProgramOutputResult,
+  )
+import JazzNext.Compiler.ModuleExports (ModuleExport (ModuleExport))
+import JazzNext.Compiler.ModuleInterface
+  ( ModuleInterface (..),
+    emptyModuleInterface,
+  )
+import JazzNext.Compiler.ModuleRuntime
+  ( RuntimeExport (RuntimeBindingExport),
+    RuntimeModule (RuntimeModule),
+    RuntimeProgram (RuntimeProgram),
+  )
+import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
 import JazzNext.Compiler.Profiling
   ( CompilerStage (..),
     CompilerStageBoundary (..),
@@ -28,8 +43,17 @@ import JazzNext.Compiler.Profiling
     compilerStageName,
     withCompilerStageMarkers,
   )
+import JazzNext.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey (ExplicitTypeApplicationRuntimeHintKey))
 import JazzNext.Compiler.TypeInference (InferenceResult (..))
+import JazzNext.Compiler.TypeInference.Types
+  ( ClassMethodType (ClassMethodType),
+    ConstructorArgumentType (ConstructorArgumentMonomorphic),
+    DataTypeBinding (DataTypeBinding),
+    ExpressionType (TListType),
+    ImplMethodType (ImplMethodType),
+    TypeBinding (PlainTypeBinding),
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -46,6 +70,8 @@ tests =
     ("compiler stage markers pair around successful actions", testSuccessfulStageMarkers),
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
+    ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
+    ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
 
@@ -109,6 +135,87 @@ testDeepInferenceForcing = do
   case result of
     Left _ -> pure ()
     Right () -> ioError (userError "forceInferenceResult left a nested runtime hint unevaluated")
+
+testDeepModuleInterfaceForcing :: IO ()
+testDeepModuleInterfaceForcing =
+  mapM_
+    assertInterfaceForced
+    [ ( "value type",
+        emptyModuleInterface
+          { interfaceValueTypes =
+              Map.singleton
+                (ModuleExport ValueNamespace "value")
+                (PlainTypeBinding (TListType deferredExpressionType))
+          }
+      ),
+      ( "data type",
+        emptyModuleInterface
+          { interfaceDataTypes =
+              Map.singleton
+                "Container"
+                (DataTypeBinding [] [[ConstructorArgumentMonomorphic (TListType deferredExpressionType)]])
+          }
+      ),
+      ( "class method",
+        emptyModuleInterface
+          { interfaceClassMethods =
+              Map.singleton
+                "method"
+                (ClassMethodType "Capability" (SignatureType (TypeList deferredSignatureType)))
+          }
+      ),
+      ( "impl method",
+        emptyModuleInterface
+          { interfaceConcreteImplMethods =
+              Map.singleton
+                "Capability::method"
+                [ImplMethodType (TypeList deferredSignatureType)]
+          }
+      )
+    ]
+  where
+    deferredExpressionType = throw (userError "nested expression type was forced")
+    deferredSignatureType = throw (userError "nested signature type was forced")
+    assertInterfaceForced (label, interface) = do
+      let inference =
+            InferenceResult
+              { inferredExpr = ELit (LInt 0),
+                inferredWarnings = [],
+                inferredErrors = [],
+                inferredRuntimeTypeHints = Map.empty,
+                inferredModuleInterface = interface
+              }
+      result <- try (evaluate (forceInferenceResult inference)) :: IO (Either IOException ())
+      case result of
+        Left _ -> pure ()
+        Right () -> ioError (userError (Text.unpack (label <> " payload stayed lazy")))
+
+testRuntimeResultForcingFollowsRendering :: IO ()
+testRuntimeResultForcingFollowsRendering = do
+  let unusedExport = throw (userError "unused runtime export was forced")
+      unrenderedPartialArgument = throw (userError "unrendered partial-constructor argument was forced")
+      runtimeProgram =
+        RuntimeProgram
+          [ RuntimeModule
+              ["Lib"]
+              ( Map.singleton
+                  (RuntimeBindingExport (ModuleExport ValueNamespace "unused"))
+                  unusedExport
+              )
+          ]
+          ( Just
+              ( VConstructor
+                  "Container"
+                  []
+                  "Partial"
+                  [DataConstructorArgumentOpaque, DataConstructorArgumentOpaque]
+                  [unrenderedPartialArgument]
+              )
+          )
+  result <- try (evaluate (forceRuntimeProgramOutputResult (Right runtimeProgram))) :: IO (Either IOException ())
+  case result of
+    Left exception -> throw exception
+    Right () -> pure ()
 
 testProfilingPresetsExist :: IO ()
 testProfilingPresetsExist = do

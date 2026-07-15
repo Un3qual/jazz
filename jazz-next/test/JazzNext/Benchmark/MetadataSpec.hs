@@ -57,6 +57,7 @@ tests =
     ("derives benchmark build mode from profiling configuration", testBuildModeSelection),
     ("accepts only path-safe environment labels", testEnvironmentLabels),
     ("accepts exactly compatible environments", testExactCompatibility),
+    ("rejects different benchmark arguments", testBenchmarkArgumentCompatibility),
     ("classifies every compatibility mismatch", testIndividualMismatchCategories),
     ("accumulates compatibility mismatches", testAccumulatedMismatches),
     ("records an explicit compatibility override", testCompatibilityOverride),
@@ -127,6 +128,19 @@ testExactCompatibility =
     "exact compatibility"
     (Right CompatibleBenchmarks)
     (checkBenchmarkCompatibility RequireCompatible fixtureEnvironment fixtureEnvironment)
+
+testBenchmarkArgumentCompatibility :: IO ()
+testBenchmarkArgumentCompatibility =
+  case checkBenchmarkCompatibility
+    RequireCompatible
+    fixtureEnvironment
+    fixtureEnvironment {environmentBenchmarkArguments = ["--pattern=analysis"]} of
+    Left [mismatch] ->
+      assertEqual "benchmark-argument field" BenchmarkArgumentsField (compatibilityMismatchField mismatch)
+    Left mismatches ->
+      failTest ("expected one benchmark-argument mismatch, got " <> Text.pack (show mismatches))
+    Right decision ->
+      failTest ("expected benchmark arguments to be incompatible, got " <> Text.pack (show decision))
 
 testIndividualMismatchCategories :: IO ()
 testIndividualMismatchCategories =
@@ -232,6 +246,7 @@ individualMismatches =
     (BuildModeField, fixtureEnvironment {environmentBuildMode = ProfilingBenchmarkBuild}),
     (RtsCapabilitiesField, fixtureEnvironment {environmentRtsCapabilities = 4}),
     (RtsArgumentsField, fixtureEnvironment {environmentRtsArguments = ["-T", "-N4"]}),
+    (BenchmarkArgumentsField, fixtureEnvironment {environmentBenchmarkArguments = ["--pattern=analysis"]}),
     (TimeModeField, fixtureEnvironment {environmentTimeMode = WallBenchmarkTime})
   ]
 

@@ -9,7 +9,7 @@ module JazzNext.Compiler.Force
     forceExpr,
     forceInferenceResult,
     forceListWith,
-    forceRuntimeProgramResult,
+    forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
     forceWarning,
@@ -19,6 +19,7 @@ where
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -49,8 +50,7 @@ import JazzNext.Compiler.ModuleInterface
     ModuleInterface (..),
   )
 import JazzNext.Compiler.ModuleRuntime
-  ( RuntimeModule (..),
-    RuntimeProgram (..),
+  ( RuntimeProgram (..),
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -72,14 +72,23 @@ import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
   )
-import JazzNext.Compiler.Runtime.Types
-  ( RuntimeClosure (..),
-    RuntimeMethodCandidate (..),
-    RuntimeValue (..),
-    foldRuntimeExplicitResultHints,
-  )
-import qualified JazzNext.Compiler.Runtime.Types as RuntimeTypes
+import JazzNext.Compiler.Runtime.Semantics (renderRuntimeValue)
+import JazzNext.Compiler.Runtime.Types (RuntimeValue)
 import JazzNext.Compiler.TypeInference (InferenceResult (..))
+import JazzNext.Compiler.TypeInference.Types
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
+    DataTypeBinding (..),
+    ExpressionType (..),
+    ImplMethodType (..),
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    ScopeCapabilityFacts (..),
+    TypeBinding (..),
+    TypeScheme (..),
+    TypeSchemeConstraint (..),
+    TypeSchemePrimitiveConstraint (..),
+  )
 
 forceExpr :: Expr -> ()
 forceExpr expression =
@@ -292,13 +301,15 @@ forceCompiledProgram compiledProgram =
         forceListWith forceWarning (compiledProgramWarnings compiledProgram) `seq`
           forceListWith forceDiagnostic (compiledProgramErrors compiledProgram)
 
-forceRuntimeProgramResult :: Either Diagnostic RuntimeProgram -> ()
-forceRuntimeProgramResult result =
+forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
+forceRuntimeProgramOutputResult result =
   case result of
     Left diagnostic -> forceDiagnostic diagnostic
     Right runtimeProgram ->
-      forceListWith forceRuntimeModule (runtimeProgramModules runtimeProgram) `seq`
-        forceMaybeWith forceRuntimeValue (runtimeProgramOutput runtimeProgram)
+      forceMaybeWith forceRenderedRuntimeValue (runtimeProgramOutput runtimeProgram)
+
+forceRenderedRuntimeValue :: RuntimeValue -> ()
+forceRenderedRuntimeValue runtimeValue = Text.length (renderRuntimeValue runtimeValue) `seq` ()
 
 forceLiteral :: Literal -> ()
 forceLiteral literal =
@@ -426,14 +437,109 @@ forceWarning warning =
 
 forceModuleInterface :: ModuleInterface -> ()
 forceModuleInterface interface =
-  forceMapWhnf (interfaceValueTypes interface) `seq`
-    forceMapWhnf (interfaceDataTypes interface) `seq`
+  forceMapWith forceTypeBinding (interfaceValueTypes interface) `seq`
+    forceMapWith forceDataTypeBinding (interfaceDataTypes interface) `seq`
       forceMapWhnf (interfaceClassFacts interface) `seq`
         forceSetWhnf (interfaceGeneratedEqualityClassFacts interface) `seq`
           forceSetWhnf (interfaceConcreteImplFacts interface) `seq`
-            forceMapWhnf (interfaceClassMethods interface) `seq`
-              forceMapWhnf (interfaceConcreteImplMethods interface) `seq`
+            forceMapWith forceClassMethodType (interfaceClassMethods interface) `seq`
+              forceMapWith (forceListWith forceImplMethodType) (interfaceConcreteImplMethods interface) `seq`
                 forceMapWith forceSignatureType (interfaceRuntimeHints interface)
+
+forceTypeBinding :: TypeBinding -> ()
+forceTypeBinding binding =
+  case binding of
+    PlainTypeBinding expressionType -> forceExpressionType expressionType
+    SchemeTypeBinding scheme -> forceTypeScheme scheme
+    BuiltinAliasTypeBinding symbol -> symbol `seq` ()
+    BuiltinOperatorAliasTypeBinding operator -> operator `seq` ()
+    OperatorAliasSchemeTypeBinding operator scheme -> operator `seq` forceTypeScheme scheme
+    ConstructorTypeBinding name parameters arguments ->
+      name `seq`
+        forceListWhnf parameters `seq`
+          forceListWith forceConstructorArgumentType arguments
+
+forceExpressionType :: ExpressionType -> ()
+forceExpressionType expressionType =
+  case expressionType of
+    TIntType -> ()
+    TIntegerLiteralType range -> forceIntegerLiteralRange range
+    TFloatType -> ()
+    TNumericType numericType -> numericType `seq` ()
+    TBoolType -> ()
+    TCharType -> ()
+    TTextType -> ()
+    TListType elementType -> forceExpressionType elementType
+    TTupleType elementTypes -> forceListWith forceExpressionType elementTypes
+    TDataType name arguments -> name `seq` forceListWith forceExpressionType arguments
+    TFunctionType argumentType resultType ->
+      forceExpressionType argumentType `seq` forceExpressionType resultType
+    TVarType variable -> variable `seq` ()
+
+forceConstructorArgumentType :: ConstructorArgumentType -> ()
+forceConstructorArgumentType argumentType =
+  case argumentType of
+    ConstructorArgumentMonomorphic expressionType -> forceExpressionType expressionType
+    ConstructorArgumentParameter name -> name `seq` ()
+    ConstructorArgumentFresh -> ()
+
+forceIntegerLiteralRange :: IntegerLiteralRange -> ()
+forceIntegerLiteralRange (IntegerLiteralRange lower upper) = lower `seq` upper `seq` ()
+
+forceNumericConstraint :: NumericConstraint -> ()
+forceNumericConstraint constraint =
+  case constraint of
+    AnyNumericConstraint -> ()
+    RuntimeArithmeticNumericConstraint -> ()
+    RuntimeComparisonNumericConstraint -> ()
+    IntegralNumericConstraint -> ()
+    IntegralLiteralNumericConstraint range -> forceIntegerLiteralRange range
+
+forceTypeScheme :: TypeScheme -> ()
+forceTypeScheme scheme =
+  forceSetWhnf (schemeQuantifiedVariables scheme) `seq`
+    forceListWhnf (schemeQuantifiedOrder scheme) `seq`
+      forceListWith forceTypeSchemeConstraint (schemeClassConstraints scheme) `seq`
+        forceListWith forceTypeSchemePrimitiveConstraint (schemePrimitiveConstraints scheme) `seq`
+          forceScopeCapabilityFacts (schemeDefiningCapabilities scheme) `seq`
+            forceExpressionType (schemeResultType scheme)
+
+forceTypeSchemeConstraint :: TypeSchemeConstraint -> ()
+forceTypeSchemeConstraint constraint =
+  case constraint of
+    TypeSchemeConstraint className expressionType ->
+      className `seq` forceExpressionType expressionType
+    TypeSchemeInferredConstraint className expressionType ->
+      className `seq` forceExpressionType expressionType
+    TypeSchemeMethodConstraint className methodName expressionType ->
+      className `seq` methodName `seq` forceExpressionType expressionType
+
+forceTypeSchemePrimitiveConstraint :: TypeSchemePrimitiveConstraint -> ()
+forceTypeSchemePrimitiveConstraint constraint =
+  case constraint of
+    TypeSchemeNumericConstraint numericConstraint expressionType ->
+      forceNumericConstraint numericConstraint `seq` forceExpressionType expressionType
+    TypeSchemeStrictEqualityConstraint expressionType -> forceExpressionType expressionType
+
+forceScopeCapabilityFacts :: ScopeCapabilityFacts -> ()
+forceScopeCapabilityFacts facts =
+  forceMapWhnf (scopeClassFacts facts) `seq`
+    forceSetWhnf (scopeGeneratedEqualityClassFacts facts) `seq`
+      forceSetWhnf (scopeConcreteImplFacts facts) `seq`
+        forceMapWith forceClassMethodType (scopeClassMethodSignatures facts) `seq`
+          forceMapWith (forceListWith forceImplMethodType) (scopeConcreteImplMethods facts)
+
+forceDataTypeBinding :: DataTypeBinding -> ()
+forceDataTypeBinding (DataTypeBinding parameters constructors) =
+  forceListWhnf parameters `seq`
+    forceListWith (forceListWith forceConstructorArgumentType) constructors
+
+forceClassMethodType :: ClassMethodType -> ()
+forceClassMethodType (ClassMethodType className payload) =
+  className `seq` forceSignaturePayload payload
+
+forceImplMethodType :: ImplMethodType -> ()
+forceImplMethodType (ImplMethodType signatureType) = forceSignatureType signatureType
 
 forceCompiledPrelude :: CompiledPrelude -> ()
 forceCompiledPrelude compiledPrelude =
@@ -454,73 +560,6 @@ forceCompiledModule compiledModule =
 
 forceCompiledModules :: [CompiledModule] -> ()
 forceCompiledModules = forceListWith forceCompiledModule
-
-forceRuntimeModule :: RuntimeModule -> ()
-forceRuntimeModule runtimeModule =
-  forceListWhnf (runtimeModulePath runtimeModule) `seq`
-    forceMapWith forceRuntimeCell (runtimeModuleExports runtimeModule)
-
-forceRuntimeCell :: Either Diagnostic RuntimeValue -> ()
-forceRuntimeCell runtimeCell =
-  case runtimeCell of
-    Left diagnostic -> forceDiagnostic diagnostic
-    Right runtimeValue -> forceRuntimeValue runtimeValue
-
-forceRuntimeValue :: RuntimeValue -> ()
-forceRuntimeValue runtimeValue =
-  case runtimeValue of
-    RuntimeTypes.VExplicitResultHints hints innerValue ->
-      foldRuntimeExplicitResultHints
-        (\() signatureType -> forceSignatureType signatureType)
-        ()
-        hints
-        `seq` forceRuntimeValue innerValue
-    VInt value metadata -> value `seq` metadata `seq` ()
-    VFloat value metadata -> value `seq` metadata `seq` ()
-    VBool value -> value `seq` ()
-    VChar value -> value `seq` ()
-    VText value -> value `seq` ()
-    VList values signatureType -> forceListWith forceRuntimeValue values `seq` signatureType `seq` ()
-    VTuple values -> forceListWith forceRuntimeValue values
-    VClosure closure ->
-      Map.size (runtimeClosureEnvironment closure) `seq`
-        runtimeClosureEnvironmentMayReachHostCells closure `seq`
-          runtimeClosureParameter closure `seq`
-            forceExpr (runtimeClosureBody closure) `seq`
-              runtimeClosureTypeHint closure `seq`
-                runtimeClosureModulePath closure `seq`
-                  runtimeClosureCallableIdentity closure `seq`
-                    ()
-    VBuiltin builtin arguments -> builtin `seq` forceListWith forceRuntimeValue arguments
-    VOperator operator arguments -> operator `seq` forceListWith forceRuntimeValue arguments
-    VSectionLeft operator value -> operator `seq` forceRuntimeValue value
-    VSectionRight operator value -> operator `seq` forceRuntimeValue value
-    VConstructor typeName parameters name arguments values ->
-      typeName `seq`
-        forceListWhnf parameters `seq`
-          name `seq`
-            forceListWith forceDataConstructorArgument arguments `seq`
-              forceListWith forceRuntimeValue values
-    VQualifiedMethod className methodName payload candidates arguments ->
-      className `seq`
-        methodName `seq`
-          forceSignaturePayload payload `seq`
-            forceListWith forceRuntimeMethodCandidate candidates `seq`
-              forceListWith forceRuntimeValue arguments
-    VTyped signatureType value -> forceSignatureType signatureType `seq` forceRuntimeValue value
-    VExplicitTypeApplication signatureType value -> forceSignatureType signatureType `seq` forceRuntimeValue value
-    VDeferredHostBinding key modulePath body _ runtimeHints numericType signatureType ->
-      key `seq`
-        modulePath `seq`
-          forceExpr body `seq`
-            forceMapWith forceSignatureType runtimeHints `seq`
-              numericType `seq`
-                signatureType `seq`
-                  ()
-
-forceRuntimeMethodCandidate :: RuntimeMethodCandidate -> ()
-forceRuntimeMethodCandidate (RuntimeMethodCandidate evidence runtimeCell) =
-  evidence `seq` forceRuntimeCell runtimeCell
 
 forceListWhnf :: [value] -> ()
 forceListWhnf = forceListWith (`seq` ())

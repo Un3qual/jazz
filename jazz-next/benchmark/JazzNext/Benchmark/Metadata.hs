@@ -130,6 +130,7 @@ data CompatibilityField
   | BuildModeField
   | RtsCapabilitiesField
   | RtsArgumentsField
+  | BenchmarkArgumentsField
   | TimeModeField
   deriving (Bounded, Enum, Eq, Ord, Show)
 
@@ -381,6 +382,7 @@ benchmarkCompatibilityMismatches baseline candidate =
       mismatch BuildModeField environmentBuildMode,
       mismatch RtsCapabilitiesField environmentRtsCapabilities,
       mismatch RtsArgumentsField environmentRtsArguments,
+      mismatch BenchmarkArgumentsField environmentBenchmarkArguments,
       mismatch TimeModeField environmentTimeMode
     ]
   where
