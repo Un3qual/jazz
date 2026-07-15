@@ -1,0 +1,74 @@
+module Queue (type Queue, value queueEmpty, value queueSingleton, value queueFromList, value queueToList, value queueSize, value queueIsEmpty, value queueEnqueue, value queueEnqueueAll, value queuePeek, value queueDequeue, value queueMap, value queueFoldLeft, value queueFoldRight) {
+  import List.
+  import Maybe.
+
+  data Queue a = Queue [a] [a] Int.
+
+  queueEmpty :: Queue(a).
+  queueEmpty = Queue [] [] 0.
+
+  queueSingleton :: a -> Queue(a).
+  queueSingleton = \(value) -> Queue [value] [] 1.
+
+  queueFromList :: [a] -> Queue(a).
+  queueFromList = \(values) -> Queue values [] (listLength values).
+
+  queueToList :: Queue(a) -> [a].
+  queueToList = \(queue) -> case queue {
+    | Queue front reversedRear size -> listAppend front (listReverse reversedRear)
+  }.
+
+  queueSize :: Queue(a) -> Int.
+  queueSize = \(queue) -> case queue {
+    | Queue front reversedRear size -> size
+  }.
+
+  queueIsEmpty :: Queue(a) -> Bool.
+  queueIsEmpty = \(queue) -> queueSize queue == 0.
+
+  queueEnqueue :: Queue(a) -> a -> Queue(a).
+  queueEnqueue = \(queue, value) -> case queue {
+    | Queue front reversedRear size -> Queue front (listPrepend value reversedRear) (size + 1)
+  }.
+
+  queueEnqueueAll :: Queue(a) -> [a] -> Queue(a).
+  queueEnqueueAll = \(queue, values) -> listFoldLeft queueEnqueue queue values.
+
+  queueNormalize :: Queue(a) -> Queue(a).
+  queueNormalize = \(queue) -> case queue {
+    | Queue front reversedRear size -> case front {
+      | [] -> case reversedRear {
+        | [] -> queue
+        | [first | rest] -> Queue (listReverse reversedRear) [] size
+      }
+      | [first | rest] -> queue
+    }
+  }.
+
+  queuePeek :: Queue(a) -> Maybe(a).
+  queuePeek = \(queue) -> case queueNormalize queue {
+    | Queue front reversedRear size -> case front {
+      | [] -> Nothing
+      | [first | rest] -> Just first
+    }
+  }.
+
+  queueDequeue :: Queue(a) -> Maybe((a, Queue(a))).
+  queueDequeue = \(queue) -> case queueNormalize queue {
+    | Queue front reversedRear size -> case front {
+      | [] -> Nothing
+      | [first | rest] -> Just (first, Queue rest reversedRear (size - 1))
+    }
+  }.
+
+  queueMap :: Queue(a) -> (a -> b) -> Queue(b).
+  queueMap = \(queue, transform) -> case queue {
+    | Queue front reversedRear size -> Queue (listMap transform front) (listMap transform reversedRear) size
+  }.
+
+  queueFoldLeft :: Queue(a) -> b -> (b -> a -> b) -> b.
+  queueFoldLeft = \(queue, initial, combine) -> listFoldLeft combine initial (queueToList queue).
+
+  queueFoldRight :: Queue(a) -> b -> (a -> b -> b) -> b.
+  queueFoldRight = \(queue, initial, combine) -> listFoldRight combine initial (queueToList queue).
+}
