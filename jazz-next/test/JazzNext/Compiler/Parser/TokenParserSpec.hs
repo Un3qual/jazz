@@ -6,8 +6,10 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticPrimarySpan,
-    diagnosticSummary,
-    renderDiagnostic
+    diagnosticSummary
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),

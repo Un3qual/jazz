@@ -23,8 +23,10 @@ import JazzNext.Compiler.Diagnostics
     diagnosticRelatedSpan,
     diagnosticSeverity,
     diagnosticSubject,
-    diagnosticWarningCategory,
-    renderDiagnostic
+    diagnosticWarningCategory
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),

@@ -27,8 +27,10 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    isErrorDiagnostic,
-    renderDiagnostic
+    isErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)

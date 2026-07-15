@@ -36,28 +36,22 @@ import JazzNext.Compiler.BundledPrelude
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
-    SourceSpan (..),
-    diagnosticCode,
-    diagnosticPrimarySpan,
-    diagnosticRelatedSpan,
-    diagnosticSummary,
-    diagnosticWarningCategory,
-    mkErrorDiagnostic,
-    renderDiagnostic,
-    renderSourceSpan
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( ResolvedPrelude (..),
+  ( CompileResult (..),
+    ResolvedPrelude (..),
     RunResult (..),
     compileErrors,
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
-    compileWarnings,
     runCompileErrors,
     runModuleGraphWithResolvedPreludeAndHostObserved,
     runRuntimeErrors,
-    runSourceWithResolvedPreludeAndHostObserved,
-    runWarnings
+    runSourceWithResolvedPreludeAndHostObserved
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -84,9 +78,7 @@ import JazzNext.Compiler.WarningConfig
     resolveWarningSettings
   )
 import JazzNext.Compiler.DiagnosticCatalog
-  ( ErrorCode (..),
-    diagnosticCodeText,
-    warningToken
+  ( ErrorCode (..)
   )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
@@ -364,7 +356,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
             CliOutput
               { cliExitCode = 2,
                 cliStdout = "",
-                cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
+                cliStderr = renderDiagnostic parseError <> "\n"
               }
         Right options -> do
           settingsResult <- resolveSettings options envLookup fileLookup
@@ -374,7 +366,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                 CliOutput
                   { cliExitCode = 2,
                     cliStdout = "",
-                    cliStderr = "error: " <> renderDiagnostic configError <> "\n"
+                    cliStderr = renderDiagnostic configError <> "\n"
                   }
             Right settings -> do
               preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
@@ -384,7 +376,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                     CliOutput
                       { cliExitCode = 2,
                         cliStdout = "",
-                        cliStderr = "error: " <> renderDiagnostic preludeError <> "\n"
+                        cliStderr = renderDiagnostic preludeError <> "\n"
                       }
                 Right preludeSource -> do
                   case cliEntryModule options of
@@ -408,7 +400,7 @@ runCliWithHostAndProfileWriterCore profileWriter host args envLookup fileLookup 
                             CliOutput
                               { cliExitCode = 2,
                                 cliStdout = "",
-                                cliStderr = "error: " <> renderDiagnostic sourceError <> "\n"
+                                cliStderr = renderDiagnostic sourceError <> "\n"
                               }
                         Right source ->
                           if cliRunMode options
@@ -534,9 +526,7 @@ resolvePreludeSource options envLookup fileLookup = do
 runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
 runCompile settings resolvedPrelude source = do
   result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
-  let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
-      stderrOutput = renderLines (warningLines ++ errorLines)
+  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
       -- Compile mode is diagnostics-only; evaluated program output belongs to
       -- `--run`.
       stdoutOutput = ""
@@ -586,9 +576,7 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
-  let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
-      stderrOutput = renderLines (warningLines ++ errorLines)
+  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
       -- Keep module-graph compile output aligned with standalone compile mode:
       -- success is quiet unless warnings or errors need to be reported.
       stdoutOutput = ""
@@ -627,16 +615,14 @@ runExecuteModuleGraph profileWriter host settings options resolvedPrelude entryM
 renderRunResult :: RuntimeProfileWriter -> CliOptions -> RunResult -> IO CliOutput
 renderRunResult profileWriter options result = do
   profileWriteResult <- writeRequestedRuntimeProfile profileWriter options result
-  let warningLines = map formatWarningLine (runWarnings result)
-      compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
-      runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
+  let resultDiagnosticLines = map renderDiagnostic (runDiagnostics result)
       profileErrorLines =
         case profileWriteResult of
-          Left diagnostic -> ["error: " <> renderDiagnostic diagnostic]
+          Left diagnostic -> [renderDiagnostic diagnostic]
           Right () -> []
       diagnosticOutput =
         renderLines
-          (warningLines ++ compileErrorLines ++ runtimeErrorLines ++ profileErrorLines)
+          (resultDiagnosticLines ++ profileErrorLines)
       statisticsOutput =
         case (cliRuntimeStatisticsFormat options, runRuntimeObservation result) of
           (Just statisticsFormat, Just report) ->
@@ -747,24 +733,9 @@ cliModuleConfig options =
       moduleExtension = ".jz"
     }
 
--- | Render warnings in the CLI's stable single-line format.
-formatWarningLine :: Diagnostic -> Text
-formatWarningLine diagnostic =
-  diagnosticCodeText (diagnosticCode diagnostic)
-    <> maybe "" (\category -> " [" <> warningToken category <> "]") (diagnosticWarningCategory diagnostic)
-    <> maybe " " (\spanValue -> " " <> renderSourceSpan spanValue <> ": ") (diagnosticPrimarySpan diagnostic)
-    <> diagnosticSummary diagnostic
-    <> renderPreviousSpan (diagnosticRelatedSpan diagnostic)
-
 renderLines :: [Text] -> Text
 renderLines [] = ""
 renderLines linesOut = Text.unlines linesOut
-
-renderPreviousSpan :: Maybe SourceSpan -> Text
-renderPreviousSpan previous =
-  case previous of
-    Nothing -> ""
-    Just previousSpan -> " (previous " <> renderSourceSpan previousSpan <> ")"
 
 -- | Read a warning config file as an optional blob. `resolveSettings` decides
 -- whether a missing result is acceptable (the implicit default probe) or a

@@ -11,7 +11,7 @@ import Data.IORef
     writeIORef
   )
 import Data.Text (Text)
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver

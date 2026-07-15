@@ -26,8 +26,10 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupKernelBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( compileExpr,
@@ -190,12 +192,12 @@ testDefaultConversionAliasesStayPreludeOnly = do
   toIntResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_toInt 1."
   assertEqual
     "no-prelude compile rejects __kernel_toInt"
-    ["E1001: unbound variable '__kernel_toInt'"]
+    ["error: E1001: unbound variable '__kernel_toInt'"]
     (map renderDiagnostic (compileErrors toIntResult))
   toFloatResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_toFloat 1."
   assertEqual
     "no-prelude compile rejects __kernel_toFloat"
-    ["E1001: unbound variable '__kernel_toFloat'"]
+    ["error: E1001: unbound variable '__kernel_toFloat'"]
     (map renderDiagnostic (compileErrors toFloatResult))
 
 testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
@@ -282,7 +284,7 @@ testDirectCompileHelperStaysKernelOnly = do
   canonicalResult <- compileExpr defaultWarningSettings (runtimeExpr (EVar "map"))
   assertEqual
     "direct compile helper rejects canonical alias"
-    ["E1001: unbound variable 'map'"]
+    ["error: E1001: unbound variable 'map'"]
     (map renderDiagnostic (compileErrors canonicalResult))
 
 testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
@@ -311,12 +313,12 @@ testNoPreludePathRejectsCanonicalAliases =
       compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing ("x = " <> name <> ".")
       assertEqual
         ("no-prelude compile rejects canonical alias " <> name)
-        ["E1001: unbound variable '" <> name <> "'"]
+        ["error: E1001: unbound variable '" <> name <> "'"]
         (map renderDiagnostic (compileErrors compileResult))
       runResult <- runSourceWithPrelude defaultWarningSettings Nothing (name <> ".")
       assertEqual
         ("no-prelude runtime compile rejects canonical alias " <> name)
-        ["E1001: unbound variable '" <> name <> "'"]
+        ["error: E1001: unbound variable '" <> name <> "'"]
         (map renderDiagnostic (runCompileErrors runResult))
       assertEqual ("no-prelude runtime errors stay empty on compile failure for " <> name) [] (runRuntimeErrors runResult)
       assertEqual ("no-prelude runtime output is suppressed for " <> name) Nothing (runOutput runResult)

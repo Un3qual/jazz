@@ -29,8 +29,10 @@ import JazzNext.CLI.Main
   )
 import JazzNext.Compiler.Diagnostics
   ( DiagnosticOrigin (..),
-    mkErrorDiagnostic,
-    renderDiagnostic
+    mkErrorDiagnostic
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (..)
@@ -343,8 +345,10 @@ testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
   output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
-  assertContains "stderr includes warning code" "W0001" (cliStderr output)
-  assertContains "stderr includes warning category" "same-scope-rebinding" (cliStderr output)
+  assertEqual
+    "warning line"
+    "warning: W0001 [same-scope-rebinding] 1:8: same-scope rebinding: 'x' shadows previous same-scope binding (last declaration wins) (warning emitted here; previous 1:1)\n"
+    (cliStderr output)
   assertEqual "stdout stays empty for compile-only success" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -354,9 +358,11 @@ testCliPromotedWarningBehavior :: IO ()
 testCliPromotedWarningBehavior = do
   output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 1 (cliExitCode output)
-  assertContains "stderr includes warning code" "W0001" (cliStderr output)
+  assertEqual
+    "promoted warning line"
+    "error: W0001 [same-scope-rebinding] 1:8: same-scope rebinding: 'x' shadows previous same-scope binding (last declaration wins) (warning emitted here; previous 1:1)\n"
+    (cliStderr output)
   assertEqual "promoted warning is rendered once" 1 (Text.count "W0001" (cliStderr output))
-  assertContains "stderr includes error marker" "error:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -813,7 +819,7 @@ testCliBundledPreludePreservesUserDiagnosticSpans = do
   output <- runCliWith [] envLookup configLookup (pure signatureNameMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E1003" (cliStderr output)
-  assertContains "stderr keeps user line numbers" "E1003: 1:1:" (cliStderr output)
+  assertContains "stderr keeps user line numbers" "error: E1003 1:1:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -1435,7 +1441,7 @@ testCliReportsSignatureTypeMismatch = do
   output <- runCliWith [] envLookup configLookup (pure signatureMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E2005" (cliStderr output)
-  assertContains "stderr includes signature mismatch primary span" "E2005: 1:1:" (cliStderr output)
+  assertContains "stderr includes signature mismatch primary span" "error: E2005 1:1:" (cliStderr output)
   assertContains "stderr includes signature mismatch related span" "related 2:1" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where

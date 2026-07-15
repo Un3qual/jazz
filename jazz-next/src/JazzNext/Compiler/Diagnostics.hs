@@ -7,7 +7,6 @@ module JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticLabel,
     DiagnosticOrigin (..),
-    RenderDiagnostic (..),
     SourceSpan (..),
     appendDiagnosticNote,
     appendDiagnosticSecondaryLabel,
@@ -36,9 +35,6 @@ module JazzNext.Compiler.Diagnostics
     promoteDiagnostic,
     qualifyDiagnosticSpans,
     qualifySourceSpan,
-    renderDiagnostic,
-    renderDiagnosticRecord,
-    renderSourceSpan,
     setDiagnosticErrorCode,
     setDiagnosticHelp,
     setDiagnosticPrimaryLabel,
@@ -51,13 +47,11 @@ module JazzNext.Compiler.Diagnostics
 
 import Data.List (sortOn)
 import Data.Text (Text)
-import qualified Data.Text as Text
 import JazzNext.Compiler.DiagnosticCatalog
   ( DiagnosticCode,
     DiagnosticSeverity (..),
     ErrorCode,
     WarningCategory (..),
-    diagnosticCodeText,
     errorCode,
     warningCode
   )
@@ -106,47 +100,6 @@ data Diagnostic = Diagnostic
     diagnosticHelp :: Maybe Text
   }
   deriving (Eq, Ord, Show)
-
-class RenderDiagnostic a where
-  toDiagnostic :: a -> Diagnostic
-
-instance RenderDiagnostic Diagnostic where
-  toDiagnostic = id
-
-renderDiagnostic :: RenderDiagnostic a => a -> Text
-renderDiagnostic = renderDiagnosticRecord . toDiagnostic
-
--- | Transitional single-line renderer. Task 5 moves this presentation concern
--- to @Diagnostics.Render@ without changing the model.
-renderDiagnosticRecord :: Diagnostic -> Text
-renderDiagnosticRecord diagnostic =
-  {-# SCC "jazz-stage:diagnostic-rendering" #-}
-  diagnosticCodeText (diagnosticCode diagnostic)
-    <> ": "
-    <> renderPrimaryLabel (diagnosticPrimaryLabel diagnostic)
-    <> diagnosticSummary diagnostic
-    <> renderDetails detailTexts
-  where
-    detailTexts =
-      map renderSecondaryLabel (diagnosticSecondaryLabels diagnostic)
-        <> diagnosticNotes diagnostic
-        <> maybe [] (\helpText -> ["help: " <> helpText]) (diagnosticHelp diagnostic)
-
-    renderPrimaryLabel maybeLabel =
-      case maybeLabel of
-        Nothing -> ""
-        Just diagnosticLabel -> renderSourceSpan (labelSpan diagnosticLabel) <> ": "
-
-    renderSecondaryLabel diagnosticLabel =
-      let message = labelMessage diagnosticLabel
-       in (if Text.null message then "related" else message)
-            <> " "
-            <> renderSourceSpan (labelSpan diagnosticLabel)
-
-    renderDetails details =
-      case details of
-        [] -> ""
-        _ -> " (" <> Text.intercalate "; " details <> ")"
 
 mkErrorDiagnostic :: ErrorCode -> DiagnosticOrigin -> Text -> Diagnostic
 mkErrorDiagnostic code origin summary =
@@ -270,18 +223,6 @@ qualifyDiagnosticSpans sourcePath diagnostic =
 qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan
 qualifySourceSpan sourcePath spanValue =
   SourceSpanIn sourcePath (spanLine spanValue) (spanColumn spanValue)
-
-renderSourceSpan :: SourceSpan -> Text
-renderSourceSpan spanValue =
-  renderSourcePath spanValue
-    <> Text.pack (show (spanLine spanValue))
-    <> ":"
-    <> Text.pack (show (spanColumn spanValue))
-  where
-    renderSourcePath sourceSpan =
-      case sourceSpan of
-        SourceSpan {} -> ""
-        SourceSpanIn sourcePath _ _ -> Text.pack sourcePath <> ":"
 
 mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =

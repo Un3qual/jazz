@@ -12,8 +12,10 @@ import JazzNext.Compiler.Diagnostics
     diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticRelatedSpan,
-    diagnosticSubject,
-    renderDiagnostic
+    diagnosticSubject
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( diagnosticCodeText

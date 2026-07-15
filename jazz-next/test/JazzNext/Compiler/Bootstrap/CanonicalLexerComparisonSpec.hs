@@ -12,8 +12,10 @@ import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticCode,
-    diagnosticPrimarySpan,
-    renderDiagnostic
+    diagnosticPrimarySpan
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( diagnosticCodeText

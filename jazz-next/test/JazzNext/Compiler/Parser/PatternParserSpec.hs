@@ -3,7 +3,7 @@
 module Main (main) where
 
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.AST

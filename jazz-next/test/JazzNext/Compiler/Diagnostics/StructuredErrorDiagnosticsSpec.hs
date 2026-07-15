@@ -3,7 +3,8 @@
 module Main (main) where
 
 import JazzNext.Compiler.Diagnostics
-  ( DiagnosticOrigin (..),
+  ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan (..),
     appendDiagnosticNote,
     appendDiagnosticSecondaryLabel,
@@ -22,10 +23,12 @@ import JazzNext.Compiler.Diagnostics
     mkErrorDiagnostic,
     mkWarningDiagnostic,
     promoteDiagnostic,
-    renderDiagnostic,
     setDiagnosticHelp,
     setDiagnosticPrimaryLabel,
     setDiagnosticSubject
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( DiagnosticSeverity (..),
@@ -35,7 +38,6 @@ import JazzNext.Compiler.DiagnosticCatalog
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     runTestSuite
   )
@@ -47,7 +49,8 @@ tests :: [NamedTest]
 tests =
   [ ("native errors carry typed code, origin, severity, and labeled detail", testStructuredNativeError),
     ("warning promotion preserves warning identity and detail", testWarningPromotionPreservesDiagnostic),
-    ("rendered diagnostics include code, primary span, and related span", testRenderDiagnosticWithPrimaryAndRelatedSpans),
+    ("renderer owns native error severity, labels, notes, and help", testRenderNativeError),
+    ("renderer preserves warning identity through promotion", testRenderWarningAndPromotion),
     ("rendered diagnostics include source-qualified spans", testRenderDiagnosticWithSourceQualifiedSpans)
   ]
 
@@ -90,24 +93,29 @@ testWarningPromotionPreservesDiagnostic = do
   assertEqual "promoted notes" (diagnosticNotes warning) (diagnosticNotes promoted)
   assertEqual "promoted help" (diagnosticHelp warning) (diagnosticHelp promoted)
 
-testRenderDiagnosticWithPrimaryAndRelatedSpans :: IO ()
-testRenderDiagnosticWithPrimaryAndRelatedSpans = do
-  let rendered =
-        renderDiagnostic $
-          setDiagnosticSubject
-            "x"
-            ( appendDiagnosticSecondaryLabel
-                (SourceSpan 1 1)
-                "related"
-                ( setDiagnosticPrimaryLabel
-                    (SourceSpan 2 1)
-                    "primary"
-                    (mkErrorDiagnostic E1010 CompilationOrigin "binding 'x' cannot call impure callee 'print!'")
-                )
-            )
-  assertContains "rendered error code" "E1010" rendered
-  assertContains "rendered primary span" "2:1" rendered
-  assertContains "rendered related span" "1:1" rendered
+testRenderNativeError :: IO ()
+testRenderNativeError =
+  assertEqual
+    "native error line"
+    "error: E1010 2:1: binding 'x' cannot call impure callee 'print!' (rebound here; previous binding 1:1; note: the last declaration wins; help: rename one of the bindings)"
+    (renderDiagnostic detailedNativeError)
+
+testRenderWarningAndPromotion :: IO ()
+testRenderWarningAndPromotion = do
+  let warning =
+        setDiagnosticHelp "rename one of the bindings" $
+          appendDiagnosticNote "the last declaration wins" $
+            appendDiagnosticSecondaryLabel (SourceSpan 1 1) "previous binding" $
+              setDiagnosticPrimaryLabel (SourceSpan 2 1) "rebound here" $
+                mkWarningDiagnostic SameScopeRebinding CompilationOrigin "same-scope rebinding"
+  assertEqual
+    "warning line"
+    "warning: W0001 [same-scope-rebinding] 2:1: same-scope rebinding (rebound here; previous binding 1:1; note: the last declaration wins; help: rename one of the bindings)"
+    (renderDiagnostic warning)
+  assertEqual
+    "promoted warning line"
+    "error: W0001 [same-scope-rebinding] 2:1: same-scope rebinding (rebound here; previous binding 1:1; note: the last declaration wins; help: rename one of the bindings)"
+    (renderDiagnostic (promoteDiagnostic warning))
 
 testRenderDiagnosticWithSourceQualifiedSpans :: IO ()
 testRenderDiagnosticWithSourceQualifiedSpans = do
@@ -121,5 +129,16 @@ testRenderDiagnosticWithSourceQualifiedSpans = do
                 "primary"
                 (mkErrorDiagnostic E2005 CompilationOrigin "binding 'x' declared as Int but inferred as Bool")
             )
-  assertContains "source-qualified primary span" "src/Lib/Bad.jz:1:1" rendered
-  assertContains "source-qualified related span" "related src/Lib/Bad.jz:2:1" rendered
+  assertEqual
+    "source-qualified line"
+    "error: E2005 src/Lib/Bad.jz:1:1: binding 'x' declared as Int but inferred as Bool (primary; related src/Lib/Bad.jz:2:1)"
+    rendered
+
+detailedNativeError :: Diagnostic
+detailedNativeError =
+  setDiagnosticHelp "rename one of the bindings" $
+    appendDiagnosticNote "the last declaration wins" $
+      appendDiagnosticSecondaryLabel (SourceSpan 1 1) "previous binding" $
+        setDiagnosticPrimaryLabel (SourceSpan 2 1) "rebound here" $
+          setDiagnosticSubject "x" $
+            mkErrorDiagnostic E1010 CompilationOrigin "binding 'x' cannot call impure callee 'print!'"

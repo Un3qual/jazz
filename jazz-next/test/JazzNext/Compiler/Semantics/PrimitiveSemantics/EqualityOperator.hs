@@ -16,7 +16,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver

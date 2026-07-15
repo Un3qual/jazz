@@ -64,6 +64,7 @@ library jazz-next-internal
       JazzNext.Compiler.BundledPrelude
       JazzNext.Compiler.CapabilityFacts
       JazzNext.Compiler.Diagnostics
+      JazzNext.Compiler.Diagnostics.Render
       JazzNext.Compiler.DiagnosticCatalog
       JazzNext.Compiler.Driver
       JazzNext.Compiler.Force

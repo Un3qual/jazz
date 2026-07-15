@@ -23,8 +23,10 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( SourceSpan (..)
+  )
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),

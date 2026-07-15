@@ -5,7 +5,7 @@ module JazzNext.Compiler.Parser.TestSupport
   ) where
 
 import Data.Text (Text)
-import JazzNext.Compiler.Diagnostics
+import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
