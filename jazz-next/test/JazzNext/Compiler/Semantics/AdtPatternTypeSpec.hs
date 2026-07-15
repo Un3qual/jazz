@@ -6,7 +6,7 @@ import Data.Text
   ( Text
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     compileExpr,
     compileSource,
     compileErrors

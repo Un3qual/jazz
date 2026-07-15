@@ -16,8 +16,10 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
     runModuleGraphWithPrelude,
-    runModuleGraphWithPreludeAndHost
+    runModuleGraphWithPreludeAndHost,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.Modules.Loader.Shared
   ( resolverConfig

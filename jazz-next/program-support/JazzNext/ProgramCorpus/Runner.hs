@@ -30,8 +30,11 @@ import JazzNext.Compiler.Driver
   ( ResolvedPrelude (PreludeBundled),
     RunResult (..),
     buildCompiledProgram,
+    runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runRuntimeErrors,
+    runWarnings,
   )
 import JazzNext.Compiler.ModuleInterface (CompiledProgram)
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))

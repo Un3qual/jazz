@@ -9,10 +9,14 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    RunResult (..),
+  ( RunResult (..),
+    compileErrors,
     compileModuleGraphWithPrelude,
-    runModuleGraphWithPrelude
+    compileWarnings,
+    runCompileErrors,
+    runModuleGraphWithPrelude,
+    runRuntimeErrors,
+    runWarnings
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..)

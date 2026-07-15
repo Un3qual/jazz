@@ -12,6 +12,8 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource
   )
 import JazzNext.Compiler.Runtime

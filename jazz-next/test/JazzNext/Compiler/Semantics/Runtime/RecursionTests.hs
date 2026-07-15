@@ -28,6 +28,8 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource
   )
 import JazzNext.Compiler.Runtime

@@ -10,7 +10,9 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runModuleGraphWithPrelude
+    runCompileErrors,
+    runModuleGraphWithPrelude,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

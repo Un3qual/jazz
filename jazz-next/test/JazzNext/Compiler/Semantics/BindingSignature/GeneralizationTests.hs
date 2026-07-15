@@ -9,9 +9,11 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    RunResult (..),
+  ( RunResult (..),
+    compileErrors,
     compileSourceWithPrelude,
+    runCompileErrors,
+    runRuntimeErrors,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig

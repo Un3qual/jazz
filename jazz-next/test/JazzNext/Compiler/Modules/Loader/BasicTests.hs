@@ -15,13 +15,17 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    ResolvedPrelude (..),
+  ( ResolvedPrelude (..),
     RunResult (..),
+    compileErrors,
     compileModuleGraph,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithPrelude
+    runModuleGraphWithPrelude,
+    runRuntimeErrors,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

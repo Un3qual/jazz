@@ -355,6 +355,7 @@ testCliPromotedWarningBehavior = do
   output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
+  assertEqual "promoted warning is rendered once" 1 (Text.count "W0001" (cliStderr output))
   assertContains "stderr includes error marker" "error:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where

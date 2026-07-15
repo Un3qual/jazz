@@ -47,13 +47,17 @@ import JazzNext.Compiler.Diagnostics
     renderSourceSpan
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
-    ResolvedPrelude (..),
+  ( ResolvedPrelude (..),
     RunResult (..),
+    compileErrors,
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraphWithResolvedPreludeAndHostObserved,
-    runSourceWithResolvedPreludeAndHostObserved
+    runRuntimeErrors,
+    runSourceWithResolvedPreludeAndHostObserved,
+    runWarnings
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),

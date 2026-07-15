@@ -22,11 +22,15 @@ import JazzNext.Compiler.Diagnostics
     renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     RunResult (..),
+    compileErrors,
     compileModuleGraphWithPrelude,
+    compileWarnings,
+    runCompileErrors,
     runModuleGraphWithPrelude,
-    runModuleGraphWithPreludeAndHost
+    runModuleGraphWithPreludeAndHost,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.ModuleResolver (resolveProgram)

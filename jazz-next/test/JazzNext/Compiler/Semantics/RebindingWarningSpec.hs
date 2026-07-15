@@ -28,9 +28,16 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    RunResult (..),
+    compileErrors,
     compileExpr,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
+    compileWarnings,
+    runCompileErrors,
+    runRuntimeErrors,
+    runSource,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -79,7 +86,9 @@ tests =
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
-    ("driver reports promoted warnings as compile errors", testDriverReportsPromotedWarningsAsCompileErrors)
+    ("driver stores native compile failures in one diagnostic stream", testDriverStoresNativeCompileFailure),
+    ("driver reports promoted warnings as compile errors", testDriverReportsPromotedWarningsAsCompileErrors),
+    ("driver orders compile warnings before runtime failures", testDriverOrdersCompileWarningsBeforeRuntimeFailures)
   ]
 
 testDisabledCategoryEmitsNoWarnings :: IO ()
@@ -316,6 +325,14 @@ testDriverKeepsWarningOnlySuccessDiagnosticOnly = do
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 0 (length (compileErrors result))
   assertEqual "warning count" 1 (length (compileWarnings result))
+  assertEqual "warning-only stream" (compileWarnings result) (compileDiagnostics result)
+
+testDriverStoresNativeCompileFailure :: IO ()
+testDriverStoresNativeCompileFailure = do
+  result <- compileSource defaultWarningSettings "missing."
+  assertEqual "native warning count" 0 (length (compileWarnings result))
+  assertEqual "native error count" 1 (length (compileErrors result))
+  assertEqual "native error stream" (compileErrors result) (compileDiagnostics result)
 
 testDriverReportsPromotedWarningsAsCompileErrors :: IO ()
 testDriverReportsPromotedWarningsAsCompileErrors = do
@@ -323,6 +340,20 @@ testDriverReportsPromotedWarningsAsCompileErrors = do
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 1 (length (compileErrors result))
   assertEqual "warning count" 0 (length (compileWarnings result))
+  assertEqual "promoted stream count" 1 (length (compileDiagnostics result))
+  assertEqual "promoted stream membership" (compileErrors result) (compileDiagnostics result)
+
+testDriverOrdersCompileWarningsBeforeRuntimeFailures :: IO ()
+testDriverOrdersCompileWarningsBeforeRuntimeFailures = do
+  settings <- enabledSettings
+  result <- runSource settings "x = 1. x = 2. hd []."
+  assertEqual "compile error count" 0 (length (runCompileErrors result))
+  assertEqual "warning count" 1 (length (runWarnings result))
+  assertEqual "runtime error count" 1 (length (runRuntimeErrors result))
+  assertEqual
+    "compile-before-runtime stream"
+    (runWarnings result <> runRuntimeErrors result)
+    (runDiagnostics result)
 
 enabledSettings :: IO WarningSettings
 enabledSettings =

@@ -11,6 +11,8 @@ import Control.Exception
 import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource
   )
 import JazzNext.Compiler.Runtime

@@ -35,6 +35,8 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
+    runCompileErrors,
+    runRuntimeErrors,
     runSource,
     runSourceWithPrelude
   )

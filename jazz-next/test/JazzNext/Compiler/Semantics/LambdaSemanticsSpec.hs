@@ -7,10 +7,14 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( CompileResult,
     RunResult (..),
+    compileErrors,
     compileSource,
-    runSource
+    runCompileErrors,
+    runRuntimeErrors,
+    runSource,
+    runWarnings
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings

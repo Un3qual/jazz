@@ -5,10 +5,12 @@ module Main (main) where
 import qualified Data.Text as Text
 import Data.Text (Text)
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( compileErrors,
     compileSource,
     RunResult (..),
     compileSourceWithPrelude,
+    runCompileErrors,
+    runRuntimeErrors,
     runSource,
     runSourceWithPrelude
   )

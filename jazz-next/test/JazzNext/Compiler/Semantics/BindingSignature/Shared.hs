@@ -42,7 +42,7 @@ import JazzNext.Compiler.Diagnostics
     renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( CompileResult (..),
+  ( compileErrors,
     compileSource,
     compileSourceWithPrelude
   )
