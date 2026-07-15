@@ -338,8 +338,20 @@ Also run:
   cost-centre changes.
 
 Physical timings are review evidence rather than a flaky pass/fail threshold.
-A substantial regression must be investigated and explained before completion;
-minor noise is reported with the environment and variance context.
+Benchmark crashes, incorrect results, incompatible comparison metadata, and
+unreviewed deterministic-budget overruns are hard failures. A reproducible
+timing or allocation regression larger than normal run-to-run variance is an
+investigation trigger, not an automatic failure.
+
+An intentional language feature or stronger correctness guarantee may
+legitimately perform more work. Its batch should compare against its immediate
+pre-change baseline, explain the measured cost, and update semantic budgets
+through ordinary review when the added work is expected. An unexplained,
+unrelated, or disproportionate regression remains unacceptable. Batch 4 adds
+no language behavior, so a reproducible slowdown is suspicious and must be
+understood, but it is still evaluated as evidence rather than against a fixed
+percentage gate. Minor noise is reported with the environment and variance
+context.
 
 ## Documentation and Closeout
 
@@ -354,4 +366,3 @@ After implementation:
   rewriting them; and
 - keep the live execution queue consistent without claiming this backlog batch
   is a bootstrap-parser queue child.
-
