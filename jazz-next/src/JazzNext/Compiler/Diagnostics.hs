@@ -26,8 +26,9 @@ module JazzNext.Compiler.Diagnostics
 import Data.List (sortOn)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.WarningCatalog
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory (..),
+    diagnosticCodeText,
     warningCode
   )
 
@@ -185,7 +186,7 @@ mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> WarningRecord
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =
   WarningRecord
     { warningCategory = SameScopeRebinding,
-      warningCodeText = warningCode SameScopeRebinding,
+      warningCodeText = diagnosticCodeText (warningCode SameScopeRebinding),
       warningVariableName = variableName,
       warningPrimarySpan = primarySpan,
       warningPreviousSpan = Just previousSpan,

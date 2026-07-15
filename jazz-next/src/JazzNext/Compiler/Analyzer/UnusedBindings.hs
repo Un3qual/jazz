@@ -30,8 +30,9 @@ import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     isWarningEnabled
   )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory (..),
+    diagnosticCodeText,
     warningCode
   )
 
@@ -174,7 +175,7 @@ mkUnusedBindingWarning :: Text -> SourceSpan -> WarningRecord
 mkUnusedBindingWarning variableName primarySpan =
   WarningRecord
     { warningCategory = UnusedBinding,
-      warningCodeText = warningCode UnusedBinding,
+      warningCodeText = diagnosticCodeText (warningCode UnusedBinding),
       warningVariableName = variableName,
       warningPrimarySpan = primarySpan,
       warningPreviousSpan = Nothing,

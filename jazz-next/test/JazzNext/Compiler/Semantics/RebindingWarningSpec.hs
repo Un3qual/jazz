@@ -32,7 +32,7 @@ import JazzNext.Compiler.WarningConfig
     defaultWarningSettings,
     resolveWarningSettings
   )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory (..)
   )
 import JazzNext.TestHarness

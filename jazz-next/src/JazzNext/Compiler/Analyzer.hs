@@ -75,8 +75,9 @@ import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     isWarningEnabled
   )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory (..),
+    diagnosticCodeText,
     warningCode
   )
 
@@ -1034,7 +1035,7 @@ mkOuterScopeShadowingWarning :: Text -> SourceSpan -> Maybe SourceSpan -> Warnin
 mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
   WarningRecord
     { warningCategory = ShadowingOuterScope,
-      warningCodeText = warningCode ShadowingOuterScope,
+      warningCodeText = diagnosticCodeText (warningCode ShadowingOuterScope),
       warningVariableName = variableName,
       warningPrimarySpan = primarySpan,
       warningPreviousSpan = previousSpan,

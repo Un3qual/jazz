@@ -8,6 +8,7 @@ module JazzNext.Compiler.WarningConfig
     defaultWarningSettings,
     isWarningEnabled,
     isWarningError,
+    parseWarningCategory,
     parseCliWarningDirective,
     parseConfigDirectives,
     parseEnvErrorDirectives,
@@ -23,10 +24,11 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     mkMessageDiagnostic
   )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( WarningCategory,
     allWarningCategories,
-    parseWarningCategory
+    lookupWarningCategory,
+    warningToken
   )
 
 -- | Normalized internal directives produced from CLI, env, and config inputs
@@ -67,6 +69,24 @@ isWarningError settings category =
     && ( allEnabledAreErrors settings
            || Map.findWithDefault False category (errorCategories settings)
        )
+
+-- | Parse a warning category through the catalog while keeping configuration
+-- failures in the compiler's diagnostic channel.
+parseWarningCategory :: Text -> Either Diagnostic WarningCategory
+parseWarningCategory rawToken =
+  case lookupWarningCategory rawToken of
+    Just category -> Right category
+    Nothing ->
+      Left
+        ( mkMessageDiagnostic
+            ( "unknown warning category: "
+                <> normalizedToken
+                <> "; known categories: "
+                <> Text.intercalate ", " (map warningToken allWarningCategories)
+            )
+        )
+  where
+    normalizedToken = Text.toLower (trim rawToken)
 
 parseCliWarningDirective :: Text -> Either Diagnostic WarningDirective
 parseCliWarningDirective rawFlag

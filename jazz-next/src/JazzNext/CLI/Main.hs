@@ -75,7 +75,7 @@ import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     resolveWarningSettings
   )
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.DiagnosticCatalog
   ( warningToken
   )
 import System.Environment (getArgs, lookupEnv)
