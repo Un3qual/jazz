@@ -65,6 +65,7 @@ renderingTests =
     , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
     , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
+    , ("private value rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
     , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
     , ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess)
     , ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars)
@@ -151,6 +152,20 @@ testPrivateTextTraversalRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(0, 3, [], [('🙂', \"x\")])") (runOutput result)
+
+testPrivateValueRenderingRuntimeSuccess :: IO ()
+testPrivateValueRenderingRuntimeSuccess =
+  assertEqual
+    "private value renderer"
+    (Right (Just (VText "('a', \"\\n\")")))
+    ( evaluateRuntimeExpr
+        ( runtimeExpr
+            ( EApply
+                (EVar "__kernel_renderValue")
+                (ETuple [ELit (LChar 'a'), ELit (LText "\n")])
+            )
+        )
+    )
 
 testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
 testRuntimeFallbackRejectsNonTextTraversalArguments = do

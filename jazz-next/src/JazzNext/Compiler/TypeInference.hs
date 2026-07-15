@@ -989,6 +989,9 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       Just (TFunctionType TTextType (TFunctionType TCharType TTextType), state)
     "textFromChars" ->
       Just (TFunctionType (TListType TCharType) TTextType, state)
+    "renderValue" ->
+      let (valueType, stateAfterValueType) = freshTypeVar state
+       in Just (TFunctionType valueType TTextType, stateAfterValueType)
     "readTextRaw!" ->
       Just (TFunctionType TTextType hostIOOutcomeType, state)
     "writeTextRaw!" ->

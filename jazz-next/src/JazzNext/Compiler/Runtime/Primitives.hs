@@ -53,6 +53,7 @@ import JazzNext.Compiler.Runtime.Semantics
     integerValueWithinBounds,
     integerValueMatchesTarget,
     isFunctionValue,
+    renderRuntimeValue,
     renderRuntimeType,
     runtimeDiagnostic,
     runtimeIntMatchesTarget,
@@ -286,6 +287,8 @@ evalBuiltinPure builtinFunction arguments =
             E3039
             ("runtime primitive 'textFromChars' expects a list of Char, found " <> renderRuntimeType other)
         )
+    (BuiltinRenderValue, [value]) ->
+      Right (VText (renderRuntimeValue value))
     _ ->
       Left
         ( runtimeDiagnostic

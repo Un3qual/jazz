@@ -212,6 +212,7 @@ import JazzNext.Compiler.Runtime.Types
     foldRuntimeExplicitResultHints,
     data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
+    runtimeEvidenceTarget,
     runtimeExplicitResultHintsInOrder
   )
 import JazzNext.Compiler.RuntimeHints
@@ -1833,10 +1834,34 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             (EvaluateApplicationArgument context argumentExpr)
             (EvaluateExpression context functionExpr)
         ETypeApplication functionExpr typeArgumentSpan signatureType ->
-          suspendEvaluation
-            machine
-            (ApplyTypeApplicationHint context typeArgumentSpan signatureType)
-            (EvaluateExpression context functionExpr)
+          case functionExpr of
+            EVar name ->
+              case Map.lookup name (evaluationEnvironment context) of
+                Just runtimeCell -> do
+                  unforcedValue <- liftRuntimeResult runtimeCell
+                  case unforcedValue of
+                    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs -> do
+                      let explicitTarget = runtimeConstraintType (evaluationModulePath context) signatureType
+                          matchingCandidates =
+                            filter
+                              (\(RuntimeMethodCandidate evidence _) -> runtimeEvidenceTarget evidence == explicitTarget)
+                              candidates
+                      selectedValue <-
+                        applyQualifiedMethodWithHost
+                          host
+                          builtinMode
+                          bindingTypeHints
+                          methodKey
+                          classParameter
+                          methodSignature
+                          matchingCandidates
+                          capturedArgs
+                      hintedValue <-
+                        applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType selectedValue
+                      continueWith (ReturnRuntimeValue hintedValue) machine
+                    _ -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
+                Nothing -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
+            _ -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
         EIf conditionExpr thenExpr elseExpr ->
           suspendEvaluation
             machine
@@ -1873,6 +1898,12 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             (EvaluateExpression context rightExpr)
         EBlock statements ->
           stepBlock context statements
+
+    evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType =
+      suspendEvaluation
+        machine
+        (ApplyTypeApplicationHint context typeArgumentSpan signatureType)
+        (EvaluateExpression context functionExpr)
 
     stepBlock context statements =
       case reverse statements of
@@ -2271,34 +2302,44 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
           )
           machine
     ApplyTypeApplicationHint context typeArgumentSpan signatureType -> do
-      let typeHint = runtimeConstraintType (evaluationModulePath context) signatureType
-      hintedValue <-
-        case
-            Map.lookup
-              ( explicitTypeApplicationRuntimeHintKeyInModule
-                  (evaluationModulePath context)
-                  typeArgumentSpan
-              )
-              (evaluationBindingTypeHints context)
-          of
-            Just concreteTypeHint ->
-              liftRuntimeResult
-                ( applyRuntimeTypeHint
-                    (runtimeConstraintType (evaluationModulePath context) concreteTypeHint)
-                    runtimeValue
-                )
-            Nothing ->
-              if isFunctionValue runtimeValue
-                then pure (VExplicitTypeApplication typeHint runtimeValue)
-                else
-                  liftRuntimeResult
-                    ( applyRuntimeTypeHint
-                        (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
-                        runtimeValue
-                    )
+      hintedValue <- applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType runtimeValue
       continueWith (ReturnRuntimeValue hintedValue) machine
     ApplyRemainingArguments arguments ->
       applyRemainingArguments machine runtimeValue arguments
+
+applyTypeApplicationRuntimeHint ::
+  Monad m =>
+  EvaluationContext ->
+  SourceSpan ->
+  SignatureType ->
+  RuntimeValue ->
+  ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
+applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType runtimeValue =
+  case
+      Map.lookup
+        ( explicitTypeApplicationRuntimeHintKeyInModule
+            (evaluationModulePath context)
+            typeArgumentSpan
+        )
+        (evaluationBindingTypeHints context)
+    of
+      Just concreteTypeHint ->
+        liftRuntimeResult
+          ( applyRuntimeTypeHint
+              (runtimeConstraintType (evaluationModulePath context) concreteTypeHint)
+              runtimeValue
+          )
+      Nothing ->
+        if isFunctionValue runtimeValue
+          then pure (VExplicitTypeApplication typeHint runtimeValue)
+          else
+            liftRuntimeResult
+              ( applyRuntimeTypeHint
+                  (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
+                  runtimeValue
+              )
+  where
+    typeHint = runtimeConstraintType (evaluationModulePath context) signatureType
 
 continueCaseEvaluation ::
   Monad m =>
@@ -3113,6 +3154,7 @@ runtimeBuiltinKind builtinFunction =
     BuiltinTextAppend -> TextBuiltinCall
     BuiltinTextAppendChar -> TextBuiltinCall
     BuiltinTextFromChars -> TextBuiltinCall
+    BuiltinRenderValue -> TextBuiltinCall
     BuiltinReadTextRaw -> HostBuiltinCall
     BuiltinWriteTextRaw -> HostBuiltinCall
     BuiltinReadStdinRaw -> HostBuiltinCall

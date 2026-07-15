@@ -21,6 +21,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     importModuleCapabilityFacts,
     inferQualifiedMethodApplication,
     instantiateQualifiedMethodType,
+    instantiateQualifiedMethodTypeWithExplicitTarget,
     mergeCapabilityFacts,
     newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
@@ -1155,6 +1156,29 @@ resolveQualifiedMethodType methodKey state =
           qualifiedMethodSignatureType methodKey classMethodType implMethodType state
         _ ->
           (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
+
+instantiateQualifiedMethodTypeWithExplicitTarget ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitTarget state =
+  case Map.lookup methodKey (inferClassMethodSignatures state) of
+    Nothing ->
+      (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
+    Just classMethodType ->
+      case matchingImplMethods of
+        [] ->
+          (Nothing, addTypeError state (mkNoMatchingQualifiedMethodBodyError methodKey [explicitTarget]))
+        [implMethodType] ->
+          qualifiedMethodSignatureType methodKey classMethodType implMethodType state
+        _ ->
+          (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey [explicitTarget]))
+  where
+    matchingImplMethods =
+      filter
+        (\(ImplMethodType implTarget) -> constraintSignatureTypeExactlyMatchesExpressionType state implTarget explicitTarget)
+        (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))
 
 resolveQualifiedMethodApplicationType ::
   Text ->

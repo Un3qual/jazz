@@ -1507,6 +1507,14 @@ inferExplicitTypeApplication ::
   (Maybe ExpressionType, InferState)
 inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
+    (_, Just explicitArgumentType)
+      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr ->
+          let (maybeInstantiatedType, nextState) =
+                instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
+           in
+            ( maybeInstantiatedType,
+              recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState
+            )
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
@@ -1524,6 +1532,17 @@ inferExplicitTypeApplication inferExpression builtinMode env state functionExpr 
           Just _ ->
             (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
           Nothing -> (Nothing, stateAfterFunction)
+
+explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr -> Maybe Text
+explicitQualifiedMethodTypeApplicationKey env state functionExpr =
+  case functionExpr of
+    EVar name
+      | Map.notMember name env,
+        qualifiedMethodClassIsVisible methodKey state ->
+          Just methodKey
+      where
+        methodKey = identifierText name
+    _ -> Nothing
 
 recordExplicitTypeApplicationRuntimeHint :: SourceSpan -> Maybe ExpressionType -> InferState -> InferState
 recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeExpressionType state =

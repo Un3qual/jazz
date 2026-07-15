@@ -120,6 +120,7 @@ expectedBuiltins =
     (BuiltinTextAppend, "textAppend", 2, KernelIntrinsic),
     (BuiltinTextAppendChar, "textAppendChar", 2, KernelIntrinsic),
     (BuiltinTextFromChars, "textFromChars", 1, KernelIntrinsic),
+    (BuiltinRenderValue, "renderValue", 1, KernelIntrinsic),
     (BuiltinReadTextRaw, "readTextRaw!", 1, KernelIntrinsic),
     (BuiltinWriteTextRaw, "writeTextRaw!", 2, KernelIntrinsic),
     (BuiltinReadStdinRaw, "readStdinRaw!", 1, KernelIntrinsic),

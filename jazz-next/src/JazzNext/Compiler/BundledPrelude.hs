@@ -22,7 +22,9 @@ import JazzNext.Compiler.BuiltinCatalog
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
-    map renderCapabilityClass canonicalCapabilityClassNames
+    ["data Ordering = LT | EQ | GT.", ""]
+      <> map renderCapabilityClass canonicalCapabilityClassNames
+      <> ["", compareTextBinding]
       <> [""]
       <> map renderDefaultCapabilityImpl defaultCapabilityImplFacts
       <> [""]
@@ -40,6 +42,27 @@ bundledPreludeSource =
               "equals :: a -> a -> Bool.",
               "}."
             ]
+        "Ord" ->
+          Text.intercalate
+            "\n"
+            [ "class Ord(a) {",
+              "compare :: a -> a -> Ordering.",
+              "}."
+            ]
+        "Showable" ->
+          Text.intercalate
+            "\n"
+            [ "class Showable(a) {",
+              "show :: a -> Text.",
+              "}."
+            ]
+        "Default" ->
+          Text.intercalate
+            "\n"
+            [ "class Default(a) {",
+              "defaultValue :: a.",
+              "}."
+            ]
         _ ->
           "class " <> name <> "(a) { }."
 
@@ -48,6 +71,24 @@ bundledPreludeSource =
         ("Eq", targetType')
           | targetType' `elem` ["Int", "Float", "Bool", "Char", "Text", "Float16", "Float32", "Float64"] ->
               renderEqImpl targetType'
+        ("Ord", "Char") ->
+          renderMethodImpl
+            "Ord"
+            "Char"
+            "compare"
+            "\\(left, right) -> if __kernel_charToUInt32 left < __kernel_charToUInt32 right then LT else if __kernel_charToUInt32 left > __kernel_charToUInt32 right then GT else EQ"
+        ("Ord", "Text") ->
+          renderMethodImpl "Ord" "Text" "compare" "__prelude_compareText"
+        ("Ord", targetType') ->
+          renderMethodImpl
+            "Ord"
+            targetType'
+            "compare"
+            "\\(left, right) -> if left < right then LT else if left > right then GT else EQ"
+        ("Showable", targetType') ->
+          renderMethodImpl "Showable" targetType' "show" "__kernel_renderValue"
+        ("Default", targetType') ->
+          renderMethodImpl "Default" targetType' "defaultValue" (defaultValueExpression targetType')
         _ ->
           "impl " <> className <> "(" <> targetType <> ") { }."
 
@@ -58,6 +99,25 @@ bundledPreludeSource =
           "equals = \\(left, right) -> left == right.",
           "}."
         ]
+
+    renderMethodImpl className targetType methodName methodExpression =
+      Text.intercalate
+        "\n"
+        [ "impl " <> className <> "(" <> targetType <> ") {",
+          methodName <> " = " <> methodExpression <> ".",
+          "}."
+        ]
+
+    defaultValueExpression targetType =
+      case targetType of
+        "Float" -> "0.0"
+        "Float16" -> "__kernel_toFloat16 0"
+        "Float32" -> "__kernel_toFloat32 0"
+        "Float64" -> "__kernel_toFloat64 0"
+        "Bool" -> "False"
+        "Char" -> "'\\0'"
+        "Text" -> "\"\""
+        _ -> "0"
 
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.
@@ -73,6 +133,23 @@ bundledPreludeSource =
 
     preludeTargetSymbols =
       filter ((== PreludeTarget) . builtinSymbolOwnership) allBuiltinSymbols
+
+compareTextBinding :: Text
+compareTextBinding =
+  Text.intercalate
+    "\n"
+    [ "__prelude_compareText :: Text -> Text -> Ordering.",
+      "__prelude_compareText = \\(left, right) -> case __kernel_textUnconsRaw left {",
+      "| [] -> case __kernel_textUnconsRaw right {",
+      "  | [] -> EQ",
+      "  | [(rightFirst, rightRest)] -> LT",
+      "  }",
+      "| [(leftFirst, leftRest)] -> case __kernel_textUnconsRaw right {",
+      "  | [] -> GT",
+      "  | [(rightFirst, rightRest)] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest",
+      "  }",
+      "}."
+    ]
 
 defaultConversionAliases :: [(Text, Text)]
 defaultConversionAliases =
@@ -107,6 +184,8 @@ defaultAliasCapabilityImplFacts =
     ("Eq", "Text"),
     ("Ord", "Int"),
     ("Ord", "Float"),
+    ("Ord", "Char"),
+    ("Ord", "Text"),
     ("Num", "Int"),
     ("Num", "Float"),
     ("Integral", "Int"),
@@ -114,9 +193,13 @@ defaultAliasCapabilityImplFacts =
     ("Default", "Int"),
     ("Default", "Float"),
     ("Default", "Bool"),
+    ("Default", "Char"),
+    ("Default", "Text"),
     ("Showable", "Int"),
     ("Showable", "Float"),
-    ("Showable", "Bool")
+    ("Showable", "Bool"),
+    ("Showable", "Char"),
+    ("Showable", "Text")
   ]
 
 integralNumericCapabilityImplFacts :: Text -> [(Text, Text)]

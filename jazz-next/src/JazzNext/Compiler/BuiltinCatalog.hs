@@ -89,6 +89,7 @@ data BuiltinSymbol
   | BuiltinTextAppend
   | BuiltinTextAppendChar
   | BuiltinTextFromChars
+  | BuiltinRenderValue
   | BuiltinReadTextRaw
   | BuiltinWriteTextRaw
   | BuiltinReadStdinRaw
@@ -158,6 +159,7 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinTextAppend -> KernelIntrinsic
     BuiltinTextAppendChar -> KernelIntrinsic
     BuiltinTextFromChars -> KernelIntrinsic
+    BuiltinRenderValue -> KernelIntrinsic
     BuiltinReadTextRaw -> KernelIntrinsic
     BuiltinWriteTextRaw -> KernelIntrinsic
     BuiltinReadStdinRaw -> KernelIntrinsic
@@ -201,6 +203,7 @@ builtinSymbolName builtinSymbol =
     BuiltinTextAppend -> "textAppend"
     BuiltinTextAppendChar -> "textAppendChar"
     BuiltinTextFromChars -> "textFromChars"
+    BuiltinRenderValue -> "renderValue"
     BuiltinReadTextRaw -> "readTextRaw!"
     BuiltinWriteTextRaw -> "writeTextRaw!"
     BuiltinReadStdinRaw -> "readStdinRaw!"
@@ -248,6 +251,7 @@ builtinSymbolArity builtinSymbol =
     BuiltinTextAppend -> 2
     BuiltinTextAppendChar -> 2
     BuiltinTextFromChars -> 1
+    BuiltinRenderValue -> 1
     BuiltinReadTextRaw -> 1
     BuiltinWriteTextRaw -> 2
     BuiltinReadStdinRaw -> 1
