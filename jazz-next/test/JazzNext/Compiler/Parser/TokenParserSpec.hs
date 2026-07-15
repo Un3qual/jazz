@@ -174,7 +174,8 @@ testInvalidCharacterLexerDiagnostic :: IO ()
 testInvalidCharacterLexerDiagnostic =
   case tokenize "value ` 42." of
     Left diagnostic -> do
-      assertContains "lexer diagnostic" "1:7: unexpected character '`'" (renderDiagnostic diagnostic)
+      assertContains "lexer diagnostic" "unexpected character '`'" (renderDiagnostic diagnostic)
+      assertEqual "lexer diagnostic primary span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
       assertEqual "lexer summary excludes rendered coordinates" False ("1:7" `Text.isInfixOf` diagnosticSummary diagnostic)
     Right tokens ->
       failTest ("expected invalid character diagnostic, got tokens " <> Text.pack (show tokens))

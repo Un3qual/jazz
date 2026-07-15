@@ -39,7 +39,7 @@ import JazzNext.Compiler.CapabilityFacts
     signaturePayloadConstraintType
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
     SourceSpan,
     setDiagnosticPrimarySpan
   )

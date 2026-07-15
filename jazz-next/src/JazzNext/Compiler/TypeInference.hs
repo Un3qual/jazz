@@ -45,7 +45,7 @@ import JazzNext.Compiler.BuiltinCatalog
     numericTypeLiteralIntegerBounds
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..)
+  ( Diagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource,

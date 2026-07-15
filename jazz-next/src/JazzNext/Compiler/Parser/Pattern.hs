@@ -129,8 +129,17 @@ parseTuplePattern leftParenToken = do
           tuplePatterns <- parseTuplePatternElements [firstPattern]
           void (parseToken TRParen)
           pure (SPTuple tuplePatterns)
-        _ ->
-          failTokenParserAt (tokenSpan leftParenToken) (expectedCasePatternMessage leftParenToken)
+        Nothing ->
+          failTokenParserAt
+            (tokenSpan leftParenToken)
+            "expected ',' before end of input in tuple pattern"
+        Just token ->
+          failTokenParserAt
+            (tokenSpan token)
+            ( "expected ',', found '"
+                <> tokenLexeme token
+                <> "'"
+            )
 
 parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do

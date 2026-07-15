@@ -3,6 +3,10 @@
 module Main (main) where
 
 import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..),
+    diagnosticPrimarySpan
+  )
 import JazzNext.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
@@ -39,7 +43,8 @@ tests =
     ("parses case-arm pattern tokens and preserves remainder", testParsesCaseArmPatternTokens),
     ("parses Char and Text literal patterns", testParsesCharAndTextLiteralPatterns),
     ("parses lambda parameter tokens", testParsesLambdaParameterTokens),
-    ("rejects fractional literal patterns", testRejectsFractionalLiteralPatterns)
+    ("rejects fractional literal patterns", testRejectsFractionalLiteralPatterns),
+    ("reports the token missing a tuple-pattern comma", testReportsMissingTuplePatternComma)
   ]
 
 testParsesUnitCaseArmPatternTokens :: IO ()
@@ -131,6 +136,22 @@ testRejectsFractionalLiteralPatterns = do
         (renderDiagnostic diagnostic)
     Right value ->
       failTest ("expected fractional pattern rejection, got " <> Text.pack (show value))
+
+testReportsMissingTuplePatternComma :: IO ()
+testReportsMissingTuplePatternComma = do
+  tokens <- lexSource "(left right) -> body"
+  case parseCaseArmPatternTokens tokens of
+    Left diagnostic -> do
+      assertContains
+        "missing tuple-pattern comma diagnostic"
+        "expected ',', found 'right'"
+        (renderDiagnostic diagnostic)
+      assertEqual
+        "missing tuple-pattern comma span"
+        (Just (SourceSpan 1 7))
+        (diagnosticPrimarySpan diagnostic)
+    Right value ->
+      failTest ("expected missing tuple-pattern comma rejection, got " <> Text.pack (show value))
 
 tokenKinds :: [Token] -> [TokenKind]
 tokenKinds = map tokenKind

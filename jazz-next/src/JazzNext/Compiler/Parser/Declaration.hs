@@ -218,6 +218,7 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
         parseOptionalOperatorAssociativity operatorInfo afterFixity
       remaining <-
         consumeOperatorDeclarationDot
+          operatorToken
           (operatorDeclarationFixityLabel fixityKeyword)
           afterAssociativity
       pure (operatorInfoWithAssociativity, remaining)
@@ -390,8 +391,8 @@ operatorDeclarationFixityLabel fixityKeyword =
     OperatorTierKeyword -> "tier"
     OperatorPrecedenceKeyword -> "precedence"
 
-consumeOperatorDeclarationDot :: Text -> [Token] -> Either Diagnostic [Token]
-consumeOperatorDeclarationDot fixityLabel tokens =
+consumeOperatorDeclarationDot :: Token -> Text -> [Token] -> Either Diagnostic [Token]
+consumeOperatorDeclarationDot operatorToken fixityLabel tokens =
   case tokens of
     Token {tokenKind = TDot} : rest -> Right rest
     token : _ ->
@@ -407,7 +408,8 @@ consumeOperatorDeclarationDot fixityLabel tokens =
         )
     [] ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
             ("expected '.' after operator declaration " <> fixityLabel <> " before end of input")
         )
 

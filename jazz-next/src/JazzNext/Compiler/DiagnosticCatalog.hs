@@ -172,7 +172,17 @@ diagnosticCodeText :: DiagnosticCode -> Text
 diagnosticCodeText code =
   case code of
     NativeErrorCode nativeCode -> Text.pack (show nativeCode)
-    ConfigurableWarningCode category -> formatCode 'W' (fromEnum category + 1)
+    ConfigurableWarningCode category -> formatCode 'W' (warningCategoryCodeNumber category)
+
+-- Warning codes are a published compatibility contract and therefore remain
+-- independent of constructor order.
+warningCategoryCodeNumber :: WarningCategory -> Int
+warningCategoryCodeNumber category =
+  case category of
+    SameScopeRebinding -> 1
+    ShadowingOuterScope -> 2
+    UnusedBinding -> 3
+    DeprecatedSyntax -> 4
 
 errorCode :: ErrorCode -> DiagnosticCode
 errorCode = NativeErrorCode
