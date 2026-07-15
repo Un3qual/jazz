@@ -102,6 +102,38 @@
     "exports": {
       "patterns": [
         {
+          "name": "meta.export.type.grouped.jazz",
+          "begin": "\\b(type)\\s+([A-Z][A-Za-z0-9_']*)(\\s*\\()",
+          "beginCaptures": {
+            "1": {"name": "storage.modifier.export.jazz"},
+            "2": {"name": "entity.name.type.jazz"},
+            "3": {"name": "punctuation.section.group.begin.jazz"}
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {"name": "punctuation.section.group.end.jazz"}
+          },
+          "patterns": [
+            {
+              "name": "entity.name.function.constructor.jazz",
+              "match": "\\b[A-Z][A-Za-z0-9_']*\\b"
+            },
+            {
+              "name": "keyword.operator.wildcard.jazz",
+              "match": "\\.\\."
+            },
+            {"include": "#comments"},
+            {"include": "#punctuation"}
+          ]
+        },
+        {
+          "match": "\\b(type)\\s+([A-Z][A-Za-z0-9_']*)",
+          "captures": {
+            "1": {"name": "storage.modifier.export.jazz"},
+            "2": {"name": "entity.name.type.jazz"}
+          }
+        },
+        {
           "name": "storage.modifier.export.jazz",
           "match": "\\b(?:value|constructor|type|class)\\b"
         }

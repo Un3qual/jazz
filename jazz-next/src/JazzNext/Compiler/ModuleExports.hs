@@ -21,6 +21,7 @@ module JazzNext.Compiler.ModuleExports
     renderModuleExportSelector,
     selectExportNames,
     selectModuleExportSelectors,
+    selectValidatedModuleExportSelectors,
     visibleImportInventory,
     inventoryHasExport,
     firstExportNamespace
@@ -30,6 +31,8 @@ where
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -179,6 +182,34 @@ selectModuleExportSelectors selectors inventory =
         (\export -> any (`moduleExportSelectorMatches` export) selectors)
         (exportInventoryEntries inventory)
     )
+
+selectValidatedModuleExportSelectors ::
+  Map Text (Set Text) ->
+  [ModuleExportSelector] ->
+  ModuleExportInventory ->
+  ModuleExportInventory
+selectValidatedModuleExportSelectors constructorOwners selectors inventory =
+  ModuleExportInventory (Set.unions (map selectedEntries selectors))
+  where
+    selectedEntries selector =
+      case selector of
+        ModuleExportSelector {} ->
+          exportInventoryEntries (selectModuleExportSelectors [selector] inventory)
+        ModuleTypeExportSelector typeName _ constructorSelector ->
+          Set.insert
+            (ModuleExport TypeNamespace typeName)
+            (selectedConstructorEntries typeName constructorSelector)
+
+    selectedConstructorEntries typeName constructorSelector =
+      case constructorSelector of
+        AbstractType -> Set.empty
+        AllTypeConstructors _ ->
+          Set.map (ModuleExport ConstructorNamespace) (Map.findWithDefault Set.empty typeName constructorOwners)
+        SelectedTypeConstructors constructors ->
+          Set.fromList
+            [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
+              | constructor <- NonEmpty.toList constructors
+            ]
 
 moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool
 moduleExportSelectorMatches selector export =

@@ -35,7 +35,7 @@ import JazzNext.Compiler.ModuleExports
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.Name
-  ( NameNamespace (TypeNamespace, ValueNamespace)
+  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace)
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -60,6 +60,11 @@ tests =
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
     ("namespace-aware exports reject same-name wrong namespace", testNamespaceAwareExportsRejectWrongNamespace),
     ("namespace-aware export diagnostics render an empty inventory", testNamespaceAwareExportDiagnosticRendersEmptyInventory),
+    ("grouped type exports expand into one flat public inventory", testGroupedTypeExportsExpandFlatInventory),
+    ("grouped type exports reject unknown types at the type span", testGroupedTypeExportsRejectUnknownType),
+    ("grouped type exports reject unknown constructors at the member span", testGroupedTypeExportsRejectUnknownConstructor),
+    ("grouped type exports reject constructors owned by another local type", testGroupedTypeExportsRejectWrongOwner),
+    ("grouped type exports reject imported constructors", testGroupedTypeExportsRejectImportedConstructor),
     ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
@@ -336,6 +341,115 @@ testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
         0.
         }
         """
+    lookupSource path = pure (Map.lookup path sources)
+
+testGroupedTypeExportsExpandFlatInventory :: IO ()
+testGroupedTypeExportsExpandFlatInventory = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  assertRight "resolved grouped public inventory" result $ \program ->
+    case ModuleGraph.resolvedProgramModules program of
+      [resolvedModule] ->
+        assertEqual
+          "grouped selectors expand and deduplicate"
+          ( Set.fromList
+              [ ModuleExport TypeNamespace "Opaque",
+                ModuleExport TypeNamespace "Choice",
+                ModuleExport ConstructorNamespace "First",
+                ModuleExport ConstructorNamespace "Second",
+                ModuleExport TypeNamespace "Pair",
+                ModuleExport ConstructorNamespace "Pair",
+                ModuleExport ConstructorNamespace "Unit"
+              ]
+          )
+          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+      modules -> failTest ("expected one resolved Lib::Types module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.singleton
+        "src/Lib/Types.jz"
+        """
+        module Lib::Types (type Opaque, type Choice(..), type Pair(Pair), constructor Pair, constructor Unit) {
+        data Opaque = Hidden.
+        data Choice = First | Second.
+        data Pair = Pair value | Unit.
+        }
+        """
+    lookupSource path = pure (Map.lookup path sources)
+
+testGroupedTypeExportsRejectUnknownType :: IO ()
+testGroupedTypeExportsRejectUnknownType = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  assertLeftDiagnosticCodeAndContains
+    "unknown grouped type"
+    "E4015"
+    "module export type 'Missing(..)' is not declared"
+    result
+  assertLeftDiagnosticMetadata
+    "unknown grouped type metadata"
+    (Just (SourceSpanIn "src/Lib/Types.jz" 1 25))
+    Nothing
+    (Just "Missing")
+    result
+  where
+    sources = Map.singleton "src/Lib/Types.jz" "module Lib::Types (type Missing(..)) { data Present = Present. }"
+    lookupSource path = pure (Map.lookup path sources)
+
+testGroupedTypeExportsRejectUnknownConstructor :: IO ()
+testGroupedTypeExportsRejectUnknownConstructor = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  assertLeftDiagnosticCodeAndContains
+    "unknown grouped constructor"
+    "E4015"
+    "constructor 'Missing' is not declared by type 'Choice'"
+    result
+  assertLeftDiagnosticMetadata
+    "unknown grouped constructor metadata"
+    (Just (SourceSpanIn "src/Lib/Types.jz" 1 32))
+    Nothing
+    (Just "Missing")
+    result
+  where
+    sources = Map.singleton "src/Lib/Types.jz" "module Lib::Types (type Choice(Missing)) { data Choice = Present. }"
+    lookupSource path = pure (Map.lookup path sources)
+
+testGroupedTypeExportsRejectWrongOwner :: IO ()
+testGroupedTypeExportsRejectWrongOwner = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  assertLeftDiagnosticCodeAndContains
+    "wrong-owner grouped constructor"
+    "E4015"
+    "constructor 'RightC' is not declared by type 'Left'"
+    result
+  assertLeftDiagnosticMetadata
+    "wrong-owner grouped constructor metadata"
+    (Just (SourceSpanIn "src/Lib/Types.jz" 1 30))
+    Nothing
+    (Just "RightC")
+    result
+  where
+    sources = Map.singleton "src/Lib/Types.jz" "module Lib::Types (type Left(RightC)) { data Left = LeftC. data Right = RightC. }"
+    lookupSource path = pure (Map.lookup path sources)
+
+testGroupedTypeExportsRejectImportedConstructor :: IO ()
+testGroupedTypeExportsRejectImportedConstructor = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Wrapper"]
+  assertLeftDiagnosticCodeAndContains
+    "imported grouped constructor"
+    "E4015"
+    "constructor 'Origin' is not declared by type 'Local'"
+    result
+  assertLeftDiagnosticMetadata
+    "imported grouped constructor metadata"
+    (Just (SourceSpanIn "src/Lib/Wrapper.jz" 1 33))
+    Nothing
+    (Just "Origin")
+    result
+  where
+    sources =
+      Map.fromList
+        [ ("src/Lib/Wrapper.jz", "module Lib::Wrapper (type Local(Origin)) { import Lib::Origin. data Local = Local. }"),
+          ("src/Lib/Origin.jz", "module Lib::Origin { data Origin = Origin. }")
+        ]
     lookupSource path = pure (Map.lookup path sources)
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()

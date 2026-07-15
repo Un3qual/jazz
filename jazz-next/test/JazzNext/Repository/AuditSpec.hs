@@ -287,6 +287,15 @@ testEditorPackageMetadata =
             jsonArray
             (jsonPath ["repository", "data-declarations", "patterns"] grammar)
         constructorPattern = firstValue dataDeclarationPatterns
+        exportPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "exports", "patterns"] grammar)
+        groupedTypeExportPattern = firstValue exportPatterns
+        groupedTypeExportMembers =
+          maybe [] jsonArray (groupedTypeExportPattern >>= jsonPath ["patterns"])
+        groupedConstructorPattern = firstValue groupedTypeExportMembers
         operatorPatterns =
           maybe
             []
@@ -325,6 +334,14 @@ testEditorPackageMetadata =
       "data constructors have a distinct grammar scope"
       (Just (String "entity.name.function.constructor.jazz"))
       (constructorPattern >>= jsonPath ["captures", "2", "name"])
+    assertEqual
+      "grouped exports scope the exported type name"
+      (Just (String "entity.name.type.jazz"))
+      (groupedTypeExportPattern >>= jsonPath ["beginCaptures", "2", "name"])
+    assertEqual
+      "grouped exports scope selected constructors independently"
+      (Just (String "entity.name.function.constructor.jazz"))
+      (groupedConstructorPattern >>= jsonPath ["name"])
     assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True

@@ -64,10 +64,12 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
     ModuleImportMode (..),
+    ModuleTypeConstructorSelector (..),
     declarationExportNames,
     exportInventory,
     exportInventoryEntries,
@@ -79,7 +81,7 @@ import JazzNext.Compiler.ModuleExports
     moduleExportSelectorNamespace,
     renderModuleExportSelector,
     selectorEligibleNames,
-    selectModuleExportSelectors,
+    selectValidatedModuleExportSelectors,
     visibleImportInventory
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
@@ -464,6 +466,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
     Right surfaceExpr -> do
       coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
       let localInventory = collectModuleExportInventory surfaceExpr
+          constructorOwners = collectModuleConstructorOwners surfaceExpr
           topLevelBindings =
             Set.union
               (exportNamesInNamespace ValueNamespace localInventory)
@@ -473,6 +476,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
           sourcePath
           expectedModulePath
           (ModuleGraph.coreModuleDeclaredExports coreModule)
+          constructorOwners
           localInventory
       Right
         ParsedModule
@@ -489,36 +493,87 @@ validatePublicExportInventory ::
   FilePath ->
   [Text] ->
   Maybe ModuleGraph.DeclaredModuleExports ->
+  Map Text (Set Text) ->
   ModuleExportInventory ->
   Either Diagnostic ModuleExportInventory
-validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory =
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports constructorOwners localInventory =
   case maybeExplicitExports of
     Nothing -> Right localInventory
     Just declaredExports ->
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
           selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
-       in case find (not . (`inventoryHasSelector` localInventory)) selectors of
-            Nothing -> Right (selectModuleExportSelectors selectors localInventory)
-            Just missingSelector ->
+       in case firstInvalidExport moduleSpan selectors of
+            Nothing -> Right (selectValidatedModuleExportSelectors constructorOwners selectors localInventory)
+            Just invalidExport ->
               Left
-                ( setDiagnosticSubject (moduleExportSelectorName missingSelector)
+                ( setDiagnosticSubject (invalidExportName invalidExport)
                     ( setDiagnosticPrimarySpan
-                        moduleSpan
+                        (invalidExportSpan invalidExport)
                         ( mkErrorDiagnostic
                             E4015 CompilationOrigin
-                            ( "module export "
-                                <> renderModuleExportSelector missingSelector
-                                <> " is not declared by module '"
+                            ( invalidExportSummary invalidExport
+                                <> " module '"
                                 <> renderModulePath modulePath
                                 <> "' in '"
                                 <> Text.pack sourcePath
                                 <> "'; available declarations: "
-                                <> renderAvailableDeclarations missingSelector
+                                <> renderAvailableDeclarations (invalidExportSelector invalidExport)
                             )
                         )
                     )
                 )
   where
+    firstInvalidExport _ [] = Nothing
+    firstInvalidExport moduleSpan (selector : rest) =
+      case validateSelector moduleSpan selector of
+        Nothing -> firstInvalidExport moduleSpan rest
+        invalid -> invalid
+
+    validateSelector moduleSpan selector =
+      case selector of
+        ModuleExportSelector {}
+          | inventoryHasSelector selector localInventory -> Nothing
+          | otherwise ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = moduleExportSelectorName selector,
+                    invalidExportSpan = moduleSpan,
+                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
+                  }
+        ModuleTypeExportSelector typeName typeSpan constructorSelector ->
+          case Map.lookup typeName constructorOwners of
+            Nothing ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = typeName,
+                    invalidExportSpan = typeSpan,
+                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
+                  }
+            Just ownedConstructors -> validateConstructors selector typeName ownedConstructors constructorSelector
+
+    validateConstructors selector typeName ownedConstructors constructorSelector =
+      case constructorSelector of
+        AbstractType -> Nothing
+        AllTypeConstructors _ -> Nothing
+        SelectedTypeConstructors constructors ->
+          case find ((`Set.notMember` ownedConstructors) . locatedModuleExportName) (NonEmpty.toList constructors) of
+            Nothing -> Nothing
+            Just constructor ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = locatedModuleExportName constructor,
+                    invalidExportSpan = locatedModuleExportSpan constructor,
+                    invalidExportSummary =
+                      "module export constructor '"
+                        <> locatedModuleExportName constructor
+                        <> "' is not declared by type '"
+                        <> typeName
+                        <> "' in"
+                  }
+
     availableNames = declarationExportNames localInventory
     renderAvailableDeclarations selector =
       case moduleExportSelectorNamespace selector of
@@ -537,6 +592,13 @@ renderDeclarationLabels :: [Text] -> Text
 renderDeclarationLabels labels
   | null labels = "<none>"
   | otherwise = Text.intercalate ", " labels
+
+data InvalidModuleExport = InvalidModuleExport
+  { invalidExportSelector :: ModuleExportSelector,
+    invalidExportName :: Text,
+    invalidExportSpan :: SourceSpan,
+    invalidExportSummary :: Text
+  }
 
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =
@@ -573,6 +635,24 @@ collectModuleExportInventory surfaceExpr =
               ]
         SSClass _ className _ _ ->
           [ModuleExport CapabilityNamespace (identifierText className)]
+        _ -> []
+
+collectModuleConstructorOwners :: SurfaceExpr -> Map Text (Set Text)
+collectModuleConstructorOwners surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements -> Map.fromList (concatMap statementConstructorOwners statements)
+    _ -> Map.empty
+  where
+    statementConstructorOwners statement =
+      case statement of
+        SSData _ typeName _ constructors ->
+          [ ( identifierText typeName,
+              Set.fromList
+                [ identifierText constructorName
+                  | SurfaceDataConstructor constructorName _ <- constructors
+                ]
+            )
+          ]
         _ -> []
 
 resolveCoreModuleNames ::

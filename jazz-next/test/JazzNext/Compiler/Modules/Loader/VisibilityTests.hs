@@ -80,6 +80,8 @@ visibilityTests =
     , ("run module graph executes public closure with private helper", testRunModuleGraphExecutesPublicClosureWithPrivateHelper)
     , ("compile module graph rejects private alias member", testCompileModuleGraphRejectsPrivateAliasMember)
     , ("compile module graph supports opaque exported type", testCompileModuleGraphSupportsOpaqueExportedType)
+    , ("run module graph imports selected grouped constructors in expressions and patterns", testRunModuleGraphImportsSelectedGroupedConstructor)
+    , ("compile module graph hides unselected grouped constructors", testCompileModuleGraphHidesUnselectedGroupedConstructor)
     , ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName)
     , ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable)
     , ("run module graph keeps earlier imported values visible before later block binders", testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder)
@@ -1366,6 +1368,34 @@ testCompileModuleGraphSupportsOpaqueExportedType = do
           boxed = Pack 1.
           }
           """)
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphImportsSelectedGroupedConstructor :: IO ()
+testRunModuleGraphImportsSelectedGroupedConstructor = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "selected grouped constructor compile errors" [] (runCompileErrors result)
+  assertEqual "selected grouped constructor runtime errors" [] (runRuntimeErrors result)
+  assertEqual "selected grouped constructor output" (Just "41") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. value = First 41. case value { | First item -> item | _ -> 0 }. }"),
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphHidesUnselectedGroupedConstructor :: IO ()
+testCompileModuleGraphHidesUnselectedGroupedConstructor = do
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  case compileErrors result of
+    [diagnostic] -> assertContains "hidden grouped constructor" "Second" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected one hidden grouped-constructor diagnostic, got " <> Text.pack (show diagnostics))
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. Second 41. }"),
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

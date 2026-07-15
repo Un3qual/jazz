@@ -7,7 +7,9 @@ semantic-token implementation.
 
 Constructor names in `data` declarations use the dedicated
 `entity.name.function.constructor.jazz` TextMate scope, independently of their
-payload types. The active editor theme determines the rendered colors.
+payload types. Selected constructor names in grouped module exports use that
+same constructor scope while the owning type retains `entity.name.type.jazz`.
+The active editor theme determines the rendered colors.
 
 The extension source lives in `jazz-next/editors/vscode-jazz`. To use it from a
 repository checkout, copy or symlink that directory into your VS Code extensions
