@@ -221,12 +221,17 @@ code, warning token, summary, labeled spans, notes, and help. CLI paths render
 the canonical stream uniformly instead of prepending error text and formatting
 warnings separately.
 
-Existing human-readable wording remains stable except for two intentional
-changes:
+Existing human-readable wording remains stable across these intentional
+reporting changes:
 
 - promoted warnings render once as errors while retaining their `W####` code
   and warning token; and
 - previously uncoded diagnostics gain catalog code prefixes.
+
+Legacy parser summaries that embed rendered coordinates move those coordinates
+into primary or secondary diagnostic labels. Their explanatory wording remains
+stable, but the reporting module normalizes source-location placement and
+punctuation instead of preserving phase-local formatting.
 
 The reporting module is also the future boundary for JSON or editor-specific
 rendering. Those formats are not added in this batch.
@@ -294,6 +299,8 @@ constructors cannot express safely.
   misclassified as configurable warnings.
 - Existing warning configuration tokens and `W####` codes remain stable.
 - Existing `E####` assignments remain stable.
+- Parser source coordinates are carried by diagnostic labels rather than
+  duplicated inside summary text.
 - Compatibility accessors preserve common compiler and test call patterns, but
   the old parallel record fields are not retained as duplicate storage.
 
