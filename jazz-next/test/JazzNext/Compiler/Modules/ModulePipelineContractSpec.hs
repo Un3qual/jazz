@@ -74,8 +74,8 @@ import JazzNext.Compiler.ModuleGraph
   )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Name
-  ( NameNamespace (ConstructorNamespace, ValueNamespace),
-    builtinName,
+  ( Name (BuiltinName),
+    NameNamespace (ConstructorNamespace, ValueNamespace),
     mkIdentifier,
     resolvedImportedName,
     resolvedLocalName
@@ -277,7 +277,7 @@ chainEntry requiresHost moduleCount =
           hostResultName
           (SourceSpan 1 1)
           ( EApply
-              (EVar (builtinName (mkIdentifier "__kernel_arguments!")))
+              (EVar (BuiltinName (mkIdentifier "__kernel_arguments!")))
               (ETuple [])
           )
       | requiresHost

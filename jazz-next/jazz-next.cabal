@@ -103,6 +103,7 @@ library jazz-next-internal
       JazzNext.Compiler.Runtime.Types
       JazzNext.Compiler.RuntimeHost
       JazzNext.Compiler.RuntimeHints
+      JazzNext.Compiler.SignatureRendering
       JazzNext.Compiler.SourceProgram
       JazzNext.Compiler.TypeInference
       JazzNext.Compiler.TypeInference.Capabilities
@@ -270,6 +271,11 @@ test-suite diagnostic-catalog-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Diagnostics/DiagnosticCatalogSpec.hs
+
+test-suite signature-rendering-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Diagnostics/SignatureRenderingSpec.hs
 
 test-suite loader-spec
   import: test-common

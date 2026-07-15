@@ -17,8 +17,7 @@ module JazzNext.Compiler.CapabilityFacts
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature,
-    constraintFunctionArgumentTypes,
-    renderCapabilityType
+    constraintFunctionArgumentTypes
   ) where
 
 import Data.Char (isLower)
@@ -39,6 +38,9 @@ import JazzNext.Compiler.Name
     Name (..),
     renderName
   )
+import JazzNext.Compiler.SignatureRendering
+  ( renderSignatureType
+  )
 
 concreteImplFactKey :: Name -> [SignatureType] -> Maybe Text
 concreteImplFactKey capabilityName arguments =
@@ -50,7 +52,7 @@ concreteImplFactKey capabilityName arguments =
 
 constraintImplFactKey :: Name -> SignatureType -> Text
 constraintImplFactKey constraintName argument =
-  renderName constraintName <> "(" <> renderCapabilityType argument <> ")"
+  renderName constraintName <> "(" <> renderSignatureType argument <> ")"
 
 concreteImplFactClassName :: Text -> Text
 concreteImplFactClassName implKey =
@@ -298,46 +300,6 @@ constraintSignatureAliasNames name =
     "Float" -> ["Float", "Float64"]
     "Float64" -> ["Float64", "Float"]
     _ -> [name]
-
-renderCapabilityType :: SignatureType -> Text
-renderCapabilityType signatureType =
-  case signatureType of
-    TypeInt -> "Int"
-    TypeFloat -> "Float"
-    TypeNumeric numericType -> renderNumericTypeName numericType
-    TypeBool -> "Bool"
-    TypeChar -> "Char"
-    TypeText -> "Text"
-    TypeVariable name -> renderName name
-    TypeName name ->
-      renderName name
-    TypeApplication name arguments ->
-      renderName name
-        <> "("
-        <> Text.intercalate ", " (map renderCapabilityType arguments)
-        <> ")"
-    TypeList innerType ->
-      "[" <> renderConstraintListElementType innerType <> "]"
-    TypeTuple elementTypes ->
-      "(" <> Text.intercalate ", " (map renderCapabilityType elementTypes) <> ")"
-    TypeFunction argumentType resultType ->
-      renderConstraintFunctionArgumentType argumentType <> " -> " <> renderCapabilityType resultType
-
-renderConstraintFunctionArgumentType :: SignatureType -> Text
-renderConstraintFunctionArgumentType signatureType =
-  case signatureType of
-    TypeFunction {} ->
-      "(" <> renderCapabilityType signatureType <> ")"
-    _ ->
-      renderCapabilityType signatureType
-
-renderConstraintListElementType :: SignatureType -> Text
-renderConstraintListElementType signatureType =
-  case signatureType of
-    TypeFunction {} ->
-      "(" <> renderCapabilityType signatureType <> ")"
-    _ ->
-      renderCapabilityType signatureType
 
 identifierLooksLikeTypeVariable :: Name -> Bool
 identifierLooksLikeTypeVariable name =

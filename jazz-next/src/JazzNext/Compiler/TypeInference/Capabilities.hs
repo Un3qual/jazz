@@ -68,7 +68,6 @@ import JazzNext.Compiler.CapabilityFacts
     constraintSignatureTypesCompatible,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
-    renderCapabilityType,
     signaturePayloadConstraintType,
     splitQualifiedMethodKey,
     substituteClassMethodSignature
@@ -81,6 +80,9 @@ import JazzNext.Compiler.Name
   ( Name,
     identifierText,
     qualifiedMemberName
+  )
+import JazzNext.Compiler.SignatureRendering
+  ( renderSignatureType
   )
 import JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
@@ -957,7 +959,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          constraintName <> "(" <> renderCapabilityType firstArgumentHint <> ")"
+                          constraintName <> "(" <> renderSignatureType firstArgumentHint <> ")"
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->
@@ -1021,7 +1023,7 @@ constraintImplFactExistsForDeferred facts inferredConstraint constraintName argu
     then concreteImplFactExists constraintName argumentHint facts
     else Set.member implFactKey (scopeConcreteImplFacts facts)
   where
-    implFactKey = constraintName <> "(" <> renderCapabilityType argumentHint <> ")"
+    implFactKey = constraintName <> "(" <> renderSignatureType argumentHint <> ")"
 
 inferredConstraintCandidateRuntimeHints :: ScopeCapabilityFacts -> InferState -> Maybe Text -> ExpressionType -> [SignatureType]
 inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType =
@@ -1050,7 +1052,7 @@ dedupeSignatureTypes =
       | Set.member rendered seen = go seen rest
       | otherwise = signatureType : go (Set.insert rendered seen) rest
       where
-        rendered = renderCapabilityType signatureType
+        rendered = renderSignatureType signatureType
 
 constraintSignatureTypeMatchesExpressionType :: InferState -> SignatureType -> ExpressionType -> Bool
 constraintSignatureTypeMatchesExpressionType state signatureType expressionType =
@@ -1092,7 +1094,7 @@ numericTypeFromConstraintSignatureName =
 concreteImplFactExists :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
 concreteImplFactExists constraintName argumentHint facts =
   any
-    (\candidateHint -> Set.member (constraintName <> "(" <> renderCapabilityType candidateHint <> ")") (scopeConcreteImplFacts facts))
+    (\candidateHint -> Set.member (constraintName <> "(" <> renderSignatureType candidateHint <> ")") (scopeConcreteImplFacts facts))
     (constraintSignatureAliasVariants argumentHint)
 
 concreteImplMethodBodyExists :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool

@@ -68,8 +68,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( SignatureType (..),
-    Expr,
+  ( Expr,
     NumericType,
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -99,6 +98,9 @@ import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (..)
   )
 import JazzNext.Compiler.Name (Name, identifierText)
+import JazzNext.Compiler.SignatureRendering
+  ( renderSignatureType
+  )
 import JazzNext.Compiler.TypeInference.State
   ( InferState (..),
     InferenceOutput (..),
@@ -388,29 +390,6 @@ renderSignatureConstraint (SignatureConstraint name arguments) =
     <> if null arguments
       then ""
       else "(" <> Text.intercalate ", " (map renderSignatureType arguments) <> ")"
-
-renderSignatureType :: SignatureType -> Text
-renderSignatureType signatureType =
-  case signatureType of
-    TypeInt -> "Int"
-    TypeFloat -> "Float"
-    TypeNumeric numericType -> renderNumericTypeName numericType
-    TypeBool -> "Bool"
-    TypeChar -> "Char"
-    TypeText -> "Text"
-    TypeVariable name -> identifierText name
-    TypeName name -> identifierText name
-    TypeApplication name arguments ->
-      identifierText name <> "(" <> Text.intercalate ", " (map renderSignatureType arguments) <> ")"
-    TypeList innerType -> "[" <> renderSignatureTypeAtom innerType <> "]"
-    TypeTuple elementTypes -> "(" <> Text.intercalate ", " (map renderSignatureType elementTypes) <> ")"
-    TypeFunction argumentType resultType -> renderSignatureTypeAtom argumentType <> " -> " <> renderSignatureType resultType
-
-renderSignatureTypeAtom :: SignatureType -> Text
-renderSignatureTypeAtom signatureType =
-  case signatureType of
-    TypeFunction {} -> "(" <> renderSignatureType signatureType <> ")"
-    _ -> renderSignatureType signatureType
 
 renderUnsupportedSignatureTokens :: [SignatureToken] -> Text
 renderUnsupportedSignatureTokens = Text.concat . go Nothing
