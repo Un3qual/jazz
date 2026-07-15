@@ -111,6 +111,9 @@ import JazzNext.Compiler.Parser.Operator
 import JazzNext.Compiler.Pattern
   ( patternBinderNames
   )
+import JazzNext.Compiler.RecursiveBindings
+  ( freeVarsExprWithBound
+  )
 import JazzNext.Compiler.Runtime.Primitives
   ( evalBinary,
     evalBuiltin
@@ -1520,12 +1523,12 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
         )
     )
 
-declaredOperatorRightSectionClosure :: Maybe [Text] -> Text -> RuntimeValue -> RuntimeValue -> RuntimeEnv -> Bool -> RuntimeValue
-declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorValue rightValue env envMayReachHostCells =
+declaredOperatorRightSectionClosure :: Maybe [Text] -> Text -> RuntimeValue -> RuntimeValue -> RuntimeValue
+declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorValue rightValue =
   VClosure
     RuntimeClosure
       { runtimeClosureEnvironment = capturedEnv,
-        runtimeClosureEnvironmentMayReachHostCells = envMayReachHostCells,
+        runtimeClosureEnvironmentMayReachHostCells = False,
         runtimeClosureParameter = leftParameter,
         runtimeClosureBody =
           EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter),
@@ -1539,8 +1542,10 @@ declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorVal
     leftParameter = generatedName OperatorSectionLeft
     rightParameter = generatedName OperatorSectionRight
     capturedEnv =
-      Map.insert functionName (Right operatorValue) $
-        Map.insert rightParameter (Right rightValue) env
+      Map.fromList
+        [ (functionName, Right operatorValue),
+          (rightParameter, Right rightValue)
+        ]
 
 nameRuntimeClosureBinding :: Maybe [Text] -> Name -> RuntimeValue -> RuntimeValue
 nameRuntimeClosureBinding currentModulePath bindingName runtimeValue =
@@ -1783,16 +1788,27 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                     (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))
         ELambda parameterName bodyExpr ->
           do
+            let capturedNames =
+                  freeVarsExprWithBound
+                    (Set.singleton parameterName)
+                    bodyExpr
+                capturedEnvironment =
+                  Map.restrictKeys
+                    (evaluationEnvironment context)
+                    capturedNames
+                capturedEnvironmentMayReachHostCells =
+                  not (Map.null capturedEnvironment)
+                    && evaluationEnvironmentMayReachHostCells context
             recordRuntimeStatisticWhen
               observeStatistics
-              (recordRuntimeClosureCreation (Map.size (evaluationEnvironment context)))
+              (recordRuntimeClosureCreation (Map.size capturedEnvironment))
             continueWith
               ( ReturnRuntimeValue
                   ( VClosure
                       RuntimeClosure
-                        { runtimeClosureEnvironment = evaluationEnvironment context,
+                        { runtimeClosureEnvironment = capturedEnvironment,
                           runtimeClosureEnvironmentMayReachHostCells =
-                            evaluationEnvironmentMayReachHostCells context,
+                            capturedEnvironmentMayReachHostCells,
                           runtimeClosureParameter = parameterName,
                           runtimeClosureBody = bodyExpr,
                           runtimeClosureTypeHint = Nothing,
@@ -2289,8 +2305,7 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
             (ForceRuntimeValue operatorValue)
     BuildDeclaredRightSection context operatorSymbol rightValue ->
       do
-        let captureWidth = Map.size (evaluationEnvironment context) + 2
-        recordRuntimeStatisticWhen observeStatistics (recordRuntimeClosureCreation captureWidth)
+        recordRuntimeStatisticWhen observeStatistics (recordRuntimeClosureCreation 2)
         continueWith
           ( ReturnRuntimeValue
               ( declaredOperatorRightSectionClosure
@@ -2298,8 +2313,6 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
                   operatorSymbol
                   runtimeValue
                   rightValue
-                  (evaluationEnvironment context)
-                  (evaluationEnvironmentMayReachHostCells context)
               )
           )
           machine

@@ -83,7 +83,7 @@ module List (value listPrepend, value listReverse, value listLength, value listI
   listAppend = \(left, right) -> listFoldLeft (\(result, item) -> listPrepend item result) right (listReverse left).
 
   listConcat :: [[a]] -> [a].
-  listConcat = \(lists) -> listFoldLeft listAppend [] lists.
+  listConcat = \(lists) -> listFoldRight listAppend [] lists.
 
   listRepeatFrom :: Int -> a -> [a] -> [a].
   listRepeatFrom = \(count, value, reversed) -> if count <= 0 then listReverse reversed else listRepeatFrom (count - 1) value (listPrepend value reversed).
@@ -104,10 +104,7 @@ module List (value listPrepend, value listReverse, value listLength, value listI
   }.
 
   listIntercalate :: [a] -> [[a]] -> [a].
-  listIntercalate = \(separator, lists) -> case lists {
-    | [] -> []
-    | [first | rest] -> listFoldLeft (\(result, items) -> listAppend (listAppend result separator) items) first rest
-  }.
+  listIntercalate = \(separator, lists) -> listConcat (listIntersperse separator lists).
 
   listMapFrom :: (a -> b) -> [a] -> [b] -> [b].
   listMapFrom = \(transform, items, reversed) -> case items {

@@ -39,7 +39,8 @@ foundationTests =
     ("Maybe and Result helpers preserve alternate branches", fixtureTest ["Stdlib", "Foundations", "MaybeResultBranches"] "stdlib/foundations/MaybeResultBranches.jz" expectedMaybeResultBranches),
     ("NonEmpty keeps its head-tail invariant", fixtureTest ["Stdlib", "Foundations", "NonEmpty"] "stdlib/foundations/NonEmpty.jz" expectedNonEmpty),
     ("large Jazz-written list traversals stay stack safe", testLargeListTraversal),
-    ("stable list sorting stays within its logarithmic work bound", testStableSortWorkBound)
+    ("stable list sorting stays within its logarithmic work bound", testStableSortWorkBound),
+    ("list combination stays within a linear allocation bound", testListCombinationWorkBound)
   ]
 
 fixtureTest :: [Text] -> FilePath -> Text -> IO ()
@@ -91,6 +92,34 @@ testStableSortWorkBound = do
        in if constructedCells <= 25000
             then pure ()
             else failTest ("sorting constructed too many list cells: " <> Text.pack (show constructedCells))
+
+testListCombinationWorkBound :: IO ()
+testListCombinationWorkBound = do
+  result <-
+    runStdlibSourceObserved
+      RuntimeObservationStatistics
+      ["Stdlib", "Foundations", "ListCombinationWorkBound"]
+      """
+      module Stdlib::Foundations::ListCombinationWorkBound {
+        import List.
+        build = \\(remaining, values) -> case remaining {
+          | 0 -> values
+          | _ -> build (remaining - 1) (listPrepend [remaining] values)
+        }.
+        nested = build 256 [].
+        combined = listConcat nested.
+        separated = listIntercalate [0] nested.
+        (listLength combined, listLength separated).
+      }
+      """
+  assertSuccessfulOutput "(256, 511)" result
+  case runRuntimeObservation result of
+    Nothing -> failTest "list-combination work-bound run did not produce runtime statistics"
+    Just report ->
+      let constructedCells = runtimeListCellsConstructed (runtimeObservationStatistics report)
+       in if constructedCells <= 10000
+            then pure ()
+            else failTest ("list combination constructed too many list cells: " <> Text.pack (show constructedCells))
 
 assertSuccessfulOutput :: Text -> RunResult -> IO ()
 assertSuccessfulOutput expectedOutput result = do

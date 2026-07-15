@@ -35,7 +35,11 @@ import JazzNext.Compiler.Driver
     runSourceObserved,
   )
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
-import JazzNext.Compiler.Name (Name (BuiltinName), mkIdentifier)
+import JazzNext.Compiler.Name
+  ( Name (BuiltinName),
+    mkIdentifier,
+    operatorBindingName,
+  )
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExprObserved,
@@ -76,7 +80,8 @@ tests =
     ("builtin application is classified independently", testBuiltinApplication),
     ("infix operator evaluation is classified independently", testOperatorApplication),
     ("constructor application is classified independently", testConstructorApplication),
-    ("closure creation records zero, one, and multiple captured bindings", testClosureCaptureWidths),
+    ("closures capture only the bindings their bodies reference", testClosureCaptureWidths),
+    ("declared right sections capture only their generated operands", testDeclaredRightSectionCaptureWidth),
     ("source values record each logical construction category", testSourceConstructions),
     ("builtin results record their logical constructions", testBuiltinConstructions),
     ("case evaluation records attempts, matches, and introduced bindings", testPatternStatistics),
@@ -243,6 +248,15 @@ testClosureCaptureWidths = do
             SExpr (SourceSpan 3 1) (ELambda "value" (ETuple [EVar "first", EVar "second"]))
           ]
       )
+  oneAmongUnused <-
+    statisticsFor
+      ( EBlock
+          [ SLet "unusedBefore" (SourceSpan 1 1) (ELit (LInt 0)),
+            SLet "captured" (SourceSpan 2 1) (ELit (LInt 1)),
+            SLet "unusedAfter" (SourceSpan 3 1) (ELit (LInt 2)),
+            SExpr (SourceSpan 4 1) (ELambda "value" (EVar "captured"))
+          ]
+      )
   assertEqual "zero-capture closures" 1 (runtimeClosuresCreated zero)
   assertEqual "zero captured bindings" 0 (runtimeBindingsCaptured zero)
   assertEqual "zero maximum capture width" 0 (runtimeMaximumCaptureWidth zero)
@@ -252,6 +266,24 @@ testClosureCaptureWidths = do
   assertEqual "multiple-capture closures" 1 (runtimeClosuresCreated multiple)
   assertEqual "multiple captured bindings" 2 (runtimeBindingsCaptured multiple)
   assertEqual "multiple maximum capture width" 2 (runtimeMaximumCaptureWidth multiple)
+  assertEqual "one-among-unused closures" 1 (runtimeClosuresCreated oneAmongUnused)
+  assertEqual "one binding captured among unused bindings" 1 (runtimeBindingsCaptured oneAmongUnused)
+  assertEqual "one-among-unused maximum capture width" 1 (runtimeMaximumCaptureWidth oneAmongUnused)
+
+testDeclaredRightSectionCaptureWidth :: IO ()
+testDeclaredRightSectionCaptureWidth = do
+  statistics <-
+    statisticsFor
+      ( EBlock
+          [ SLet "unused" (SourceSpan 1 1) (ELit (LInt 0)),
+            SLet
+              (operatorBindingName "%%")
+              (SourceSpan 2 1)
+              (ELambda "left" (ELambda "right" (EVar "left"))),
+            SExpr (SourceSpan 3 1) (ESectionRight "%%" (ELit (LInt 2)))
+          ]
+      )
+  assertEqual "right-section maximum capture width" 2 (runtimeMaximumCaptureWidth statistics)
 
 testSourceConstructions :: IO ()
 testSourceConstructions = do
