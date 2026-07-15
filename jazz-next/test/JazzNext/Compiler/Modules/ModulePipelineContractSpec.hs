@@ -48,6 +48,7 @@ import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledProgram (..),
     ModuleInterface (..),
+    compiledProgramErrors,
     emptyCompiledPrelude,
     emptyCompileInputs,
     emptyModuleInterface,
@@ -168,8 +169,7 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
         { compiledProgramPrelude = emptyCompiledPrelude,
           compiledProgramEntryPath = ["App", "Main"],
           compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
-          compiledProgramWarnings = [],
-          compiledProgramErrors = []
+          compiledProgramDiagnostics = []
         }
 
 compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
@@ -244,8 +244,7 @@ compiledChainProgram moduleCount requiresHost =
     { compiledProgramPrelude = emptyCompiledPrelude,
       compiledProgramEntryPath = ["App", "Main"],
       compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount],
-      compiledProgramWarnings = [],
-      compiledProgramErrors = []
+      compiledProgramDiagnostics = []
     }
 
 chainDependency :: Int -> CompiledModule
@@ -298,8 +297,7 @@ compiledModule path imports statements inventory moduleInterface =
             resolvedModuleCore = CoreModule (Just path) Nothing imports (EBlock statements)
           },
       compiledModuleInterface = moduleInterface,
-      compiledModuleWarnings = [],
-      compiledModuleErrors = [],
+      compiledModuleDiagnostics = [],
       compiledModuleExpr = EBlock statements
     }
 

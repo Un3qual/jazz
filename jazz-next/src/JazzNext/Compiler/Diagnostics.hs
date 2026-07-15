@@ -9,7 +9,6 @@ module JazzNext.Compiler.Diagnostics
     DiagnosticOrigin (..),
     RenderDiagnostic (..),
     SourceSpan (..),
-    WarningRecord (..),
     appendDiagnosticNote,
     appendDiagnosticSecondaryLabel,
     diagnosticCode,
@@ -108,33 +107,11 @@ data Diagnostic = Diagnostic
   }
   deriving (Eq, Ord, Show)
 
--- | Transitional warning payload. Task 3 removes this after all warning
--- producers transport canonical diagnostics directly.
-data WarningRecord = WarningRecord
-  { warningCategory :: WarningCategory,
-    warningCodeText :: Text,
-    warningVariableName :: Text,
-    warningPrimarySpan :: SourceSpan,
-    warningPreviousSpan :: Maybe SourceSpan,
-    warningMessage :: Text
-  }
-  deriving (Eq, Show)
-
 class RenderDiagnostic a where
   toDiagnostic :: a -> Diagnostic
 
 instance RenderDiagnostic Diagnostic where
   toDiagnostic = id
-
-instance RenderDiagnostic WarningRecord where
-  toDiagnostic warning =
-    maybe id (\spanValue -> appendDiagnosticSecondaryLabel spanValue "previous") (warningPreviousSpan warning) $
-      setDiagnosticPrimaryLabel (warningPrimarySpan warning) "warning emitted here" $
-        setDiagnosticSubject (warningVariableName warning) $
-          mkWarningDiagnostic
-            (warningCategory warning)
-            CompilationOrigin
-            (warningMessage warning)
 
 renderDiagnostic :: RenderDiagnostic a => a -> Text
 renderDiagnostic = renderDiagnosticRecord . toDiagnostic
@@ -306,26 +283,25 @@ renderSourceSpan spanValue =
         SourceSpan {} -> ""
         SourceSpanIn sourcePath _ _ -> Text.pack sourcePath <> ":"
 
-mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> WarningRecord
+mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =
-  WarningRecord
-    { warningCategory = SameScopeRebinding,
-      warningCodeText = diagnosticCodeText (warningCode SameScopeRebinding),
-      warningVariableName = variableName,
-      warningPrimarySpan = primarySpan,
-      warningPreviousSpan = Just previousSpan,
-      warningMessage =
-        "same-scope rebinding: '"
-          <> variableName
-          <> "' shadows previous same-scope binding (last declaration wins)"
-    }
+  appendDiagnosticSecondaryLabel previousSpan "previous" $
+    setDiagnosticPrimaryLabel primarySpan "warning emitted here" $
+      setDiagnosticSubject variableName $
+        mkWarningDiagnostic
+          SameScopeRebinding
+          CompilationOrigin
+          ( "same-scope rebinding: '"
+              <> variableName
+              <> "' shadows previous same-scope binding (last declaration wins)"
+          )
 
-sortWarnings :: [WarningRecord] -> [WarningRecord]
+sortWarnings :: [Diagnostic] -> [Diagnostic]
 sortWarnings =
   sortOn
-    ( \warning ->
-        ( warningPrimarySpan warning,
-          warningCategory warning,
-          warningVariableName warning
+    ( \diagnostic ->
+        ( diagnosticPrimarySpan diagnostic,
+          diagnosticWarningCategory diagnostic,
+          diagnosticSubject diagnostic
         )
     )

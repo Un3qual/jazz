@@ -37,7 +37,11 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
     SourceSpan (..),
-    WarningRecord (..),
+    diagnosticCode,
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSummary,
+    diagnosticWarningCategory,
     mkErrorDiagnostic,
     renderDiagnostic,
     renderSourceSpan
@@ -77,6 +81,7 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
+    diagnosticCodeText,
     warningToken
   )
 import System.Environment (getArgs, lookupEnv)
@@ -739,16 +744,13 @@ cliModuleConfig options =
     }
 
 -- | Render warnings in the CLI's stable single-line format.
-formatWarningLine :: WarningRecord -> Text
-formatWarningLine warning =
-  warningCodeText warning
-    <> " ["
-    <> warningToken (warningCategory warning)
-    <> "] "
-    <> renderSourceSpan (warningPrimarySpan warning)
-    <> ": "
-    <> warningMessage warning
-    <> renderPreviousSpan (warningPreviousSpan warning)
+formatWarningLine :: Diagnostic -> Text
+formatWarningLine diagnostic =
+  diagnosticCodeText (diagnosticCode diagnostic)
+    <> maybe "" (\category -> " [" <> warningToken category <> "]") (diagnosticWarningCategory diagnostic)
+    <> maybe " " (\spanValue -> " " <> renderSourceSpan spanValue <> ": ") (diagnosticPrimarySpan diagnostic)
+    <> diagnosticSummary diagnostic
+    <> renderPreviousSpan (diagnosticRelatedSpan diagnostic)
 
 renderLines :: [Text] -> Text
 renderLines [] = ""

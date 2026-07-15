@@ -17,8 +17,12 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan,
-    WarningRecord (..)
+  ( Diagnostic,
+    DiagnosticOrigin (..),
+    SourceSpan,
+    mkWarningDiagnostic,
+    setDiagnosticPrimaryLabel,
+    setDiagnosticSubject
   )
 import JazzNext.Compiler.Name
   ( identifierText
@@ -31,9 +35,7 @@ import JazzNext.Compiler.WarningConfig
     isWarningEnabled
   )
 import JazzNext.Compiler.DiagnosticCatalog
-  ( WarningCategory (..),
-    diagnosticCodeText,
-    warningCode
+  ( WarningCategory (..)
   )
 
 collectUnusedBindingWarnings ::
@@ -41,7 +43,7 @@ collectUnusedBindingWarnings ::
   Set Int ->
   Map Int (Set Int) ->
   [(Int, Statement)] ->
-  Map Int [WarningRecord]
+  Map Int [Diagnostic]
 collectUnusedBindingWarnings settings hiddenStatementIndices recursiveGroupsByStatement indexedStatements
   | not (isWarningEnabled settings UnusedBinding) = Map.empty
   | otherwise =
@@ -171,16 +173,14 @@ collectUnusedBindingUseState hiddenStatementIndices recursiveGroupsByStatement i
     registerConstructor activeRebindingNames (DataConstructor constructorName _) =
       Set.insert constructorName activeRebindingNames
 
-mkUnusedBindingWarning :: Text -> SourceSpan -> WarningRecord
+mkUnusedBindingWarning :: Text -> SourceSpan -> Diagnostic
 mkUnusedBindingWarning variableName primarySpan =
-  WarningRecord
-    { warningCategory = UnusedBinding,
-      warningCodeText = diagnosticCodeText (warningCode UnusedBinding),
-      warningVariableName = variableName,
-      warningPrimarySpan = primarySpan,
-      warningPreviousSpan = Nothing,
-      warningMessage =
-        "unused binding: '"
-          <> variableName
-          <> "' is never referenced in this lexical block"
-    }
+  setDiagnosticPrimaryLabel primarySpan "binding declared here" $
+    setDiagnosticSubject variableName $
+      mkWarningDiagnostic
+        UnusedBinding
+        CompilationOrigin
+        ( "unused binding: '"
+            <> variableName
+            <> "' is never referenced in this lexical block"
+        )

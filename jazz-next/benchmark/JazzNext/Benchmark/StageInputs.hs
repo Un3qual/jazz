@@ -30,6 +30,8 @@ import JazzNext.Compiler.ModuleInterface
   ( CompileInputs,
     CompiledModule (..),
     CompiledProgram (..),
+    compiledModuleErrors,
+    compiledProgramErrors,
     compileInputs,
     lookupCompiledModule,
   )

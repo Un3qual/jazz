@@ -88,8 +88,7 @@ compilePreparedPrelude settings preparedPrelude =
         CompiledPrelude
           { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
             compiledPreludeInterface = inferredModuleInterface inference,
-            compiledPreludeWarnings = inferredWarnings inference,
-            compiledPreludeErrors = inferredErrors inference,
+            compiledPreludeDiagnostics = inferredDiagnostics inference,
             compiledPreludeExpr = Just (inferredExpr inference),
             compiledPreludeRuntimeHints = inferredRuntimeTypeHints inference
           }
@@ -100,15 +99,13 @@ compileResolvedProgram inputs resolvedProgram =
   do
   compiledModules <- reverse <$> foldModules [] (resolvedProgramModules resolvedProgram)
   let compiledPrelude = compileInputPrelude inputs
-      moduleWarnings = concatMap compiledModuleWarnings compiledModules
-      moduleErrors = concatMap compiledModuleErrors compiledModules
+      moduleDiagnostics = concatMap compiledModuleDiagnostics compiledModules
   pure
     CompiledProgram
       { compiledProgramPrelude = compiledPrelude,
         compiledProgramEntryPath = resolvedProgramEntryPath resolvedProgram,
         compiledProgramModules = compiledModules,
-        compiledProgramWarnings = compiledPreludeWarnings compiledPrelude <> moduleWarnings,
-        compiledProgramErrors = compiledPreludeErrors compiledPrelude <> moduleErrors
+        compiledProgramDiagnostics = compiledPreludeDiagnostics compiledPrelude <> moduleDiagnostics
       }
   where
     foldModules compiledReversed remaining =
@@ -146,8 +143,7 @@ compileResolvedModule inputs compiledDependencies resolvedModule = do
     CompiledModule
       { compiledResolvedModule = resolvedModule,
         compiledModuleInterface = inferredModuleInterface inference,
-        compiledModuleWarnings = inferredWarnings inference,
-        compiledModuleErrors = inferredErrors inference,
+        compiledModuleDiagnostics = inferredDiagnostics inference,
         compiledModuleExpr = inferredExpr inference
       }
 

@@ -19,6 +19,7 @@ module JazzNext.Compiler.Analyzer
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -48,9 +49,13 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
     SourceSpan (..),
-    WarningRecord (..),
+    appendDiagnosticSecondaryLabel,
+    diagnosticWarningCategory,
     mkErrorDiagnostic,
+    mkWarningDiagnostic,
     mkSameScopeRebindingWarning,
+    promoteDiagnostic,
+    setDiagnosticPrimaryLabel,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject,
@@ -74,21 +79,19 @@ import JazzNext.Compiler.Purity
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
-    isWarningEnabled
+    isWarningEnabled,
+    isWarningError
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
-    WarningCategory (..),
-    diagnosticCodeText,
-    warningCode
+    WarningCategory (..)
   )
 
 -- | Analyzer output keeps the original expression plus the warnings/errors
 -- discovered while walking it.
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
-    analysisWarnings :: [WarningRecord],
-    analysisErrors :: [Diagnostic]
+    analysisDiagnostics :: [Diagnostic]
   }
   deriving (Eq, Show)
 
@@ -170,8 +173,8 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
     pure
       AnalysisResult
         { analyzedExpr = expr,
-          analysisWarnings = sortWarnings warnings,
-          analysisErrors = errors
+          analysisDiagnostics =
+            map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
         }
   where
     builtinMode = analysisBuiltinMode inputs
@@ -187,12 +190,20 @@ analysisBindingToVisibleBinding binding =
         analysisBindingIsHiddenPrelude binding || analysisBindingSpan binding == Nothing
     }
 
-analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
+analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [Diagnostic]
 analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveKernelOnly
 
-analyzeRebindingWarningsWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO [WarningRecord]
+analyzeRebindingWarningsWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO [Diagnostic]
 analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
-  analysisWarnings <$> analyzeProgramWithBuiltins builtinMode settings expr
+  filter (isJust . diagnosticWarningCategory) . analysisDiagnostics
+    <$> analyzeProgramWithBuiltins builtinMode settings expr
+
+applyWarningPolicy :: WarningSettings -> Diagnostic -> Diagnostic
+applyWarningPolicy settings diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Just category
+      | isWarningError settings category -> promoteDiagnostic diagnostic
+    _ -> diagnostic
 
 collectExprDiagnostics ::
   BuiltinResolutionMode ->
@@ -201,7 +212,7 @@ collectExprDiagnostics ::
   Set Text ->
   AnalysisContext ->
   Expr ->
-  ([WarningRecord], [Diagnostic])
+  ([Diagnostic], [Diagnostic])
 collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context expr =
   case expr of
     ELit _ -> ([], [])
@@ -323,7 +334,7 @@ collectExprListDiagnostics ::
   Set Text ->
   AnalysisContext ->
   [Expr] ->
-  ([WarningRecord], [Diagnostic])
+  ([Diagnostic], [Diagnostic])
 collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements =
   let (warningsRev, errorsRev) =
         foldl'
@@ -348,7 +359,7 @@ collectScopeDiagnostics ::
   Set Text ->
   AnalysisContext ->
   [Statement] ->
-  ([WarningRecord], [Diagnostic])
+  ([Diagnostic], [Diagnostic])
 collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope outerClassNames context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
@@ -381,9 +392,9 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [Diagnostic], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [Diagnostic], [Diagnostic])
     step (scopeBindings, classDeclarations, importedClassNames, implDeclarations, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr exprSpan expr ->
@@ -678,7 +689,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
               ]
        in visibleNow `Map.union` peerEntries
 
-    appendWarnings :: [WarningRecord] -> [WarningRecord] -> [WarningRecord]
+    appendWarnings :: [Diagnostic] -> [Diagnostic] -> [Diagnostic]
     appendWarnings = foldl' (flip (:))
 
     appendErrors :: [Diagnostic] -> [Diagnostic] -> [Diagnostic]
@@ -811,7 +822,7 @@ collectImplMethodDiagnostics ::
   Map Name VisibleBinding ->
   Set Text ->
   [ImplMethod] ->
-  ([WarningRecord], [Diagnostic])
+  ([Diagnostic], [Diagnostic])
 collectImplMethodDiagnostics builtinMode settings visibleBindings visibleClassNames methods =
   foldr step ([], []) methods
   where
@@ -976,7 +987,7 @@ collectDataConstructorRebindingWarnings ::
   SourceSpan ->
   [DataConstructor] ->
   Map Name VisibleBinding ->
-  [WarningRecord]
+  [Diagnostic]
 collectDataConstructorRebindingWarnings
   settings
   hiddenStatementIndices
@@ -1019,7 +1030,7 @@ collectOuterScopeShadowingWarnings ::
   Name ->
   SourceSpan ->
   Map Name VisibleBinding ->
-  [WarningRecord]
+  [Diagnostic]
 collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
   | not (isWarningEnabled settings ShadowingOuterScope) = []
   | otherwise =
@@ -1033,19 +1044,18 @@ collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
               ]
         _ -> []
 
-mkOuterScopeShadowingWarning :: Text -> SourceSpan -> Maybe SourceSpan -> WarningRecord
+mkOuterScopeShadowingWarning :: Text -> SourceSpan -> Maybe SourceSpan -> Diagnostic
 mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
-  WarningRecord
-    { warningCategory = ShadowingOuterScope,
-      warningCodeText = diagnosticCodeText (warningCode ShadowingOuterScope),
-      warningVariableName = variableName,
-      warningPrimarySpan = primarySpan,
-      warningPreviousSpan = previousSpan,
-      warningMessage =
-        "outer-scope shadowing: '"
-          <> variableName
-          <> "' shadows a visible binding from an outer scope"
-    }
+  maybe id (\spanValue -> appendDiagnosticSecondaryLabel spanValue "previous") previousSpan $
+    setDiagnosticPrimaryLabel primarySpan "warning emitted here" $
+      setDiagnosticSubject variableName $
+        mkWarningDiagnostic
+          ShadowingOuterScope
+          CompilationOrigin
+          ( "outer-scope shadowing: '"
+              <> variableName
+              <> "' shadows a visible binding from an outer scope"
+          )
 
 lambdaShadowingSpan :: AnalysisContext -> Maybe SourceSpan
 lambdaShadowingSpan context =

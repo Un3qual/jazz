@@ -12,7 +12,6 @@ module JazzNext.Compiler.Force
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
-    forceWarning,
   )
 where
 
@@ -39,7 +38,6 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticLabel,
     SourceSpan,
-    WarningRecord (..),
     diagnosticCode,
     diagnosticHelp,
     diagnosticNotes,
@@ -304,10 +302,9 @@ forceModuleExportSelector selector =
 forceInferenceResult :: InferenceResult -> ()
 forceInferenceResult result =
   forceExpr (inferredExpr result) `seq`
-    forceListWith forceWarning (inferredWarnings result) `seq`
-      forceListWith forceDiagnostic (inferredErrors result) `seq`
-        forceMapWith forceSignatureType (inferredRuntimeTypeHints result) `seq`
-          forceModuleInterface (inferredModuleInterface result)
+    forceListWith forceDiagnostic (inferredDiagnostics result) `seq`
+      forceMapWith forceSignatureType (inferredRuntimeTypeHints result) `seq`
+        forceModuleInterface (inferredModuleInterface result)
 
 forceCompiledProgramResult :: Either Diagnostic CompiledProgram -> ()
 forceCompiledProgramResult result =
@@ -320,8 +317,7 @@ forceCompiledProgram compiledProgram =
   forceCompiledPrelude (compiledProgramPrelude compiledProgram) `seq`
     forceListWhnf (compiledProgramEntryPath compiledProgram) `seq`
       forceListWith forceCompiledModule (compiledProgramModules compiledProgram) `seq`
-        forceListWith forceWarning (compiledProgramWarnings compiledProgram) `seq`
-          forceListWith forceDiagnostic (compiledProgramErrors compiledProgram)
+        forceListWith forceDiagnostic (compiledProgramDiagnostics compiledProgram)
 
 forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
 forceRuntimeProgramOutputResult result =
@@ -458,16 +454,6 @@ forceDiagnosticLabel diagnosticLabel =
     labelMessage diagnosticLabel `seq`
       ()
 
-forceWarning :: WarningRecord -> ()
-forceWarning warning =
-  warningCategory warning `seq`
-    warningCodeText warning `seq`
-      warningVariableName warning `seq`
-        warningPrimarySpan warning `seq`
-          warningPreviousSpan warning `seq`
-            warningMessage warning `seq`
-              ()
-
 forceModuleInterface :: ModuleInterface -> ()
 forceModuleInterface interface =
   forceMapWith forceTypeBinding (interfaceValueTypes interface) `seq`
@@ -578,18 +564,16 @@ forceCompiledPrelude :: CompiledPrelude -> ()
 forceCompiledPrelude compiledPrelude =
   compiledPreludeBuiltinMode compiledPrelude `seq`
     forceModuleInterface (compiledPreludeInterface compiledPrelude) `seq`
-      forceListWith forceWarning (compiledPreludeWarnings compiledPrelude) `seq`
-        forceListWith forceDiagnostic (compiledPreludeErrors compiledPrelude) `seq`
-          forceMaybeWith forceExpr (compiledPreludeExpr compiledPrelude) `seq`
-            forceMapWith forceSignatureType (compiledPreludeRuntimeHints compiledPrelude)
+      forceListWith forceDiagnostic (compiledPreludeDiagnostics compiledPrelude) `seq`
+        forceMaybeWith forceExpr (compiledPreludeExpr compiledPrelude) `seq`
+          forceMapWith forceSignatureType (compiledPreludeRuntimeHints compiledPrelude)
 
 forceCompiledModule :: CompiledModule -> ()
 forceCompiledModule compiledModule =
   forceResolvedModule (compiledResolvedModule compiledModule) `seq`
     forceModuleInterface (compiledModuleInterface compiledModule) `seq`
-      forceListWith forceWarning (compiledModuleWarnings compiledModule) `seq`
-        forceListWith forceDiagnostic (compiledModuleErrors compiledModule) `seq`
-          forceExpr (compiledModuleExpr compiledModule)
+      forceListWith forceDiagnostic (compiledModuleDiagnostics compiledModule) `seq`
+        forceExpr (compiledModuleExpr compiledModule)
 
 forceResolvedModule :: ResolvedModule -> ()
 forceResolvedModule resolvedModule =

@@ -45,8 +45,7 @@ import JazzNext.Compiler.BuiltinCatalog
     numericTypeLiteralIntegerBounds
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
-    WarningRecord
+  ( Diagnostic (..)
   )
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
@@ -133,13 +132,12 @@ import JazzNext.Compiler.WarningConfig
     defaultWarningSettings
   )
 
--- | `InferenceResult` keeps the canonicalized expression plus analyzer warnings
--- and an `inferredErrors` list that contains both analyzer diagnostics and
--- local type errors discovered during checking.
+-- | `InferenceResult` keeps the canonicalized expression plus one ordered
+-- diagnostic stream containing analyzer reports followed by type-inference
+-- reports.
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
-    inferredWarnings :: [WarningRecord],
-    inferredErrors :: [Diagnostic],
+    inferredDiagnostics :: [Diagnostic],
     inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
     inferredModuleInterface :: ModuleInterface
   }
@@ -202,7 +200,7 @@ inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -
 inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr =
   {-# SCC "jazz-stage:type-inference" #-}
   do
-  AnalysisResult _ warnings errors <-
+  AnalysisResult _ analyzerDiagnostics <-
     analyzeProgramWithInputs
       (analysisInputsForInference inputs)
       hiddenStatementIndices
@@ -219,8 +217,7 @@ inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices p
   pure
     InferenceResult
       { inferredExpr = expr,
-        inferredWarnings = warnings,
-        inferredErrors = errors ++ typeErrors,
+        inferredDiagnostics = analyzerDiagnostics <> typeErrors,
         inferredRuntimeTypeHints = runtimeTypeHints,
         inferredModuleInterface = moduleInterfaceFromState inputs expr finalState
       }

@@ -56,8 +56,8 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    RenderDiagnostic (..),
-    WarningRecord (..)
+    isErrorDiagnostic,
+    isWarningDiagnostic
   )
 import JazzNext.Compiler.Force
   ( forceCompiledProgramResult,
@@ -69,6 +69,8 @@ import JazzNext.Compiler.ModuleCompiler
   )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledProgram (..),
+    compiledProgramErrors,
+    compiledProgramWarnings,
     compileInputs
   )
 import JazzNext.Compiler.ModuleResolver
@@ -116,14 +118,13 @@ import JazzNext.Compiler.TypeInference
     inferExpressionWithBuiltinsAndSourceUnitStatements
   )
 import JazzNext.Compiler.WarningConfig
-  ( WarningSettings,
-    isWarningError
+  ( WarningSettings
   )
 
 -- | Result of a compile-only invocation, including warnings and any promoted or
 -- semantic errors.
 data CompileResult = CompileResult
-  { compileWarnings :: [WarningRecord],
+  { compileWarnings :: [Diagnostic],
     compileErrors :: [Diagnostic]
   }
   deriving (Eq, Show)
@@ -131,7 +132,7 @@ data CompileResult = CompileResult
 -- | Result of a run invocation, which may include compile-time and runtime
 -- diagnostics separately.
 data RunResult = RunResult
-  { runWarnings :: [WarningRecord],
+  { runWarnings :: [Diagnostic],
     runCompileErrors :: [Diagnostic],
     runRuntimeErrors :: [Diagnostic],
     runOutput :: Maybe Text,
@@ -246,13 +247,11 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
             compileErrors = [diagnostic]
           }
     Right compiledProgram ->
-      let warnings = compiledProgramWarnings compiledProgram
-          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
-       in pure
-            CompileResult
-              { compileWarnings = warnings,
-                compileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
-              }
+      pure
+        CompileResult
+          { compileWarnings = compiledProgramWarnings compiledProgram,
+            compileErrors = compiledProgramErrors compiledProgram
+          }
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprObserved RuntimeObservationDisabled
@@ -544,14 +543,13 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
           }
     Right compiledProgram ->
       let warnings = compiledProgramWarnings compiledProgram
-          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
-          promotedCompileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
-       in if not (null promotedCompileErrors)
+          moduleCompileErrors = compiledProgramErrors compiledProgram
+       in if not (null moduleCompileErrors)
             then
               pure
                 RunResult
                   { runWarnings = warnings,
-                    runCompileErrors = promotedCompileErrors,
+                    runCompileErrors = moduleCompileErrors,
                     runRuntimeErrors = [],
                     runOutput = Nothing,
                     runExitStatus = Nothing,
@@ -624,10 +622,10 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
         (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
         (sourceLookup sourcePath)
 
--- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
--- promote configured warnings into errors, and return the canonicalized
--- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
+-- | Run inference/canonicalization, partition the canonical diagnostic stream
+-- for the transitional driver result, and return the canonicalized expression
+-- for downstream compile/run steps.
+analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([Diagnostic], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
 analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   inference <-
     withCompilerStageResult
@@ -640,17 +638,10 @@ analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode s
           settings
           expr
       )
-  let warnings = inferredWarnings inference
-      promotedWarnings = filter (isPromoted settings) warnings
-      promotedWarningErrors = map warningToError promotedWarnings
-      errors = inferredErrors inference ++ promotedWarningErrors
+  let diagnostics = inferredDiagnostics inference
+      warnings = filter isWarningDiagnostic diagnostics
+      errors = filter isErrorDiagnostic diagnostics
   pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
-
-isPromoted :: WarningSettings -> WarningRecord -> Bool
-isPromoted settings warning = isWarningError settings (warningCategory warning)
-
-warningToError :: WarningRecord -> Diagnostic
-warningToError = toDiagnostic
 
 -- | Parse the incoming source and splice in prelude statements when required,
 -- tracking which synthetic statements should stay hidden from user diagnostics.

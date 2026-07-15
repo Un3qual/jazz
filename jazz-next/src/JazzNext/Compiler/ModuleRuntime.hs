@@ -52,6 +52,7 @@ import JazzNext.Compiler.ModuleInterface
     CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
+    compiledProgramErrors,
     moduleInterfaceExportInventory
   )
 import JazzNext.Compiler.Name

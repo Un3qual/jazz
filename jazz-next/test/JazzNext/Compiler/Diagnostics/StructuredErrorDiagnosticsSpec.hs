@@ -9,14 +9,19 @@ import JazzNext.Compiler.Diagnostics
     appendDiagnosticSecondaryLabel,
     diagnosticCode,
     diagnosticHelp,
+    diagnosticNotes,
     diagnosticOrigin,
     diagnosticPrimaryLabel,
     diagnosticSecondaryLabels,
     diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticSummary,
     diagnosticWarningCategory,
     labelMessage,
     labelSpan,
     mkErrorDiagnostic,
+    mkWarningDiagnostic,
+    promoteDiagnostic,
     renderDiagnostic,
     setDiagnosticHelp,
     setDiagnosticPrimaryLabel,
@@ -25,6 +30,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.DiagnosticCatalog
   ( DiagnosticSeverity (..),
     ErrorCode (..),
+    WarningCategory (..),
     diagnosticCodeText
   )
 import JazzNext.TestHarness
@@ -40,6 +46,7 @@ main = runTestSuite "StructuredErrorDiagnostics" tests
 tests :: [NamedTest]
 tests =
   [ ("native errors carry typed code, origin, severity, and labeled detail", testStructuredNativeError),
+    ("warning promotion preserves warning identity and detail", testWarningPromotionPreservesDiagnostic),
     ("rendered diagnostics include code, primary span, and related span", testRenderDiagnosticWithPrimaryAndRelatedSpans),
     ("rendered diagnostics include source-qualified spans", testRenderDiagnosticWithSourceQualifiedSpans)
   ]
@@ -62,6 +69,26 @@ testStructuredNativeError = do
   assertEqual "native error help" (Just "rename one of the bindings") (diagnosticHelp diagnostic)
   where
     labelPair label = (labelSpan label, labelMessage label)
+
+testWarningPromotionPreservesDiagnostic :: IO ()
+testWarningPromotionPreservesDiagnostic = do
+  let warning =
+        setDiagnosticHelp "rename one of the bindings" $
+          appendDiagnosticNote "the last declaration wins" $
+            appendDiagnosticSecondaryLabel (SourceSpan 1 1) "previous binding" $
+              setDiagnosticPrimaryLabel (SourceSpan 2 1) "rebound here" $
+                setDiagnosticSubject "x" $
+                  mkWarningDiagnostic SameScopeRebinding CompilationOrigin "same-scope rebinding"
+      promoted = promoteDiagnostic warning
+  assertEqual "promoted severity" SeverityError (diagnosticSeverity promoted)
+  assertEqual "promoted code" (diagnosticCode warning) (diagnosticCode promoted)
+  assertEqual "promoted category" (diagnosticWarningCategory warning) (diagnosticWarningCategory promoted)
+  assertEqual "promoted primary label" (diagnosticPrimaryLabel warning) (diagnosticPrimaryLabel promoted)
+  assertEqual "promoted secondary labels" (diagnosticSecondaryLabels warning) (diagnosticSecondaryLabels promoted)
+  assertEqual "promoted subject" (diagnosticSubject warning) (diagnosticSubject promoted)
+  assertEqual "promoted summary" (diagnosticSummary warning) (diagnosticSummary promoted)
+  assertEqual "promoted notes" (diagnosticNotes warning) (diagnosticNotes promoted)
+  assertEqual "promoted help" (diagnosticHelp warning) (diagnosticHelp promoted)
 
 testRenderDiagnosticWithPrimaryAndRelatedSpans :: IO ()
 testRenderDiagnosticWithPrimaryAndRelatedSpans = do
