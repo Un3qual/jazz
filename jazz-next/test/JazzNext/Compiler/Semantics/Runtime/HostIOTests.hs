@@ -64,6 +64,7 @@ import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
     RuntimeHost (..),
+    RuntimeHostExit (..),
     hostIOCategoryToken,
     hostIOFailureMessage,
     productionRuntimeHost
@@ -179,7 +180,7 @@ deterministicHost =
       runtimeHostWriteStdout = \_ -> pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (Right ()),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure (Right ())
+      runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
 
 data HostCall
@@ -853,7 +854,7 @@ recordingIOHost callsRef =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) (Right ())
+      runtimeHostExit = \status -> record (ExitCall status) (Right RuntimeHostExitReturned)
     }
   where
     record call result = do
@@ -916,7 +917,7 @@ statefulHost =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) (Right ())
+      runtimeHostExit = \status -> record (ExitCall status) (Right RuntimeHostExitReturned)
     }
   where
     record call result = do

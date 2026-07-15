@@ -43,6 +43,7 @@ import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
+    RuntimeOutcome (..),
     RuntimeStatistics (..),
     RuntimeTermination (..),
     emptyRuntimeStatistics,
@@ -133,7 +134,10 @@ testModuleRuntimeTransport = do
 testLiteralTransitions :: IO ()
 testLiteralTransitions = do
   let observed = evaluateRuntimeExprObserved RuntimeObservationStatistics (ELit (LInt 1))
-  assertEqual "literal result" (Right (Just (VInt 1 untypedIntMetadata))) (runtimeObservationOutcome observed)
+  assertEqual
+    "literal result"
+    (RuntimeOutcomeCompleted (Just (VInt 1 untypedIntMetadata)))
+    (runtimeObservationOutcome observed)
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "literal transitions" 2 (runtimeEvaluatorTransitions statistics)
@@ -350,8 +354,8 @@ testDeferredCacheRecursion = do
               ]
           )
   case runtimeObservationOutcome observed of
-    Left _ -> pure ()
-    Right value -> failTest ("expected recursive evaluation failure, got " <> Text.pack (show value))
+    RuntimeOutcomeFailed _ -> pure ()
+    outcome -> failTest ("expected recursive evaluation failure, got " <> Text.pack (show outcome))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "recursive cache misses" 1 (runtimeDeferredCacheMisses statistics)
@@ -411,8 +415,11 @@ requireObservedReport observed =
 requireObservedSuccess :: RuntimeObservationResult value -> IO RuntimeObservationReport
 requireObservedSuccess observed = do
   case runtimeObservationOutcome observed of
-    Left diagnostic -> failTest ("expected runtime success, got " <> Text.pack (show diagnostic))
-    Right _ -> pure ()
+    RuntimeOutcomeCompleted _ -> pure ()
+    RuntimeOutcomeFailed diagnostic ->
+      failTest ("expected runtime success, got diagnostic " <> Text.pack (show diagnostic))
+    RuntimeOutcomeExited status ->
+      failTest ("expected runtime success, got exit status " <> Text.pack (show status))
   requireObservedReport observed
 
 assertPositive :: (Ord number, Num number, Show number) => Text -> number -> IO ()

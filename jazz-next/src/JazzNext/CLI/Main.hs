@@ -629,15 +629,18 @@ renderRunResult profileWriter options result = do
             renderRuntimeStatistics statisticsFormat report
           _ -> ""
       stdoutOutput =
-        case runOutput result of
-          Just value -> value <> "\n"
-          Nothing -> ""
+        case runExitStatus result of
+          Just _ -> ""
+          Nothing ->
+            case runOutput result of
+              Just value -> value <> "\n"
+              Nothing -> ""
       exitCode =
         if
             null (runCompileErrors result)
               && null (runRuntimeErrors result)
               && isRight profileWriteResult
-          then 0
+          then maybe 0 fromInteger (runExitStatus result)
           else 1
   pure
     CliOutput

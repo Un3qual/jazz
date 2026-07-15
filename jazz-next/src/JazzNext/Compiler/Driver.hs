@@ -97,7 +97,8 @@ import JazzNext.Compiler.Runtime
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationReport,
     RuntimeObservationRequest (..),
-    RuntimeObservationResult (..)
+    RuntimeObservationResult (..),
+    RuntimeOutcome (..)
   )
 import JazzNext.Compiler.RuntimeHost
   ( RuntimeHost,
@@ -134,6 +135,7 @@ data RunResult = RunResult
     runCompileErrors :: [Diagnostic],
     runRuntimeErrors :: [Diagnostic],
     runOutput :: Maybe Text,
+    runExitStatus :: Maybe Integer,
     runRuntimeObservation :: Maybe RuntimeObservationReport
   }
   deriving (Eq, Show)
@@ -305,6 +307,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             runCompileErrors = analysisErrors,
             runRuntimeErrors = [],
             runOutput = Nothing,
+            runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
     else do
@@ -317,22 +320,34 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
           runtimeTypeHints
           canonicalExpr
       case runtimeObservationOutcome runtimeResult of
-        Left runtimeError ->
+        RuntimeOutcomeFailed runtimeError ->
           pure
             RunResult
               { runWarnings = warnings,
                 runCompileErrors = [],
                 runRuntimeErrors = [runtimeError],
                 runOutput = Nothing,
+                runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
               }
-        Right runtimeValue ->
+        RuntimeOutcomeExited status ->
+          pure
+            RunResult
+              { runWarnings = warnings,
+                runCompileErrors = [],
+                runRuntimeErrors = [],
+                runOutput = Nothing,
+                runExitStatus = Just status,
+                runRuntimeObservation = runtimeObservationReport runtimeResult
+              }
+        RuntimeOutcomeCompleted runtimeValue ->
           pure
             RunResult
               { runWarnings = warnings,
                 runCompileErrors = [],
                 runRuntimeErrors = [],
                 runOutput = fmap renderRuntimeValue runtimeValue,
+                runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
               }
 
@@ -380,6 +395,7 @@ runSourceWithResolvedPreludeAndHostObserved observationRequest host settings res
             runCompileErrors = [parseErrorCode],
             runRuntimeErrors = [],
             runOutput = Nothing,
+            runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
     Right loweredProgram ->
@@ -523,6 +539,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
             runCompileErrors = [diagnostic],
             runRuntimeErrors = [],
             runOutput = Nothing,
+            runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
     Right compiledProgram ->
@@ -537,27 +554,40 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                     runCompileErrors = promotedCompileErrors,
                     runRuntimeErrors = [],
                     runOutput = Nothing,
+                    runExitStatus = Nothing,
                     runRuntimeObservation = Nothing
                   }
             else do
               runtimeResult <- evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram
               case runtimeObservationOutcome runtimeResult of
-                Left runtimeError ->
+                RuntimeOutcomeFailed runtimeError ->
                   pure
                     RunResult
                       { runWarnings = warnings,
                         runCompileErrors = [],
                         runRuntimeErrors = [runtimeError],
                         runOutput = Nothing,
+                        runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
-                Right runtimeProgram ->
+                RuntimeOutcomeExited status ->
+                  pure
+                    RunResult
+                      { runWarnings = warnings,
+                        runCompileErrors = [],
+                        runRuntimeErrors = [],
+                        runOutput = Nothing,
+                        runExitStatus = Just status,
+                        runRuntimeObservation = runtimeObservationReport runtimeResult
+                      }
+                RuntimeOutcomeCompleted runtimeProgram ->
                   pure
                     RunResult
                       { runWarnings = warnings,
                         runCompileErrors = [],
                         runRuntimeErrors = [],
                         runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram,
+                        runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
 

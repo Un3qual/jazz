@@ -39,7 +39,8 @@ import JazzNext.Compiler.Runtime
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHost
-  ( RuntimeHost (..)
+  ( RuntimeHost (..),
+    RuntimeHostExit (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -290,7 +291,7 @@ diagnosticParityHost =
       runtimeHostWriteStdout = \_ -> pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (Right ()),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure (Right ())
+      runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
 
 testPureAndHostDiagnosticsMatch :: IO ()

@@ -22,12 +22,13 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.AST
   ( Expr (EBlock),
     Statement
   )
-import JazzNext.Compiler.Diagnostics (Diagnostic)
+import JazzNext.Compiler.Diagnostics (Diagnostic, mkDiagnostic)
 import JazzNext.Compiler.ModuleGraph
   ( ResolvedImport (..),
     ResolvedModule (resolvedModuleExportInventory, resolvedModuleImports, resolvedModulePath)
@@ -62,10 +63,11 @@ import JazzNext.Compiler.Runtime
     RuntimeCell,
     RuntimeEnv,
     RuntimeHostEvaluationT,
+    RuntimeControl (..),
     RuntimeValue,
     ScopeResult (..),
     evaluateModuleScope,
-    evaluateModuleScopeWithRequiredEvaluationHost,
+    evaluateModuleScopeWithRequiredEvaluationHostControl,
     runRuntimeHostEvaluation,
     runRuntimeHostEvaluationWithObservation,
     runtimeExprRequiresHost
@@ -73,6 +75,7 @@ import JazzNext.Compiler.Runtime
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
+    RuntimeOutcome (..),
     finishRuntimeObservationResult,
   )
 import JazzNext.Compiler.RuntimeHost
@@ -118,7 +121,7 @@ lookupRuntimeModule modulePath =
 
 evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgram =
-  runtimeObservationOutcome
+  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
     . evaluateCompiledProgramObserved RuntimeObservationDisabled
 
 evaluateCompiledProgramObserved :: RuntimeObservationRequest -> CompiledProgram -> RuntimeObservationResult RuntimeProgram
@@ -205,7 +208,7 @@ evaluateCompiledProgramWithHost ::
   CompiledProgram ->
   m (Either Diagnostic RuntimeProgram)
 evaluateCompiledProgramWithHost host compiledProgram =
-  runtimeObservationOutcome
+  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
     <$> evaluateCompiledProgramWithHostObserved RuntimeObservationDisabled host compiledProgram
 
 evaluateCompiledProgramWithHostObserved ::
@@ -217,7 +220,7 @@ evaluateCompiledProgramWithHostObserved ::
 evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
   {-# SCC "jazz-stage:evaluation" #-}
   case compiledProgramErrors compiledProgram of
-    firstError : _ -> pure (RuntimeObservationResult (Left firstError) Nothing)
+    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
     [] ->
       case observationRequest of
         RuntimeObservationDisabled -> do
@@ -227,28 +230,30 @@ evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram 
           (outcome, observationState) <-
             runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
               evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
-          pure (finishRuntimeObservationResult outcome observationState)
+          pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateCompiledProgramWithHostUnobserved ::
   Monad m =>
   RuntimeHost m ->
   CompiledProgram ->
-  m (Either Diagnostic RuntimeProgram)
+  m (RuntimeOutcome RuntimeProgram)
 evaluateCompiledProgramWithHostUnobserved host compiledProgram =
   if compiledProgramRequiresHost compiledProgram
-    then runRuntimeHostEvaluation host $ \evaluationHost ->
-      evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
-    else pure (evaluateCompiledProgramPure compiledProgram)
+    then
+      runtimeControlOutcome
+        <$> runRuntimeHostEvaluation host (\evaluationHost ->
+          evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram)
+    else pure (diagnosticResultOutcome (evaluateCompiledProgramPure compiledProgram))
 
 evaluateCompiledProgramWithEvaluationHost ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledProgram ->
-  RuntimeHostEvaluationT m (Either Diagnostic RuntimeProgram)
+  RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
 evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
   runExceptT $
     case compiledProgramErrors compiledProgram of
-      firstError : _ -> throwE firstError
+      firstError : _ -> throwE (RuntimeDiagnostic firstError)
       [] -> do
         ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
         evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
@@ -275,7 +280,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
                   (resolvedModuleImports resolvedModule)
           scopeResult <-
             ExceptT
-              ( evaluateModuleScopeWithRequiredEvaluationHost
+              ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
                   (Just modulePath)
                   evaluationMode
@@ -309,13 +314,13 @@ evaluatePreludeWithEvaluationHost ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledPrelude ->
-  RuntimeHostEvaluationT m (Either Diagnostic RuntimeEnv)
+  RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
 evaluatePreludeWithEvaluationHost host compiledPrelude =
   case compiledPreludeExpr compiledPrelude of
     Nothing -> pure (Right Map.empty)
     Just expression -> do
       scopeResult <-
-        evaluateModuleScopeWithRequiredEvaluationHost
+        evaluateModuleScopeWithRequiredEvaluationHostControl
           host
           (Just [])
           EvaluateDependencyModule
@@ -333,6 +338,35 @@ evaluatePreludeWithEvaluationHost host compiledPrelude =
                 (scopeResultEnvironment result)
           )
           scopeResult
+
+runtimeControlOutcome :: Either RuntimeControl value -> RuntimeOutcome value
+runtimeControlOutcome controlResult =
+  case controlResult of
+    Left (RuntimeDiagnostic diagnostic) -> RuntimeOutcomeFailed diagnostic
+    Left (RuntimeExitRequested status) -> RuntimeOutcomeExited status
+    Right value -> RuntimeOutcomeCompleted value
+
+diagnosticResultOutcome :: Either Diagnostic value -> RuntimeOutcome value
+diagnosticResultOutcome result =
+  case result of
+    Left diagnostic -> RuntimeOutcomeFailed diagnostic
+    Right value -> RuntimeOutcomeCompleted value
+
+runtimeOutcomeAsDiagnosticResult :: RuntimeOutcome value -> Either Diagnostic value
+runtimeOutcomeAsDiagnosticResult outcome =
+  case outcome of
+    RuntimeOutcomeFailed diagnostic -> Left diagnostic
+    RuntimeOutcomeExited status ->
+      Left
+        ( runtimeExitNotRepresentableDiagnostic status
+        )
+    RuntimeOutcomeCompleted value -> Right value
+
+runtimeExitNotRepresentableDiagnostic :: Integer -> Diagnostic
+runtimeExitNotRepresentableDiagnostic status =
+  mkDiagnostic
+    "E3020"
+    ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
 
 importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule compiledModules runtimeModules importDecl env =

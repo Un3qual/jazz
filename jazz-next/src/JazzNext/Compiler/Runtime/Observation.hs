@@ -10,6 +10,7 @@ module JazzNext.Compiler.Runtime.Observation
     RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
+    RuntimeOutcome (..),
     RuntimeProfileEvent (..),
     RuntimeProfileFrame (..),
     RuntimeSemanticProfile (..),
@@ -189,9 +190,18 @@ data RuntimeObservationReport = RuntimeObservationReport
   deriving (Eq, Show)
 
 data RuntimeObservationResult value = RuntimeObservationResult
-  { runtimeObservationOutcome :: Either Diagnostic value,
+  { runtimeObservationOutcome :: RuntimeOutcome value,
     runtimeObservationReport :: Maybe RuntimeObservationReport
   }
+  deriving (Eq, Show)
+
+-- | A runtime can complete with a value, fail with a diagnostic, or request
+-- process termination. Exit is control flow rather than a diagnostic so hosts
+-- can finalize observation artifacts before the CLI applies the status.
+data RuntimeOutcome value
+  = RuntimeOutcomeCompleted value
+  | RuntimeOutcomeExited Integer
+  | RuntimeOutcomeFailed Diagnostic
   deriving (Eq, Show)
 
 data RuntimeObservationState = RuntimeObservationState
@@ -428,7 +438,7 @@ recordRuntimeProfileClose observationState =
     Nothing -> observationState
 
 finishRuntimeObservationResult ::
-  Either Diagnostic value ->
+  RuntimeOutcome value ->
   RuntimeObservationState ->
   RuntimeObservationResult value
 finishRuntimeObservationResult outcome observationState =
@@ -450,8 +460,9 @@ finishRuntimeObservationResult outcome observationState =
   where
     termination =
       case outcome of
-        Left _ -> RuntimeFailed
-        Right _ -> RuntimeSucceeded
+        RuntimeOutcomeFailed _ -> RuntimeFailed
+        RuntimeOutcomeCompleted _ -> RuntimeSucceeded
+        RuntimeOutcomeExited _ -> RuntimeSucceeded
     finalStatistics =
       (observationStatistics observationState)
         { runtimeCurrentContinuationDepth = 0

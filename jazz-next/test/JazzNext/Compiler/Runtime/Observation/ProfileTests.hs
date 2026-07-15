@@ -48,6 +48,7 @@ import JazzNext.Compiler.Runtime.Observation
     RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
+    RuntimeOutcome (..),
     RuntimeProfileEvent (..),
     RuntimeProfileFrame (..),
     RuntimeSemanticProfile (..),
@@ -192,8 +193,8 @@ testFailureProfile = do
           RuntimeObservationStatisticsAndProfile
           (EApply (kernelBuiltin BuiltinHd) (EList []))
   case runtimeObservationOutcome observed of
-    Left _ -> pure ()
-    Right value -> failTest ("expected runtime failure, got " <> Text.pack (show value))
+    RuntimeOutcomeFailed _ -> pure ()
+    outcome -> failTest ("expected runtime failure, got " <> Text.pack (show outcome))
   report <- requireObservedReport observed
   profile <- requireProfile report
   assertEqual "failed termination" RuntimeFailed (runtimeSemanticProfileTermination profile)
@@ -214,8 +215,8 @@ reportFor :: RuntimeObservationRequest -> Expr -> IO RuntimeObservationReport
 reportFor request expression = do
   let observed = evaluateRuntimeExprObserved request expression
   case runtimeObservationOutcome observed of
-    Left diagnostic -> failTest ("expected runtime success, got " <> Text.pack (show diagnostic))
-    Right _ -> pure ()
+    RuntimeOutcomeCompleted _ -> pure ()
+    outcome -> failTest ("expected runtime success, got " <> Text.pack (show outcome))
   requireObservedReport observed
 
 requireObservedReport :: RuntimeObservationResult value -> IO RuntimeObservationReport

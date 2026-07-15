@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Control.Exception (finally)
+import Control.Exception (finally, try)
 import Data.Aeson (Value, eitherDecode)
 import qualified Data.ByteString.Lazy as LazyByteString
 import Data.IORef
@@ -60,6 +60,7 @@ import System.IO
   ( hClose,
     openTempFile
   )
+import System.Exit (ExitCode)
 
 main :: IO ()
 main = runTestSuite "CLISpec" tests
@@ -117,9 +118,11 @@ tests =
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
     ("cli runtime statistics preserve stdout and render on stderr", testCliRuntimeStatisticsOutput),
+    ("cli runtime observation preserves pure recursive-alias diagnostics", testCliRuntimeObservationPreservesAliasDiagnostics),
     ("cli separates JSON statistics from unterminated host stderr", testCliRuntimeStatisticsAfterHostStderr),
     ("cli writes deterministic semantic profiles through an injected writer", testCliRuntimeProfileOutput),
     ("cli combines statistics and semantic profiles in one run", testCliCombinedRuntimeObservation),
+    ("cli observed exit finalizes statistics and semantic profiles", testCliObservedExitFinalizesArtifacts),
     ("cli observes module-graph execution with the same artifact contract", testCliModuleGraphRuntimeObservation),
     ("cli compile failures emit no runtime artifacts", testCliCompileFailureHasNoRuntimeArtifacts),
     ("cli runtime failures emit partial runtime artifacts", testCliRuntimeFailureHasPartialArtifacts),
@@ -949,6 +952,28 @@ testCliRuntimeStatisticsOutput = do
   assertContains "human statistics heading" "Jazz runtime statistics" (cliStderr human)
   assertFinalStderrJson "JSON runtime statistics" json
 
+testCliRuntimeObservationPreservesAliasDiagnostics :: IO ()
+testCliRuntimeObservationPreservesAliasDiagnostics = do
+  baseline <- runAliasFixture []
+  observed <- runAliasFixture ["--runtime-stats=json"]
+  assertEqual "baseline recursive-alias exit" 1 (cliExitCode baseline)
+  assertEqual "observed recursive-alias exit" 1 (cliExitCode observed)
+  assertContains "baseline recursive-alias diagnostic" "recursive alias cycle" (cliStderr baseline)
+  assertContains "observed recursive-alias diagnostic" "recursive alias cycle" (cliStderr observed)
+  assertEqual
+    "observation does not substitute the host-recursion diagnostic"
+    False
+    ("recursive host binding" `Text.isInfixOf` cliStderr observed)
+  assertFinalStderrJson "recursive-alias runtime statistics" observed
+  where
+    runAliasFixture observationArguments =
+      runCliWithHost
+        disabledRuntimeHost
+        (["--run", "--no-prelude"] <> observationArguments)
+        noEnvironment
+        (const (pure Nothing))
+        (pure "f = if True then f else 0. f.")
+
 testCliRuntimeStatisticsAfterHostStderr :: IO ()
 testCliRuntimeStatisticsAfterHostStderr = do
   hostStderr <- newIORef ""
@@ -1004,6 +1029,51 @@ testCliCombinedRuntimeObservation = do
   case captured of
     Nothing -> failTest "combined observation did not write a semantic profile"
     Just (_, bytes) -> assertJsonBytes "combined semantic profile JSON" bytes
+
+testCliObservedExitFinalizesArtifacts :: IO ()
+testCliObservedExitFinalizesArtifacts = do
+  capturedProfile <- newIORef Nothing
+  capturedStdout <- newIORef ""
+  let host =
+        productionRuntimeHost
+          { runtimeHostWriteStdout = \contents -> do
+              modifyIORef' capturedStdout (<> contents)
+              pure (Right ())
+          }
+      source = "__kernel_exit! 7. __kernel_writeStdoutRaw! \"after exit\"."
+  outputResult <-
+    try
+      ( runCliWithHostAndProfileWriter
+          (capturingProfileWriter capturedProfile)
+          host
+          [ "--run",
+            "--no-prelude",
+            "--runtime-stats=json",
+            "--runtime-profile=exit.speedscope.json"
+          ]
+          noEnvironment
+          (const (pure Nothing))
+          (pure source)
+      ) :: IO (Either ExitCode CliOutput)
+  output <-
+    case outputResult of
+      Left exitCode ->
+        failTest
+          ( "production exit escaped before observation artifacts were finalized: "
+              <> Text.pack (show exitCode)
+          )
+      Right completedOutput -> pure completedOutput
+  stdoutWrittenAfterExit <- readIORef capturedStdout
+  assertEqual "requested process exit status" 7 (cliExitCode output)
+  assertEqual "exit suppresses terminal-expression output" "" (cliStdout output)
+  assertEqual "statements after exit are not executed" "" stdoutWrittenAfterExit
+  assertFinalStderrJson "exit runtime statistics" output
+  captured <- readIORef capturedProfile
+  case captured of
+    Nothing -> failTest "observed exit did not write a semantic profile"
+    Just (path, bytes) -> do
+      assertEqual "exit semantic profile path" "exit.speedscope.json" path
+      assertJsonBytes "exit semantic profile JSON" bytes
 
 testCliModuleGraphRuntimeObservation :: IO ()
 testCliModuleGraphRuntimeObservation = do
