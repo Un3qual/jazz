@@ -1,0 +1,28 @@
+module Stdlib::OrderedCollections::Map {
+  import Map.
+  import Maybe.
+  import Text.
+  start = mapFromList [(3, "three"), (1, "one"), (2, "two"), (2, "TWO")].
+  replaced = mapInsert start 2 "replaced".
+  updated = mapUpdate replaced 3 (\(current) -> Just "THREE").
+  inserted = mapUpdate updated 4 (\(current) -> Just "four").
+  removedByUpdate = mapUpdate inserted 1 (\(current) -> Nothing).
+  rootRemovalSource = mapFromList [(2, "two"), (1, "one"), (4, "four"), (3, "three"), (5, "five")].
+  popView = \(result) -> case result {
+    | Nothing -> Nothing
+    | Just ((key, value), remaining) -> Just ((key, value), mapToList remaining)
+  }.
+  (mapToList mapEmpty, mapSize mapEmpty, mapIsEmpty mapEmpty,
+   mapToList (mapSingleton 9 "nine"), mapToList start, mapSize start,
+   mapLookup start 2, mapLookup start 8, mapGetOr start 8 "fallback", mapContainsKey start 3,
+   mapToList replaced, mapToList start,
+   maybeMap mapToList (mapReplace start 2 "two!"), mapReplace start 8 "missing",
+   mapToList (mapRemove start 8), mapToList (mapRemove rootRemovalSource 2),
+   mapToList removedByUpdate,
+   mapMinimum start, mapMaximum start, popView (mapPopMinimum start), popView (mapPopMaximum start),
+   mapKeys start, mapValues start,
+   mapToList (mapMapValues start (\(value) -> textAppend value "!")),
+   mapToList (mapFilter start (\(key, value) -> key > 1)),
+   mapFoldLeft start "" (\(result, key, value) -> textAppend result (Showable::show key)),
+   mapFoldRight start "" (\(key, value, result) -> textAppend (Showable::show key) result)).
+}

@@ -8,9 +8,12 @@ import JazzNext.Compiler.Stdlib.FoundationsTests
 import JazzNext.Compiler.Stdlib.LinearCollectionsTests
   ( linearCollectionTests,
   )
+import JazzNext.Compiler.Stdlib.OrderedCollectionsTests
+  ( orderedCollectionTests,
+  )
 import JazzNext.TestHarness
   ( runTestSuite,
   )
 
 main :: IO ()
-main = runTestSuite "Stdlib" (foundationTests <> linearCollectionTests)
+main = runTestSuite "Stdlib" (foundationTests <> linearCollectionTests <> orderedCollectionTests)

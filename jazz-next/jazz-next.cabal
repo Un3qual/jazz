@@ -319,6 +319,7 @@ test-suite stdlib-spec
   other-modules:
       JazzNext.Compiler.Stdlib.FoundationsTests
       JazzNext.Compiler.Stdlib.LinearCollectionsTests
+      JazzNext.Compiler.Stdlib.OrderedCollectionsTests
       JazzNext.Compiler.Stdlib.Shared
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout

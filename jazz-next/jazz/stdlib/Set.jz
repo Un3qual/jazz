@@ -1,0 +1,75 @@
+module Set (type Set, value setEmpty, value setSingleton, value setFromList, value setToList, value setSize, value setIsEmpty, value setContains, value setInsert, value setRemove, value setUnion, value setIntersection, value setDifference, value setIsSubset, value setFilter, value setMap, value setFoldLeft, value setFoldRight) {
+  import List.
+  import Map.
+
+  data Set a = Set (Map a ()).
+
+  setEmpty :: Set(a).
+  setEmpty = Set mapEmpty.
+
+  setSingleton :: a -> Set(a).
+  setSingleton = \(value) -> Set (mapSingleton value ()).
+
+  setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
+  setInsert = \(set, value) -> case set {
+    | Set map -> Set (mapInsert map value ())
+  }.
+
+  setFromList :: @{Ord(a)}: [a] -> Set(a).
+  setFromList = \(values) -> listFoldLeft setInsert setEmpty values.
+
+  setToList :: Set(a) -> [a].
+  setToList = \(set) -> case set {
+    | Set map -> mapKeys map
+  }.
+
+  setSize :: Set(a) -> Int.
+  setSize = \(set) -> case set {
+    | Set map -> mapSize map
+  }.
+
+  setIsEmpty :: Set(a) -> Bool.
+  setIsEmpty = \(set) -> setSize set == 0.
+
+  setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
+  setContains = \(set, value) -> case set {
+    | Set map -> mapContainsKey map value
+  }.
+
+  setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
+  setRemove = \(set, value) -> case set {
+    | Set map -> Set (mapRemove map value)
+  }.
+
+  setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
+  setFoldLeft = \(set, initial, combine) -> case set {
+    | Set map -> mapFoldLeft map initial (\(result, key, unit) -> combine result key)
+  }.
+
+  setFoldRight :: Set(a) -> b -> (a -> b -> b) -> b.
+  setFoldRight = \(set, initial, combine) -> case set {
+    | Set map -> mapFoldRight map initial (\(key, unit, result) -> combine key result)
+  }.
+
+  setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+  setUnion = \(left, right) -> setFoldLeft right left (\(result, value) -> setInsert result value).
+
+  setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
+  setFilter = \(set, predicate) -> case set {
+    | Set map -> Set (mapFilter map (\(key, unit) -> predicate key))
+  }.
+
+  setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+  setIntersection = \(left, right) -> setFilter left (\(value) -> setContains right value).
+
+  setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+  setDifference = \(left, right) -> setFilter left (\(value) -> if setContains right value then False else True).
+
+  setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
+  setIsSubset = \(subset, superset) -> setFoldLeft subset True (\(result, value) ->
+    if result then setContains superset value else False
+  ).
+
+  setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
+  setMap = \(set, transform) -> setFoldLeft set setEmpty (\(result, value) -> setInsert result (transform value)).
+}

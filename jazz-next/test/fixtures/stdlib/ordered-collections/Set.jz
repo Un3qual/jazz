@@ -1,0 +1,16 @@
+module Stdlib::OrderedCollections::Set {
+  import Set.
+  import Text.
+  start = setFromList [3, 1, 2, 2].
+  (setToList setEmpty, setSize setEmpty, setIsEmpty setEmpty,
+   setToList (setSingleton 9), setToList start, setSize start,
+   setContains start 2, setContains start 8,
+   setToList (setUnion start (setFromList [3, 4])),
+   setToList (setIntersection start (setFromList [2, 4])),
+   setToList (setDifference start (setFromList [2, 4])),
+   setIsSubset (setFromList [1, 2]) start, setIsSubset start (setFromList [1, 2]),
+   setToList (setFilter start (\(value) -> value > 1)),
+   setToList (setMap start (\(value) -> if value < 3 then 0 else 1)),
+   setFoldLeft start "" (\(result, value) -> textAppend result (Showable::show value)),
+   setFoldRight start "" (\(value, result) -> textAppend (Showable::show value) result)).
+}
