@@ -104,13 +104,20 @@ expectation.
 The corpus includes five fast cases that isolate common library workloads
 without reducing them to single-call microbenchmarks:
 
-| Case | Intended performance shape |
-| --- | --- |
-| `word-frequency` | Repeated insertion-ordered `Dictionary` lookup and update over tokenized Unicode text |
-| `sorted-index` | AVL `Map` and `Set` construction followed by ascending traversal and boundary queries |
-| `queue-traversal` | Persistent FIFO enqueue/dequeue during breadth-first traversal |
-| `text-processing` | Multiple scalar-aware text passes, including splitting, searching, replacement, and padding |
-| `collection-boundaries` | Collection construction and consumption across module abstraction boundaries |
+| Case                    | Intended performance shape                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `word-frequency`        | Repeated insertion-ordered `Dictionary` lookup and update over tokenized Unicode text       |
+| `sorted-index`          | AVL `Map` and `Set` construction followed by ascending traversal and boundary queries       |
+| `queue-traversal`       | Persistent FIFO enqueue/dequeue during breadth-first traversal                              |
+| `text-processing`       | Multiple scalar-aware text passes, including splitting, searching, replacement, and padding |
+| `collection-boundaries` | Collection construction and consumption across module abstraction boundaries                |
+
+Record the complete focused set on one machine with:
+
+```bash
+cabal bench jazz-next-bench \
+  --benchmark-options='--environment-label=stdlib-local --time-mode=cpu --jazz-case=word-frequency --jazz-case=sorted-index --jazz-case=queue-traversal --jazz-case=text-processing --jazz-case=collection-boundaries'
+```
 
 The collection contracts predict different growth curves. `Dictionary` is an
 insertion-ordered association list, so key lookup and updates are linear in the

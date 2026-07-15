@@ -56,7 +56,9 @@ to Jazz programs is unchanged by the internal module pipeline.
 
 Shipped Jazz source lives under one package-owned root:
 
-- `jazz/stdlib/` contains general user-facing standard-library modules.
+- [`jazz/stdlib/`](jazz/stdlib/README.md) contains the bundled prelude and
+  general user-facing standard-library modules, including total list and text
+  utilities plus persistent `Dictionary`, `Queue`, `Map`, and `Set` values.
 - `jazz/compiler/` contains the Jazz-authored compiler implementation, currently
   the hosted `Lexer` and `LexerTypes` modules.
 
