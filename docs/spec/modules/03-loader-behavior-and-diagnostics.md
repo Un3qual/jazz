@@ -64,13 +64,16 @@ Standalone compile/run uses this order:
 2. Parse and lower the standalone source.
 3. Parse, validate, and lower the selected prelude when present.
 4. Merge prelude statements before user statements. Bundled prelude statements are hidden from user-facing warning spans.
-5. Run analyzer/type inference and warning collection.
-6. Promote warnings according to warning settings.
-7. For run mode only, evaluate the canonicalized expression if compile diagnostics are empty.
+5. Run analyzer/type inference and collect canonical diagnostics.
+6. Apply warning enablement and promotion policy to warning-origin diagnostics.
+7. For run mode only, evaluate the canonicalized expression if no
+   error-severity compile diagnostic exists.
 
 Standalone parse failures from user source are `E0001`.
 
-Successful compile mode is diagnostics-only. Driver compile results contain warnings and compile errors; CLI compile mode writes no stdout on success.
+Successful compile mode is diagnostics-only. Driver compile results contain one
+ordered diagnostic stream with warning/error accessors; CLI compile mode writes
+no stdout on success.
 
 ## Module Graph Pipeline
 
@@ -86,10 +89,10 @@ Module-graph compile/run uses this order:
 6. Compile the prepared prelude once into its ambient interface.
 7. Compile each resolved module in dependency order against only the selected
    prelude and dependency interfaces visible through its imports.
-8. Collect warnings and semantic diagnostics from the compiled prelude and
-   modules, then promote warnings according to warning settings.
+8. Collect canonical diagnostics from the compiled prelude and modules, then
+   apply warning enablement and promotion policy.
 9. For run mode only, evaluate the compiled modules in dependency order against
-   explicit runtime exports if compile diagnostics are empty.
+   explicit runtime exports if no error-severity compile diagnostic exists.
 
 Module graph source parse failures are `E4004` and include the resolved source path. Resolution failures use the `E4001` through `E4009` module diagnostic family defined by the resolution and import-binding specs.
 
@@ -123,8 +126,29 @@ Future persistent caching must not change the observable diagnostics, dependency
 
 Driver results are structured:
 
-- `CompileResult` contains warnings and compile errors.
-- `RunResult` contains warnings, compile errors, runtime errors, and optional runtime output.
+- `CompileResult` stores one ordered `compileDiagnostics` stream.
+  `compileWarnings` and `compileErrors` are severity filters over that stream.
+- `RunResult` stores one ordered `runDiagnostics` stream plus optional runtime
+  output, exit status, and runtime observation. `runWarnings`,
+  `runCompileErrors`, and `runRuntimeErrors` filter by effective severity and
+  origin. Compile diagnostics precede runtime diagnostics.
+- A promoted warning appears once with error severity, retains its `W####` code
+  and warning category, and is selected only by the error view.
+
+The catalog groups syntax (`E0###`), analysis (`E1###`), type (`E2###`), runtime
+(`E3###`), module (`E4###`), warning (`W0###`), and tooling (`E5###`)
+diagnostics. The assignments added for previously uncoded active failures are:
+
+- `E4016`: invalid or empty module entry path;
+- `E5001`: invalid warning configuration or warning category;
+- `E5002`: invalid or conflicting CLI arguments;
+- `E5003`: explicit warning-configuration file read failure;
+- `E5004`: source input read failure; and
+- `E5005`: requested runtime-profile production or write failure.
+
+Semantic phases construct presentation-neutral reports. The reporting boundary
+renders severity, code, optional warning token, summary, labels, notes, and help
+uniformly for CLI stderr and tests.
 
 CLI output is stable:
 
@@ -136,7 +160,8 @@ CLI output is stable:
 | module graph run | rendered entry-module value plus newline when a value exists | warnings/errors on stderr | `0` | `1` |
 | option/source/prelude load failure | empty | error on stderr | n/a | `2` |
 
-Compile diagnostics suppress runtime evaluation and runtime stdout. Runtime diagnostics suppress runtime stdout.
+Error-severity compile diagnostics suppress runtime evaluation and runtime
+stdout. Runtime errors suppress runtime stdout; warning-only runs still evaluate.
 
 Module diagnostics should preserve the context from earlier spec slices:
 
@@ -168,14 +193,15 @@ retain their existing `line:column` rendering.
 | dependency module expression is semantically invalid | compile diagnostic before runtime |
 | same file is requested more than once during graph resolution | first source lookup result is reused |
 
-Implementation evidence (2026-07-09):
+Implementation evidence (updated 2026-07-14):
 `jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`,
 `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and
 `jazz-next/test/JazzNext/CLI/CLISpec.hs` lock parse-once graph retention,
 explicit compile/runtime export boundaries, module-graph default roots,
 exclusive CLI source selection, dependency expression validation and runtime
 isolation, memoized source lookup, resolver diagnostics, fail-fast module
-parsing, and stable compile/run stdout suppression for diagnostics.
+parsing, ordered diagnostic streams, promoted-warning non-duplication, and
+stable compile/run stdout suppression for errors.
 
 ## Non-Goals
 

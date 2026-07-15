@@ -105,6 +105,13 @@ Final warning behavior is resolved in this strict order:
 
 ## Diagnostic Message Contract
 
+Warnings and native errors use the same canonical diagnostic report. The report
+stores effective severity, stable catalog code, optional warning category,
+origin, summary, labeled spans, notes, and help. Warning configuration controls
+whether warning-origin diagnostics are emitted and whether they are promoted;
+it does not create a second warning/error record. Human-readable punctuation and
+prefixes are added only by the reporting renderer.
+
 Minimum warning payload for `W0001`:
 
 1. warning ID (`W0001`),
@@ -151,8 +158,11 @@ outside this `W0003` batch.
 
 1. If a warning category is enabled and promoted to error, compilation exits non-zero when that warning occurs.
 2. Warning-as-error does not change language semantics; it changes tool policy only.
-3. The active compile path is diagnostic-only: warning-only success is distinguished by warnings plus no errors, and compile results do not include generated artifacts.
-4. When warning-as-error triggers, the warning remains available as a warning record and is also promoted into compile errors.
+3. The active compile path is diagnostic-only: warning-only success is distinguished by warning-severity diagnostics plus no error-severity diagnostics, and compile results do not include generated artifacts.
+4. Promotion changes only effective severity. The diagnostic keeps its `W####`
+   code and warning category, appears once in the ordered result stream, is
+   selected by the error accessor, and is no longer selected by the warning
+   accessor.
 
 ## Migration Notes
 
