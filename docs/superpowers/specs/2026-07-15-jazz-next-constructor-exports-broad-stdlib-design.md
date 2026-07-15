@@ -230,8 +230,13 @@ public families:
 `listMaximum` return `Maybe`. Negative indexes return `Nothing`. Nonpositive
 take and repeat counts return an empty list; nonpositive drop counts return the
 original list. Counts beyond the list length clamp to the list boundary.
-Sorting is stable. `listFoldRight` may be implemented through reverse plus a
-stack-safe left fold rather than consuming one host stack frame per item.
+`listFilterMap` keeps the values returned as `Just`. `listScanLeft` includes
+the initial accumulator. `listDistinct` preserves first occurrence order;
+`listGroup` and `listGroupBy` group adjacent related values rather than
+globally collecting equal values. Sorting is stable, and `listSortBy` consumes
+an `Ordering`-returning comparison. `listFoldRight` may be implemented through
+reverse plus a stack-safe left fold rather than consuming one host stack frame
+per item.
 
 The existing unprefixed `map`, `filter`, `hd`, and `tl` remain compatible.
 New examples and modules prefer the prefixed total APIs.
@@ -244,6 +249,7 @@ New examples and modules prefer the prefixed total APIs.
 
 The name `maybeAndThen` is preferred to a category-oriented bind name. It
 accepts a function that already returns `Maybe` and avoids nested values.
+`maybeFromList` returns the first item when present.
 
 ### `Result`
 
@@ -295,6 +301,8 @@ the key, value, or callback arguments. `dictionaryReplace` returns `Nothing`
 when the key is absent. `dictionaryUpdate` passes the current `Maybe(v)` to a
 callback; returning `Nothing` removes an existing key or leaves an absent key
 absent, while returning `Just` inserts or replaces the value.
+Removing and later reinserting a key gives it a new position at the end of the
+current dictionary order.
 
 Lookup and update operations are documented as `O(n)`. Updates rebuild only
 the affected list prefix and structurally share the untouched suffix where the
@@ -372,7 +380,10 @@ across many persistent branches can repeat that reversal cost.
 Indexes and counts refer to Unicode scalar values, never UTF-8 code units or
 bytes. Negative indexes return `Nothing`. Nonpositive take/repeat/padding
 counts produce the natural empty or unchanged result, and dropping beyond the
-end produces empty text.
+end produces empty text. `textSlice` takes a start index and scalar count;
+negative starts clamp to zero and nonpositive counts produce empty text.
+`textFind` returns the first matching scalar index. Padding uses a caller-supplied
+`Char`, and `textJoin` places its delimiter only between fragments.
 
 Search and replacement proceed left-to-right with non-overlapping matches.
 Splitting on empty text yields one-text-scalar fragments. Replacing an empty
