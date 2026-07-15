@@ -24,6 +24,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftContains,
+    assertLeftDiagnosticCodeAndContains,
     assertRight,
     runTestSuite
   )
@@ -90,7 +91,7 @@ testReservedWarningConfigParsing =
 
 testParseWarningCategoryUnknown :: IO ()
 testParseWarningCategoryUnknown =
-  assertLeftContains "unknown category" "unknown warning category" (parseWarningCategory "nope")
+  assertLeftDiagnosticCodeAndContains "unknown category" "E5001" "unknown warning category" (parseWarningCategory "nope")
 
 testParseCliWarningDirectiveForms :: IO ()
 testParseCliWarningDirectiveForms = do

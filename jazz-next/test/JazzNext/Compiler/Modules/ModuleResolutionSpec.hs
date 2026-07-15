@@ -15,6 +15,9 @@ import JazzNext.Compiler.Diagnostics
     diagnosticSubject,
     renderDiagnostic
   )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
+  )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolvedModule (..),
@@ -443,8 +446,9 @@ sharedCycleSourceFiles =
 
 testRejectsEmptyEntryModulePath :: IO ()
 testRejectsEmptyEntryModulePath =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "empty entry path"
+    "E4016"
     "empty entry module path"
     (resolveModuleGraph config sourceFiles [])
   where
@@ -860,7 +864,7 @@ testModuleLexerFailureRetainsStructuredDetail = do
   let result = resolveModuleGraph config sourceFiles ["App", "Main"]
   case result of
     Left diagnostic -> do
-      assertEqual "module lexer failure code" "E4004" (diagnosticCode diagnostic)
+      assertEqual "module lexer failure code" "E4004" (diagnosticCodeText (diagnosticCode diagnostic))
       assertEqual
         "module lexer failure qualified primary span"
         (Just (SourceSpanIn "src/Lib/Bad.jz" 1 10))

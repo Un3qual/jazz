@@ -28,8 +28,12 @@ import JazzNext.CLI.Main
     runCliWithHostAndProfileWriter
   )
 import JazzNext.Compiler.Diagnostics
-  ( mkMessageDiagnostic,
+  ( DiagnosticOrigin (..),
+    mkErrorDiagnostic,
     renderDiagnostic
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
@@ -554,10 +558,12 @@ testCliSourceFileMissing :: IO ()
 testCliSourceFileMissing = do
   output <- runCliWith ["--run", "missing.jz"] envLookup fileLookup (pure "ignored = 1.")
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "missing source diagnostic code" "E5004" (cliStderr output)
   assertContains "missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   compileOutput <- runCliWith ["missing.jz"] envLookup fileLookup (pure "ignored = 1.")
   assertEqual "compile exit code" 2 (cliExitCode compileOutput)
+  assertContains "compile missing source diagnostic code" "E5004" (cliStderr compileOutput)
   assertContains "compile missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr compileOutput)
   assertEqual "compile stdout is suppressed" "" (cliStdout compileOutput)
   where
@@ -1144,12 +1150,12 @@ testCliProfileWriteFailure :: IO ()
 testCliProfileWriteFailure = do
   output <-
     runObservationFixtureWithWriter
-      (\_ _ -> pure (Left (mkMessageDiagnostic "runtime profile writer deliberately failed")))
+      (\_ _ -> pure (Left (mkErrorDiagnostic E5005 ToolingOrigin "runtime profile writer deliberately failed")))
       ["--runtime-profile=unwritable/profile.json"]
       literalSuccessFixture
   assertEqual "profile write failure exit" 1 (cliExitCode output)
   assertEqual "profile write failure preserves program stdout" "42\n" (cliStdout output)
-  assertContains "structured profile write diagnostic" "error: runtime profile writer deliberately failed" (cliStderr output)
+  assertContains "structured profile write diagnostic" "error: E5005: runtime profile writer deliberately failed" (cliStderr output)
 
 testCliAtomicProfileReplacement :: IO ()
 testCliAtomicProfileReplacement =
@@ -1208,6 +1214,7 @@ testCliExplicitConfigPathFailure :: IO ()
 testCliExplicitConfigPathFailure = do
   output <- runCliWith ["--warnings-config", "missing/warnings.txt"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "config read failure code" "E5003" (cliStderr output)
   assertContains "stderr reports config read failure" "warning config file could not be read at 'missing/warnings.txt'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
@@ -1218,6 +1225,7 @@ testCliExplicitEnvConfigPathFailure :: IO ()
 testCliExplicitEnvConfigPathFailure = do
   output <- runCliWith [] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "env config read failure code" "E5003" (cliStderr output)
   assertContains "stderr reports env config read failure" "warning config file could not be read at 'env/warnings.txt'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
@@ -1230,7 +1238,7 @@ testCliDefersSourceReadOnArgError = do
   output <- runCliWith ["--bad-arg"] envLookup configLookup (recordSourceRead sourceRead)
   didRead <- readIORef sourceRead
   assertEqual "exit code" 2 (cliExitCode output)
-  assertContains "stderr parse error prefix" "error: unknown argument" (cliStderr output)
+  assertContains "stderr parse error prefix" "error: E5002: unknown argument" (cliStderr output)
   assertEqual "source should not be read when arg parse fails" False didRead
   where
     envLookup _ = pure Nothing

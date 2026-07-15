@@ -106,7 +106,8 @@ expectedErrorNumbers =
     <> [2001 .. 2017]
     <> [3001 .. 3003]
     <> [3006 .. 3039]
-    <> [4001 .. 4015]
+    <> [4001 .. 4016]
+    <> [5001 .. 5005]
 
 formatCode :: Text -> Int -> Text
 formatCode prefix number =

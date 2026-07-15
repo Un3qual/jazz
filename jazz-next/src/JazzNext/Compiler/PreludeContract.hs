@@ -23,11 +23,15 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan,
-    mkDiagnostic,
+    mkErrorDiagnostic,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Name
   ( renderName
@@ -78,8 +82,8 @@ validatePreludeKernelBridges preludeExpr =
                     [ bridgeDiagnostic
                         bindingName
                         bindingSpan
-                        ( mkDiagnostic
-                            "E0005"
+                        ( mkErrorDiagnostic
+                            E0005 CompilationOrigin
                             ( "prelude kernel bridge '"
                                 <> bindingName
                                 <> "' must include a non-empty kernel symbol suffix after '"
@@ -92,8 +96,8 @@ validatePreludeKernelBridges preludeExpr =
                     [ bridgeDiagnostic
                         bindingName
                         bindingSpan
-                        ( mkDiagnostic
-                            "E0004"
+                        ( mkErrorDiagnostic
+                            E0004 CompilationOrigin
                             ( "prelude kernel bridge '"
                                 <> bindingName
                                 <> "' references unknown kernel symbol '"
@@ -110,8 +114,8 @@ validatePreludeKernelBridges preludeExpr =
                   [ bridgeDiagnostic
                       bindingName
                       bindingSpan
-                      ( mkDiagnostic
-                          "E0005"
+                      ( mkErrorDiagnostic
+                          E0005 CompilationOrigin
                           ( "prelude kernel bridge '"
                               <> bindingName
                               <> "' must reference kernel symbol '"
@@ -133,8 +137,8 @@ validatePreludeKernelBridges preludeExpr =
               [ bridgeDiagnostic
                   bindingName
                   bindingSpan
-                  ( mkDiagnostic
-                      "E0005"
+                  ( mkErrorDiagnostic
+                      E0005 CompilationOrigin
                       ( "prelude kernel bridge '"
                           <> bindingName
                           <> "' must be a direct symbol reference to '"
@@ -148,8 +152,8 @@ validatePreludeKernelBridges preludeExpr =
               bridgeDiagnostic
                 bindingName
                 bindingSpan
-                ( mkDiagnostic
-                    "E0005"
+                ( mkErrorDiagnostic
+                    E0005 CompilationOrigin
                     ( "prelude kernel bridge '"
                         <> bindingName
                         <> "' must reference canonical kernel symbol '"

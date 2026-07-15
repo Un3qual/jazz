@@ -188,6 +188,9 @@ import JazzNext.Compiler.Runtime.Semantics
     runtimeValueExactlyMatchesConstraint,
     untypedIntMetadata
   )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
+  )
 import JazzNext.Compiler.Runtime.Types
   ( DeferredHostBindingKey (..),
     DeferredHostBindingState (..),
@@ -877,7 +880,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         Just cell -> cell
         Nothing ->
           Left
-            (runtimeDiagnostic "E3020" "internal runtime error: missing binding cell for statement")
+            (runtimeDiagnostic E3020 "internal runtime error: missing binding cell for statement")
     
     cellForStatement :: Int -> Statement -> RuntimeCell
     cellForStatement statementIndex statement =
@@ -886,7 +889,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
           bindingCell statementIndex bindingName valueExpr
         _ ->
           Left
-            (runtimeDiagnostic "E3020" "internal runtime error: expected binding statement")
+            (runtimeDiagnostic E3020 "internal runtime error: expected binding statement")
 
     bindingCell :: Int -> Name -> Expr -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
@@ -900,7 +903,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         Right Nothing
           | scopePlanIsRecursiveBinding scopePlan statementIndex,
             exprDefinitelyNotFunctionValue valueExpr ->
-              Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value")
+              Left (runtimeDiagnostic E3021 "runtime recursive binding has no concrete value")
           | otherwise ->
               do
                 evaluatedValue <- evalBindingValue statementIndex bindingName visibleEnv valueExpr
@@ -966,7 +969,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
     resolveRecursiveAliasTarget :: Set Int -> Int -> Either Diagnostic Int
     resolveRecursiveAliasTarget visited statementIndex
       | Set.member statementIndex visited =
-          Left (runtimeDiagnostic "E3021" "runtime recursive alias cycle has no concrete value")
+          Left (runtimeDiagnostic E3021 "runtime recursive alias cycle has no concrete value")
       | otherwise =
           case scopePlanStatementAt scopePlan statementIndex of
             Just (SLet bindingName _ aliasExpr) ->
@@ -979,10 +982,10 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                   Right statementIndex
             Just _ ->
               Left
-                (runtimeDiagnostic "E3020" "internal runtime error: expected binding statement while resolving alias")
+                (runtimeDiagnostic E3020 "internal runtime error: expected binding statement while resolving alias")
             Nothing ->
               Left
-                (runtimeDiagnostic "E3020" "internal runtime error: missing binding statement while resolving alias")
+                (runtimeDiagnostic E3020 "internal runtime error: missing binding statement while resolving alias")
 
     bindingEnv :: Int -> Name -> RuntimeEnv
     bindingEnv statementIndex bindingName =
@@ -1005,7 +1008,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
     functionSelfReferenceCell :: Int -> Name -> Maybe RuntimeCell
     functionSelfReferenceCell statementIndex bindingName
       | recursiveFunctionNeedsSelf statementIndex bindingName =
-          Just (Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value"))
+          Just (Left (runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"))
       | otherwise =
           Nothing
 
@@ -1116,7 +1119,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         other ->
           Left
             ( runtimeDiagnostic
-                "E3003"
+                E3003
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
 
@@ -1164,7 +1167,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                     other ->
                       Left
                         ( runtimeDiagnostic
-                            "E3003"
+                            E3003
                             ("runtime case guard must be Bool, found " <> renderRuntimeType other)
                         )
             Nothing ->
@@ -1260,7 +1263,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
             Just cell -> cell
             Nothing ->
               Left
-                (runtimeDiagnostic "E3020" "internal runtime error: missing block binding cell for alias selection")
+                (runtimeDiagnostic E3020 "internal runtime error: missing block binding cell for alias selection")
 
         blockCellForStatement statementIndex statement =
           case statement of
@@ -1270,7 +1273,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                 >>= attachDefaultBindingIntegerTarget
             _ ->
               Left
-                (runtimeDiagnostic "E3020" "internal runtime error: expected block binding statement for alias selection")
+                (runtimeDiagnostic E3020 "internal runtime error: expected block binding statement for alias selection")
 
         blockBindingRuntimeTypeHint statementIndex bindingName =
           runtimeConstraintType blockModulePath <$> rawHint
@@ -1388,7 +1391,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                 Right True ->
                   Left
                     ( runtimeDiagnostic
-                        "E3021"
+                        E3021
                         ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
                     )
                 Right False ->
@@ -1484,7 +1487,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         other ->
           Left
             ( runtimeDiagnostic
-                "E3003"
+                E3003
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
 
@@ -1586,7 +1589,7 @@ runtimeControlAsDiagnosticResult controlResult =
     Left (RuntimeExitRequested status) ->
       Left
         ( runtimeDiagnostic
-            "E3020"
+            E3020
             ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
         )
     Right value -> Right value
@@ -1598,7 +1601,7 @@ runtimeOutcomeAsDiagnosticResult outcome =
     RuntimeOutcomeExited status ->
       Left
         ( runtimeDiagnostic
-            "E3020"
+            E3020
             ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
         )
     RuntimeOutcomeCompleted value -> Right value
@@ -1774,7 +1777,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   continueWith (ReturnRuntimeValue (VBuiltin builtinFunction [])) machine
                 Nothing ->
                   throwRuntimeDiagnostic
-                    (runtimeDiagnostic "E3002" ("runtime unbound variable '" <> identifierText name <> "'"))
+                    (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))
         ELambda parameterName bodyExpr ->
           do
             recordRuntimeStatisticWhen
@@ -1910,7 +1913,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               (evaluationEnvironment context)
               statements
           throwRuntimeDiagnostic
-            (runtimeDiagnostic "E3006" "block expression has no terminal expression result at runtime")
+            (runtimeDiagnostic E3006 "block expression has no terminal expression result at runtime")
 
     stepCallable functionValue argumentValue = do
       if observeStatistics
@@ -2038,7 +2041,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   continueWith (ReturnRuntimeValue resultValue) profiledMachine
             _ ->
               throwRuntimeDiagnostic
-                (runtimeDiagnostic "E3016" ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
+                (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
         VConstructor typeName typeParameters constructorName constructorArguments capturedArgs -> do
           resultValue <-
             liftRuntimeResult
@@ -2064,7 +2067,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
            in case preferredCandidates of
                 [] ->
                   throwRuntimeDiagnostic
-                    (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
+                    (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
                 [RuntimeMethodCandidate _ methodCell] -> do
                   methodValue <- liftRuntimeResult methodCell
                   suspendEvaluation
@@ -2078,7 +2081,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                       arguments
                       preferredCandidates ->
                       throwRuntimeDiagnostic
-                        (runtimeDiagnostic "E3026" ("ambiguous qualified method body '" <> methodKey <> "'"))
+                        (runtimeDiagnostic E3026 ("ambiguous qualified method body '" <> methodKey <> "'"))
                   | otherwise ->
                       continueWith
                         ( ReturnRuntimeValue
@@ -2093,7 +2096,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                         profiledMachine
         _ ->
           throwRuntimeDiagnostic
-            (runtimeDiagnostic "E3008" ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue))
+            (runtimeDiagnostic E3008 ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue))
 
 runtimeApplicationKind :: RuntimeValue -> Maybe RuntimeApplicationKind
 runtimeApplicationKind runtimeValue =
@@ -2172,7 +2175,7 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
         VBool False -> continueWith (EvaluateExpression context elseExpr) machine
         other ->
           throwRuntimeDiagnostic
-            (runtimeDiagnostic "E3003" ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
+            (runtimeDiagnostic E3003 ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
     EvaluateCaseArms context caseArms ->
       continueCaseEvaluation observeStatistics machine context runtimeValue caseArms
     EvaluateCaseGuard context scrutineeValue armEnv bodyExpr remainingArms ->
@@ -2185,7 +2188,7 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
           continueCaseEvaluation observeStatistics machine context scrutineeValue remainingArms
         other ->
           throwRuntimeDiagnostic
-            (runtimeDiagnostic "E3003" ("runtime case guard must be Bool, found " <> renderRuntimeType other))
+            (runtimeDiagnostic E3003 ("runtime case guard must be Bool, found " <> renderRuntimeType other))
     EvaluateBuiltinRightOperand context operatorSymbol rightExpr ->
       suspendEvaluation
         machine
@@ -2311,7 +2314,7 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
     chooseArm remainingArms =
       case remainingArms of
         [] ->
-          throwRuntimeDiagnostic (runtimeDiagnostic "E3022" "pattern case matched no arms")
+          throwRuntimeDiagnostic (runtimeDiagnostic E3022 "pattern case matched no arms")
         caseArm@(CaseArm casePattern _ _) : rest -> do
           recordRuntimeStatisticWhen observeStatistics recordRuntimePatternAttempt
           case
@@ -2433,7 +2436,7 @@ lookupDeclaredOperatorCell operatorSymbol env =
     Nothing ->
       Left
         ( runtimeDiagnostic
-            "E3027"
+            E3027
             ("operator '" <> operatorSymbol <> "' has no executable binding")
         )
 
@@ -2585,7 +2588,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
                   go hostCellsMayBeReachable env (Just value) rest
             _ ->
               throwRuntimeDiagnostic
-                (runtimeDiagnostic "E3020" "internal runtime error: unsupported direct host statement")
+                (runtimeDiagnostic E3020 "internal runtime error: unsupported direct host statement")
 
     statementMayUsePureChunk hostCellsMayBeReachable statementIndex statement
       | not observationEnabled =
@@ -2657,7 +2660,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
             )
         _ ->
           Left
-            (runtimeDiagnostic "E3020" "internal runtime error: expected host binding statement")
+            (runtimeDiagnostic E3020 "internal runtime error: expected host binding statement")
 
     recursiveBindingDiagnostic hostCellsMayBeReachable statementIndex diagnosticBaseEnv =
       case scopePlanRecursiveGroupAt scopePlan statementIndex of
@@ -2690,9 +2693,9 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
                     Set.member globalIndex preludeStatementIndices
                 ]
             recursiveBindingFallback =
-              runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value"
+              runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"
         _ ->
-          runtimeDiagnostic "E3021" "runtime recursive host binding has no concrete value"
+          runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value"
 
     forceRuntimeCellWithHost bindingCell =
       liftRuntimeResult bindingCell
@@ -2717,7 +2720,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
                             ( Right
                                 ( VDeferredHostBinding
                                     (DeferredHostBindingKey scopeId methodModulePath methodSpan qualifiedMethodName)
-                                    (runtimeDiagnostic "E3021" "runtime recursive host binding has no concrete value")
+                                    (runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value")
                                     methodModulePath
                                     methodExpr
                                     methodEnv
@@ -2914,7 +2917,7 @@ applyQualifiedMethodWithHost ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
   case preferredCandidates of
-    [] -> throwRuntimeDiagnostic (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
+    [] -> throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
     [RuntimeMethodCandidate _ methodCell] -> do
       methodValue <-
         liftRuntimeResult methodCell
@@ -2922,7 +2925,7 @@ applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classPa
       foldM (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints) methodValue arguments
     _
       | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
-          throwRuntimeDiagnostic (runtimeDiagnostic "E3026" ("ambiguous qualified method body '" <> methodKey <> "'"))
+          throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("ambiguous qualified method body '" <> methodKey <> "'"))
       | otherwise ->
           pure (VQualifiedMethod methodKey classParameter methodSignature preferredCandidates arguments)
   where
@@ -2969,7 +2972,7 @@ applyBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTy
       pure resultValue
   | otherwise =
       throwRuntimeDiagnostic
-        (runtimeDiagnostic "E3014" ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received too many arguments"))
+        (runtimeDiagnostic E3014 ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received too many arguments"))
 
 evalBuiltinWithHost ::
   Monad m =>
@@ -3026,7 +3029,7 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTyp
             Left failure ->
               throwRuntimeDiagnostic
                 ( runtimeDiagnostic
-                    "E3031"
+                    E3031
                     ( "runtime host operation 'exit!' failed: "
                         <> hostIOFailureMessage (hostIOFailureCategory failure)
                     )
@@ -3034,7 +3037,7 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTyp
       | Just status <- runtimeHostExitStatus statusValue ->
           throwRuntimeDiagnostic
             ( runtimeDiagnostic
-                "E3030"
+                E3030
                 ("runtime primitive 'exit!' expects a status in range 0..255, found " <> Text.pack (show status))
             )
     _ ->

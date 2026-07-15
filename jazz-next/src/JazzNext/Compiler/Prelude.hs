@@ -20,7 +20,10 @@ import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnl
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     prependDiagnosticSummary,
-    setDiagnosticCode
+    setDiagnosticErrorCode
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
@@ -83,7 +86,7 @@ validateAndLowerPrelude :: Text -> Either Diagnostic Expr
 validateAndLowerPrelude preludeText =
   case parseSurfaceProgram preludeText of
     Left parseError ->
-      Left (setDiagnosticCode "E0002" (prependDiagnosticSummary "prelude parse error: " parseError))
+      Left (setDiagnosticErrorCode E0002 (prependDiagnosticSummary "prelude parse error: " parseError))
     Right preludeSurfaceExpr ->
       let loweredPrelude = lowerSurfaceExpr preludeSurfaceExpr
        in case validatePreludeKernelBridges loweredPrelude of

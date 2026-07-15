@@ -22,10 +22,12 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    mkMessageDiagnostic
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic
   )
 import JazzNext.Compiler.DiagnosticCatalog
-  ( WarningCategory,
+  ( ErrorCode (..),
+    WarningCategory,
     allWarningCategories,
     lookupWarningCategory,
     warningToken
@@ -78,7 +80,7 @@ parseWarningCategory rawToken =
     Just category -> Right category
     Nothing ->
       Left
-        ( mkMessageDiagnostic
+        ( mkErrorDiagnostic E5001 ToolingOrigin
             ( "unknown warning category: "
                 <> normalizedToken
                 <> "; known categories: "
@@ -91,7 +93,7 @@ parseWarningCategory rawToken =
 parseCliWarningDirective :: Text -> Either Diagnostic WarningDirective
 parseCliWarningDirective rawFlag
   | "-W" `Text.isPrefixOf` rawFlag = parseDirectiveToken (Text.drop 2 rawFlag)
-  | otherwise = Left (mkMessageDiagnostic ("invalid warning flag: expected -W<token>, got: " <> rawFlag))
+  | otherwise = Left (mkErrorDiagnostic E5001 ToolingOrigin ("invalid warning flag: expected -W<token>, got: " <> rawFlag))
 
 parseEnvWarningDirectives :: Text -> Either Diagnostic [WarningDirective]
 parseEnvWarningDirectives rawValue = do
@@ -164,7 +166,7 @@ applyDirective settings directive =
 
 parseDirectiveToken :: Text -> Either Diagnostic WarningDirective
 parseDirectiveToken rawToken
-  | Text.null token = Left (mkMessageDiagnostic "empty warning token")
+  | Text.null token = Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
   | token == "none" = Right DisableAllCategories
   | token == "error" = Right PromoteAllEnabledToError
   | "error=" `Text.isPrefixOf` token =
@@ -177,7 +179,7 @@ parseDirectiveToken rawToken
 
 parseEnvWarningToken :: Text -> Either Diagnostic WarningDirective
 parseEnvWarningToken rawToken
-  | Text.null token = Left (mkMessageDiagnostic "empty JAZZ_WARNING_FLAGS token")
+  | Text.null token = Left (mkErrorDiagnostic E5001 ToolingOrigin "empty JAZZ_WARNING_FLAGS token")
   | token == "none" = Right DisableAllCategories
   | "+" `Text.isPrefixOf` token = EnableCategory <$> parseWarningCategory (Text.drop 1 token)
   | "-" `Text.isPrefixOf` token = DisableCategory <$> parseWarningCategory (Text.drop 1 token)
@@ -187,7 +189,7 @@ parseEnvWarningToken rawToken
 
 parseEnvErrorToken :: Text -> Either Diagnostic WarningDirective
 parseEnvErrorToken rawToken
-  | Text.null token = Left (mkMessageDiagnostic "empty JAZZ_WARNING_ERROR_FLAGS token")
+  | Text.null token = Left (mkErrorDiagnostic E5001 ToolingOrigin "empty JAZZ_WARNING_ERROR_FLAGS token")
   | token == "all" = Right PromoteAllEnabledToError
   | otherwise = PromoteCategoryToError <$> parseWarningCategory token
   where
@@ -205,11 +207,11 @@ parseCommaSeparatedTokens rawValue =
     if all Text.null tokens
       then
         if length tokens > 1
-          then Left (mkMessageDiagnostic "empty warning token")
-          else Left (mkMessageDiagnostic "expected at least one warning token")
+          then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
+          else Left (mkErrorDiagnostic E5001 ToolingOrigin "expected at least one warning token")
       else
         if any Text.null tokens
-          then Left (mkMessageDiagnostic "empty warning token")
+          then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
           else Right tokens
 
 lineTokens :: Text -> [Text]

@@ -16,7 +16,10 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
     prependDiagnosticSummary,
-    setDiagnosticCode
+    setDiagnosticErrorCode
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
@@ -43,6 +46,6 @@ parseSurfaceWithErrorCode :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceWithErrorCode source =
   case parseSurfaceProgram source of
     Left parseError ->
-      Left (setDiagnosticCode "E0001" (prependDiagnosticSummary "parse error: " parseError))
+      Left (setDiagnosticErrorCode E0001 (prependDiagnosticSummary "parse error: " parseError))
     Right surfaceProgram ->
       Right surfaceProgram

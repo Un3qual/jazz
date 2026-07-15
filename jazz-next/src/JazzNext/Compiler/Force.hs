@@ -36,9 +36,22 @@ import JazzNext.Compiler.AST
     Statement (..),
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
+    DiagnosticLabel,
     SourceSpan,
     WarningRecord (..),
+    diagnosticCode,
+    diagnosticHelp,
+    diagnosticNotes,
+    diagnosticOrigin,
+    diagnosticPrimaryLabel,
+    diagnosticSecondaryLabels,
+    diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticSummary,
+    diagnosticWarningCategory,
+    labelMessage,
+    labelSpan,
   )
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -427,12 +440,23 @@ forceSourceSpan sourceSpan = sourceSpan `seq` ()
 
 forceDiagnostic :: Diagnostic -> ()
 forceDiagnostic diagnostic =
-  diagnosticCode diagnostic `seq`
-    diagnosticSummary diagnostic `seq`
-      diagnosticPrimarySpan diagnostic `seq`
-        diagnosticRelatedSpan diagnostic `seq`
-          diagnosticSubject diagnostic `seq`
-            forceListWhnf (diagnosticNotes diagnostic)
+  diagnosticSeverity diagnostic `seq`
+    diagnosticCode diagnostic `seq`
+      diagnosticWarningCategory diagnostic `seq`
+        diagnosticOrigin diagnostic `seq`
+          diagnosticSummary diagnostic `seq`
+            forceMaybeWith forceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
+              forceListWith forceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
+                diagnosticSubject diagnostic `seq`
+                  forceListWhnf (diagnosticNotes diagnostic) `seq`
+                    diagnosticHelp diagnostic `seq`
+                      ()
+
+forceDiagnosticLabel :: DiagnosticLabel -> ()
+forceDiagnosticLabel diagnosticLabel =
+  labelSpan diagnosticLabel `seq`
+    labelMessage diagnosticLabel `seq`
+      ()
 
 forceWarning :: WarningRecord -> ()
 forceWarning warning =

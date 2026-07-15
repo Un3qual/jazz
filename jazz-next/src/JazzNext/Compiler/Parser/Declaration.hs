@@ -25,11 +25,14 @@ import Data.Text
   )
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan,
-    mkDiagnostic,
-    renderSourceSpan,
-    setDiagnosticPrimarySpan
+    mkErrorDiagnostic,
+    setDiagnosticPrimaryLabel
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Name
   ( Identifier,
@@ -228,10 +231,9 @@ parseOperatorDeclarationSymbol tokens =
       Right (arrowLexeme, rest)
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected operator symbol after 'operator' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected operator symbol after 'operator', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -243,39 +245,39 @@ validateDeclaredOperatorSymbol :: [OperatorInfo] -> Token -> Text -> Either Diag
 validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
   | isBuiltinOperatorSymbol declaredSymbol =
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
             ( "cannot redeclare built-in operator '"
                 <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
+                <> "'"
             )
         )
   | isReservedOperatorSymbol declaredSymbol =
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
             ( "reserved operator symbol '"
                 <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
+                <> "'"
             )
         )
   | any ((== declaredSymbol) . operatorSymbol) declaredOperators =
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
             ( "duplicate operator declaration '"
                 <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
+                <> "'"
             )
         )
   | isValidUserOperatorSymbol declaredSymbol = Right ()
   | otherwise =
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
             ( "invalid operator symbol '"
                 <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
+                <> "'"
             )
         )
 
@@ -286,20 +288,18 @@ consumeOperatorFixityKeyword operatorToken tokens =
     Token {tokenKind = TIdentifier "precedence"} : rest -> Right (OperatorPrecedenceKeyword, rest)
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected 'tier' or 'precedence' in operator declaration at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected 'tier' or 'precedence' in operator declaration, found '"
                 <> tokenLexeme token
                 <> "'"
             )
         )
     [] ->
       Left
-        ( parseDiagnostic
-            ( "expected 'tier' or 'precedence' before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
+            "expected 'tier' or 'precedence' before end of input in operator declaration"
         )
 
 parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
@@ -316,27 +316,24 @@ parseOperatorDeclarationTier operatorToken declaredSymbol tokens =
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
-            ( parseDiagnostic
-                ( "operator tier must be between 1 and 5 at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan operatorToken)
+                "operator tier must be between 1 and 5"
             )
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected operator tier 1-5 at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected operator tier 1-5, found '"
                 <> tokenLexeme token
                 <> "'"
             )
         )
     [] ->
       Left
-        ( parseDiagnostic
-            ( "expected operator tier 1-5 before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
+            "expected operator tier 1-5 before end of input in operator declaration"
         )
 
 parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
@@ -347,27 +344,24 @@ parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens =
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
-            ( parseDiagnostic
-                ( "operator precedence must be between 1 and 99 at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan operatorToken)
+                "operator precedence must be between 1 and 99"
             )
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected operator precedence 1-99 at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected operator precedence 1-99, found '"
                 <> tokenLexeme token
                 <> "'"
             )
         )
     [] ->
       Left
-        ( parseDiagnostic
-            ( "expected operator precedence 1-99 before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan operatorToken)
+            "expected operator precedence 1-99 before end of input in operator declaration"
         )
 
 parseOptionalOperatorAssociativity :: OperatorInfo -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
@@ -381,10 +375,9 @@ parseOptionalOperatorAssociativity operatorInfo tokens =
       Right (operatorInfo {operatorAssociativity = AssocNonAssoc}, rest)
     token@Token {tokenKind = TIdentifier {}} : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected operator associativity 'left', 'right', or 'nonassoc' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected operator associativity 'left', 'right', or 'nonassoc', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -403,11 +396,10 @@ consumeOperatorDeclarationDot fixityLabel tokens =
     Token {tokenKind = TDot} : rest -> Right rest
     token : _ ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan token)
             ( "expected '.' after operator declaration "
                 <> fixityLabel
-                <> " at "
-                <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
                 <> "'"
@@ -474,11 +466,11 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan nameToken)
                 ( "reserved literal '"
                     <> name
-                    <> "' cannot be used as a binding name at "
-                    <> renderSourceSpan (tokenSpan nameToken)
+                    <> "' cannot be used as a binding name"
                 )
             )
       | TIdentifier name <- tokenKind nameToken,
@@ -490,11 +482,11 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan nameToken)
                 ( "reserved literal '"
                     <> name
-                    <> "' cannot be used as a binding name at "
-                    <> renderSourceSpan (tokenSpan nameToken)
+                    <> "' cannot be used as a binding name"
                 )
             )
       | TIdentifier name <- tokenKind nameToken ->
@@ -524,20 +516,20 @@ parseOperatorBinding parseExpression context declaredOperators operatorToken tok
         TOperator bindingSymbol
           | isBuiltinOperatorSymbol bindingSymbol ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan operatorToken)
                     ( "cannot bind built-in operator '"
                         <> bindingSymbol
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
+                        <> "'"
                     )
                 )
           | not (operatorDeclared bindingSymbol) ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan operatorToken)
                     ( "operator '"
                         <> bindingSymbol
-                        <> "' must be declared before binding at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
+                        <> "' must be declared before binding"
                     )
                 )
           | otherwise -> do
@@ -552,11 +544,9 @@ parseOperatorBinding parseExpression context declaredOperators operatorToken tok
                 )
         _ ->
           Left
-            ( parseDiagnostic
-                ( "internal parser error at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                    <> ": expected operator token in operator binding"
-                )
+            ( parseDiagnosticAt
+                (tokenSpan operatorToken)
+                "internal parser error: expected operator token in operator binding"
             )
 
     operatorDeclared bindingSymbol =
@@ -579,20 +569,20 @@ parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
         TOperator signatureSymbol
           | isBuiltinOperatorSymbol signatureSymbol ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan operatorToken)
                     ( "cannot sign built-in operator '"
                         <> signatureSymbol
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
+                        <> "'"
                     )
                 )
           | not (operatorDeclared signatureSymbol) ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan operatorToken)
                     ( "operator '"
                         <> signatureSymbol
-                        <> "' must be declared before signature at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
+                        <> "' must be declared before signature"
                     )
                 )
           | otherwise ->
@@ -602,11 +592,9 @@ parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
                 tokensAfterName
         _ ->
           Left
-            ( parseDiagnostic
-                ( "internal parser error at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                    <> ": expected operator token in operator signature"
-                )
+            ( parseDiagnosticAt
+                (tokenSpan operatorToken)
+                "internal parser error: expected operator token in operator signature"
             )
 
     operatorDeclared signatureSymbol =
@@ -623,11 +611,9 @@ parseSignature name nameToken tokensAfterName =
         )
     _ ->
       Left
-        ( parseDiagnostic
-            ( "internal parser error at "
-                <> renderSourceSpan (tokenSpan nameToken)
-                <> ": expected '::' after signature name"
-            )
+        ( parseDiagnosticAt
+            (tokenSpan nameToken)
+            "internal parser error: expected '::' after signature name"
         )
 
 parseLet ::
@@ -644,11 +630,9 @@ parseLet parseExpression name nameToken tokensAfterName =
       pure (SSLet name (tokenSpan nameToken) valueExpr, remaining)
     _ ->
       Left
-        ( parseDiagnostic
-            ( "internal parser error at "
-                <> renderSourceSpan (tokenSpan nameToken)
-                <> ": expected '=' after binding name"
-            )
+        ( parseDiagnosticAt
+            (tokenSpan nameToken)
+            "internal parser error: expected '=' after binding name"
         )
 
 parseExprStatement :: ImplExpressionParser -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
@@ -684,17 +668,15 @@ parseModuleStatementFromTokens parseModuleBody tokens =
             )
         [] ->
           Left
-            ( parseDiagnostic
-                ( "expected '{' before end of input after module path at "
-                    <> renderSourceSpan (tokenSpan moduleToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan moduleToken)
+                "expected '{' before end of input after module path"
             )
         token : _ ->
           Left
-            ( parseDiagnostic
-                ( "expected '{' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                ( "expected '{', found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -703,10 +685,9 @@ parseModuleStatementFromTokens parseModuleBody tokens =
       Left (parseDiagnostic "expected 'module' before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected 'module' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected 'module', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -722,10 +703,9 @@ parseImportStatementFromTokens tokens =
       Left (parseDiagnostic "expected 'import' before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected 'import' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected 'import', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -741,21 +721,20 @@ parseImportTail importToken modulePath tokensAfterModulePath =
         aliasToken@Token {tokenKind = TIdentifier aliasName} : afterAlias
           | isReservedLiteralName aliasName ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan aliasToken)
                     ( "reserved literal '"
                         <> aliasName
-                        <> "' cannot be used as an import alias at "
-                        <> renderSourceSpan (tokenSpan aliasToken)
+                        <> "' cannot be used as an import alias"
                     )
                 )
           | otherwise ->
               case afterAlias of
                 parenToken@Token {tokenKind = TLParen} : _ ->
                   Left
-                    ( parseDiagnostic
-                        ( "cannot combine import alias and symbol list at "
-                            <> renderSourceSpan (tokenSpan parenToken)
-                        )
+                    ( parseDiagnosticAt
+                        (tokenSpan parenToken)
+                        "cannot combine import alias and symbol list"
                     )
                 _ -> do
                   remaining <- consumeDot afterAlias
@@ -769,17 +748,15 @@ parseImportTail importToken modulePath tokensAfterModulePath =
                     )
         [] ->
           Left
-            ( parseDiagnostic
-                ( "expected import alias before end of input after 'as' at "
-                    <> renderSourceSpan (tokenSpan asToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan asToken)
+                "expected import alias before end of input after 'as'"
             )
         token : _ ->
           Left
-            ( parseDiagnostic
-                ( "expected import alias at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                ( "expected import alias, found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -789,10 +766,9 @@ parseImportTail importToken modulePath tokensAfterModulePath =
       case afterSymbols of
         asToken@Token {tokenKind = TAs} : _ ->
           Left
-            ( parseDiagnostic
-                ( "cannot combine import alias and symbol list at "
-                    <> renderSourceSpan (tokenSpan asToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan asToken)
+                "cannot combine import alias and symbol list"
             )
         _ -> do
           remaining <- consumeDot afterSymbols
@@ -806,17 +782,15 @@ parseImportTail importToken modulePath tokensAfterModulePath =
             )
     [] ->
       Left
-        ( parseDiagnostic
-            ( "expected '.', 'as', or '(' before end of input after import path at "
-                <> renderSourceSpan (tokenSpan importToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan importToken)
+            "expected '.', 'as', or '(' before end of input after import path"
         )
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected '.', 'as', or '(' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected '.', 'as', or '(', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -830,20 +804,18 @@ parseDataStatementFromTokens tokens =
       (typeParameters, afterTypeParameters) <- parseDataTypeParameters afterTypeName
       afterEquals <-
         consumeEquals
+          (tokenSpan dataToken)
           afterTypeParameters
-          ( "expected '=' before end of input after data type name at "
-              <> renderSourceSpan (tokenSpan dataToken)
-          )
+          "expected '=' before end of input after data type name"
       (constructors, remaining) <- parseDataConstructors typeName typeParameters afterEquals
       pure (SSData (tokenSpan dataToken) typeName typeParameters constructors, remaining)
     [] ->
       Left (parseDiagnostic "expected 'data' before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected 'data' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected 'data', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -867,10 +839,9 @@ parseCapabilityDeclarationFromTokens parseImplExpression tokens =
       Left (parseDiagnostic "expected capability declaration before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected capability declaration at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected capability declaration, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -908,10 +879,9 @@ parseCapabilityDeclaration parseImplExpression declarationKind declarationToken 
             then Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments methods, remaining)
             else
               Left
-                ( parseDiagnostic
-                    ( "impl declarations require a concrete impl target at "
-                        <> renderSourceSpan (tokenSpan declarationToken)
-                    )
+                ( parseDiagnosticAt
+                    (tokenSpan declarationToken)
+                    "impl declarations require a concrete impl target"
                 )
         CapabilityClassBody {} ->
           rejectReservedAbstractionSyntax declarationToken
@@ -926,49 +896,47 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
           parseCapabilityHeaderTail (mkIdentifier candidateName) rest
       | otherwise ->
           Left
-            ( parseDiagnostic
-                ( "expected uppercase capability name at "
-                    <> renderSourceSpan nameSpan
-                    <> ", found '"
+            ( parseDiagnosticAt
+                nameSpan
+                ( "expected uppercase capability name, found '"
                     <> candidateName
                     <> "'"
                 )
             )
     Token {tokenKind = TLBrace} : _ ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
             ( "expected capability name before '{' in "
                 <> declarationKind
-                <> " declaration at "
-                <> renderSourceSpan (tokenSpan declarationToken)
+                <> " declaration"
             )
         )
     Token {tokenKind = TDot} : _ ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
             ( "expected capability name before '.' in "
                 <> declarationKind
-                <> " declaration at "
-                <> renderSourceSpan (tokenSpan declarationToken)
+                <> " declaration"
             )
         )
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected capability name at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected capability name, found '"
                 <> tokenLexeme token
                 <> "'"
             )
         )
     [] ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
             ( "expected capability name before end of input in "
                 <> declarationKind
-                <> " declaration at "
-                <> renderSourceSpan (tokenSpan declarationToken)
+                <> " declaration"
             )
         )
   where
@@ -985,31 +953,31 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
           Right (capabilityName, headerArguments, tokens)
         Token {tokenKind = TDot} : _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
                 ( "expected '{' before '.' in "
                     <> declarationKind
-                    <> " declaration at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
+                    <> " declaration"
                 )
             )
         token : _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan token)
                 ( "unexpected token '"
                     <> tokenLexeme token
                     <> "' in "
                     <> declarationKind
-                    <> " declaration header at "
-                    <> renderSourceSpan (tokenSpan token)
+                    <> " declaration header"
                 )
             )
         [] ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
                 ( "expected '{' before end of input in "
                     <> declarationKind
-                    <> " declaration at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
+                    <> " declaration"
                 )
             )
 
@@ -1023,11 +991,11 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
               Right parsedArguments -> Right parsedArguments
               Left _ ->
                 Left
-                  ( parseDiagnostic
+                  ( parseDiagnosticAt
+                      (tokenSpan declarationToken)
                       ( "unsupported "
                           <> declarationKind
-                          <> " declaration header arguments at "
-                          <> renderSourceSpan (tokenSpan declarationToken)
+                          <> " declaration header arguments"
                       )
                   )
       Right (headerArguments, remaining)
@@ -1044,22 +1012,22 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
               | otherwise -> go (depth - 1) (token : acc) rest
             Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    braceSpan
                     ( "expected ')' before '{' in "
                         <> declarationKind
-                        <> " declaration header at "
-                        <> renderSourceSpan braceSpan
+                        <> " declaration header"
                     )
                 )
             token : rest ->
               go depth (token : acc) rest
             [] ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan declarationToken)
                     ( "expected ')' before end of input in "
                         <> declarationKind
-                        <> " declaration header at "
-                        <> renderSourceSpan (tokenSpan declarationToken)
+                        <> " declaration header"
                     )
                 )
 
@@ -1083,19 +1051,18 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
           rejectReservedAbstractionSyntax declarationToken
     [] ->
       Left
-        ( parseDiagnostic
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
             ( "expected '{' before end of input in "
                 <> declarationKind
-                <> " declaration at "
-                <> renderSourceSpan (tokenSpan declarationToken)
+                <> " declaration"
             )
         )
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected '{' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected '{', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1105,11 +1072,11 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
       case remainingTokens of
         [] ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
                 ( "expected '}' before end of input in "
                     <> declarationKind
-                    <> " declaration at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
+                    <> " declaration"
                 )
             )
         Token {tokenKind = TRBrace} : rest ->
@@ -1119,11 +1086,11 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
         methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : rest
           | Set.member methodName seenMethodNames ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    methodSpan
                     ( "duplicate method signature '"
                         <> methodName
-                        <> "' in class declaration at "
-                        <> renderSourceSpan methodSpan
+                        <> "' in class declaration"
                     )
                 )
           | otherwise -> do
@@ -1139,22 +1106,20 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
                 afterSignature
         Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TEquals} : _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                methodSpan
                 ( "unsupported class method body/default syntax for '"
                     <> methodName
-                    <> "' at "
-                    <> renderSourceSpan methodSpan
-                    <> ": only signature-only method declarations are implemented in jazz-next"
+                    <> "': only signature-only method declarations are implemented in jazz-next"
                 )
             )
         token : _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan token)
                 ( "expected signature-only method declaration or '}' in "
                     <> declarationKind
-                    <> " declaration body at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+                    <> " declaration body, found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -1164,11 +1129,11 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
       case remainingTokens of
         [] ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
                 ( "expected '}' before end of input in "
                     <> declarationKind
-                    <> " declaration at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
+                    <> " declaration"
                 )
             )
         Token {tokenKind = TRBrace} : rest ->
@@ -1180,11 +1145,11 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
           afterEquals
             | Set.member methodName seenMethodNames ->
                 Left
-                  ( parseDiagnostic
+                  ( parseDiagnosticAt
+                      methodSpan
                       ( "duplicate method binding '"
                           <> methodName
-                          <> "' in impl declaration at "
-                          <> renderSourceSpan methodSpan
+                          <> "' in impl declaration"
                       )
                   )
             | otherwise -> do
@@ -1201,19 +1166,18 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
                   afterMethod
         Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                methodSpan
                 ( "expected ordinary method binding for '"
                     <> methodName
-                    <> "' in impl declaration body at "
-                    <> renderSourceSpan methodSpan
+                    <> "' in impl declaration body"
                 )
             )
         token : _ ->
           Left
-            ( parseDiagnostic
-                ( "expected ordinary method binding or '}' in impl declaration body at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                ( "expected ordinary method binding or '}' in impl declaration body, found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -1255,28 +1219,26 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
   case maybeHeaderArguments of
     Nothing ->
       Left
-        ( parseDiagnostic
-            ( "class declarations require an explicit parameter list at "
-                <> renderSourceSpan (tokenSpan declarationToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
+            "class declarations require an explicit parameter list"
         )
     Just [] ->
       Left
-        ( parseDiagnostic
-            ( "class declarations require at least one explicit lowercase parameter at "
-                <> renderSourceSpan (tokenSpan declarationToken)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan declarationToken)
+            "class declarations require at least one explicit lowercase parameter"
         )
     Just headerArguments -> do
       classParameters <- traverse classParameterFromHeaderArgument headerArguments
       case duplicateClassParameterName classParameters of
         Just duplicateName ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
                 ( "duplicate class parameter '"
                     <> duplicateName
-                    <> "' at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
+                    <> "'"
                 )
             )
         Nothing ->
@@ -1284,10 +1246,9 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
             [_] -> Right classParameters
             _ ->
               Left
-                ( parseDiagnostic
-                    ( "class declarations currently support exactly one parameter at "
-                        <> renderSourceSpan (tokenSpan declarationToken)
-                    )
+                ( parseDiagnosticAt
+                    (tokenSpan declarationToken)
+                    "class declarations currently support exactly one parameter"
                 )
   where
     classParameterFromHeaderArgument argument =
@@ -1296,10 +1257,9 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
           Right parameterName
         _ ->
           Left
-            ( parseDiagnostic
-                ( "class parameters must be lowercase type variables at "
-                    <> renderSourceSpan (tokenSpan declarationToken)
-                )
+            ( parseDiagnosticAt
+                (tokenSpan declarationToken)
+                "class parameters must be lowercase type variables"
             )
 
     duplicateClassParameterName classParameters =
@@ -1322,10 +1282,9 @@ parseDataTypeName tokens =
           Right (mkIdentifier typeName, rest)
       | otherwise ->
           Left
-            ( parseDiagnostic
-                ( "expected type constructor name at "
-                    <> renderSourceSpan typeSpan
-                    <> ", found '"
+            ( parseDiagnosticAt
+                typeSpan
+                ( "expected type constructor name, found '"
                     <> typeName
                     <> "'"
                 )
@@ -1334,10 +1293,9 @@ parseDataTypeName tokens =
       Left (parseDiagnostic "expected type constructor name before end of input after 'data'")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected type constructor name at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected type constructor name, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1365,10 +1323,9 @@ parseDataTypeParameters tokens = go Set.empty [] tokens
                     rest
           | otherwise ->
               Left
-                ( parseDiagnostic
-                    ( "expected lowercase type parameter or '=' at "
-                        <> renderSourceSpan parameterSpan
-                        <> ", found '"
+                ( parseDiagnosticAt
+                    parameterSpan
+                    ( "expected lowercase type parameter or '=', found '"
                         <> parameterName
                         <> "'"
                     )
@@ -1408,10 +1365,9 @@ parseDataConstructors typeName typeParameters tokensAfterEquals = do
           Left (parseDiagnostic "expected '.' before end of input in data declaration")
         token : _ ->
           Left
-            ( parseDiagnostic
-                ( "expected '|' or '.' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                ( "expected '|' or '.', found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -1433,10 +1389,9 @@ parseDataConstructor typeName typeParameterNames tokens =
             )
       | otherwise ->
           Left
-            ( parseDiagnostic
-                ( "expected constructor declaration at "
-                    <> renderSourceSpan constructorSpan
-                    <> ", found '"
+            ( parseDiagnosticAt
+                constructorSpan
+                ( "expected constructor declaration, found '"
                     <> constructorName
                     <> "'"
                 )
@@ -1445,10 +1400,9 @@ parseDataConstructor typeName typeParameterNames tokens =
       Left (parseDiagnostic "expected constructor declaration before end of input in data declaration")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected constructor declaration at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected constructor declaration, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1498,10 +1452,9 @@ parseDataConstructorArgument typeName typeParameterNames tokens =
       Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected constructor argument at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected constructor argument, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1532,12 +1485,11 @@ consumeBalancedDataConstructorGroup expectedClosers tokens =
                 else consumeBalancedDataConstructorGroup remainingClosers rest
         _ ->
           Left
-            ( parseDiagnostic
+            ( parseDiagnosticAt
+                (tokenSpan token)
                 ( "unexpected '"
                     <> tokenLexeme token
-                    <> "' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> " in constructor argument"
+                    <> "' in constructor argument"
                 )
             )
 
@@ -1554,28 +1506,25 @@ parseModulePath tokens =
               go (nextSegment : revSegments) remaining
             separatorToken@Token {tokenKind = TColonColon} : [] ->
               Left
-                ( parseDiagnostic
-                    ( "expected module path segment before end of input at "
-                        <> renderSourceSpan (tokenSpan separatorToken)
-                    )
+                ( parseDiagnosticAt
+                    (tokenSpan separatorToken)
+                    "expected module path segment before end of input"
                 )
             separatorToken@Token {tokenKind = TColonColon} : token : _
               | tokenKind token == TDot ->
                   Left
-                    ( parseDiagnostic
-                        ( "expected module path segment at "
-                            <> renderSourceSpan (tokenSpan separatorToken)
-                            <> ", found '"
+                    ( parseDiagnosticAt
+                        (tokenSpan separatorToken)
+                        ( "expected module path segment, found '"
                             <> tokenLexeme token
                             <> "'"
                         )
                     )
               | otherwise ->
                   Left
-                    ( parseDiagnostic
-                        ( "expected module path segment at "
-                            <> renderSourceSpan (tokenSpan token)
-                            <> ", found '"
+                    ( parseDiagnosticAt
+                        (tokenSpan token)
+                        ( "expected module path segment, found '"
                             <> tokenLexeme token
                             <> "'"
                         )
@@ -1583,10 +1532,9 @@ parseModulePath tokens =
             _ -> Right (reverse revSegments, allTokens)
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected module path segment at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected module path segment, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1597,10 +1545,9 @@ parseImportSymbolList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     token@Token {tokenKind = TRParen} : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected at least one import symbol before ')' at "
-                <> renderSourceSpan (tokenSpan token)
-            )
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            "expected at least one import symbol before ')'"
         )
     _ ->
       parseNonEmptyUniqueList
@@ -1641,13 +1588,12 @@ parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tok
           if Set.member nextItem seenItems
             then
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    itemSpan
                     ( "duplicate "
                         <> itemDescription
                         <> " "
                         <> renderItem nextItem
-                        <> " at "
-                        <> renderSourceSpan itemSpan
                     )
                 )
             else
@@ -1663,10 +1609,9 @@ parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tok
             )
         token : _ ->
           Left
-            ( parseDiagnostic
-                ( "expected ',' or ')' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                ( "expected ',' or ')', found '"
                     <> tokenLexeme token
                     <> "'"
                 )
@@ -1683,10 +1628,9 @@ parseModuleExport tokens =
     [] -> Left (parseDiagnostic "expected module export name before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected module export name at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected module export name, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1710,10 +1654,9 @@ parseImportSymbol tokens =
       Left (parseDiagnostic "expected import symbol before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected import symbol at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected import symbol, found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -1728,20 +1671,19 @@ collectUntilDot = go []
         TDot
           | null acc ->
               Left
-                ( parseDiagnostic
-                    ( "expected signature text before '.' at "
-                        <> renderSourceSpan (tokenSpan token)
-                    )
+                ( parseDiagnosticAt
+                    (tokenSpan token)
+                    "expected signature text before '.'"
                 )
           | otherwise -> Right (reverse acc, rest)
         _
           | not (null acc) && beginsStatement allTokens ->
               Left
-                ( parseDiagnostic
+                ( parseDiagnosticAt
+                    (tokenSpan token)
                     ( "expected '.' before '"
                         <> tokenLexeme token
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan token)
+                        <> "'"
                     )
                 )
           | otherwise -> go (token : acc) rest
@@ -1902,49 +1844,41 @@ collectImportAliasesInStatementList stopAtRightBrace = go (0 :: Int) Set.empty
 rejectNestedModuleDeclaration :: Token -> Either Diagnostic a
 rejectNestedModuleDeclaration moduleToken =
   Left
-    ( parseDiagnostic
-        ( "module declaration must remain top-level at "
-            <> renderSourceSpan (tokenSpan moduleToken)
-        )
+    ( parseDiagnosticAt
+        (tokenSpan moduleToken)
+        "module declaration must remain top-level"
     )
 
 rejectNestedImportDeclaration :: Token -> Either Diagnostic a
 rejectNestedImportDeclaration importToken =
   Left
-    ( setDiagnosticPrimarySpan
+    ( parseDiagnosticAt
         (tokenSpan importToken)
-        ( parseDiagnostic
-            ( "import declaration must remain at file scope or directly in a module body at "
-                <> renderSourceSpan (tokenSpan importToken)
-            )
-        )
+        "import declaration must remain at file scope or directly in a module body"
     )
 
 rejectNestedDataDeclaration :: Token -> Either Diagnostic a
 rejectNestedDataDeclaration dataToken =
   Left
-    ( parseDiagnostic
-        ( "data declaration must remain top-level at "
-            <> renderSourceSpan (tokenSpan dataToken)
-        )
+    ( parseDiagnosticAt
+        (tokenSpan dataToken)
+        "data declaration must remain top-level"
     )
 
 rejectNestedOperatorBinding :: Token -> Either Diagnostic a
 rejectNestedOperatorBinding operatorToken =
   Left
-    ( parseDiagnostic
-        ( "operator bindings are only allowed at file scope or directly in module bodies at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-        )
+    ( parseDiagnosticAt
+        (tokenSpan operatorToken)
+        "operator bindings are only allowed at file scope or directly in module bodies"
     )
 
 rejectNestedOperatorSignature :: Token -> Either Diagnostic a
 rejectNestedOperatorSignature operatorToken =
   Left
-    ( parseDiagnostic
-        ( "operator signatures are only allowed at file scope or directly in module bodies at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-        )
+    ( parseDiagnosticAt
+        (tokenSpan operatorToken)
+        "operator signatures are only allowed at file scope or directly in module bodies"
     )
 
 looksLikeOperatorDeclaration :: [Token] -> Bool
@@ -1989,31 +1923,25 @@ hasAbstractionBodyBeforeTerminator tokens =
 
 rejectReservedAbstractionSyntax :: Token -> Either Diagnostic a
 rejectReservedAbstractionSyntax abstractionToken =
-  Left (parseDiagnostic (abstractionSyntaxDiagnosticText abstractionToken))
+  Left (parseDiagnosticAt (tokenSpan abstractionToken) (abstractionSyntaxDiagnosticText abstractionToken))
 
 abstractionSyntaxDiagnosticText :: Token -> Text
 abstractionSyntaxDiagnosticText abstractionToken =
   let abstractionName = tokenLexeme abstractionToken
-      location = renderSourceSpan (tokenSpan abstractionToken)
    in case abstractionName of
         "trait" ->
-          "unsupported abstraction syntax 'trait' at "
-            <> location
-            <> ": trait declarations are non-canonical; use class/impl once abstraction semantics land in jazz-next"
+          "unsupported abstraction syntax 'trait': trait declarations are non-canonical; use class/impl once abstraction semantics land in jazz-next"
         _ ->
           "unsupported abstraction syntax '"
             <> abstractionName
-            <> "' at "
-            <> location
-            <> ": executable class/impl abstraction semantics are deferred in jazz-next"
+            <> "': executable class/impl abstraction semantics are deferred in jazz-next"
 
 rejectNestedOperatorDeclaration :: Token -> Either Diagnostic a
 rejectNestedOperatorDeclaration operatorToken =
   Left
-    ( parseDiagnostic
-        ( "operator declarations are only allowed at file scope or directly in module bodies at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-        )
+    ( parseDiagnosticAt
+        (tokenSpan operatorToken)
+        "operator declarations are only allowed at file scope or directly in module bodies"
     )
 
 consumeDot :: [Token] -> Either Diagnostic [Token]
@@ -2023,26 +1951,24 @@ consumeDot tokens =
     [] -> Left (parseDiagnostic "expected '.' before end of input")
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected '.' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected '.', found '"
                 <> tokenLexeme token
                 <> "'"
             )
         )
 
-consumeEquals :: [Token] -> Text -> Either Diagnostic [Token]
-consumeEquals tokens endOfInputMessage =
+consumeEquals :: SourceSpan -> [Token] -> Text -> Either Diagnostic [Token]
+consumeEquals endOfInputSpan tokens endOfInputMessage =
   case tokens of
     Token {tokenKind = TEquals} : rest -> Right rest
-    [] -> Left (parseDiagnostic endOfInputMessage)
+    [] -> Left (parseDiagnosticAt endOfInputSpan endOfInputMessage)
     token : _ ->
       Left
-        ( parseDiagnostic
-            ( "expected '=' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ( "expected '=', found '"
                 <> tokenLexeme token
                 <> "'"
             )
@@ -2064,4 +1990,8 @@ isTypeParameterIdentifierText name =
     Nothing -> False
 
 parseDiagnostic :: Text -> Diagnostic
-parseDiagnostic = mkDiagnostic "E0001"
+parseDiagnostic = mkErrorDiagnostic E0001 CompilationOrigin
+
+parseDiagnosticAt :: SourceSpan -> Text -> Diagnostic
+parseDiagnosticAt spanValue =
+  setDiagnosticPrimaryLabel spanValue "here" . parseDiagnostic

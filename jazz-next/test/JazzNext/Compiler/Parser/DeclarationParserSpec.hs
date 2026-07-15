@@ -9,6 +9,9 @@ import JazzNext.Compiler.Diagnostics
     diagnosticPrimarySpan,
     diagnosticSummary
   )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
+  )
 import JazzNext.Compiler.Name
   ( mkIdentifier
   )
@@ -119,7 +122,7 @@ testRejectsNestedImport =
   -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
   case parseSurfaceProgram "main = {\n  import Lib::Value.\n  value.\n}." of
     Left diagnostic -> do
-      assertEqual "nested import code" "E0001" (diagnosticCode diagnostic)
+      assertEqual "nested import code" "E0001" (diagnosticCodeText (diagnosticCode diagnostic))
       assertEqual "nested import span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
     Right _ -> failTest "expected nested import to fail"
 

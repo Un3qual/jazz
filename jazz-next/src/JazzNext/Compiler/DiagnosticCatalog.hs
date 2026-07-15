@@ -11,6 +11,7 @@ module JazzNext.Compiler.DiagnosticCatalog
     allDiagnosticMetadata,
     allWarningCategories,
     diagnosticCodeText,
+    errorCode,
     lookupWarningCategory,
     warningCode,
     warningHasAnalyzerEmitter,
@@ -106,6 +107,12 @@ data ErrorCode
   | E4013
   | E4014
   | E4015
+  | E4016
+  | E5001
+  | E5002
+  | E5003
+  | E5004
+  | E5005
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 -- | User-visible warning families. Tokens and codes are compatibility
@@ -164,8 +171,11 @@ allWarningCategories = [minBound .. maxBound]
 diagnosticCodeText :: DiagnosticCode -> Text
 diagnosticCodeText code =
   case code of
-    NativeErrorCode errorCode -> Text.pack (show errorCode)
+    NativeErrorCode nativeCode -> Text.pack (show nativeCode)
     ConfigurableWarningCode category -> formatCode 'W' (fromEnum category + 1)
+
+errorCode :: ErrorCode -> DiagnosticCode
+errorCode = NativeErrorCode
 
 warningCode :: WarningCategory -> DiagnosticCode
 warningCode = ConfigurableWarningCode
@@ -200,7 +210,7 @@ lookupWarningCategory rawToken =
 errorMetadata :: ErrorCode -> DiagnosticMetadata
 errorMetadata code =
   DiagnosticMetadata
-    { metadataCode = NativeErrorCode code,
+    { metadataCode = errorCode code,
       metadataDefaultSeverity = SeverityError,
       metadataSubsystem = errorSubsystem code,
       metadataWarningCategory = Nothing,
@@ -225,7 +235,8 @@ errorSubsystem code
   | code <= E1010 = AnalysisDiagnostics
   | code <= E2017 = TypeDiagnostics
   | code <= E3039 = RuntimeDiagnostics
-  | otherwise = ModuleDiagnostics
+  | code <= E4016 = ModuleDiagnostics
+  | otherwise = ToolingDiagnostics
 
 warningSubsystem :: WarningCategory -> DiagnosticSubsystem
 warningSubsystem category =

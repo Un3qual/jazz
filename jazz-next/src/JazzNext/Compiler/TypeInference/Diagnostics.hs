@@ -86,12 +86,17 @@ import JazzNext.Compiler.CapabilityFacts
     identifierLooksLikeTypeVariable
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan,
-    mkDiagnostic,
+    diagnosticPrimarySpan,
+    mkErrorDiagnostic,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.Name (Name, identifierText)
 import JazzNext.Compiler.TypeInference.State
@@ -149,15 +154,15 @@ mkNumericBinaryTypeError = mkBinaryTypeError
 
 mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkBinaryTypeError operatorSymbol leftType rightType =
-  mkDiagnostic "E2003" $ "cannot apply operator '" <> operatorSymbol <> "' to operands of type " <> renderType leftType <> " and " <> renderType rightType
+  mkErrorDiagnostic E2003 CompilationOrigin $ "cannot apply operator '" <> operatorSymbol <> "' to operands of type " <> renderType leftType <> " and " <> renderType rightType
 
 mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
-  mkDiagnostic "E2004" $ "strict equality operator '" <> operatorSymbol <> "' requires operands of the same type, found " <> renderType leftType <> " and " <> renderType rightType
+  mkErrorDiagnostic E2004 CompilationOrigin $ "strict equality operator '" <> operatorSymbol <> "' requires operands of the same type, found " <> renderType leftType <> " and " <> renderType rightType
 
 mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Diagnostic
 mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
-  mkDiagnostic "E2004" $ "strict equality operator '" <> operatorSymbol <> "' is only supported for Bool, Char, Text, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found " <> renderType foundType <> callableNote
+  mkErrorDiagnostic E2004 CompilationOrigin $ "strict equality operator '" <> operatorSymbol <> "' is only supported for Bool, Char, Text, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found " <> renderType foundType <> callableNote
   where
     callableNote
       | typeContainsFunction foundType = "; callable values are not equality-supported"
@@ -174,83 +179,83 @@ typeContainsFunction expressionType =
 
 mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
 mkDuplicateDataTypeDeclarationError typeName spanValue =
-  setDiagnosticSubject typeName $ setDiagnosticPrimarySpan spanValue $ mkDiagnostic "E2014" ("duplicate data type declaration '" <> typeName <> "'")
+  setDiagnosticSubject typeName $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2014 CompilationOrigin ("duplicate data type declaration '" <> typeName <> "'")
 
 mkSignatureTypeMismatchError :: Text -> SourceSpan -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkSignatureTypeMismatchError bindingName signatureSpan declaredType bindingSpan inferredType =
   setDiagnosticSubject bindingName $ setDiagnosticRelatedSpan bindingSpan $ setDiagnosticPrimarySpan signatureSpan $
-    mkDiagnostic "E2005" ("binding '" <> bindingName <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
+    mkErrorDiagnostic E2005 CompilationOrigin ("binding '" <> bindingName <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
 
 mkApplyTypeError :: ExpressionType -> ExpressionType -> Diagnostic
 mkApplyTypeError functionType argumentType =
-  mkDiagnostic "E2006" $ "cannot apply function of type " <> renderType functionType <> " to argument of type " <> renderType argumentType
+  mkErrorDiagnostic E2006 CompilationOrigin $ "cannot apply function of type " <> renderType functionType <> " to argument of type " <> renderType argumentType
 
 mkExplicitTypeApplicationTargetError :: Diagnostic
-mkExplicitTypeApplicationTargetError = mkDiagnostic "E2017" "explicit type application target must be a generalized binding"
+mkExplicitTypeApplicationTargetError = mkErrorDiagnostic E2017 CompilationOrigin "explicit type application target must be a generalized binding"
 
 mkNumericConversionLiteralTypeError :: Text -> Integer -> NumericType -> (Integer, Integer) -> Diagnostic
 mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
-  mkDiagnostic "E2006" $ "numeric conversion '" <> conversionName <> "' cannot convert integer literal " <> tshow literalValue <> " outside " <> renderNumericTypeName targetType <> " range " <> tshow lowerBound <> ".." <> tshow upperBound
+  mkErrorDiagnostic E2006 CompilationOrigin $ "numeric conversion '" <> conversionName <> "' cannot convert integer literal " <> tshow literalValue <> " outside " <> renderNumericTypeName targetType <> " range " <> tshow lowerBound <> ".." <> tshow upperBound
 
 mkNumericConversionFractionalLiteralTypeError :: Text -> Double -> NumericType -> (Integer, Integer) -> Diagnostic
 mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
-  mkDiagnostic "E2006" $ "numeric conversion '" <> conversionName <> "' cannot convert fractional literal " <> tshow literalValue <> " to integral target " <> renderNumericTypeName targetType <> "; expected a finite integral value in range " <> tshow lowerBound <> ".." <> tshow upperBound
+  mkErrorDiagnostic E2006 CompilationOrigin $ "numeric conversion '" <> conversionName <> "' cannot convert fractional literal " <> tshow literalValue <> " to integral target " <> renderNumericTypeName targetType <> "; expected a finite integral value in range " <> tshow lowerBound <> ".." <> tshow upperBound
 
 mkNumericConversionFloatLiteralOverflowError :: Text -> Double -> NumericType -> Double -> Diagnostic
 mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude =
-  mkDiagnostic "E2006" $ "numeric conversion '" <> conversionName <> "' cannot convert fractional literal " <> tshow literalValue <> " outside finite " <> renderNumericTypeName targetType <> " magnitude " <> tshow maxMagnitude
+  mkErrorDiagnostic E2006 CompilationOrigin $ "numeric conversion '" <> conversionName <> "' cannot convert fractional literal " <> tshow literalValue <> " outside finite " <> renderNumericTypeName targetType <> " magnitude " <> tshow maxMagnitude
 
 mkTargetedFractionalLiteralOverflowError :: Double -> NumericType -> Double -> Diagnostic
 mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude =
-  mkDiagnostic "E2006" $ "fractional literal " <> tshow literalValue <> " cannot target finite " <> renderNumericTypeName targetType <> " magnitude " <> tshow maxMagnitude
+  mkErrorDiagnostic E2006 CompilationOrigin $ "fractional literal " <> tshow literalValue <> " cannot target finite " <> renderNumericTypeName targetType <> " magnitude " <> tshow maxMagnitude
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =
   setDiagnosticPrimarySpan bindingSpan $ setDiagnosticSubject bindingName $
-    mkDiagnostic "E2006" ("binding '" <> bindingName <> "' is used recursively as type " <> renderType expectedType <> " but its definition inferred " <> renderType actualType)
+    mkErrorDiagnostic E2006 CompilationOrigin ("binding '" <> bindingName <> "' is used recursively as type " <> renderType expectedType <> " but its definition inferred " <> renderType actualType)
 
 mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkListElementTypeMismatchError expectedType foundType =
-  mkDiagnostic "E2007" $ "list literal elements must have matching types, found " <> renderType expectedType <> " and " <> renderType foundType
+  mkErrorDiagnostic E2007 CompilationOrigin $ "list literal elements must have matching types, found " <> renderType expectedType <> " and " <> renderType foundType
 
 mkUnsupportedSectionOperatorError :: Text -> Diagnostic
-mkUnsupportedSectionOperatorError symbol = mkDiagnostic "E2008" ("unsupported operator section '" <> symbol <> "'")
+mkUnsupportedSectionOperatorError symbol = mkErrorDiagnostic E2008 CompilationOrigin ("unsupported operator section '" <> symbol <> "'")
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
-mkUnsupportedOperatorValueError symbol = mkDiagnostic "E2003" ("builtin operator '" <> symbol <> "' has no value type rule")
+mkUnsupportedOperatorValueError symbol = mkErrorDiagnostic E2003 CompilationOrigin ("builtin operator '" <> symbol <> "' has no value type rule")
 
 mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
 mkNumericSectionOperandTypeError symbol operandType =
-  mkDiagnostic "E2003" $ "operator section '" <> symbol <> "' requires a numeric operand, found " <> renderType operandType
+  mkErrorDiagnostic E2003 CompilationOrigin $ "operator section '" <> symbol <> "' requires a numeric operand, found " <> renderType operandType
 
 mkTypeSchemeNumericConstraintError :: NumericConstraint -> ExpressionType -> Diagnostic
-mkTypeSchemeNumericConstraintError _ foundType = mkDiagnostic "E2003" ("primitive numeric constraint cannot be satisfied by " <> renderType foundType)
+mkTypeSchemeNumericConstraintError _ foundType = mkErrorDiagnostic E2003 CompilationOrigin ("primitive numeric constraint cannot be satisfied by " <> renderType foundType)
 
 mkTypeSchemeStrictEqualityConstraintError :: ExpressionType -> Diagnostic
-mkTypeSchemeStrictEqualityConstraintError foundType = mkDiagnostic "E2004" ("primitive strict equality constraint cannot be satisfied by " <> renderType foundType)
+mkTypeSchemeStrictEqualityConstraintError foundType = mkErrorDiagnostic E2004 CompilationOrigin ("primitive strict equality constraint cannot be satisfied by " <> renderType foundType)
 
 mkMissingOperatorBindingError :: Text -> Diagnostic
-mkMissingOperatorBindingError symbol = mkDiagnostic "E2010" ("operator '" <> symbol <> "' has no executable binding")
+mkMissingOperatorBindingError symbol = mkErrorDiagnostic E2010 CompilationOrigin ("operator '" <> symbol <> "' has no executable binding")
 
 mkMissingClassMethodError, mkMissingImplMethodBodyError, mkAmbiguousQualifiedMethodBodyError :: Text -> Diagnostic
-mkMissingClassMethodError key = withSubject key $ mkDiagnostic "E2015" ("missing class method '" <> key <> "'")
-mkMissingImplMethodBodyError key = withSubject key $ mkDiagnostic "E2015" ("missing impl method body '" <> key <> "'")
-mkAmbiguousQualifiedMethodBodyError key = withSubject key $ mkDiagnostic "E2015" ("ambiguous qualified method body '" <> key <> "'")
+mkMissingClassMethodError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing class method '" <> key <> "'")
+mkMissingImplMethodBodyError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("missing impl method body '" <> key <> "'")
+mkAmbiguousQualifiedMethodBodyError key = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("ambiguous qualified method body '" <> key <> "'")
 
 mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArgumentsError :: Text -> [ExpressionType] -> Diagnostic
-mkNoMatchingQualifiedMethodBodyError key types = withSubject key $ mkDiagnostic "E2015" ("no matching qualified method body '" <> key <> "' for argument types " <> renderTypes types)
-mkAmbiguousQualifiedMethodBodyForArgumentsError key types = withSubject key $ mkDiagnostic "E2015" ("ambiguous qualified method body '" <> key <> "' for argument types " <> renderTypes types)
+mkNoMatchingQualifiedMethodBodyError key types = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("no matching qualified method body '" <> key <> "' for argument types " <> renderTypes types)
+mkAmbiguousQualifiedMethodBodyForArgumentsError key types = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("ambiguous qualified method body '" <> key <> "' for argument types " <> renderTypes types)
 
 mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload -> Diagnostic
 mkInvalidQualifiedMethodSignatureError key payload =
-  withSubject key $ mkDiagnostic "E2015" ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
+  withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
 
 mkMethodLocalTypeVariableError :: Text -> Text -> SourceSpan -> Diagnostic
 mkMethodLocalTypeVariableError methodKey variableName methodSpan =
   withSubject methodKey $
     setDiagnosticPrimarySpan methodSpan $
-      mkDiagnostic
-        "E2009"
+      mkErrorDiagnostic
+        E2009 CompilationOrigin
         ( "class method '"
             <> methodKey
             <> "' uses unsupported method-local type variable '"
@@ -262,8 +267,8 @@ mkUndeclaredSignatureConstraintError :: Text -> Bool -> Text -> ExpressionType -
 mkUndeclaredSignatureConstraintError bindingName primitive constraintName argumentType signatureSpan =
   withSubject bindingName $
     setDiagnosticPrimarySpan signatureSpan $
-      mkDiagnostic
-        "E2009"
+      mkErrorDiagnostic
+        E2009 CompilationOrigin
         ( "signature for '"
             <> bindingName
             <> "' does not declare required "
@@ -276,75 +281,75 @@ mkUndeclaredSignatureConstraintError bindingName primitive constraintName argume
         )
 
 mkImplMethodMissingClassMethodError :: Text -> SourceSpan -> Diagnostic
-mkImplMethodMissingClassMethodError key spanValue = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkDiagnostic "E2015" ("class method metadata for '" <> key <> "' must be declared before impl method body")
+mkImplMethodMissingClassMethodError key spanValue = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2015 CompilationOrigin ("class method metadata for '" <> key <> "' must be declared before impl method body")
 
 mkImplMethodTypeMismatchError :: Text -> SourceSpan -> ExpressionType -> ExpressionType -> Diagnostic
-mkImplMethodTypeMismatchError key spanValue declaredType inferredType = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkDiagnostic "E2016" ("impl method '" <> key <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
+mkImplMethodTypeMismatchError key spanValue declaredType inferredType = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2016 CompilationOrigin ("impl method '" <> key <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
 
 mkUnknownConstructorPayloadTypeError :: Name -> Diagnostic
-mkUnknownConstructorPayloadTypeError name = mkDiagnostic "E2013" ("unknown constructor payload type '" <> identifierText name <> "' in generic data declaration")
+mkUnknownConstructorPayloadTypeError name = mkErrorDiagnostic E2013 CompilationOrigin ("unknown constructor payload type '" <> identifierText name <> "' in generic data declaration")
 
 mkMissingConstructorTypeParameterBindingError :: Text -> Diagnostic
-mkMissingConstructorTypeParameterBindingError name = mkDiagnostic "E2013" ("internal constructor scheme error: missing binding for type parameter '" <> name <> "'")
+mkMissingConstructorTypeParameterBindingError name = mkErrorDiagnostic E2013 CompilationOrigin ("internal constructor scheme error: missing binding for type parameter '" <> name <> "'")
 
 mkMissingExplicitConstraintClassError :: Text -> Diagnostic
-mkMissingExplicitConstraintClassError name = mkDiagnostic "E2009" ("missing class declaration '" <> name <> "'")
+mkMissingExplicitConstraintClassError name = mkErrorDiagnostic E2009 CompilationOrigin ("missing class declaration '" <> name <> "'")
 
 mkExplicitConstraintArityError :: Text -> Int -> Diagnostic
-mkExplicitConstraintArityError name arity = mkDiagnostic "E2009" ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
+mkExplicitConstraintArityError name arity = mkErrorDiagnostic E2009 CompilationOrigin ("constraint '" <> name <> "' expects " <> tshow arity <> " argument(s), got 1")
 
 mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
-mkMissingExplicitConstraintImplFactError key = mkDiagnostic "E2009" ("missing impl fact '" <> key <> "'")
+mkMissingExplicitConstraintImplFactError key = mkErrorDiagnostic E2009 CompilationOrigin ("missing impl fact '" <> key <> "'")
 
 mkAmbiguousDeferredConstraintError :: Bool -> Text -> ExpressionType -> Diagnostic
 mkAmbiguousDeferredConstraintError inferred name argumentType =
   if inferred
-    then mkDiagnostic "E2009" $ "ambiguous/defaulting inferred constraint '" <> renderedConstraint <> "': inferred class constraints do not default unresolved type variables"
-    else mkDiagnostic "E2009" $ "ambiguous/defaulting explicit constraint '" <> renderedConstraint <> "': explicit constrained signatures do not default unresolved type variables"
+    then mkErrorDiagnostic E2009 CompilationOrigin $ "ambiguous/defaulting inferred constraint '" <> renderedConstraint <> "': inferred class constraints do not default unresolved type variables"
+    else mkErrorDiagnostic E2009 CompilationOrigin $ "ambiguous/defaulting explicit constraint '" <> renderedConstraint <> "': explicit constrained signatures do not default unresolved type variables"
   where
     renderedConstraint = name <> "(" <> renderType argumentType <> ")"
 
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
-mkPatternTypeMismatchError scrutineeType patternType = mkDiagnostic "E2011" ("case pattern of type " <> renderType patternType <> " does not match scrutinee type " <> renderType scrutineeType)
+mkPatternTypeMismatchError scrutineeType patternType = mkErrorDiagnostic E2011 CompilationOrigin ("case pattern of type " <> renderType patternType <> " does not match scrutinee type " <> renderType scrutineeType)
 
 mkListPatternTypeMismatchError :: ExpressionType -> Diagnostic
-mkListPatternTypeMismatchError scrutineeType = mkDiagnostic "E2011" ("case pattern of list type does not match scrutinee type " <> renderType scrutineeType)
+mkListPatternTypeMismatchError scrutineeType = mkErrorDiagnostic E2011 CompilationOrigin ("case pattern of list type does not match scrutinee type " <> renderType scrutineeType)
 
 mkTuplePatternTypeMismatchError :: ExpressionType -> Diagnostic
-mkTuplePatternTypeMismatchError scrutineeType = mkDiagnostic "E2011" ("tuple case pattern does not match scrutinee type " <> renderType scrutineeType)
+mkTuplePatternTypeMismatchError scrutineeType = mkErrorDiagnostic E2011 CompilationOrigin ("tuple case pattern does not match scrutinee type " <> renderType scrutineeType)
 
 mkTuplePatternArityMismatchError :: Int -> Int -> Diagnostic
-mkTuplePatternArityMismatchError patternArity scrutineeArity = mkDiagnostic "E2011" ("tuple case pattern expects " <> tshow patternArity <> " element(s), found " <> tshow scrutineeArity)
+mkTuplePatternArityMismatchError patternArity scrutineeArity = mkErrorDiagnostic E2011 CompilationOrigin ("tuple case pattern expects " <> tshow patternArity <> " element(s), found " <> tshow scrutineeArity)
 
 mkPatternBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
-mkPatternBranchTypeMismatchError leftType rightType = mkDiagnostic "E2012" ("case arms must have matching types, found " <> renderType leftType <> " and " <> renderType rightType)
+mkPatternBranchTypeMismatchError leftType rightType = mkErrorDiagnostic E2012 CompilationOrigin ("case arms must have matching types, found " <> renderType leftType <> " and " <> renderType rightType)
 
 mkIfConditionTypeError :: ExpressionType -> Diagnostic
-mkIfConditionTypeError foundType = mkDiagnostic "E2001" ("if condition must have type Bool, found " <> renderType foundType)
+mkIfConditionTypeError foundType = mkErrorDiagnostic E2001 CompilationOrigin ("if condition must have type Bool, found " <> renderType foundType)
 
 mkCaseGuardTypeError :: ExpressionType -> Diagnostic
-mkCaseGuardTypeError foundType = mkDiagnostic "E2001" ("case guard must have type Bool, found " <> renderType foundType)
+mkCaseGuardTypeError foundType = mkErrorDiagnostic E2001 CompilationOrigin ("case guard must have type Bool, found " <> renderType foundType)
 
 mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
-mkIfBranchTypeMismatchError leftType rightType = mkDiagnostic "E2002" ("if branches must have matching types, found " <> renderType leftType <> " and " <> renderType rightType)
+mkIfBranchTypeMismatchError leftType rightType = mkErrorDiagnostic E2002 CompilationOrigin ("if branches must have matching types, found " <> renderType leftType <> " and " <> renderType rightType)
 
 mkConstructorPatternArityError :: Text -> Int -> Int -> Diagnostic
-mkConstructorPatternArityError name expected actual = mkDiagnostic "E2011" ("constructor case pattern '" <> name <> "' expects " <> tshow expected <> " argument(s), found " <> tshow actual)
+mkConstructorPatternArityError name expected actual = mkErrorDiagnostic E2011 CompilationOrigin ("constructor case pattern '" <> name <> "' expects " <> tshow expected <> " argument(s), found " <> tshow actual)
 
 mkUnknownConstructorPatternError :: Text -> Diagnostic
-mkUnknownConstructorPatternError name = mkDiagnostic "E2011" ("unknown constructor case pattern '" <> name <> "'")
+mkUnknownConstructorPatternError name = mkErrorDiagnostic E2011 CompilationOrigin ("unknown constructor case pattern '" <> name <> "'")
 
 mkDuplicatePatternBinderError :: Name -> Diagnostic
-mkDuplicatePatternBinderError name = mkDiagnostic "E2011" ("duplicate case pattern binder '" <> identifierText name <> "'")
+mkDuplicatePatternBinderError name = mkErrorDiagnostic E2011 CompilationOrigin ("duplicate case pattern binder '" <> identifierText name <> "'")
 
 mkEmptyOrPatternError :: Diagnostic
-mkEmptyOrPatternError = mkDiagnostic "E2011" "or-pattern must contain at least one alternative"
+mkEmptyOrPatternError = mkErrorDiagnostic E2011 CompilationOrigin "or-pattern must contain at least one alternative"
 
 mkOrPatternBinderSetMismatchError :: Set Name -> Set Name -> Diagnostic
-mkOrPatternBinderSetMismatchError expected found = mkDiagnostic "E2011" ("or-pattern alternatives must bind the same names, expected " <> renderBinderSet expected <> " but found " <> renderBinderSet found)
+mkOrPatternBinderSetMismatchError expected found = mkErrorDiagnostic E2011 CompilationOrigin ("or-pattern alternatives must bind the same names, expected " <> renderBinderSet expected <> " but found " <> renderBinderSet found)
 
 mkOrPatternBinderTypeMismatchError :: Name -> ExpressionType -> ExpressionType -> Diagnostic
-mkOrPatternBinderTypeMismatchError name leftType rightType = mkDiagnostic "E2011" ("or-pattern binder '" <> identifierText name <> "' has incompatible types " <> renderType leftType <> " and " <> renderType rightType)
+mkOrPatternBinderTypeMismatchError name leftType rightType = mkErrorDiagnostic E2011 CompilationOrigin ("or-pattern binder '" <> identifierText name <> "' has incompatible types " <> renderType leftType <> " and " <> renderType rightType)
 
 renderType :: ExpressionType -> Text
 renderType expressionType =
@@ -476,8 +481,8 @@ mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
   setDiagnosticSubject symbol $
     setDiagnosticPrimarySpan
       signatureSpan
-      ( mkDiagnostic
-          "E2009"
+      ( mkErrorDiagnostic
+          E2009 CompilationOrigin
           (invalidSignatureSummary state symbol signaturePayload)
       )
 
@@ -523,8 +528,8 @@ invalidSignatureSummary state symbol signaturePayload =
 mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> SignatureType -> Diagnostic
 mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
   setDiagnosticPrimarySpan spanValue $
-    mkDiagnostic
-      "E2009"
+    mkErrorDiagnostic
+      E2009 CompilationOrigin
       ( case signatureTypeFailureSummary state signatureType of
           Just reason -> reason
           Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
@@ -536,7 +541,7 @@ mkInvalidImplTargetError state implSpan signatureType =
     Just failureSummary ->
       Just
         ( setDiagnosticPrimarySpan implSpan
-            (mkDiagnostic "E2009" ("invalid impl target: " <> failureSummary))
+            (mkErrorDiagnostic E2009 CompilationOrigin ("invalid impl target: " <> failureSummary))
         )
     Nothing -> Nothing
 

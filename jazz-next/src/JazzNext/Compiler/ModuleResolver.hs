@@ -30,16 +30,19 @@ import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan,
-    mkDiagnostic,
-    mkMessageDiagnostic,
+    mkErrorDiagnostic,
     prependDiagnosticSummary,
-    qualifySourceSpan,
-    setDiagnosticCode,
+    qualifyDiagnosticSpans,
+    setDiagnosticErrorCode,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..)
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
@@ -175,10 +178,10 @@ modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
 parseModulePathText :: Text -> Either Diagnostic [Text]
 parseModulePathText rawModulePath
   | Text.null rawModulePath =
-      Left (mkMessageDiagnostic "entry module path cannot be empty")
+      Left (mkErrorDiagnostic E4016 CompilationOrigin "entry module path cannot be empty")
   | any Text.null segments =
       Left
-        ( mkMessageDiagnostic
+        ( mkErrorDiagnostic E4016 CompilationOrigin
             ( "invalid entry module path '"
                 <> rawModulePath
                 <> "': empty path segment"
@@ -186,7 +189,7 @@ parseModulePathText rawModulePath
         )
   | not (all isValidSegment segments) =
       Left
-        ( mkMessageDiagnostic
+        ( mkErrorDiagnostic E4016 CompilationOrigin
             ( "invalid entry module path '"
                 <> rawModulePath
                 <> "': segments must be identifiers"
@@ -289,7 +292,7 @@ resolveStateWithLookupAndVisibleSymbols ::
   m (Either Diagnostic ResolvedState)
 resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
   | null entryModulePath =
-      pure (Left (mkMessageDiagnostic "empty entry module path"))
+      pure (Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path"))
   | otherwise =
       visitModule [] initialState entryModulePath
   where
@@ -404,8 +407,8 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
         case matchingCandidates of
           [] ->
             Left
-              ( mkDiagnostic
-                  "E4001"
+              ( mkErrorDiagnostic
+                  E4001 CompilationOrigin
                   ( "unresolved import '"
                       <> renderModulePath modulePath
                       <> "'"
@@ -418,8 +421,8 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
             Right (sourcePath, sourceText)
           _ ->
             Left
-              ( mkDiagnostic
-                  "E4002"
+              ( mkErrorDiagnostic
+                  E4002 CompilationOrigin
                   ( "ambiguous import '"
                       <> renderModulePath modulePath
                       <> "'"
@@ -450,7 +453,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
-        ( setDiagnosticCode "E4004"
+        ( setDiagnosticErrorCode E4004
             ( prependDiagnosticSummary
                 ("module parse error at '" <> Text.pack sourcePath <> "': ")
                 (qualifyDiagnosticSpans sourcePath parseError)
@@ -480,13 +483,6 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             parsedModuleCore = coreModule
           }
 
-qualifyDiagnosticSpans :: FilePath -> Diagnostic -> Diagnostic
-qualifyDiagnosticSpans sourcePath diagnostic =
-  diagnostic
-    { diagnosticPrimarySpan = qualifySourceSpan sourcePath <$> diagnosticPrimarySpan diagnostic,
-      diagnosticRelatedSpan = qualifySourceSpan sourcePath <$> diagnosticRelatedSpan diagnostic
-    }
-
 validatePublicExportInventory ::
   FilePath ->
   [Text] ->
@@ -506,8 +502,8 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
                 ( setDiagnosticSubject (moduleExportSelectorName missingSelector)
                     ( setDiagnosticPrimarySpan
                         moduleSpan
-                        ( mkDiagnostic
-                            "E4015"
+                        ( mkErrorDiagnostic
+                            E4015 CompilationOrigin
                             ( "module export "
                                 <> renderModuleExportSelector missingSelector
                                 <> " is not declared by module '"
@@ -1360,8 +1356,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           case dependencyInventory importDecl of
             Nothing ->
               Left
-                ( mkDiagnostic
-                    "E4010"
+                ( mkErrorDiagnostic
+                    E4010 CompilationOrigin
                     ( "internal resolver error while validating imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
@@ -1390,8 +1386,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           case dependencyInventory importDecl of
             Nothing ->
               Left
-                ( mkDiagnostic
-                    "E4010"
+                ( mkErrorDiagnostic
+                    E4010 CompilationOrigin
                     ( "internal resolver error while validating type imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
@@ -1445,8 +1441,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                   case dependencyInventory importDecl of
                     Nothing ->
                       Left
-                        ( mkDiagnostic
-                            "E4010"
+                        ( mkErrorDiagnostic
+                            E4010 CompilationOrigin
                             ( "internal resolver error while validating imports for '"
                                 <> renderModulePath importerPath
                                 <> "': missing exports for module '"
@@ -1476,8 +1472,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               case dependencyInventory importDecl of
                 Nothing ->
                   Left
-                    ( mkDiagnostic
-                        "E4010"
+                    ( mkErrorDiagnostic
+                        E4010 CompilationOrigin
                         ( "internal resolver error while validating type imports for '"
                             <> renderModulePath importerPath
                             <> "': missing exports for module '"
@@ -1531,8 +1527,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
-          ( mkDiagnostic
-              "E4007"
+          ( mkErrorDiagnostic
+              E4007 CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
@@ -1553,8 +1549,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
-              ( mkDiagnostic
-                  "E4008"
+              ( mkErrorDiagnostic
+                  E4008 CompilationOrigin
                   ( "import binding collision for symbol '"
                       <> symbolName
                       <> "' in module '"
@@ -1577,8 +1573,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
-              ( mkDiagnostic
-                  "E4008"
+              ( mkErrorDiagnostic
+                  E4008 CompilationOrigin
                   ( "import type collision for '"
                       <> typeName
                       <> "' in module '"
@@ -1597,8 +1593,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     mkUnknownQualifiedAliasError :: Text -> Text -> Diagnostic
     mkUnknownQualifiedAliasError aliasName symbolName =
       setDiagnosticSubject aliasName $
-        mkDiagnostic
-          "E4013"
+        mkErrorDiagnostic
+          E4013 CompilationOrigin
           ( "qualified import alias '"
               <> aliasName
               <> "' is not declared in module '"
@@ -1617,8 +1613,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
-          ( mkDiagnostic
-              "E4014"
+          ( mkErrorDiagnostic
+              E4014 CompilationOrigin
               ( "qualified import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
@@ -1645,8 +1641,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       case dependencyInventory importDecl of
         Nothing ->
           Left
-            ( mkDiagnostic
-                "E4010"
+            ( mkErrorDiagnostic
+                E4010 CompilationOrigin
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
@@ -1672,8 +1668,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       case dependencyInventory importDecl of
         Nothing ->
           Left
-            ( mkDiagnostic
-                "E4010"
+            ( mkErrorDiagnostic
+                E4010 CompilationOrigin
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
@@ -1729,8 +1725,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
-          ( mkDiagnostic
-              "E4011"
+          ( mkErrorDiagnostic
+              E4011 CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible from explicit import of module '"
@@ -1748,8 +1744,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
-          ( mkDiagnostic
-              "E4012"
+          ( mkErrorDiagnostic
+              E4012 CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible unqualified from alias import of module '"
@@ -1771,8 +1767,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
-              ( mkDiagnostic
-                  "E4009"
+              ( mkErrorDiagnostic
+                  E4009 CompilationOrigin
                   ( "import alias collision for '"
                       <> aliasName
                       <> "' in module '"
@@ -1804,8 +1800,8 @@ sortModulePaths modulePaths =
 
 mkCycleError :: [Text] -> [[Text]] -> Diagnostic
 mkCycleError repeatedModulePath callStack =
-  mkDiagnostic
-    "E4003"
+  mkErrorDiagnostic
+    E4003 CompilationOrigin
     ("module import cycle detected: " <> Text.intercalate " -> " (map renderModulePath cycleTrace))
   where
     rootToLeaf = reverse callStack

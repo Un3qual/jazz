@@ -15,6 +15,9 @@ import JazzNext.Compiler.Diagnostics
     diagnosticPrimarySpan,
     renderDiagnostic
   )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
+  )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runModuleGraphWithPrelude
@@ -147,7 +150,7 @@ testLegacyDiagnosticWrapper :: IO ()
 testLegacyDiagnosticWrapper =
   case tokenize "value ` 42." of
     Left diagnostic -> do
-      assertEqual "legacy code" "E0001" (diagnosticCode diagnostic)
+      assertEqual "legacy code" "E0001" (diagnosticCodeText (diagnosticCode diagnostic))
       assertEqual "legacy span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
       assertContains "legacy summary" "unexpected character '`' at 1:7" (renderDiagnostic diagnostic)
     Right tokens -> failTest ("expected lexical failure, got " <> showText tokens)

@@ -34,6 +34,9 @@ import JazzNext.Compiler.Diagnostics
     diagnosticSubject,
     renderDiagnostic
   )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText
+  )
 import System.Exit (exitFailure, exitSuccess)
 
 newtype TestFailure = TestFailure Text
@@ -125,7 +128,7 @@ assertLeftDiagnosticCodeAndContains :: Show a => Text -> Text -> Text -> Either 
 assertLeftDiagnosticCodeAndContains label expectedCode needle value =
   case value of
     Left diagnostic -> do
-      assertEqual (label <> " code") expectedCode (diagnosticCode diagnostic)
+      assertEqual (label <> " code") expectedCode (diagnosticCodeText (diagnosticCode diagnostic))
       assertDiagnosticContains label needle diagnostic
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
@@ -146,7 +149,7 @@ assertSingleDiagnosticCode :: Text -> Text -> [Diagnostic] -> IO ()
 assertSingleDiagnosticCode label expectedCode diagnostics =
   case diagnostics of
     [diagnostic] ->
-      assertEqual label expectedCode (diagnosticCode diagnostic)
+      assertEqual label expectedCode (diagnosticCodeText (diagnosticCode diagnostic))
     _ ->
       failTest
         ( label

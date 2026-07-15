@@ -28,7 +28,12 @@ import JazzNext.Compiler.AST
   ( Expr (EBlock),
     Statement
   )
-import JazzNext.Compiler.Diagnostics (Diagnostic, mkDiagnostic)
+import JazzNext.Compiler.DiagnosticCatalog (ErrorCode (..))
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic
+  )
 import JazzNext.Compiler.ModuleGraph
   ( ResolvedImport (..),
     ResolvedModule (resolvedModuleExportInventory, resolvedModuleImports, resolvedModulePath)
@@ -364,8 +369,9 @@ runtimeOutcomeAsDiagnosticResult outcome =
 
 runtimeExitNotRepresentableDiagnostic :: Integer -> Diagnostic
 runtimeExitNotRepresentableDiagnostic status =
-  mkDiagnostic
-    "E3020"
+  mkErrorDiagnostic
+    E3020
+    RuntimeOrigin
     ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
 
 importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv

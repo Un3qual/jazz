@@ -46,9 +46,10 @@ import JazzNext.Compiler.CapabilityFacts
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticOrigin (..),
     SourceSpan (..),
     WarningRecord (..),
-    mkDiagnostic,
+    mkErrorDiagnostic,
     mkSameScopeRebindingWarning,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
@@ -76,7 +77,8 @@ import JazzNext.Compiler.WarningConfig
     isWarningEnabled
   )
 import JazzNext.Compiler.DiagnosticCatalog
-  ( WarningCategory (..),
+  ( ErrorCode (..),
+    WarningCategory (..),
     diagnosticCodeText,
     warningCode
   )
@@ -703,7 +705,7 @@ flushPendingSignature pending errorsRev =
 mkUnboundVariableError :: Text -> Diagnostic
 mkUnboundVariableError variableName =
   setDiagnosticSubject variableName $
-    mkDiagnostic "E1001" ("unbound variable '" <> variableName <> "'")
+    mkErrorDiagnostic E1001 CompilationOrigin ("unbound variable '" <> variableName <> "'")
 
 qualifiedMethodClassIsVisible :: Set Text -> Text -> Bool
 qualifiedMethodClassIsVisible visibleClassNames nameText =
@@ -717,8 +719,8 @@ mkMissingBindingForSignatureError pendingSignature =
     (pendingSignatureName pendingSignature)
     ( setDiagnosticPrimarySpan
         (pendingSignatureSpan pendingSignature)
-        ( mkDiagnostic
-            "E1002"
+        ( mkErrorDiagnostic
+            E1002 CompilationOrigin
             ( "signature for '"
                 <> pendingSignatureName pendingSignature
                 <> "' must be immediately followed by a matching binding"
@@ -734,8 +736,8 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName bindingSpan =
         bindingSpan
         ( setDiagnosticPrimarySpan
             signatureSpan
-            ( mkDiagnostic
-                "E1003"
+            ( mkErrorDiagnostic
+                E1003 CompilationOrigin
                 ( "signature for '"
                     <> signatureName
                     <> "' must annotate the next binding with the same name; found '"
@@ -751,7 +753,7 @@ mkDuplicateClassDeclarationError className classSpan maybePreviousSpan =
   setDiagnosticSubject className $
     maybe id setDiagnosticRelatedSpan maybePreviousSpan $
       setDiagnosticPrimarySpan classSpan $
-        mkDiagnostic "E1004" ("duplicate class declaration '" <> className <> "'")
+        mkErrorDiagnostic E1004 CompilationOrigin ("duplicate class declaration '" <> className <> "'")
 
 duplicateClassMethodErrors :: Text -> [ClassMethodSignature] -> [Diagnostic]
 duplicateClassMethodErrors className methods =
@@ -774,7 +776,7 @@ mkDuplicateClassMethodError className methodName methodSpan previousSpan =
     setDiagnosticRelatedSpan previousSpan $
       setDiagnosticPrimarySpan
         methodSpan
-        (mkDiagnostic "E1006" ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
+        (mkErrorDiagnostic E1006 CompilationOrigin ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
 
 duplicateImplMethodErrors :: Name -> [SignatureType] -> [ImplMethod] -> [Diagnostic]
 duplicateImplMethodErrors capabilityName arguments methods =
@@ -801,7 +803,7 @@ mkDuplicateImplMethodError implLabel methodName methodSpan previousSpan =
     setDiagnosticRelatedSpan previousSpan $
       setDiagnosticPrimarySpan
         methodSpan
-        (mkDiagnostic "E1007" ("duplicate method binding '" <> methodName <> "' in impl '" <> implLabel <> "'"))
+        (mkErrorDiagnostic E1007 CompilationOrigin ("duplicate method binding '" <> methodName <> "' in impl '" <> implLabel <> "'"))
 
 collectImplMethodDiagnostics ::
   BuiltinResolutionMode ->
@@ -830,7 +832,7 @@ mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =
     setDiagnosticRelatedSpan previousSpan $
       setDiagnosticPrimarySpan
         implSpan
-        (mkDiagnostic "E1005" ("duplicate impl declaration for '" <> implFactKey <> "'"))
+        (mkErrorDiagnostic E1005 CompilationOrigin ("duplicate impl declaration for '" <> implFactKey <> "'"))
 
 topLevelContext :: AnalysisContext
 topLevelContext =
@@ -913,8 +915,8 @@ mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
         ( withMaybe
             maybeCalleeSpan
             setDiagnosticRelatedSpan
-            ( mkDiagnostic
-                "E1010"
+            ( mkErrorDiagnostic
+                E1010 CompilationOrigin
                 ( contextLabel context
                     <> " cannot call impure callee '"
                     <> identifierText calleeName

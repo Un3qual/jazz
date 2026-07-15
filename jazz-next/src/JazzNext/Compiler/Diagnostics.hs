@@ -1,24 +1,51 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Shared diagnostic and warning record types used across parser, analyzer,
--- resolver, runtime, and CLI layers.
+-- | Presentation-neutral diagnostics shared by compiler, runtime, and tooling
+-- layers. Raw construction stays private so native errors and configurable
+-- warnings cannot be assembled in contradictory states.
 module JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
+    DiagnosticLabel,
+    DiagnosticOrigin (..),
     RenderDiagnostic (..),
     SourceSpan (..),
     WarningRecord (..),
     appendDiagnosticNote,
-    mkDiagnostic,
-    mkMessageDiagnostic,
+    appendDiagnosticSecondaryLabel,
+    diagnosticCode,
+    diagnosticHelp,
+    diagnosticNotes,
+    diagnosticOrigin,
+    diagnosticPrimaryLabel,
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSecondaryLabels,
+    diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticSummary,
+    diagnosticWarningCategory,
+    isCompilationDiagnostic,
+    isErrorDiagnostic,
+    isRuntimeDiagnostic,
+    isToolingDiagnostic,
+    isWarningDiagnostic,
+    labelMessage,
+    labelSpan,
+    mkErrorDiagnostic,
+    mkWarningDiagnostic,
     prependDiagnosticSummary,
+    promoteDiagnostic,
+    qualifyDiagnosticSpans,
     qualifySourceSpan,
-    setDiagnosticCode,
-    setDiagnosticPrimarySpan,
-    setDiagnosticRelatedSpan,
-    setDiagnosticSubject,
     renderDiagnostic,
     renderDiagnosticRecord,
     renderSourceSpan,
+    setDiagnosticErrorCode,
+    setDiagnosticHelp,
+    setDiagnosticPrimaryLabel,
+    setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject,
     mkSameScopeRebindingWarning,
     sortWarnings
   ) where
@@ -27,8 +54,12 @@ import Data.List (sortOn)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.DiagnosticCatalog
-  ( WarningCategory (..),
+  ( DiagnosticCode,
+    DiagnosticSeverity (..),
+    ErrorCode,
+    WarningCategory (..),
     diagnosticCodeText,
+    errorCode,
     warningCode
   )
 
@@ -47,20 +78,38 @@ data SourceSpan
       }
   deriving (Eq, Ord, Show)
 
--- | Structured error payload that can carry stable codes, source spans, and
--- extra notes as compilation moves between phases.
-data Diagnostic = Diagnostic
-  { diagnosticCode :: Text,
-    diagnosticSummary :: Text,
-    diagnosticPrimarySpan :: Maybe SourceSpan,
-    diagnosticRelatedSpan :: Maybe SourceSpan,
-    diagnosticSubject :: Maybe Text,
-    diagnosticNotes :: [Text]
-  }
-  deriving (Eq, Show)
+-- | Broad ownership needed by result filtering without coupling the common
+-- report to phase-specific compiler types.
+data DiagnosticOrigin
+  = CompilationOrigin
+  | RuntimeOrigin
+  | ToolingOrigin
+  deriving (Eq, Ord, Show)
 
--- | Structured warning payload preserved separately from errors so warning
--- policy can decide later whether to render or promote it.
+-- | A source span plus phase-owned explanatory text. Presentation punctuation
+-- remains the renderer's responsibility.
+data DiagnosticLabel = DiagnosticLabel
+  { labelSpan :: SourceSpan,
+    labelMessage :: Text
+  }
+  deriving (Eq, Ord, Show)
+
+data Diagnostic = Diagnostic
+  { diagnosticSeverity :: DiagnosticSeverity,
+    diagnosticCode :: DiagnosticCode,
+    diagnosticWarningCategory :: Maybe WarningCategory,
+    diagnosticOrigin :: DiagnosticOrigin,
+    diagnosticSummary :: Text,
+    diagnosticPrimaryLabel :: Maybe DiagnosticLabel,
+    diagnosticSecondaryLabels :: [DiagnosticLabel],
+    diagnosticSubject :: Maybe Text,
+    diagnosticNotes :: [Text],
+    diagnosticHelp :: Maybe Text
+  }
+  deriving (Eq, Ord, Show)
+
+-- | Transitional warning payload. Task 3 removes this after all warning
+-- producers transport canonical diagnostics directly.
 data WarningRecord = WarningRecord
   { warningCategory :: WarningCategory,
     warningCodeText :: Text,
@@ -77,82 +126,141 @@ class RenderDiagnostic a where
 instance RenderDiagnostic Diagnostic where
   toDiagnostic = id
 
-instance RenderDiagnostic Text where
-  toDiagnostic = mkMessageDiagnostic
-
 instance RenderDiagnostic WarningRecord where
   toDiagnostic warning =
-    Diagnostic
-      { diagnosticCode = warningCodeText warning,
-        diagnosticSummary = warningMessage warning,
-        diagnosticPrimarySpan = Just (warningPrimarySpan warning),
-        diagnosticRelatedSpan = Nothing,
-        diagnosticSubject = Just (warningVariableName warning),
-        diagnosticNotes =
-          case warningPreviousSpan warning of
-            Nothing -> []
-            Just previousSpan ->
-              ["previous " <> renderSourceSpan previousSpan]
-      }
+    maybe id (\spanValue -> appendDiagnosticSecondaryLabel spanValue "previous") (warningPreviousSpan warning) $
+      setDiagnosticPrimaryLabel (warningPrimarySpan warning) "warning emitted here" $
+        setDiagnosticSubject (warningVariableName warning) $
+          mkWarningDiagnostic
+            (warningCategory warning)
+            CompilationOrigin
+            (warningMessage warning)
 
 renderDiagnostic :: RenderDiagnostic a => a -> Text
 renderDiagnostic = renderDiagnosticRecord . toDiagnostic
 
--- | Render diagnostics into the CLI/test string form while preserving source
--- locations and supplemental notes when present.
+-- | Transitional single-line renderer. Task 5 moves this presentation concern
+-- to @Diagnostics.Render@ without changing the model.
 renderDiagnosticRecord :: Diagnostic -> Text
 renderDiagnosticRecord diagnostic =
   {-# SCC "jazz-stage:diagnostic-rendering" #-}
-  renderCodePrefix (diagnosticCode diagnostic)
-    <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
+  diagnosticCodeText (diagnosticCode diagnostic)
+    <> ": "
+    <> renderPrimaryLabel (diagnosticPrimaryLabel diagnostic)
     <> diagnosticSummary diagnostic
-    <> renderNotes noteTexts
+    <> renderDetails detailTexts
   where
-    noteTexts =
-      case diagnosticRelatedSpan diagnostic of
-        Nothing -> diagnosticNotes diagnostic
-        Just relatedSpan ->
-          ("related " <> renderSourceSpan relatedSpan) : diagnosticNotes diagnostic
+    detailTexts =
+      map renderSecondaryLabel (diagnosticSecondaryLabels diagnostic)
+        <> diagnosticNotes diagnostic
+        <> maybe [] (\helpText -> ["help: " <> helpText]) (diagnosticHelp diagnostic)
 
-    renderCodePrefix code
-      | Text.null code = ""
-      | otherwise = code <> ": "
-
-    renderPrimarySpan maybeSpan =
-      case maybeSpan of
+    renderPrimaryLabel maybeLabel =
+      case maybeLabel of
         Nothing -> ""
-        Just spanValue -> renderSourceSpan spanValue <> ": "
+        Just diagnosticLabel -> renderSourceSpan (labelSpan diagnosticLabel) <> ": "
 
-    renderNotes notes =
-      case notes of
+    renderSecondaryLabel diagnosticLabel =
+      let message = labelMessage diagnosticLabel
+       in (if Text.null message then "related" else message)
+            <> " "
+            <> renderSourceSpan (labelSpan diagnosticLabel)
+
+    renderDetails details =
+      case details of
         [] -> ""
-        _ -> " (" <> Text.intercalate "; " notes <> ")"
+        _ -> " (" <> Text.intercalate "; " details <> ")"
 
-mkDiagnostic :: Text -> Text -> Diagnostic
-mkDiagnostic code summary =
+mkErrorDiagnostic :: ErrorCode -> DiagnosticOrigin -> Text -> Diagnostic
+mkErrorDiagnostic code origin summary =
   Diagnostic
-    { diagnosticCode = code,
+    { diagnosticSeverity = SeverityError,
+      diagnosticCode = errorCode code,
+      diagnosticWarningCategory = Nothing,
+      diagnosticOrigin = origin,
       diagnosticSummary = summary,
-      diagnosticPrimarySpan = Nothing,
-      diagnosticRelatedSpan = Nothing,
+      diagnosticPrimaryLabel = Nothing,
+      diagnosticSecondaryLabels = [],
       diagnosticSubject = Nothing,
-      diagnosticNotes = []
+      diagnosticNotes = [],
+      diagnosticHelp = Nothing
     }
 
-mkMessageDiagnostic :: Text -> Diagnostic
-mkMessageDiagnostic = mkDiagnostic ""
+mkWarningDiagnostic :: WarningCategory -> DiagnosticOrigin -> Text -> Diagnostic
+mkWarningDiagnostic category origin summary =
+  Diagnostic
+    { diagnosticSeverity = SeverityWarning,
+      diagnosticCode = warningCode category,
+      diagnosticWarningCategory = Just category,
+      diagnosticOrigin = origin,
+      diagnosticSummary = summary,
+      diagnosticPrimaryLabel = Nothing,
+      diagnosticSecondaryLabels = [],
+      diagnosticSubject = Nothing,
+      diagnosticNotes = [],
+      diagnosticHelp = Nothing
+    }
 
-setDiagnosticCode :: Text -> Diagnostic -> Diagnostic
-setDiagnosticCode code diagnostic =
-  diagnostic {diagnosticCode = code}
+promoteDiagnostic :: Diagnostic -> Diagnostic
+promoteDiagnostic diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Nothing -> diagnostic
+    Just _ -> diagnostic {diagnosticSeverity = SeverityError}
 
+isWarningDiagnostic :: Diagnostic -> Bool
+isWarningDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityWarning
+
+isErrorDiagnostic :: Diagnostic -> Bool
+isErrorDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityError
+
+isCompilationDiagnostic :: Diagnostic -> Bool
+isCompilationDiagnostic diagnostic = diagnosticOrigin diagnostic == CompilationOrigin
+
+isRuntimeDiagnostic :: Diagnostic -> Bool
+isRuntimeDiagnostic diagnostic = diagnosticOrigin diagnostic == RuntimeOrigin
+
+isToolingDiagnostic :: Diagnostic -> Bool
+isToolingDiagnostic diagnostic = diagnosticOrigin diagnostic == ToolingOrigin
+
+-- | Recode a native error after wrapping lower-level compilation context.
+-- Warning identity cannot be replaced through this helper.
+setDiagnosticErrorCode :: ErrorCode -> Diagnostic -> Diagnostic
+setDiagnosticErrorCode code diagnostic =
+  case diagnosticWarningCategory diagnostic of
+    Nothing -> diagnostic {diagnosticCode = errorCode code}
+    Just _ -> diagnostic
+
+setDiagnosticPrimaryLabel :: SourceSpan -> Text -> Diagnostic -> Diagnostic
+setDiagnosticPrimaryLabel spanValue message diagnostic =
+  diagnostic {diagnosticPrimaryLabel = Just (DiagnosticLabel spanValue message)}
+
+appendDiagnosticSecondaryLabel :: SourceSpan -> Text -> Diagnostic -> Diagnostic
+appendDiagnosticSecondaryLabel spanValue message diagnostic =
+  diagnostic
+    { diagnosticSecondaryLabels =
+        diagnosticSecondaryLabels diagnostic <> [DiagnosticLabel spanValue message]
+    }
+
+-- | Compatibility helper for producers that do not yet have a useful label.
 setDiagnosticPrimarySpan :: SourceSpan -> Diagnostic -> Diagnostic
-setDiagnosticPrimarySpan spanValue diagnostic =
-  diagnostic {diagnosticPrimarySpan = Just spanValue}
+setDiagnosticPrimarySpan spanValue = setDiagnosticPrimaryLabel spanValue ""
 
+-- | Compatibility helper for the former single related-span representation.
 setDiagnosticRelatedSpan :: SourceSpan -> Diagnostic -> Diagnostic
 setDiagnosticRelatedSpan spanValue diagnostic =
-  diagnostic {diagnosticRelatedSpan = Just spanValue}
+  diagnostic
+    { diagnosticSecondaryLabels =
+        DiagnosticLabel spanValue "related" : drop 1 (diagnosticSecondaryLabels diagnostic)
+    }
+
+diagnosticPrimarySpan :: Diagnostic -> Maybe SourceSpan
+diagnosticPrimarySpan = fmap labelSpan . diagnosticPrimaryLabel
+
+diagnosticRelatedSpan :: Diagnostic -> Maybe SourceSpan
+diagnosticRelatedSpan diagnostic =
+  case diagnosticSecondaryLabels diagnostic of
+    [] -> Nothing
+    diagnosticLabel : _ -> Just (labelSpan diagnosticLabel)
 
 setDiagnosticSubject :: Text -> Diagnostic -> Diagnostic
 setDiagnosticSubject subject diagnostic =
@@ -165,6 +273,22 @@ prependDiagnosticSummary prefix diagnostic =
 appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
 appendDiagnosticNote note diagnostic =
   diagnostic {diagnosticNotes = diagnosticNotes diagnostic <> [note]}
+
+setDiagnosticHelp :: Text -> Diagnostic -> Diagnostic
+setDiagnosticHelp helpText diagnostic =
+  diagnostic {diagnosticHelp = Just helpText}
+
+qualifyDiagnosticSpans :: FilePath -> Diagnostic -> Diagnostic
+qualifyDiagnosticSpans sourcePath diagnostic =
+  diagnostic
+    { diagnosticPrimaryLabel = qualifyLabel <$> diagnosticPrimaryLabel diagnostic,
+      diagnosticSecondaryLabels = map qualifyLabel (diagnosticSecondaryLabels diagnostic)
+    }
+  where
+    qualifyLabel diagnosticLabel =
+      diagnosticLabel
+        { labelSpan = qualifySourceSpan sourcePath (labelSpan diagnosticLabel)
+        }
 
 qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan
 qualifySourceSpan sourcePath spanValue =
@@ -196,8 +320,6 @@ mkSameScopeRebindingWarning variableName primarySpan previousSpan =
           <> "' shadows previous same-scope binding (last declaration wins)"
     }
 
--- | Sort warnings deterministically so CLI output and tests do not depend on
--- evaluation order inside earlier compiler phases.
 sortWarnings :: [WarningRecord] -> [WarningRecord]
 sortWarnings =
   sortOn
