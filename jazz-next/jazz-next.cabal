@@ -333,6 +333,20 @@ test-suite canonical-lexer-comparison-spec
   main-is: JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite canonical-parser-comparison-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Compiler.Parser.FixtureCorpus
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
@@ -344,6 +358,7 @@ test-suite jazz-lexer-parity-spec
   main-is: JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Compiler.Parser.FixtureCorpus
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
