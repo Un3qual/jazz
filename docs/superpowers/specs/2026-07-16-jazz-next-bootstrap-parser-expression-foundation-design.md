@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved in discussion on `2026-07-16`; written review pending.
+Approved in discussion and after written review on `2026-07-16`.
 
 This is the design checkpoint for
 `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`, the second ordered child
