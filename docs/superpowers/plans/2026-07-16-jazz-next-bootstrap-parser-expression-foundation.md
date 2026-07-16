@@ -20,6 +20,7 @@ target_paths:
   - jazz-next/README.md
   - jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
   - jazz-next/jazz-next.cabal
 verification:
@@ -113,6 +114,7 @@ environment.
 | `jazz-next/jazz/compiler/ParserTypes.jz` | Read-only dependency in this child; fixed surface AST and canonical parser/source results. |
 | `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs` | Fixed 350-case corpus, named parser-family metadata, explicit expression-family membership, and manifest validation. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs` | Test-only canonical token runtime encoding reused by token-entry parity. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs` | Shared-corpus ordering and stage-0 classification assertions for the added semantic fixtures. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs` | Family-manifest validation and fixed-corpus regression coverage. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs` | Real-module-graph tests for the token, expression, and program owners before full façade parity. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs` | Reusable stage-0 expected-value construction plus hosted token/source batch execution. |
@@ -241,6 +243,7 @@ paths, deliverable, and verification exactly match this reviewed plan.
 **Files:**
 
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`
 
 **Produces:** A validated, explicitly ordered 43-case family backed by the

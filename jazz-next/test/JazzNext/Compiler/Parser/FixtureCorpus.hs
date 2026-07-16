@@ -3,7 +3,12 @@
 module JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
     ParserFixtureExpectation (..),
-    parserFixtureCorpus
+    ParserFixtureFamily (..),
+    ParserFixtureManifestViolation (..),
+    lookupParserFixtureFamily,
+    parserFixtureCorpus,
+    parserFixtureFamilyNames,
+    validateParserFixtureManifest
   ) where
 
 import Data.Text (Text)
@@ -22,8 +27,137 @@ data ParserFixture = ParserFixture
   }
   deriving (Eq, Show)
 
+data ParserFixtureFamily
+  = ExpressionFoundation
+  deriving (Eq, Show)
+
+data ParserFixtureManifestViolation
+  = DuplicateParserFixtureName Text
+  | DuplicateParserFixtureFamilyMember ParserFixtureFamily Text
+  | MissingParserFixtureFamilyMember ParserFixtureFamily Text
+  deriving (Eq, Show)
+
 parserFixtureCorpus :: [ParserFixture]
-parserFixtureCorpus = focusedLexerFixtures <> observedParserFixtures
+parserFixtureCorpus =
+  focusedLexerFixtures <> observedParserFixtures <> expressionFoundationFixtures
+
+parserFixtureFamilyNames :: ParserFixtureFamily -> [Text]
+parserFixtureFamilyNames family =
+  case family of
+    ExpressionFoundation -> expressionFoundationFixtureNames
+
+lookupParserFixtureFamily ::
+  ParserFixtureFamily ->
+  Either [ParserFixtureManifestViolation] [ParserFixture]
+lookupParserFixtureFamily family =
+  case validateParserFixtureManifest parserFixtureCorpus parserFixtureFamilies of
+    [] -> Right (resolveFixtureNames (parserFixtureFamilyNames family))
+    violations -> Left violations
+  where
+    resolveFixtureNames names =
+      case names of
+        [] -> []
+        name : remaining ->
+          case lookupFixture name parserFixtureCorpus of
+            Just fixture -> fixture : resolveFixtureNames remaining
+            Nothing -> resolveFixtureNames remaining
+
+validateParserFixtureManifest ::
+  [ParserFixture] ->
+  [(ParserFixtureFamily, [Text])] ->
+  [ParserFixtureManifestViolation]
+validateParserFixtureManifest fixtures families =
+  map DuplicateParserFixtureName (duplicateValues fixtureNames)
+    <> concatMap validateFamily families
+  where
+    fixtureNames = map parserFixtureName fixtures
+
+    validateFamily (family, memberNames) =
+      map (DuplicateParserFixtureFamilyMember family) (duplicateValues memberNames)
+        <> map (MissingParserFixtureFamilyMember family) (missingValues memberNames)
+
+    missingValues =
+      uniqueValues . filter (not . (`elem` fixtureNames))
+
+parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
+parserFixtureFamilies =
+  [(ExpressionFoundation, expressionFoundationFixtureNames)]
+
+duplicateValues :: (Eq value) => [value] -> [value]
+duplicateValues = go [] []
+  where
+    go seen duplicates values =
+      case values of
+        [] -> reverse duplicates
+        value : remaining
+          | value `elem` seen && value `notElem` duplicates ->
+              go seen (value : duplicates) remaining
+          | otherwise -> go (value : seen) duplicates remaining
+
+uniqueValues :: (Eq value) => [value] -> [value]
+uniqueValues = go []
+  where
+    go seen values =
+      case values of
+        [] -> reverse seen
+        value : remaining
+          | value `elem` seen -> go seen remaining
+          | otherwise -> go (value : seen) remaining
+
+lookupFixture :: Text -> [ParserFixture] -> Maybe ParserFixture
+lookupFixture name fixtures =
+  case fixtures of
+    [] -> Nothing
+    fixture : remaining
+      | parserFixtureName fixture == name -> Just fixture
+      | otherwise -> lookupFixture name remaining
+
+expressionFoundationFixtureNames :: [Text]
+expressionFoundationFixtureNames =
+  [ "lexer-leading-zero-integer",
+    "lexer-crlf-spans",
+    "lexer-unicode-and-escape-values",
+    "lexer-all-supported-escapes",
+    "lexer-unexpected-character",
+    "parser-corpus-0001",
+    "parser-corpus-0024",
+    "parser-corpus-0028",
+    "parser-corpus-0032",
+    "parser-corpus-0033",
+    "parser-corpus-0036",
+    "parser-corpus-0051",
+    "parser-corpus-0182",
+    "parser-corpus-0193",
+    "parser-corpus-0194",
+    "parser-corpus-0206",
+    "parser-corpus-0214",
+    "parser-corpus-0233",
+    "parser-corpus-0234",
+    "parser-corpus-0236",
+    "parser-corpus-0237",
+    "parser-corpus-0240",
+    "parser-corpus-0241",
+    "parser-corpus-0308",
+    "parser-corpus-0309",
+    "parser-corpus-0312",
+    "expression-foundation-empty-program",
+    "expression-foundation-empty-block",
+    "expression-foundation-grouped-name",
+    "expression-foundation-empty-list",
+    "expression-foundation-list-literals",
+    "expression-foundation-parenthesized-application",
+    "expression-foundation-list-missing-close",
+    "expression-foundation-list-trailing-comma",
+    "expression-foundation-tuple-missing-close",
+    "expression-foundation-tuple-trailing-comma",
+    "expression-foundation-binding-missing-rhs",
+    "expression-foundation-binding-missing-dot",
+    "expression-foundation-expression-missing-dot",
+    "expression-foundation-qualified-missing-member",
+    "expression-foundation-qualified-whitespace",
+    "expression-foundation-dot-without-expression",
+    "expression-foundation-max-float64"
+  ]
 
 focusedLexerFixtures :: [ParserFixture]
 focusedLexerFixtures =
@@ -2403,3 +2537,35 @@ observedParserFixtures =
         parserFixtureExpectation = ParserAccepted
       }
   ]
+
+expressionFoundationFixtures :: [ParserFixture]
+expressionFoundationFixtures =
+  [ fixture "empty-program" "" ParserAccepted,
+    fixture "empty-block" "{}." ParserAccepted,
+    fixture "grouped-name" "(value)." ParserAccepted,
+    fixture "empty-list" "[]." ParserAccepted,
+    fixture "list-literals" "[1, True, 'x', \"text\"]." ParserAccepted,
+    fixture "parenthesized-application" "(identity) 1." ParserAccepted,
+    fixture "list-missing-close" "[1, 2." ParserRejected,
+    fixture "list-trailing-comma" "[1,]." ParserRejected,
+    fixture "tuple-missing-close" "(1, 2." ParserRejected,
+    fixture "tuple-trailing-comma" "(1,)." ParserRejected,
+    fixture "binding-missing-rhs" "value = ." ParserRejected,
+    fixture "binding-missing-dot" "value = 1" ParserRejected,
+    fixture "expression-missing-dot" "value" ParserRejected,
+    fixture "qualified-missing-member" "Alias::." ParserRejected,
+    fixture "qualified-whitespace" "value = Alias ::value." ParserRejected,
+    fixture "dot-without-expression" "." ParserRejected,
+    fixture
+      "max-float64"
+      "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0."
+      ParserAccepted
+  ]
+  where
+    fixture name source expectation =
+      ParserFixture
+        { parserFixtureName = "expression-foundation-" <> name,
+          parserFixturePath = Text.unpack ("fixtures/parser/expression-foundation-" <> name <> ".jz"),
+          parserFixtureSource = source,
+          parserFixtureExpectation = expectation
+        }
