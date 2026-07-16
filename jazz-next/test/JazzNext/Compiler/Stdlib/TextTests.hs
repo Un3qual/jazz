@@ -26,5 +26,5 @@ expectedCore, expectedSearch, expectedSplitCleanup, expectedCharCase, expectedLa
 expectedCore = "(Nothing, Just('a'), Just('🙂'), Just('é'), Nothing, \"\", \"a🙂\", \"a🙂é\", \"a🙂é\", \"é\", \"\", \"a🙂\", \"🙂é\", \"\", ['a', '🙂', 'é'], \"é🙂a\", \"\", \"JaJaJa\", \"Jazz🙂\", \"\", \"a🙂é\", \"a-🙂-é\", \"....猫\", \"猫.\", \"猫\")"
 expectedSearch = "(True, True, False, True, True, False, True, False, Just(1), Just(0), Nothing, \"bba\", \"unchanged\", \"🙂x🙂x\")"
 expectedSplitCleanup = "([\"\", \"a\", \"\", \"b\", \"\"], [\"a\", \"🙂\", \"é\"], [], [], [\"a\", \"b\", \"c\", \"d\"], [\"Jazz\", \"🙂\", \"rocks\"], \"Jazz\", \"Jazz  \\t\", \"  Jazz\")"
-expectedCharCase = "(True, True, False, False, 'É', 'é', '1', '1', 'i')"
+expectedCharCase = "(True, True, True, True, False, False, 'É', 'é', '1', '1', 'i')"
 expectedLargeConcat = "(20000, 4999, True)"

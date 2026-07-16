@@ -16,10 +16,11 @@ import Control.Monad.Trans.Except
     throwE
   )
 import Data.Char
-  ( chr,
+  ( GeneralCategory (DecimalNumber),
+    chr,
+    generalCategory,
     isAlpha,
     isAlphaNum,
-    isDigit,
     isHexDigit,
     isLower,
     isSpace,
@@ -222,7 +223,8 @@ evalBuiltinPure builtinFunction arguments =
         )
     (BuiltinCharIsAlpha, [VChar value]) -> Right (VBool (isAlpha value))
     (BuiltinCharIsAlphaNum, [VChar value]) -> Right (VBool (isAlphaNum value))
-    (BuiltinCharIsDigit, [VChar value]) -> Right (VBool (isDigit value))
+    (BuiltinCharIsDigit, [VChar value]) ->
+      Right (VBool (generalCategory value == DecimalNumber))
     (BuiltinCharIsSpace, [VChar value]) -> Right (VBool (isSpace value))
     (BuiltinCharIsHexDigit, [VChar value]) -> Right (VBool (isHexDigit value))
     (BuiltinCharIsLower, [VChar value]) -> Right (VBool (isLower value))
