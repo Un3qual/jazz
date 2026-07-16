@@ -18,10 +18,14 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
+    failTest,
     runTestSuite,
   )
 import JazzNext.TestSource
   ( readCheckedInJazzProjectModuleSource,
+  )
+import System.Timeout
+  ( timeout,
   )
 
 main :: IO ()
@@ -39,7 +43,11 @@ tests =
     ("makes only unconsumed rejection optional", testOptional),
     ("repeats and preserves nonempty results", testRepetition),
     ("parses separated values", testSeparatedBy),
-    ("peeks without consuming", testPeek)
+    ("peeks without consuming", testPeek),
+    ("traverses 20000 tokens with an exact final cursor", testLargeTraversal),
+    ("selects the exact farthest offset after a long traversal", testLongFarthestFailure),
+    ("rejects zero-progress repetition", testZeroProgress),
+    ("renders representative batches deterministically", testDeterministicBatch)
   ]
 
 testInitialCursor :: IO ()
@@ -119,14 +127,86 @@ testPeek =
     "(parserRun parserPeek [1, 2], parserRun parserPeek [])"
     "(ParserSucceeded(Just(1), ParserCursor([1, 2], 0), Unconsumed), ParserSucceeded(Nothing, ParserCursor([], 0), Unconsumed))"
 
+testLargeTraversal :: IO ()
+testLargeTraversal =
+  assertJazzOutputWithin
+    60000000
+    "large traversal"
+    """
+    { one = parserTakeIf (\\(token) -> token == 1) "one".
+      reply = parserRun (parserMany one) (listRepeat 20000 1).
+      case reply {
+        | ParserSucceeded values cursor consumption -> case cursor {
+          | ParserCursor remaining offset -> (listLength values, listLength remaining, offset)
+        }
+        | ParserFailed failure -> (0, 0, 0)
+      }.
+    }
+    """
+    "(20000, 0, 20000)"
+
+testLongFarthestFailure :: IO ()
+testLongFarthestFailure =
+  assertJazzOutputWithin
+    60000000
+    "long farthest failure"
+    """
+    { input = listAppend (listRepeat 10000 1) (listPrepend 2 (listRepeat 9999 1)).
+      one = parserTakeIf (\\(token) -> token == 1) "one".
+      positive = parserTakeIf (\\(token) -> token > 0) "positive".
+      short = parserAttempt (parserKeepRight (parserMany one) (parserFail "short")).
+      far = parserAttempt (parserKeepRight (parserMany positive) (parserFail "far")).
+      parserRun (parserChoice short far) input.
+    }
+    """
+    "ParserFailed(ParserFailure(20000, Unconsumed, RejectedProblem(\"far\")))"
+
+testZeroProgress :: IO ()
+testZeroProgress =
+  assertJazzOutput
+    "zero progress"
+    "parserRun (parserMany (parserSucceed 1)) [1, 2]"
+    "ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem))"
+
+testDeterministicBatch :: IO ()
+testDeterministicBatch = do
+  let expression =
+        """
+        { one = parserTakeIf (\\(token) -> token == 1) "one".
+          committed = parserKeepRight one (parserFail "after one").
+          (parserRun (parserMany one) [1, 1, 2], parserRun committed [1, 2], parserRun (parserMany (parserSucceed 1)) [1]).
+        }
+        """
+      expected =
+        "(ParserSucceeded([1, 1], ParserCursor([2], 2), Consumed), ParserFailed(ParserFailure(1, Consumed, RejectedProblem(\"after one\"))), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)))"
+  first <- runJazzExpression expression
+  second <- runJazzExpression expression
+  assertRunResult "deterministic batch first" expected first
+  assertRunResult "deterministic batch second" expected second
+  assertEqual "deterministic batch byte identity" (runOutput first) (runOutput second)
+
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
-  result <-
-    runModuleGraph
-      defaultWarningSettings
-      resolverConfig
-      ["App", "Main"]
-      (lookupSource expression)
+  result <- runJazzExpression expression
+  assertRunResult label expected result
+
+assertJazzOutputWithin :: Int -> Text.Text -> Text.Text -> Text.Text -> IO ()
+assertJazzOutputWithin microseconds label expression expected = do
+  maybeResult <- timeout microseconds (runJazzExpression expression)
+  case maybeResult of
+    Nothing -> failTest (label <> " timed out")
+    Just result -> assertRunResult label expected result
+
+runJazzExpression :: Text.Text -> IO RunResult
+runJazzExpression expression =
+  runModuleGraph
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    (lookupSource expression)
+
+assertRunResult :: Text.Text -> Text.Text -> RunResult -> IO ()
+assertRunResult label expected result = do
   assertEqual (label <> " compile errors") [] (runCompileErrors result)
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
   assertEqual (label <> " output") (Just expected) (runOutput result)
@@ -139,6 +219,7 @@ lookupSource expression sourcePath =
         ( Just
             ( "module App::Main {\n"
                 <> "  import ParserCore.\n"
+                <> "  import List.\n"
                 <> "  "
                 <> expression
                 <> ".\n"
