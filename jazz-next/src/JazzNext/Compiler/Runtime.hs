@@ -113,8 +113,8 @@ import JazzNext.Compiler.Pattern
   )
 import JazzNext.Compiler.RecursiveBindings
   ( LambdaCaptureHints,
+    closureCaptureCandidatesWithBound,
     collectLambdaCaptureHints,
-    freeVarsExprWithBound,
     lookupLambdaCapturedNames
   )
 import JazzNext.Compiler.Runtime.Primitives
@@ -1796,7 +1796,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
           do
             let (capturedNames, nestedCaptureHints) =
                   fromMaybe
-                    ( freeVarsExprWithBound (Set.singleton parameterName) bodyExpr,
+                    ( closureCaptureCandidatesWithBound (Set.singleton parameterName) bodyExpr,
                       collectLambdaCaptureHints bodyExpr
                     )
                     ( lookupLambdaCapturedNames
