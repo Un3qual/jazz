@@ -1,0 +1,100 @@
+module ParserProgram (value parseFoundationalProgram) {
+  import LexerTypes (
+    CanonicalToken,
+    IdentifierKind,
+    PunctuationKind,
+    EqualsPunctuation,
+    DotPunctuation,
+    RightBracePunctuation
+  ).
+  import List (listPrepend, listReverse).
+  import Maybe.
+  import ParserExpression (parseFoundationalExpression).
+  import ParserToken (
+    TokenParser,
+    canonicalTokenKind,
+    canonicalTokenSpan,
+    tokenSucceed,
+    tokenTransform,
+    tokenAndThen,
+    tokenKeepRight,
+    tokenAttempt,
+    tokenOptional,
+    tokenLookAhead,
+    tokenPeek,
+    tokenFailAt,
+    tokenIdentifier,
+    tokenPunctuation
+  ).
+  # Complete ParserTypes imports are required while explicit import lists do
+  # not expose the surface type names used by recursive grammar signatures.
+  import ParserTypes.
+
+  bindingStart :: TokenParser(Maybe(CanonicalToken)).
+  bindingStart = tokenLookAhead
+    (tokenOptional
+      (tokenAttempt
+        (tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation)))).
+
+  parseBinding :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
+  parseBinding = \(parseBlock) -> tokenAndThen
+    (\(nameToken) -> case canonicalTokenKind nameToken {
+      | IdentifierKind name -> tokenKeepRight
+        (tokenPunctuation EqualsPunctuation)
+        (tokenAndThen
+          (\(valueExpression) -> tokenKeepRight
+            (tokenPunctuation DotPunctuation)
+            (tokenSucceed (LetStatement name (canonicalTokenSpan nameToken) valueExpression)))
+          (parseFoundationalExpression (parseBlock ())))
+    })
+    tokenIdentifier.
+
+  parseExpressionStatement :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
+  parseExpressionStatement = \(parseBlock) -> tokenAndThen
+    (\(current) -> case current {
+      | Just firstToken -> tokenAndThen
+        (\(expression) -> tokenKeepRight
+          (tokenPunctuation DotPunctuation)
+          (tokenSucceed (ExpressionStatement (canonicalTokenSpan firstToken) expression)))
+        (parseFoundationalExpression (parseBlock ()))
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+    })
+    tokenPeek.
+
+  parseStatement :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
+  parseStatement = \(parseBlock) -> tokenAndThen
+    (\(start) -> case start {
+      | Just _ -> parseBinding parseBlock
+      | Nothing -> parseExpressionStatement parseBlock
+    })
+    bindingStart.
+
+  parseStatements :: Bool -> (() -> TokenParser([SurfaceStatement])) -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseStatements = \(stopsAtRightBrace, parseBlock, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> if stopsAtRightBrace then
+        tokenFailAt Nothing (ExpectedSyntax "'}'" EndOfInput)
+        else tokenSucceed (listReverse reversed)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightBracePunctuation -> if stopsAtRightBrace then
+          tokenKeepRight
+            (tokenPunctuation RightBracePunctuation)
+            (tokenSucceed (listReverse reversed))
+          else tokenAndThen
+            (\(statement) -> parseStatements stopsAtRightBrace parseBlock (listPrepend statement reversed))
+            (parseStatement parseBlock)
+        | other -> tokenAndThen
+          (\(statement) -> parseStatements stopsAtRightBrace parseBlock (listPrepend statement reversed))
+          (parseStatement parseBlock)
+      }
+    })
+    tokenPeek.
+
+  parseBlock :: () -> TokenParser([SurfaceStatement]).
+  parseBlock = \() -> parseStatements True parseBlock [].
+
+  parseFoundationalProgram :: TokenParser(SurfaceExpr).
+  parseFoundationalProgram = tokenTransform
+    (\(statements) -> BlockExpression statements)
+    (parseStatements False parseBlock []).
+}

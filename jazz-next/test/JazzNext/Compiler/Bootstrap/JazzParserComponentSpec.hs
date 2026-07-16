@@ -41,7 +41,10 @@ tests =
     ("parses scalar expressions with source-exact numerics", testScalarExpressions),
     ("parses ordinary and qualified names", testNameExpressions),
     ("parses composite primaries and left-associated application", testCompositeExpressions),
-    ("commits expression delimiter and qualifier failures", testExpressionFailures)
+    ("commits expression delimiter and qualifier failures", testExpressionFailures),
+    ("parses empty and populated programs through both facades", testProgramFacades),
+    ("parses recursive blocks and block application", testRecursiveBlocks),
+    ("commits binding and statement failures", testProgramFailures)
   ]
 
 testPredicateConsumption :: IO ()
@@ -213,6 +216,43 @@ testExpressionFailures =
     """
     "(TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightBracketPunctuation), \"]\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightParenPunctuation), \")\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Nothing, ExpectedSyntax(\"member name\", EndOfInputAfter(\"\\'::\\'\")))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 7)), UnexpectedSyntax(FoundToken(PunctuationKind(DoubleColonPunctuation), \"::\"), \"end of input\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 1)), InvalidFractionalLiteral(\"179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858369.0\"))))"
 
+testProgramFacades :: IO ()
+testProgramFacades =
+  assertJazzOutput
+    "program facades"
+    """
+    ( parseComponentTokens ""
+    , parseSource componentPath ""
+    , parseComponentTokens "value = 1. value."
+    , parseSource componentPath "value = 1. value."
+    )
+    """
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"value\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 12), VariableExpression(\"value\"))])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"value\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 12), VariableExpression(\"value\"))])))"
+
+testRecursiveBlocks :: IO ()
+testRecursiveBlocks =
+  assertJazzOutput
+    "recursive blocks"
+    """
+    ( parseComponentTokens "{}."
+    , parseComponentTokens "{{}.} 2."
+    )
+    """
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), ApplyExpression(BlockExpression([ExpressionStatement(CanonicalSpan(1, 2), BlockExpression([]))]), LiteralExpression(IntegerLiteral(\"2\"))))])))"
+
+testProgramFailures :: IO ()
+testProgramFailures =
+  assertJazzOutput
+    "program failures"
+    """
+    ( parseComponentTokens "value = ."
+    , parseComponentTokens "value = 1"
+    , parseComponentTokens "value"
+    , parseComponentTokens "{"
+    )
+    """
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 9)), UnexpectedSyntax(FoundToken(PunctuationKind(DotPunctuation), \".\"), \"expression\"))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'}\\'\", EndOfInput))))"
+
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
   result <-
@@ -239,14 +279,17 @@ lookupSource expression sourcePath =
                   import LexerTypes.
                   import Lexer (lexSource).
                   import Maybe (Nothing).
+                  import Parser (parseSource, parseTokens).
                   import ParserExpression (parseFoundationalExpression).
                   import ParserToken.
                   import ParserTypes (ParserFailure, ExpectedSyntax, EndOfInput, TokenStreamParseFailure).
                   expressionBlockFailure = tokenFailAt Nothing (ExpectedSyntax "block" EndOfInput).
+                  componentPath = CanonicalSourcePath "fixtures/parser/component.jz".
                   expressionTokens = \\(source) -> case lexSource (CanonicalSourcePath "fixtures/parser/component.jz") source {
                     | CanonicalLexSuccess path tokens -> tokens
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
+                  parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).
                   __EXPRESSION__.
                 }
 

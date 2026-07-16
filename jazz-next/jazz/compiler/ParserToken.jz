@@ -13,6 +13,8 @@ module ParserToken (
   value tokenKeepLeft,
   value tokenKeepRight,
   value tokenChoice,
+  value tokenAttempt,
+  value tokenOptional,
   value tokenLookAhead,
   value tokenMany,
   value tokenPeek,
@@ -79,11 +81,15 @@ module ParserToken (
     parserTransform,
     parserAndThen,
     parserChoice,
+    parserAttempt,
+    parserOptional,
     parserLookAhead,
     parserMany,
     parserPeek,
     parserTakeIf
   ).
+  # Complete ParserTypes imports keep the exported polymorphic failure
+  # signatures available without importing ParserCore into grammar owners.
   import ParserTypes.
   import Text (textLength).
 
@@ -150,6 +156,16 @@ module ParserToken (
     | TokenParser leftParser -> case right {
       | TokenParser rightParser -> TokenParser (parserChoice leftParser rightParser)
     }
+  }.
+
+  tokenAttempt :: TokenParser(value) -> TokenParser(value).
+  tokenAttempt = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserAttempt parser)
+  }.
+
+  tokenOptional :: TokenParser(value) -> TokenParser(Maybe(value)).
+  tokenOptional = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserOptional parser)
   }.
 
   tokenLookAhead = \(tokenParser) -> case tokenParser {

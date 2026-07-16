@@ -163,7 +163,7 @@ The family contains these existing stable fixtures:
 | --- | --- |
 | Source normalization and spans | `lexer-leading-zero-integer`, `lexer-crlf-spans`, `lexer-unicode-and-escape-values`, `lexer-all-supported-escapes`, `parser-corpus-0001`, `parser-corpus-0234` |
 | Source façade lexical failure | `lexer-unexpected-character` |
-| Unit, tuple, list/application, and qualification | `parser-corpus-0024`, `parser-corpus-0028`, `parser-corpus-0033`, `parser-corpus-0036`, `parser-corpus-0193`, `parser-corpus-0194`, `parser-corpus-0206` |
+| Unit, tuple, list/application, and qualification | `parser-corpus-0024`, `parser-corpus-0028`, `parser-corpus-0036`, `parser-corpus-0193`, `parser-corpus-0194`, `parser-corpus-0206`, `parser-corpus-0310` |
 | Ordinary identifier/binding behavior | `parser-corpus-0051`, `parser-corpus-0182`, `parser-corpus-0214`, `parser-corpus-0233`, `parser-corpus-0236` |
 | Blocks and sequencing | `parser-corpus-0237`, `parser-corpus-0308`, `parser-corpus-0312` |
 | Numeric fidelity and boundaries | `parser-corpus-0032`, `parser-corpus-0240`, `parser-corpus-0241`, `parser-corpus-0309` |
