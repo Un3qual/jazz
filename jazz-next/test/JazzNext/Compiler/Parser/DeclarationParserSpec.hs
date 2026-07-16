@@ -2,32 +2,45 @@
 
 module Main (main) where
 
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (E0001),
+    diagnosticCodeText,
+  )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticOrigin (CompilationOrigin),
     SourceSpan (..),
     diagnosticCode,
     diagnosticPrimarySpan,
-    diagnosticSummary
-  )
-import JazzNext.Compiler.DiagnosticCatalog
-  ( diagnosticCodeText
+    diagnosticSummary,
+    mkErrorDiagnostic,
   )
 import JazzNext.Compiler.Name
-  ( mkIdentifier
+  ( mkIdentifier,
+  )
+import JazzNext.Compiler.Parser
+  ( parseSurfaceProgram,
+    parseSurfaceProgramTokensDetailed,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceDataConstructor (..),
     SurfaceDataConstructorArgument (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
-import JazzNext.Compiler.Parser.Lexer (Token)
 import JazzNext.Compiler.Parser.Declaration
   ( parseDataStatementParser,
-    parseImportStatementParser
+    parseImportStatementParser,
   )
-import JazzNext.Compiler.Parser (parseSurfaceProgram)
+import qualified JazzNext.Compiler.Parser.Declaration as Declaration
+import JazzNext.Compiler.Parser.Failure
+  ( ParserDeclarationFailure (..),
+    ParserDeclarationKind (..),
+    ParserFailure (..),
+    ParserFailureReason (..),
+  )
+import JazzNext.Compiler.Parser.Lexer (Token)
 import JazzNext.Compiler.Parser.TestSupport
-  ( lexSource
+  ( lexSource,
   )
 import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefix)
 import JazzNext.TestHarness
@@ -35,7 +48,7 @@ import JazzNext.TestHarness
     assertEqual,
     assertLeftDiagnosticContains,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -49,6 +62,8 @@ tests =
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
     ("rejects crossed bracket then parenthesis constructor payload", testRejectsCrossedBracketParenPayload),
     ("accepts correctly nested opaque constructor payloads", testAcceptsNestedOpaquePayloads),
+    ("reports nested imports as structured scope failures", testDetailedNestedImport),
+    ("preserves direct capability callback diagnostics", testCapabilityCallbackDiagnostic),
     ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
     ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
   ]
@@ -126,14 +141,43 @@ testRejectsNestedImport =
       assertEqual "nested import span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
     Right _ -> failTest "expected nested import to fail"
 
+testDetailedNestedImport :: IO ()
+testDetailedNestedImport = do
+  tokens <-
+    lexSource
+      """
+      main = {
+        import Lib::Value.
+        value.
+      }.
+      """
+  case parseSurfaceProgramTokensDetailed tokens of
+    Left failure -> do
+      assertEqual "nested import detailed span" (Just (SourceSpan 2 3)) (parserFailureSpan failure)
+      assertEqual
+        "nested import detailed reason"
+        (DeclarationFailure (DeclarationOutsideAllowedScope ImportDeclaration))
+        (parserFailureReason failure)
+    Right _ -> failTest "expected detailed nested import failure"
+
+testCapabilityCallbackDiagnostic :: IO ()
+testCapabilityCallbackDiagnostic = do
+  tokens <- lexSource "impl Show(Int) { show = value. }."
+  let expectedDiagnostic = mkErrorDiagnostic E0001 CompilationOrigin "callback failure"
+  assertEqual
+    "capability callback diagnostic"
+    (Left expectedDiagnostic)
+    (Declaration.parseCapabilityDeclarationTokens (const (Left expectedDiagnostic)) tokens)
+
 testAcceptsModuleBodyImport :: IO ()
 testAcceptsModuleBodyImport =
-  case parseSurfaceProgram """
-  module App::Main {
-    import Lib::Value.
-    value.
-  }
-  """ of
+  case parseSurfaceProgram
+    """
+    module App::Main {
+      import Lib::Value.
+      value.
+    }
+    """ of
     Right _ -> pure ()
     Left diagnostic -> failTest ("expected module-body import to parse, got " <> diagnosticSummary diagnostic)
 

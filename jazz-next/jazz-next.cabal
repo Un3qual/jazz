@@ -81,6 +81,7 @@ library jazz-next-internal
       JazzNext.Compiler.Parser.Context
       JazzNext.Compiler.Parser.Declaration
       JazzNext.Compiler.Parser.Expression
+      JazzNext.Compiler.Parser.Failure
       JazzNext.Compiler.Parser.Lexer
       JazzNext.Compiler.Parser.Lower
       JazzNext.Compiler.Parser.Operator

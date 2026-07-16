@@ -7,8 +7,9 @@ module JazzNext.Compiler.Parser.Pattern
     parseCasePatternParser,
     parseCasePatternTokens,
     parseLambdaParameterParser,
-    parseLambdaParameterTokens
-  ) where
+    parseLambdaParameterTokens,
+  )
+where
 
 import Control.Monad (void)
 import Data.Char (isUpper)
@@ -19,12 +20,18 @@ import JazzNext.Compiler.Name (mkIdentifier)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfacePattern (..)
+    SurfacePattern (..),
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserEncountered (..),
+    ParserFailureReason (..),
+    ParserPatternFailure (..),
+    ParserUnsupportedFeature (..),
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
-    isImmediatelyAfter
+    isImmediatelyAfter,
   )
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
@@ -34,7 +41,7 @@ import JazzNext.Compiler.Parser.TokenParser
     parseIdentifier,
     parseToken,
     peekToken,
-    runTokenParserPrefix
+    runTokenParserPrefix,
   )
 import qualified Text.Megaparsec as MP
 
@@ -91,9 +98,11 @@ parseCasePatternParser = do
       void parseAnyToken
       parseIdentifierCasePattern name
     Nothing ->
-      failTokenParser "expected case pattern before end of input"
+      failTokenParser (ExpectedSyntax "case pattern" ParserEndOfInput)
     Just token ->
-      failTokenParserAt (tokenSpan token) (expectedCasePatternMessage token)
+      failTokenParserAt
+        (tokenSpan token)
+        (ExpectedSyntax "case pattern" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseIdentifierCasePattern :: Text -> Parser SurfacePattern
 parseIdentifierCasePattern name =
@@ -106,12 +115,6 @@ parseIdentifierCasePattern name =
           parseConstructorPattern name
       | otherwise ->
           parseAsPatternOrVariable parseCasePatternParser name
-
-expectedCasePatternMessage :: Token -> Text
-expectedCasePatternMessage token =
-  "expected case pattern, found '"
-    <> tokenLexeme token
-    <> "'"
 
 parseTuplePattern :: Token -> Parser SurfacePattern
 parseTuplePattern leftParenToken = do
@@ -132,14 +135,11 @@ parseTuplePattern leftParenToken = do
         Nothing ->
           failTokenParserAt
             (tokenSpan leftParenToken)
-            "expected ',' before end of input in tuple pattern"
+            (ExpectedSyntax "','" (ParserEndOfInputIn "tuple pattern"))
         Just token ->
           failTokenParserAt
             (tokenSpan token)
-            ( "expected ',', found '"
-                <> tokenLexeme token
-                <> "'"
-            )
+            (ExpectedSyntax "','" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do
@@ -202,13 +202,13 @@ parseConstructorArgumentPattern = do
       void parseAnyToken
       parseTuplePattern token
     Nothing ->
-      failTokenParser "expected constructor pattern argument before end of input"
+      failTokenParser (ExpectedSyntax "constructor pattern argument" ParserEndOfInput)
     Just token ->
       failTokenParserAt
         (tokenSpan token)
-        ( "expected constructor pattern argument, found '"
-            <> tokenLexeme token
-            <> "'"
+        ( ExpectedSyntax
+            "constructor pattern argument"
+            (ParserFoundToken (tokenKind token) (tokenLexeme token))
         )
 
 parseIntegralPatternLiteral :: Token -> Integer -> Parser SurfacePattern
@@ -223,7 +223,7 @@ parseIntegralPatternLiteral wholeToken wholeValue = do
               | isImmediatelyAfter dotToken fractionalToken ->
                   failTokenParserAt
                     (tokenSpan wholeToken)
-                    "fractional literal patterns are not supported"
+                    (UnsupportedSyntax FractionalLiteralPattern)
             _ -> pure (SPLiteral (SLInt wholeValue))
     _ -> pure (SPLiteral (SLInt wholeValue))
 
@@ -287,19 +287,16 @@ parseListPattern = do
             [headPattern] ->
               pure (SPConsList headPattern tailPattern)
             _ ->
-              failTokenParser "cons-like list patterns require exactly one head pattern before '|'"
+              failTokenParser (PatternFailure ConsLikeListPatternHeadCount)
         Just Token {tokenKind = TRBracket} -> do
           void parseAnyToken
           pure (SPList (reverse reversedPatterns))
         Nothing ->
-          failTokenParser "expected ']' before end of input in list pattern"
+          failTokenParser (ExpectedSyntax "']'" (ParserEndOfInputIn "list pattern"))
         Just token ->
           failTokenParserAt
             (tokenSpan token)
-            ( "expected ',' or ']', found '"
-                <> tokenLexeme token
-                <> "'"
-            )
+            (ExpectedSyntax "',' or ']'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseLambdaParameterParser :: Parser SurfaceLambdaParameter
 parseLambdaParameterParser = do
@@ -333,14 +330,12 @@ parseLambdaParameterParser = do
             _ ->
               pure (SurfaceLambdaIdentifier (mkIdentifier parsedName))
     Nothing ->
-      failTokenParser "expected identifier before end of input in lambda parameter list"
+      failTokenParser (ExpectedSyntax "identifier" (ParserEndOfInputIn "lambda parameter list"))
     Just token ->
       failTokenParserAt
         (tokenSpan token)
-        ( "expected identifier, found '"
-            <> tokenLexeme token
-            <> "'"
-        )
+        (ExpectedSyntax "identifier" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+
 parsePatternLambdaParameter :: Parser SurfaceLambdaParameter
 parsePatternLambdaParameter =
   SurfaceLambdaPattern <$> parseCaseArmPatternParser

@@ -7,36 +7,45 @@ module JazzNext.Compiler.Parser
   ( parseStatementsUntilBrace,
     parseSurfaceExpressionTokens,
     parseSurfaceProgram,
-    parseSurfaceProgramTokens
-  ) where
+    parseSurfaceProgramTokens,
+    parseSurfaceProgramTokensDetailed,
+  )
+where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan
+    SourceSpan,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import JazzNext.Compiler.Parser.Context
   ( ParserContext (..),
     StatementBlockParser,
     StatementContext (..),
-    initialParserContext
+    initialParserContext,
   )
 import JazzNext.Compiler.Parser.Declaration
   ( collectImportAliasesUntilBrace,
     collectImportAliasesUntilEnd,
-    parseStatementParser
+    parseStatementParser,
   )
 import JazzNext.Compiler.Parser.Expression (parseExpressionParser)
+import JazzNext.Compiler.Parser.Failure
+  ( ParserDeclarationFailure (..),
+    ParserEncountered (..),
+    ParserFailure,
+    ParserFailureReason (..),
+    parserFailureDiagnostic,
+  )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
-    tokenize
+    tokenize,
   )
 import JazzNext.Compiler.Parser.Operator (OperatorInfo)
 import JazzNext.Compiler.Parser.TokenParser
@@ -45,8 +54,8 @@ import JazzNext.Compiler.Parser.TokenParser
     failTokenParserAt,
     parseAnyToken,
     peekToken,
-    runTokenParser,
-    runTokenParserPrefix
+    runTokenParserDetailed,
+    runTokenParserPrefix,
   )
 import qualified Text.Megaparsec as MP
 
@@ -60,9 +69,13 @@ parseSurfaceProgram source = do
 -- | Parse a complete surface program from an already-tokenized stream. This
 -- entrypoint keeps lexing and parsing as independently measurable phases.
 parseSurfaceProgramTokens :: [Token] -> Either Diagnostic SurfaceExpr
-parseSurfaceProgramTokens tokens =
+parseSurfaceProgramTokens =
+  mapLeft parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
+
+parseSurfaceProgramTokensDetailed :: [Token] -> Either ParserFailure SurfaceExpr
+parseSurfaceProgramTokensDetailed tokens =
   {-# SCC "jazz-stage:parsing" #-}
-  runTokenParser "program" programParser tokens
+  runTokenParserDetailed "program" programParser tokens
   where
     expressionParser = parseExpressionParser blockParser
     statementParser = parseStatementParser expressionParser blockParser
@@ -113,7 +126,7 @@ parseProgramStatements parseStatement context = do
               | seenPriorTopLevelForm ->
                   failTokenParserAt
                     moduleSpan
-                    "module declaration must be the first top-level form"
+                    (DeclarationFailure ModuleMustBeFirstTopLevelForm)
               | otherwise -> do
                   trailingToken <- peekToken
                   case trailingToken of
@@ -122,9 +135,9 @@ parseProgramStatements parseStatement context = do
                     Just token ->
                       failTokenParserAt
                         (tokenSpan token)
-                        ( "unexpected token '"
-                            <> tokenLexeme token
-                            <> "' after module declaration"
+                        ( UnexpectedSyntaxAfter
+                            (ParserFoundToken (tokenKind token) (tokenLexeme token))
+                            "module declaration"
                         )
             Nothing ->
               go
@@ -147,7 +160,7 @@ parseStatementsUntilBrace parseStatement context = do
     go reversedStatements currentContext = do
       maybeToken <- peekToken
       case maybeToken of
-        Nothing -> failTokenParser "expected '}' before end of input"
+        Nothing -> failTokenParser (ExpectedSyntax "'}'" ParserEndOfInput)
         Just Token {tokenKind = TRBrace} -> do
           _ <- parseAnyToken
           pure (reverse reversedStatements)
@@ -164,3 +177,9 @@ leadingModuleDeclaration statements =
   case statements of
     SSModule spanValue _ _ : _ -> Just spanValue
     _ -> Nothing
+
+mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
+mapLeft transform result =
+  case result of
+    Left failure -> Left (transform failure)
+    Right value -> Right value

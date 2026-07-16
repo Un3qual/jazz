@@ -3,36 +3,45 @@
 module Main (main) where
 
 import qualified Data.Text as Text
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (E0001),
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticPrimarySpan,
-    diagnosticSummary
+    diagnosticSummary,
   )
 import JazzNext.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserEncountered (..),
+    ParserFailure (..),
+    ParserFailureReason (..),
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
     isImmediatelyAfter,
-    tokenize
+    tokenize,
   )
 import JazzNext.Compiler.Parser.TestSupport
-  ( lexSource
+  ( lexSource,
   )
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     parseIdentifier,
     parseTokenKind,
     runTokenParser,
-    runTokenParserPrefix
+    runTokenParserDetailed,
+    runTokenParserPrefix,
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -42,6 +51,8 @@ tests :: [NamedTest]
 tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
+    ("detailed token failures preserve expected and found syntax", testDetailedTokenFailure),
+    ("detailed end-of-input failures have no token span", testDetailedEndOfInputFailure),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("tokenizes then as a reserved keyword", testTokenizesThenKeyword),
     ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
@@ -72,6 +83,37 @@ testRunTokenParserPrefixReturnsRemainder = do
     "prefix result"
     (Right ("value", [TDot]))
     (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
+
+testDetailedTokenFailure :: IO ()
+testDetailedTokenFailure = do
+  tokens <- lexSource "value 42."
+  assertEqual
+    "detailed token failure"
+    ( Left
+        ParserFailure
+          { parserFailureCode = E0001,
+            parserFailureSpan = Just (SourceSpan 1 7),
+            parserFailureReason =
+              ExpectedSyntax
+                "'='"
+                (ParserFoundToken (TInt 42) "42")
+          }
+    )
+    (runTokenParserDetailed "token parser spec" (parseIdentifier *> parseTokenKind TEquals) tokens)
+
+testDetailedEndOfInputFailure :: IO ()
+testDetailedEndOfInputFailure = do
+  tokens <- lexSource "value"
+  assertEqual
+    "detailed end-of-input failure"
+    ( Left
+        ParserFailure
+          { parserFailureCode = E0001,
+            parserFailureSpan = Nothing,
+            parserFailureReason = ExpectedSyntax "'='" ParserEndOfInput
+          }
+    )
+    (runTokenParserDetailed "token parser spec" (parseIdentifier *> parseTokenKind TEquals) tokens)
 
 testRecognizesLexicallyAdjacentTokens :: IO ()
 testRecognizesLexicallyAdjacentTokens = do
