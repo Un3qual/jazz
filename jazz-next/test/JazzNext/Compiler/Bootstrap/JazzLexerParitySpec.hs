@@ -49,6 +49,7 @@ tests =
     ("Jazz lexer renders then as a canonical keyword", testExactThenKeyword),
     ("Jazz lexer classifies the complete keyword and operator inventory", testKeywordOperatorInventory),
     ("Jazz lexer rejects an unknown operator character", testUnknownOperatorCharacter),
+    ("Jazz lexer keeps source decimal digits ASCII-only", testSourceDigitsStayAsciiOnly),
     ("Jazz lexer renders exact structured failures", testExactStructuredFailure),
     ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
     ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
@@ -75,6 +76,14 @@ testUnknownOperatorCharacter :: IO ()
 testUnknownOperatorCharacter = do
   source <- readCheckedInJazzTestFixture "lexer/unknown-operator-character.jz"
   assertJazzParity "fixtures/lexer/unknown-operator-character.jz" source
+
+testSourceDigitsStayAsciiOnly :: IO ()
+testSourceDigitsStayAsciiOnly =
+  assertJazzParity
+    "fixtures/lexer/unicode-decimal-digit.jz"
+    """
+    value = ١.
+    """
 
 testExactStructuredFailure :: IO ()
 testExactStructuredFailure = assertJazzParity "fixtures/lexer/error.jz" "value ` 42."

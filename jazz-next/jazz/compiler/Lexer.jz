@@ -40,6 +40,11 @@ module Lexer (value lexSource) {
         True
         else value == '!'.
 
+  isSourceDigit :: Char -> Bool.
+  isSourceDigit = \(value) -> if (charToUInt32 value) < (charToUInt32 '0') then
+    False
+    else (charToUInt32 value) <= (charToUInt32 '9').
+
   keywordKinds :: Dictionary(Text, CanonicalTokenKind).
   keywordKinds = dictionaryFromList [
     ("module", KeywordKind ModuleKeyword),
@@ -117,7 +122,7 @@ module Lexer (value lexSource) {
   }.
 
   scanInteger :: Text -> Int -> Int -> ScanResult.
-  scanInteger = \(source, line, column) -> case scanTextRun charIsDigit source [] {
+  scanInteger = \(source, line, column) -> case scanTextRun isSourceDigit source [] {
     | TextRun raw remaining -> Scanned (CanonicalToken (IntegerKind (canonicalInteger raw)) raw (CanonicalSpan line column)) remaining line (column + (textLength raw))
   }.
 
@@ -287,7 +292,7 @@ module Lexer (value lexSource) {
       scanCharacter source line column
       else if current == '"' then
         scanText source line column
-        else if (charIsDigit current) then
+        else if (isSourceDigit current) then
           scanInteger source line column
           else if (isIdentifierStart current) then
             scanIdentifier source line column

@@ -928,23 +928,45 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         bindingName
         <$> case previousSignatureNumericTarget statementIndex bindingName of
           Just targetType -> do
-            runtimeValue <- evalNumericSignatureBinding statementIndex targetType env valueExpr
-            attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue
+            runtimeValue <-
+              evalNumericSignatureBinding
+                statementIndex
+                targetType
+                env
+                valueExpr
+                maybeTypeHint
+            attachRuntimeTypeHint maybeTypeHint runtimeValue
               >>= attachDefaultBindingIntegerTarget
           Nothing -> do
-            runtimeValue <- evalValueAt statementIndex env valueExpr
-            attachRuntimeTypeHint (bindingRuntimeTypeHint statementIndex bindingName) runtimeValue
+            runtimeValue <-
+              evalValueWithModulePathAndResultHint
+                (modulePathForStatement statementIndex)
+                builtinMode
+                bindingTypeHints
+                env
+                maybeTypeHint
+                valueExpr
+            attachRuntimeTypeHint maybeTypeHint runtimeValue
               >>= attachDefaultBindingIntegerTarget
+      where
+        maybeTypeHint = bindingRuntimeTypeHint statementIndex bindingName
 
-    evalNumericSignatureBinding :: Int -> NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
-    evalNumericSignatureBinding statementIndex targetType env valueExpr =
+    evalNumericSignatureBinding :: Int -> NumericType -> RuntimeEnv -> Expr -> Maybe SignatureType -> Either Diagnostic RuntimeValue
+    evalNumericSignatureBinding statementIndex targetType env valueExpr maybeTypeHint =
       case valueExpr of
         ELit (LInt literalValue) ->
           convertIntegerToNumericTarget conversionBuiltin targetType literalValue
         ELit (LFloat literalValue literalSource _) ->
           convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource)
         _ -> do
-          runtimeValue <- evalValueAt statementIndex env valueExpr
+          runtimeValue <-
+            evalValueWithModulePathAndResultHint
+              (modulePathForStatement statementIndex)
+              builtinMode
+              bindingTypeHints
+              env
+              maybeTypeHint
+              valueExpr
           evalNumericConversion conversionBuiltin targetType runtimeValue
       where
         conversionBuiltin = numericConversionBuiltinForTarget targetType
@@ -1278,7 +1300,13 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         blockCellForStatement statementIndex statement =
           case statement of
             SLet bindingName _ valueExpr ->
-              evalValueWithModulePath blockModulePath builtinMode bindingTypeHints (blockEnvBefore statementIndex) valueExpr
+              evalValueWithModulePathAndResultHint
+                blockModulePath
+                builtinMode
+                bindingTypeHints
+                (blockEnvBefore statementIndex)
+                (blockBindingRuntimeTypeHint statementIndex bindingName)
+                valueExpr
                 >>= attachRuntimeTypeHint (blockBindingRuntimeTypeHint statementIndex bindingName)
                 >>= attachDefaultBindingIntegerTarget
             _ ->
@@ -1527,6 +1555,36 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
               )
         )
     )
+
+evalValueWithModulePathAndResultHint ::
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  Maybe SignatureType ->
+  Expr ->
+  Either Diagnostic RuntimeValue
+evalValueWithModulePathAndResultHint currentModulePath builtinMode bindingTypeHints env maybeTypeHint expr =
+  case qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr of
+    Just hintedValue ->
+      hintedValue
+        >>= forceRuntimeValuePure builtinMode bindingTypeHints
+    Nothing ->
+      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr
+
+qualifiedMethodReferenceWithTypeHint ::
+  Maybe SignatureType ->
+  RuntimeEnv ->
+  Expr ->
+  Maybe (Either Diagnostic RuntimeValue)
+qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr =
+  case (maybeTypeHint, expr) of
+    (Just typeHint, EVar name) ->
+      case Map.lookup name env of
+        Just (Right methodValue@VQualifiedMethod {}) ->
+          Just (applyRuntimeTypeHint typeHint methodValue)
+        _ -> Nothing
+    _ -> Nothing
 
 declaredOperatorRightSectionClosure :: Maybe [Text] -> Text -> RuntimeValue -> RuntimeValue -> RuntimeValue
 declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorValue rightValue =
@@ -2538,6 +2596,32 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env envMay
       }
     expr
 
+evalValueWithHostAndResultHint ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  Bool ->
+  Maybe SignatureType ->
+  Expr ->
+  ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
+evalValueWithHostAndResultHint host currentModulePath builtinMode bindingTypeHints env envMayReachHostCells maybeTypeHint expr =
+  case qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr of
+    Just hintedValue ->
+      liftRuntimeResult hintedValue
+        >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
+    Nothing ->
+      evalValueWithHost
+        host
+        currentModulePath
+        builtinMode
+        bindingTypeHints
+        env
+        envMayReachHostCells
+        expr
+
 evalScopeWithHost ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
@@ -2868,7 +2952,15 @@ evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env bin
       Just targetType ->
         evalHostNumericSignatureBinding targetType
       Nothing ->
-        evalValueWithHost host currentModulePath builtinMode bindingTypeHints env True valueExpr
+        evalValueWithHostAndResultHint
+          host
+          currentModulePath
+          builtinMode
+          bindingTypeHints
+          env
+          True
+          maybeTypeHint
+          valueExpr
   nameRuntimeClosureBinding currentModulePath bindingName
     <$> liftRuntimeResult
       ( attachRuntimeTypeHint maybeTypeHint value
@@ -2885,7 +2977,15 @@ evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env bin
             (convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource))
         _ -> do
           runtimeValue <-
-            evalValueWithHost host currentModulePath builtinMode bindingTypeHints env True valueExpr
+            evalValueWithHostAndResultHint
+              host
+              currentModulePath
+              builtinMode
+              bindingTypeHints
+              env
+              True
+              maybeTypeHint
+              valueExpr
           liftRuntimeResult (evalNumericConversion conversionBuiltin targetType runtimeValue)
       where
         conversionBuiltin = numericConversionBuiltinForTarget targetType
@@ -2960,6 +3060,20 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
         <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
     _ ->
       forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
+
+forceRuntimeValuePure ::
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeValue ->
+  Either Diagnostic RuntimeValue
+forceRuntimeValuePure builtinMode bindingTypeHints runtimeValue =
+  runtimeControlAsDiagnosticResult
+    ( runIdentity
+        ( runRuntimeHostEvaluation disabledRuntimeHost $ \host ->
+            runExceptT
+              (forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue)
+        )
+    )
 
 applyRuntimeFunctionWithHost ::
   Monad m =>

@@ -92,6 +92,7 @@ capabilityTests =
     , ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals)
     , ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint)
     , ("qualified method dispatch selects a nullary body by explicit target", testQualifiedMethodDispatchSelectsNullaryBodyByExplicitTarget)
+    , ("qualified method dispatch selects a nullary body by binding result type", testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType)
     , ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint)
     , ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter)
     , ("qualified method dispatch preserves partially instantiated function templates", testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate)
@@ -414,6 +415,29 @@ testQualifiedMethodDispatchSelectsNullaryBodyByExplicitTarget = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(41, True)") (runOutput result)
+
+testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType :: IO ()
+testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      class RuntimeDefault(a) {
+      defaultValue :: a.
+      }.
+      impl RuntimeDefault(Int) {
+      defaultValue = 41.
+      }.
+      impl RuntimeDefault(Bool) {
+      defaultValue = True.
+      }.
+      value :: Int.
+      value = RuntimeDefault::defaultValue.
+      value.
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "41") (runOutput result)
 
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do

@@ -25,7 +25,15 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (..)
   )
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    exportInventory
+  )
+import JazzNext.Compiler.Name
+  ( NameNamespace (..),
+    renderName
+  )
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.Compiler.Parser.Lower (lowerSurfaceExpr)
 import JazzNext.Compiler.PreludeContract (validatePreludeKernelBridges)
@@ -40,8 +48,7 @@ data ResolvedPrelude
 data PreparedPrelude = PreparedPrelude
   { preparedPreludeExpr :: Maybe Expr,
     preparedPreludeHiddenStatementIndices :: Set Int,
-    preparedPreludeVisibleValues :: Set Name,
-    preparedPreludeVisibleClasses :: Set Name,
+    preparedPreludeVisibleExports :: ModuleExportInventory,
     preparedPreludeBuiltinMode :: BuiltinResolutionMode
   }
   deriving (Eq, Show)
@@ -54,8 +61,7 @@ preparePrelude resolvedPrelude =
         PreparedPrelude
           { preparedPreludeExpr = Nothing,
             preparedPreludeHiddenStatementIndices = Set.empty,
-            preparedPreludeVisibleValues = Set.empty,
-            preparedPreludeVisibleClasses = Set.empty,
+            preparedPreludeVisibleExports = exportInventory [],
             preparedPreludeBuiltinMode = ResolveKernelOnly
           }
     PreludeBundled source -> prepare True source
@@ -71,8 +77,7 @@ preparePrelude resolvedPrelude =
               if hidden
                 then Set.fromList [0 .. length statements - 1]
                 else Set.empty,
-            preparedPreludeVisibleValues = collectPreludeValues loweredPrelude,
-            preparedPreludeVisibleClasses = collectPreludeClasses loweredPrelude,
+            preparedPreludeVisibleExports = collectPreludeExports loweredPrelude,
             preparedPreludeBuiltinMode = ResolveKernelOnly
           }
 
@@ -93,24 +98,22 @@ validateAndLowerPrelude preludeText =
             [] -> Right loweredPrelude
             firstValidationError : _ -> Left firstValidationError
 
-collectPreludeValues :: Expr -> Set Name
-collectPreludeValues expression =
-  case expression of
-    EBlock statements -> Set.fromList (concatMap statementValues statements)
-    _ -> Set.empty
+collectPreludeExports :: Expr -> ModuleExportInventory
+collectPreludeExports expression =
+  exportInventory $
+    case expression of
+      EBlock statements -> concatMap statementExports statements
+      _ -> []
   where
-    statementValues statement =
+    statementExports statement =
       case statement of
-        SLet name _ _ -> [name]
-        SData _ typeName _ constructors -> typeName : [name | DataConstructor name _ <- constructors]
+        SLet name _ _ ->
+          [ModuleExport ValueNamespace (renderName name)]
+        SData _ typeName _ constructors ->
+          ModuleExport TypeNamespace (renderName typeName)
+            : [ ModuleExport ConstructorNamespace (renderName name)
+                | DataConstructor name _ <- constructors
+              ]
+        SClass _ className _ _ ->
+          [ModuleExport CapabilityNamespace (renderName className)]
         _ -> []
-
-collectPreludeClasses :: Expr -> Set Name
-collectPreludeClasses expression =
-  case expression of
-    EBlock statements ->
-      Set.fromList
-        [ className
-          | SClass _ className _ _ <- statements
-        ]
-    _ -> Set.empty

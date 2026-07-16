@@ -11,7 +11,8 @@ module JazzNext.Compiler.ModuleResolver
     resolveModuleGraph,
     resolveModuleGraphWithLookup,
     resolveModuleGraphWithLookupAndVisibleSymbols,
-    resolveProgram
+    resolveProgram,
+    resolveProgramWithAmbientExports
   ) where
 
 import Control.Monad (foldM)
@@ -251,8 +252,14 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambie
     ( resolveStateWithLookupAndVisibleSymbols
         config
         ResolveKernelOnly
-        ambientVisibleSymbols
-        ambientVisibleClassNames
+        ( exportInventory
+            ( [ ModuleExport namespace name
+                | name <- Set.toList ambientVisibleSymbols,
+                  namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+              ]
+                <> [ModuleExport CapabilityNamespace name | name <- Set.toList ambientVisibleClassNames]
+            )
+        )
         loadSource
         entryModulePath
     )
@@ -266,6 +273,28 @@ resolveProgram ::
   [Text] ->
   IO (Either Diagnostic ModuleGraph.ResolvedProgram)
 resolveProgram config builtinMode ambientValues ambientClasses loadSource entryModulePath =
+  resolveProgramWithAmbientExports
+    config
+    builtinMode
+    ( exportInventory
+        ( [ ModuleExport namespace (renderName name)
+            | name <- Set.toList ambientValues,
+              namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+          ]
+            <> [ModuleExport CapabilityNamespace (renderName name) | name <- Set.toList ambientClasses]
+        )
+    )
+    loadSource
+    entryModulePath
+
+resolveProgramWithAmbientExports ::
+  ModuleResolutionConfig ->
+  BuiltinResolutionMode ->
+  ModuleExportInventory ->
+  (FilePath -> IO (Maybe Text)) ->
+  [Text] ->
+  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
+resolveProgramWithAmbientExports config builtinMode ambientExports loadSource entryModulePath =
   {-# SCC "jazz-stage:module-discovery" #-}
   fmap
     ( fmap
@@ -279,8 +308,7 @@ resolveProgram config builtinMode ambientValues ambientClasses loadSource entryM
     ( resolveStateWithLookupAndVisibleSymbols
         config
         builtinMode
-        (Set.map renderName ambientValues)
-        (Set.map renderName ambientClasses)
+        ambientExports
         loadSource
         entryModulePath
     )
@@ -289,12 +317,11 @@ resolveStateWithLookupAndVisibleSymbols ::
   Monad m =>
   ModuleResolutionConfig ->
   BuiltinResolutionMode ->
-  Set Text ->
-  Set Text ->
+  ModuleExportInventory ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
+resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSource entryModulePath
   | null entryModulePath =
       pure (Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path"))
   | otherwise =
@@ -355,8 +382,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                 resolveCoreModuleNames
                                   builtinMode
                                   modulePath
-                                  ambientVisibleSymbols
-                                  ambientVisibleClassNames
+                                  ambientExports
                                   (parsedModuleLocalInventory parsedModule)
                                   (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
@@ -385,6 +411,14 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                             (resolvedExportInventoriesState stateAfterDeps)
                                       }
                                 )
+
+    ambientVisibleSymbols =
+      exportNamesInNamespaces
+        [ValueNamespace, ConstructorNamespace]
+        ambientExports
+
+    ambientVisibleClassNames =
+      exportNamesInNamespace CapabilityNamespace ambientExports
 
     visitDependency nextStack accumulator importPath =
       case accumulator of
@@ -658,16 +692,19 @@ collectModuleConstructorOwners surfaceExpr =
 resolveCoreModuleNames ::
   BuiltinResolutionMode ->
   [Text] ->
-  Set Text ->
-  Set Text ->
+  ModuleExportInventory ->
   ModuleExportInventory ->
   Map [Text] ModuleExportInventory ->
   [ParsedImport] ->
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
-resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localInventory inventoriesByModule imports coreModule =
+resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inventoriesByModule imports coreModule =
   coreModule {ModuleGraph.coreModuleExpr = resolveExpr Set.empty (ModuleGraph.coreModuleExpr coreModule)}
   where
+    ambientValues = exportNamesInNamespace ValueNamespace ambientExports
+    ambientConstructors = exportNamesInNamespace ConstructorNamespace ambientExports
+    ambientTypes = exportNamesInNamespace TypeNamespace ambientExports
+    ambientClasses = exportNamesInNamespace CapabilityNamespace ambientExports
     localValues = exportNamesInNamespace ValueNamespace localInventory
     localDataTypes = exportNamesInNamespace TypeNamespace localInventory
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
@@ -792,8 +829,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     ambientName namespace nameText =
       case namespace of
+        ValueNamespace -> Set.member nameText ambientValues
+        ConstructorNamespace -> Set.member nameText ambientConstructors
+        TypeNamespace -> Set.member nameText ambientTypes
         CapabilityNamespace -> Set.member nameText ambientClasses
-        _ -> Set.member nameText ambientValues
 
     classOrigin className
       | Set.member className localClasses = CurrentModule
@@ -836,6 +875,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
                 [ initialBoundValues,
                   localConstructors,
                   ambientValues,
+                  ambientConstructors,
                   Map.keysSet visibleValueOrigins,
                   Map.keysSet visibleConstructorOrigins,
                   builtinNamesInMode builtinMode
@@ -878,6 +918,8 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | Set.member nameText localConstructors -> ConstructorNamespace
           | Map.member nameText visibleValueOrigins -> ValueNamespace
           | Map.member nameText visibleConstructorOrigins -> ConstructorNamespace
+          | Set.member nameText ambientValues -> ValueNamespace
+          | Set.member nameText ambientConstructors -> ConstructorNamespace
           where
             nameText = identifierText identifier
         _ -> ValueNamespace

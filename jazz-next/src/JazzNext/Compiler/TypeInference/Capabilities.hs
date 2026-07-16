@@ -22,6 +22,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     importModuleCapabilityFacts,
     inferQualifiedMethodApplication,
     instantiateQualifiedMethodType,
+    instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
     mergeCapabilityFacts,
     newInferredClassConstraints,
@@ -603,6 +604,14 @@ inferExprTypeWithExpected ::
   (Maybe ExpressionType, InferState)
 inferExprTypeWithExpected inferExpression builtinMode env state expectedType expr =
   case (resolveType state expectedType, expr) of
+    (_, EVar name)
+      | Map.notMember name env,
+        Just qualifiedMethodResult <-
+          instantiateQualifiedMethodTypeWithExpected
+            (identifierText name)
+            expectedType
+            state ->
+          qualifiedMethodResult
     (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
       let extendedEnv =
             Map.insert parameterName (PlainTypeBinding argumentType) env
@@ -1156,6 +1165,68 @@ instantiateQualifiedMethodType nameText state =
       | Map.member capabilityName (inferClassFacts state) ->
           Just (resolveQualifiedMethodType nameText state)
     _ -> Nothing
+
+instantiateQualifiedMethodTypeWithExpected ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  Maybe (Maybe ExpressionType, InferState)
+instantiateQualifiedMethodTypeWithExpected nameText expectedType state =
+  case splitQualifiedMethodKey nameText of
+    Just (capabilityName, _)
+      | Map.member capabilityName (inferClassFacts state) ->
+          Just (resolveQualifiedMethodTypeWithExpected nameText expectedType state)
+    _ -> Nothing
+
+resolveQualifiedMethodTypeWithExpected ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
+  case Map.lookup methodKey (inferClassMethodSignatures state) of
+    Nothing ->
+      (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
+    Just classMethodType ->
+      case preferredCandidates of
+        [] ->
+          ( Nothing,
+            addTypeError
+              state
+              (mkNoMatchingQualifiedMethodBodyError methodKey [resolveType state expectedType])
+          )
+        [(_, matchedType, matchedState)] ->
+          (Just matchedType, matchedState)
+        _ ->
+          (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
+      where
+        preferredCandidates =
+          case exactMatchingCandidates of
+            [] -> matchingCandidates
+            exactMatches -> exactMatches
+
+        exactMatchingCandidates =
+          filter candidateExactlyMatchesExpected matchingCandidates
+
+        matchingCandidates =
+          foldr collectMatchingCandidate [] (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))
+
+        collectMatchingCandidate implMethodType matches =
+          case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
+            (Just methodType, stateAfterMethodType) ->
+              case unifyTypes expectedType methodType stateAfterMethodType of
+                Just unifiedState ->
+                  (implMethodType, resolveType unifiedState methodType, unifiedState) : matches
+                Nothing -> matches
+            (Nothing, _) -> matches
+
+        candidateExactlyMatchesExpected (ImplMethodType implTarget, _, _) =
+          case classMethodType of
+            ClassMethodType classParameter methodSignature ->
+              case substituteClassMethodSignature classParameter implTarget methodSignature of
+                Just candidateSignature ->
+                  constraintSignatureTypeExactlyMatchesExpressionType state candidateSignature expectedType
+                Nothing -> False
 
 resolveQualifiedMethodType :: Text -> InferState -> (Maybe ExpressionType, InferState)
 resolveQualifiedMethodType methodKey state =

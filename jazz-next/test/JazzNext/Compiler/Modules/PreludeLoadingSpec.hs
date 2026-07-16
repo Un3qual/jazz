@@ -11,8 +11,12 @@ import JazzNext.Compiler.Driver
     compileSourceWithPrelude,
     runCompileErrors,
     runRuntimeErrors,
+    runModuleGraph,
     runSource,
     runSourceWithPrelude
+  )
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig (..)
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -63,6 +67,7 @@ tests =
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
     ("bundled default prelude equals every integer width", testBundledPreludeEqualsEveryIntegerWidth),
     ("bundled default prelude compares primitive ordered values", testBundledPreludeComparesPrimitiveValues),
+    ("bundled default prelude exposes Ordering constructors to user expressions", testBundledPreludeExposesOrderingConstructors),
     ("bundled default prelude compares every numeric width", testBundledPreludeComparesEveryNumericWidth),
     ("bundled default prelude shows primitive values deterministically", testBundledPreludeShowsPrimitiveValues),
     ("bundled default prelude supplies explicit primitive defaults", testBundledPreludeSuppliesPrimitiveDefaults),
@@ -436,6 +441,30 @@ testBundledPreludeComparesPrimitiveValues = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "primitive compare output" (Just "(LT, EQ, GT, LT, GT)") (runOutput result)
+
+testBundledPreludeExposesOrderingConstructors :: IO ()
+testBundledPreludeExposesOrderingConstructors = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "user Ordering constructor output" (Just "(LT, EQ, GT)") (runOutput result)
+  where
+    lookupSource sourcePath =
+      pure $
+        case sourcePath of
+          "src/App/Main.jz" -> Just """
+            module App::Main {
+              compareValues :: Int -> Int -> Ordering.
+              compareValues = \\(left, right) -> if left < right then LT else if left == right then EQ else GT.
+              (compareValues 1 2, compareValues 2 2, compareValues 3 2).
+            }
+            """
+          _ -> Nothing
 
 testBundledPreludeComparesEveryNumericWidth :: IO ()
 testBundledPreludeComparesEveryNumericWidth = do

@@ -123,6 +123,14 @@ inferExprTypeWithExpected ::
   (Maybe ExpressionType, InferState)
 inferExprTypeWithExpected inferExpression builtinMode env state expectedType expr =
   case (resolveType state expectedType, expr) of
+    (_, EVar name)
+      | Map.notMember name env,
+        Just qualifiedMethodResult <-
+          instantiateQualifiedMethodTypeWithExpected
+            (identifierText name)
+            expectedType
+            state ->
+          qualifiedMethodResult
     (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
       let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
           (bodyType, stateAfterBody) =
