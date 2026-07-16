@@ -75,7 +75,7 @@ import JazzNext.Compiler.ModuleGraph
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Name
   ( Name (BuiltinName),
-    NameNamespace (ConstructorNamespace, ValueNamespace),
+    NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
     mkIdentifier,
     resolvedImportedName,
     resolvedLocalName
@@ -107,6 +107,7 @@ tests =
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
+    ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
@@ -542,6 +543,48 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
           ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe = Just value. Just = 1. }")
+        ]
+
+testGroupedExportsPublishSelectedConstructor :: IO ()
+testGroupedExportsPublishSelectedConstructor = do
+  compiled <- compileFixtureProgram sources
+  case lookupCompiledModule ["Lib", "Choice"] compiled of
+    Nothing -> fail "missing compiled Lib::Choice module"
+    Just choiceModule ->
+      do
+        assertEqual
+          "full grouped compiled interface retains private constructors"
+          ( Set.fromList
+              [ ModuleExport ConstructorNamespace "First",
+                ModuleExport ConstructorNamespace "Second"
+              ]
+          )
+          (Map.keysSet (interfaceValueTypes (compiledModuleInterface choiceModule)))
+        assertEqual
+          "grouped public inventory"
+          ( Set.fromList
+              [ ModuleExport ConstructorNamespace "First",
+                ModuleExport TypeNamespace "Choice"
+              ]
+          )
+          ( exportInventoryEntries
+              (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule choiceModule))
+          )
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Choice"] runtime of
+        Nothing -> fail "missing runtime Lib::Choice module"
+        Just runtimeModule ->
+          assertEqual
+            "grouped runtime export inventory"
+            (Set.singleton (RuntimeBindingExport (ModuleExport ConstructorNamespace "First")))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. First 1. }"),
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
         ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()

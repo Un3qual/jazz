@@ -1,0 +1,7 @@
+module Main {
+  import Index.
+
+  summarizeIndex
+    [(4, "runtime"), (1, "lexer"), (3, "analyzer"), (2, "parser"), (2, "parser-v2")]
+    ["stdlib", "compiler", "runtime", "compiler", "editor"].
+}

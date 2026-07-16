@@ -14,7 +14,7 @@ import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
-    runModuleGraphWithPrelude,
+    runModuleGraph,
     runRuntimeErrors
   )
 import JazzNext.Compiler.ModuleResolver
@@ -34,8 +34,8 @@ import JazzNext.TestHarness
     runTestSuite
   )
 import JazzNext.TestSource
-  ( JazzSourceRole (..),
-    readCheckedInJazzSource,
+  ( readCheckedInJazzProjectModuleSource,
+    readCheckedInJazzTestFixture,
   )
 import System.Environment (lookupEnv)
 import System.Timeout (timeout)
@@ -47,6 +47,9 @@ tests :: [NamedTest]
 tests =
   [ ("Jazz lexer renders exact canonical tokens", testExactCanonicalTokens),
     ("Jazz lexer renders then as a canonical keyword", testExactThenKeyword),
+    ("Jazz lexer classifies the complete keyword and operator inventory", testKeywordOperatorInventory),
+    ("Jazz lexer rejects an unknown operator character", testUnknownOperatorCharacter),
+    ("Jazz lexer keeps source decimal digits ASCII-only", testSourceDigitsStayAsciiOnly),
     ("Jazz lexer renders exact structured failures", testExactStructuredFailure),
     ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
     ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
@@ -63,6 +66,24 @@ testExactThenKeyword =
   assertJazzParity
     "fixtures/lexer/then-keyword.jz"
     "if condition then yes else no"
+
+testKeywordOperatorInventory :: IO ()
+testKeywordOperatorInventory = do
+  source <- readCheckedInJazzTestFixture "lexer/keyword-operator-inventory.jz"
+  assertJazzParity "fixtures/lexer/keyword-operator-inventory.jz" source
+
+testUnknownOperatorCharacter :: IO ()
+testUnknownOperatorCharacter = do
+  source <- readCheckedInJazzTestFixture "lexer/unknown-operator-character.jz"
+  assertJazzParity "fixtures/lexer/unknown-operator-character.jz" source
+
+testSourceDigitsStayAsciiOnly :: IO ()
+testSourceDigitsStayAsciiOnly =
+  assertJazzParity
+    "fixtures/lexer/unicode-decimal-digit.jz"
+    """
+    value = ١.
+    """
 
 testExactStructuredFailure :: IO ()
 testExactStructuredFailure = assertJazzParity "fixtures/lexer/error.jz" "value ` 42."
@@ -163,9 +184,8 @@ expectedCorpusRendering fixtures = do
 
 runJazzLexer :: FilePath -> Text -> IO RunResult
 runJazzLexer logicalPath source =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource
@@ -184,19 +204,12 @@ runJazzLexer logicalPath source =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
-        "src/List.jz" -> readStdlibSource "List.jz"
-        "src/Char.jz" -> readStdlibSource "Char.jz"
-        "src/Text.jz" -> readStdlibSource "Text.jz"
-        "src/Maybe.jz" -> readStdlibSource "Maybe.jz"
-        _ -> pure Nothing
+        _ -> readCheckedInJazzProjectModuleSource path
 
 runJazzLexerBatch :: [ParserFixture] -> IO RunResult
 runJazzLexerBatch fixtures =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource
@@ -218,19 +231,12 @@ runJazzLexerBatch fixtures =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
-        "src/List.jz" -> readStdlibSource "List.jz"
-        "src/Char.jz" -> readStdlibSource "Char.jz"
-        "src/Text.jz" -> readStdlibSource "Text.jz"
-        "src/Maybe.jz" -> readStdlibSource "Maybe.jz"
-        _ -> pure Nothing
+        _ -> readCheckedInJazzProjectModuleSource path
 
 runJazzLexerCount :: Text -> IO RunResult
 runJazzLexerCount source =
-  runModuleGraphWithPrelude
+  runModuleGraph
     defaultWarningSettings
-    Nothing
     resolverConfig
     ["App", "Main"]
     lookupSource
@@ -251,13 +257,7 @@ runJazzLexerCount source =
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)
-        "src/Lexer.jz" -> readCompilerSource "Lexer.jz"
-        "src/LexerTypes.jz" -> readCompilerSource "LexerTypes.jz"
-        "src/List.jz" -> readStdlibSource "List.jz"
-        "src/Char.jz" -> readStdlibSource "Char.jz"
-        "src/Text.jz" -> readStdlibSource "Text.jz"
-        "src/Maybe.jz" -> readStdlibSource "Maybe.jz"
-        _ -> pure Nothing
+        _ -> readCheckedInJazzProjectModuleSource path
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig =
@@ -265,14 +265,6 @@ resolverConfig =
     { moduleRoots = ["src"],
       moduleExtension = ".jz"
     }
-
-readStdlibSource :: FilePath -> IO (Maybe Text)
-readStdlibSource fileName =
-  Just <$> readCheckedInJazzSource StandardLibrarySource fileName
-
-readCompilerSource :: FilePath -> IO (Maybe Text)
-readCompilerSource fileName =
-  Just <$> readCheckedInJazzSource CompilerSource fileName
 
 fromString :: FilePath -> Text
 fromString = Text.pack

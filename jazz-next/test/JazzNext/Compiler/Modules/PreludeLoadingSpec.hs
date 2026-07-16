@@ -11,8 +11,12 @@ import JazzNext.Compiler.Driver
     compileSourceWithPrelude,
     runCompileErrors,
     runRuntimeErrors,
+    runModuleGraph,
     runSource,
     runSourceWithPrelude
+  )
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig (..)
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -61,6 +65,12 @@ tests =
     ("bundled default prelude exposes Eq Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
     ("bundled default prelude exposes Eq Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
+    ("bundled default prelude equals every integer width", testBundledPreludeEqualsEveryIntegerWidth),
+    ("bundled default prelude compares primitive ordered values", testBundledPreludeComparesPrimitiveValues),
+    ("bundled default prelude exposes Ordering constructors to user expressions", testBundledPreludeExposesOrderingConstructors),
+    ("bundled default prelude compares every numeric width", testBundledPreludeComparesEveryNumericWidth),
+    ("bundled default prelude shows primitive values deterministically", testBundledPreludeShowsPrimitiveValues),
+    ("bundled default prelude supplies explicit primitive defaults", testBundledPreludeSuppliesPrimitiveDefaults),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude does not inherit bundled Eq equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
     ("compile without prelude rejects bundled capability facts", testCompileWithoutPreludeRejectsBundledCapabilityFacts),
@@ -386,6 +396,185 @@ testBundledPreludeExposesEqBoolEqualsMethodBody = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testBundledPreludeEqualsEveryIntegerWidth :: IO ()
+testBundledPreludeEqualsEveryIntegerWidth = do
+  result <- runSource defaultWarningSettings """
+  int8Value :: Int8.
+  int8Value = toInt8 1.
+  int16Value :: Int16.
+  int16Value = toInt16 1.
+  int32Value :: Int32.
+  int32Value = toInt32 1.
+  int64Value :: Int64.
+  int64Value = toInt64 1.
+  uint8Value :: UInt8.
+  uint8Value = toUInt8 1.
+  uint16Value :: UInt16.
+  uint16Value = toUInt16 1.
+  uint32Value :: UInt32.
+  uint32Value = toUInt32 1.
+  uint64Value :: UInt64.
+  uint64Value = toUInt64 1.
+  (Eq::equals int8Value (toInt8 1), Eq::equals int8Value (toInt8 2),
+   Eq::equals int16Value (toInt16 1), Eq::equals int16Value (toInt16 2),
+   Eq::equals int32Value (toInt32 1), Eq::equals int32Value (toInt32 2),
+   Eq::equals int64Value (toInt64 1), Eq::equals int64Value (toInt64 2),
+   Eq::equals uint8Value (toUInt8 1), Eq::equals uint8Value (toUInt8 2),
+   Eq::equals uint16Value (toUInt16 1), Eq::equals uint16Value (toUInt16 2),
+   Eq::equals uint32Value (toUInt32 1), Eq::equals uint32Value (toUInt32 2),
+   Eq::equals uint64Value (toUInt64 1), Eq::equals uint64Value (toUInt64 2)).
+  """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "integer-width equality output"
+    (Just "(True, False, True, False, True, False, True, False, True, False, True, False, True, False, True, False)")
+    (runOutput result)
+
+testBundledPreludeComparesPrimitiveValues :: IO ()
+testBundledPreludeComparesPrimitiveValues = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "(Ord::compare 1 2, Ord::compare 2 2, Ord::compare 3 2, Ord::compare 'a' 'b', Ord::compare \"a🙂\" \"aé\")."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "primitive compare output" (Just "(LT, EQ, GT, LT, GT)") (runOutput result)
+
+testBundledPreludeExposesOrderingConstructors :: IO ()
+testBundledPreludeExposesOrderingConstructors = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "user Ordering constructor output" (Just "(LT, EQ, GT)") (runOutput result)
+  where
+    lookupSource sourcePath =
+      pure $
+        case sourcePath of
+          "src/App/Main.jz" -> Just """
+            module App::Main {
+              compareValues :: Int -> Int -> Ordering.
+              compareValues = \\(left, right) -> if left < right then LT else if left == right then EQ else GT.
+              (compareValues 1 2, compareValues 2 2, compareValues 3 2).
+            }
+            """
+          _ -> Nothing
+
+testBundledPreludeComparesEveryNumericWidth :: IO ()
+testBundledPreludeComparesEveryNumericWidth = do
+  result <- runSource defaultWarningSettings """
+  intLeft :: Int.
+  intLeft = 1.
+  floatLeft :: Float.
+  floatLeft = 1.0.
+  int8Left :: Int8.
+  int8Left = 1.
+  int16Left :: Int16.
+  int16Left = 1.
+  int32Left :: Int32.
+  int32Left = 1.
+  int64Left :: Int64.
+  int64Left = 1.
+  uint8Left :: UInt8.
+  uint8Left = 1.
+  uint16Left :: UInt16.
+  uint16Left = 1.
+  uint32Left :: UInt32.
+  uint32Left = 1.
+  uint64Left :: UInt64.
+  uint64Left = 1.
+  float16Left :: Float16.
+  float16Left = 1.0.
+  float32Left :: Float32.
+  float32Left = 1.0.
+  float64Left :: Float64.
+  float64Left = 1.0.
+  (Ord::compare intLeft 2, Ord::compare floatLeft 2.0,
+   Ord::compare int8Left (toInt8 2), Ord::compare int16Left (toInt16 2),
+   Ord::compare int32Left (toInt32 2), Ord::compare int64Left (toInt64 2),
+   Ord::compare uint8Left (toUInt8 2), Ord::compare uint16Left (toUInt16 2),
+   Ord::compare uint32Left (toUInt32 2), Ord::compare uint64Left (toUInt64 2),
+   Ord::compare float16Left (toFloat16 2), Ord::compare float32Left (toFloat32 2),
+   Ord::compare float64Left (toFloat64 2)).
+  """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "numeric compare output"
+    (Just "(LT, LT, LT, LT, LT, LT, LT, LT, LT, LT, LT, LT, LT)")
+    (runOutput result)
+
+testBundledPreludeShowsPrimitiveValues :: IO ()
+testBundledPreludeShowsPrimitiveValues = do
+  result <- runSource defaultWarningSettings """
+  apostrophe = '\\''.
+  backslash = '\\\\'.
+  expectedChar = __kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar "" apostrophe) backslash) 'n') apostrophe.
+  quote = '"'.
+  expectedText = __kernel_textAppendChar (__kernel_textAppend (__kernel_textAppendChar "" quote) "Jazz") quote.
+  (Showable::show 42 == "42",
+   Showable::show 1.5 == "1.5",
+   Showable::show True == "True",
+   Showable::show '\\n' == expectedChar,
+   Showable::show "Jazz" == expectedText).
+  """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "primitive show output" (Just "(True, True, True, True, True)") (runOutput result)
+
+testBundledPreludeSuppliesPrimitiveDefaults :: IO ()
+testBundledPreludeSuppliesPrimitiveDefaults = do
+  result <- runSource defaultWarningSettings """
+  intDefault :: Int.
+  intDefault = Default::defaultValue @Int.
+  floatDefault :: Float.
+  floatDefault = Default::defaultValue @Float.
+  int8Default :: Int8.
+  int8Default = Default::defaultValue @Int8.
+  int16Default :: Int16.
+  int16Default = Default::defaultValue @Int16.
+  int32Default :: Int32.
+  int32Default = Default::defaultValue @Int32.
+  int64Default :: Int64.
+  int64Default = Default::defaultValue @Int64.
+  uint8Default :: UInt8.
+  uint8Default = Default::defaultValue @UInt8.
+  uint16Default :: UInt16.
+  uint16Default = Default::defaultValue @UInt16.
+  uint32Default :: UInt32.
+  uint32Default = Default::defaultValue @UInt32.
+  uint64Default :: UInt64.
+  uint64Default = Default::defaultValue @UInt64.
+  float16Default :: Float16.
+  float16Default = Default::defaultValue @Float16.
+  float32Default :: Float32.
+  float32Default = Default::defaultValue @Float32.
+  float64Default :: Float64.
+  float64Default = Default::defaultValue @Float64.
+  boolDefault :: Bool.
+  boolDefault = Default::defaultValue @Bool.
+  charDefault :: Char.
+  charDefault = Default::defaultValue @Char.
+  textDefault :: Text.
+  textDefault = Default::defaultValue @Text.
+  (intDefault == 0, floatDefault == 0.0,
+   int8Default == 0, int16Default == 0, int32Default == 0, int64Default == 0,
+   uint8Default == 0, uint16Default == 0, uint32Default == 0, uint64Default == 0,
+   float16Default == toFloat16 0, float32Default == toFloat32 0, float64Default == toFloat64 0,
+   boolDefault == False, charDefault == '\\0', textDefault == "").
+  """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "primitive default output"
+    (Just "(True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True)")
+    (runOutput result)
 
 testCompileWithoutPreludeRejectsNumericConversionAliases :: IO ()
 testCompileWithoutPreludeRejectsNumericConversionAliases = do

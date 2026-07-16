@@ -43,6 +43,9 @@ data FeatureTag
   | CapabilitiesFeature
   | TextFeature
   | ListsFeature
+  | DictionariesFeature
+  | OrderedCollectionsFeature
+  | QueuesFeature
   | DeterministicRuntimeFeature
   deriving (Bounded, Enum, Eq, Ord, Show)
 
@@ -185,6 +188,9 @@ featureTagName feature =
     CapabilitiesFeature -> "capabilities"
     TextFeature -> "text"
     ListsFeature -> "lists"
+    DictionariesFeature -> "dictionaries"
+    OrderedCollectionsFeature -> "ordered-collections"
+    QueuesFeature -> "queues"
     DeterministicRuntimeFeature -> "deterministic-runtime"
 
 parseFeatureTag :: Text -> Maybe FeatureTag

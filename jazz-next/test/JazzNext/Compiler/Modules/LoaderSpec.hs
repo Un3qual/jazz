@@ -17,6 +17,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
+    runModuleGraph,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
     runRuntimeErrors
@@ -43,6 +44,7 @@ import JazzNext.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 import JazzNext.TestSource
   ( JazzSourceRole (StandardLibrarySource),
     readCheckedInJazzSource,
+    readCheckedInJazzProjectModuleSource,
   )
 import System.Timeout (timeout)
 
@@ -158,9 +160,8 @@ testBootstrapMaybeAndResultModules = do
 testBootstrapTextModule :: IO ()
 testBootstrapTextModule = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraph
       defaultWarningSettings
-      Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -183,16 +184,13 @@ testBootstrapTextModule = do
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
-    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
-    lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
-    lookupSource _ = pure Nothing
+    lookupSource path = readCheckedInJazzProjectModuleSource path
 
 testBootstrapCollectionScalarModules :: IO ()
 testBootstrapCollectionScalarModules = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraph
       defaultWarningSettings
-      Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -216,18 +214,13 @@ testBootstrapCollectionScalarModules = do
       }
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
-    lookupSource "src/List.jz" = readStdlibSource "List.jz"
-    lookupSource "src/Char.jz" = readStdlibSource "Char.jz"
-    lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
-    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
-    lookupSource _ = pure Nothing
+    lookupSource path = readCheckedInJazzProjectModuleSource path
 
 testBootstrapListReversePreservesConcreteHints :: IO ()
 testBootstrapListReversePreservesConcreteHints = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraph
       defaultWarningSettings
-      Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -251,6 +244,7 @@ testBootstrapListReversePreservesConcreteHints = do
       """
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/List.jz" = readStdlibSource "List.jz"
+    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource _ = pure Nothing
 
 testBootstrapIOSuccesses :: IO ()

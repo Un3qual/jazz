@@ -1,0 +1,168 @@
+module Dictionary (
+  type Dictionary,
+  value dictionaryEmpty,
+  value dictionarySingleton,
+  value dictionaryFromList,
+  value dictionaryToList,
+  value dictionarySize,
+  value dictionaryIsEmpty,
+  value dictionaryLookup,
+  value dictionaryGetOr,
+  value dictionaryContainsKey,
+  value dictionaryInsert,
+  value dictionaryReplace,
+  value dictionaryRemove,
+  value dictionaryUpdate,
+  value dictionaryKeys,
+  value dictionaryValues,
+  value dictionaryMapValues,
+  value dictionaryFilter,
+  value dictionaryFoldLeft,
+  value dictionaryFoldRight
+) {
+  import List.
+  import Maybe.
+
+  data Dictionary k v = Dictionary Int [(k, v)].
+
+  dictionaryEmpty :: Dictionary(k, v).
+  dictionaryEmpty = Dictionary 0 [].
+
+  dictionarySingleton :: k -> v -> Dictionary(k, v).
+  dictionarySingleton = \(key, value) -> Dictionary 1 [(key, value)].
+
+  dictionaryInsertEntries :: @{Eq(k)}: k -> v -> [(k, v)] -> [(k, v)] -> (Bool, [(k, v)]).
+  dictionaryInsertEntries = \(key, value, remaining, reversedPrefix) -> case remaining {
+    | [] -> (True, listAppend (listReverse reversedPrefix) [(key, value)])
+    | [(candidate, current) | rest] -> if Eq::equals key candidate
+      then (False, listAppend (listReverse reversedPrefix) (listPrepend (candidate, value) rest))
+      else dictionaryInsertEntries key value rest (listPrepend (candidate, current) reversedPrefix)
+  }.
+
+  dictionaryInsert :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v).
+  dictionaryInsert = \(dictionary, key, value) -> case dictionary {
+    | Dictionary size entries -> case dictionaryInsertEntries key value entries [] {
+      | (inserted, updatedEntries) -> Dictionary (if inserted then size + 1 else size) updatedEntries
+    }
+  }.
+
+  dictionaryFromList :: @{Eq(k)}: [(k, v)] -> Dictionary(k, v).
+  dictionaryFromList = \(entries) -> listFoldLeft (\(dictionary, entry) -> case entry {
+    | (key, value) -> dictionaryInsert dictionary key value
+  }) dictionaryEmpty entries.
+
+  dictionaryToList :: Dictionary(k, v) -> [(k, v)].
+  dictionaryToList = \(dictionary) -> case dictionary {
+    | Dictionary size entries -> entries
+  }.
+
+  dictionarySize :: Dictionary(k, v) -> Int.
+  dictionarySize = \(dictionary) -> case dictionary {
+    | Dictionary size entries -> size
+  }.
+
+  dictionaryIsEmpty :: Dictionary(k, v) -> Bool.
+  dictionaryIsEmpty = \(dictionary) -> dictionarySize dictionary == 0.
+
+  dictionaryLookupEntries :: @{Eq(k)}: [(k, v)] -> k -> Maybe(v).
+  dictionaryLookupEntries = \(entries, key) -> case entries {
+    | [] -> Nothing
+    | [(candidate, value) | rest] -> if Eq::equals key candidate then Just value else dictionaryLookupEntries rest key
+  }.
+
+  dictionaryLookup :: @{Eq(k)}: Dictionary(k, v) -> k -> Maybe(v).
+  dictionaryLookup = \(dictionary, key) -> dictionaryLookupEntries (dictionaryToList dictionary) key.
+
+  dictionaryGetOr :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> v.
+  dictionaryGetOr = \(dictionary, key, fallback) -> case dictionaryLookup dictionary key {
+    | Nothing -> fallback
+    | Just value -> value
+  }.
+
+  dictionaryContainsKey :: @{Eq(k)}: Dictionary(k, v) -> k -> Bool.
+  dictionaryContainsKey = \(dictionary, key) -> maybeIsJust (dictionaryLookup dictionary key).
+
+  dictionaryReplaceEntries :: @{Eq(k)}: k -> v -> [(k, v)] -> [(k, v)] -> Maybe([(k, v)]).
+  dictionaryReplaceEntries = \(key, value, remaining, reversedPrefix) -> case remaining {
+    | [] -> Nothing
+    | [(candidate, current) | rest] -> if Eq::equals key candidate
+      then Just (listAppend (listReverse reversedPrefix) (listPrepend (candidate, value) rest))
+      else dictionaryReplaceEntries key value rest (listPrepend (candidate, current) reversedPrefix)
+  }.
+
+  dictionaryReplace :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Maybe(Dictionary(k, v)).
+  dictionaryReplace = \(dictionary, key, value) -> case dictionary {
+    | Dictionary size entries -> case dictionaryReplaceEntries key value entries [] {
+      | Nothing -> Nothing
+      | Just updatedEntries -> Just (Dictionary size updatedEntries)
+    }
+  }.
+
+  dictionaryRemoveEntries :: @{Eq(k)}: k -> [(k, v)] -> [(k, v)] -> Maybe([(k, v)]).
+  dictionaryRemoveEntries = \(key, remaining, reversedPrefix) -> case remaining {
+    | [] -> Nothing
+    | [(candidate, value) | rest] -> if Eq::equals key candidate
+      then Just (listAppend (listReverse reversedPrefix) rest)
+      else dictionaryRemoveEntries key rest (listPrepend (candidate, value) reversedPrefix)
+  }.
+
+  dictionaryRemove :: @{Eq(k)}: Dictionary(k, v) -> k -> Dictionary(k, v).
+  dictionaryRemove = \(dictionary, key) -> case dictionary {
+    | Dictionary size entries -> case dictionaryRemoveEntries key entries [] {
+      | Nothing -> dictionary
+      | Just updatedEntries -> Dictionary (size - 1) updatedEntries
+    }
+  }.
+
+  dictionaryUpdate :: @{Eq(k)}: Dictionary(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Dictionary(k, v).
+  dictionaryUpdate = \(dictionary, key, update) -> case dictionaryLookup dictionary key {
+    | Nothing -> case update Nothing {
+      | Nothing -> dictionary
+      | Just value -> dictionaryInsert dictionary key value
+    }
+    | Just current -> case update (Just current) {
+      | Nothing -> dictionaryRemove dictionary key
+      | Just value -> dictionaryInsert dictionary key value
+    }
+  }.
+
+  dictionaryKeys :: Dictionary(k, v) -> [k].
+  dictionaryKeys = \(dictionary) -> listMap (\(entry) -> case entry {
+    | (key, value) -> key
+  }) (dictionaryToList dictionary).
+
+  dictionaryValues :: Dictionary(k, v) -> [v].
+  dictionaryValues = \(dictionary) -> listMap (\(entry) -> case entry {
+    | (key, value) -> value
+  }) (dictionaryToList dictionary).
+
+  dictionaryMapValues :: Dictionary(k, v) -> (v -> w) -> Dictionary(k, w).
+  dictionaryMapValues = \(dictionary, transform) -> case dictionary {
+    | Dictionary size entries -> Dictionary size (listMap (\(entry) -> case entry {
+      | (key, value) -> (key, transform value)
+    }) entries)
+  }.
+
+  dictionaryFilterEntries :: (k -> v -> Bool) -> [(k, v)] -> Int -> [(k, v)] -> (Int, [(k, v)]).
+  dictionaryFilterEntries = \(predicate, remaining, size, reversed) -> case remaining {
+    | [] -> (size, listReverse reversed)
+    | [(key, value) | rest] -> if predicate key value
+      then dictionaryFilterEntries predicate rest (size + 1) (listPrepend (key, value) reversed)
+      else dictionaryFilterEntries predicate rest size reversed
+  }.
+
+  dictionaryFilter :: Dictionary(k, v) -> (k -> v -> Bool) -> Dictionary(k, v).
+  dictionaryFilter = \(dictionary, predicate) -> case dictionaryFilterEntries predicate (dictionaryToList dictionary) 0 [] {
+    | (size, entries) -> Dictionary size entries
+  }.
+
+  dictionaryFoldLeft :: Dictionary(k, v) -> a -> (a -> k -> v -> a) -> a.
+  dictionaryFoldLeft = \(dictionary, initial, combine) -> listFoldLeft (\(result, entry) -> case entry {
+    | (key, value) -> combine result key value
+  }) initial (dictionaryToList dictionary).
+
+  dictionaryFoldRight :: Dictionary(k, v) -> a -> (k -> v -> a -> a) -> a.
+  dictionaryFoldRight = \(dictionary, initial, combine) -> listFoldRight (\(entry, result) -> case entry {
+    | (key, value) -> combine key value result
+  }) initial (dictionaryToList dictionary).
+}

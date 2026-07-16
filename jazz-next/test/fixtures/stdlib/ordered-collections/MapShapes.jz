@@ -1,0 +1,16 @@
+module Stdlib::OrderedCollections::MapShapes {
+  import Map.
+  leftLeft = mapFromList [(3, "c"), (2, "b"), (1, "a")].
+  rightRight = mapFromList [(1, "a"), (2, "b"), (3, "c")].
+  leftRight = mapFromList [(3, "c"), (1, "a"), (2, "b")].
+  rightLeft = mapFromList [(1, "a"), (3, "c"), (2, "b")].
+  leafSource = mapFromList [(2, "b"), (1, "a"), (3, "c")].
+  oneChildSource = mapFromList [(2, "b"), (1, "a"), (3, "c"), (4, "d")].
+  twoChildSource = mapFromList [(2, "b"), (1, "a"), (4, "d"), (3, "c"), (5, "e")].
+  repeated = mapInsert (mapInsert (mapSingleton 1 "a") 1 "b") 1 "c".
+  (mapToList leftLeft, mapToList rightRight, mapToList leftRight, mapToList rightLeft,
+   mapToList (mapRemove leafSource 1),
+   mapToList (mapRemove oneChildSource 3),
+   mapToList (mapRemove twoChildSource 2),
+   mapToList repeated).
+}

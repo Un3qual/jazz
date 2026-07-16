@@ -79,7 +79,7 @@ import JazzNext.Compiler.ModuleInterface
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
-    resolveProgram
+    resolveProgramWithAmbientExports
   )
 import JazzNext.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
@@ -593,11 +593,10 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
     Right preparedPrelude -> do
       resolvedResult <-
         withCompilerStage ModuleDiscoveryStage $
-          resolveProgram
+          resolveProgramWithAmbientExports
             resolutionConfig
             (preparedPreludeBuiltinMode preparedPrelude)
-            (preparedPreludeVisibleValues preparedPrelude)
-            (preparedPreludeVisibleClasses preparedPrelude)
+            (preparedPreludeVisibleExports preparedPrelude)
             profiledSourceLookup
             entryModulePath
       case resolvedResult of

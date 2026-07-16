@@ -65,8 +65,10 @@ renderingTests =
     , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
     , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
+    , ("private value rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
     , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
     , ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess)
+    , ("Unicode case and bulk text primitives evaluate", testUnicodeCaseAndBulkTextRuntimeSuccess)
     , ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars)
     , ("runtime fallback rejects invalid bootstrap primitive arguments", testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments)
     , ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError)
@@ -152,6 +154,20 @@ testPrivateTextTraversalRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(0, 3, [], [('🙂', \"x\")])") (runOutput result)
 
+testPrivateValueRenderingRuntimeSuccess :: IO ()
+testPrivateValueRenderingRuntimeSuccess =
+  assertEqual
+    "private value renderer"
+    (Right (Just (VText "('a', \"\\n\")")))
+    ( evaluateRuntimeExpr
+        ( runtimeExpr
+            ( EApply
+                (EVar "__kernel_renderValue")
+                (ETuple [ELit (LChar 'a'), ELit (LText "\n")])
+            )
+        )
+    )
+
 testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
 testRuntimeFallbackRejectsNonTextTraversalArguments = do
   let lengthResult =
@@ -185,6 +201,23 @@ testBootstrapCollectionScalarRuntimeSuccess = do
     (Just "([\"first\", \"second\"], [\"second\", \"first\"], 128578, ['🙂'], (True, True, True, True, True), \"Jazz\", \"J🙂z\")")
     (runOutput result)
 
+testUnicodeCaseAndBulkTextRuntimeSuccess :: IO ()
+testUnicodeCaseAndBulkTextRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      (__kernel_charIsLower 'é', __kernel_charIsUpper 'É',
+       __kernel_charToLower 'É', __kernel_charToUpper 'é',
+       __kernel_textConcat ["Ja", "zz", "🙂"]).
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "case and bulk text output"
+    (Just "(True, True, 'é', 'É', \"Jazz🙂\")")
+    (runOutput result)
+
 testCheckedScalarConversionRejectsNonScalars :: IO ()
 testCheckedScalarConversionRejectsNonScalars = do
   result <-
@@ -209,6 +242,9 @@ testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
       predicateResult =
         evaluateRuntimeExpr
           (runtimeExpr (EApply (EVar "__kernel_charIsAlpha") (ELit (LText "a"))))
+      caseResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_charToLower") (ELit (LText "a"))))
       appendResult =
         evaluateRuntimeExpr
           (runtimeExpr (EApply (EApply (EVar "__kernel_textAppend") (ELit (LText "a"))) (ELit (LBool True))))
@@ -224,15 +260,24 @@ testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
       textFromCharsElementResult =
         evaluateRuntimeExpr
           (runtimeExpr (EApply (EVar "__kernel_textFromChars") (EList [ELit (LInt 1)])))
+      textConcatListResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textConcat") (ELit (LText "Jazz"))))
+      textConcatElementResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textConcat") (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "list prepend argument" "E3032" prependResult
   assertRuntimeErrorContains "char to scalar argument" "E3033" charToResult
   assertRuntimeErrorContains "scalar to char argument" "E3034" charFromResult
   assertRuntimeErrorContains "char predicate argument" "E3035" predicateResult
+  assertRuntimeErrorContains "char case argument" "E3035" caseResult
   assertRuntimeErrorContains "text append argument" "E3036" appendResult
   assertRuntimeErrorContains "text append char argument" "E3037" appendCharResult
   assertRuntimeErrorContains "list reverse argument" "E3038" reverseResult
   assertRuntimeErrorContains "text from chars list argument" "E3039" textFromCharsListResult
   assertRuntimeErrorContains "text from chars element argument" "E3039" textFromCharsElementResult
+  assertRuntimeErrorContains "text concat list argument" "E3040" textConcatListResult
+  assertRuntimeErrorContains "text concat element argument" "E3040" textConcatElementResult
 
 testDirectSelfAliasRuntimeError :: IO ()
 testDirectSelfAliasRuntimeError = do

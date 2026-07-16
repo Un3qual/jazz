@@ -3,11 +3,15 @@
 -- | Shared recursive-binding graph and free-variable helpers used by analyzer,
 -- type inference, and runtime.
 module JazzNext.Compiler.RecursiveBindings
-  ( collectBindingNames,
+  ( LambdaCaptureHints,
+    closureCaptureCandidatesWithBound,
+    collectBindingNames,
+    collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
-    inferSelfRecursiveBindings
+    inferSelfRecursiveBindings,
+    lookupLambdaCapturedNames
   ) where
 
 import Data.Graph
@@ -25,6 +29,7 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
+    ImplMethod (..),
     Statement (..)
   )
 import JazzNext.Compiler.Name
@@ -48,41 +53,128 @@ collectBindingNames =
           Map.insert statementIndex bindingName bindingNames
         _ -> bindingNames
 
+-- | Free-variable facts arranged in the same nesting shape as the lambda AST.
+-- Closures retain only their body's nested hints, avoiding both repeated AST
+-- walks and retention of unrelated sibling expressions.
+data LambdaCaptureHint = LambdaCaptureHint Name Expr (Set Name) LambdaCaptureHints
+
+type LambdaCaptureHints = [LambdaCaptureHint]
+
+collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
+collectLambdaCaptureHints expr =
+  case expr of
+    ELit _ -> []
+    EVar _ -> []
+    ELambda parameterName bodyExpr ->
+      [ LambdaCaptureHint
+          parameterName
+          bodyExpr
+          (closureCaptureCandidatesWithBound (Set.singleton parameterName) bodyExpr)
+          (collectLambdaCaptureHints bodyExpr)
+      ]
+    EOperatorValue _ -> []
+    EList elements -> concatMap collectLambdaCaptureHints elements
+    ETuple elements -> concatMap collectLambdaCaptureHints elements
+    EApply functionExpr argumentExpr ->
+      collectLambdaCaptureHints functionExpr
+        <> collectLambdaCaptureHints argumentExpr
+    ETypeApplication functionExpr _ _ ->
+      collectLambdaCaptureHints functionExpr
+    EIf conditionExpr thenExpr elseExpr ->
+      collectLambdaCaptureHints conditionExpr
+        <> collectLambdaCaptureHints thenExpr
+        <> collectLambdaCaptureHints elseExpr
+    EPatternCase scrutineeExpr caseArms ->
+      collectLambdaCaptureHints scrutineeExpr
+        <> concatMap collectCaseArmLambdaCaptureHints caseArms
+    EBinary _ leftExpr rightExpr ->
+      collectLambdaCaptureHints leftExpr
+        <> collectLambdaCaptureHints rightExpr
+    ESectionLeft leftExpr _ ->
+      collectLambdaCaptureHints leftExpr
+    ESectionRight _ rightExpr ->
+      collectLambdaCaptureHints rightExpr
+    EBlock statements ->
+      concatMap collectStatementLambdaCaptureHints statements
+
+collectCaseArmLambdaCaptureHints :: CaseArm -> LambdaCaptureHints
+collectCaseArmLambdaCaptureHints (CaseArm _ guardExpr bodyExpr) =
+  maybe [] collectLambdaCaptureHints guardExpr
+    <> collectLambdaCaptureHints bodyExpr
+
+collectStatementLambdaCaptureHints :: Statement -> LambdaCaptureHints
+collectStatementLambdaCaptureHints statement =
+  case statement of
+    SLet _ _ valueExpr -> collectLambdaCaptureHints valueExpr
+    SImpl _ _ _ methods ->
+      concatMap
+        (\(ImplMethod _ _ methodExpr) -> collectLambdaCaptureHints methodExpr)
+        methods
+    SExpr _ valueExpr -> collectLambdaCaptureHints valueExpr
+    SSignature {} -> []
+    SData {} -> []
+    SClass {} -> []
+    SModule {} -> []
+    SImport {} -> []
+
+lookupLambdaCapturedNames :: Name -> Expr -> LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
+lookupLambdaCapturedNames parameterName bodyExpr =
+  go
+  where
+    go [] = Nothing
+    go (LambdaCaptureHint hintParameter hintBody capturedNames nestedHints : rest)
+      | parameterName == hintParameter,
+        bodyExpr == hintBody =
+          Just (capturedNames, nestedHints)
+      | otherwise = go rest
+
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
-freeVarsExprWithBound bound expr =
+freeVarsExprWithBound = freeVarsExprUsing freeVarsScopeWithBound
+
+-- | Names that may need to come from the environment when a closure is
+-- created. Unlike recursive-binding analysis, an ordinary binding is not in
+-- scope in its own initializer: a same-name reference snapshots a previously
+-- visible value. Recursive cells supplied by scope evaluation are harmless
+-- candidates here because restricting an environment drops absent names.
+closureCaptureCandidatesWithBound :: Set Name -> Expr -> Set Name
+closureCaptureCandidatesWithBound =
+  freeVarsExprUsing closureCaptureCandidatesScopeWithBound
+
+freeVarsExprUsing :: (Set Name -> [Statement] -> Set Name) -> Set Name -> Expr -> Set Name
+freeVarsExprUsing scopeFreeVars bound expr =
   case expr of
     ELit _ -> Set.empty
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
     ELambda parameterName bodyExpr ->
-      freeVarsExprWithBound
+      freeVarsExprUsing scopeFreeVars
         (Set.insert parameterName bound)
         bodyExpr
     EOperatorValue operatorSymbol ->
       operatorBindingFreeVar bound operatorSymbol
     EList elements ->
-      Set.unions (map (freeVarsExprWithBound bound) elements)
+      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
     ETuple elements ->
-      Set.unions (map (freeVarsExprWithBound bound) elements)
+      Set.unions (map (freeVarsExprUsing scopeFreeVars bound) elements)
     EApply functionExpr argumentExpr ->
       Set.union
-        (freeVarsExprWithBound bound functionExpr)
-        (freeVarsExprWithBound bound argumentExpr)
+        (freeVarsExprUsing scopeFreeVars bound functionExpr)
+        (freeVarsExprUsing scopeFreeVars bound argumentExpr)
     ETypeApplication functionExpr _ _ ->
-      freeVarsExprWithBound bound functionExpr
+      freeVarsExprUsing scopeFreeVars bound functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       Set.unions
-        [ freeVarsExprWithBound bound conditionExpr,
-          freeVarsExprWithBound bound thenExpr,
-          freeVarsExprWithBound bound elseExpr
+        [ freeVarsExprUsing scopeFreeVars bound conditionExpr,
+          freeVarsExprUsing scopeFreeVars bound thenExpr,
+          freeVarsExprUsing scopeFreeVars bound elseExpr
         ]
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
-        ( freeVarsExprWithBound bound scrutineeExpr :
+        ( freeVarsExprUsing scopeFreeVars bound scrutineeExpr :
           [ Set.union
-              (maybe Set.empty (freeVarsExprWithBound armBound) guardExpr)
-              (freeVarsExprWithBound armBound bodyExpr)
+              (maybe Set.empty (freeVarsExprUsing scopeFreeVars armBound) guardExpr)
+              (freeVarsExprUsing scopeFreeVars armBound bodyExpr)
           | CaseArm pattern guardExpr bodyExpr <- caseArms,
             let armBound = extendBoundWithPattern pattern bound
           ]
@@ -90,19 +182,19 @@ freeVarsExprWithBound bound expr =
     EBinary operatorSymbol leftExpr rightExpr ->
       Set.unions
         [ operatorBindingFreeVar bound operatorSymbol,
-          freeVarsExprWithBound bound leftExpr,
-          freeVarsExprWithBound bound rightExpr
+          freeVarsExprUsing scopeFreeVars bound leftExpr,
+          freeVarsExprUsing scopeFreeVars bound rightExpr
         ]
     ESectionLeft leftExpr operatorSymbol ->
       Set.union
         (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprWithBound bound leftExpr)
+        (freeVarsExprUsing scopeFreeVars bound leftExpr)
     ESectionRight operatorSymbol rightExpr ->
       Set.union
         (operatorBindingFreeVar bound operatorSymbol)
-        (freeVarsExprWithBound bound rightExpr)
+        (freeVarsExprUsing scopeFreeVars bound rightExpr)
     EBlock statements ->
-      freeVarsScopeWithBound bound statements
+      scopeFreeVars bound statements
 
 operatorBindingFreeVar :: Set Name -> Text -> Set Name
 operatorBindingFreeVar bound operatorSymbol
@@ -111,6 +203,31 @@ operatorBindingFreeVar bound operatorSymbol
   | otherwise = Set.singleton bindingName
   where
     bindingName = operatorBindingName operatorSymbol
+
+closureCaptureCandidatesScopeWithBound :: Set Name -> [Statement] -> Set Name
+closureCaptureCandidatesScopeWithBound initialBound statements =
+  snd (foldl' step (initialBound, Set.empty) statements)
+  where
+    step (boundNames, captureCandidates) statement =
+      case statement of
+        SSignature {} -> (boundNames, captureCandidates)
+        SModule {} -> (boundNames, captureCandidates)
+        SImport {} -> (boundNames, captureCandidates)
+        SClass {} -> (boundNames, captureCandidates)
+        SImpl {} -> (boundNames, captureCandidates)
+        SData {} -> (boundNames, captureCandidates)
+        SExpr _ expr ->
+          ( boundNames,
+            Set.union
+              captureCandidates
+              (closureCaptureCandidatesWithBound boundNames expr)
+          )
+        SLet bindingName _ valueExpr ->
+          ( Set.insert bindingName boundNames,
+            Set.union
+              captureCandidates
+              (closureCaptureCandidatesWithBound boundNames valueExpr)
+          )
 
 freeVarsScopeWithBound :: Set Name -> [Statement] -> Set Name
 freeVarsScopeWithBound initialBound statements =

@@ -10,6 +10,7 @@ module JazzNext.Compiler.Runtime.Semantics
     renderRuntimeType,
     runtimeDiagnostic,
     runtimeDefinitionName,
+    runtimeDefinitionNameIn,
     runtimeConstructorArgument,
     runtimeConstraintType,
     literalRuntimeValue,
@@ -28,6 +29,7 @@ module JazzNext.Compiler.Runtime.Semantics
     integerValueMatchesTarget,
     runtimeQualifiedMethodIsFullyApplied,
     preferredRuntimeMethodCandidates,
+    preferredRuntimeMethodCandidatesForTypeHint,
     applyConstructor,
     evalNumericConversion,
     numericConversionBuiltinForTarget,
@@ -98,7 +100,7 @@ import JazzNext.Compiler.FractionalLiteral
   )
 import JazzNext.Compiler.Name
   ( Name (..),
-    NameNamespace (ConstructorNamespace),
+    NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText
   )
@@ -185,8 +187,21 @@ runtimeDefinitionName :: Maybe [Text] -> Name -> Name
 runtimeDefinitionName maybeModulePath name =
   case (maybeModulePath, name) of
     (Just modulePath, ResolvedName CurrentModule namespace identifier) ->
-      ResolvedName (ImportedModule modulePath) namespace identifier
+      ResolvedName (runtimeDefinitionOrigin modulePath) namespace identifier
     _ -> name
+
+runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> Name -> Name
+runtimeDefinitionNameIn namespace maybeModulePath name =
+  case (maybeModulePath, name) of
+    (Just [], SourceName identifier) ->
+      ResolvedName AmbientPrelude namespace identifier
+    _ -> runtimeDefinitionName maybeModulePath name
+
+runtimeDefinitionOrigin :: [Text] -> ResolvedNameOrigin
+runtimeDefinitionOrigin modulePath =
+  case modulePath of
+    [] -> AmbientPrelude
+    _ -> ImportedModule modulePath
 
 runtimeConstructorArgument :: Maybe [Text] -> DataConstructorArgument -> DataConstructorArgument
 runtimeConstructorArgument maybeModulePath argument =
@@ -217,7 +232,7 @@ runtimeTypeName maybeModulePath name
   | identifierText name `elem` ["Int", "Float", "Bool", "Char", "Text"] = name
   | Just _ <- numericTypeFromName (identifierText name) = name
   | identifierLooksLikeTypeVariable name = name
-  | otherwise = runtimeDefinitionName maybeModulePath name
+  | otherwise = runtimeDefinitionNameIn TypeNamespace maybeModulePath name
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -255,6 +270,25 @@ applyRuntimeTypeHint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint innerValue
     VExplicitResultHints _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs
+      | null (constraintSignatureTypeVariableNamesInOrder typeHint) ->
+          Right
+            ( VTyped
+                typeHint
+                ( VQualifiedMethod
+                    methodKey
+                    classParameter
+                    methodSignature
+                    ( preferredRuntimeMethodCandidatesForTypeHint
+                        typeHint
+                        classParameter
+                        methodSignature
+                        capturedArgs
+                        candidates
+                    )
+                    capturedArgs
+                )
+            )
     _ ->
       case (typeHint, runtimeValue) of
         (TypeInt, _) -> do
@@ -462,7 +496,7 @@ matchPattern currentModulePath scrutineeValue casePattern =
     PConstructor constructorName patterns ->
       case constructorPatternScrutinee scrutineeValue of
         VConstructor _ _ valueConstructorName constructorArguments capturedArgs
-          | valueConstructorName == runtimeDefinitionName currentModulePath constructorName,
+          | valueConstructorName == runtimeDefinitionNameIn ConstructorNamespace currentModulePath constructorName,
             constructorIsSaturated constructorArguments capturedArgs,
             length capturedArgs == length patterns ->
               matchPatternList currentModulePath capturedArgs patterns
@@ -1309,6 +1343,42 @@ preferredRuntimeMethodCandidates classParameter methodSignature arguments candid
       filter
         (runtimeMethodCandidateMatches classParameter methodSignature arguments)
         candidates
+
+preferredRuntimeMethodCandidatesForTypeHint ::
+  SignatureType ->
+  Text ->
+  SignaturePayload ->
+  [RuntimeValue] ->
+  [RuntimeMethodCandidate] ->
+  [RuntimeMethodCandidate]
+preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignature arguments candidates =
+  case exactMatchingCandidates of
+    [] -> compatibleCandidates
+    exactMatches -> exactMatches
+  where
+    exactMatchingCandidates =
+      filter ((== Just typeHint) . candidateRemainingType) compatibleCandidates
+
+    compatibleCandidates =
+      filter
+        (maybe False (constraintSignatureTypesCompatible typeHint) . candidateRemainingType)
+        candidates
+
+    candidateRemainingType (RuntimeMethodCandidate evidence _) = do
+      substitutedSignature <-
+        substituteClassMethodSignature
+          classParameter
+          (runtimeEvidenceTarget evidence)
+          methodSignature
+      dropFunctionArguments (length arguments) substitutedSignature
+
+    dropFunctionArguments remaining signatureType
+      | remaining <= 0 = Just signatureType
+      | otherwise =
+          case signatureType of
+            TypeFunction _ resultType ->
+              dropFunctionArguments (remaining - 1) resultType
+            _ -> Nothing
 
 -- | Runtime-specific wrapper for canonical error construction.
 -- This alias exists solely to improve readability and make it clear that

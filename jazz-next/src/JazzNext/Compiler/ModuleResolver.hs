@@ -11,7 +11,8 @@ module JazzNext.Compiler.ModuleResolver
     resolveModuleGraph,
     resolveModuleGraphWithLookup,
     resolveModuleGraphWithLookupAndVisibleSymbols,
-    resolveProgram
+    resolveProgram,
+    resolveProgramWithAmbientExports
   ) where
 
 import Control.Monad (foldM)
@@ -64,10 +65,12 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
     ModuleImportMode (..),
+    ModuleTypeConstructorSelector (..),
     declarationExportNames,
     exportInventory,
     exportInventoryEntries,
@@ -75,9 +78,11 @@ import JazzNext.Compiler.ModuleExports
     exportNamesInNamespaces,
     firstExportNamespace,
     inventoryHasSelector,
+    moduleExportSelectorName,
+    moduleExportSelectorNamespace,
     renderModuleExportSelector,
     selectorEligibleNames,
-    selectModuleExportSelectors,
+    selectValidatedModuleExportSelectors,
     visibleImportInventory
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
@@ -247,8 +252,14 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambie
     ( resolveStateWithLookupAndVisibleSymbols
         config
         ResolveKernelOnly
-        ambientVisibleSymbols
-        ambientVisibleClassNames
+        ( exportInventory
+            ( [ ModuleExport namespace name
+                | name <- Set.toList ambientVisibleSymbols,
+                  namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+              ]
+                <> [ModuleExport CapabilityNamespace name | name <- Set.toList ambientVisibleClassNames]
+            )
+        )
         loadSource
         entryModulePath
     )
@@ -262,6 +273,28 @@ resolveProgram ::
   [Text] ->
   IO (Either Diagnostic ModuleGraph.ResolvedProgram)
 resolveProgram config builtinMode ambientValues ambientClasses loadSource entryModulePath =
+  resolveProgramWithAmbientExports
+    config
+    builtinMode
+    ( exportInventory
+        ( [ ModuleExport namespace (renderName name)
+            | name <- Set.toList ambientValues,
+              namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+          ]
+            <> [ModuleExport CapabilityNamespace (renderName name) | name <- Set.toList ambientClasses]
+        )
+    )
+    loadSource
+    entryModulePath
+
+resolveProgramWithAmbientExports ::
+  ModuleResolutionConfig ->
+  BuiltinResolutionMode ->
+  ModuleExportInventory ->
+  (FilePath -> IO (Maybe Text)) ->
+  [Text] ->
+  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
+resolveProgramWithAmbientExports config builtinMode ambientExports loadSource entryModulePath =
   {-# SCC "jazz-stage:module-discovery" #-}
   fmap
     ( fmap
@@ -275,8 +308,7 @@ resolveProgram config builtinMode ambientValues ambientClasses loadSource entryM
     ( resolveStateWithLookupAndVisibleSymbols
         config
         builtinMode
-        (Set.map renderName ambientValues)
-        (Set.map renderName ambientClasses)
+        ambientExports
         loadSource
         entryModulePath
     )
@@ -285,12 +317,11 @@ resolveStateWithLookupAndVisibleSymbols ::
   Monad m =>
   ModuleResolutionConfig ->
   BuiltinResolutionMode ->
-  Set Text ->
-  Set Text ->
+  ModuleExportInventory ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
+resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSource entryModulePath
   | null entryModulePath =
       pure (Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path"))
   | otherwise =
@@ -351,8 +382,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                 resolveCoreModuleNames
                                   builtinMode
                                   modulePath
-                                  ambientVisibleSymbols
-                                  ambientVisibleClassNames
+                                  ambientExports
                                   (parsedModuleLocalInventory parsedModule)
                                   (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
@@ -381,6 +411,14 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                             (resolvedExportInventoriesState stateAfterDeps)
                                       }
                                 )
+
+    ambientVisibleSymbols =
+      exportNamesInNamespaces
+        [ValueNamespace, ConstructorNamespace]
+        ambientExports
+
+    ambientVisibleClassNames =
+      exportNamesInNamespace CapabilityNamespace ambientExports
 
     visitDependency nextStack accumulator importPath =
       case accumulator of
@@ -462,6 +500,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
     Right surfaceExpr -> do
       coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
       let localInventory = collectModuleExportInventory surfaceExpr
+          constructorOwners = collectModuleConstructorOwners surfaceExpr
           topLevelBindings =
             Set.union
               (exportNamesInNamespace ValueNamespace localInventory)
@@ -471,6 +510,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
           sourcePath
           expectedModulePath
           (ModuleGraph.coreModuleDeclaredExports coreModule)
+          constructorOwners
           localInventory
       Right
         ParsedModule
@@ -487,36 +527,87 @@ validatePublicExportInventory ::
   FilePath ->
   [Text] ->
   Maybe ModuleGraph.DeclaredModuleExports ->
+  Map Text (Set Text) ->
   ModuleExportInventory ->
   Either Diagnostic ModuleExportInventory
-validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory =
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports constructorOwners localInventory =
   case maybeExplicitExports of
     Nothing -> Right localInventory
     Just declaredExports ->
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
           selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
-       in case find (not . (`inventoryHasSelector` localInventory)) selectors of
-            Nothing -> Right (selectModuleExportSelectors selectors localInventory)
-            Just missingSelector ->
+       in case firstInvalidExport moduleSpan selectors of
+            Nothing -> Right (selectValidatedModuleExportSelectors constructorOwners selectors localInventory)
+            Just invalidExport ->
               Left
-                ( setDiagnosticSubject (moduleExportSelectorName missingSelector)
+                ( setDiagnosticSubject (invalidExportName invalidExport)
                     ( setDiagnosticPrimarySpan
-                        moduleSpan
+                        (invalidExportSpan invalidExport)
                         ( mkErrorDiagnostic
                             E4015 CompilationOrigin
-                            ( "module export "
-                                <> renderModuleExportSelector missingSelector
-                                <> " is not declared by module '"
+                            ( invalidExportSummary invalidExport
+                                <> " module '"
                                 <> renderModulePath modulePath
                                 <> "' in '"
                                 <> Text.pack sourcePath
                                 <> "'; available declarations: "
-                                <> renderAvailableDeclarations missingSelector
+                                <> renderAvailableDeclarations (invalidExportSelector invalidExport)
                             )
                         )
                     )
                 )
   where
+    firstInvalidExport _ [] = Nothing
+    firstInvalidExport moduleSpan (selector : rest) =
+      case validateSelector moduleSpan selector of
+        Nothing -> firstInvalidExport moduleSpan rest
+        invalid -> invalid
+
+    validateSelector moduleSpan selector =
+      case selector of
+        ModuleExportSelector {}
+          | inventoryHasSelector selector localInventory -> Nothing
+          | otherwise ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = moduleExportSelectorName selector,
+                    invalidExportSpan = moduleSpan,
+                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
+                  }
+        ModuleTypeExportSelector typeName typeSpan constructorSelector ->
+          case Map.lookup typeName constructorOwners of
+            Nothing ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = typeName,
+                    invalidExportSpan = typeSpan,
+                    invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
+                  }
+            Just ownedConstructors -> validateConstructors selector typeName ownedConstructors constructorSelector
+
+    validateConstructors selector typeName ownedConstructors constructorSelector =
+      case constructorSelector of
+        AbstractType -> Nothing
+        AllTypeConstructors _ -> Nothing
+        SelectedTypeConstructors constructors ->
+          case find ((`Set.notMember` ownedConstructors) . locatedModuleExportName) (NonEmpty.toList constructors) of
+            Nothing -> Nothing
+            Just constructor ->
+              Just
+                InvalidModuleExport
+                  { invalidExportSelector = selector,
+                    invalidExportName = locatedModuleExportName constructor,
+                    invalidExportSpan = locatedModuleExportSpan constructor,
+                    invalidExportSummary =
+                      "module export constructor '"
+                        <> locatedModuleExportName constructor
+                        <> "' is not declared by type '"
+                        <> typeName
+                        <> "' in"
+                  }
+
     availableNames = declarationExportNames localInventory
     renderAvailableDeclarations selector =
       case moduleExportSelectorNamespace selector of
@@ -535,6 +626,13 @@ renderDeclarationLabels :: [Text] -> Text
 renderDeclarationLabels labels
   | null labels = "<none>"
   | otherwise = Text.intercalate ", " labels
+
+data InvalidModuleExport = InvalidModuleExport
+  { invalidExportSelector :: ModuleExportSelector,
+    invalidExportName :: Text,
+    invalidExportSpan :: SourceSpan,
+    invalidExportSummary :: Text
+  }
 
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =
@@ -573,19 +671,40 @@ collectModuleExportInventory surfaceExpr =
           [ModuleExport CapabilityNamespace (identifierText className)]
         _ -> []
 
+collectModuleConstructorOwners :: SurfaceExpr -> Map Text (Set Text)
+collectModuleConstructorOwners surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements -> Map.fromList (concatMap statementConstructorOwners statements)
+    _ -> Map.empty
+  where
+    statementConstructorOwners statement =
+      case statement of
+        SSData _ typeName _ constructors ->
+          [ ( identifierText typeName,
+              Set.fromList
+                [ identifierText constructorName
+                  | SurfaceDataConstructor constructorName _ <- constructors
+                ]
+            )
+          ]
+        _ -> []
+
 resolveCoreModuleNames ::
   BuiltinResolutionMode ->
   [Text] ->
-  Set Text ->
-  Set Text ->
+  ModuleExportInventory ->
   ModuleExportInventory ->
   Map [Text] ModuleExportInventory ->
   [ParsedImport] ->
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
-resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localInventory inventoriesByModule imports coreModule =
+resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inventoriesByModule imports coreModule =
   coreModule {ModuleGraph.coreModuleExpr = resolveExpr Set.empty (ModuleGraph.coreModuleExpr coreModule)}
   where
+    ambientValues = exportNamesInNamespace ValueNamespace ambientExports
+    ambientConstructors = exportNamesInNamespace ConstructorNamespace ambientExports
+    ambientTypes = exportNamesInNamespace TypeNamespace ambientExports
+    ambientClasses = exportNamesInNamespace CapabilityNamespace ambientExports
     localValues = exportNamesInNamespace ValueNamespace localInventory
     localDataTypes = exportNamesInNamespace TypeNamespace localInventory
     localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
@@ -710,8 +829,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     ambientName namespace nameText =
       case namespace of
+        ValueNamespace -> Set.member nameText ambientValues
+        ConstructorNamespace -> Set.member nameText ambientConstructors
+        TypeNamespace -> Set.member nameText ambientTypes
         CapabilityNamespace -> Set.member nameText ambientClasses
-        _ -> Set.member nameText ambientValues
 
     classOrigin className
       | Set.member className localClasses = CurrentModule
@@ -754,6 +875,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
                 [ initialBoundValues,
                   localConstructors,
                   ambientValues,
+                  ambientConstructors,
                   Map.keysSet visibleValueOrigins,
                   Map.keysSet visibleConstructorOrigins,
                   builtinNamesInMode builtinMode
@@ -796,6 +918,8 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | Set.member nameText localConstructors -> ConstructorNamespace
           | Map.member nameText visibleValueOrigins -> ValueNamespace
           | Map.member nameText visibleConstructorOrigins -> ConstructorNamespace
+          | Set.member nameText ambientValues -> ValueNamespace
+          | Set.member nameText ambientConstructors -> ConstructorNamespace
           where
             nameText = identifierText identifier
         _ -> ValueNamespace

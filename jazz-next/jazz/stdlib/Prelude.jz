@@ -1,12 +1,32 @@
+data Ordering = LT | EQ | GT.
+
 class Eq(a) {
 equals :: a -> a -> Bool.
 }.
-class Ord(a) { }.
+class Ord(a) {
+compare :: a -> a -> Ordering.
+}.
 class Num(a) { }.
 class Integral(a) { }.
 class Fractional(a) { }.
-class Showable(a) { }.
-class Default(a) { }.
+class Showable(a) {
+show :: a -> Text.
+}.
+class Default(a) {
+defaultValue :: a.
+}.
+
+__prelude_compareText :: Text -> Text -> Ordering.
+__prelude_compareText = \(left, right) -> case __kernel_textUnconsRaw left {
+| [] -> case __kernel_textUnconsRaw right {
+  | [] -> EQ
+  | [(rightFirst, rightRest)] -> LT
+  }
+| [(leftFirst, leftRest)] -> case __kernel_textUnconsRaw right {
+  | [] -> GT
+  | [(rightFirst, rightRest)] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest
+  }
+}.
 
 impl Eq(Int) {
 equals = \(left, right) -> left == right.
@@ -23,90 +43,206 @@ equals = \(left, right) -> left == right.
 impl Eq(Text) {
 equals = \(left, right) -> left == right.
 }.
-impl Ord(Int) { }.
-impl Ord(Float) { }.
+impl Ord(Int) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
+impl Ord(Float) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
+impl Ord(Char) {
+compare = \(left, right) -> if __kernel_charToUInt32 left < __kernel_charToUInt32 right then LT else if __kernel_charToUInt32 left > __kernel_charToUInt32 right then GT else EQ.
+}.
+impl Ord(Text) {
+compare = __prelude_compareText.
+}.
 impl Num(Int) { }.
 impl Num(Float) { }.
 impl Integral(Int) { }.
 impl Fractional(Float) { }.
-impl Default(Int) { }.
-impl Default(Float) { }.
-impl Default(Bool) { }.
-impl Showable(Int) { }.
-impl Showable(Float) { }.
-impl Showable(Bool) { }.
-impl Eq(Int8) { }.
-impl Ord(Int8) { }.
+impl Default(Int) {
+defaultValue = 0.
+}.
+impl Default(Float) {
+defaultValue = 0.0.
+}.
+impl Default(Bool) {
+defaultValue = False.
+}.
+impl Default(Char) {
+defaultValue = '\0'.
+}.
+impl Default(Text) {
+defaultValue = "".
+}.
+impl Showable(Int) {
+show = __kernel_renderValue.
+}.
+impl Showable(Float) {
+show = __kernel_renderValue.
+}.
+impl Showable(Bool) {
+show = __kernel_renderValue.
+}.
+impl Showable(Char) {
+show = __kernel_renderValue.
+}.
+impl Showable(Text) {
+show = __kernel_renderValue.
+}.
+impl Eq(Int8) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(Int8) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Int8) { }.
 impl Integral(Int8) { }.
-impl Default(Int8) { }.
-impl Showable(Int8) { }.
-impl Eq(Int16) { }.
-impl Ord(Int16) { }.
+impl Default(Int8) {
+defaultValue = 0.
+}.
+impl Showable(Int8) {
+show = __kernel_renderValue.
+}.
+impl Eq(Int16) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(Int16) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Int16) { }.
 impl Integral(Int16) { }.
-impl Default(Int16) { }.
-impl Showable(Int16) { }.
-impl Eq(Int32) { }.
-impl Ord(Int32) { }.
+impl Default(Int16) {
+defaultValue = 0.
+}.
+impl Showable(Int16) {
+show = __kernel_renderValue.
+}.
+impl Eq(Int32) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(Int32) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Int32) { }.
 impl Integral(Int32) { }.
-impl Default(Int32) { }.
-impl Showable(Int32) { }.
-impl Eq(Int64) { }.
-impl Ord(Int64) { }.
+impl Default(Int32) {
+defaultValue = 0.
+}.
+impl Showable(Int32) {
+show = __kernel_renderValue.
+}.
+impl Eq(Int64) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(Int64) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Int64) { }.
 impl Integral(Int64) { }.
-impl Default(Int64) { }.
-impl Showable(Int64) { }.
-impl Eq(UInt8) { }.
-impl Ord(UInt8) { }.
+impl Default(Int64) {
+defaultValue = 0.
+}.
+impl Showable(Int64) {
+show = __kernel_renderValue.
+}.
+impl Eq(UInt8) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(UInt8) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(UInt8) { }.
 impl Integral(UInt8) { }.
-impl Default(UInt8) { }.
-impl Showable(UInt8) { }.
-impl Eq(UInt16) { }.
-impl Ord(UInt16) { }.
+impl Default(UInt8) {
+defaultValue = 0.
+}.
+impl Showable(UInt8) {
+show = __kernel_renderValue.
+}.
+impl Eq(UInt16) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(UInt16) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(UInt16) { }.
 impl Integral(UInt16) { }.
-impl Default(UInt16) { }.
-impl Showable(UInt16) { }.
-impl Eq(UInt32) { }.
-impl Ord(UInt32) { }.
+impl Default(UInt16) {
+defaultValue = 0.
+}.
+impl Showable(UInt16) {
+show = __kernel_renderValue.
+}.
+impl Eq(UInt32) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(UInt32) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(UInt32) { }.
 impl Integral(UInt32) { }.
-impl Default(UInt32) { }.
-impl Showable(UInt32) { }.
-impl Eq(UInt64) { }.
-impl Ord(UInt64) { }.
+impl Default(UInt32) {
+defaultValue = 0.
+}.
+impl Showable(UInt32) {
+show = __kernel_renderValue.
+}.
+impl Eq(UInt64) {
+equals = \(left, right) -> left == right.
+}.
+impl Ord(UInt64) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(UInt64) { }.
 impl Integral(UInt64) { }.
-impl Default(UInt64) { }.
-impl Showable(UInt64) { }.
+impl Default(UInt64) {
+defaultValue = 0.
+}.
+impl Showable(UInt64) {
+show = __kernel_renderValue.
+}.
 impl Eq(Float16) {
 equals = \(left, right) -> left == right.
 }.
-impl Ord(Float16) { }.
+impl Ord(Float16) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Float16) { }.
 impl Fractional(Float16) { }.
-impl Default(Float16) { }.
-impl Showable(Float16) { }.
+impl Default(Float16) {
+defaultValue = __kernel_toFloat16 0.
+}.
+impl Showable(Float16) {
+show = __kernel_renderValue.
+}.
 impl Eq(Float32) {
 equals = \(left, right) -> left == right.
 }.
-impl Ord(Float32) { }.
+impl Ord(Float32) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Float32) { }.
 impl Fractional(Float32) { }.
-impl Default(Float32) { }.
-impl Showable(Float32) { }.
+impl Default(Float32) {
+defaultValue = __kernel_toFloat32 0.
+}.
+impl Showable(Float32) {
+show = __kernel_renderValue.
+}.
 impl Eq(Float64) {
 equals = \(left, right) -> left == right.
 }.
-impl Ord(Float64) { }.
+impl Ord(Float64) {
+compare = \(left, right) -> if left < right then LT else if left > right then GT else EQ.
+}.
 impl Num(Float64) { }.
 impl Fractional(Float64) { }.
-impl Default(Float64) { }.
-impl Showable(Float64) { }.
+impl Default(Float64) {
+defaultValue = __kernel_toFloat64 0.
+}.
+impl Showable(Float64) {
+show = __kernel_renderValue.
+}.
 
 __kernel_map = __kernel_map.
 __kernel_filter = __kernel_filter.
@@ -133,11 +269,17 @@ __kernel_charIsAlphaNum = __kernel_charIsAlphaNum.
 __kernel_charIsDigit = __kernel_charIsDigit.
 __kernel_charIsSpace = __kernel_charIsSpace.
 __kernel_charIsHexDigit = __kernel_charIsHexDigit.
+__kernel_charIsLower = __kernel_charIsLower.
+__kernel_charIsUpper = __kernel_charIsUpper.
+__kernel_charToLower = __kernel_charToLower.
+__kernel_charToUpper = __kernel_charToUpper.
 __kernel_textLength = __kernel_textLength.
 __kernel_textUnconsRaw = __kernel_textUnconsRaw.
 __kernel_textAppend = __kernel_textAppend.
 __kernel_textAppendChar = __kernel_textAppendChar.
 __kernel_textFromChars = __kernel_textFromChars.
+__kernel_textConcat = __kernel_textConcat.
+__kernel_renderValue = __kernel_renderValue.
 __kernel_readTextRaw! = __kernel_readTextRaw!.
 __kernel_writeTextRaw! = __kernel_writeTextRaw!.
 __kernel_readStdinRaw! = __kernel_readStdinRaw!.

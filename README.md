@@ -13,16 +13,18 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Immutable bindings
 - First-class functions
 - Functions are curried by default
-- Partial ADT, tuple, and pattern-matching runtime subset: canonical `data` declarations, constructor values/applications, tuple literals/signatures, and `case`/lambda patterns for literal, wildcard, variable, constructor, list, and tuple forms
+- Partial ADT, tuple, and pattern-matching runtime subset: canonical `data` declarations, constructor values/applications, tuple literals/signatures, literal/wildcard/variable/constructor/list/tuple/as-patterns, top-level or-patterns, and single `if` case-arm guards
 - Interpreter-backed CLI execution: successful compile is diagnostic-only, and `--run` prints evaluated runtime output
 - Bundled-prelude runtime helpers (`map`, `filter`, `hd`, `tl`, `print!`) in the active CLI/run path
+- Explicit-import Jazz-authored utilities for lists, optional/result values, Unicode text/characters, host text I/O, and persistent `Dictionary`, `Queue`, `Map`, and `Set` collections
+- Explicit module export allowlists, including `type Box(..)` and selected `type Box(Pack, Empty)` constructor groups
 - Stub purity enforcement for direct `!` callee calls in binding bodies
 - Dot-terminated source forms and brace-bodied module declarations
 
 ### Planned / Aspirational
 
-- Generic ADT type schemes and broader constructor typing
-- Future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms
+- Broader ADT/type-system surface beyond the current generic constructor schemes
+- Future pattern forms such as lambda-parameter guards, nested/grouped or-patterns, and pattern synonyms
 - Broader tuple feature surface beyond the current runtime/signature/pattern subset
 - Full module/import loader semantics
 - LLVM backend and performance target

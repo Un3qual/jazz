@@ -16,6 +16,7 @@ import Data.Char
   ( isLower,
     isUpper
   )
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Set
   ( Set
   )
@@ -43,7 +44,9 @@ import JazzNext.Compiler.Name
     splitQualifiedIdentifierText
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector (..),
+  ( LocatedModuleExportName (..),
+    ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..),
     renderModuleExportSelector
   )
 import JazzNext.Compiler.Parser.AST
@@ -1572,7 +1575,6 @@ parseModuleExportList tokensAfterLeftParen =
         tokensAfterLeftParen
 
 parseNonEmptyUniqueList ::
-  Ord item =>
   Text ->
   Text ->
   (item -> Text) ->
@@ -1581,13 +1583,14 @@ parseNonEmptyUniqueList ::
   Either Diagnostic ([item], [Token])
 parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tokens = do
   (firstItem, _, afterFirstItem) <- parseItem tokens
-  go [firstItem] (Set.singleton firstItem) afterFirstItem
+  go [firstItem] (Set.singleton (renderItem firstItem)) afterFirstItem
   where
     go reversedItems seenItems allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
           (nextItem, itemSpan, afterNextItem) <- parseItem rest
-          if Set.member nextItem seenItems
+          let nextItemKey = renderItem nextItem
+          if Set.member nextItemKey seenItems
             then
               Left
                 ( parseDiagnosticAt
@@ -1601,7 +1604,7 @@ parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tok
             else
               go
                 (nextItem : reversedItems)
-                (Set.insert nextItem seenItems)
+                (Set.insert nextItemKey seenItems)
                 afterNextItem
         Token {tokenKind = TRParen} : rest -> Right (reverse reversedItems, rest)
         [] ->
@@ -1623,6 +1626,8 @@ parseModuleExport :: [Token] -> Either Diagnostic (ModuleExportSelector, SourceS
 parseModuleExport tokens =
   case tokens of
     Token {tokenKind = TIdentifier prefix} : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest
+      | Just TypeNamespace <- moduleExportNamespacePrefix prefix ->
+          parseTypeModuleExport exportName exportSpan rest
       | Just namespace <- moduleExportNamespacePrefix prefix ->
           Right (ModuleExportSelector (Just namespace) exportName, exportSpan, rest)
     Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest ->
@@ -1636,6 +1641,68 @@ parseModuleExport tokens =
                 <> tokenLexeme token
                 <> "'"
             )
+        )
+
+parseTypeModuleExport :: Text -> SourceSpan -> [Token] -> Either Diagnostic (ModuleExportSelector, SourceSpan, [Token])
+parseTypeModuleExport typeName typeSpan tokens =
+  case tokens of
+    Token {tokenKind = TLParen} : afterLeftParen ->
+      case afterLeftParen of
+        token@Token {tokenKind = TRParen} : _ ->
+          Left
+            ( parseDiagnosticAt
+                (tokenSpan token)
+                "expected '..' or at least one constructor export"
+            )
+        dotToken@Token {tokenKind = TDot} : afterFirstDot ->
+          parseAllTypeConstructors typeName typeSpan (tokenSpan dotToken) afterFirstDot
+        _ -> do
+          (constructors, remaining) <-
+            parseNonEmptyUniqueList
+              "constructor export"
+              "constructor export group"
+              (\locatedName -> "'" <> locatedModuleExportName locatedName <> "'")
+              parseLocatedModuleExportName
+              afterLeftParen
+          case NonEmpty.nonEmpty constructors of
+            Nothing -> Left (parseDiagnosticAt typeSpan "expected at least one constructor export")
+            Just nonEmptyConstructors ->
+              Right
+                ( ModuleTypeExportSelector typeName typeSpan (SelectedTypeConstructors nonEmptyConstructors),
+                  typeSpan,
+                  remaining
+                )
+    _ -> Right (ModuleTypeExportSelector typeName typeSpan AbstractType, typeSpan, tokens)
+
+parseAllTypeConstructors :: Text -> SourceSpan -> SourceSpan -> [Token] -> Either Diagnostic (ModuleExportSelector, SourceSpan, [Token])
+parseAllTypeConstructors typeName typeSpan allSpan tokens =
+  case tokens of
+    Token {tokenKind = TDot} : Token {tokenKind = TRParen} : rest ->
+      Right
+        ( ModuleTypeExportSelector typeName typeSpan (AllTypeConstructors allSpan),
+          typeSpan,
+          rest
+        )
+    token : _ ->
+      Left
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            "expected exactly '..' followed by ')' in constructor export group"
+        )
+    [] ->
+      Left (parseDiagnosticAt allSpan "expected exactly '..' followed by ')' in constructor export group")
+
+parseLocatedModuleExportName :: [Token] -> Either Diagnostic (LocatedModuleExportName, SourceSpan, [Token])
+parseLocatedModuleExportName tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} : rest ->
+      Right (LocatedModuleExportName constructorName constructorSpan, constructorSpan, rest)
+    [] -> Left (parseDiagnostic "expected constructor export before end of input")
+    token : _ ->
+      Left
+        ( parseDiagnosticAt
+            (tokenSpan token)
+            ("expected constructor export name, found '" <> tokenLexeme token <> "'")
         )
 
 moduleExportNamespacePrefix :: Text -> Maybe NameNamespace

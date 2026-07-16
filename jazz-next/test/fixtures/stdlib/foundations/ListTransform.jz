@@ -1,0 +1,20 @@
+module Stdlib::Foundations::ListTransform {
+  import List.
+  import Maybe.
+  values = [1, 2, 3].
+  pairs = [(1, "a"), (2, "b")].
+  (listAppend [1, 2] [3, 4], listConcat [[1, 2], [], [3, 4]],
+   listRepeat 3 1, listIntersperse 0 values, listIntercalate [0] [[1, 2], [3, 4]],
+   listMap (\(value) -> value * 2) values,
+   listFilter (\(value) -> value > 1) values,
+   listFilterMap (\(value) -> if value == 2 then Nothing else Just (value * 10)) values,
+   listPartition (\(value) -> value == 2) values,
+   listFoldLeft (\(total, value) -> total + value) 4 values,
+   listFoldRight (\(value, total) -> value + total) 4 values,
+   listScanLeft (\(total, value) -> total + value) 0 values,
+   listAny (\(value) -> value == 2) values,
+   listAll (\(value) -> value > 0) values,
+   listContains 2 values, listFind (\(value) -> value > 2) values,
+   listFindIndex (\(value) -> value == 3) values,
+   listZip [1, 2, 3] ["a", "b"], listUnzip pairs, listIndexed ["a", "b"]).
+}

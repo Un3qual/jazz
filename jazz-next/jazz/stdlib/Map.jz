@@ -1,0 +1,273 @@
+module Map (
+  type Map,
+  value mapEmpty,
+  value mapSingleton,
+  value mapFromList,
+  value mapToList,
+  value mapSize,
+  value mapIsEmpty,
+  value mapLookup,
+  value mapGetOr,
+  value mapContainsKey,
+  value mapInsert,
+  value mapReplace,
+  value mapRemove,
+  value mapUpdate,
+  value mapMinimum,
+  value mapMaximum,
+  value mapPopMinimum,
+  value mapPopMaximum,
+  value mapKeys,
+  value mapValues,
+  value mapMapValues,
+  value mapFilter,
+  value mapFoldLeft,
+  value mapFoldRight
+) {
+  import List.
+  import Maybe.
+
+  data Map k v = MapEmpty | MapNode Int Int (Map k v) k v (Map k v).
+
+  mapEmpty :: Map(k, v).
+  mapEmpty = MapEmpty.
+
+  mapHeight :: Map(k, v) -> Int.
+  mapHeight = \(map) -> case map {
+    | MapEmpty -> 0
+    | MapNode height size left key value right -> height
+  }.
+
+  mapSize :: Map(k, v) -> Int.
+  mapSize = \(map) -> case map {
+    | MapEmpty -> 0
+    | MapNode height size left key value right -> size
+  }.
+
+  mapIsEmpty :: Map(k, v) -> Bool.
+  mapIsEmpty = \(map) -> mapSize map == 0.
+
+  mapMaximumInt :: Int -> Int -> Int.
+  mapMaximumInt = \(left, right) -> if left > right then left else right.
+
+  mapNode :: Map(k, v) -> k -> v -> Map(k, v) -> Map(k, v).
+  mapNode = \(left, key, value, right) ->
+    MapNode
+      (1 + mapMaximumInt (mapHeight left) (mapHeight right))
+      (1 + mapSize left + mapSize right)
+      left
+      key
+      value
+      right.
+
+  mapSingleton :: k -> v -> Map(k, v).
+  mapSingleton = \(key, value) -> mapNode mapEmpty key value mapEmpty.
+
+  mapRotateLeft :: Map(k, v) -> k -> v -> Map(k, v) -> Map(k, v).
+  mapRotateLeft = \(left, key, value, right) -> case right {
+    | MapEmpty -> mapNode left key value right
+    | MapNode rightHeight rightSize rightLeft rightKey rightValue rightRight ->
+      mapNode (mapNode left key value rightLeft) rightKey rightValue rightRight
+  }.
+
+  mapRotateRight :: Map(k, v) -> k -> v -> Map(k, v) -> Map(k, v).
+  mapRotateRight = \(left, key, value, right) -> case left {
+    | MapEmpty -> mapNode left key value right
+    | MapNode leftHeight leftSize leftLeft leftKey leftValue leftRight ->
+      mapNode leftLeft leftKey leftValue (mapNode leftRight key value right)
+  }.
+
+  mapBalance :: Map(k, v) -> k -> v -> Map(k, v) -> Map(k, v).
+  mapBalance = \(left, key, value, right) -> {
+    balance = mapHeight left - mapHeight right.
+    if balance > 1 then case left {
+      | MapEmpty -> mapNode left key value right
+      | MapNode leftHeight leftSize leftLeft leftKey leftValue leftRight ->
+        if mapHeight leftLeft >= mapHeight leftRight
+          then mapRotateRight left key value right
+          else mapRotateRight (mapRotateLeft leftLeft leftKey leftValue leftRight) key value right
+    } else if balance < (0 - 1) then case right {
+      | MapEmpty -> mapNode left key value right
+      | MapNode rightHeight rightSize rightLeft rightKey rightValue rightRight ->
+        if mapHeight rightRight >= mapHeight rightLeft
+          then mapRotateLeft left key value right
+          else mapRotateLeft left key value (mapRotateRight rightLeft rightKey rightValue rightRight)
+    } else mapNode left key value right.
+  }.
+
+  mapInsert :: @{Ord(k)}: Map(k, v) -> k -> v -> Map(k, v).
+  mapInsert = \(map, key, value) -> case map {
+    | MapEmpty -> mapSingleton key value
+    | MapNode height size left currentKey currentValue right -> case Ord::compare key currentKey {
+      | LT -> mapBalance (mapInsert left key value) currentKey currentValue right
+      | EQ -> mapNode left currentKey value right
+      | GT -> mapBalance left currentKey currentValue (mapInsert right key value)
+    }
+  }.
+
+  mapFromList :: @{Ord(k)}: [(k, v)] -> Map(k, v).
+  mapFromList = \(entries) -> listFoldLeft (\(map, entry) -> case entry {
+    | (key, value) -> mapInsert map key value
+  }) mapEmpty entries.
+
+  mapToListFrom :: Map(k, v) -> [(k, v)] -> [(k, v)].
+  mapToListFrom = \(map, suffix) -> case map {
+    | MapEmpty -> suffix
+    | MapNode height size left key value right ->
+      mapToListFrom left (listPrepend (key, value) (mapToListFrom right suffix))
+  }.
+
+  mapToList :: Map(k, v) -> [(k, v)].
+  mapToList = \(map) -> mapToListFrom map [].
+
+  mapLookup :: @{Ord(k)}: Map(k, v) -> k -> Maybe(v).
+  mapLookup = \(map, key) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left currentKey value right -> case Ord::compare key currentKey {
+      | LT -> mapLookup left key
+      | EQ -> Just value
+      | GT -> mapLookup right key
+    }
+  }.
+
+  mapGetOr :: @{Ord(k)}: Map(k, v) -> k -> v -> v.
+  mapGetOr = \(map, key, fallback) -> case mapLookup map key {
+    | Nothing -> fallback
+    | Just value -> value
+  }.
+
+  mapContainsKey :: @{Ord(k)}: Map(k, v) -> k -> Bool.
+  mapContainsKey = \(map, key) -> maybeIsJust (mapLookup map key).
+
+  mapReplace :: @{Ord(k)}: Map(k, v) -> k -> v -> Maybe(Map(k, v)).
+  mapReplace = \(map, key, value) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left currentKey currentValue right -> case Ord::compare key currentKey {
+      | LT -> case mapReplace left key value {
+        | Nothing -> Nothing
+        | Just updatedLeft -> Just (mapBalance updatedLeft currentKey currentValue right)
+      }
+      | EQ -> Just (mapNode left currentKey value right)
+      | GT -> case mapReplace right key value {
+        | Nothing -> Nothing
+        | Just updatedRight -> Just (mapBalance left currentKey currentValue updatedRight)
+      }
+    }
+  }.
+
+  mapMinimum :: Map(k, v) -> Maybe((k, v)).
+  mapMinimum = \(map) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left key value right -> case left {
+      | MapEmpty -> Just (key, value)
+      | MapNode leftHeight leftSize leftLeft leftKey leftValue leftRight -> mapMinimum left
+    }
+  }.
+
+  mapMaximum :: Map(k, v) -> Maybe((k, v)).
+  mapMaximum = \(map) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left key value right -> case right {
+      | MapEmpty -> Just (key, value)
+      | MapNode rightHeight rightSize rightLeft rightKey rightValue rightRight -> mapMaximum right
+    }
+  }.
+
+  mapPopMinimum :: Map(k, v) -> Maybe(((k, v), Map(k, v))).
+  mapPopMinimum = \(map) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left key value right -> case left {
+      | MapEmpty -> Just ((key, value), right)
+      | MapNode leftHeight leftSize leftLeft leftKey leftValue leftRight -> case mapPopMinimum left {
+        | Nothing -> Nothing
+        | Just (entry, updatedLeft) -> Just (entry, mapBalance updatedLeft key value right)
+      }
+    }
+  }.
+
+  mapPopMaximum :: Map(k, v) -> Maybe(((k, v), Map(k, v))).
+  mapPopMaximum = \(map) -> case map {
+    | MapEmpty -> Nothing
+    | MapNode height size left key value right -> case right {
+      | MapEmpty -> Just ((key, value), left)
+      | MapNode rightHeight rightSize rightLeft rightKey rightValue rightRight -> case mapPopMaximum right {
+        | Nothing -> Nothing
+        | Just (entry, updatedRight) -> Just (entry, mapBalance left key value updatedRight)
+      }
+    }
+  }.
+
+  mapRemove :: @{Ord(k)}: Map(k, v) -> k -> Map(k, v).
+  mapRemove = \(map, key) -> case map {
+    | MapEmpty -> map
+    | MapNode height size left currentKey currentValue right -> case Ord::compare key currentKey {
+      | LT -> mapBalance (mapRemove left key) currentKey currentValue right
+      | EQ -> case left {
+        | MapEmpty -> right
+        | MapNode leftHeight leftSize leftLeft leftKey leftValue leftRight -> case right {
+          | MapEmpty -> left
+          | MapNode rightHeight rightSize rightLeft rightKey rightValue rightRight -> case mapPopMinimum right {
+            | Nothing -> left
+            | Just ((replacementKey, replacementValue), updatedRight) ->
+              mapBalance left replacementKey replacementValue updatedRight
+          }
+        }
+      }
+      | GT -> mapBalance left currentKey currentValue (mapRemove right key)
+    }
+  }.
+
+  mapUpdate :: @{Ord(k)}: Map(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Map(k, v).
+  mapUpdate = \(map, key, update) -> case mapLookup map key {
+    | Nothing -> case update Nothing {
+      | Nothing -> map
+      | Just value -> mapInsert map key value
+    }
+    | Just current -> case update (Just current) {
+      | Nothing -> mapRemove map key
+      | Just value -> mapInsert map key value
+    }
+  }.
+
+  mapKeys :: Map(k, v) -> [k].
+  mapKeys = \(map) -> listMap (\(entry) -> case entry {
+    | (key, value) -> key
+  }) (mapToList map).
+
+  mapValues :: Map(k, v) -> [v].
+  mapValues = \(map) -> listMap (\(entry) -> case entry {
+    | (key, value) -> value
+  }) (mapToList map).
+
+  mapMapValues :: Map(k, v) -> (v -> w) -> Map(k, w).
+  mapMapValues = \(map, transform) -> case map {
+    | MapEmpty -> MapEmpty
+    | MapNode height size left key value right ->
+      MapNode height size (mapMapValues left transform) key (transform value) (mapMapValues right transform)
+  }.
+
+  mapFoldLeft :: Map(k, v) -> a -> (a -> k -> v -> a) -> a.
+  mapFoldLeft = \(map, initial, combine) -> case map {
+    | MapEmpty -> initial
+    | MapNode height size left key value right -> {
+      afterLeft = mapFoldLeft left initial combine.
+      afterValue = combine afterLeft key value.
+      mapFoldLeft right afterValue combine.
+    }
+  }.
+
+  mapFoldRight :: Map(k, v) -> a -> (k -> v -> a -> a) -> a.
+  mapFoldRight = \(map, initial, combine) -> case map {
+    | MapEmpty -> initial
+    | MapNode height size left key value right -> {
+      afterRight = mapFoldRight right initial combine.
+      afterValue = combine key value afterRight.
+      mapFoldRight left afterValue combine.
+    }
+  }.
+
+  mapFilter :: @{Ord(k)}: Map(k, v) -> (k -> v -> Bool) -> Map(k, v).
+  mapFilter = \(map, predicate) -> mapFoldLeft map mapEmpty (\(result, key, value) ->
+    if predicate key value then mapInsert result key value else result
+  ).
+}

@@ -52,9 +52,11 @@ import JazzNext.Compiler.Diagnostics
     labelSpan,
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..),
     exportInventoryEntries,
   )
 import JazzNext.Compiler.ModuleGraph
@@ -295,9 +297,24 @@ forceSurfaceSignatureToken token =
 
 forceModuleExportSelector :: ModuleExportSelector -> ()
 forceModuleExportSelector selector =
-  moduleExportSelectorNamespace selector `seq`
-    moduleExportSelectorName selector `seq`
-      ()
+  case selector of
+    ModuleExportSelector namespace name -> namespace `seq` name `seq` ()
+    ModuleTypeExportSelector typeName typeSpan constructorSelector ->
+      typeName `seq`
+        typeSpan `seq`
+          forceConstructorSelector constructorSelector
+  where
+    forceConstructorSelector constructorSelector =
+      case constructorSelector of
+        AbstractType -> ()
+        AllTypeConstructors allSpan -> allSpan `seq` ()
+        SelectedTypeConstructors constructors ->
+          forceListWith forceLocatedName (NonEmpty.toList constructors)
+
+    forceLocatedName locatedName =
+      locatedModuleExportName locatedName `seq`
+        locatedModuleExportSpan locatedName `seq`
+          ()
 
 forceInferenceResult :: InferenceResult -> ()
 forceInferenceResult result =

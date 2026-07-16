@@ -1,0 +1,21 @@
+module Stdlib::Foundations::MaybeResultBranches {
+  import Maybe.
+  import Result.
+  import Text.
+  failed :: Result(Text, Int).
+  failed = Err "bad".
+  succeeded :: Result(Text, Int).
+  succeeded = Ok 2.
+  (maybeMap (\(value) -> value + 1) Nothing,
+   maybeAndThen (\(value) -> Just (value + 1)) Nothing,
+   maybeWithDefault 9 (Just 2), maybeOrElse (Just 4) (Just 2),
+   maybeFilter (\(value) -> value > 1) Nothing,
+   maybeIsJust Nothing, maybeIsNothing (Just 1), maybeToList Nothing, maybeFromList [],
+   resultMap (\(value) -> value + 1) failed,
+   resultMapError (\(error) -> textAppend error "!") succeeded,
+   resultAndThen (\(value) -> Ok (value + 1)) failed,
+   resultRecover (\(error) -> Ok 4) succeeded,
+   resultWithDefault 9 succeeded,
+   resultIsOk failed, resultIsErr succeeded,
+   resultToMaybe failed, resultErrorToMaybe succeeded).
+}

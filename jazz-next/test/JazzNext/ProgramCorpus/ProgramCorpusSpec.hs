@@ -327,7 +327,12 @@ testCheckedInCorpusCoverage = do
           "tree-transformations",
           "dependency-planner",
           "capability-workflow",
-          "mini-frontend"
+          "mini-frontend",
+          "word-frequency",
+          "sorted-index",
+          "queue-traversal",
+          "text-processing",
+          "collection-boundaries"
         ]
     )
     (Set.fromList (map programCaseIdentifier cases))

@@ -70,6 +70,7 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.FractionalLiteral (FractionalLiteralSource)
 import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.RecursiveBindings (LambdaCaptureHints)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
@@ -131,6 +132,7 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
     runtimeClosureEnvironmentMayReachHostCells :: Bool,
+    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints,
     runtimeClosureParameter :: Name,
     runtimeClosureBody :: Expr,
     runtimeClosureTypeHint :: Maybe SignatureType,

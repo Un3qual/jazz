@@ -40,6 +40,7 @@ tests =
     ("multi-argument const lambda runs", testConstLambdaRuntime),
     ("explicit nested lambdas capture between curry boundaries", testExplicitNestedLambdaClosureCaptureRuntime),
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
+    ("lambda captures an outer value used by a local rebinding", testClosureCaptureForLocalRebindingRuntime),
     ("self-recursive lambda runs", testSelfRecursiveLambdaRuntime),
     ("wrapped self-recursive lambda runs", testWrappedSelfRecursiveLambdaRuntime),
     ("wrapped self-recursive lambda can use function-valued variable branch", testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime),
@@ -140,6 +141,24 @@ testClosureCaptureBeforeRebindingRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testClosureCaptureForLocalRebindingRuntime :: IO ()
+testClosureCaptureForLocalRebindingRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      x = 41.
+      increment = \\() -> {
+        x = x + 1.
+        x.
+      }.
+      increment ().
+      """
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
 
 testSelfRecursiveLambdaRuntime :: IO ()
 testSelfRecursiveLambdaRuntime = do

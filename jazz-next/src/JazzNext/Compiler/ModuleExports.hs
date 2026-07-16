@@ -2,7 +2,12 @@
 
 -- | Shared typed inventory for source and compiled module exports.
 module JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector (..),
+  ( LocatedModuleExportName (..),
+    ModuleTypeConstructorSelector (..),
+    ModuleExportSelector (..),
+    moduleExportSelectorName,
+    moduleExportSelectorNamespace,
+    qualifyModuleExportSelectorSpans,
     ModuleExport (..),
     ModuleExportInventory,
     ModuleImportMode (..),
@@ -16,6 +21,7 @@ module JazzNext.Compiler.ModuleExports
     renderModuleExportSelector,
     selectExportNames,
     selectModuleExportSelectors,
+    selectValidatedModuleExportSelectors,
     visibleImportInventory,
     inventoryHasExport,
     firstExportNamespace
@@ -23,16 +29,69 @@ module JazzNext.Compiler.ModuleExports
 where
 
 import Data.List (find)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics (SourceSpan, qualifySourceSpan)
 import JazzNext.Compiler.Name (NameNamespace (..))
 
-data ModuleExportSelector = ModuleExportSelector
-  { moduleExportSelectorNamespace :: Maybe NameNamespace,
-    moduleExportSelectorName :: Text
+data LocatedModuleExportName = LocatedModuleExportName
+  { locatedModuleExportName :: Text,
+    locatedModuleExportSpan :: SourceSpan
   }
   deriving (Eq, Ord, Show)
+
+data ModuleTypeConstructorSelector
+  = AbstractType
+  | AllTypeConstructors SourceSpan
+  | SelectedTypeConstructors (NonEmpty LocatedModuleExportName)
+  deriving (Eq, Ord, Show)
+
+data ModuleExportSelector
+  = ModuleExportSelector (Maybe NameNamespace) Text
+  | ModuleTypeExportSelector Text SourceSpan ModuleTypeConstructorSelector
+  deriving (Eq, Ord, Show)
+
+moduleExportSelectorName :: ModuleExportSelector -> Text
+moduleExportSelectorName selector =
+  case selector of
+    ModuleExportSelector _ name -> name
+    ModuleTypeExportSelector name _ _ -> name
+
+moduleExportSelectorNamespace :: ModuleExportSelector -> Maybe NameNamespace
+moduleExportSelectorNamespace selector =
+  case selector of
+    ModuleExportSelector namespace _ -> namespace
+    ModuleTypeExportSelector {} -> Just TypeNamespace
+
+qualifyModuleExportSelectorSpans :: FilePath -> ModuleExportSelector -> ModuleExportSelector
+qualifyModuleExportSelectorSpans sourcePath selector =
+  case selector of
+    ModuleExportSelector {} -> selector
+    ModuleTypeExportSelector typeName typeSpan constructorSelector ->
+      ModuleTypeExportSelector
+        typeName
+        (qualifySourceSpan sourcePath typeSpan)
+        (qualifyConstructorSelectorSpans constructorSelector)
+  where
+    qualifyConstructorSelectorSpans constructorSelector =
+      case constructorSelector of
+        AbstractType -> AbstractType
+        AllTypeConstructors allSpan ->
+          AllTypeConstructors (qualifySourceSpan sourcePath allSpan)
+        SelectedTypeConstructors constructors ->
+          SelectedTypeConstructors (fmap qualifyLocatedName constructors)
+
+    qualifyLocatedName locatedName =
+      locatedName
+        { locatedModuleExportSpan =
+            qualifySourceSpan sourcePath (locatedModuleExportSpan locatedName)
+        }
 
 data ModuleExport = ModuleExport
   { moduleExportNamespace :: NameNamespace,
@@ -80,13 +139,21 @@ inventoryHasSelector selector =
 
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =
-  case moduleExportSelectorNamespace selector of
-    Nothing -> "'" <> moduleExportSelectorName selector <> "'"
-    Just namespace ->
-      moduleExportNamespaceKeyword namespace
-        <> " '"
-        <> moduleExportSelectorName selector
-        <> "'"
+  case selector of
+    ModuleExportSelector Nothing name -> "'" <> name <> "'"
+    ModuleExportSelector (Just namespace) name ->
+      moduleExportNamespaceKeyword namespace <> " '" <> name <> "'"
+    ModuleTypeExportSelector typeName _ constructorSelector ->
+      "type '" <> typeName <> renderConstructorSelector constructorSelector <> "'"
+  where
+    renderConstructorSelector constructorSelector =
+      case constructorSelector of
+        AbstractType -> ""
+        AllTypeConstructors _ -> "(..)"
+        SelectedTypeConstructors constructors ->
+          "("
+            <> Text.intercalate ", " (map locatedModuleExportName (NonEmpty.toList constructors))
+            <> ")"
 
 moduleExportNamespaceKeyword :: NameNamespace -> Text
 moduleExportNamespaceKeyword namespace =
@@ -115,6 +182,34 @@ selectModuleExportSelectors selectors inventory =
         (\export -> any (`moduleExportSelectorMatches` export) selectors)
         (exportInventoryEntries inventory)
     )
+
+selectValidatedModuleExportSelectors ::
+  Map Text (Set Text) ->
+  [ModuleExportSelector] ->
+  ModuleExportInventory ->
+  ModuleExportInventory
+selectValidatedModuleExportSelectors constructorOwners selectors inventory =
+  ModuleExportInventory (Set.unions (map selectedEntries selectors))
+  where
+    selectedEntries selector =
+      case selector of
+        ModuleExportSelector {} ->
+          exportInventoryEntries (selectModuleExportSelectors [selector] inventory)
+        ModuleTypeExportSelector typeName _ constructorSelector ->
+          Set.insert
+            (ModuleExport TypeNamespace typeName)
+            (selectedConstructorEntries typeName constructorSelector)
+
+    selectedConstructorEntries typeName constructorSelector =
+      case constructorSelector of
+        AbstractType -> Set.empty
+        AllTypeConstructors _ ->
+          Set.map (ModuleExport ConstructorNamespace) (Map.findWithDefault Set.empty typeName constructorOwners)
+        SelectedTypeConstructors constructors ->
+          Set.fromList
+            [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
+              | constructor <- NonEmpty.toList constructors
+            ]
 
 moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool
 moduleExportSelectorMatches selector export =

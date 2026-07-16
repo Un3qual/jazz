@@ -635,6 +635,7 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
           RuntimeClosure
             { runtimeClosureEnvironment = Map.empty,
               runtimeClosureEnvironmentMayReachHostCells = False,
+              runtimeClosureLambdaCaptureHints = [],
               runtimeClosureParameter = "value",
               runtimeClosureBody = EVar "value",
               runtimeClosureTypeHint = Nothing,

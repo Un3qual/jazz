@@ -44,8 +44,11 @@ boundaries do not change Jazz syntax.
 Active `jazz-next` module headers accept optional explicit export allowlists.
 The contextual prefixes `value`, `constructor`, `type`, and `class` select one
 exact typed namespace; bare selectors retain the compatibility behavior of
-publishing every owned same-text entry. Omitting the list preserves export-all
-behavior, while `()` publishes nothing. Resolver dependencies, compiler
+publishing every owned same-text entry. `type Box(..)` publishes the type and
+all of its owned constructors; `type Box(Pack, Empty)` publishes the type and
+only the selected owned constructors. The grouped forms expand into the same
+flat typed inventory used by the rest of the compiler. Omitting the list
+preserves export-all behavior, while `()` publishes nothing. Resolver dependencies, compiler
 imports, and runtime publication share the validated public typed inventory;
 unlisted owned declarations remain available inside the defining module for
 resolution, inference, and evaluation. Unknown, wrong-namespace, or
@@ -56,12 +59,21 @@ Character literals use single quotes, text literals use double quotes, and the
 accepted escapes are `\\`, `\'`, `\"`, `\n`, `\r`, `\t`, `\0`, and
 `\u{HEX}` for a Unicode scalar. Both types work in adjacent rank-1 generic
 signatures, literal patterns, lists/tuples, strict equality/inequality, runtime
-rendering, and module transport. The ordinary explicit-import `Text` module
-adds `textEmpty`, scalar-counting `textLength`, `textIsEmpty`, and total
-`textUncons :: Text -> Maybe((Char, Text))` through private backend-neutral
-kernel adapters. Indexing, slicing, concatenation/builders, ordering, search,
-classification, bytes, and implicit `Char`/`Text` conversion remain
-unimplemented.
+rendering, module transport, `Eq`, and `Ord`. Ordinary explicit-import `Char`
+and `Text` modules add Unicode classification and simple case mapping plus
+scalar-aware indexing, slicing, construction, concatenation, search, splitting,
+replacement, trimming, and padding. Public library code composes private
+backend-neutral kernel adapters where primitive scalar/text behavior is
+required. Bytes, normalization, locale-sensitive conversion, and implicit
+`Char`/`Text` conversion remain unimplemented. The complete current API and
+complexity contract is in `jazz-next/jazz/stdlib/README.md`.
+
+The broader Jazz-authored library also provides total list helpers, `Maybe`,
+`Result`, `NonEmpty`, insertion-ordered `Dictionary`, FIFO `Queue`, persistent
+AVL `Map`, ordered `Set`, and the explicit-import host `IO`/`IOError` boundary.
+The linear and ordered collection representations are abstract; their public
+operations return persistent values and define insertion, FIFO, or ascending
+order explicitly.
 
 Host text I/O is available through ordinary explicit imports of `IO` and
 `IOError`; neither module is part of the bundled prelude. `IO` exports exactly
@@ -502,25 +514,13 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
-- Extending class/impl abstraction semantics in `jazz-next` beyond the active
-  parser/core declaration ownership, explicit class parameter metadata,
-  signature-only class method metadata, concrete impl method binding
-  metadata, duplicate class/method/impl fact validation, concrete
-  constrained-signature fact checks with declared class arity, and
-  bundled-prelude canonical unary class plus inert default and width-specific
-  numeric concrete impl facts; missing, duplicate, or non-variable class
-  parameters reject at parse time, class method body/default syntax,
-  non-binding impl body items, and method-bearing non-concrete impl bodies
-  reject at parse time; explicit `Class::method` references execute for the
-  active typed dispatch slice across visible concrete impl method bodies, with
-  type-directed candidate selection, deterministic no-match and ambiguity
-  diagnostics, compiler-owned runtime evidence on method candidates, and impl
-  bodies validated against substituted method types. The
-  bundled prelude includes the first executable `Eq(Int).equals` method body.
-  Unqualified overloaded method names, under-applied overloaded function
-  values, user-visible dictionaries/dictionary optimization, default methods,
-  superclass semantics, additional bundled-prelude method bodies, and broader
-  cross-module method coherence remain future work. `Self` is not reserved.
+- Extending class/impl abstraction semantics beyond the active declaration,
+  constrained-signature, concrete-impl, and explicit `Class::method` dispatch
+  slice. The bundled prelude supplies executable `Eq.equals`, `Ord.compare`,
+  `Showable.show`, and `Default.defaultValue` methods over appropriate built-in
+  scalar types. Unqualified overloads, under-applied overloaded function
+  values, default methods, superclasses, and broader cross-module coherence
+  remain future work. `Self` is not reserved.
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category is closed as reserved-only for the current active language surface until a future accepted syntax surface is intentionally deprecated):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - CLI source selection is active in `jazz-next`: standalone compile and `--run`
@@ -535,7 +535,13 @@ Based on the full repo, these areas still require implementation convergence eve
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit visibility diagnostics, and `Alias::symbol` lookup now flow through a parse-once resolved graph, per-module compile interfaces, and per-module runtime exports. Default bundled-prelude and explicit no-prelude ownership checks remain covered, as do deterministic resolver/binding diagnostics. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; the active contracts are specified in `docs/spec/modules/01-file-layout-and-package-roots.md` through `docs/spec/modules/05-migration-and-compatibility.md`. The parser/resolver, module-pipeline, loader, and CLI harnesses are locked in `ModuleImportParserSpec.hs`, `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, `LoaderSpec.hs`, and `CLISpec.hs`; no active Phase 6 module harness row remains in `Ready Now`.
+- Module/import loading semantics are partially implemented in `jazz-next`:
+  canonical brace-bodied declarations, alias/symbol-list imports, grouped
+  constructor exports, explicit visibility diagnostics, and qualified lookup
+  flow through a parse-once graph, per-module interfaces, and runtime exports.
+  The clarification matrix and active contracts are
+  `docs/spec/modules/00-module-clarification-matrix.md` through
+  `docs/spec/modules/06-explicit-export-lists.md`.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Implementing the selected LLVM native backend: backend-neutral lowered IR,
   LLVM lowering, object generation/linking, and the native runtime ABI remain
@@ -558,7 +564,14 @@ If you need a practical baseline for continuing Jazz, use this order:
    - adjacent rank-1 signatures over primitives, lower-case variables, exact-arity named applications, nested list/tuple/function compositions, empty `@{}:` wrappers, concrete constrained signatures, and solver-backed variable constrained signatures, with fresh per-use instantiation and explicit first-variable type application
    - `if ... else ...` surface expressions retained as canonical core `EIf`
    - canonical `data` declarations, including lowercase generic declaration parameters preserved in active metadata, with constructor values/applications plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, bracketed-list, cons-like list, tuple, and as-patterns; analyzer/type/runtime execution covers integer, boolean, character, text, and fractional literal patterns, wildcard, variable, declared constructor patterns, exact-length bracketed-list patterns, cons-like list head/tail patterns, fixed-arity tuple patterns, and as-patterns
-   - active top-level/module-body `class` declarations with explicit lowercase parameter metadata plus signature-only method metadata, and concrete `impl` abstraction declarations with method binding metadata that lower into core declaration nodes, reject missing/duplicate/non-variable class parameters, duplicate class declarations, duplicate class method signatures, duplicate impl method bindings, duplicate concrete impl facts, non-binding impl body items, and method-bearing non-concrete impl bodies, and let concrete constrained signatures validate against visible class/impl facts using declared class arity; `Self` is not reserved; class method body/default syntax rejects explicitly; explicit `Class::method` references execute for the active typed dispatch slice across visible concrete impl method bodies, with deterministic no-match and ambiguity diagnostics plus concrete impl bodies checked against the substituted method type; runtime method candidates carry compiler-owned evidence identifying class, concrete impl target, and method key; non-canonical `trait` declarations reject with diagnostics pointing future abstraction syntax back to `class`/`impl`, while `class`/`impl`/`trait` remain available as ordinary binding, signature, and qualified-alias identifiers; the bundled default prelude now declares the canonical `Eq(a)`, `Ord(a)`, `Num(a)`, `Integral(a)`, `Fractional(a)`, `Showable(a)`, and `Default(a)` classes plus scoped concrete impl facts over `Int`/`Float`/`Bool` defaults and width-specific numeric signature names, including the first executable `Eq(Int).equals` body, but unqualified overloads, under-applied overloaded function values, user-visible dictionaries/dictionary optimization, default methods, additional bundled-prelude method bodies, and broader module export/import method behavior remain future work
+   - active top-level/module-body `class` and concrete `impl` declarations,
+     constrained signatures, explicit `Class::method` dispatch, substituted
+     impl-body checking, and deterministic missing/ambiguous evidence
+     diagnostics. The bundled prelude provides executable `Eq.equals`,
+     `Ord.compare`, `Showable.show`, and `Default.defaultValue` methods plus the
+     `Num`, `Integral`, and `Fractional` marker capabilities across appropriate
+     built-in scalar types. Unqualified overloads, under-applied overloaded
+     function values, default methods, and superclasses remain future work.
    - opt-in compiler warnings for same-scope rebinding (`W0001`),
      outer-scope shadowing (`W0002`), and ordinary block unused bindings
      (`W0003`), with warning-as-error promotion while preserving default
@@ -567,9 +580,22 @@ If you need a practical baseline for continuing Jazz, use this order:
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `<=`, `>`, `>=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`, target-named numeric conversions `toInt8`..`toFloat64`, backend-independent `Char`/`Text` literals and equality, default Float64 fractional literal values, direct annotated `Float16`/`Float32` fractional literal bindings, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic with width-preserving runtime float results, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality, and structural list/tuple/ADT equality over equality-supported element and constructor payload types, while numeric-width planning now uses cross-platform `Int64`/`Float64` defaults, source-exact fractional literal conversion checks, context-directed literals, and explicit conversion for mixed concrete widths
    - stage-0 runtime execution via `--run` CLI mode, with standalone CLI source input selected from stdin by default or one positional `.jz` file, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact; LLVM-generated native binaries are the selected future artifact target
    - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names; source and module graph harnesses now cover public alias rejection, kernel bridge availability, bundled helper visibility, default bundled capability class and impl-fact visibility, no-prelude capability-fact absence, and explicit-prelude helper visibility, and the checked-in `jazz-next/jazz/stdlib/Prelude.jz` mirror is covered against the catalog-generated bundled prelude source
-   - ordinary Jazz-authored `Maybe` and `Result` modules in `jazz-next/jazz/stdlib/`: `Maybe` declares `data Maybe a = Nothing | Just a.` and exports exactly `type Maybe`, `constructor Nothing`, and `constructor Just`; `Result` declares `data Result e a = Err e | Ok a.` and exports exactly `type Result`, `constructor Err`, and `constructor Ok`. They require explicit module imports and are not compiler builtins, kernel bridges, or bundled-prelude members. Loader coverage executes their generic signatures, constructors, and patterns from the checked-in sources; prelude-loading coverage locks their implicit absence. This source boundary is shared by the stage-0 interpreter and future compiler backends, so it adds no disposable bytecode or LLVM-specific layer.
-   - an ordinary Jazz-authored `Text` module in `jazz-next/jazz/stdlib/` that imports `Maybe` and exports exactly `textEmpty :: Text`, `textLength :: Text -> Int`, `textIsEmpty :: Text -> Bool`, and `textUncons :: Text -> Maybe((Char, Text))`. Length and uncons operate on Unicode scalar values without normalization or per-scalar I/O. Two private `KernelIntrinsic` adapters supply stage-0 execution and checked-in bundled-prelude self-bridges, but no public alias; the public functions remain unavailable without an explicit `Text` import. This boundary is intended to lower to the future native runtime rather than be replaced by a bytecode or Haskell-specific frontend layer.
-   - shipped Jazz-authored sources are separated under `jazz-next/jazz/`: eight user-facing modules live in `stdlib/`, while the hosted `Lexer` and `LexerTypes` modules live in `compiler/`. Compiler sources may import stdlib modules; a parsed repository audit rejects the inverse dependency.
+   - explicit-import Jazz-authored foundation modules `List`, `Maybe`,
+     `Result`, and `NonEmpty`; their public constructors and operation families
+     are documented in `jazz-next/jazz/stdlib/README.md` and execute through
+     ordinary generic signatures, constructors, patterns, and Jazz functions.
+   - explicit-import persistent collections: insertion-ordered `Dictionary`,
+     FIFO `Queue`, AVL `Map`, and ordered `Set`. Their constructors and
+     invariants are private, while checked-in model traces verify observable
+     ordering, update, and persistence behavior.
+   - explicit-import Unicode `Char` and `Text` utilities plus strict UTF-8
+     `IO`/`IOError`; only the irreducible scalar, bulk-text, and host operations
+     cross private backend-neutral kernel seams.
+   - shipped Jazz-authored sources are separated under `jazz-next/jazz/`:
+     thirteen user-facing/special prelude sources live in `stdlib/`, while the
+     hosted `Lexer` and `LexerTypes` modules live in `compiler/`. Compiler
+     sources may import stdlib modules; a parsed repository audit rejects the
+     inverse dependency.
 
 ## Hybrid Semantic-Change Workflow
 
@@ -616,7 +642,11 @@ Runtime/product status:
 
 1. Keep future pattern forms such as guards, or-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, as-patterns, and lambda parameter patterns now execute as core runtime/type features.
 2. Keep future module/import work (`domain 09`) scoped to concrete product or semantic deltas beyond the closed active Phase 6 harness. The file-layout parser/resolver, resolution/import-binding, and loader/migration harnesses are complete, and the file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are published.
-3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth with an explicit API/runtime contract; the current bundled source/module graph paths, explicit no-prelude module graph boundary, and checked-in prelude reproducibility evidence are covered in `jazz-next`.
+3. Keep future stdlib work scoped to concrete needs with explicit public names,
+   edge behavior, complexity, and runtime/backend contracts. Hash collections,
+   bytes/encoding, broader I/O, and Unicode normalization remain separate
+   candidates; the current library is documented in
+   `jazz-next/jazz/stdlib/README.md`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Keep `deprecated-syntax` / `W0004` reserved-only until a future accepted active-path syntax surface is intentionally deprecated; implement a W0004 emitter only after that surface, payload, target paths, and focused verification are specified in `jazz-next`.
 6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.

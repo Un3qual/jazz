@@ -2,7 +2,7 @@
 
 Status: durable discussion backlog; not an execution queue or implementation plan
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 This document preserves the sixteen improvements agreed during the July 2026
 Jazz design discussion. It records intent, important constraints, and proposed
@@ -76,14 +76,22 @@ Items: 14, 13, 11, and 12.
 
 ### Batch 5: Module export ergonomics and stdlib growth
 
+Status: completed on 2026-07-15. See the
+[approved design](superpowers/specs/2026-07-15-jazz-next-constructor-exports-broad-stdlib-design.md),
+[implementation plan](superpowers/plans/2026-07-15-jazz-next-constructor-exports-broad-stdlib.md),
+[module export contract](spec/modules/06-explicit-export-lists.md),
+[standard-library reference](../jazz-next/jazz/stdlib/README.md), and
+[performance guide](../jazz-next/PERFORMANCE.md).
+
 Items: 5 and 8.
 
-- Add concise constructor-group export syntax while preserving abstract and
-  selectively exposed data types.
-- Expand the Jazz-authored stdlib after public module declarations can remain
-  readable as the number of types and constructors grows.
-- Review every new public builtin, class, datatype, and operation name for
-  accessibility before accepting it.
+- Added `type Box(..)` and `type Box(Pack, Empty)` export groups while
+  preserving abstract types, individual constructors, and selective exposure.
+- Expanded the Jazz-authored stdlib with approachable foundation, optional,
+  text, linear collection, ordered collection, and host-I/O APIs.
+- Locked public names, abstraction boundaries, edge behavior, ordering,
+  complexity, deterministic corpus budgets, same-machine benchmark recording,
+  runtime statistics, and GHC profiling evidence.
 
 ### Batch 6: Source-level compiler directives
 
@@ -168,9 +176,10 @@ selective constructor exposure are useful API boundaries. Add concise syntax
 for exporting a type with all constructors or a selected constructor subset.
 Keep the typed per-namespace export inventory as the internal representation.
 
-The exact grouped surface syntax requires its own design; the semantic
-distinction between an abstract type, all constructors, and selected
-constructors is already accepted.
+Implemented syntax is `type Box` for an abstract type, `type Box(..)` for the
+type plus every owned constructor, and `type Box(Pack, Empty)` for the type plus
+selected owned constructors. Individual `constructor Pack` exports remain
+available. The flat typed export inventory remains the internal boundary.
 
 ### 6. Upgrade to GHC 9.14.1 and use `MultilineStrings`
 
@@ -209,6 +218,11 @@ contract.
 Give existing marker capabilities real operations where useful, including an
 ordering operation, user-facing value rendering, and defaults. Do not add
 abstractions merely to mirror Haskell.
+
+Batch 5 implemented these foundations as `List`, `Maybe`, `Result`, `NonEmpty`,
+`Dictionary`, `Queue`, `Map`, `Set`, `Char`, and `Text`, plus the existing
+`IO`/`IOError` boundary. Hash collections remain deferred pending an accepted
+hashing and native-runtime contract.
 
 Jazz aims to remain approachable to developers without type-theory or category
 theory background. Public functionality analogous to `Semigroup`, `Monoid`, or

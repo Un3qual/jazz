@@ -312,6 +312,20 @@ test-suite prelude-loading-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 
+test-suite stdlib-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Stdlib/StdlibSpec.hs
+  other-modules:
+      JazzNext.Compiler.Stdlib.FoundationsTests
+      JazzNext.Compiler.Stdlib.LinearCollectionsTests
+      JazzNext.Compiler.Stdlib.OrderedCollectionsTests
+      JazzNext.Compiler.Stdlib.Shared
+      JazzNext.Compiler.Stdlib.TextTests
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite canonical-lexer-comparison-spec
   import: test-common
   type: exitcode-stdio-1.0

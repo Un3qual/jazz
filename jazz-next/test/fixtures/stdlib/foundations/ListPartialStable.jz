@@ -1,0 +1,16 @@
+module Stdlib::Foundations::ListPartialStable {
+  import List.
+  import Text.
+  doubleAll = listMap (\(value) -> value * 2).
+  takeTwo = listTake 2.
+  containsTwo = listContains 2.
+  compareByKey = \(left, right) -> case left {
+    | (leftKey, leftLabel) -> case right {
+      | (rightKey, rightLabel) -> Ord::compare leftKey rightKey
+    }
+  }.
+  addBang = listMap (\(value) -> textAppend value "!").
+  (doubleAll [1, 2, 3], takeTwo [1, 2, 3], containsTwo [1, 2, 3],
+   listSortBy compareByKey [(2, "a"), (1, "b"), (2, "c"), (1, "d")],
+   addBang ["Jazz", "list"]).
+}

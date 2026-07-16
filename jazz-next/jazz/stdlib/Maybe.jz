@@ -1,3 +1,68 @@
-module Maybe (type Maybe, constructor Nothing, constructor Just) {
+module Maybe (
+  type Maybe(..),
+  value maybeMap,
+  value maybeAndThen,
+  value maybeWithDefault,
+  value maybeOrElse,
+  value maybeFilter,
+  value maybeIsJust,
+  value maybeIsNothing,
+  value maybeToList,
+  value maybeFromList
+) {
   data Maybe a = Nothing | Just a.
+
+  maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
+  maybeMap = \(transform, maybeValue) -> case maybeValue {
+    | Nothing -> Nothing
+    | Just value -> Just (transform value)
+  }.
+
+  maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
+  maybeAndThen = \(transform, maybeValue) -> case maybeValue {
+    | Nothing -> Nothing
+    | Just value -> transform value
+  }.
+
+  maybeWithDefault :: a -> Maybe(a) -> a.
+  maybeWithDefault = \(defaultValue, maybeValue) -> case maybeValue {
+    | Nothing -> defaultValue
+    | Just value -> value
+  }.
+
+  maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
+  maybeOrElse = \(fallback, maybeValue) -> case maybeValue {
+    | Nothing -> fallback
+    | Just value -> Just value
+  }.
+
+  maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
+  maybeFilter = \(predicate, maybeValue) -> case maybeValue {
+    | Nothing -> Nothing
+    | Just value -> if predicate value then Just value else Nothing
+  }.
+
+  maybeIsJust :: Maybe(a) -> Bool.
+  maybeIsJust = \(maybeValue) -> case maybeValue {
+    | Nothing -> False
+    | Just value -> True
+  }.
+
+  maybeIsNothing :: Maybe(a) -> Bool.
+  maybeIsNothing = \(maybeValue) -> case maybeValue {
+    | Nothing -> True
+    | Just value -> False
+  }.
+
+  maybeToList :: Maybe(a) -> [a].
+  maybeToList = \(maybeValue) -> case maybeValue {
+    | Nothing -> []
+    | Just value -> [value]
+  }.
+
+  maybeFromList :: [a] -> Maybe(a).
+  maybeFromList = \(values) -> case values {
+    | [] -> Nothing
+    | [first | rest] -> Just first
+  }.
 }

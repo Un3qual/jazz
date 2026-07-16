@@ -52,50 +52,53 @@ locale-sensitive behavior.
 Runtime rendering uses valid Jazz source spelling with deterministic escaping.
 The first child does not add interpolation or multiline text.
 
-## Explicit-Import Traversal
+## Explicit-Import Character and Text APIs
 
-The ordinary [`Text`](../../../jazz-next/jazz/stdlib/Text.jz) module exports exactly:
+Programs import [`Char`](../../../jazz-next/jazz/stdlib/Char.jz) and
+[`Text`](../../../jazz-next/jazz/stdlib/Text.jz) explicitly. Imports are not
+re-exported. The complete public operation inventory, edge behavior, and
+complexity promises are maintained in the
+[standard-library reference](../../../jazz-next/jazz/stdlib/README.md).
 
-- `textEmpty :: Text`;
-- `textLength :: Text -> Int`;
-- `textIsEmpty :: Text -> Bool`;
-- `textUncons :: Text -> Maybe((Char, Text))`;
-- `textAppend :: Text -> Text -> Text`;
-- `textAppendChar :: Text -> Char -> Text`; and
-- `textFromChars :: [Char] -> Text`.
+`Char` exposes scalar conversion, Unicode classification, newline detection,
+and simple one-scalar case mapping. Checked `charFromUInt32` rejects values
+outside Unicode and surrogate code points with `Nothing`. Classification and
+case mapping are locale-independent; case mapping never expands one scalar
+into multiple characters.
 
-Programs must import `Text` explicitly. The module imports the ordinary
-`Maybe` module and does not re-export `Maybe`, `Nothing`, or `Just`.
-`textLength` counts Unicode scalar values. `textUncons` returns `Nothing` for
-empty text and `Just (first, rest)` otherwise, where `first` is the first scalar
-and `rest` is the exact remaining scalar sequence. `textAppend` concatenates
-two scalar sequences, `textAppendChar` appends one scalar, and `textFromChars`
-constructs text from a list of scalars in list order. None of these operations
-performs normalization, byte conversion, locale-sensitive processing, or
-external I/O.
+`Text` exposes:
 
-The stage-0 interpreter implements these semantics through private
-`__kernel_textLength :: Text -> Int`,
-`__kernel_textUnconsRaw :: Text -> [(Char, Text)]`,
-`__kernel_textAppend :: Text -> Text -> Text`,
-`__kernel_textAppendChar :: Text -> Char -> Text`, and
-`__kernel_textFromChars :: [Char] -> Text` adapters. The raw uncons adapter
-returns only `[]` or one tuple; none of the adapters is a public API. All five
-are backend-neutral semantic hooks: future LLVM lowering and the native
-runtime must preserve the Jazz-visible signatures and behavior without
-exposing the Haskell representation.
+- shape and scalar traversal through `textEmpty`, `textLength`, `textIsEmpty`,
+  `textUncons`, `textAt`, `textTake`, `textDrop`, `textSlice`, `textToChars`,
+  and `textReverse`;
+- construction through `textAppend`, `textAppendChar`, `textFromChars`,
+  `textRepeat`, `textConcat`, and `textJoin`;
+- exact prefix, suffix, containment, and first-index search;
+- delimiter, newline, and Unicode-whitespace splitting;
+- left-to-right non-overlapping replacement; and
+- Unicode-whitespace trimming plus scalar-width padding.
+
+All indices, lengths, and widths count scalars. Negative indices return
+`Nothing`; negative counts clamp to zero. An empty search needle matches at
+zero, splitting on an empty delimiter returns one text value per scalar, and
+replacing an empty needle leaves the input unchanged. Search and replacement
+compare exact scalar sequences and perform no normalization.
+
+The stage-0 interpreter implements irreducible scalar/text behavior through
+private `__kernel_char*` and `__kernel_text*` adapters. The public library
+functions compose those hooks in Jazz wherever practical. Kernel names are not
+public API. Future LLVM lowering and the native runtime must preserve the same
+Jazz-visible signatures and behavior without exposing Haskell representation
+details.
 
 ## Staged Follow-Ups
 
 The following remain separate bootstrap children:
 
-- total ordering and scalar classification;
-- checked indexing, slicing, richer builders, prefix/suffix checks, and
-  substring search;
-- host text I/O and process arguments;
-- stack-safe interpreter evaluation;
-- immutable bytes and UTF-8 conversion;
-- the Jazz-authored lexer;
+- immutable bytes and explicit UTF-8 conversion;
+- Unicode normalization and locale-sensitive or multi-scalar case conversion;
+- advanced search algorithms where corpus/benchmark evidence justifies them;
+- binary I/O, handles, directories, environment variables, and async I/O; and
 - backend-neutral lowered IR, LLVM IR generation, native linking, and the
   native runtime.
 

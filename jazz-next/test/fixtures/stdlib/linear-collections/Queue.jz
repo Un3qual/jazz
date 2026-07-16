@@ -1,0 +1,21 @@
+module Stdlib::LinearCollections::Queue {
+  import Queue.
+  import Maybe.
+  import Text.
+  empty = queueEmpty.
+  firstVersion = queueEnqueue empty "a".
+  secondVersion = queueEnqueue firstVersion "b".
+  all = queueEnqueueAll firstVersion ["b", "c"].
+  dequeueView = \(result) -> case result {
+    | Nothing -> Nothing
+    | Just (value, remaining) -> Just (value, queueToList remaining)
+  }.
+  pairs = queueFromList [(1, "x"), (2, "y")].
+  (queueToList empty, queueSize empty, queueIsEmpty empty,
+   queueToList (queueSingleton 7), queueToList (queueFromList [1, 2, 3]),
+   queuePeek secondVersion, dequeueView (queueDequeue secondVersion),
+   queueToList firstVersion, queueToList all,
+   queueToList (queueMap pairs (\(pair) -> pair)),
+   queueFoldLeft all "" (\(result, value) -> textAppend result value),
+   queueFoldRight all "" (\(value, result) -> textAppend value result)).
+}

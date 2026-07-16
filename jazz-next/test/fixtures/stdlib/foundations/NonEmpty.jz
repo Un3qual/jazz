@@ -1,0 +1,15 @@
+module Stdlib::Foundations::NonEmpty {
+  import NonEmpty.
+  import Maybe.
+  value = NonEmpty 1 [2, 3].
+  singleton = nonEmptySingleton 7.
+  (nonEmptyToList singleton, nonEmptyLast singleton,
+   nonEmptyFromList [1, 2, 3], nonEmptyFromList [],
+   nonEmptyToList value, nonEmptyHead value, nonEmptyTail value, nonEmptyLast value,
+   nonEmptyToList (nonEmptyPrepend 0 value),
+   nonEmptyToList (nonEmptyAppendList value [4]),
+   nonEmptyToList (nonEmptyMap (\(item) -> item * 2) value),
+   nonEmptyLength value,
+   nonEmptyFoldLeft (\(total, item) -> total + item) 0 value,
+   nonEmptyFoldRight (\(item, total) -> item + total) 0 value).
+}

@@ -1,0 +1,10 @@
+module Stdlib::OrderedCollections::MapTraversal {
+  import Map.
+  import Text.
+  start = mapFromList [(3, "three"), (1, "one"), (2, "TWO")].
+  (mapKeys start, mapValues start,
+   mapToList (mapMapValues start (\(value) -> textAppend value "!")),
+   mapToList (mapFilter start (\(key, value) -> key > 1)),
+   mapFoldLeft start "" (\(result, key, value) -> textAppend result (Showable::show key)),
+   mapFoldRight start "" (\(key, value, result) -> textAppend (Showable::show key) result)).
+}

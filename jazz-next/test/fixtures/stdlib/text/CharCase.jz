@@ -1,0 +1,7 @@
+module Stdlib::Text::CharCase {
+  import Char.
+
+  (charIsDigit '9', charIsDigit '\u{661}',
+   charIsLower 'é', charIsUpper 'É', charIsLower 'É', charIsUpper 'é',
+   charToUpper 'é', charToLower 'É', charToUpper '1', charToLower '1', charToLower 'İ').
+}

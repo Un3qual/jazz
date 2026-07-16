@@ -2,33 +2,38 @@
 
 module Main (main) where
 
-import qualified Data.Set as Set
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
     ModuleImportMode (..),
+    ModuleTypeConstructorSelector (..),
     declarationExportNames,
     exportInventory,
     exportInventoryEntries,
     firstExportNamespace,
+    renderModuleExportSelector,
     selectExportNames,
     selectModuleExportSelectors,
     selectorEligibleNames,
-    visibleImportInventory
+    visibleImportInventory,
   )
 import JazzNext.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
-    moduleInterfaceExportInventory
+    moduleInterfaceExportInventory,
   )
 import JazzNext.Compiler.Name (NameNamespace (..))
-import JazzNext.TestHarness (NamedTest, assertEqual, runTestSuite)
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (TIntType),
-    TypeBinding (PlainTypeBinding)
+    TypeBinding (PlainTypeBinding),
   )
+import JazzNext.TestHarness (NamedTest, assertEqual, runTestSuite)
 
 main :: IO ()
 main = runTestSuite "ModuleExports" tests
@@ -41,6 +46,7 @@ tests =
     ("selects every same-text namespace entry", testSelectsSameTextEntries),
     ("selects exact module export namespaces", testSelectsExactModuleExportNamespaces),
     ("keeps same-text entries for bare module export selectors", testBareModuleExportSelectorKeepsSameTextEntries),
+    ("renders grouped type export selectors", testRendersGroupedTypeExportSelectors),
     ("filters alias imports to values, constructors, and types", testAliasVisibility),
     ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
     ("finds the first requested namespace deterministically", testFirstNamespace),
@@ -137,6 +143,31 @@ testBareModuleExportSelectorKeepsSameTextEntries =
         ( selectModuleExportSelectors
             [ModuleExportSelector Nothing "Box"]
             sampleInventory
+        )
+    )
+
+testRendersGroupedTypeExportSelectors :: IO ()
+testRendersGroupedTypeExportSelectors = do
+  assertEqual
+    "abstract type selector rendering"
+    "type 'Box'"
+    (renderModuleExportSelector (ModuleTypeExportSelector "Box" (SourceSpan 1 1) AbstractType))
+  assertEqual
+    "all constructors selector rendering"
+    "type 'Box(..)'"
+    (renderModuleExportSelector (ModuleTypeExportSelector "Box" (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 5))))
+  assertEqual
+    "selected constructors selector rendering"
+    "type 'Choice(First, Second)'"
+    ( renderModuleExportSelector
+        ( ModuleTypeExportSelector
+            "Choice"
+            (SourceSpan 1 1)
+            ( SelectedTypeConstructors
+                ( LocatedModuleExportName "First" (SourceSpan 1 8)
+                    :| [LocatedModuleExportName "Second" (SourceSpan 1 15)]
+                )
+            )
         )
     )
 

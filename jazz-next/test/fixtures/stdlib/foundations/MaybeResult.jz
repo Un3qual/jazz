@@ -1,0 +1,21 @@
+module Stdlib::Foundations::MaybeResult {
+  import Maybe.
+  import Result.
+  import Text.
+  (maybeMap (\(value) -> value + 1) (Just 1),
+   maybeAndThen (\(value) -> Just (value + 1)) (Just 2),
+   maybeWithDefault 9 Nothing,
+   maybeOrElse (Just 4) Nothing,
+   maybeFilter (\(value) -> value > 1) (Just 2),
+   maybeFilter (\(value) -> value > 2) (Just 2),
+   maybeIsJust (Just 1), maybeIsNothing Nothing,
+   maybeToList (Just 2), maybeFromList [4, 5],
+   resultMap (\(value) -> value + 1) (Ok 1),
+   resultMapError (\(error) -> textAppend error "!") (Err "bad"),
+   resultAndThen (\(value) -> Ok (value + 1)) (Ok 2),
+   resultRecover (\(error) -> Ok 4) (Err "bad"),
+   resultWithDefault 9 (Err "bad"),
+   resultIsOk (Ok 1), resultIsErr (Err "bad"),
+   resultToMaybe (Ok 2), resultErrorToMaybe (Err "bad"),
+   resultFromMaybe "missing" Nothing, resultFromMaybe "missing" (Just 5)).
+}
