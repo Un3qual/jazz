@@ -3,11 +3,14 @@
 -- | Shared recursive-binding graph and free-variable helpers used by analyzer,
 -- type inference, and runtime.
 module JazzNext.Compiler.RecursiveBindings
-  ( collectBindingNames,
+  ( LambdaCaptureHints,
+    collectBindingNames,
+    collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
-    inferSelfRecursiveBindings
+    inferSelfRecursiveBindings,
+    lookupLambdaCapturedNames
   ) where
 
 import Data.Graph
@@ -25,6 +28,7 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
+    ImplMethod (..),
     Statement (..)
   )
 import JazzNext.Compiler.Name
@@ -47,6 +51,81 @@ collectBindingNames =
         SLet bindingName _ _ ->
           Map.insert statementIndex bindingName bindingNames
         _ -> bindingNames
+
+-- | Free-variable facts arranged in the same nesting shape as the lambda AST.
+-- Closures retain only their body's nested hints, avoiding both repeated AST
+-- walks and retention of unrelated sibling expressions.
+data LambdaCaptureHint = LambdaCaptureHint Name Expr (Set Name) LambdaCaptureHints
+
+type LambdaCaptureHints = [LambdaCaptureHint]
+
+collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
+collectLambdaCaptureHints expr =
+  case expr of
+    ELit _ -> []
+    EVar _ -> []
+    ELambda parameterName bodyExpr ->
+      [ LambdaCaptureHint
+          parameterName
+          bodyExpr
+          (freeVarsExprWithBound (Set.singleton parameterName) bodyExpr)
+          (collectLambdaCaptureHints bodyExpr)
+      ]
+    EOperatorValue _ -> []
+    EList elements -> concatMap collectLambdaCaptureHints elements
+    ETuple elements -> concatMap collectLambdaCaptureHints elements
+    EApply functionExpr argumentExpr ->
+      collectLambdaCaptureHints functionExpr
+        <> collectLambdaCaptureHints argumentExpr
+    ETypeApplication functionExpr _ _ ->
+      collectLambdaCaptureHints functionExpr
+    EIf conditionExpr thenExpr elseExpr ->
+      collectLambdaCaptureHints conditionExpr
+        <> collectLambdaCaptureHints thenExpr
+        <> collectLambdaCaptureHints elseExpr
+    EPatternCase scrutineeExpr caseArms ->
+      collectLambdaCaptureHints scrutineeExpr
+        <> concatMap collectCaseArmLambdaCaptureHints caseArms
+    EBinary _ leftExpr rightExpr ->
+      collectLambdaCaptureHints leftExpr
+        <> collectLambdaCaptureHints rightExpr
+    ESectionLeft leftExpr _ ->
+      collectLambdaCaptureHints leftExpr
+    ESectionRight _ rightExpr ->
+      collectLambdaCaptureHints rightExpr
+    EBlock statements ->
+      concatMap collectStatementLambdaCaptureHints statements
+
+collectCaseArmLambdaCaptureHints :: CaseArm -> LambdaCaptureHints
+collectCaseArmLambdaCaptureHints (CaseArm _ guardExpr bodyExpr) =
+  maybe [] collectLambdaCaptureHints guardExpr
+    <> collectLambdaCaptureHints bodyExpr
+
+collectStatementLambdaCaptureHints :: Statement -> LambdaCaptureHints
+collectStatementLambdaCaptureHints statement =
+  case statement of
+    SLet _ _ valueExpr -> collectLambdaCaptureHints valueExpr
+    SImpl _ _ _ methods ->
+      concatMap
+        (\(ImplMethod _ _ methodExpr) -> collectLambdaCaptureHints methodExpr)
+        methods
+    SExpr _ valueExpr -> collectLambdaCaptureHints valueExpr
+    SSignature {} -> []
+    SData {} -> []
+    SClass {} -> []
+    SModule {} -> []
+    SImport {} -> []
+
+lookupLambdaCapturedNames :: Name -> Expr -> LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
+lookupLambdaCapturedNames parameterName bodyExpr =
+  go
+  where
+    go [] = Nothing
+    go (LambdaCaptureHint hintParameter hintBody capturedNames nestedHints : rest)
+      | parameterName == hintParameter,
+        bodyExpr == hintBody =
+          Just (capturedNames, nestedHints)
+      | otherwise = go rest
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound bound expr =

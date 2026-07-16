@@ -112,7 +112,10 @@ import JazzNext.Compiler.Pattern
   ( patternBinderNames
   )
 import JazzNext.Compiler.RecursiveBindings
-  ( freeVarsExprWithBound
+  ( LambdaCaptureHints,
+    collectLambdaCaptureHints,
+    freeVarsExprWithBound,
+    lookupLambdaCapturedNames
   )
 import JazzNext.Compiler.Runtime.Primitives
   ( evalBinary,
@@ -563,6 +566,7 @@ data EvaluationContext = EvaluationContext
     evaluationBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
     evaluationEnvironment :: RuntimeEnv,
     evaluationEnvironmentMayReachHostCells :: Bool,
+    evaluationLambdaCaptureHints :: LambdaCaptureHints,
     evaluationClosureBaseName :: Text,
     evaluationLambdaStage :: Int
   }
@@ -1515,6 +1519,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
                       evaluationBindingTypeHints = bindingTypeHints,
                       evaluationEnvironment = env,
                       evaluationEnvironmentMayReachHostCells = False,
+                      evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
                       evaluationClosureBaseName = "<entry>",
                       evaluationLambdaStage = 1
                     }
@@ -1529,6 +1534,7 @@ declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorVal
     RuntimeClosure
       { runtimeClosureEnvironment = capturedEnv,
         runtimeClosureEnvironmentMayReachHostCells = False,
+        runtimeClosureLambdaCaptureHints = [],
         runtimeClosureParameter = leftParameter,
         runtimeClosureBody =
           EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter),
@@ -1788,10 +1794,16 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                     (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))
         ELambda parameterName bodyExpr ->
           do
-            let capturedNames =
-                  freeVarsExprWithBound
-                    (Set.singleton parameterName)
-                    bodyExpr
+            let (capturedNames, nestedCaptureHints) =
+                  fromMaybe
+                    ( freeVarsExprWithBound (Set.singleton parameterName) bodyExpr,
+                      collectLambdaCaptureHints bodyExpr
+                    )
+                    ( lookupLambdaCapturedNames
+                        parameterName
+                        bodyExpr
+                        (evaluationLambdaCaptureHints context)
+                    )
                 capturedEnvironment =
                   Map.restrictKeys
                     (evaluationEnvironment context)
@@ -1809,6 +1821,8 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                         { runtimeClosureEnvironment = capturedEnvironment,
                           runtimeClosureEnvironmentMayReachHostCells =
                             capturedEnvironmentMayReachHostCells,
+                          runtimeClosureLambdaCaptureHints =
+                            nestedCaptureHints,
                           runtimeClosureParameter = parameterName,
                           runtimeClosureBody = bodyExpr,
                           runtimeClosureTypeHint = Nothing,
@@ -2052,6 +2066,8 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                         (runtimeClosureEnvironment closure),
                     evaluationEnvironmentMayReachHostCells =
                       runtimeClosureEnvironmentMayReachHostCells closure,
+                    evaluationLambdaCaptureHints =
+                      runtimeClosureLambdaCaptureHints closure,
                     evaluationClosureBaseName = nextClosureBaseName,
                     evaluationLambdaStage = nextLambdaStage
                   }
@@ -2516,6 +2532,7 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env envMay
         evaluationBindingTypeHints = bindingTypeHints,
         evaluationEnvironment = env,
         evaluationEnvironmentMayReachHostCells = envMayReachHostCells,
+        evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
         evaluationClosureBaseName = "<entry>",
         evaluationLambdaStage = 1
       }
