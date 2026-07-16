@@ -1,3 +1,37 @@
+---
+id: JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001
+status: ready
+priority: P1
+size: L
+kind: impl
+autonomous_ready: yes
+depends_on:
+  - JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001
+last_verified: 2026-07-16
+plan_section: "Implementation Batch: Expression Foundation"
+target_paths:
+  - docs/execution/blocker-contracts.md
+  - docs/execution/done-archive.md
+  - docs/execution/queue.md
+  - docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md
+  - docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md
+  - docs/superpowers/specs/2026-07-16-jazz-next-bootstrap-parser-expression-foundation-design.md
+  - docs/superpowers/plans/2026-07-16-jazz-next-bootstrap-parser-expression-foundation.md
+  - jazz-next/README.md
+  - jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
+  - jazz-next/jazz-next.cabal
+verification:
+  - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
+  - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
+  - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next all --test-show-details=failures
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+  - git diff --check
+deliverable: "Implement the first Jazz-authored grammar slice over canonical tokens, covering foundational expressions, ordinary statements, recursive blocks, complete programs, and separate token/source facades with exact structured stage-0 parity over a stable named fixture family."
+---
+
 # Jazz-Next Bootstrap Parser Expression Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
@@ -177,8 +211,10 @@ paths, deliverable, and verification exactly match this reviewed plan.
   Use id `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`, priority `P1`,
   size `L`, kind `impl`, `autonomous_ready: yes`, dependency
   `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001`, and plan section
-  `Implementation Batch: Expression Foundation`. Name only files this plan
-  creates or modifies; keep the locked foundation files out of target paths.
+  `Implementation Batch: Expression Foundation`. Per the execution-queue
+  contract, frontmatter names only concrete files that already exist and this
+  plan modifies. The new files remain fixed in the responsibility map and task
+  file lists above; keep the locked foundation files out of target paths.
 
 - [ ] **Step 2: Promote only the expression child.**
 
