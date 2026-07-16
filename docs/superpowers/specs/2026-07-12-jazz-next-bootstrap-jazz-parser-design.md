@@ -2,10 +2,10 @@
 
 ## Status
 
-Approved in discussion on `2026-07-16`. This document fixes the contract for
-the next Jazz-authored compiler component. The written specification remains
-subject to the normal maintainer review gate before an implementation plan is
-accepted or a parser implementation child is promoted into `Ready Now`.
+Approved in discussion and accepted after written review on `2026-07-16`.
+This document fixes the contract for the next Jazz-authored compiler component.
+The parser contract-and-kernel child may be promoted only with a matching
+implementation plan; later grammar children retain their own planning gates.
 
 ## Goal
 
@@ -361,7 +361,6 @@ Every implementation child also runs:
 
 ```text
 cabal test --project-dir=jazz-next all
-bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 git diff --check

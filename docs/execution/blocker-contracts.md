@@ -52,36 +52,43 @@ Each blocked item should answer these questions:
   Unicode scalar/text services, ordinary `List`/`Char`/`Text` modules, and the
   two-space-indented Jazz lexer; it matches all 333 canonical cases
   deterministically and completes 20,000-character and 10,000-token traversal
-  floors without host stack growth.
-- Accepted decision: the canonical comparison contract is the ordinary
-  Jazz-owned ADT schema in
-  `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
-  use the generic runtime-value renderer; the schema has no version field until
-  coexistence evidence requires one.
-- Smallest unblocker: curate and accept
-  `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001` before promoting parser implementation.
-- Decision needed: fix the canonical Jazz parser result/AST and diagnostic
-  comparison schema, recovery/parity rules, module boundaries, and the minimum
-  permanent collection/text APIs needed by the parser.
-- Recommended default: port the parser as the next compiler component in
-  reviewable grammar slices, compare ordinary Jazz-owned AST/diagnostic ADTs,
-  and add only reusable APIs that remain valid for the native runtime. Preserve
-  canonical typed core as the frontend boundary and the accepted
-  backend-neutral lowered-IR-to-LLVM pipeline after it.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`, the sole ordered
-  `Next Curation Target`; it is coordination work, not parser implementation.
+  floors without host stack growth. `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`
+  accepted the fail-fast surface-AST, structured-failure, façade, parser-kernel,
+  and ordered grammar-slice contract on `2026-07-16`.
+- Accepted decision: the parser contract is
+  `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
+  complete ordinary surface AST before lowering, preserves structured failures
+  before the unified `Diagnostic`, uses canonical lexer tokens as the primary
+  input, and starts with a generic compiler-local parser kernel. Existing Jazz
+  collection/text APIs are sufficient.
+- Smallest unblocker: implement
+  `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001`, the contract-and-kernel child now
+  promoted in `Ready Now`.
+- Decision needed: none for the promoted child. The accepted design and
+  matching plan fix its schema, ownership, failure, consumption, determinism,
+  progress, and large-input boundaries.
+- Recommended default: preserve structured stage-0 parser failures behind the
+  existing diagnostic API, define the complete ordinary Jazz surface schema
+  plus total test-only Haskell adapter, and implement the generic parser kernel
+  without substantive Jazz grammar.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001`, the sole promoted
+  implementation child. Expression grammar and all later slices remain
+  unpromoted.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
-  and the proposed
-  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; `git diff --check`.
-- Not in scope: parser implementation before the contract is accepted; Haskell
-  parser callbacks; lexer-specific or parser-specific host intrinsics; bytecode
-  or a VM; collapsing canonical core into LLVM; lowered IR, LLVM emission,
-  object generation, linking, or native-runtime implementation in the parser
-  design child.
+  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
+  `docs/superpowers/plans/2026-07-16-jazz-next-bootstrap-parser-foundation.md`,
+  the active Haskell parser owners, `jazz-next/jazz/compiler/ParserTypes.jz`,
+  `jazz-next/jazz/compiler/ParserCore.jz`, bootstrap comparison/kernel tests,
+  and `jazz-next/jazz-next.cabal`.
+- Verification: the focused canonical parser/kernel/lexer/repository suites;
+  development-warning build; full Cabal suite; queue/docs validators; and
+  `git diff --check`, as listed exactly in the child plan.
+- Not in scope: Jazz grammar; a public stdlib parser API; parser-specific host
+  intrinsics or Haskell callbacks; recovery or partial ASTs; canonical core;
+  bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or
+  native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

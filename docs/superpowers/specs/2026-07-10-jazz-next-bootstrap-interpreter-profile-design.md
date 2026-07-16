@@ -350,8 +350,8 @@ package and repository checks. The bootstrap readiness gate requires:
 7. no-prelude tests proving only kernel bridge names remain visible;
 8. bundled-prelude drift tests covering every new bridge and public alias; and
 9. `cabal test --project-dir=jazz-next all`,
-   `bash jazz-next/scripts/test-warning-config.sh`, queue/docs validation, and
-   `git diff --check` passing after each completed child.
+   the development warning build, queue/docs validation, and `git diff --check`
+   passing after each completed child.
 
 ## Implementation Slices
 
@@ -370,6 +370,21 @@ The design decomposes into independently reviewable children:
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
+
+## Hosted Parser Continuation
+
+The first hosted lexer milestone is complete. On `2026-07-16`, the separate
+Jazz-authored parser design was accepted after written review. It fixes a
+fail-fast complete surface-AST comparison boundary, structured parser failures,
+distinct token and source façades, a compiler-local generic parser kernel, and
+five ordered implementation children.
+
+Only the first continuation child is promoted: the complete parser
+surface/result/failure schema, total test-only Haskell adapter, structured
+stage-0 failure path, and generic parser kernel. It adds no Jazz grammar. The
+expression foundation, types/declarations/modules, control-flow/patterns, and
+operator/full-parity children remain ordered but unpromoted until the preceding
+child closes and a matching implementation plan is accepted.
 
 ## Non-Goals
 
