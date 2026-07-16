@@ -98,9 +98,12 @@ module ParserCore (
     | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
     | ParserFailed earlierFailure -> case earlierFailure {
       | ParserFailure earlierOffset Consumed earlierProblem -> ParserFailed earlierFailure
-      | ParserFailure earlierOffset Unconsumed earlierProblem -> case parserRunAt later cursor {
-        | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
-        | ParserFailed laterFailure -> ParserFailed (fartherFailure earlierFailure laterFailure)
+      | ParserFailure earlierOffset Unconsumed earlierProblem -> case earlierProblem {
+        | ZeroProgressProblem -> ParserFailed earlierFailure
+        | RejectedProblem rejected -> case parserRunAt later cursor {
+          | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
+          | ParserFailed laterFailure -> ParserFailed (fartherFailure earlierFailure laterFailure)
+        }
       }
     }
   }).

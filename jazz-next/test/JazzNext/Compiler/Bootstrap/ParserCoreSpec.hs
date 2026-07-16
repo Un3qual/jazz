@@ -47,6 +47,7 @@ tests =
     ("traverses 20000 tokens with an exact final cursor", testLargeTraversal),
     ("selects the exact farthest offset after a long traversal", testLongFarthestFailure),
     ("rejects zero-progress repetition", testZeroProgress),
+    ("keeps zero-progress failures nonrecoverable", testZeroProgressRecovery),
     ("renders representative batches deterministically", testDeterministicBatch)
   ]
 
@@ -167,6 +168,22 @@ testZeroProgress =
     "zero progress"
     "parserRun (parserMany (parserSucceed 1)) [1, 2]"
     "ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem))"
+
+testZeroProgressRecovery :: IO ()
+testZeroProgressRecovery =
+  assertJazzOutput
+    "zero progress recovery"
+    """
+    { repeated = parserMany (parserSucceed 1).
+      fallback = parserSucceed [].
+      ( parserRun (parserChoice repeated fallback) [1]
+      , parserRun (parserOptional repeated) [1]
+      , parserRun (parserChoice (parserAttempt repeated) fallback) [1]
+      , parserRun (parserChoice (parserLookAhead repeated) fallback) [1]
+      ).
+    }
+    """
+    "(ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)))"
 
 testDeterministicBatch :: IO ()
 testDeterministicBatch = do
