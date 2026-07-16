@@ -1,12 +1,23 @@
 module ParserToken (
   type ParserGrammarFailure(..),
+  type TokenParser(..),
   type TokenParseResult(..),
   value canonicalTokenKind,
   value canonicalTokenLexeme,
   value canonicalTokenSpan,
   value canonicalTokenEncountered,
   value tokensAreAdjacent,
+  value tokenSucceed,
+  value tokenTransform,
+  value tokenAndThen,
+  value tokenKeepLeft,
+  value tokenKeepRight,
+  value tokenChoice,
+  value tokenLookAhead,
+  value tokenMany,
+  value tokenPeek,
   value tokenFailAt,
+  value tokenFailAtSpan,
   value tokenFailCurrent,
   value tokenTakeIf,
   value tokenIdentifier,
@@ -16,6 +27,7 @@ module ParserToken (
   value tokenText,
   value tokenOperator,
   value tokenPunctuation,
+  value tokenRun,
   value tokenRunComplete
 ) {
   import LexerTypes (
@@ -51,31 +63,33 @@ module ParserToken (
     PunctuationKind,
     CanonicalToken
   ).
-  import Maybe (Just, Nothing).
+  import Maybe.
   import ParserCore (
+    Parser,
     ParserSucceeded,
     ParserFailed,
-    ParserFailure,
     RejectedProblem,
     ZeroProgressProblem,
     parserRun,
     parserCursorRemaining,
+    parserFailureOffset,
+    parserFailureProblem,
+    parserSucceed,
     parserFail,
+    parserTransform,
     parserAndThen,
+    parserChoice,
+    parserLookAhead,
+    parserMany,
     parserPeek,
     parserTakeIf
   ).
-  import ParserTypes (
-    EndOfInput,
-    FoundToken,
-    ExpectedSyntax,
-    UnexpectedSyntax,
-    InternalParserFailure,
-    TokenStreamParseFailure
-  ).
+  import ParserTypes.
   import Text (textLength).
 
   data ParserGrammarFailure = ParserGrammarFailure (Maybe CanonicalSpan) ParserFailureReason.
+
+  data TokenParser value = TokenParser (Parser(CanonicalToken, ParserGrammarFailure, value)).
 
   data TokenParseResult value = TokenParseSucceeded value | TokenParseRejected ParserGrammarFailure | TokenParseInvariantFailure ParserGrammarFailure.
 
@@ -112,13 +126,53 @@ module ParserToken (
     }
   }.
 
-  tokenFailAt = \(span, reason) -> parserFail (ParserGrammarFailure span reason).
+  tokenSucceed = \(value) -> TokenParser (parserSucceed value).
 
-  tokenFailCurrent = \(reason) -> parserAndThen (\(current) -> tokenFailAt (selectedTokenSpan current) (reason (canonicalTokenEncountered current))) parserPeek.
+  tokenTransform = \(transform, tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserTransform transform parser)
+  }.
 
-  tokenTakeIf = \(predicate, expected) -> parserAndThen
-    (\(current) -> parserTakeIf predicate (ParserGrammarFailure (selectedTokenSpan current) (ExpectedSyntax expected (canonicalTokenEncountered current))))
-    parserPeek.
+  tokenAndThen = \(next, tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserAndThen
+      (\(value) -> case next value {
+        | TokenParser nextParser -> nextParser
+      })
+      parser)
+  }.
+
+  tokenKeepLeft = \(left, right) -> tokenAndThen
+    (\(leftValue) -> tokenTransform (\(rightValue) -> leftValue) right)
+    left.
+
+  tokenKeepRight = \(left, right) -> tokenAndThen (\(leftValue) -> right) left.
+
+  tokenChoice = \(left, right) -> case left {
+    | TokenParser leftParser -> case right {
+      | TokenParser rightParser -> TokenParser (parserChoice leftParser rightParser)
+    }
+  }.
+
+  tokenLookAhead = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserLookAhead parser)
+  }.
+
+  tokenMany = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserMany parser)
+  }.
+
+  tokenPeek = TokenParser parserPeek.
+
+  tokenFailAt :: Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(value).
+  tokenFailAt = \(span, reason) -> TokenParser (parserFail (ParserGrammarFailure span reason)).
+
+  tokenFailAtSpan :: CanonicalSpan -> ParserFailureReason -> TokenParser(value).
+  tokenFailAtSpan = \(span, reason) -> tokenFailAt (Just span) reason.
+
+  tokenFailCurrent = \(reason) -> tokenAndThen (\(current) -> tokenFailAt (selectedTokenSpan current) (reason (canonicalTokenEncountered current))) tokenPeek.
+
+  tokenTakeIf = \(predicate, expected) -> tokenAndThen
+    (\(current) -> TokenParser (parserTakeIf predicate (ParserGrammarFailure (selectedTokenSpan current) (ExpectedSyntax expected (canonicalTokenEncountered current)))))
+    tokenPeek.
 
   tokenIdentifier = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
@@ -239,17 +293,19 @@ module ParserToken (
     (Just (canonicalTokenSpan token))
     (UnexpectedSyntax (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)) "end of input").
 
-  tokenRunComplete = \(parser, tokens) -> case parserRun parser tokens {
+  tokenRun = \(tokenParser, tokens) -> case tokenParser {
+    | TokenParser parser -> parserRun parser tokens
+  }.
+
+  tokenRunComplete = \(tokenParser, tokens) -> case tokenRun tokenParser tokens {
     | ParserSucceeded value cursor consumption -> case parserCursorRemaining cursor {
       | [] -> TokenParseSucceeded value
       | [first | remaining] -> TokenParseRejected (trailingTokenFailure first)
     }
-    | ParserFailed failure -> case failure {
-      | ParserFailure offset consumption problem -> case problem {
-        | RejectedProblem grammarFailure -> TokenParseRejected grammarFailure
-        | ZeroProgressProblem -> TokenParseInvariantFailure
-          (ParserGrammarFailure (tokenSpanAt offset tokens) (InternalParserFailure TokenStreamParseFailure))
-      }
+    | ParserFailed failure -> case parserFailureProblem failure {
+      | RejectedProblem grammarFailure -> TokenParseRejected grammarFailure
+      | ZeroProgressProblem -> TokenParseInvariantFailure
+        (ParserGrammarFailure (tokenSpanAt (parserFailureOffset failure) tokens) (InternalParserFailure TokenStreamParseFailure))
     }
   }.
 }

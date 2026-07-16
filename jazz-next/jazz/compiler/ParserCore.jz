@@ -1,5 +1,5 @@
 module ParserCore (
-  type Parser,
+  type Parser(..),
   type ParserCursor,
   type ParserConsumption(..),
   type ParserProblem(..),
@@ -8,6 +8,8 @@ module ParserCore (
   value parserRun,
   value parserCursorRemaining,
   value parserCursorOffset,
+  value parserFailureOffset,
+  value parserFailureProblem,
   value parserSucceed,
   value parserFail,
   value parserTransform,
@@ -70,6 +72,16 @@ module ParserCore (
   parserFailureWithEarlierConsumption :: ParserConsumption -> ParserFailure(problem) -> ParserFailure(problem).
   parserFailureWithEarlierConsumption = \(earlier, failure) -> case failure {
     | ParserFailure _ later _ -> parserFailureWithConsumption (consumptionAppend earlier later) failure
+  }.
+
+  parserFailureOffset :: ParserFailure(problem) -> Int.
+  parserFailureOffset = \(failure) -> case failure {
+    | ParserFailure offset _ _ -> offset
+  }.
+
+  parserFailureProblem :: ParserFailure(problem) -> ParserProblem(problem).
+  parserFailureProblem = \(failure) -> case failure {
+    | ParserFailure _ _ problem -> problem
   }.
 
   parserTransform :: (a -> b) -> Parser(token, problem, a) -> Parser(token, problem, b).

@@ -37,7 +37,11 @@ tests =
     ("commits after consuming a token", testCommittedFailure),
     ("rejects trailing tokens at the complete boundary", testTrailingToken),
     ("converts zero progress into an invariant failure", testZeroProgress),
-    ("keeps public and kernel parser failures unambiguous", testFailureOwnership)
+    ("keeps public and kernel parser failures unambiguous", testFailureOwnership),
+    ("parses scalar expressions with source-exact numerics", testScalarExpressions),
+    ("parses ordinary and qualified names", testNameExpressions),
+    ("parses composite primaries and left-associated application", testCompositeExpressions),
+    ("commits expression delimiter and qualifier failures", testExpressionFailures)
   ]
 
 testPredicateConsumption :: IO ()
@@ -45,7 +49,7 @@ testPredicateConsumption =
   assertJazzOutput
     "predicate consumption"
     """
-    parserRun
+    tokenRun
       (tokenTakeIf (\\(token) -> case canonicalTokenKind token {
         | IdentifierKind name -> name == "value"
         | other -> False
@@ -59,8 +63,8 @@ testTokenMatching =
   assertJazzOutput
     "identifier and punctuation"
     """
-    parserRun
-      (parserKeepRight tokenIdentifier (tokenPunctuation DotPunctuation))
+    tokenRun
+      (tokenKeepRight tokenIdentifier (tokenPunctuation DotPunctuation))
       [ CanonicalToken (IdentifierKind "value") "value" (CanonicalSpan 1 1)
       , CanonicalToken (PunctuationKind DotPunctuation) "." (CanonicalSpan 1 6)
       ]
@@ -72,8 +76,8 @@ testSelectedFailures =
   assertJazzOutput
     "selected failures"
     """
-    ( parserRun tokenIdentifier [CanonicalToken (IntegerKind "1") "01" (CanonicalSpan 2 4)]
-    , parserRun tokenIdentifier []
+    ( tokenRun tokenIdentifier [CanonicalToken (IntegerKind "1") "01" (CanonicalSpan 2 4)]
+    , tokenRun tokenIdentifier []
     )
     """
     "(ParserFailed(ParserFailure(0, Unconsumed, RejectedProblem(ParserGrammarFailure(Just(CanonicalSpan(2, 4)), ExpectedSyntax(\"identifier\", FoundToken(IntegerKind(\"1\"), \"01\")))))), ParserFailed(ParserFailure(0, Unconsumed, RejectedProblem(ParserGrammarFailure(Nothing, ExpectedSyntax(\"identifier\", EndOfInput))))))"
@@ -107,8 +111,8 @@ testCommittedFailure =
   assertJazzOutput
     "committed failure"
     """
-    parserRun
-      (parserKeepRight tokenIdentifier (tokenPunctuation DotPunctuation))
+    tokenRun
+      (tokenKeepRight tokenIdentifier (tokenPunctuation DotPunctuation))
       [ CanonicalToken (IdentifierKind "value") "value" (CanonicalSpan 1 1)
       , CanonicalToken (PunctuationKind CommaPunctuation) "," (CanonicalSpan 1 6)
       ]
@@ -134,7 +138,7 @@ testZeroProgress =
     "zero progress"
     """
     tokenRunComplete
-      (parserMany (parserSucceed 1))
+      (tokenMany (tokenSucceed 1))
       [CanonicalToken (IdentifierKind "value") "value" (CanonicalSpan 1 1)]
     """
     "TokenParseInvariantFailure(ParserGrammarFailure(Just(CanonicalSpan(1, 1)), InternalParserFailure(TokenStreamParseFailure)))"
@@ -150,6 +154,64 @@ testFailureOwnership =
       (ExpectedSyntax "expression" EndOfInput)
     """
     "ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"expression\", EndOfInput))"
+
+testScalarExpressions :: IO ()
+testScalarExpressions =
+  assertJazzOutput
+    "scalar expressions"
+    """
+    ( parseComponentExpression "00042"
+    , parseComponentExpression "1.5f16"
+    , parseComponentExpression "1.5f32"
+    , parseComponentExpression "1.5f64"
+    , parseComponentExpression "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0"
+    , parseComponentExpression "True"
+    , parseComponentExpression "'x'"
+    , parseComponentExpression "text"
+    , parseComponentExpression "\\\"Jazz\\\""
+    )
+    """
+    "(TokenParseSucceeded(LiteralExpression(IntegerLiteral(\"42\"))), TokenParseSucceeded(LiteralExpression(FractionalLiteral(\"1\", \"5\", Just(Float16Type)))), TokenParseSucceeded(LiteralExpression(FractionalLiteral(\"1\", \"5\", Just(Float32Type)))), TokenParseSucceeded(LiteralExpression(FractionalLiteral(\"1\", \"5\", Just(Float64Type)))), TokenParseSucceeded(LiteralExpression(FractionalLiteral(\"179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368\", \"0\", Nothing))), TokenParseSucceeded(LiteralExpression(BooleanLiteral(True))), TokenParseSucceeded(LiteralExpression(CharacterLiteral('x'))), TokenParseSucceeded(VariableExpression(\"text\")), TokenParseSucceeded(LiteralExpression(TextLiteral(\"Jazz\"))))"
+
+testNameExpressions :: IO ()
+testNameExpressions =
+  assertJazzOutput
+    "name expressions"
+    """
+    ( parseComponentExpression "value"
+    , parseComponentExpression "Alias::member"
+    , parseComponentExpression "(value)"
+    )
+    """
+    "(TokenParseSucceeded(VariableExpression(\"value\")), TokenParseSucceeded(QualifiedVariableExpression(\"Alias\", \"member\")), TokenParseSucceeded(VariableExpression(\"value\")))"
+
+testCompositeExpressions :: IO ()
+testCompositeExpressions =
+  assertJazzOutput
+    "composite expressions"
+    """
+    ( parseComponentExpression "()"
+    , parseComponentExpression "[]"
+    , parseComponentExpression "[1, True, 'x']"
+    , parseComponentExpression "(1, True)"
+    , parseComponentExpression "f 1 True"
+    )
+    """
+    "(TokenParseSucceeded(TupleExpression([])), TokenParseSucceeded(ListExpression([])), TokenParseSucceeded(ListExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True)), LiteralExpression(CharacterLiteral('x'))])), TokenParseSucceeded(TupleExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True))])), TokenParseSucceeded(ApplyExpression(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(IntegerLiteral(\"1\"))), LiteralExpression(BooleanLiteral(True)))))"
+
+testExpressionFailures :: IO ()
+testExpressionFailures =
+  assertJazzOutput
+    "expression failures"
+    """
+    ( parseComponentExpression "[1,]"
+    , parseComponentExpression "(1,)"
+    , parseComponentExpression "Alias::"
+    , parseComponentExpression "Alias ::member"
+    , parseComponentExpression "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858369.0"
+    )
+    """
+    "(TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightBracketPunctuation), \"]\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightParenPunctuation), \")\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Nothing, ExpectedSyntax(\"member name\", EndOfInputAfter(\"\\'::\\'\")))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 7)), UnexpectedSyntax(FoundToken(PunctuationKind(DoubleColonPunctuation), \"::\"), \"end of input\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 1)), InvalidFractionalLiteral(\"179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858369.0\"))))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
@@ -175,10 +237,16 @@ lookupSource expression sourcePath =
                 """
                 module App::Main {
                   import LexerTypes.
+                  import Lexer (lexSource).
                   import Maybe (Nothing).
-                  import ParserCore (parserRun, parserKeepRight, parserMany, parserSucceed).
+                  import ParserExpression (parseFoundationalExpression).
                   import ParserToken.
                   import ParserTypes (ParserFailure, ExpectedSyntax, EndOfInput, TokenStreamParseFailure).
+                  expressionBlockFailure = tokenFailAt Nothing (ExpectedSyntax "block" EndOfInput).
+                  expressionTokens = \\(source) -> case lexSource (CanonicalSourcePath "fixtures/parser/component.jz") source {
+                    | CanonicalLexSuccess path tokens -> tokens
+                  }.
+                  parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   __EXPRESSION__.
                 }
 
