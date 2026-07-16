@@ -91,6 +91,9 @@ tests =
     ( "source pipeline enforces named generic constructor payload types",
       testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes
     ),
+    ( "source pipeline resolves earlier local named generic constructor payload types",
+      testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes
+    ),
     ( "source pipeline rejects unknown generic constructor payload type names",
       testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames
     ),
@@ -369,6 +372,15 @@ testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes = do
     "named generic constructor payload mismatch text"
     "cannot apply function of type Int -> Box"
     (compileErrors rejectedResult)
+
+testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes :: IO ()
+testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes = do
+  result <- compileSource defaultWarningSettings """
+    data Status = Ready.
+    data Box a = Box Status.
+    value = Box Ready.
+    """
+  assertCompiles "earlier local named generic constructor payload type" result
 
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames :: IO ()
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames = do

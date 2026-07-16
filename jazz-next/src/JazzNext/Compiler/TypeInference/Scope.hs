@@ -1435,7 +1435,7 @@ constructorArgumentTypes typeParameters constructorArguments state
         DataConstructorArgumentName argumentName
           | Set.member (identifierText argumentName) typeParameterNames ->
               (argumentTypes ++ [ConstructorArgumentParameter (identifierText argumentName)], stateAcc)
-          | Just payloadType <- namedConstructorPayloadType argumentName ->
+          | Just payloadType <- namedConstructorPayloadType stateAcc argumentName ->
               (argumentTypes ++ [ConstructorArgumentMonomorphic payloadType], stateAcc)
           | otherwise ->
               ( argumentTypes ++ [ConstructorArgumentFresh],
@@ -1444,9 +1444,9 @@ constructorArgumentTypes typeParameters constructorArguments state
         DataConstructorArgumentOpaque ->
           (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
 
-namedConstructorPayloadType :: Name -> Maybe ExpressionType
-namedConstructorPayloadType =
-  Signature.constraintSignatureTypeToExpressionType . TypeName
+namedConstructorPayloadType :: InferState -> Name -> Maybe ExpressionType
+namedConstructorPayloadType state name =
+  Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty (TypeName name)
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share
