@@ -2,14 +2,15 @@
 
 ## Status
 
-Approved in discussion and after written review on `2026-07-16`.
+Implemented and verified on `2026-07-16` after discussion and written review.
 
 This is the design checkpoint for
 `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`, the second ordered child
 of the accepted
 [bootstrap Jazz parser design](2026-07-12-jazz-next-bootstrap-jazz-parser-design.md).
-The parser contract and generic kernel are complete. This child remains outside
-`Ready Now` until its implementation plan is reviewed and promoted.
+The parser contract and generic kernel were complete before this child. The
+expression foundation is now complete and archived; types/declarations/modules
+is the sole next curation target and remains unpromoted.
 
 ## Goal
 
@@ -114,11 +115,14 @@ It contains no grammar alternatives.
 
 ### Existing foundation modules
 
-`ParserCore` remains generic over token, problem, and value types. `ParserTypes`
-remains the accepted complete surface/result/failure schema. Neither is revised
-for convenience. If implementation exposes a genuine semantic contract defect,
-that defect must be isolated, reviewed, and covered at the foundation boundary
-before dependent grammar relies on the change.
+`ParserCore` remains generic over token, problem, and value types. Implementation
+exposed one module-boundary defect: explicit Jazz imports could not name the
+abstract `Parser` type or inspect generic failures without importing internal
+constructors indirectly. The narrow foundation correction exports the existing
+`Parser` constructor and typed failure offset/problem accessors; it does not
+change cursor, consumption, choice, progress, or failure-selection semantics.
+`ParserTypes` remains the accepted complete surface/result/failure schema and is
+unchanged.
 
 All four new modules live under `jazz-next/jazz/compiler/`. They are not public
 stdlib modules, and no file under `jazz-hs/` or `jazz2/` changes.
@@ -253,11 +257,16 @@ comparison systems.
 
 ## Scale and Performance Evidence
 
-The focused suite includes a large generated expression-foundation program. It
-must parse successfully without host stack growth, produce deterministic
-results across repeated runs, and remain within reviewed deterministic runtime
-observation budgets such as evaluator transitions, applications, and maximum
-continuation depth.
+The isolated `jazz-parser-scale-spec` suite includes a generated 512-binding
+expression-foundation program plus one terminal expression statement. It parses
+successfully as a 513-statement block across two runs with identical output and
+runtime statistics, successful termination, and zero host operations.
+
+The observed values are 21,751,223 evaluator transitions, 2,630,524
+applications, 110,804 list cells, and maximum continuation depth 1,060. The
+reviewed deterministic ceilings are 22,000,000, 2,700,000, 115,000, and 1,100,
+respectively. These budgets detect structural work regressions without using
+wall-clock duration as a test threshold.
 
 The test does not gate on wall-clock duration, physical allocation, or a fixed
 percentage comparison. Same-machine benchmark or profile output may accompany
@@ -303,8 +312,8 @@ The implementation plan must name:
 Physical performance evidence is recorded for review but is not a portable
 pass/fail threshold.
 
-When implementation and verification complete, the expression-foundation child
-moves to the done archive. The types/declarations/modules child becomes the sole
+Implementation and verification are complete, and the expression-foundation
+child is in the done archive. The types/declarations/modules child is the sole
 next curation target, but it is not automatically promoted. Control flow and
 patterns, then operators and full parity, retain their ordered planning gates.
 

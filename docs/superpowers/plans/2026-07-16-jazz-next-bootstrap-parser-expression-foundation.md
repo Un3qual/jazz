@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001
 last_verified: 2026-07-16
+completed_on: 2026-07-16
 plan_section: "Implementation Batch: Expression Foundation"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -25,6 +26,7 @@ target_paths:
   - jazz-next/jazz-next.cabal
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
+  - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-scale-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next all --test-show-details=failures
   - bash scripts/check-execution-queue.sh
@@ -66,8 +68,11 @@ environment.
 - Modify compiler implementation only under `jazz-next/`; `jazz-hs/` and
   `jazz2/` remain read-only references.
 - Keep `ParserCore.jz` grammar-neutral and `ParserTypes.jz` as the accepted
-  surface/result/failure schema. Neither changes for convenience in this
-  child.
+  surface/result/failure schema. The implemented child made one narrow
+  foundation-boundary correction after explicit imports exposed a genuine
+  abstraction defect: `ParserCore` now exports the existing `Parser`
+  constructor plus typed failure offset/problem accessors. Its semantics and
+  the `ParserTypes` schema remain unchanged.
 - Keep the parser fail-fast. Add no recovery, partial AST, multiple-error
   accumulation, synchronization token, or presentation-string comparison.
 - Consume canonical lexer tokens at the primary boundary. The source façade
@@ -110,7 +115,7 @@ environment.
 | `jazz-next/jazz/compiler/ParserExpression.jz` | Foundational primary expressions, source-exact numerics, lists, tuples, grouping, qualification, and left-associated application. |
 | `jazz-next/jazz/compiler/ParserProgram.jz` | Ordinary binding/expression statements, block termination, top-level sequencing, and the recursive block/expression connection. |
 | `jazz-next/jazz/compiler/Parser.jz` | Public compiler façade for complete token and source parsing; no grammar alternatives. |
-| `jazz-next/jazz/compiler/ParserCore.jz` | Read-only dependency in this child; generic consumption, choice, progress, and cursor contract. |
+| `jazz-next/jazz/compiler/ParserCore.jz` | Generic consumption, choice, progress, and cursor contract; narrowly exposes the existing parser wrapper and typed failure inspection needed by explicit imports. |
 | `jazz-next/jazz/compiler/ParserTypes.jz` | Read-only dependency in this child; fixed surface AST and canonical parser/source results. |
 | `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs` | Fixed 350-case corpus, named parser-family metadata, explicit expression-family membership, and manifest validation. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs` | Test-only canonical token runtime encoding reused by token-entry parity. |
@@ -118,14 +123,16 @@ environment.
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs` | Family-manifest validation and fixed-corpus regression coverage. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs` | Real-module-graph tests for the token, expression, and program owners before full façade parity. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs` | Reusable stage-0 expected-value construction plus hosted token/source batch execution. |
-| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs` | Exact family parity, façade phase separation, determinism, scale, and runtime-observation evidence. |
-| `jazz-next/jazz-next.cabal` | Registers the parser component/parity suites and their test-only support modules. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs` | Exact family parity, façade phase separation, and repeated determinism. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs` | Generated hosted-parser scale program execution through runtime observation. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs` | Isolated 512-binding deterministic work/stack regression evidence. |
+| `jazz-next/jazz-next.cabal` | Registers the parser component, parity, and scale suites and their test-only support modules. |
 | Active docs named in Task 6 | Promotion, status, completion evidence, and next-child curation. |
 
-The implementation plan may split a reusable Haskell test helper if the named
-parity support becomes unwieldy, but it must not add another production parser
-owner. `ParserCore.jz` and `ParserTypes.jz` are explicit no-change boundaries;
-discovering a real defect pauses dependent work for a focused foundation fix.
+The implementation split the expensive scale harness from fast parity support;
+it did not add another production parser owner. `ParserTypes.jz` remained
+unchanged. The narrow `ParserCore.jz` export/accessor correction is recorded as
+the focused foundation defect discovered by explicit-import implementation.
 
 ## Stable Interfaces Between Tasks
 
@@ -208,7 +215,7 @@ cases. Historical completion evidence that truthfully records the earlier
 **Produces:** One executor-safe `Ready Now` row whose frontmatter, target
 paths, deliverable, and verification exactly match this reviewed plan.
 
-- [ ] **Step 1: Add ready frontmatter after written plan approval.**
+- [x] **Step 1: Add ready frontmatter after written plan approval.**
 
   Use id `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`, priority `P1`,
   size `L`, kind `impl`, `autonomous_ready: yes`, dependency
@@ -218,14 +225,14 @@ paths, deliverable, and verification exactly match this reviewed plan.
   plan modifies. The new files remain fixed in the responsibility map and task
   file lists above; keep the locked foundation files out of target paths.
 
-- [ ] **Step 2: Promote only the expression child.**
+- [x] **Step 2: Promote only the expression child.**
 
   Move it from `Next Curation Target` to `Ready Now`. Update the executor status
   and bootstrap blocker to say the reviewed expression slice is active.
   Types/declarations/modules, control flow/patterns, and operators/full parity
   remain unpromoted.
 
-- [ ] **Step 3: Validate and commit the promotion.**
+- [x] **Step 3: Validate and commit the promotion.**
 
   Run:
 
@@ -249,14 +256,14 @@ paths, deliverable, and verification exactly match this reviewed plan.
 **Produces:** A validated, explicitly ordered 43-case family backed by the
 fixed 350-case shared corpus, without positional selection or fixture renames.
 
-- [ ] **Step 1: Add RED manifest behavior tests.**
+- [x] **Step 1: Add RED manifest behavior tests.**
 
   Cover duplicate global fixture names, duplicate family membership, unknown
   member names, stable declared order, the exact 43-member family, and the
   presence of accepted, parser-rejected, and lexically rejected source
   outcomes. Keep validation generic enough for later parser families.
 
-- [ ] **Step 2: Run the canonical parser suite RED.**
+- [x] **Step 2: Run the canonical parser suite RED.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next canonical-parser-comparison-spec --test-show-details=failures
@@ -265,7 +272,7 @@ fixed 350-case shared corpus, without positional selection or fixture renames.
   Expected: failure because family metadata, validation, and the 17 semantic
   fixtures do not exist.
 
-- [ ] **Step 3: Add the family manifest and fixtures.**
+- [x] **Step 3: Add the family manifest and fixtures.**
 
   Preserve all existing fixture names and order. Append the 17 semantic cases,
   add explicit family membership using the names in this plan, return all
@@ -273,7 +280,7 @@ fixed 350-case shared corpus, without positional selection or fixture renames.
   count to 350. Do not infer family membership from source text, expectation,
   or numeric prefixes.
 
-- [ ] **Step 4: Run corpus and lexer/parser comparison GREEN.**
+- [x] **Step 4: Run corpus and lexer/parser comparison GREEN.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next canonical-parser-comparison-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec --test-show-details=failures
@@ -282,7 +289,7 @@ fixed 350-case shared corpus, without positional selection or fixture renames.
   Expected: all three suites pass over the expanded corpus; the Jazz lexer
   remains byte-identical for all 350 cases.
 
-- [ ] **Step 5: Commit the stable family.**
+- [x] **Step 5: Commit the stable family.**
 
   Stage only the fixture manifest and canonical comparison spec. Commit as
   `test: define parser expression fixture family`.
@@ -302,7 +309,7 @@ canonical tokens, and selected `ParserTypes` reason/encountered/span types.
 and complete-run conversion that later grammar owners can use without importing
 both `ParserFailure` constructors.
 
-- [ ] **Step 1: Register RED token-boundary component tests.**
+- [x] **Step 1: Register RED token-boundary component tests.**
 
   Through the real module graph, cover successful predicate/token consumption,
   identifier and punctuation matching, current-token and end-of-input failures,
@@ -311,7 +318,7 @@ both `ParserFailure` constructors.
   conversion. Add an import-boundary case that would expose ambiguous
   `ParserFailure` ownership.
 
-- [ ] **Step 2: Run the component and repository suites RED.**
+- [x] **Step 2: Run the component and repository suites RED.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec repository-audit-spec --test-show-details=failures
@@ -320,7 +327,7 @@ both `ParserFailure` constructors.
   Expected: failure because `ParserToken.jz` and its exported boundary do not
   exist.
 
-- [ ] **Step 3: Implement the specialized token boundary.**
+- [x] **Step 3: Implement the specialized token boundary.**
 
   Build solely from `ParserCore` combinators and canonical token values. Keep
   the internal failure envelope separate from public `ParserTypes.ParserFailure`.
@@ -328,12 +335,12 @@ both `ParserFailure` constructors.
   but not the public failure constructor. Map zero progress to
   `InternalParserFailure TokenStreamParseFailure` without making it recoverable.
 
-- [ ] **Step 4: Run token-boundary GREEN.**
+- [x] **Step 4: Run token-boundary GREEN.**
 
   Re-run the Step 2 command and also run `parser-core-spec`. Expected: all
   component, kernel, and layering tests pass with `ParserCore.jz` unchanged.
 
-- [ ] **Step 5: Commit the token boundary.**
+- [x] **Step 5: Commit the token boundary.**
 
   Stage `ParserToken.jz`, the component spec, and Cabal registration. Commit as
   `feat: add Jazz parser token boundary`.
@@ -353,7 +360,7 @@ surface literal/expression types, and an injected block parser.
 **Produces:** A block-parameterized expression parser for every expression form
 accepted by this child.
 
-- [ ] **Step 1: Add RED expression component tests.**
+- [x] **Step 1: Add RED expression component tests.**
 
   Compare ordinary Jazz expression results against the existing Haskell
   canonical adapter for integers, the exact maximum Float64 decimal and the
@@ -363,7 +370,7 @@ accepted by this child.
   Inject a failing block parser for non-block component tests rather than
   adding a test-only production entry point.
 
-- [ ] **Step 2: Run expression component tests RED.**
+- [x] **Step 2: Run expression component tests RED.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec canonical-parser-comparison-spec --test-show-details=failures
@@ -371,7 +378,7 @@ accepted by this child.
 
   Expected: new expression cases fail because `ParserExpression.jz` is absent.
 
-- [ ] **Step 3: Implement scalar and name expressions.**
+- [x] **Step 3: Implement scalar and name expressions.**
 
   Preserve normalized integer text, exact fractional whole/fractional text,
   supported suffixes, and existing boolean/character/text values. Implement
@@ -379,20 +386,20 @@ accepted by this child.
   and traversal. Preserve the immediate `name::member` rule and exact
   structured failures.
 
-- [ ] **Step 4: Implement composite primaries and application.**
+- [x] **Step 4: Implement composite primaries and application.**
 
   Add grouping, unit, list, tuple, and injected block handling. Reject trailing
   commas and missing delimiters exactly like stage 0. Build left-associated
   application iteratively/tail-recursively and preserve collection element
   order without repeated append of growing prefixes.
 
-- [ ] **Step 5: Run expression and boundary suites GREEN.**
+- [x] **Step 5: Run expression and boundary suites GREEN.**
 
   Re-run the Step 2 command plus `parser-core-spec`, `token-parser-spec`, and
   `repository-audit-spec`. Expected: all pass with no new builtin or foundation
   schema change.
 
-- [ ] **Step 6: Commit foundational expressions.**
+- [x] **Step 6: Commit foundational expressions.**
 
   Stage the expression module, canonical token test adapter export, component
   tests, and Cabal metadata. Commit as
@@ -416,7 +423,7 @@ canonical Haskell adapters.
 **Produces:** Complete `parseTokens` and `parseSource` behavior plus reusable
 token/source family parity infrastructure.
 
-- [ ] **Step 1: Add RED program and façade tests.**
+- [x] **Step 1: Add RED program and façade tests.**
 
   Extend component coverage for empty/populated programs, ordinary bindings,
   expression statements, nested/empty blocks, block application, missing
@@ -424,7 +431,7 @@ token/source family parity infrastructure.
   commit point. Register the parity suite and require separate token/source
   batch results for the named family.
 
-- [ ] **Step 2: Run component and parity suites RED.**
+- [x] **Step 2: Run component and parity suites RED.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec jazz-parser-parity-spec --test-show-details=failures
@@ -433,14 +440,14 @@ token/source family parity infrastructure.
   Expected: failure because program recursion and the public façades do not
   exist.
 
-- [ ] **Step 3: Implement statements and recursive blocks.**
+- [x] **Step 3: Implement statements and recursive blocks.**
 
   Tie the expression/block recursion in `ParserProgram`. Recognize a binding
   only from the ordinary identifier-plus-equals shape, commit after `=`, and
   require statement terminators. Accumulate statements in reverse and restore
   source order once at each completed block/program boundary.
 
-- [ ] **Step 4: Implement the token and source façades.**
+- [x] **Step 4: Implement the token and source façades.**
 
   Keep `Parser.jz` free of grammar alternatives and `ParserCore` imports. Map
   the token layer's internal complete result to `CanonicalParserResult`, add
@@ -448,7 +455,7 @@ token/source family parity infrastructure.
   the three-way `CanonicalSourceResult` without invoking parsing after lexical
   failure.
 
-- [ ] **Step 5: Implement reusable exact parity batches.**
+- [x] **Step 5: Implement reusable exact parity batches.**
 
   For lexically valid fixtures, inject the exact canonical stage-0 token list
   and compare `CanonicalParserResult`. For every family fixture, compare the
@@ -456,7 +463,7 @@ token/source family parity infrastructure.
   manifest order, and run each batch twice. Do not compare only the
   `ParserFixtureExpectation` summary.
 
-- [ ] **Step 6: Run complete focused parity GREEN.**
+- [x] **Step 6: Run complete focused parity GREEN.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
@@ -465,7 +472,7 @@ token/source family parity infrastructure.
   Expected: exact stage-0 parity for both entry points; byte-identical repeated
   batches; all foundation and layering suites pass.
 
-- [ ] **Step 7: Commit complete expression-foundation parsing.**
+- [x] **Step 7: Commit complete expression-foundation parsing.**
 
   Stage the program/façade modules, reusable parity harness/spec, component
   updates, and Cabal metadata. Commit as
@@ -475,8 +482,9 @@ token/source family parity infrastructure.
 
 **Files:**
 
-- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs`
-- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs`
+- Create: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs`
+- Create: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs`
+- Modify: `jazz-next/jazz-next.cabal`
 - Modify only if the new evidence demonstrates an owning defect:
   `jazz-next/jazz/compiler/ParserExpression.jz`
 - Modify only if the new evidence demonstrates an owning defect:
@@ -485,7 +493,7 @@ token/source family parity infrastructure.
 **Produces:** Regression evidence that the grammar does not introduce prefix
 append, remainder copying, nondeterminism, or host-stack growth.
 
-- [ ] **Step 1: Add the large generated program case.**
+- [x] **Step 1: Add the large generated program case.**
 
   Generate 512 sequential ordinary bindings whose right-hand sides combine an
   application, list, tuple, integer, boolean, and text literal, followed by one
@@ -493,7 +501,7 @@ append, remainder copying, nondeterminism, or host-stack growth.
   structured block length rather than relying on a rendered megabyte-scale AST
   as the only success signal.
 
-- [ ] **Step 2: Add deterministic observation assertions.**
+- [x] **Step 2: Add deterministic observation assertions.**
 
   Run the same module graph twice with `RuntimeObservationStatistics`. Require
   identical output, successful termination, identical statistics, no host
@@ -505,30 +513,30 @@ append, remainder copying, nondeterminism, or host-stack growth.
   values in this plan's completion evidence. A later ceiling change requires a
   performance explanation rather than an automatic baseline rewrite.
 
-- [ ] **Step 3: Run the scale case RED or expose missing behavior.**
+- [x] **Step 3: Run the scale case RED or expose missing behavior.**
 
-  Run `jazz-parser-parity-spec` alone. Expected before final traversal fixes:
+  Run `jazz-parser-scale-spec` alone. Expected before final traversal fixes:
   the new case either fails its success/stack condition or exposes an
   unexplained deterministic budget overrun. If it already passes, retain the
   test and record that no production correction was necessary.
 
-- [ ] **Step 4: Correct only demonstrated traversal defects.**
+- [x] **Step 4: Correct only demonstrated traversal defects.**
 
   Keep cursor representation and `ParserCore` unchanged. Fix accumulation or
   recursion in the owning expression/program module; do not add a host shortcut
   or weaken exact parity.
 
-- [ ] **Step 5: Run scale and development-warning GREEN.**
+- [x] **Step 5: Run scale and development-warning GREEN.**
 
   ```bash
-  nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-parity-spec --test-show-details=failures
+  nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-scale-spec --test-show-details=failures
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
   ```
 
   Expected: deterministic observations and large traversal pass; the complete
   development build is warning-free.
 
-- [ ] **Step 6: Capture optional physical review evidence and commit.**
+- [x] **Step 6: Capture optional physical review evidence and commit.**
 
   Run the focused test executable with RTS allocation statistics when the
   local profiling/build mode supports it. Record elapsed time, allocation, and
@@ -552,15 +560,16 @@ append, remainder copying, nondeterminism, or host-stack growth.
 **Produces:** Clean completion evidence, an archived expression child, and one
 unpromoted next curation target for types/declarations/modules.
 
-- [ ] **Step 1: Run the final focused gate.**
+- [x] **Step 1: Run the final focused gate.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
+  nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-scale-spec --test-show-details=failures
   ```
 
   Expected: every focused suite passes from the implementation head.
 
-- [ ] **Step 2: Run the development build and full suite.**
+- [x] **Step 2: Run the development build and full suite.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -569,7 +578,7 @@ unpromoted next curation target for types/declarations/modules.
 
   Expected: warning-free build and all Cabal test suites pass.
 
-- [ ] **Step 3: Record completion and curate only the next child.**
+- [x] **Step 3: Record completion and curate only the next child.**
 
   Mark this plan and design implemented, move the ready row to the done archive,
   update the bootstrap blocker/parent designs with exact landed evidence, and
@@ -580,7 +589,7 @@ unpromoted next curation target for types/declarations/modules.
   `docs/feature-status.md` unchanged because no top-level end-to-end status
   changes in this child.
 
-- [ ] **Step 4: Run documentation and cleanliness gates.**
+- [x] **Step 4: Run documentation and cleanliness gates.**
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -593,23 +602,38 @@ unpromoted next curation target for types/declarations/modules.
   benchmark/profile artifacts are tracked, and only intended closeout files are
   pending.
 
-- [ ] **Step 5: Commit the closeout.**
+- [x] **Step 5: Commit the closeout.**
 
   Commit active docs, this plan, and any directly affected README line as
   `docs: close parser expression foundation`.
 
 ## Completion Evidence
 
-Populate this section only from final command output. Record:
+Completed on `2026-07-16`.
 
-- final focused and full-suite results;
-- the exact 43-case token/source parity result and 350-case lexer result;
-- the 512-binding traversal result;
-- deterministic runtime observation values and their checked-in ceilings;
-- any optional same-machine physical evidence, clearly labeled as diagnostic;
-- confirmation that `ParserCore.jz` and `ParserTypes.jz` did not change;
-- queue/docs validator results; and
-- the next unpromoted curation target.
+- The final focused parser component/parity, canonical parser, parser core,
+  token parser, canonical lexer, Jazz lexer parity, and repository audit gate
+  passed. The warning-clean `-fdevelopment` build and complete Cabal suite also
+  passed.
+- The explicit `ExpressionFoundation` family contains 43 stable cases in the
+  fixed 350-case corpus. Token and source entry batches match complete stage-0
+  values exactly and produce byte-identical repeated output; the Jazz lexer
+  remains exact over all 350 cases.
+- The isolated 512-binding scale fixture plus terminal expression parsed as a
+  513-statement block twice with identical output, successful termination,
+  identical runtime statistics, and zero host operations.
+- Observed deterministic work was 21,751,223 evaluator transitions, 2,630,524
+  applications, 110,804 list cells, and maximum continuation depth 1,060.
+  Checked-in ceilings are 22,000,000, 2,700,000, 115,000, and 1,100.
+- `ParserTypes.jz` did not change. `ParserCore.jz` received the narrow generic
+  boundary fix described above: export of the existing `Parser` constructor and
+  typed failure offset/problem accessors, with kernel behavior preserved by its
+  focused suite.
+- No optional RTS physical evidence was recorded; wall-clock time and physical
+  allocation remain non-gating review data.
+- Queue/docs validators and `git diff --check` passed at closeout.
+- `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001` is the sole next
+  curation target and remains unpromoted.
 
 ## Acceptance Checklist
 
@@ -625,9 +649,10 @@ Populate this section only from final command output. Record:
 - Lexical failure never invokes grammar parsing or becomes parser failure.
 - Repeated family batches and large-program observation are deterministic.
 - Large traversal remains stack-safe and avoids repeated growing-prefix append.
-- No parser-specific builtin, host callback, stdlib parser API, schema change,
-  later grammar, lowering, backend, or legacy-reference change enters the
-  child.
+- No parser-specific builtin, host callback, stdlib parser API, `ParserTypes`
+  schema change, later grammar, lowering, backend, or legacy-reference change
+  enters the child. The generic `ParserCore` boundary correction is limited to
+  existing representation/access and does not change kernel semantics.
 - Final focused, development, full-suite, queue/docs, and diff gates pass.
 - Closeout archives only this child and curates, but does not promote, the
   types/declarations/modules child.
