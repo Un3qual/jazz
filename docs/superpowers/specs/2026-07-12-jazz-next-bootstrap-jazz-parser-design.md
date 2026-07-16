@@ -3,9 +3,10 @@
 ## Status
 
 Approved in discussion and accepted after written review on `2026-07-16`.
-This document fixes the contract for the next Jazz-authored compiler component.
-The parser contract-and-kernel child may be promoted only with a matching
-implementation plan; later grammar children retain their own planning gates.
+The parser contract-and-kernel child completed on `2026-07-16`. The expression
+foundation is the sole next curation target, but it is not promoted until a
+matching implementation plan fixes its fixture family, ownership, and
+verification. Later grammar children retain their own planning gates.
 
 ## Goal
 
@@ -279,7 +280,8 @@ tools before a representation boundary changes.
 Fix the complete Jazz surface/result/failure schema, add the total Haskell
 normalization adapter, implement the generic compiler-local parser kernel, and
 prove its consumption, error-selection, progress, determinism, and large-input
-behavior. This child adds no substantive Jazz grammar.
+behavior. This child completed on `2026-07-16` without substantive Jazz
+grammar.
 
 ### Child 2: expression foundation
 
@@ -389,20 +391,17 @@ must be investigated and explained before closeout.
 
 ## Queue and Documentation Closeout
 
-After this written specification is reviewed, an implementation plan will fix
-the exact first-child target paths, tests, and verification commands. The same
-closeout pass will:
+The contract-and-kernel implementation plan fixed the first-child target paths,
+tests, and verification commands. That child is complete and archived. Its
+closeout names only Child 2, the expression foundation, as the next curation
+target. Child 2 remains outside `Ready Now` until a separate implementation plan
+fixes one explicit stable fixture family, exact grammar/facade ownership, and
+focused parity verification. Children 3 through 5 remain ordered in this design
+but unpromoted.
 
-1. mark the parser design child accepted in the bootstrap profile and blocker
-   contract;
-2. replace the design curation target with the first implementation child;
-3. promote only that foundation child into `Ready Now` once its plan
-   frontmatter matches the queue row; and
-4. leave later grammar children ordered in this design but unpromoted.
-
-This ordering prevents the dispatcher from claiming implementation readiness
-before the written design and implementation plan have both passed their review
-gates.
+This ordering keeps the dispatcher aligned with reviewed implementation
+boundaries: completing one child makes the next one eligible for planning, not
+automatically executable.
 
 ## Non-Goals
 

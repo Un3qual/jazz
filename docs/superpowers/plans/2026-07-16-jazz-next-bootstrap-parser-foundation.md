@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001
 last_verified: 2026-07-16
+completed_on: 2026-07-16
 plan_section: "Implementation Batch: Parser Contract and Kernel"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -169,7 +170,7 @@ interfaces are fixed so later tasks do not invent parallel representations:
 **Produces:** A structured failure path for every current stage-0 parser
 rejection, with the legacy diagnostic API implemented only as an adapter.
 
-- [ ] **Step 1: Add RED tests for detailed failures and compatibility.**
+- [x] **Step 1: Add RED tests for detailed failures and compatibility.**
 
   Extend the smallest existing owner suite for each failure family. Assert
   reason identity and payload, optional span, and deterministic farthest
@@ -179,7 +180,7 @@ rejection, with the legacy diagnostic API implemented only as an adapter.
   signatures, modules/imports/exports, expressions, patterns, control flow,
   numeric overflow, and operator-boundary cases.
 
-- [ ] **Step 2: Run the focused parser suites RED.**
+- [x] **Step 2: Run the focused parser suites RED.**
 
   Run:
 
@@ -191,7 +192,7 @@ rejection, with the legacy diagnostic API implemented only as an adapter.
   production type and detailed entry points do not exist yet; unchanged legacy
   assertions continue to pass.
 
-- [ ] **Step 3: Introduce one structured failure model and renderer.**
+- [x] **Step 3: Introduce one structured failure model and renderer.**
 
   Inventory every current `E0001` parser construction site before editing it.
   Group equivalent expectations under shared reasons and give genuinely
@@ -205,7 +206,7 @@ rejection, with the legacy diagnostic API implemented only as an adapter.
   another current module imports the diagnostic-returning signature. Do not
   alter token consumption, choice order, grammar dispatch, or accepted syntax.
 
-- [ ] **Step 4: Run all parser suites GREEN and inspect behavior parity.**
+- [x] **Step 4: Run all parser suites GREEN and inspect behavior parity.**
 
   Run:
 
@@ -216,7 +217,7 @@ rejection, with the legacy diagnostic API implemented only as an adapter.
   Expected: every parser suite passes; existing accepted ASTs and rendered
   diagnostics are unchanged, while detailed tests observe typed reasons.
 
-- [ ] **Step 5: Commit the structured stage-0 failure path.**
+- [x] **Step 5: Commit the structured stage-0 failure path.**
 
   Stage only the production parser modules and their focused parser tests.
   Commit as `refactor: structure parser failures`.
@@ -239,7 +240,7 @@ tree in `Parser.AST`.
 **Produces:** One Jazz-owned schema and a total Haskell normalization path that
 future grammar slices compare without using JSON or presentation prose.
 
-- [ ] **Step 1: Add RED schema and adapter coverage.**
+- [x] **Step 1: Add RED schema and adapter coverage.**
 
   Register `canonical-parser-comparison-spec`. Add table-driven cases that
   cover every surface literal, numeric width, pattern, lambda parameter,
@@ -257,7 +258,7 @@ future grammar slices compare without using JSON or presentation prose.
   distinguish lexical failures from parser failures, canonicalize every result
   twice in manifest order, and require byte-identical rendering.
 
-- [ ] **Step 2: Run canonical comparison tests RED.**
+- [x] **Step 2: Run canonical comparison tests RED.**
 
   Run:
 
@@ -268,7 +269,7 @@ future grammar slices compare without using JSON or presentation prose.
   Expected: the parser comparison component cannot build until the new schema,
   shared canonical helpers, and total adapter exist.
 
-- [ ] **Step 3: Implement the schema and normalization boundary.**
+- [x] **Step 3: Implement the schema and normalization boundary.**
 
   Mirror semantic distinctions from `Parser.AST` rather than Haskell record
   layout or constructor prefixes. Keep identifiers, module components,
@@ -284,7 +285,7 @@ future grammar slices compare without using JSON or presentation prose.
   `RuntimeValue` constructors and render them with the existing generic
   renderer.
 
-- [ ] **Step 4: Prove schema completeness and lexer non-regression GREEN.**
+- [x] **Step 4: Prove schema completeness and lexer non-regression GREEN.**
 
   Run:
 
@@ -296,7 +297,7 @@ future grammar slices compare without using JSON or presentation prose.
   suites retain byte-identical output, and repository source-layout/formatting
   checks accept `ParserTypes.jz`.
 
-- [ ] **Step 5: Commit the canonical parser contract.**
+- [x] **Step 5: Commit the canonical parser contract.**
 
   Stage the Jazz schema, shared/test adapters, focused specs, and Cabal
   registration. Commit as `feat: define canonical parser contract`.
@@ -315,7 +316,7 @@ not consume `LexerTypes`, `ParserTypes`, or any grammar module.
 **Produces:** A generic parser abstraction whose public operations and
 consumption rules are stable inputs to the expression-foundation child.
 
-- [ ] **Step 1: Add RED kernel behavior tests through the real module graph.**
+- [x] **Step 1: Add RED kernel behavior tests through the real module graph.**
 
   Register `parser-core-spec` and construct small Jazz test programs that use
   the public operations named in the stable-interface section. Cover initial
@@ -328,7 +329,7 @@ consumption rules are stable inputs to the expression-foundation child.
   alternatives that fail at different offsets and at equal offsets so the
   farthest-failure and declaration-order tie rules are observable.
 
-- [ ] **Step 2: Run the kernel suite RED.**
+- [x] **Step 2: Run the kernel suite RED.**
 
   Run:
 
@@ -339,7 +340,7 @@ consumption rules are stable inputs to the expression-foundation child.
   Expected: the suite cannot load `ParserCore` until the compiler-local module
   and its public types/operations exist.
 
-- [ ] **Step 3: Implement the smallest kernel that satisfies the contract.**
+- [x] **Step 3: Implement the smallest kernel that satisfies the contract.**
 
   Retain the remaining token list and monotonic offset in an immutable cursor.
   Make every failure carry its offset and consumed/unconsumed status. Choice
@@ -352,7 +353,7 @@ consumption rules are stable inputs to the expression-foundation child.
   success without offset progress. Keep parser context out of the kernel. Do
   not add a public stdlib parser module or any raw runtime bridge.
 
-- [ ] **Step 4: Run focused kernel and repository suites GREEN.**
+- [x] **Step 4: Run focused kernel and repository suites GREEN.**
 
   Run:
 
@@ -363,7 +364,7 @@ consumption rules are stable inputs to the expression-foundation child.
   Expected: all kernel cases pass, checked-in compiler modules load through the
   real source boundary, and source layering/formatting remains valid.
 
-- [ ] **Step 5: Commit the generic parser kernel.**
+- [x] **Step 5: Commit the generic parser kernel.**
 
   Stage `ParserCore.jz`, its focused spec, and Cabal registration. Commit as
   `feat: add Jazz parser core`.
@@ -380,7 +381,7 @@ consumption rules are stable inputs to the expression-foundation child.
 **Produces:** Review evidence that the foundation is safe for grammar work and
 does not hide a quadratic cursor or host-stack dependency.
 
-- [ ] **Step 1: Add RED large-input and determinism cases.**
+- [x] **Step 1: Add RED large-input and determinism cases.**
 
   Add a 20,000-token successful traversal that verifies final offset and empty
   remainder, a long failing traversal whose selected failure is at the exact
@@ -392,20 +393,20 @@ does not hide a quadratic cursor or host-stack dependency.
   timeout may guard against nontermination or host-stack failure, but the test
   must not enforce a machine-specific performance baseline.
 
-- [ ] **Step 2: Run the large cases RED against any incomplete kernel.**
+- [x] **Step 2: Run the large cases RED against any incomplete kernel.**
 
   Run `parser-core-spec` alone and verify that the new cases catch any
   non-tail-recursive repetition, repeated indexing of the original list,
   incorrect failure-offset selection, or zero-progress loop.
 
-- [ ] **Step 3: Correct the underlying traversal behavior.**
+- [x] **Step 3: Correct the underlying traversal behavior.**
 
   Fix cursor or repetition ownership inside `ParserCore.jz`; do not add a
   special large-input path, test-only fast path, mutable token buffer, or host
   primitive. If the original implementation already passes, make no production
   edit merely to create activity.
 
-- [ ] **Step 4: Run focused, development-warning, and full verification.**
+- [x] **Step 4: Run focused, development-warning, and full verification.**
 
   Run every command from the plan frontmatter in order. Record same-machine
   elapsed-time and allocation observations for the focused kernel suite in the
@@ -414,7 +415,7 @@ does not hide a quadratic cursor or host-stack dependency.
   or kernel-only host symbol; rely on module-graph behavior and repository
   audits for permanent regression coverage.
 
-- [ ] **Step 5: Commit the large-input evidence.**
+- [x] **Step 5: Commit the large-input evidence.**
 
   Stage only behavioral tests and any necessary root-cause kernel correction.
   Commit as `test: prove parser core scale and determinism`.
@@ -433,20 +434,20 @@ does not hide a quadratic cursor or host-stack dependency.
 **Produces:** Historical closure evidence and one named curation target for the
 expression-foundation child, without prematurely promoting grammar work.
 
-- [ ] **Step 1: Re-run all completion gates from a clean working tree.**
+- [x] **Step 1: Re-run all completion gates from a clean working tree.**
 
   Require the focused suites, `-fdevelopment` build, full suite, queue/docs
   validators, and `git diff --check` to pass at the implementation head. Do not
   close the row using earlier task-level results.
 
-- [ ] **Step 2: Record exact completion evidence.**
+- [x] **Step 2: Record exact completion evidence.**
 
   Change this plan to `status: done`, set `completed_on` and `last_verified` to
   the actual completion date, and check completed steps. Move
   `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001` from `Ready Now` into the done
   archive with the landed behavior and commands, not planned claims.
 
-- [ ] **Step 3: Curate but do not promote the expression foundation.**
+- [x] **Step 3: Curate but do not promote the expression foundation.**
 
   Update the bootstrap blocker so the next smallest child is the design's
   expression foundation: program/block sequencing, literals, names,
@@ -456,10 +457,33 @@ expression-foundation child, without prematurely promoting grammar work.
   Now`; later type/declaration/module, control-flow/pattern, and operator/full
   parity children remain ordered and unpromoted.
 
-- [ ] **Step 4: Commit the closeout.**
+- [x] **Step 4: Commit the closeout.**
 
   Stage only active docs and this plan. Commit as
   `docs: close Jazz parser foundation child`.
+
+## Completion Evidence
+
+Completed on `2026-07-16`. The implementation preserves structured stage-0
+failures behind the existing diagnostic API, defines and executes the complete
+ordinary Jazz parser contract, and adds the grammar-neutral compiler-local
+parser kernel without introducing grammar or backend work.
+
+- The focused canonical parser, parser core, token parser, canonical lexer,
+  Jazz lexer parity, and repository audit suites passed.
+- `cabal build --project-dir=jazz-next -fdevelopment all` passed with warnings
+  promoted to errors, including exhaustive Haskell adapter matches.
+- `cabal test --project-dir=jazz-next all --test-show-details=failures` passed.
+- The 333-case source façade renders deterministically with distinct lexical,
+  parser, and success outcomes.
+- The kernel completes the 20,000-token success floor at offset 20,000, selects
+  the long farthest failure at offset 20,000, and rejects zero-progress
+  repetition distinctly.
+- A same-machine focused run with RTS statistics completed in 11.283 seconds
+  elapsed inside the test executable, allocated 45,457,808,376 bytes across
+  repeated module compilation/evaluation, and retained 3,938,232 bytes at peak.
+  These are review observations, not a pass/fail baseline.
+- Queue/docs validators and `git diff --check` passed at closeout.
 
 ## Acceptance Checklist
 
