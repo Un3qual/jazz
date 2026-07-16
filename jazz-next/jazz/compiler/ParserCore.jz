@@ -1,11 +1,13 @@
 module ParserCore (
   type Parser,
-  type ParserCursor(..),
+  type ParserCursor,
   type ParserConsumption(..),
   type ParserProblem(..),
   type ParserFailure(..),
   type ParserReply(..),
   value parserRun,
+  value parserCursorRemaining,
+  value parserCursorOffset,
   value parserSucceed,
   value parserFail,
   value parserTransform,
@@ -97,7 +99,13 @@ module ParserCore (
       | ParserFailure laterOffset laterConsumption laterProblem ->
         parserFailureWithConsumption
           (consumptionAppend earlierConsumption laterConsumption)
-          (if laterOffset > earlierOffset then later else earlier)
+          (case earlierProblem {
+            | ZeroProgressProblem -> earlier
+            | RejectedProblem earlierRejected -> case laterProblem {
+              | ZeroProgressProblem -> later
+              | RejectedProblem laterRejected -> if laterOffset > earlierOffset then later else earlier
+            }
+          })
     }
   }.
 
@@ -134,6 +142,11 @@ module ParserCore (
 
   parserOptional :: Parser(token, problem, value) -> Parser(token, problem, Maybe(value)).
   parserOptional = \(parser) -> parserChoice (parserTransform Just parser) (parserSucceed Nothing).
+
+  parserCursorRemaining :: ParserCursor(token) -> [token].
+  parserCursorRemaining = \(cursor) -> case cursor {
+    | ParserCursor remaining offset -> remaining
+  }.
 
   parserCursorOffset :: ParserCursor(token) -> Int.
   parserCursorOffset = \(cursor) -> case cursor {

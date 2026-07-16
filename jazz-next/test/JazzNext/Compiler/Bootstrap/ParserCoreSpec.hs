@@ -3,6 +3,9 @@
 module Main (main) where
 
 import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics.Render
+  ( renderDiagnostic,
+  )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
@@ -17,6 +20,7 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     failTest,
     runTestSuite,
@@ -34,6 +38,8 @@ main = runTestSuite "ParserCore" tests
 tests :: [NamedTest]
 tests =
   [ ("starts at an immutable zero-offset cursor", testInitialCursor),
+    ("exposes cursor state through typed views", testCursorViews),
+    ("keeps direct cursor construction private", testCursorConstructorPrivate),
     ("takes one token or rejects without moving", testTakeIf),
     ("transforms and sequences replies", testTransformAndThen),
     ("keeps selected sequenced values", testKeepLeftRight),
@@ -58,6 +64,29 @@ testInitialCursor =
     "initial cursor"
     "parserRun (parserSucceed \"ok\") [1, 2]"
     "ParserSucceeded(\"ok\", ParserCursor([1, 2], 0), Unconsumed)"
+
+testCursorViews :: IO ()
+testCursorViews =
+  assertJazzOutput
+    "cursor views"
+    """
+    { reply = parserRun (parserTakeIf (\\(token) -> token == 1) "one") [1, 2].
+      case reply {
+        | ParserSucceeded value cursor consumption -> (parserCursorRemaining cursor, parserCursorOffset cursor)
+        | ParserFailed failure -> ([], 0)
+      }.
+    }
+    """
+    "([2], 1)"
+
+testCursorConstructorPrivate :: IO ()
+testCursorConstructorPrivate = do
+  result <- runJazzExpression "ParserCursor 1 0"
+  case runCompileErrors result of
+    [diagnostic] -> do
+      assertContains "private cursor constructor code" "E1001" (renderDiagnostic diagnostic)
+      assertContains "private cursor constructor name" "ParserCursor" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected one private cursor constructor error, got " <> Text.pack (show diagnostics))
 
 testTakeIf :: IO ()
 testTakeIf =
@@ -152,9 +181,8 @@ testLargeTraversal =
     { one = parserTakeIf (\\(token) -> token == 1) "one".
       reply = parserRun (parserMany one) (listRepeat 20000 1).
       case reply {
-        | ParserSucceeded values cursor consumption -> case cursor {
-          | ParserCursor remaining offset -> (listLength values, listLength remaining, offset)
-        }
+        | ParserSucceeded values cursor consumption ->
+          (listLength values, listLength (parserCursorRemaining cursor), parserCursorOffset cursor)
         | ParserFailed failure -> (0, 0, 0)
       }.
     }
@@ -191,14 +219,20 @@ testZeroProgressRecovery =
     """
     { repeated = parserMany (parserSucceed 1).
       fallback = parserSucceed [].
+      merged = parserChoice (parserFail "ordinary rejection") repeated.
+      takeOne = parserTakeIf (\\(token) -> token == 1) "one".
+      farther = parserAttempt (parserKeepRight takeOne (parserFail "farther rejection")).
+      fartherMerged = parserChoice farther repeated.
       ( parserRun (parserChoice repeated fallback) [1]
       , parserRun (parserOptional repeated) [1]
       , parserRun (parserChoice (parserAttempt repeated) fallback) [1]
       , parserRun (parserChoice (parserLookAhead repeated) fallback) [1]
+      , parserRun (parserChoice merged fallback) [1]
+      , parserRun (parserChoice fartherMerged fallback) [1]
       ).
     }
     """
-    "(ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)))"
+    "(ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)), ParserFailed(ParserFailure(0, Unconsumed, ZeroProgressProblem)))"
 
 testDeterministicBatch :: IO ()
 testDeterministicBatch = do
