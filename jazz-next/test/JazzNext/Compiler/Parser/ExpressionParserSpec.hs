@@ -8,14 +8,15 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..)
+    SourceSpan (..),
   )
 import JazzNext.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import JazzNext.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
+  ( mkFractionalLiteralSource,
   )
+import JazzNext.Compiler.Parser (parseStatementsUntilBrace)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
@@ -25,35 +26,42 @@ import JazzNext.Compiler.Parser.AST
     SurfacePattern (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import JazzNext.Compiler.Parser.Context
   ( ParserContext (..),
-    StatementContext (..)
+    StatementContext (..),
   )
 import JazzNext.Compiler.Parser.Declaration (parseStatementParser)
 import JazzNext.Compiler.Parser.Expression
-  ( parseExpressionParser
+  ( parseExpressionParser,
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserEncountered (..),
+    ParserFailure (..),
+    ParserFailureReason (..),
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
   )
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
-    OperatorInfo (..)
+    OperatorInfo (..),
   )
-import JazzNext.Compiler.Parser (parseStatementsUntilBrace)
 import JazzNext.Compiler.Parser.TestSupport
-  ( lexSource
+  ( lexSource,
   )
-import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefix)
+import JazzNext.Compiler.Parser.TokenParser
+  ( runTokenParserPrefix,
+    runTokenParserPrefixDetailed,
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -70,6 +78,8 @@ tests =
     ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
     ("parses fractional literal suffix", testFractionalLiteralSuffix),
+    ("reports the token that replaces a missing case body", testDetailedMissingCaseBody),
+    ("reports invalid fractional literals structurally", testDetailedInvalidFractionalLiteral),
     ("reports invalid fractional literals", testInvalidFractionalLiteralDiagnostic),
     ("reports undeclared infix operators", testUndeclaredOperatorDiagnostic)
   ]
@@ -212,6 +222,19 @@ testFractionalLiteralSuffix = do
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 
+testDetailedMissingCaseBody :: IO ()
+testDetailedMissingCaseBody = do
+  tokens <- lexSource "case value."
+  case parseExpressionTokensDetailed Set.empty [] tokens of
+    Left failure -> do
+      assertEqual "missing case body span" (Just (SourceSpan 1 11)) (parserFailureSpan failure)
+      assertEqual
+        "missing case body reason"
+        (ExpectedSyntax "'{'" (ParserFoundToken TDot "."))
+        (parserFailureReason failure)
+    Right value ->
+      failTest ("missing case body: expected detailed Left, got Right " <> textShow value)
+
 testInvalidFractionalLiteralDiagnostic :: IO ()
 testInvalidFractionalLiteralDiagnostic = do
   tokens <- lexSource (Text.pack (replicate 400 '9' <> ".0."))
@@ -220,6 +243,20 @@ testInvalidFractionalLiteralDiagnostic = do
       assertContains "invalid fractional literal diagnostic" "invalid fractional literal" (renderDiagnostic diagnostic)
     Right value ->
       failTest ("invalid fractional literal: expected Left, got Right " <> textShow value)
+
+testDetailedInvalidFractionalLiteral :: IO ()
+testDetailedInvalidFractionalLiteral = do
+  let literalText = Text.pack (replicate 400 '9' <> ".0")
+  tokens <- lexSource (literalText <> ".")
+  case parseExpressionTokensDetailed Set.empty [] tokens of
+    Left failure -> do
+      assertEqual "invalid fractional detailed span" (Just (SourceSpan 1 1)) (parserFailureSpan failure)
+      assertEqual
+        "invalid fractional detailed reason"
+        (InvalidFractionalLiteral literalText)
+        (parserFailureReason failure)
+    Right value ->
+      failTest ("invalid fractional literal: expected detailed Left, got Right " <> textShow value)
 
 testUndeclaredOperatorDiagnostic :: IO ()
 testUndeclaredOperatorDiagnostic = do
@@ -242,12 +279,30 @@ assertExpression label expectedExpr expectedRemainingKinds actual =
 tokenKinds :: (SurfaceExpr, [Token]) -> (SurfaceExpr, [TokenKind])
 tokenKinds (expr, remaining) = (expr, fmap tokenKind remaining)
 
-textShow :: Show a => a -> Text
+textShow :: (Show a) => a -> Text
 textShow = fromString . show
 
 parseExpressionTokens :: Set.Set Text -> [OperatorInfo] -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpressionTokens knownAliases declaredOperators =
   runTokenParserPrefix "owned expression" (expressionParser initialContext)
+  where
+    initialContext =
+      ParserContext
+        { parserKnownAliases = knownAliases,
+          parserDeclaredOperators = declaredOperators,
+          parserStatementContext = NestedBlockContext
+        }
+    expressionParser = parseExpressionParser blockParser
+    statementParser = parseStatementParser expressionParser blockParser
+    blockParser = parseStatementsUntilBrace statementParser
+
+parseExpressionTokensDetailed ::
+  Set.Set Text ->
+  [OperatorInfo] ->
+  [Token] ->
+  Either ParserFailure (SurfaceExpr, [Token])
+parseExpressionTokensDetailed knownAliases declaredOperators =
+  runTokenParserPrefixDetailed "owned expression" (expressionParser initialContext)
   where
     initialContext =
       ParserContext

@@ -9,8 +9,10 @@ traversal, backend-neutral host text I/O, the shared stack-safe evaluator, the
 canonical comparison contract, and the Jazz-authored lexer all execute in the
 active `jazz-next` path. The lexer matches the complete fixed stage-0 corpus
 deterministically and traverses large source/token inputs without host stack
-growth. Parser porting and the later canonical-core, backend-neutral lowered
-IR, LLVM, object/link, and native-runtime stages remain separate milestones.
+growth. The parser contract and generic kernel foundation completed on
+`2026-07-16`; Jazz grammar porting and the later canonical-core,
+backend-neutral lowered IR, LLVM, object/link, and native-runtime stages remain
+separate milestones.
 
 ## Goal
 
@@ -350,8 +352,8 @@ package and repository checks. The bootstrap readiness gate requires:
 7. no-prelude tests proving only kernel bridge names remain visible;
 8. bundled-prelude drift tests covering every new bridge and public alias; and
 9. `cabal test --project-dir=jazz-next all`,
-   `bash jazz-next/scripts/test-warning-config.sh`, queue/docs validation, and
-   `git diff --check` passing after each completed child.
+   the development warning build, queue/docs validation, and `git diff --check`
+   passing after each completed child.
 
 ## Implementation Slices
 
@@ -366,10 +368,30 @@ The design decomposes into independently reviewable children:
 7. canonical token/diagnostic comparison format and reference harness (complete
    on `2026-07-12`); and
 8. Jazz-authored lexer with differential parity coverage (complete on
-   `2026-07-12`).
+   `2026-07-12`);
+9. complete parser surface/result/failure contract, structured stage-0 failure
+   path, total comparison adapter, and grammar-neutral parser kernel (complete
+   on `2026-07-16`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
+
+## Hosted Parser Continuation
+
+The first hosted lexer milestone is complete. On `2026-07-16`, the separate
+Jazz-authored parser design was accepted after written review. It fixes a
+fail-fast complete surface-AST comparison boundary, structured parser failures,
+distinct token and source façades, a compiler-local generic parser kernel, and
+five ordered implementation children.
+
+The first continuation child is complete: the ordinary parser
+surface/result/failure schema, total test-only Haskell adapter, structured
+stage-0 failure path, and generic parser kernel landed without Jazz grammar.
+The expression foundation is now the sole curation target, but remains
+unpromoted until a matching implementation plan fixes its named fixture family,
+ownership, and verification. Types/declarations/modules,
+control-flow/patterns, and operator/full-parity children remain ordered and
+unpromoted.
 
 ## Non-Goals
 

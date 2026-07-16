@@ -5,33 +5,40 @@ module Main (main) where
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    diagnosticPrimarySpan
+    diagnosticPrimarySpan,
   )
 import JazzNext.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfacePattern (..)
+    SurfacePattern (..),
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserFailure (..),
+    ParserFailureReason (..),
+    ParserUnsupportedFeature (..),
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
   )
 import JazzNext.Compiler.Parser.Pattern
-  ( parseCaseArmPatternTokens,
-    parseLambdaParameterTokens
+  ( parseCaseArmPatternParser,
+    parseCaseArmPatternTokens,
+    parseLambdaParameterTokens,
   )
 import JazzNext.Compiler.Parser.TestSupport
-  ( lexSource
+  ( lexSource,
   )
+import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefixDetailed)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -43,6 +50,7 @@ tests =
     ("parses case-arm pattern tokens and preserves remainder", testParsesCaseArmPatternTokens),
     ("parses Char and Text literal patterns", testParsesCharAndTextLiteralPatterns),
     ("parses lambda parameter tokens", testParsesLambdaParameterTokens),
+    ("reports fractional pattern rejection structurally", testDetailedFractionalLiteralPattern),
     ("rejects fractional literal patterns", testRejectsFractionalLiteralPatterns),
     ("reports the token missing a tuple-pattern comma", testReportsMissingTuplePatternComma)
   ]
@@ -136,6 +144,19 @@ testRejectsFractionalLiteralPatterns = do
         (renderDiagnostic diagnostic)
     Right value ->
       failTest ("expected fractional pattern rejection, got " <> Text.pack (show value))
+
+testDetailedFractionalLiteralPattern :: IO ()
+testDetailedFractionalLiteralPattern = do
+  tokens <- lexSource "1.5 -> body"
+  case runTokenParserPrefixDetailed "case arm pattern" parseCaseArmPatternParser tokens of
+    Left failure -> do
+      assertEqual "fractional pattern detailed span" (Just (SourceSpan 1 1)) (parserFailureSpan failure)
+      assertEqual
+        "fractional pattern detailed reason"
+        (UnsupportedSyntax FractionalLiteralPattern)
+        (parserFailureReason failure)
+    Right value ->
+      failTest ("expected detailed fractional pattern rejection, got " <> Text.pack (show value))
 
 testReportsMissingTuplePatternComma :: IO ()
 testReportsMissingTuplePatternComma = do

@@ -171,6 +171,10 @@ testRejectsNonLogicalPaths = do
     (Left "canonical source path must be relative")
     (normalizeCanonicalSourcePath "/tmp/basic.jz")
   assertEqual
+    "drive-relative path"
+    (Left "canonical source path must be relative")
+    (normalizeCanonicalSourcePath "C:fixtures/basic.jz")
+  assertEqual
     "parent path"
     (Left "canonical source path must not contain '..'")
     (normalizeCanonicalSourcePath "fixtures/../basic.jz")

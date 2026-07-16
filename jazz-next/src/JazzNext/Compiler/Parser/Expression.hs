@@ -3,8 +3,9 @@
 -- | Direct Megaparsec grammar for surface expressions.
 module JazzNext.Compiler.Parser.Expression
   ( parseExpressionParser,
-    parseExpressionTokens
-  ) where
+    parseExpressionTokens,
+  )
+where
 
 import Control.Monad (void)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -15,11 +16,11 @@ import qualified Data.Text.Read as TextRead
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
-    mkFractionalLiteralSource
+    mkFractionalLiteralSource,
   )
 import JazzNext.Compiler.Name
   ( identifierText,
-    mkIdentifier
+    mkIdentifier,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -28,23 +29,30 @@ import JazzNext.Compiler.Parser.AST
     SurfaceLiteral (..),
     SurfaceNumericType (..),
     SurfacePattern (..),
-    SurfaceSignatureType
+    SurfaceSignatureType,
   )
 import JazzNext.Compiler.Parser.Context
   ( ExpressionParser,
     ParserContext (..),
     StatementBlockParser,
-    StatementContext (..)
+    StatementContext (..),
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserEncountered (..),
+    ParserFailureReason (..),
+    ParserInternalInvariant (..),
+    ParserOperatorUse (..),
+    ParserUnsupportedFeature (..),
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
-    isImmediatelyAfter
+    isImmediatelyAfter,
   )
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
-    lookupOperatorInfoIn
+    lookupOperatorInfoIn,
   )
 import qualified JazzNext.Compiler.Parser.Pattern as Pattern
 import JazzNext.Compiler.Parser.Signature (parseSignatureTypeParser)
@@ -55,7 +63,7 @@ import JazzNext.Compiler.Parser.TokenParser
     parseAnyToken,
     parseToken,
     peekToken,
-    runTokenParserPrefix
+    runTokenParserPrefix,
   )
 import qualified Text.Megaparsec as MP
 
@@ -107,21 +115,20 @@ parseApplicationTailUntil parseBlock context stop functionExpr = do
   tokens <- MP.getInput
   if stop tokens
     then pure functionExpr
-    else
-      case tokens of
-        typeApplicationToken@Token {tokenKind = TAt} : _ -> do
-          void parseAnyToken
-          typeArgument <- parseTypeApplicationArgument typeApplicationToken
-          parseApplicationTailUntil
-            parseBlock
-            context
-            stop
-            (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument)
-        firstToken : _
-          | startsPrimaryExpr firstToken -> do
-              argumentExpr <- parsePrimaryExpr parseBlock context stop
-              parseApplicationTailUntil parseBlock context stop (SEApply functionExpr argumentExpr)
-        _ -> pure functionExpr
+    else case tokens of
+      typeApplicationToken@Token {tokenKind = TAt} : _ -> do
+        void parseAnyToken
+        typeArgument <- parseTypeApplicationArgument typeApplicationToken
+        parseApplicationTailUntil
+          parseBlock
+          context
+          stop
+          (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument)
+      firstToken : _
+        | startsPrimaryExpr firstToken -> do
+            argumentExpr <- parsePrimaryExpr parseBlock context stop
+            parseApplicationTailUntil parseBlock context stop (SEApply functionExpr argumentExpr)
+      _ -> pure functionExpr
 
 parseTypeApplicationArgument :: Token -> Parser SurfaceSignatureType
 parseTypeApplicationArgument typeApplicationToken = do
@@ -131,7 +138,7 @@ parseTypeApplicationArgument typeApplicationToken = do
     Left _ ->
       failTokenParserAt
         (tokenSpan typeApplicationToken)
-        "unsupported explicit type application argument after '@'"
+        (UnsupportedSyntax ExplicitTypeApplicationArgument)
 
 neverStop :: Stop
 neverStop _ = False
@@ -169,34 +176,33 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
   tokens <- MP.getInput
   if stop tokens
     then pure leftExpr
-    else
-      case tokens of
-        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
-          | startsRightParen tokensAfterOperator ->
-              pure leftExpr
-          | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
-                Nothing ->
-                  failUndeclaredOperator operatorToken symbol
-                Just operatorInfo
-                  | operatorPrecedence operatorInfo < minPrecedence ->
-                      pure leftExpr
-                  | otherwise -> do
-                      void parseAnyToken
-                      let rhsStop =
-                            samePrecedenceNonAssociativeRhsStop
-                              (parserDeclaredOperators context)
-                              operatorInfo
-                              stop
-                      rightExpr <- parseRhs rhsStop (operatorNextMinPrecedence operatorInfo)
-                      rejectNonAssociativeContinuation context operatorInfo operatorToken
-                      parseInfixTailWithUntil
-                        context
-                        stop
-                        parseRhs
-                        minPrecedence
-                        (SEBinary symbol leftExpr rightExpr)
-        _ -> pure leftExpr
+    else case tokens of
+      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+        | startsRightParen tokensAfterOperator ->
+            pure leftExpr
+        | otherwise ->
+            case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
+              Nothing ->
+                failUndeclaredOperator operatorToken symbol
+              Just operatorInfo
+                | operatorPrecedence operatorInfo < minPrecedence ->
+                    pure leftExpr
+                | otherwise -> do
+                    void parseAnyToken
+                    let rhsStop =
+                          samePrecedenceNonAssociativeRhsStop
+                            (parserDeclaredOperators context)
+                            operatorInfo
+                            stop
+                    rightExpr <- parseRhs rhsStop (operatorNextMinPrecedence operatorInfo)
+                    rejectNonAssociativeContinuation context operatorInfo operatorToken
+                    parseInfixTailWithUntil
+                      context
+                      stop
+                      parseRhs
+                      minPrecedence
+                      (SEBinary symbol leftExpr rightExpr)
+      _ -> pure leftExpr
 
 operatorNextMinPrecedence :: OperatorInfo -> Int
 operatorNextMinPrecedence operatorInfo =
@@ -217,10 +223,7 @@ rejectNonAssociativeContinuation context operatorInfo operatorToken = do
               || operatorAssociativity nextInfo == AssocNonAssoc ->
               failTokenParserAt
                 (tokenSpan operatorToken)
-                ( "non-associative operator '"
-                    <> nonAssociativeSymbol nextInfo
-                    <> "' cannot be chained without parentheses"
-                )
+                (NonAssociativeOperatorChain (nonAssociativeSymbol nextInfo))
         _ -> pure ()
     _ -> pure ()
   where
@@ -255,7 +258,7 @@ parsePrimaryExpr parseBlock context stop = do
   maybeToken <- peekToken
   case maybeToken of
     Nothing ->
-      failTokenParser "expected expression before end of input"
+      failTokenParser (ExpectedSyntax "expression" ParserEndOfInput)
     Just token -> do
       void parseAnyToken
       case tokenKind token of
@@ -291,9 +294,9 @@ parsePrimaryExpr parseBlock context stop = do
         _ ->
           failTokenParserAt
             (tokenSpan token)
-            ( "unexpected token '"
-                <> tokenLexeme token
-                <> "'; expected expression"
+            ( UnexpectedSyntax
+                (ParserFoundToken (tokenKind token) (tokenLexeme token))
+                "expression"
             )
 
 parseIdentifierExpr :: Token -> Text -> Parser SurfaceExpr
@@ -307,14 +310,15 @@ parseIdentifierExpr identifierToken name = do
           pure (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
     colonToken@Token {tokenKind = TColonColon} : []
       | isImmediatelyAfter identifierToken colonToken ->
-          failTokenParser "expected member name after '::' before end of input"
+          failTokenParser
+            (ExpectedSyntax "member name" (ParserEndOfInputAfter "'::'"))
     colonToken@Token {tokenKind = TColonColon} : memberToken : _
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParserAt
             (tokenSpan memberToken)
-            ( "expected member name after '::', found '"
-                <> tokenLexeme memberToken
-                <> "'"
+            ( ExpectedSyntax
+                "member name after '::'"
+                (ParserFoundToken (tokenKind memberToken) (tokenLexeme memberToken))
             )
     _ ->
       pure (SEVar (mkIdentifier name))
@@ -336,13 +340,16 @@ parseNumericSurfaceLiteral wholeToken wholeValue = do
                   fractionalValue
                   (Text.length (tokenLexeme fractionalToken))
           floatValue <-
-            either (failTokenParserAt (tokenSpan wholeToken)) pure
+            either
+              (const (failTokenParserAt (tokenSpan wholeToken) (InvalidFractionalLiteral literalText)))
+              pure
               (parseFloatLiteral literalText)
           if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
-            then failTokenParserAt (tokenSpan wholeToken) (invalidFloatLiteralMessage literalText)
+            then failTokenParserAt (tokenSpan wholeToken) (InvalidFractionalLiteral literalText)
             else pure (SLFloat floatValue literalSource maybeTargetType)
     _ ->
       pure (SLInt wholeValue)
+
 parseFractionalLiteralSuffix :: Token -> Parser (Maybe SurfaceNumericType)
 parseFractionalLiteralSuffix fractionalToken = do
   maybeToken <- peekToken
@@ -367,7 +374,8 @@ parseFloatLiteral literalText =
   case TextRead.double literalText of
     Right (value, trailing)
       | Text.null trailing,
-        finiteFloat value -> Right value
+        finiteFloat value ->
+          Right value
     _ -> Left (invalidFloatLiteralMessage literalText)
 
 finiteFloat :: Double -> Bool
@@ -397,16 +405,13 @@ requireOperatorVisible context operatorToken =
     _ ->
       failTokenParserAt
         (tokenSpan operatorToken)
-        "internal parser error: expected operator token"
+        (InternalParserFailure (ExpectedOperatorToken OperatorUseInExpression))
 
 failUndeclaredOperator :: Token -> Text -> Parser a
 failUndeclaredOperator operatorToken symbol =
   failTokenParserAt
     (tokenSpan operatorToken)
-    ( "operator '"
-        <> symbol
-        <> "' must be declared before use"
-    )
+    (UndeclaredOperator symbol OperatorUseInExpression)
 
 parseParenExpr :: StatementBlockParser -> ParserContext -> Parser SurfaceExpr
 parseParenExpr parseBlock context = do
@@ -498,14 +503,11 @@ parseIfExpr parseBlock context stop ifToken = do
     Nothing ->
       failTokenParserAt
         (tokenSpan ifToken)
-        "expected 'then' before end of input after 'if'"
+        (ExpectedSyntax "'then'" (ParserEndOfInputAfter "'if'"))
     Just token ->
       failTokenParserAt
         (tokenSpan token)
-        ( "expected 'then', found '"
-            <> tokenLexeme token
-            <> "'"
-        )
+        (ExpectedSyntax "'then'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
   thenExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
   maybeElse <- peekToken
   case maybeElse of
@@ -516,14 +518,11 @@ parseIfExpr parseBlock context stop ifToken = do
     Nothing ->
       failTokenParserAt
         (tokenSpan ifToken)
-        "expected 'else' before end of input after 'if'"
+        (ExpectedSyntax "'else'" (ParserEndOfInputAfter "'if'"))
     Just token ->
       failTokenParserAt
         (tokenSpan token)
-        ( "expected 'else', found '"
-            <> tokenLexeme token
-            <> "'"
-        )
+        (ExpectedSyntax "'else'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseCaseExpr :: StatementBlockParser -> ParserContext -> Token -> Parser SurfaceExpr
 parseCaseExpr parseBlock context caseToken = do
@@ -535,10 +534,14 @@ parseCaseExpr parseBlock context caseToken = do
       void parseAnyToken
       caseArms <- parseCaseArms parseBlock context
       pure (SECase scrutineeExpr caseArms)
-    _ ->
+    [] ->
       failTokenParserAt
         (tokenSpan caseToken)
-        "expected '{' before end of input after 'case'"
+        (ExpectedSyntax "'{'" (ParserEndOfInputAfter "'case'"))
+    token : _ ->
+      failTokenParserAt
+        (tokenSpan token)
+        (ExpectedSyntax "'{'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 caseBodyStarts :: Stop
 caseBodyStarts tokens =
@@ -557,7 +560,7 @@ parseCaseArms parseBlock context = do
     Just Token {tokenKind = TRBrace, tokenSpan = rightBraceSpan} ->
       failTokenParserAt
         rightBraceSpan
-        "expected case arm before '}'"
+        (ExpectedSyntax "case arm" (ParserBeforeToken TRBrace "}" Nothing))
     _ -> do
       firstArm <- parseCaseArm parseBlock context
       collect [firstArm]
@@ -577,11 +580,11 @@ parseCaseArm parseBlock context = do
   tokens <- MP.getInput
   case tokens of
     Token {tokenKind = TOperator "|"} : _ -> void parseAnyToken
-    [] -> failTokenParser "expected '|' before end of input in case expression"
+    [] -> failTokenParser (ExpectedSyntax "'|'" (ParserEndOfInputIn "case expression"))
     token : _ ->
       failTokenParserAt
         (tokenSpan token)
-        "expected '|' to start case arm"
+        (ExpectedSyntax "'|' to start case arm" (ParserAtToken (tokenKind token) (tokenLexeme token)))
   casePattern <- Pattern.parseCaseArmPatternParser
   guardExpr <- parseOptionalCaseArmGuard
   bodyExpr <- parseCaseArmBodyExpr parseBlock context neverStop Nothing 1
@@ -593,10 +596,10 @@ parseCaseArm parseBlock context = do
         Just Token {tokenKind = TIf} -> do
           void parseAnyToken
           guardExpr <- parseCaseArmGuard parseBlock context neverStop Nothing 1
-          consumeArrow "expected '->' before end of input after case guard"
+          consumeArrow (ParserEndOfInputAfter "case guard")
           pure (Just guardExpr)
         _ -> do
-          consumeArrow "expected '->' before end of input after case pattern"
+          consumeArrow (ParserEndOfInputAfter "case pattern")
           pure Nothing
 
 parseCaseArmGuard ::
@@ -609,10 +612,13 @@ parseCaseArmGuard ::
 parseCaseArmGuard parseBlock context rhsStop parentOperator minPrecedence = do
   tokens <- MP.getInput
   case tokens of
-    [] -> failTokenParser "expected guard expression before end of input after 'if'"
-    Token {tokenKind = TArrow} : _ -> failTokenParser "expected guard expression before '->'"
-    Token {tokenKind = TRBrace} : _ -> failTokenParser "expected guard expression before '}'"
-    Token {tokenKind = TOperator "|"} : _ -> failTokenParser "expected guard expression before next case arm"
+    [] -> failTokenParser (ExpectedSyntax "guard expression" (ParserEndOfInputAfter "'if'"))
+    Token {tokenKind = TArrow} : _ ->
+      failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeToken TArrow "->" Nothing))
+    Token {tokenKind = TRBrace} : _ ->
+      failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeToken TRBrace "}" Nothing))
+    Token {tokenKind = TOperator "|"} : _ ->
+      failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeBoundary "next case arm"))
     _ -> do
       leftExpr <-
         parseApplicationExprUntil
@@ -648,41 +654,40 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
   tokens <- MP.getInput
   if stopsBeforeCaseArmTerminator tokens || rhsStop tokens
     then pure leftExpr
-    else
-      case tokens of
-        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
-          | startsRightParen tokensAfterOperator -> pure leftExpr
-          | symbol == "|",
-            caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
-              pure leftExpr
-          | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
-                Nothing -> failUndeclaredOperator operatorToken symbol
-                Just operatorInfo
-                  | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
-                  | otherwise -> do
-                      void parseAnyToken
-                      let nextStop =
-                            samePrecedenceNonAssociativeRhsStop
-                              (parserDeclaredOperators context)
-                              operatorInfo
-                              rhsStop
-                      rightExpr <-
-                        parseCaseArmBodyExpr
-                          parseBlock
-                          context
-                          nextStop
-                          (Just symbol)
-                          (operatorNextMinPrecedence operatorInfo)
-                      rejectNonAssociativeContinuation context operatorInfo operatorToken
-                      parseCaseArmBodyInfixTail
+    else case tokens of
+      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+        | startsRightParen tokensAfterOperator -> pure leftExpr
+        | symbol == "|",
+          caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
+            pure leftExpr
+        | otherwise ->
+            case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
+              Nothing -> failUndeclaredOperator operatorToken symbol
+              Just operatorInfo
+                | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
+                | otherwise -> do
+                    void parseAnyToken
+                    let nextStop =
+                          samePrecedenceNonAssociativeRhsStop
+                            (parserDeclaredOperators context)
+                            operatorInfo
+                            rhsStop
+                    rightExpr <-
+                      parseCaseArmBodyExpr
                         parseBlock
                         context
-                        rhsStop
-                        parentOperator
-                        minPrecedence
-                        (SEBinary symbol leftExpr rightExpr)
-        _ -> pure leftExpr
+                        nextStop
+                        (Just symbol)
+                        (operatorNextMinPrecedence operatorInfo)
+                    rejectNonAssociativeContinuation context operatorInfo operatorToken
+                    parseCaseArmBodyInfixTail
+                      parseBlock
+                      context
+                      rhsStop
+                      parentOperator
+                      minPrecedence
+                      (SEBinary symbol leftExpr rightExpr)
+      _ -> pure leftExpr
 
 parseCaseGuardInfixTail ::
   StatementBlockParser ->
@@ -696,41 +701,40 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
   tokens <- MP.getInput
   if stopsBeforeCaseGuardTerminator tokens || rhsStop tokens
     then pure leftExpr
-    else
-      case tokens of
-        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
-          | startsRightParen tokensAfterOperator -> pure leftExpr
-          | symbol == "|",
-            caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
-              pure leftExpr
-          | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
-                Nothing -> failUndeclaredOperator operatorToken symbol
-                Just operatorInfo
-                  | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
-                  | otherwise -> do
-                      void parseAnyToken
-                      let nextStop =
-                            samePrecedenceNonAssociativeRhsStop
-                              (parserDeclaredOperators context)
-                              operatorInfo
-                              rhsStop
-                      rightExpr <-
-                        parseCaseArmGuard
-                          parseBlock
-                          context
-                          nextStop
-                          (Just symbol)
-                          (operatorNextMinPrecedence operatorInfo)
-                      rejectNonAssociativeContinuation context operatorInfo operatorToken
-                      parseCaseGuardInfixTail
+    else case tokens of
+      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+        | startsRightParen tokensAfterOperator -> pure leftExpr
+        | symbol == "|",
+          caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
+            pure leftExpr
+        | otherwise ->
+            case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
+              Nothing -> failUndeclaredOperator operatorToken symbol
+              Just operatorInfo
+                | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
+                | otherwise -> do
+                    void parseAnyToken
+                    let nextStop =
+                          samePrecedenceNonAssociativeRhsStop
+                            (parserDeclaredOperators context)
+                            operatorInfo
+                            rhsStop
+                    rightExpr <-
+                      parseCaseArmGuard
                         parseBlock
                         context
-                        rhsStop
-                        parentOperator
-                        minPrecedence
-                        (SEBinary symbol leftExpr rightExpr)
-        _ -> pure leftExpr
+                        nextStop
+                        (Just symbol)
+                        (operatorNextMinPrecedence operatorInfo)
+                    rejectNonAssociativeContinuation context operatorInfo operatorToken
+                    parseCaseGuardInfixTail
+                      parseBlock
+                      context
+                      rhsStop
+                      parentOperator
+                      minPrecedence
+                      (SEBinary symbol leftExpr rightExpr)
+      _ -> pure leftExpr
 
 stopsBeforeCaseArmTerminator :: Stop
 stopsBeforeCaseArmTerminator tokens =
@@ -807,7 +811,9 @@ casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
     leftExprHasBoundaryPrecedenceRoot expression =
       case expression of
         SEBinary operatorSymbol' _ _ ->
-          maybe False ((<= caseGuardPipePrecedence) . operatorPrecedence)
+          maybe
+            False
+            ((<= caseGuardPipePrecedence) . operatorPrecedence)
             (lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol')
         _ -> False
     samePrecedenceGuardPipeCanBind parent expression =
@@ -817,7 +823,9 @@ casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
     parentOperatorAllowsLiteralPipe parent =
       case parent of
         Just operatorSymbol' ->
-          maybe False ((< caseGuardPipePrecedence) . operatorPrecedence)
+          maybe
+            False
+            ((< caseGuardPipePrecedence) . operatorPrecedence)
             (lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol')
         Nothing -> False
 
@@ -997,22 +1005,19 @@ parseLambdaExpr parseBlock context stop lambdaToken = do
         [] ->
           failTokenParserAt
             (tokenSpan lambdaToken)
-            "expected '->' before end of input after lambda parameters"
+            (ExpectedSyntax "'->'" (ParserEndOfInputAfter "lambda parameters"))
         token : _ ->
           failTokenParserAt
             (tokenSpan token)
-            ( "expected '->', found '"
-                <> tokenLexeme token
-                <> "'"
-            )
+            (ExpectedSyntax "'->'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
     [] ->
       failTokenParserAt
         (tokenSpan lambdaToken)
-        "expected '(' before end of input after lambda introducer"
+        (ExpectedSyntax "'('" (ParserEndOfInputAfter "lambda introducer"))
     token : _ ->
       failTokenParserAt
         (tokenSpan token)
-        "expected '(' after lambda introducer"
+        (ExpectedSyntax "'(' after lambda introducer" (ParserAtToken (tokenKind token) (tokenLexeme token)))
 
 parseLambdaParameters :: Parser (NonEmpty SurfaceLambdaParameter)
 parseLambdaParameters = do
@@ -1036,28 +1041,22 @@ parseLambdaParameters = do
           void parseAnyToken
           pure (firstParameter :| reverse reversedRemaining)
         [] ->
-          failTokenParser "expected ')' before end of input in lambda parameter list"
+          failTokenParser (ExpectedSyntax "')'" (ParserEndOfInputIn "lambda parameter list"))
         token : _ ->
           failTokenParserAt
             (tokenSpan token)
-            ( "expected ',' or ')', found '"
-                <> tokenLexeme token
-                <> "'"
-            )
+            (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
-consumeArrow :: Text -> Parser ()
-consumeArrow endOfInputMessage = do
+consumeArrow :: ParserEncountered -> Parser ()
+consumeArrow endOfInputEncountered = do
   tokens <- MP.getInput
   case tokens of
     Token {tokenKind = TArrow} : _ -> void parseAnyToken
-    [] -> failTokenParser endOfInputMessage
+    [] -> failTokenParser (ExpectedSyntax "'->'" endOfInputEncountered)
     token : _ ->
       failTokenParserAt
         (tokenSpan token)
-        ( "expected '->', found '"
-            <> tokenLexeme token
-            <> "'"
-        )
+        (ExpectedSyntax "'->'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 startsRightParen :: [Token] -> Bool
 startsRightParen tokens =

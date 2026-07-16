@@ -3,11 +3,15 @@
 -- | Signature grammar helpers for the surface parser.
 module JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureType,
+    parseConstrainedSignatureTypeDetailed,
     parseSignatureTypeParser,
     parseSignatureTypePrefix,
+    parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
-    splitTopLevelCommaTokens
-  ) where
+    splitTopLevelCommaTokens,
+    splitTopLevelCommaTokensDetailed,
+  )
+where
 
 import Control.Applicative ((<|>))
 import Data.Char (isLower)
@@ -18,19 +22,23 @@ import JazzNext.Compiler.Name
   ( Identifier,
     identifierText,
     mkIdentifier,
-    mkQualifiedIdentifier
+    mkQualifiedIdentifier,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
-    SurfaceSignatureType (..)
+    SurfaceSignatureType (..),
+  )
+import JazzNext.Compiler.Parser.Failure
+  ( ParserFailure,
+    parserFailureDiagnostic,
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
-    isImmediatelyAfter
+    isImmediatelyAfter,
   )
 import qualified JazzNext.Compiler.Parser.TokenParser as TokenParser
 import qualified Text.Megaparsec as MP
@@ -49,15 +57,33 @@ parseSupportedSignaturePayload tokens =
 
 parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceSignatureType
 parseConstrainedSignatureType =
-  TokenParser.runTokenParser "constrained signature type" signatureTypeParser
+  mapLeft parserFailureDiagnostic . parseConstrainedSignatureTypeDetailed
+
+parseConstrainedSignatureTypeDetailed :: [Token] -> Either ParserFailure SurfaceSignatureType
+parseConstrainedSignatureTypeDetailed =
+  TokenParser.runTokenParserDetailed "constrained signature type" signatureTypeParser
 
 parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
 parseSignatureTypePrefix =
-  TokenParser.runTokenParserPrefix "signature type" signatureTypeParser
+  mapLeft parserFailureDiagnostic . parseSignatureTypePrefixDetailed
+
+parseSignatureTypePrefixDetailed :: [Token] -> Either ParserFailure (SurfaceSignatureType, [Token])
+parseSignatureTypePrefixDetailed =
+  TokenParser.runTokenParserPrefixDetailed "signature type" signatureTypeParser
 
 splitTopLevelCommaTokens :: [Token] -> Either Diagnostic [[Token]]
 splitTopLevelCommaTokens =
-  TokenParser.runTokenParser "top-level comma list" topLevelCommaTokensParser
+  mapLeft parserFailureDiagnostic . splitTopLevelCommaTokensDetailed
+
+splitTopLevelCommaTokensDetailed :: [Token] -> Either ParserFailure [[Token]]
+splitTopLevelCommaTokensDetailed =
+  TokenParser.runTokenParserDetailed "top-level comma list" topLevelCommaTokensParser
+
+mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
+mapLeft transform result =
+  case result of
+    Left failure -> Left (transform failure)
+    Right value -> Right value
 
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =
@@ -158,7 +184,9 @@ typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
 typeApplicationParser = do
   (_, typeNameIdentifier) <- signatureTypeHeadParser
   arguments <-
-    betweenTokenKinds TLParen TRParen
+    betweenTokenKinds
+      TLParen
+      TRParen
       (signatureTypeParser `MP.sepBy1` commaParser)
   pure
     ( case (identifierText typeNameIdentifier, arguments) of

@@ -4,11 +4,14 @@ module JazzNext.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralHasNonZeroFractionalDigits,
     fractionalLiteralIntegralValue,
-    mkFractionalLiteralSource
-  ) where
+    fractionalLiteralSourceParts,
+    mkFractionalLiteralSource,
+  )
+where
 
 import Data.Ratio
-  ( (%) )
+  ( (%),
+  )
 
 -- | Preserve enough decimal source structure to validate literal conversions
 -- before binary floating-point rounding can hide boundary cases.
@@ -31,6 +34,13 @@ fractionalLiteralIntegralValue :: FractionalLiteralSource -> Maybe Integer
 fractionalLiteralIntegralValue source@(FractionalLiteralSource wholePart _ _)
   | fractionalLiteralHasNonZeroFractionalDigits source = Nothing
   | otherwise = Just wholePart
+
+-- | Recover the source-normalized whole part, fractional digits as an integer,
+-- and decimal scale. This keeps exact decimal serialization independent of the
+-- rounded binary value carried beside it in the surface AST.
+fractionalLiteralSourceParts :: FractionalLiteralSource -> (Integer, Integer, Integer)
+fractionalLiteralSourceParts (FractionalLiteralSource wholePart fractionalPart fractionalScale) =
+  (wholePart, fractionalPart, fractionalScale)
 
 fractionalLiteralExceedsMagnitude :: FractionalLiteralSource -> Double -> Bool
 fractionalLiteralExceedsMagnitude source maxMagnitude =

@@ -12,35 +12,39 @@ module JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
     CanonicalToken (..),
     CanonicalTokenKind (..),
     canonicalLexResultRuntimeValue,
+    canonicalLexErrorRuntimeValue,
+    canonicalTokenKindRuntimeValue,
+    canonicalizeFailure,
+    canonicalizeTokenKind,
     canonicalizeLexResult,
     normalizeCanonicalSourcePath,
-    renderCanonicalLexResult
-  ) where
+    renderCanonicalLexResult,
+  )
+where
 
-import Data.Char (isAlpha)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( DataConstructorArgument (DataConstructorArgumentOpaque)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
-  )
-import JazzNext.Compiler.Name
-  ( mkIdentifier,
-    sourceName
+import JazzNext.Compiler.Bootstrap.CanonicalValue
+  ( CanonicalSourcePath (..),
+    CanonicalSpan (..),
+    canonicalConstructor,
+    canonicalNullaryConstructor,
+    canonicalSourcePathRuntimeValue,
+    canonicalSpanRuntimeValue,
+    canonicalizeSpan,
+    normalizeCanonicalSourcePath,
+    runtimeIntValue,
   )
 import JazzNext.Compiler.Parser.Lexer
   ( LexicalFailure (..),
     LexicalFailureReason (..),
     LexicalLiteralKind (..),
     Token (..),
-    TokenKind (..)
+    TokenKind (..),
   )
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     renderRuntimeValue,
-    untypedIntMetadata
   )
 
 data CanonicalKeyword
@@ -90,12 +94,6 @@ data CanonicalLexErrorReason
   | CanonicalInvalidIntegerLiteral Text
   deriving (Eq, Show)
 
-newtype CanonicalSourcePath = CanonicalSourcePath Text
-  deriving (Eq, Show)
-
-data CanonicalSpan = CanonicalSpan Int Int
-  deriving (Eq, Show)
-
 data CanonicalTokenKind
   = IdentifierKind Text
   | KeywordKind CanonicalKeyword
@@ -116,25 +114,6 @@ data CanonicalLexResult
   = CanonicalLexSuccess CanonicalSourcePath [CanonicalToken]
   | CanonicalLexFailure CanonicalSourcePath CanonicalLexError
   deriving (Eq, Show)
-
-normalizeCanonicalSourcePath :: FilePath -> Either Text CanonicalSourcePath
-normalizeCanonicalSourcePath sourcePath
-  | null sourcePath = Left "canonical source path must not be empty"
-  | '\\' `elem` sourcePath = Left "canonical source path must use '/' separators"
-  | isLogicalAbsolute sourcePath = Left "canonical source path must be relative"
-  | any (== "..") segments = Left "canonical source path must not contain '..'"
-  | null normalizedSegments = Left "canonical source path must not be empty"
-  | otherwise = Right (CanonicalSourcePath (Text.intercalate "/" normalizedSegments))
-  where
-    segments = Text.splitOn "/" (Text.pack sourcePath)
-    normalizedSegments = filter (\segment -> not (Text.null segment) && segment /= ".") segments
-
-isLogicalAbsolute :: FilePath -> Bool
-isLogicalAbsolute sourcePath =
-  case sourcePath of
-    '/' : _ -> True
-    drive : ':' : '/' : _ -> isAlpha drive
-    _ -> False
 
 canonicalizeLexResult :: CanonicalSourcePath -> Either LexicalFailure [Token] -> CanonicalLexResult
 canonicalizeLexResult sourcePath result =
@@ -209,9 +188,6 @@ canonicalizeLiteralKind literalKind =
     CharacterLiteral -> CanonicalCharacterLiteral
     TextLiteral -> CanonicalTextLiteral
 
-canonicalizeSpan :: SourceSpan -> CanonicalSpan
-canonicalizeSpan spanValue = CanonicalSpan (spanLine spanValue) (spanColumn spanValue)
-
 renderCanonicalLexResult :: CanonicalLexResult -> Text
 renderCanonicalLexResult = renderRuntimeValue . canonicalLexResultRuntimeValue
 
@@ -226,10 +202,6 @@ canonicalLexResultRuntimeValue result =
       canonicalConstructor
         "CanonicalLexFailure"
         [canonicalSourcePathRuntimeValue sourcePath, canonicalLexErrorRuntimeValue failure]
-
-canonicalSourcePathRuntimeValue :: CanonicalSourcePath -> RuntimeValue
-canonicalSourcePathRuntimeValue (CanonicalSourcePath sourcePath) =
-  canonicalConstructor "CanonicalSourcePath" [VText sourcePath]
 
 canonicalTokenRuntimeValue :: CanonicalToken -> RuntimeValue
 canonicalTokenRuntimeValue (CanonicalToken kind rawLexeme spanValue) =
@@ -254,10 +226,6 @@ canonicalKeywordRuntimeValue = canonicalNullaryConstructor . Text.pack . show
 
 canonicalPunctuationRuntimeValue :: CanonicalPunctuation -> RuntimeValue
 canonicalPunctuationRuntimeValue = canonicalNullaryConstructor . Text.pack . show
-
-canonicalSpanRuntimeValue :: CanonicalSpan -> RuntimeValue
-canonicalSpanRuntimeValue (CanonicalSpan line column) =
-  canonicalConstructor "CanonicalSpan" [runtimeIntValue line, runtimeIntValue column]
 
 canonicalLexErrorRuntimeValue :: CanonicalLexError -> RuntimeValue
 canonicalLexErrorRuntimeValue (CanonicalLexError code reason spanValue) =
@@ -294,18 +262,3 @@ canonicalLiteralKindRuntimeValue literalKind =
   case literalKind of
     CanonicalCharacterLiteral -> canonicalNullaryConstructor "CharacterLiteral"
     CanonicalTextLiteral -> canonicalNullaryConstructor "TextLiteral"
-
-canonicalNullaryConstructor :: Text -> RuntimeValue
-canonicalNullaryConstructor name = canonicalConstructor name []
-
-canonicalConstructor :: Text -> [RuntimeValue] -> RuntimeValue
-canonicalConstructor name arguments =
-  VConstructor
-    (sourceName (mkIdentifier name))
-    []
-    (sourceName (mkIdentifier name))
-    (replicate (length arguments) DataConstructorArgumentOpaque)
-    arguments
-
-runtimeIntValue :: Int -> RuntimeValue
-runtimeIntValue value = VInt (fromIntegral value) untypedIntMetadata

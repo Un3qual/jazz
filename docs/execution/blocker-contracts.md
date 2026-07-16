@@ -52,36 +52,50 @@ Each blocked item should answer these questions:
   Unicode scalar/text services, ordinary `List`/`Char`/`Text` modules, and the
   two-space-indented Jazz lexer; it matches all 333 canonical cases
   deterministically and completes 20,000-character and 10,000-token traversal
-  floors without host stack growth.
-- Accepted decision: the canonical comparison contract is the ordinary
-  Jazz-owned ADT schema in
-  `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
-  use the generic runtime-value renderer; the schema has no version field until
-  coexistence evidence requires one.
-- Smallest unblocker: curate and accept
-  `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001` before promoting parser implementation.
-- Decision needed: fix the canonical Jazz parser result/AST and diagnostic
-  comparison schema, recovery/parity rules, module boundaries, and the minimum
-  permanent collection/text APIs needed by the parser.
-- Recommended default: port the parser as the next compiler component in
-  reviewable grammar slices, compare ordinary Jazz-owned AST/diagnostic ADTs,
-  and add only reusable APIs that remain valid for the native runtime. Preserve
-  canonical typed core as the frontend boundary and the accepted
-  backend-neutral lowered-IR-to-LLVM pipeline after it.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`, the sole ordered
-  `Next Curation Target`; it is coordination work, not parser implementation.
+  floors without host stack growth. `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`
+  accepted the fail-fast surface-AST, structured-failure, façade, parser-kernel,
+  and ordered grammar-slice contract on `2026-07-16`.
+  `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001` then preserved structured stage-0
+  parser failures behind compatible diagnostics, added the complete ordinary
+  `ParserTypes` contract and total Haskell comparison adapter, and implemented
+  the generic compiler-local `ParserCore` with deterministic consumption,
+  rollback, farthest-failure selection, progress checks, and 20,000-token
+  traversal evidence without adding grammar.
+- Accepted decision: the parser contract is
+  `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
+  complete ordinary surface AST before lowering, preserves structured failures
+  before the unified `Diagnostic`, uses canonical lexer tokens as the primary
+  input, and starts with a generic compiler-local parser kernel. Existing Jazz
+  collection/text APIs are sufficient.
+- Smallest unblocker: write and review the implementation plan for
+  `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`.
+- Decision needed: fix one explicit named fixture family plus exact
+  compiler-local grammar/facade ownership and focused parity verification in
+  that plan. No language-design decision is open for the accepted slice.
+- Recommended default: build program/block sequencing, literals, names,
+  applications, lists, tuples, unit, ordinary bindings, and expression
+  statements on the landed `ParserCore` and `ParserTypes` contracts. Do not
+  revise the foundation merely to simplify grammar code.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001`, kept
+  only in `Next Curation Target` until its implementation plan passes review.
+  Types/declarations/modules, control-flow/patterns, and operator/full-parity
+  children remain ordered and unpromoted.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
-  and the proposed
-  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; `git diff --check`.
-- Not in scope: parser implementation before the contract is accepted; Haskell
-  parser callbacks; lexer-specific or parser-specific host intrinsics; bytecode
-  or a VM; collapsing canonical core into LLVM; lowered IR, LLVM emission,
-  object generation, linking, or native-runtime implementation in the parser
-  design child.
+  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
+  the completed foundation plan, `jazz-next/jazz/compiler/ParserTypes.jz`,
+  `jazz-next/jazz/compiler/ParserCore.jz`, prospective compiler-local
+  expression/facade modules, focused bootstrap parity tests, and
+  `jazz-next/jazz-next.cabal`.
+- Verification: the new child plan must fix its named fixture family, focused
+  parity suite, development-warning build, full Cabal suite, queue/docs
+  validators, and `git diff --check` before promotion.
+- Not in scope: signatures, data/class/impl declarations, modules/imports/
+  exports, control flow, patterns, operators, full-corpus parity, a public
+  stdlib parser API, parser-specific host intrinsics or Haskell callbacks,
+  recovery or partial ASTs, canonical core, bytecode or a VM, lowered IR, LLVM
+  emission, object generation, linking, or native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

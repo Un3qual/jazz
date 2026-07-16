@@ -45,7 +45,7 @@ testReportsMissingCaseBodyForBlockScrutinee :: IO ()
 testReportsMissingCaseBodyForBlockScrutinee =
   assertLeftDiagnosticContains
     "block scrutinee missing case body"
-    "expected '{' before end of input after 'case'"
+    "expected '{', found '.'"
     (parseSurfaceProgram "x = case f { y = 1. y. }.")
 
 testReportsBlockErrorForUnterminatedFractionalBlockScrutinee :: IO ()

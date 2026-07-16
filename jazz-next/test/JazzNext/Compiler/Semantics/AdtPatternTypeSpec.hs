@@ -91,6 +91,12 @@ tests =
     ( "source pipeline enforces named generic constructor payload types",
       testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes
     ),
+    ( "source pipeline resolves earlier local named generic constructor payload types",
+      testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes
+    ),
+    ( "source pipeline rejects mismatched earlier local named generic constructor payloads",
+      testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTypes
+    ),
     ( "source pipeline rejects unknown generic constructor payload type names",
       testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames
     ),
@@ -369,6 +375,31 @@ testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes = do
     "named generic constructor payload mismatch text"
     "cannot apply function of type Int -> Box"
     (compileErrors rejectedResult)
+
+testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes :: IO ()
+testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes = do
+  result <- compileSource defaultWarningSettings """
+    data Status = Ready.
+    data Box a = Box Status.
+    value = Box Ready.
+    """
+  assertCompiles "earlier local named generic constructor payload type" result
+
+testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTypes :: IO ()
+testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTypes = do
+  result <- compileSource defaultWarningSettings """
+    data Status = Ready.
+    data Box a = Box Status.
+    value = Box 1.
+    """
+  assertSingleDiagnosticCode
+    "earlier local named generic constructor payload mismatch code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "earlier local named generic constructor payload mismatch text"
+    "cannot apply function of type Status -> Box"
+    (compileErrors result)
 
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames :: IO ()
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames = do
