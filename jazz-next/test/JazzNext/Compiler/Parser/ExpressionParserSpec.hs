@@ -37,7 +37,8 @@ import JazzNext.Compiler.Parser.Expression
   ( parseExpressionParser,
   )
 import JazzNext.Compiler.Parser.Failure
-  ( ParserFailure (..),
+  ( ParserEncountered (..),
+    ParserFailure (..),
     ParserFailureReason (..),
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -77,6 +78,7 @@ tests =
     ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
     ("parses fractional literal suffix", testFractionalLiteralSuffix),
+    ("reports the token that replaces a missing case body", testDetailedMissingCaseBody),
     ("reports invalid fractional literals structurally", testDetailedInvalidFractionalLiteral),
     ("reports invalid fractional literals", testInvalidFractionalLiteralDiagnostic),
     ("reports undeclared infix operators", testUndeclaredOperatorDiagnostic)
@@ -219,6 +221,19 @@ testFractionalLiteralSuffix = do
     (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just SurfaceNumericFloat32)))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
+
+testDetailedMissingCaseBody :: IO ()
+testDetailedMissingCaseBody = do
+  tokens <- lexSource "case value."
+  case parseExpressionTokensDetailed Set.empty [] tokens of
+    Left failure -> do
+      assertEqual "missing case body span" (Just (SourceSpan 1 11)) (parserFailureSpan failure)
+      assertEqual
+        "missing case body reason"
+        (ExpectedSyntax "'{'" (ParserFoundToken TDot "."))
+        (parserFailureReason failure)
+    Right value ->
+      failTest ("missing case body: expected detailed Left, got Right " <> textShow value)
 
 testInvalidFractionalLiteralDiagnostic :: IO ()
 testInvalidFractionalLiteralDiagnostic = do

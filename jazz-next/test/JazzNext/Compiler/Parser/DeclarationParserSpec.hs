@@ -35,6 +35,7 @@ import qualified JazzNext.Compiler.Parser.Declaration as Declaration
 import JazzNext.Compiler.Parser.Failure
   ( ParserDeclarationFailure (..),
     ParserDeclarationKind (..),
+    ParserDuplicateNameRole (..),
     ParserFailure (..),
     ParserFailureReason (..),
   )
@@ -63,6 +64,9 @@ tests =
     ("rejects crossed bracket then parenthesis constructor payload", testRejectsCrossedBracketParenPayload),
     ("accepts correctly nested opaque constructor payloads", testAcceptsNestedOpaquePayloads),
     ("reports nested imports as structured scope failures", testDetailedNestedImport),
+    ("reports nested data declarations at the declaration span", testRejectsNestedData),
+    ("preserves duplicate data parameter spans", testDetailedDuplicateDataTypeParameter),
+    ("preserves undeclared constructor parameter spans", testDetailedUndeclaredConstructorTypeParameter),
     ("preserves direct capability callback diagnostics", testCapabilityCallbackDiagnostic),
     ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
     ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
@@ -159,6 +163,47 @@ testDetailedNestedImport = do
         (DeclarationFailure (DeclarationOutsideAllowedScope ImportDeclaration))
         (parserFailureReason failure)
     Right _ -> failTest "expected detailed nested import failure"
+
+testRejectsNestedData :: IO ()
+testRejectsNestedData =
+  case parseSurfaceProgram
+    """
+    main = {
+      data Status = Ready.
+      Ready.
+    }.
+    """ of
+    Left diagnostic -> do
+      assertEqual
+        "nested data diagnostic summary"
+        "data declaration must remain at file scope or directly in a module body"
+        (diagnosticSummary diagnostic)
+      assertEqual "nested data diagnostic span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected nested data declaration to fail"
+
+testDetailedDuplicateDataTypeParameter :: IO ()
+testDetailedDuplicateDataTypeParameter = do
+  tokens <- lexSource "data Pair a a = Pair a a."
+  case parseSurfaceProgramTokensDetailed tokens of
+    Left failure -> do
+      assertEqual "duplicate data parameter span" (Just (SourceSpan 1 13)) (parserFailureSpan failure)
+      assertEqual
+        "duplicate data parameter reason"
+        (DeclarationFailure (DuplicateName DataTypeParameter "a" DataDeclaration))
+        (parserFailureReason failure)
+    Right _ -> failTest "expected duplicate data parameter failure"
+
+testDetailedUndeclaredConstructorTypeParameter :: IO ()
+testDetailedUndeclaredConstructorTypeParameter = do
+  tokens <- lexSource "data Maybe a = Just b."
+  case parseSurfaceProgramTokensDetailed tokens of
+    Left failure -> do
+      assertEqual "undeclared constructor parameter span" (Just (SourceSpan 1 21)) (parserFailureSpan failure)
+      assertEqual
+        "undeclared constructor parameter reason"
+        (DeclarationFailure (UndeclaredConstructorTypeParameter "b" "Maybe"))
+        (parserFailureReason failure)
+    Right _ -> failTest "expected undeclared constructor parameter failure"
 
 testCapabilityCallbackDiagnostic :: IO ()
 testCapabilityCallbackDiagnostic = do

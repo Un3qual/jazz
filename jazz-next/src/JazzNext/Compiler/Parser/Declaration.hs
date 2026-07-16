@@ -1307,7 +1307,8 @@ parseDataTypeParameters tokens = go Set.empty [] tokens
               if Set.member parameterName seenParameters
                 then
                   Left
-                    ( parserFailure
+                    ( parserFailureAt
+                        parameterSpan
                         (DeclarationFailure (DuplicateName DataTypeParameter parameterName DataDeclaration))
                     )
                 else
@@ -1420,12 +1421,13 @@ parseDataConstructorArguments typeName typeParameterNames revArguments allTokens
 parseDataConstructorArgument :: Identifier -> Set Text -> [Token] -> Either ParserFailure (SurfaceDataConstructorArgument, [Token])
 parseDataConstructorArgument typeName typeParameterNames tokens =
   case tokens of
-    Token {tokenKind = TIdentifier argumentName} : rest
+    Token {tokenKind = TIdentifier argumentName, tokenSpan = argumentSpan} : rest
       | not (Set.null typeParameterNames)
           && isTypeParameterIdentifierText argumentName
           && Set.notMember argumentName typeParameterNames ->
           Left
-            ( parserFailure
+            ( parserFailureAt
+                argumentSpan
                 ( DeclarationFailure
                     (UndeclaredConstructorTypeParameter argumentName (identifierText typeName))
                 )

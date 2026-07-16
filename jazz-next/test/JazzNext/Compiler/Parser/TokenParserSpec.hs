@@ -53,6 +53,8 @@ tests =
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
     ("detailed token failures preserve expected and found syntax", testDetailedTokenFailure),
     ("detailed end-of-input failures have no token span", testDetailedEndOfInputFailure),
+    ("detailed trailing-token failures preserve the offending token", testDetailedTrailingTokenFailure),
+    ("trailing-token diagnostics preserve the offending token", testTrailingTokenDiagnostic),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("tokenizes then as a reserved keyword", testTokenizesThenKeyword),
     ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
@@ -114,6 +116,33 @@ testDetailedEndOfInputFailure = do
           }
     )
     (runTokenParserDetailed "token parser spec" (parseIdentifier *> parseTokenKind TEquals) tokens)
+
+testDetailedTrailingTokenFailure :: IO ()
+testDetailedTrailingTokenFailure = do
+  tokens <- lexSource "value 42."
+  assertEqual
+    "detailed trailing-token failure"
+    ( Left
+        ParserFailure
+          { parserFailureCode = E0001,
+            parserFailureSpan = Just (SourceSpan 1 7),
+            parserFailureReason =
+              ExpectedSyntax
+                "end of input"
+                (ParserFoundToken (TInt 42) "42")
+          }
+    )
+    (runTokenParserDetailed "token parser spec" parseIdentifier tokens)
+
+testTrailingTokenDiagnostic :: IO ()
+testTrailingTokenDiagnostic = do
+  tokens <- lexSource "value 42."
+  case runTokenParser "token parser spec" parseIdentifier tokens of
+    Left diagnostic -> do
+      assertEqual "trailing-token diagnostic span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
+      assertContains "trailing-token diagnostic summary" "expected end of input, found '42'" (diagnosticSummary diagnostic)
+    Right value ->
+      failTest ("expected trailing-token diagnostic, got " <> value)
 
 testRecognizesLexicallyAdjacentTokens :: IO ()
 testRecognizesLexicallyAdjacentTokens = do

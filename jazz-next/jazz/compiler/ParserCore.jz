@@ -60,9 +60,14 @@ module ParserCore (
     | Unconsumed -> later
   }.
 
+  parserFailureWithConsumption :: ParserConsumption -> ParserFailure(problem) -> ParserFailure(problem).
+  parserFailureWithConsumption = \(consumption, failure) -> case failure {
+    | ParserFailure offset _ problem -> ParserFailure offset consumption problem
+  }.
+
   parserFailureWithEarlierConsumption :: ParserConsumption -> ParserFailure(problem) -> ParserFailure(problem).
   parserFailureWithEarlierConsumption = \(earlier, failure) -> case failure {
-    | ParserFailure offset later problem -> ParserFailure offset (consumptionAppend earlier later) problem
+    | ParserFailure _ later _ -> parserFailureWithConsumption (consumptionAppend earlier later) failure
   }.
 
   parserTransform :: (a -> b) -> Parser(token, problem, a) -> Parser(token, problem, b).
@@ -89,7 +94,10 @@ module ParserCore (
   fartherFailure :: ParserFailure(problem) -> ParserFailure(problem) -> ParserFailure(problem).
   fartherFailure = \(earlier, later) -> case earlier {
     | ParserFailure earlierOffset earlierConsumption earlierProblem -> case later {
-      | ParserFailure laterOffset laterConsumption laterProblem -> if laterOffset > earlierOffset then later else earlier
+      | ParserFailure laterOffset laterConsumption laterProblem ->
+        parserFailureWithConsumption
+          (consumptionAppend earlierConsumption laterConsumption)
+          (if laterOffset > earlierOffset then later else earlier)
     }
   }.
 

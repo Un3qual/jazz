@@ -39,6 +39,7 @@ tests =
     ("keeps selected sequenced values", testKeepLeftRight),
     ("commits choice after consumption and rolls back only with attempt", testChoiceAndAttempt),
     ("selects the farthest failure and keeps declaration order on ties", testFailureSelection),
+    ("preserves committed consumption while selecting the farthest failure", testFailureSelectionPreservesConsumption),
     ("looks ahead without consuming", testLookAhead),
     ("makes only unconsumed rejection optional", testOptional),
     ("repeats and preserves nonempty results", testRepetition),
@@ -92,6 +93,20 @@ testFailureSelection =
     "failure selection"
     "{ take = \\(expected) -> parserTakeIf (\\(token) -> token == expected) \"token\". one = parserAttempt (parserKeepRight (take 1) (parserFail \"earlier\")). two = parserAttempt (parserKeepRight (take 1) (parserKeepRight (take 2) (parserFail \"farther\"))). tied = parserAttempt (parserKeepRight (take 1) (parserFail \"later tie\")). (parserRun (parserChoice one two) [1, 2, 3], parserRun (parserChoice one tied) [1, 2, 3]). }"
     "(ParserFailed(ParserFailure(2, Unconsumed, RejectedProblem(\"farther\"))), ParserFailed(ParserFailure(1, Unconsumed, RejectedProblem(\"earlier\"))))"
+
+testFailureSelectionPreservesConsumption :: IO ()
+testFailureSelectionPreservesConsumption =
+  assertJazzOutput
+    "farthest failure preserves commitment"
+    """
+    { take = \\(expected) -> parserTakeIf (\\(token) -> token == expected) "token".
+      farther = parserAttempt (parserKeepRight (take 1) (parserKeepRight (take 2) (parserFail "farther"))).
+      committed = parserKeepRight (take 1) (parserFail "committed").
+      fallback = parserSucceed "fallback".
+      parserRun (parserChoice (parserChoice farther committed) fallback) [1, 2, 3].
+    }
+    """
+    "ParserFailed(ParserFailure(2, Consumed, RejectedProblem(\"farther\")))"
 
 testLookAhead :: IO ()
 testLookAhead =

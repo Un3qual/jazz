@@ -53,7 +53,7 @@ isLogicalAbsolute :: FilePath -> Bool
 isLogicalAbsolute sourcePath =
   case sourcePath of
     '/' : _ -> True
-    drive : ':' : '/' : _ -> isAlpha drive
+    drive : ':' : _ -> isAlpha drive
     _ -> False
 
 canonicalizeSpan :: SourceSpan -> CanonicalSpan

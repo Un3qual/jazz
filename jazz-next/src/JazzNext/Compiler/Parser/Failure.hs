@@ -274,7 +274,8 @@ renderDeclarationFailure failure =
         ModuleDeclaration -> "module declaration must remain top-level"
         ImportDeclaration ->
           "import declaration must remain at file scope or directly in a module body"
-        DataDeclaration -> "data declaration must remain top-level"
+        DataDeclaration ->
+          "data declaration must remain at file scope or directly in a module body"
         OperatorDeclaration ->
           "operator declarations are only allowed at file scope or directly in module bodies"
         OperatorBinding ->

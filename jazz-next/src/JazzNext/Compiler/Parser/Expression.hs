@@ -534,10 +534,14 @@ parseCaseExpr parseBlock context caseToken = do
       void parseAnyToken
       caseArms <- parseCaseArms parseBlock context
       pure (SECase scrutineeExpr caseArms)
-    _ ->
+    [] ->
       failTokenParserAt
         (tokenSpan caseToken)
         (ExpectedSyntax "'{'" (ParserEndOfInputAfter "'case'"))
+    token : _ ->
+      failTokenParserAt
+        (tokenSpan token)
+        (ExpectedSyntax "'{'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 caseBodyStarts :: Stop
 caseBodyStarts tokens =

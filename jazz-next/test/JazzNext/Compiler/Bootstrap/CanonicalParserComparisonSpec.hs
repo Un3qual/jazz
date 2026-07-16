@@ -374,7 +374,6 @@ testFailureInventory =
               renderRuntimeValue
                 (parserFailureRuntimeValue (ParserFailure E0001 (Just span1) reason))
         assertContains expectedConstructor expectedConstructor rendered
-        assertEqual (expectedConstructor <> " deterministic") rendered rendered
     )
     parserFailureInventory
 

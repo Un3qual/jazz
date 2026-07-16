@@ -494,16 +494,45 @@ parserOperatorUseRuntimeValue operatorUse =
     )
 
 parserDeclarationKindRuntimeValue :: ParserDeclarationKind -> RuntimeValue
-parserDeclarationKindRuntimeValue = canonicalNullaryConstructor . Text.pack . show
+parserDeclarationKindRuntimeValue declarationKind =
+  canonicalNullaryConstructor
+    ( case declarationKind of
+        ModuleDeclaration -> "ModuleDeclaration"
+        ImportDeclaration -> "ImportDeclaration"
+        DataDeclaration -> "DataDeclaration"
+        OperatorDeclaration -> "OperatorDeclaration"
+        OperatorBinding -> "OperatorBinding"
+        OperatorSignature -> "OperatorSignature"
+        ClassDeclaration -> "ClassDeclaration"
+        ImplDeclaration -> "ImplDeclaration"
+    )
 
 parserNameRoleRuntimeValue :: ParserNameRole -> RuntimeValue
-parserNameRoleRuntimeValue = canonicalNullaryConstructor . Text.pack . show
+parserNameRoleRuntimeValue nameRole =
+  canonicalNullaryConstructor
+    ( case nameRole of
+        BindingName -> "BindingName"
+        ImportAlias -> "ImportAlias"
+    )
 
 parserDuplicateNameRoleRuntimeValue :: ParserDuplicateNameRole -> RuntimeValue
-parserDuplicateNameRoleRuntimeValue = canonicalNullaryConstructor . Text.pack . show
+parserDuplicateNameRoleRuntimeValue duplicateNameRole =
+  canonicalNullaryConstructor
+    ( case duplicateNameRole of
+        DataTypeParameter -> "DataTypeParameter"
+        DataConstructorName -> "DataConstructorName"
+        ClassMethodName -> "ClassMethodName"
+        ImplMethodName -> "ImplMethodName"
+    )
 
 parserListKindRuntimeValue :: ParserListKind -> RuntimeValue
-parserListKindRuntimeValue = canonicalNullaryConstructor . Text.pack . show
+parserListKindRuntimeValue listKind =
+  canonicalNullaryConstructor
+    ( case listKind of
+        ImportSymbolList -> "ImportSymbolList"
+        ModuleExportList -> "ModuleExportList"
+        ConstructorExportList -> "ConstructorExportList"
+    )
 
 parserUnsupportedFeatureRuntimeValue :: ParserUnsupportedFeature -> RuntimeValue
 parserUnsupportedFeatureRuntimeValue feature =

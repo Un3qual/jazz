@@ -8,6 +8,7 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
 Current executor status (`2026-07-16`): `Ready Now` is empty. The parser
 contract-and-kernel foundation is complete and archived. The expression
 foundation is the sole next curation target, but it is not executable until a

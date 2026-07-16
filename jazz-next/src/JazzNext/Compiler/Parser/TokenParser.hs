@@ -72,13 +72,12 @@ type Parser = Parsec ParserError [Token]
 
 runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
 runTokenParser label parser tokens =
-  case MP.runParser (parser <* MP.eof) (Text.unpack label) tokens of
-    Right value -> Right value
-    Left bundle -> Left (tokenParserDiagnostic bundle)
+  parserFailureDiagnostic
+    `mapLeft` runTokenParserDetailed label parser tokens
 
 runTokenParserDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure a
 runTokenParserDetailed label parser tokens =
-  case MP.runParser (parser <* MP.eof) (Text.unpack label) tokens of
+  case MP.runParser (parser <* requireEndOfInput) (Text.unpack label) tokens of
     Right value -> Right value
     Left bundle -> Left (tokenParserFailure bundle)
 
@@ -100,6 +99,19 @@ parseAnyToken =
 peekToken :: Parser (Maybe Token)
 peekToken =
   optional (MP.lookAhead parseAnyToken)
+
+requireEndOfInput :: Parser ()
+requireEndOfInput = do
+  maybeToken <- peekToken
+  case maybeToken of
+    Nothing -> pure ()
+    Just token ->
+      failTokenParserAt
+        (tokenSpan token)
+        ( ExpectedSyntax
+            "end of input"
+            (ParserFoundToken (tokenKind token) (tokenLexeme token))
+        )
 
 parseToken :: TokenKind -> Parser Token
 parseToken expectedKind =
@@ -160,10 +172,6 @@ failTokenParserAt spanValue = failParserFailure . parserFailureAt spanValue
 
 failParserFailure :: ParserFailure -> Parser a
 failParserFailure = MP.customFailure . ParserError
-
-tokenParserDiagnostic :: MP.ParseErrorBundle [Token] ParserError -> Diagnostic
-tokenParserDiagnostic bundle =
-  parserFailureDiagnostic (tokenParserFailure bundle)
 
 tokenParserFailure :: MP.ParseErrorBundle [Token] ParserError -> ParserFailure
 tokenParserFailure bundle =
