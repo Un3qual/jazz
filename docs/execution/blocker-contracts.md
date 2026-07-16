@@ -84,7 +84,6 @@ Each blocked item should answer these questions:
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
   `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
-  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
   the completed foundation plan, `jazz-next/jazz/compiler/ParserTypes.jz`,
   `jazz-next/jazz/compiler/ParserCore.jz`, prospective compiler-local
   expression/facade modules, focused bootstrap parity tests, and
