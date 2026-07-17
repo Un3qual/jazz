@@ -323,6 +323,20 @@ testSignatureBoundary =
     ( isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int.") 6
     , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Maybe(Int).") 6
     , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Map[Int].") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int -> Int.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::[Int].") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "unit::().") 5
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Module::Type.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::@{Eq(a)}: Int.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value :: Int.") 7
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value:: Int.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias :: member.") 7
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias:: member.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(member).") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(a).") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::().") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::((member)).") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(member) -> Int.") 6
     , parseComponentTokens "Alias::member."
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member (value).") 6
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member [value].") 6
@@ -330,10 +344,11 @@ testSignatureBoundary =
     , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Int. }.") 8
     , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::a. }.") 9
     , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Maybe(Int). }.") 8
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::[Int]. }.") 8
     , parseComponentTokens "{ Alias::member. }."
     )
     """
-    "(True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, True, True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
+    "(True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, False, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, True, True, True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
 
 testMatchingBindingSignatureBoundary :: IO ()
 testMatchingBindingSignatureBoundary =
