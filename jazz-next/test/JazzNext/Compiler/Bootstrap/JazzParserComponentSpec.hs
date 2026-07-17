@@ -42,9 +42,11 @@ tests =
     ("parses ordinary and qualified names", testNameExpressions),
     ("parses composite primaries and left-associated application", testCompositeExpressions),
     ("commits expression delimiter and qualifier failures", testExpressionFailures),
+    ("rejects whitespace after a qualified-name separator", testQualifiedMemberAdjacency),
     ("parses empty and populated programs through both facades", testProgramFacades),
     ("parses recursive blocks and block application", testRecursiveBlocks),
-    ("commits binding and statement failures", testProgramFailures)
+    ("commits binding and statement failures", testProgramFailures),
+    ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures)
   ]
 
 testPredicateConsumption :: IO ()
@@ -216,6 +218,18 @@ testExpressionFailures =
     """
     "(TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightBracketPunctuation), \"]\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 4)), UnexpectedSyntax(FoundToken(PunctuationKind(RightParenPunctuation), \")\"), \"expression\"))), TokenParseRejected(ParserGrammarFailure(Nothing, ExpectedSyntax(\"member name\", EndOfInputAfter(\"\\'::\\'\")))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 7)), UnexpectedSyntax(FoundToken(PunctuationKind(DoubleColonPunctuation), \"::\"), \"end of input\"))), TokenParseRejected(ParserGrammarFailure(Just(CanonicalSpan(1, 1)), InvalidFractionalLiteral(\"179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858369.0\"))))"
 
+testQualifiedMemberAdjacency :: IO ()
+testQualifiedMemberAdjacency =
+  assertJazzOutput
+    "qualified member adjacency"
+    """
+    case parseComponentExpression "Alias:: member" {
+      | TokenParseRejected failure -> True
+      | other -> False
+    }
+    """
+    "True"
+
 testProgramFacades :: IO ()
 testProgramFacades =
   assertJazzOutput
@@ -252,6 +266,20 @@ testProgramFailures =
     )
     """
     "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 9)), UnexpectedSyntax(FoundToken(PunctuationKind(DotPunctuation), \".\"), \"expression\"))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'}\\'\", EndOfInput))))"
+
+testProgramBoundaryFailures :: IO ()
+testProgramBoundaryFailures =
+  assertJazzOutput
+    "program boundary failures"
+    """
+    ( parseComponentTokens "True = 1."
+    , parseComponentTokens "False = 1."
+    , parseComponentTokens "class Eq(a) { }."
+    , parseComponentTokens "impl Eq(Int) { }."
+    , parseComponentTokens "trait Eq(a) { }."
+    )
+    """
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"class\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"impl\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do

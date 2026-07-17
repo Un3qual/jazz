@@ -5,6 +5,8 @@ module ParserProgram (value parseFoundationalProgram) {
     PunctuationKind,
     EqualsPunctuation,
     DotPunctuation,
+    AtPunctuation,
+    LeftBracePunctuation,
     RightBracePunctuation
   ).
   import List (listPrepend, listReverse).
@@ -14,6 +16,7 @@ module ParserProgram (value parseFoundationalProgram) {
     TokenParser,
     canonicalTokenKind,
     canonicalTokenSpan,
+    canonicalTokenEncountered,
     tokenSucceed,
     tokenTransform,
     tokenAndThen,
@@ -23,6 +26,8 @@ module ParserProgram (value parseFoundationalProgram) {
     tokenLookAhead,
     tokenPeek,
     tokenFailAt,
+    tokenFailAtSpan,
+    tokenTakeIf,
     tokenIdentifier,
     tokenPunctuation
   ).
@@ -36,16 +41,82 @@ module ParserProgram (value parseFoundationalProgram) {
       (tokenAttempt
         (tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation)))).
 
+  isAbstractionName :: Text -> Bool.
+  isAbstractionName = \(name) -> if name == "class" then True else if name == "impl" then True else name == "trait".
+
+  abstractionHeaderStart :: TokenParser(CanonicalToken).
+  abstractionHeaderStart = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | IdentifierKind name -> True
+      | PunctuationKind AtPunctuation -> True
+      | other -> False
+    })
+    "abstraction declaration header".
+
+  anyToken :: TokenParser(CanonicalToken).
+  anyToken = tokenTakeIf (\(token) -> True) "token".
+
+  abstractionBodyBeforeTerminator :: () -> TokenParser(()).
+  abstractionBodyBeforeTerminator = \() -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "abstraction body" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind LeftBracePunctuation -> tokenSucceed ()
+        | PunctuationKind DotPunctuation -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "abstraction body" (canonicalTokenEncountered current))
+        | other -> tokenKeepRight anyToken (abstractionBodyBeforeTerminator ())
+      }
+    })
+    tokenPeek.
+
+  unsupportedDeclarationCandidate :: TokenParser(CanonicalToken).
+  unsupportedDeclarationCandidate = tokenAndThen
+    (\(declarationToken) -> case canonicalTokenKind declarationToken {
+      | IdentifierKind name -> if isAbstractionName name then
+        tokenKeepRight
+          abstractionHeaderStart
+          (tokenKeepRight
+            (abstractionBodyBeforeTerminator ())
+            (tokenSucceed declarationToken))
+        else tokenFailAtSpan
+          (canonicalTokenSpan declarationToken)
+          (ExpectedSyntax "abstraction declaration" (FoundToken (IdentifierKind name) name))
+    })
+    tokenIdentifier.
+
+  unsupportedDeclarationStart :: Bool -> TokenParser(Maybe(CanonicalToken)).
+  unsupportedDeclarationStart = \(allowsDeclarations) -> if allowsDeclarations then
+    tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | IdentifierKind name -> if isAbstractionName name then
+            tokenLookAhead (tokenOptional (tokenAttempt unsupportedDeclarationCandidate))
+            else tokenSucceed Nothing
+          | other -> tokenSucceed Nothing
+        }
+        | Nothing -> tokenSucceed Nothing
+      })
+      tokenPeek
+    else tokenSucceed Nothing.
+
+  isReservedBindingName :: Text -> Bool.
+  isReservedBindingName = \(name) -> if name == "True" then True else name == "False".
+
   parseBinding :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseBinding = \(parseBlock) -> tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
-      | IdentifierKind name -> tokenKeepRight
-        (tokenPunctuation EqualsPunctuation)
-        (tokenAndThen
-          (\(valueExpression) -> tokenKeepRight
-            (tokenPunctuation DotPunctuation)
-            (tokenSucceed (LetStatement name (canonicalTokenSpan nameToken) valueExpression)))
-          (parseFoundationalExpression (parseBlock ())))
+      | IdentifierKind name -> if isReservedBindingName name then
+        tokenFailAtSpan
+          (canonicalTokenSpan nameToken)
+          (DeclarationFailure (ReservedLiteralName BindingName name))
+        else tokenKeepRight
+          (tokenPunctuation EqualsPunctuation)
+          (tokenAndThen
+            (\(valueExpression) -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenSucceed (LetStatement name (canonicalTokenSpan nameToken) valueExpression)))
+            (parseFoundationalExpression (parseBlock ())))
     })
     tokenIdentifier.
 
@@ -61,16 +132,34 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenPeek.
 
-  parseStatement :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
-  parseStatement = \(parseBlock) -> tokenAndThen
-    (\(start) -> case start {
-      | Just _ -> parseBinding parseBlock
+  rejectUnsupportedDeclaration :: CanonicalToken -> TokenParser(SurfaceStatement).
+  rejectUnsupportedDeclaration = \(declarationToken) -> case canonicalTokenKind declarationToken {
+    | IdentifierKind name -> tokenFailAtSpan
+      (canonicalTokenSpan declarationToken)
+      (UnsupportedSyntax (AbstractionSyntax name))
+    | other -> tokenFailAtSpan
+      (canonicalTokenSpan declarationToken)
+      (InternalParserFailure TokenStreamParseFailure)
+  }.
+
+  parseNonBindingStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
+  parseNonBindingStatement = \(allowsDeclarations, parseBlock) -> tokenAndThen
+    (\(declarationStart) -> case declarationStart {
+      | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
       | Nothing -> parseExpressionStatement parseBlock
+    })
+    (unsupportedDeclarationStart allowsDeclarations).
+
+  parseStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
+  parseStatement = \(allowsDeclarations, parseBlock) -> tokenAndThen
+    (\(start) -> case start {
+      | Just token -> parseBinding parseBlock
+      | Nothing -> parseNonBindingStatement allowsDeclarations parseBlock
     })
     bindingStart.
 
-  parseStatements :: Bool -> (() -> TokenParser([SurfaceStatement])) -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
-  parseStatements = \(stopsAtRightBrace, parseBlock, reversed) -> tokenAndThen
+  parseStatements :: Bool -> Bool -> (() -> TokenParser([SurfaceStatement])) -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseStatements = \(stopsAtRightBrace, allowsDeclarations, parseBlock, reversed) -> tokenAndThen
     (\(current) -> case current {
       | Nothing -> if stopsAtRightBrace then
         tokenFailAt Nothing (ExpectedSyntax "'}'" EndOfInput)
@@ -81,20 +170,20 @@ module ParserProgram (value parseFoundationalProgram) {
             (tokenPunctuation RightBracePunctuation)
             (tokenSucceed (listReverse reversed))
           else tokenAndThen
-            (\(statement) -> parseStatements stopsAtRightBrace parseBlock (listPrepend statement reversed))
-            (parseStatement parseBlock)
+            (\(statement) -> parseStatements stopsAtRightBrace allowsDeclarations parseBlock (listPrepend statement reversed))
+            (parseStatement allowsDeclarations parseBlock)
         | other -> tokenAndThen
-          (\(statement) -> parseStatements stopsAtRightBrace parseBlock (listPrepend statement reversed))
-          (parseStatement parseBlock)
+          (\(statement) -> parseStatements stopsAtRightBrace allowsDeclarations parseBlock (listPrepend statement reversed))
+          (parseStatement allowsDeclarations parseBlock)
       }
     })
     tokenPeek.
 
   parseBlock :: () -> TokenParser([SurfaceStatement]).
-  parseBlock = \() -> parseStatements True parseBlock [].
+  parseBlock = \() -> parseStatements True False parseBlock [].
 
   parseFoundationalProgram :: TokenParser(SurfaceExpr).
   parseFoundationalProgram = tokenTransform
     (\(statements) -> BlockExpression statements)
-    (parseStatements False parseBlock []).
+    (parseStatements False True parseBlock []).
 }

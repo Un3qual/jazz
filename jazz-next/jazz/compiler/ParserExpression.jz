@@ -149,14 +149,18 @@ module ParserExpression (value parseFoundationalExpression) {
       (tokenLookAhead (fractionalCandidate wholeToken)))
     (tokenSucceed (LiteralExpression (IntegerLiteral whole))).
 
-  parseQualifiedMember :: Text -> TokenParser(SurfaceExpr).
-  parseQualifiedMember = \(qualifier) -> tokenAndThen
+  parseQualifiedMember :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseQualifiedMember = \(separatorToken, qualifier) -> tokenAndThen
     (\(current) -> case current {
       | Nothing -> tokenFailAt Nothing (ExpectedSyntax "member name" (EndOfInputAfter "'::'"))
       | Just memberToken -> case canonicalTokenKind memberToken {
-        | IdentifierKind member -> tokenKeepRight
-          tokenIdentifier
-          (tokenSucceed (QualifiedVariableExpression qualifier member))
+        | IdentifierKind member -> if tokensAreAdjacent separatorToken memberToken then
+          tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed (QualifiedVariableExpression qualifier member))
+          else tokenFailAtSpan
+            (canonicalTokenSpan memberToken)
+            (ExpectedSyntax "adjacent member name after '::'" (canonicalTokenEncountered current))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan memberToken)
           (ExpectedSyntax "member name after '::'" (canonicalTokenEncountered current))
@@ -171,7 +175,7 @@ module ParserExpression (value parseFoundationalExpression) {
         | PunctuationKind DoubleColonPunctuation -> if tokensAreAdjacent identifierToken separator then
           tokenKeepRight
             (tokenPunctuation DoubleColonPunctuation)
-            (parseQualifiedMember name)
+            (parseQualifiedMember separator name)
           else tokenSucceed (VariableExpression name)
         | other -> tokenSucceed (VariableExpression name)
       }

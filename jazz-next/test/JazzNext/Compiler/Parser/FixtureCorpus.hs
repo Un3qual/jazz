@@ -139,7 +139,7 @@ expressionFoundationFixtureNames =
     "parser-corpus-0241",
     "parser-corpus-0308",
     "parser-corpus-0309",
-    "parser-corpus-0312",
+    "parser-corpus-0041",
     "expression-foundation-empty-program",
     "expression-foundation-empty-block",
     "expression-foundation-grouped-name",
@@ -2554,7 +2554,7 @@ expressionFoundationFixtures =
     fixture "binding-missing-dot" "value = 1" ParserRejected,
     fixture "expression-missing-dot" "value" ParserRejected,
     fixture "qualified-missing-member" "Alias::." ParserRejected,
-    fixture "qualified-whitespace" "value = Alias ::value." ParserRejected,
+    fixture "qualified-whitespace" "value = Alias:: value." ParserRejected,
     fixture "dot-without-expression" "." ParserRejected,
     fixture
       "max-float64"

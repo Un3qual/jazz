@@ -553,7 +553,7 @@ expressionFoundationFixtureNames =
     "parser-corpus-0241",
     "parser-corpus-0308",
     "parser-corpus-0309",
-    "parser-corpus-0312",
+    "parser-corpus-0041",
     "expression-foundation-empty-program",
     "expression-foundation-empty-block",
     "expression-foundation-grouped-name",
