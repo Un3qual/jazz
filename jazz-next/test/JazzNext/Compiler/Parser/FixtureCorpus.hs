@@ -140,6 +140,11 @@ expressionFoundationFixtureNames =
     "parser-corpus-0308",
     "parser-corpus-0309",
     "parser-corpus-0041",
+    "expression-foundation-reserved-true-signature",
+    "expression-foundation-reserved-false-signature",
+    "expression-foundation-identifier-operator-tier",
+    "expression-foundation-identifier-operator-precedence",
+    "expression-foundation-nested-identifier-operator-tier",
     "expression-foundation-empty-program",
     "expression-foundation-empty-block",
     "expression-foundation-grouped-name",
@@ -2540,7 +2545,37 @@ observedParserFixtures =
 
 expressionFoundationFixtures :: [ParserFixture]
 expressionFoundationFixtures =
-  [ fixture "empty-program" "" ParserAccepted,
+  [ fixture
+      "reserved-true-signature"
+      """
+      True::Int.
+      """
+      ParserRejected,
+    fixture
+      "reserved-false-signature"
+      """
+      False::Int.
+      """
+      ParserRejected,
+    fixture
+      "identifier-operator-tier"
+      """
+      operator plus tier 1.
+      """
+      ParserRejected,
+    fixture
+      "identifier-operator-precedence"
+      """
+      operator plus precedence 1.
+      """
+      ParserRejected,
+    fixture
+      "nested-identifier-operator-tier"
+      """
+      { operator plus tier 1. }.
+      """
+      ParserRejected,
+    fixture "empty-program" "" ParserAccepted,
     fixture
       "empty-block"
       """

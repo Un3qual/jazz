@@ -62,6 +62,43 @@ module ParserProgram (value parseFoundationalProgram) {
   anyToken :: TokenParser(CanonicalToken).
   anyToken = tokenTakeIf (\(token) -> True) "token".
 
+  operatorKeyword :: TokenParser(CanonicalToken).
+  operatorKeyword = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | IdentifierKind name -> name == "operator"
+      | other -> False
+    })
+    "'operator'".
+
+  operatorFixityBeforeTerminator :: () -> TokenParser(()).
+  operatorFixityBeforeTerminator = \() -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "operator declaration fixity" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "operator declaration fixity" (canonicalTokenEncountered current))
+        | IdentifierKind name -> if name == "tier" then tokenSucceed () else if name == "precedence" then
+          tokenSucceed ()
+          else tokenKeepRight anyToken (operatorFixityBeforeTerminator ())
+        | other -> tokenKeepRight anyToken (operatorFixityBeforeTerminator ())
+      }
+    })
+    tokenPeek.
+
+  identifierOperatorDeclarationCandidate :: TokenParser((CanonicalToken, CanonicalToken)).
+  identifierOperatorDeclarationCandidate = tokenAndThen
+    (\(declarationToken) -> tokenAndThen
+      (\(symbolToken) -> tokenKeepRight
+        (operatorFixityBeforeTerminator ())
+        (tokenSucceed (declarationToken, symbolToken)))
+      tokenIdentifier)
+    operatorKeyword.
+
+  identifierOperatorDeclarationStart :: TokenParser(Maybe((CanonicalToken, CanonicalToken))).
+  identifierOperatorDeclarationStart = tokenLookAhead
+    (tokenOptional (tokenAttempt identifierOperatorDeclarationCandidate)).
+
   abstractionBodyBeforeTerminator :: () -> TokenParser(()).
   abstractionBodyBeforeTerminator = \() -> tokenAndThen
     (\(current) -> case current {
@@ -128,16 +165,16 @@ module ParserProgram (value parseFoundationalProgram) {
     | other -> False
   }.
 
-  signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser(CanonicalToken).
+  signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
   signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind DotPunctuation -> if isBareSignatureNamePair name typeName then
-          tokenSucceed separatorToken
+          tokenSucceed (nameToken, separatorToken)
           else tokenFailAtSpan
             (canonicalTokenSpan nameToken)
             (ExpectedSyntax "simple signature declaration" (canonicalTokenEncountered (Just nameToken)))
-        | other -> if startsSignaturePayloadContinuation token then tokenSucceed separatorToken
+        | other -> if startsSignaturePayloadContinuation token then tokenSucceed (nameToken, separatorToken)
           else tokenFailAtSpan
             (canonicalTokenSpan token)
             (ExpectedSyntax "signature payload continuation" (canonicalTokenEncountered current))
@@ -146,7 +183,7 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenPeek.
 
-  compactSignatureCandidate :: TokenParser(CanonicalToken).
+  compactSignatureCandidate :: TokenParser((CanonicalToken, CanonicalToken)).
   compactSignatureCandidate = tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
       | IdentifierKind name -> tokenAndThen
@@ -167,16 +204,16 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenIdentifier.
 
-  compactSignatureStart :: TokenParser(Maybe(CanonicalToken)).
+  compactSignatureStart :: TokenParser(Maybe((CanonicalToken, CanonicalToken))).
   compactSignatureStart = tokenLookAhead (tokenOptional (tokenAttempt compactSignatureCandidate)).
 
-  isReservedBindingName :: Text -> Bool.
-  isReservedBindingName = \(name) -> if name == "True" then True else name == "False".
+  isReservedLiteralName :: Text -> Bool.
+  isReservedLiteralName = \(name) -> if name == "True" then True else name == "False".
 
   parseBinding :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseBinding = \(parseBlock) -> tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
-      | IdentifierKind name -> if isReservedBindingName name then
+      | IdentifierKind name -> if isReservedLiteralName name then
         tokenFailAtSpan
           (canonicalTokenSpan nameToken)
           (DeclarationFailure (ReservedLiteralName BindingName name))
@@ -212,23 +249,50 @@ module ParserProgram (value parseFoundationalProgram) {
       (InternalParserFailure TokenStreamParseFailure)
   }.
 
-  rejectUnsupportedSignature :: CanonicalToken -> TokenParser(SurfaceStatement).
-  rejectUnsupportedSignature = \(separatorToken) -> tokenFailAtSpan
-    (canonicalTokenSpan separatorToken)
-    (UnexpectedSyntax (canonicalTokenEncountered (Just separatorToken)) "an expression-foundation statement").
+  rejectUnsupportedSignature :: (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
+  rejectUnsupportedSignature = \(candidate) -> case candidate {
+    | (nameToken, separatorToken) -> case canonicalTokenKind nameToken {
+      | IdentifierKind name -> if isReservedLiteralName name then
+        tokenFailAtSpan
+          (canonicalTokenSpan nameToken)
+          (DeclarationFailure (ReservedLiteralName BindingName name))
+        else tokenFailAtSpan
+          (canonicalTokenSpan separatorToken)
+          (UnexpectedSyntax (canonicalTokenEncountered (Just separatorToken)) "an expression-foundation statement")
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan nameToken)
+        (InternalParserFailure TokenStreamParseFailure)
+    }
+  }.
+
+  rejectIdentifierOperatorDeclaration :: Bool -> (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
+  rejectIdentifierOperatorDeclaration = \(nestedBlock, candidate) -> case candidate {
+    | (declarationToken, symbolToken) -> if nestedBlock then
+      tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
+      else tokenFailAtSpan
+        (canonicalTokenSpan symbolToken)
+        (ExpectedSyntax "operator symbol after 'operator'" (canonicalTokenEncountered (Just symbolToken)))
+  }.
 
   parseNonBindingStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseNonBindingStatement = \(nestedBlock, parseBlock) -> tokenAndThen
-    (\(declarationStart) -> case declarationStart {
-      | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
+    (\(operatorStart) -> case operatorStart {
+      | Just candidate -> rejectIdentifierOperatorDeclaration nestedBlock candidate
       | Nothing -> tokenAndThen
-        (\(signatureStart) -> case signatureStart {
-          | Just separatorToken -> rejectUnsupportedSignature separatorToken
-          | Nothing -> parseExpressionStatement parseBlock
+        (\(declarationStart) -> case declarationStart {
+          | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
+          | Nothing -> tokenAndThen
+            (\(signatureStart) -> case signatureStart {
+              | Just candidate -> rejectUnsupportedSignature candidate
+              | Nothing -> parseExpressionStatement parseBlock
+            })
+            compactSignatureStart
         })
-        compactSignatureStart
+        (unsupportedDeclarationStart nestedBlock)
     })
-    (unsupportedDeclarationStart nestedBlock).
+    identifierOperatorDeclarationStart.
 
   parseStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseStatement = \(nestedBlock, parseBlock) -> tokenAndThen

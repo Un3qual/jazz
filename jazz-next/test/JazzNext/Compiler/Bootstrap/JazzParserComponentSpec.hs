@@ -47,6 +47,8 @@ tests =
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
     ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
+    ("rejects operator declaration candidates before expression fallback", testOperatorDeclarationBoundary),
+    ("rejects reserved literal signatures before signature fallback", testReservedSignatureBoundary),
     ("rejects compact signatures in every statement scope", testSignatureBoundary)
   ]
 
@@ -286,6 +288,29 @@ testProgramBoundaryFailures =
     )
     """
     "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"class\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"impl\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
+
+testOperatorDeclarationBoundary :: IO ()
+testOperatorDeclarationBoundary =
+  assertJazzOutput
+    "operator declaration boundary"
+    """
+    ( parseComponentTokens "operator plus tier 1."
+    , parseComponentTokens "operator plus precedence 1."
+    , parseComponentTokens "{ operator plus tier 1. }."
+    )
+    """
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 10)), ExpectedSyntax(\"operator symbol after \\'operator\\'\", FoundToken(IdentifierKind(\"plus\"), \"plus\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 10)), ExpectedSyntax(\"operator symbol after \\'operator\\'\", FoundToken(IdentifierKind(\"plus\"), \"plus\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 3)), DeclarationFailure(DeclarationOutsideAllowedScope(OperatorDeclaration)))))"
+
+testReservedSignatureBoundary :: IO ()
+testReservedSignatureBoundary =
+  assertJazzOutput
+    "reserved literal signature boundary"
+    """
+    ( parseComponentTokens "True::Int."
+    , parseComponentTokens "False::Int."
+    )
+    """
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))))"
 
 testSignatureBoundary :: IO ()
 testSignatureBoundary =
