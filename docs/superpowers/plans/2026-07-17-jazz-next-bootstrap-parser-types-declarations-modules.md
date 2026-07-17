@@ -23,6 +23,7 @@ target_paths:
   - jazz-next/jazz/compiler/ParserProgram.jz
   - jazz-next/jazz/compiler/Parser.jz
   - jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs
@@ -119,6 +120,7 @@ statistics, Cabal test components, and the Nix-pinned development environment.
 | `jazz-next/jazz/compiler/ParserTypes.jz` | Locked surface/result/failure schema; no changes in this child. |
 | `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs` | Add the exact ordered 101-case family and three focused fixtures; preserve the 52-case expression family. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs` | New focused real-module-graph suite for signatures, context, declarations, modules, and explicit type application. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs` | Preserve the complete shared-corpus name order and stage-0 parser classification audit after the three focused additions. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs` | Lock the new corpus total, family manifest, and stage-0 classification boundaries. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs` | Load either named family and construct exact token/source expectations through the canonical adapters. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs` | Run both entries twice and require exact deterministic parity for both named families. |
@@ -245,13 +247,14 @@ design and this plan. No implementation file changes in this milestone.
 **Files:**
 
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`
 
 **Produces:** A fixed, reviewable family manifest and expected stage-0
 evidence before hosted support is added. The committed milestone remains green;
 Task 6 activates the hosted whole-family gate after all grammar owners land.
 
-- [ ] **Step 1: Add the failing contract assertions first.**
+- [x] **Step 1: Add the failing contract assertions first.**
 
   Assert family size `101`, shared corpus size `362`, unique family members,
   unique corpus names, complete lookup, and the intended accepted/failure
@@ -259,7 +262,7 @@ Task 6 activates the hosted whole-family gate after all grammar owners land.
   `canonical-parser-comparison-spec` and confirm it fails on those missing
   contract facts rather than an unrelated parser regression.
 
-- [ ] **Step 2: Add the exact family and focused fixtures.**
+- [x] **Step 2: Add the exact family and focused fixtures.**
 
   Add the `TypesDeclarationsModules` family, copy the 98 existing fixture names
   exactly from the accepted design, append the three focused fixtures in the
@@ -267,7 +270,7 @@ Task 6 activates the hosted whole-family gate after all grammar owners land.
   through the existing stage-0 parser and canonical renderers; do not add a
   second AST or failure serialization path.
 
-- [ ] **Step 3: Prove the corpus and stage-0 contract are green.**
+- [x] **Step 3: Prove the corpus and stage-0 contract are green.**
 
   Run:
 
@@ -280,10 +283,10 @@ Task 6 activates the hosted whole-family gate after all grammar owners land.
   confirm the 52-case expression family remains green. Do not activate the new
   whole-family hosted assertion in this milestone.
 
-- [ ] **Step 4: Commit the contract.**
+- [x] **Step 4: Commit the contract.**
 
   ```bash
-  git add jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
+  git add jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs docs/execution/queue.md docs/superpowers/plans/2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules.md
   git commit -m "test: define parser declarations parity family"
   ```
 
