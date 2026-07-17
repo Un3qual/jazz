@@ -1,11 +1,17 @@
-module ParserDeclaration (value parseStatementWithContext) {
+module ParserDeclaration (
+  value collectImportAliasesUntilEnd,
+  value collectImportAliasesUntilBrace,
+  value parseStatementWithContext
+) {
   import LexerTypes (
     CanonicalToken,
+    CanonicalSpan,
     IdentifierKind,
     OperatorKind,
     KeywordKind,
     ModuleKeyword,
     ImportKeyword,
+    AsKeyword,
     DataKeyword,
     PunctuationKind,
     ArrowPunctuation,
@@ -25,6 +31,7 @@ module ParserDeclaration (value parseStatementWithContext) {
   import Char (charIsLower, charIsUpper).
   import List (listAll, listLength, listPrepend, listReverse).
   import Maybe.
+  import NonEmpty.
   import ParserContext.
   import ParserSignature (parseSignaturePayload, parseSignatureType).
   import Set.
@@ -104,6 +111,44 @@ module ParserDeclaration (value parseStatementWithContext) {
 
   anyToken :: TokenParser(CanonicalToken).
   anyToken = tokenTakeIf (\(token) -> True) "token".
+
+  collectImportAlias :: [CanonicalToken] -> Maybe(Text).
+  collectImportAlias = \(tokens) -> case tokens {
+    | [] -> Nothing
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind DotPunctuation -> Nothing
+      | KeywordKind AsKeyword -> case rest {
+        | [aliasToken | afterAlias] -> case canonicalTokenKind aliasToken {
+          | IdentifierKind alias -> Just alias
+          | other -> Nothing
+        }
+        | [] -> Nothing
+      }
+      | other -> collectImportAlias rest
+    }
+  }.
+
+  collectImportAliasesAtDepth :: Bool -> Int -> Set(Text) -> [CanonicalToken] -> Set(Text).
+  collectImportAliasesAtDepth = \(stopAtRightBrace, depth, aliases, tokens) -> case tokens {
+    | [] -> aliases
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind RightBracePunctuation -> if stopAtRightBrace then
+        if depth == 0 then aliases else collectImportAliasesAtDepth stopAtRightBrace (depth - 1) aliases rest
+        else collectImportAliasesAtDepth stopAtRightBrace (if depth == 0 then 0 else depth - 1) aliases rest
+      | PunctuationKind LeftBracePunctuation -> collectImportAliasesAtDepth stopAtRightBrace (depth + 1) aliases rest
+      | KeywordKind ImportKeyword -> if depth == 0 then case collectImportAlias rest {
+        | Just alias -> collectImportAliasesAtDepth stopAtRightBrace depth (setInsert aliases alias) rest
+        | Nothing -> collectImportAliasesAtDepth stopAtRightBrace depth aliases rest
+      } else collectImportAliasesAtDepth stopAtRightBrace depth aliases rest
+      | other -> collectImportAliasesAtDepth stopAtRightBrace depth aliases rest
+    }
+  }.
+
+  collectImportAliasesUntilEnd :: [CanonicalToken] -> Set(Text).
+  collectImportAliasesUntilEnd = \(tokens) -> collectImportAliasesAtDepth False 0 setEmpty tokens.
+
+  collectImportAliasesUntilBrace :: [CanonicalToken] -> Set(Text).
+  collectImportAliasesUntilBrace = \(tokens) -> collectImportAliasesAtDepth True 0 setEmpty tokens.
 
   operatorKeyword :: TokenParser(CanonicalToken).
   operatorKeyword = tokenTakeIf
@@ -1052,6 +1097,528 @@ module ParserDeclaration (value parseStatementWithContext) {
       (parseCapabilityName declarationKind declarationToken))
     (capabilityKeyword declarationKind).
 
+  parseModulePathTail :: [Text] -> TokenParser([Text]).
+  parseModulePathTail = \(reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just separator -> case canonicalTokenKind separator {
+        | PunctuationKind DoubleColonPunctuation -> tokenKeepRight
+          (tokenPunctuation DoubleColonPunctuation)
+          (tokenAndThen
+            (\(next) -> case next {
+              | Nothing -> tokenFailAtSpan
+                (canonicalTokenSpan separator)
+                (ExpectedSyntax "module path segment" EndOfInput)
+              | Just token -> case canonicalTokenKind token {
+                | IdentifierKind name -> tokenKeepRight
+                  tokenIdentifier
+                  (parseModulePathTail (listPrepend name reversed))
+                | PunctuationKind DotPunctuation -> tokenFailAtSpan
+                  (canonicalTokenSpan separator)
+                  (ExpectedSyntax "module path segment" (canonicalTokenEncountered next))
+                | other -> tokenFailAtSpan
+                  (canonicalTokenSpan token)
+                  (ExpectedSyntax "module path segment" (canonicalTokenEncountered next))
+              }
+            })
+            tokenPeek)
+        | other -> tokenSucceed (listReverse reversed)
+      }
+      | Nothing -> tokenSucceed (listReverse reversed)
+    })
+    tokenPeek.
+
+  parseModulePath :: TokenParser([Text]).
+  parseModulePath = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "module path" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> tokenKeepRight
+          tokenIdentifier
+          (parseModulePathTail [name])
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "module path segment" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseImportSymbol :: TokenParser((Text, CanonicalSpan)).
+  parseImportSymbol = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "import symbol" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> tokenKeepRight tokenIdentifier (tokenSucceed (name, canonicalTokenSpan token))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "import symbol" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseImportSymbolTail :: Set(Text) -> [Text] -> TokenParser([Text]).
+  parseImportSymbolTail = \(seen, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "')'" (EndOfInputIn "import symbol list"))
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(item) -> case item {
+              | (name, span) -> if setContains seen name then tokenFailAtSpan
+                span
+                (DeclarationFailure
+                  (DuplicateListItem ImportSymbolList (textAppend "'" (textAppend name "'"))))
+                else parseImportSymbolTail
+                  (setInsert seen name)
+                  (listPrepend name reversed)
+            })
+            parseImportSymbol)
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (listReverse reversed))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "',' or ')'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseImportSymbolList :: TokenParser([Text]).
+  parseImportSymbolList = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightParenPunctuation -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax
+            "at least one import symbol"
+            (BeforeToken (canonicalTokenKind token) (canonicalTokenLexeme token) Nothing))
+        | other -> tokenAndThen
+          (\(item) -> case item {
+            | (name, span) -> parseImportSymbolTail (setInsert setEmpty name) [name]
+          })
+          parseImportSymbol
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "import symbol" EndOfInput)
+    })
+    tokenPeek.
+
+  parseImportAfterAlias :: CanonicalToken -> [Text] -> TokenParser(SurfaceStatement).
+  parseImportAfterAlias = \(importToken, modulePath) -> tokenAndThen
+    (\(aliasToken) -> case canonicalTokenKind aliasToken {
+      | IdentifierKind alias -> if isReservedLiteralName alias then tokenFailAtSpan
+        (canonicalTokenSpan aliasToken)
+        (DeclarationFailure (ReservedLiteralName ImportAlias alias))
+        else tokenAndThen
+          (\(current) -> case current {
+            | Just token -> case canonicalTokenKind token {
+              | PunctuationKind LeftParenPunctuation -> tokenFailAtSpan
+                (canonicalTokenSpan token)
+                (DeclarationFailure ImportAliasCombinedWithSymbolList)
+              | other -> tokenKeepRight
+                (tokenPunctuation DotPunctuation)
+                (tokenSucceed
+                  (ImportStatement (canonicalTokenSpan importToken) modulePath (Just alias) Nothing))
+            }
+            | Nothing -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenSucceed
+                (ImportStatement (canonicalTokenSpan importToken) modulePath (Just alias) Nothing))
+          })
+          tokenPeek
+    })
+    tokenIdentifier.
+
+  parseImportTail :: CanonicalToken -> [Text] -> TokenParser(SurfaceStatement).
+  parseImportTail = \(importToken, modulePath) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan importToken)
+        (ExpectedSyntax "'.', 'as', or '('" (EndOfInputAfter "import path"))
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> tokenKeepRight
+          (tokenPunctuation DotPunctuation)
+          (tokenSucceed (ImportStatement (canonicalTokenSpan importToken) modulePath Nothing Nothing))
+        | KeywordKind AsKeyword -> tokenKeepRight
+          (tokenKeyword AsKeyword)
+          (tokenAndThen
+            (\(afterAs) -> case afterAs {
+              | Nothing -> tokenFailAtSpan
+                (canonicalTokenSpan token)
+                (ExpectedSyntax "import alias" (EndOfInputAfter "'as'"))
+              | Just aliasToken -> case canonicalTokenKind aliasToken {
+                | IdentifierKind name -> parseImportAfterAlias importToken modulePath
+                | other -> tokenFailAtSpan
+                  (canonicalTokenSpan aliasToken)
+                  (ExpectedSyntax "import alias" (canonicalTokenEncountered afterAs))
+              }
+            })
+            tokenPeek)
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftParenPunctuation)
+          (tokenAndThen
+            (\(symbols) -> tokenAndThen
+              (\(afterSymbols) -> case afterSymbols {
+                | Just asToken -> case canonicalTokenKind asToken {
+                  | KeywordKind AsKeyword -> tokenFailAtSpan
+                    (canonicalTokenSpan asToken)
+                    (DeclarationFailure ImportAliasCombinedWithSymbolList)
+                  | other -> tokenKeepRight
+                    (tokenPunctuation DotPunctuation)
+                    (tokenSucceed
+                      (ImportStatement
+                        (canonicalTokenSpan importToken)
+                        modulePath
+                        Nothing
+                        (Just symbols)))
+                }
+                | Nothing -> tokenKeepRight
+                  (tokenPunctuation DotPunctuation)
+                  (tokenSucceed
+                    (ImportStatement
+                      (canonicalTokenSpan importToken)
+                      modulePath
+                      Nothing
+                      (Just symbols)))
+              })
+              tokenPeek)
+            parseImportSymbolList)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'.', 'as', or '('" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseImportDeclaration :: ParserContext -> TokenParser(SurfaceStatement).
+  parseImportDeclaration = \(context) -> tokenAndThen
+    (\(importToken) -> if parserContextIsNestedBlock context then tokenFailAtSpan
+      (canonicalTokenSpan importToken)
+      (DeclarationFailure (DeclarationOutsideAllowedScope ImportDeclaration))
+      else tokenAndThen
+        (\(modulePath) -> parseImportTail importToken modulePath)
+        parseModulePath)
+    (tokenKeyword ImportKeyword).
+
+  namespacePrefix :: Text -> Maybe(SurfaceNameNamespace).
+  namespacePrefix = \(name) -> if name == "value" then Just ValueName else
+    if name == "constructor" then Just ConstructorName else
+    if name == "type" then Just TypeName else
+    if name == "class" then Just CapabilityName else Nothing.
+
+  renderLocatedExportNames :: [SurfaceLocatedExportName] -> Text.
+  renderLocatedExportNames = \(names) -> case names {
+    | [] -> ""
+    | [first | rest] -> case first {
+      | SurfaceLocatedExportName name span -> case rest {
+        | [] -> name
+        | [next | afterNext] -> textAppend name (textAppend ", " (renderLocatedExportNames rest))
+      }
+    }
+  }.
+
+  renderModuleExportSelector :: SurfaceModuleExportSelector -> Text.
+  renderModuleExportSelector = \(selector) -> case selector {
+    | NamedExportSelector maybeNamespace name -> {
+      quoted = textAppend "'" (textAppend name "'").
+      case maybeNamespace {
+        | Nothing -> quoted
+        | Just namespace -> case namespace {
+          | ValueName -> textAppend "value " quoted
+          | ConstructorName -> textAppend "constructor " quoted
+          | TypeName -> textAppend "type " quoted
+          | CapabilityName -> textAppend "class " quoted
+        }
+      }.
+    }
+    | TypeExportSelector typeName span constructorSelector -> {
+      suffix = case constructorSelector {
+        | AbstractTypeSelector -> ""
+        | AllConstructorsSelector allSpan -> "(..)"
+        | SelectedConstructorsSelector names -> case names {
+          | NonEmpty first rest -> textAppend "(" (textAppend (renderLocatedExportNames (listPrepend first rest)) ")")
+        }
+      }.
+      textAppend "type '" (textAppend typeName (textAppend suffix "'")).
+    }
+  }.
+
+  parseLocatedExportName :: TokenParser(SurfaceLocatedExportName).
+  parseLocatedExportName = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "constructor export" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (SurfaceLocatedExportName name (canonicalTokenSpan token)))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "constructor export name" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  locatedExportName :: SurfaceLocatedExportName -> Text.
+  locatedExportName = \(located) -> case located {
+    | SurfaceLocatedExportName name span -> name
+  }.
+
+  locatedExportSpan :: SurfaceLocatedExportName -> CanonicalSpan.
+  locatedExportSpan = \(located) -> case located {
+    | SurfaceLocatedExportName name span -> span
+  }.
+
+  parseConstructorExportTail :: Set(Text) -> [SurfaceLocatedExportName] -> TokenParser([SurfaceLocatedExportName]).
+  parseConstructorExportTail = \(seen, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "')'" (EndOfInputIn "constructor export group"))
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(located) -> {
+              name = locatedExportName located.
+              if setContains seen name then tokenFailAtSpan
+                (locatedExportSpan located)
+                (DeclarationFailure
+                  (DuplicateListItem ConstructorExportList (textAppend "'" (textAppend name "'"))))
+                else parseConstructorExportTail
+                  (setInsert seen name)
+                  (listPrepend located reversed).
+            })
+            parseLocatedExportName)
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (listReverse reversed))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "',' or ')'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseAllConstructors :: Text -> CanonicalSpan -> CanonicalSpan -> TokenParser(SurfaceModuleExportSelector).
+  parseAllConstructors = \(typeName, typeSpan, allSpan) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> tokenKeepRight
+          (tokenPunctuation DotPunctuation)
+          (tokenAndThen
+            (\(afterDot) -> case afterDot {
+              | Just rightParen -> case canonicalTokenKind rightParen {
+                | PunctuationKind RightParenPunctuation -> tokenKeepRight
+                  (tokenPunctuation RightParenPunctuation)
+                  (tokenSucceed
+                    (TypeExportSelector typeName typeSpan (AllConstructorsSelector allSpan)))
+                | other -> tokenFailAtSpan
+                  (canonicalTokenSpan rightParen)
+                  (DeclarationFailure ConstructorExportGroupRequiresAll)
+              }
+              | Nothing -> tokenFailAtSpan allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
+            })
+            tokenPeek)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (DeclarationFailure ConstructorExportGroupRequiresAll)
+      }
+    })
+    tokenPeek.
+
+  parseTypeExportTail :: Text -> CanonicalSpan -> TokenParser(SurfaceModuleExportSelector).
+  parseTypeExportTail = \(typeName, typeSpan) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftParenPunctuation)
+          (tokenAndThen
+            (\(afterLeftParen) -> case afterLeftParen {
+              | Nothing -> tokenFailAt Nothing
+                (ExpectedSyntax "')'" (EndOfInputIn "constructor export group"))
+              | Just next -> case canonicalTokenKind next {
+                | PunctuationKind RightParenPunctuation -> tokenFailAtSpan
+                  (canonicalTokenSpan next)
+                  (ExpectedSyntax
+                    "'..' or at least one constructor export"
+                    (AtToken (canonicalTokenKind next) (canonicalTokenLexeme next)))
+                | PunctuationKind DotPunctuation -> tokenKeepRight
+                  (tokenPunctuation DotPunctuation)
+                  (parseAllConstructors typeName typeSpan (canonicalTokenSpan next))
+                | other -> tokenAndThen
+                  (\(first) -> tokenAndThen
+                    (\(constructors) -> case nonEmptyFromList constructors {
+                      | Just nonEmpty -> tokenSucceed
+                        (TypeExportSelector typeName typeSpan (SelectedConstructorsSelector nonEmpty))
+                      | Nothing -> tokenFailAtSpan
+                        typeSpan
+                        (ExpectedSyntax "at least one constructor export" ImplicitBoundary)
+                    })
+                    (parseConstructorExportTail
+                      (setInsert setEmpty (locatedExportName first))
+                      [first]))
+                  parseLocatedExportName
+              }
+            })
+            tokenPeek)
+        | other -> tokenSucceed (TypeExportSelector typeName typeSpan AbstractTypeSelector)
+      }
+      | Nothing -> tokenSucceed (TypeExportSelector typeName typeSpan AbstractTypeSelector)
+    })
+    tokenPeek.
+
+  parseModuleExport :: TokenParser((SurfaceModuleExportSelector, CanonicalSpan)).
+  parseModuleExport = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "module export name" EndOfInput)
+      | Just first -> case canonicalTokenKind first {
+        | IdentifierKind firstName -> tokenKeepRight
+          tokenIdentifier
+          (tokenAndThen
+            (\(next) -> case namespacePrefix firstName {
+              | Just namespace -> case next {
+                | Just second -> case canonicalTokenKind second {
+                  | IdentifierKind exportName -> tokenKeepRight
+                    tokenIdentifier
+                    (case namespace {
+                      | TypeName -> tokenAndThen
+                        (\(selector) -> tokenSucceed (selector, canonicalTokenSpan second))
+                        (parseTypeExportTail exportName (canonicalTokenSpan second))
+                      | other -> tokenSucceed
+                        (NamedExportSelector (Just namespace) exportName, canonicalTokenSpan second)
+                    })
+                  | other -> tokenSucceed
+                    (NamedExportSelector Nothing firstName, canonicalTokenSpan first)
+                }
+                | Nothing -> tokenSucceed
+                  (NamedExportSelector Nothing firstName, canonicalTokenSpan first)
+              }
+              | Nothing -> tokenSucceed
+                (NamedExportSelector Nothing firstName, canonicalTokenSpan first)
+            })
+            tokenPeek)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan first)
+          (ExpectedSyntax "module export name" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseModuleExportTail :: Set(Text) -> [SurfaceModuleExportSelector] -> TokenParser([SurfaceModuleExportSelector]).
+  parseModuleExportTail = \(seen, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "')'" (EndOfInputIn "module export list"))
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(item) -> case item {
+              | (selector, span) -> {
+                rendered = renderModuleExportSelector selector.
+                if setContains seen rendered then tokenFailAtSpan
+                  span
+                  (DeclarationFailure (DuplicateListItem ModuleExportList rendered))
+                  else parseModuleExportTail
+                    (setInsert seen rendered)
+                    (listPrepend selector reversed).
+              }
+            })
+            parseModuleExport)
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (listReverse reversed))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "',' or ')'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseModuleExportList :: TokenParser([SurfaceModuleExportSelector]).
+  parseModuleExportList = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed [])
+        | other -> tokenAndThen
+          (\(item) -> case item {
+            | (selector, span) -> parseModuleExportTail
+              (setInsert setEmpty (renderModuleExportSelector selector))
+              [selector]
+          })
+          parseModuleExport
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "module export name" EndOfInput)
+    })
+    tokenPeek.
+
+  requireModuleBodyStart :: CanonicalToken -> TokenParser(()).
+  requireModuleBodyStart = \(moduleToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan moduleToken)
+        (ExpectedSyntax "'{'" (EndOfInputAfter "module path"))
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind LeftBracePunctuation -> tokenSucceed ()
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'{'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseModuleDeclaration :: (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser([SurfaceStatement]).
+  parseModuleDeclaration = \(parseStatements, context) -> tokenAndThen
+    (\(moduleToken) -> if parserContextIsNestedBlock context then tokenFailAtSpan
+      (canonicalTokenSpan moduleToken)
+      (DeclarationFailure (DeclarationOutsideAllowedScope ModuleDeclaration))
+      else case parserContextStatement context {
+        | ModuleBodyContext -> tokenFailAtSpan
+          (canonicalTokenSpan moduleToken)
+          (DeclarationFailure (DeclarationOutsideAllowedScope ModuleDeclaration))
+        | other -> tokenAndThen
+          (\(modulePath) -> tokenAndThen
+            (\(current) -> case current {
+              | Just token -> case canonicalTokenKind token {
+                | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+                  (tokenPunctuation LeftParenPunctuation)
+                  (tokenAndThen
+                    (\(exports) -> tokenKeepRight
+                      (requireModuleBodyStart moduleToken)
+                      (tokenKeepRight
+                        (tokenPunctuation LeftBracePunctuation)
+                        (tokenAndThen
+                          (\(body) -> tokenSucceed
+                            (listPrepend
+                              (ModuleStatement
+                                (canonicalTokenSpan moduleToken)
+                                modulePath
+                                (Just exports))
+                              body))
+                          (parseStatements (parserContextModuleBody context)))))
+                    parseModuleExportList)
+                | other -> tokenKeepRight
+                  (requireModuleBodyStart moduleToken)
+                  (tokenKeepRight
+                    (tokenPunctuation LeftBracePunctuation)
+                    (tokenAndThen
+                      (\(body) -> tokenSucceed
+                        (listPrepend
+                          (ModuleStatement
+                            (canonicalTokenSpan moduleToken)
+                            modulePath
+                            Nothing)
+                          body))
+                      (parseStatements (parserContextModuleBody context))))
+              }
+              | Nothing -> tokenKeepRight
+                (requireModuleBodyStart moduleToken)
+                (tokenSucceed [])
+            })
+            tokenPeek)
+          parseModulePath
+      })
+    (tokenKeyword ModuleKeyword).
+
   rejectOperatorDeclaration :: Bool -> (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
   rejectOperatorDeclaration = \(nestedBlock, candidate) -> case candidate {
     | (declarationToken, symbolToken) -> if nestedBlock then
@@ -1087,7 +1654,15 @@ module ParserDeclaration (value parseStatementWithContext) {
           }
           | Nothing -> tokenAndThen
             (\(signatureStart) -> case signatureStart {
-              | Just candidate -> parseSignature
+              | Just candidate -> case candidate {
+                | (nameToken, separatorToken) -> case canonicalTokenKind nameToken {
+                  | IdentifierKind name -> if tokensAreAdjacent nameToken separatorToken then
+                    if parserContextHasAlias context name then parseExpressionStatement parseExpression context
+                    else parseSignature
+                    else parseSignature
+                  | other -> parseSignature
+                }
+              }
               | Nothing -> parseExpressionStatement parseExpression context
             })
             signatureBoundaryStart
@@ -1108,12 +1683,33 @@ module ParserDeclaration (value parseStatementWithContext) {
     tokenPeek.
 
   parseStatementWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
-  parseStatementWithContext = \(parseExpression, parseStatements, context) -> tokenTransform
-    (\(statement) -> ([statement], context))
-    (tokenAndThen
-      (\(start) -> case start {
-        | Just token -> parseBinding parseExpression context
-        | Nothing -> parseNonBindingStatement parseExpression parseStatements context
-      })
-      bindingStart).
+  parseStatementWithContext = \(parseExpression, parseStatements, context) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | KeywordKind ModuleKeyword -> tokenTransform
+          (\(statements) -> (statements, context))
+          (parseModuleDeclaration parseStatements context)
+        | KeywordKind ImportKeyword -> tokenTransform
+          (\(statement) -> case statement {
+            | ImportStatement span path alias symbols -> case alias {
+              | Just name -> ([statement], parserContextRegisterAlias context name)
+              | Nothing -> ([statement], context)
+            }
+            | other -> ([statement], context)
+          })
+          (parseImportDeclaration context)
+        | other -> tokenTransform
+          (\(statement) -> ([statement], context))
+          (tokenAndThen
+            (\(start) -> case start {
+              | Just bindingToken -> parseBinding parseExpression context
+              | Nothing -> parseNonBindingStatement parseExpression parseStatements context
+            })
+            bindingStart)
+      }
+      | Nothing -> tokenTransform
+        (\(statement) -> ([statement], context))
+        (parseNonBindingStatement parseExpression parseStatements context)
+    })
+    tokenPeek.
 }

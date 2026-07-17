@@ -7,6 +7,7 @@ module ParserContext (
   value parserContextStatement,
   value parserContextHasAlias,
   value parserContextRegisterAlias,
+  value parserContextRegisterAliases,
   value parserContextIsNestedBlock,
   value parserContextStopsAtRightBrace
 ) {
@@ -41,6 +42,11 @@ module ParserContext (
   parserContextRegisterAlias :: ParserContext -> Text -> ParserContext.
   parserContextRegisterAlias = \(context, alias) -> case context {
     | ParserContext statementContext aliases -> ParserContext statementContext (setInsert aliases alias)
+  }.
+
+  parserContextRegisterAliases :: ParserContext -> Set(Text) -> ParserContext.
+  parserContextRegisterAliases = \(context, collected) -> case context {
+    | ParserContext statementContext aliases -> ParserContext statementContext (setUnion aliases collected)
   }.
 
   parserContextIsNestedBlock :: ParserContext -> Bool.

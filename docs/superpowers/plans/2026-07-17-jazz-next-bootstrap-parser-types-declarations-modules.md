@@ -458,7 +458,7 @@ child’s type/abstraction declarations, without adding later expression forms.
 **Produces:** Stage-0-compatible module placement, flattened module bodies,
 imports/exports, and depth-aware alias visibility with no cross-scope leakage.
 
-- [ ] **Step 1: Add failing scope and module tests.**
+- [x] **Step 1: Add failing scope and module tests.**
 
   Cover the design’s 22 import/alias and 27 module/export members, including:
 
@@ -473,21 +473,21 @@ imports/exports, and depth-aware alias visibility with no cross-scope leakage.
   - fresh module-body aliases plus inherited nested-block aliases, with no
     leakage between sibling or enclosing scopes.
 
-- [ ] **Step 2: Implement depth-aware alias pre-collection.**
+- [x] **Step 2: Implement depth-aware alias pre-collection.**
 
   Scan only the current statement-list depth, stopping at end-of-input or the
   matching right brace as appropriate. Collect `import ... as alias` without
   consuming parser input. Seed the current immutable context once before
   sequential parsing and preserve source-order output.
 
-- [ ] **Step 3: Implement module/import/export parsing and orchestration.**
+- [x] **Step 3: Implement module/import/export parsing and orchestration.**
 
   Keep syntax, duplicate validation, and scope checks in `ParserDeclaration`.
   Keep sequencing, module-first state, recursive context construction, and
   flattened output in `ParserProgram`. Remove any temporary duplicate logic
   once the owner-specific tests pass.
 
-- [ ] **Step 4: Verify focused and family behavior.**
+- [x] **Step 4: Verify focused and family behavior.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-parity-spec jazz-parser-component-spec --test-show-details=failures

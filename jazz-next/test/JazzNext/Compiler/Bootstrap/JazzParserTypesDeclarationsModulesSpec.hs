@@ -55,7 +55,8 @@ tests =
     ("constructs the recursive signature parser lazily", testDirectSignatureType),
     ("matches stage 0 signature type and fallback behavior", testSignatureParity),
     ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity),
-    ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity)
+    ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity),
+    ("matches stage 0 modules imports exports and alias scopes", testModuleDeclarationParity)
   ]
 
 testTokenRemaining :: IO ()
@@ -216,6 +217,73 @@ testTypeDeclarationParity = do
       ("rejects nested data declarations", "{ data Thing = Thing. }."),
       ("preserves nested class declaration behavior", "{ class Eq(a) { }. }."),
       ("preserves nested impl declaration behavior", "{ impl Eq(Int) { }. }.")
+    ]
+
+testModuleDeclarationParity :: IO ()
+testModuleDeclarationParity = do
+  mapM_
+    assertFixtureParity
+    [ "parser-corpus-0109",
+      "parser-corpus-0110",
+      "parser-corpus-0111",
+      "parser-corpus-0112",
+      "parser-corpus-0113",
+      "parser-corpus-0114",
+      "parser-corpus-0115",
+      "parser-corpus-0116",
+      "parser-corpus-0117",
+      "parser-corpus-0118",
+      "parser-corpus-0119",
+      "parser-corpus-0120",
+      "parser-corpus-0121",
+      "parser-corpus-0122",
+      "parser-corpus-0123",
+      "parser-corpus-0124",
+      "parser-corpus-0125",
+      "parser-corpus-0126",
+      "parser-corpus-0127",
+      "parser-corpus-0128",
+      "parser-corpus-0129",
+      "parser-corpus-0133",
+      "parser-corpus-0134",
+      "parser-corpus-0135",
+      "parser-corpus-0136",
+      "parser-corpus-0137",
+      "parser-corpus-0138",
+      "parser-corpus-0139",
+      "parser-corpus-0140",
+      "parser-corpus-0141",
+      "parser-corpus-0142",
+      "parser-corpus-0143",
+      "parser-corpus-0144",
+      "parser-corpus-0145",
+      "parser-corpus-0146",
+      "parser-corpus-0147",
+      "parser-corpus-0148",
+      "parser-corpus-0150",
+      "parser-corpus-0151",
+      "parser-corpus-0152",
+      "parser-corpus-0153",
+      "parser-corpus-0154",
+      "parser-corpus-0155",
+      "parser-corpus-0156",
+      "parser-corpus-0157",
+      "parser-corpus-0158",
+      "parser-corpus-0159",
+      "parser-corpus-0235",
+      "parser-corpus-0306"
+    ]
+  mapM_
+    (uncurry assertStage0Parity)
+    [ ( "registers duplicate aliases idempotently",
+        "import A as Alias. import B as Alias. Alias::value."
+      ),
+      ( "pre-collects aliases in a module body and inherits them in nested blocks",
+        "module App { result = { Math::answer. }. import Lib::Math as Math. }"
+      ),
+      ( "does not collect a nested block qualifier into its enclosing scope",
+        "result = { Local::answer. }. Local::answer."
+      )
     ]
 
 assertFixtureParity :: Text.Text -> IO ()
