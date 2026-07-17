@@ -26,6 +26,10 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.Lexer
   ( tokenizeDetailed,
   )
+import JazzNext.Compiler.Parser.FixtureCorpus
+  ( ParserFixture (..),
+    parserFixtureCorpus,
+  )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -50,7 +54,8 @@ tests =
     ("preserves landed binding and expression statement dispatch", testFoundationalDispatch),
     ("constructs the recursive signature parser lazily", testDirectSignatureType),
     ("matches stage 0 signature type and fallback behavior", testSignatureParity),
-    ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity)
+    ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity),
+    ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity)
   ]
 
 testTokenRemaining :: IO ()
@@ -167,6 +172,57 @@ testExplicitTypeApplicationParity =
       ("missing type application argument", "value = id @ 1. value."),
       ("empty applied type argument list", "value = id @Maybe(). value.")
     ]
+
+testTypeDeclarationParity :: IO ()
+testTypeDeclarationParity = do
+  mapM_
+    assertFixtureParity
+    [ "parser-corpus-0064",
+      "parser-corpus-0065",
+      "parser-corpus-0066",
+      "parser-corpus-0067",
+      "parser-corpus-0068",
+      "parser-corpus-0069",
+      "parser-corpus-0070",
+      "parser-corpus-0071",
+      "parser-corpus-0072",
+      "parser-corpus-0052",
+      "parser-corpus-0053",
+      "parser-corpus-0054",
+      "parser-corpus-0055",
+      "parser-corpus-0056",
+      "parser-corpus-0057",
+      "parser-corpus-0058",
+      "parser-corpus-0059",
+      "parser-corpus-0060",
+      "parser-corpus-0061",
+      "parser-corpus-0062",
+      "parser-corpus-0104",
+      "parser-corpus-0105",
+      "parser-corpus-0106",
+      "parser-corpus-0107",
+      "parser-corpus-0108",
+      "types-declarations-modules-foundational-impl-method"
+    ]
+  mapM_
+    (uncurry assertStage0Parity)
+    [ ("requires uppercase data type names", "data thing = Thing."),
+      ("requires uppercase data constructor names", "data Thing = thing."),
+      ("rejects mismatched constructor argument delimiters", "data Thing a = Thing (a]."),
+      ("rejects unclosed constructor argument delimiters", "data Thing a = Thing [a."),
+      ("requires uppercase class names", "class eq(a) { }."),
+      ("requires uppercase impl names", "impl eq(Int) { }."),
+      ("rejects unclosed capability headers", "class Eq(a { }."),
+      ("rejects nested data declarations", "{ data Thing = Thing. }."),
+      ("preserves nested class declaration behavior", "{ class Eq(a) { }. }."),
+      ("preserves nested impl declaration behavior", "{ impl Eq(Int) { }. }.")
+    ]
+
+assertFixtureParity :: Text.Text -> IO ()
+assertFixtureParity fixtureName =
+  case filter ((== fixtureName) . parserFixtureName) parserFixtureCorpus of
+    [fixture] -> assertStage0Parity fixtureName (parserFixtureSource fixture)
+    fixtures -> failTest (fixtureName <> ": expected one fixture, found " <> Text.pack (show (length fixtures)))
 
 assertStage0Parity :: Text.Text -> Text.Text -> IO ()
 assertStage0Parity label source = do

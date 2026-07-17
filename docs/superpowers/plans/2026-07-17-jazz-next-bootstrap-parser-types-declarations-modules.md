@@ -408,12 +408,14 @@ type application, including lossless unsupported-signature fallback.
 **Files:**
 
 - Modify: `jazz-next/jazz/compiler/ParserDeclaration.jz`
+- Modify: `jazz-next/jazz-next.cabal`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs`
 
 **Produces:** Complete stage-0 surface values and structured failures for this
 child’s type/abstraction declarations, without adding later expression forms.
 
-- [ ] **Step 1: Add failing declaration-owner tests.**
+- [x] **Step 1: Add failing declaration-owner tests.**
 
   Derive cases from the design’s 9 data, 11 class, and 5 impl family members.
   Cover success values and retained spans as well as parameter validation,
@@ -421,14 +423,14 @@ child’s type/abstraction declarations, without adding later expression forms.
   delimiter failures, illegal scope, impl target validation, and impl method
   expressions through the injected callback.
 
-- [ ] **Step 2: Implement one declaration family at a time.**
+- [x] **Step 2: Implement one declaration family at a time.**
 
   Add data, then class, then impl parsing under `ParserDeclaration`, running
   the focused suite after each family. Build only existing `ParserTypes`
   constructors. The foundational impl fixture must stay within landed
   expression grammar; do not pull control flow, patterns, or operators forward.
 
-- [ ] **Step 3: Verify the owner and affected parity subset.**
+- [x] **Step 3: Verify the owner and affected parity subset.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-parity-spec --test-show-details=failures
@@ -437,10 +439,10 @@ child’s type/abstraction declarations, without adding later expression forms.
   Expected: the focused signature/type/data/class/impl cases match stage 0.
   Module/import/export behavior remains assigned to Task 5.
 
-- [ ] **Step 4: Commit the declaration milestone.**
+- [x] **Step 4: Commit the declaration milestone.**
 
   ```bash
-  git add jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  git add jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs jazz-next/jazz-next.cabal docs/superpowers/plans/2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules.md
   git commit -m "feat: parse hosted type declarations"
   ```
 

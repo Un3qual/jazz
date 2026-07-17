@@ -378,6 +378,7 @@ test-suite jazz-parser-types-declarations-modules-spec
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
       JazzNext.Compiler.Bootstrap.CanonicalParserComparison
       JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Parser.FixtureCorpus
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
