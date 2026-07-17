@@ -47,7 +47,7 @@ tests =
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
     ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
-    ("rejects simple signatures only in declaration-capable scopes", testSignatureBoundary)
+    ("rejects simple signatures in every statement scope", testSignatureBoundary)
   ]
 
 testPredicateConsumption :: IO ()
@@ -292,10 +292,18 @@ testSignatureBoundary =
         | other -> False
       }
     , parseComponentTokens "Alias::member."
-    , parseComponentTokens "{ value::Int. }."
+    , case parseComponentTokens "{ value::Int. }." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , case parseComponentTokens "{ Result::a. }." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , parseComponentTokens "{ Alias::member. }."
     )
     """
-    "(True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"value\", \"Int\"))]))])))"
+    "(True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do

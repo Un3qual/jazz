@@ -142,10 +142,8 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenIdentifier.
 
-  simpleSignatureStart :: Bool -> TokenParser(Maybe(CanonicalToken)).
-  simpleSignatureStart = \(allowsDeclarations) -> if allowsDeclarations then
-    tokenLookAhead (tokenOptional (tokenAttempt simpleSignatureCandidate))
-    else tokenSucceed Nothing.
+  simpleSignatureStart :: TokenParser(Maybe(CanonicalToken)).
+  simpleSignatureStart = tokenLookAhead (tokenOptional (tokenAttempt simpleSignatureCandidate)).
 
   isReservedBindingName :: Text -> Bool.
   isReservedBindingName = \(name) -> if name == "True" then True else name == "False".
@@ -203,7 +201,7 @@ module ParserProgram (value parseFoundationalProgram) {
           | Just separatorToken -> rejectUnsupportedSignature separatorToken
           | Nothing -> parseExpressionStatement parseBlock
         })
-        (simpleSignatureStart allowsDeclarations)
+        simpleSignatureStart
     })
     (unsupportedDeclarationStart allowsDeclarations).
 
