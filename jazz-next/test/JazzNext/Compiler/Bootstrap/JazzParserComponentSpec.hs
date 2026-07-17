@@ -375,10 +375,14 @@ testMatchingBindingSignatureBoundary =
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::a Other = 0. Result = 1.") 7
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value) Other = 0. Result = 1.") 7
     , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::(value) Other = 0. Result = 1. }.") 9
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int -> Other = 0. value = 1.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Int -> Other = 0. value = 1. }.") 8
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::[Int] Other = 0. value = 1.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value) -> Other = 0. Result = 1.") 7
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value). Result = 1.") 7
     )
     """
-    "(True, True, True, True, True, True, True, True, False, False, False, True)"
+    "(True, True, True, True, True, True, True, True, False, False, False, False, False, False, False, True)"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do

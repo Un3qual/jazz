@@ -148,6 +148,7 @@ expressionFoundationFixtureNames =
     "expression-foundation-identifier-operator-precedence",
     "expression-foundation-nested-identifier-operator-tier",
     "expression-foundation-parenthesized-signature-statement-boundary",
+    "expression-foundation-signature-syntax-statement-boundary",
     "expression-foundation-empty-program",
     "expression-foundation-empty-block",
     "expression-foundation-grouped-name",
@@ -2594,6 +2595,12 @@ expressionFoundationFixtures =
       "parenthesized-signature-statement-boundary"
       """
       Result::(value) Other = 0. Result = 1.
+      """
+      ParserRejected,
+    fixture
+      "signature-syntax-statement-boundary"
+      """
+      value::Int -> Other = 0. value = 1.
       """
       ParserRejected,
     fixture "empty-program" "" ParserAccepted,
