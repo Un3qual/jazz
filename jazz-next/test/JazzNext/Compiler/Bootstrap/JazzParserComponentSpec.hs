@@ -291,7 +291,7 @@ testProgramBoundaryFailures =
     "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"class\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"impl\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
 
 testOperatorDeclarationBoundary :: IO ()
-testOperatorDeclarationBoundary =
+testOperatorDeclarationBoundary = do
   assertJazzOutput
     "operator declaration boundary"
     """
@@ -301,6 +301,15 @@ testOperatorDeclarationBoundary =
     )
     """
     "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 10)), ExpectedSyntax(\"operator symbol after \\'operator\\'\", FoundToken(IdentifierKind(\"plus\"), \"plus\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 10)), ExpectedSyntax(\"operator symbol after \\'operator\\'\", FoundToken(IdentifierKind(\"plus\"), \"plus\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 3)), DeclarationFailure(DeclarationOutsideAllowedScope(OperatorDeclaration)))))"
+  assertJazzOutput
+    "symbolic operator declaration boundary"
+    """
+    ( isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator %% tier 2.")
+    , isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator + tier 1.")
+    , isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator -> tier 3.")
+    )
+    """
+    "(True, True, True)"
 
 testReservedSignatureBoundary :: IO ()
 testReservedSignatureBoundary =
@@ -364,9 +373,12 @@ testMatchingBindingSignatureBoundary =
     , isCanonicalParserSuccess (parseComponentTokens "Result::a b. Other = 1.")
     , isCanonicalParserSuccess (parseComponentTokens "{ Result::a b. Other = 1. }.")
     , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::a Other = 0. Result = 1.") 7
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value) Other = 0. Result = 1.") 7
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::(value) Other = 0. Result = 1. }.") 9
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value). Result = 1.") 7
     )
     """
-    "(True, True, True, True, True, True, True, True, False)"
+    "(True, True, True, True, True, True, True, True, False, False, False, True)"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
@@ -408,6 +420,15 @@ lookupSource expression sourcePath =
                   isCanonicalParserSuccess = \\(result) -> case result {
                     | CanonicalParserSuccess path expression -> True
                     | CanonicalParserFailure path failure -> False
+                  }.
+                  isExpressionFoundationOperatorDeclarationFailure = \\(result) -> case result {
+                    | CanonicalParserSuccess _ _ -> False
+                    | CanonicalParserFailure _ failure -> case failure {
+                      | ParserFailure code maybeSpan reason -> if code == "E0001" then case reason {
+                        | UnexpectedSyntax encountered expected -> expected == "an expression-foundation statement"
+                        | other -> False
+                      } else False
+                    }
                   }.
                   isExpressionFoundationSignatureFailure = \\(result, expectedColumn) -> case result {
                     | CanonicalParserSuccess _ _ -> False

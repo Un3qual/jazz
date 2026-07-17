@@ -147,6 +147,7 @@ expressionFoundationFixtureNames =
     "expression-foundation-identifier-operator-tier",
     "expression-foundation-identifier-operator-precedence",
     "expression-foundation-nested-identifier-operator-tier",
+    "expression-foundation-parenthesized-signature-statement-boundary",
     "expression-foundation-empty-program",
     "expression-foundation-empty-block",
     "expression-foundation-grouped-name",
@@ -2587,6 +2588,12 @@ expressionFoundationFixtures =
       "nested-identifier-operator-tier"
       """
       { operator plus tier 1. }.
+      """
+      ParserRejected,
+    fixture
+      "parenthesized-signature-statement-boundary"
+      """
+      Result::(value) Other = 0. Result = 1.
       """
       ParserRejected,
     fixture "empty-program" "" ParserAccepted,
