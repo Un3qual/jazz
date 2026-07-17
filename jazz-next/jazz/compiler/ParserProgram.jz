@@ -4,11 +4,13 @@ module ParserProgram (value parseFoundationalProgram) {
     IdentifierKind,
     PunctuationKind,
     EqualsPunctuation,
+    DoubleColonPunctuation,
     DotPunctuation,
     AtPunctuation,
     LeftBracePunctuation,
     RightBracePunctuation
   ).
+  import Char (charIsUpper).
   import List (listPrepend, listReverse).
   import Maybe.
   import ParserExpression (parseFoundationalExpression).
@@ -17,6 +19,7 @@ module ParserProgram (value parseFoundationalProgram) {
     canonicalTokenKind,
     canonicalTokenSpan,
     canonicalTokenEncountered,
+    tokensAreAdjacent,
     tokenSucceed,
     tokenTransform,
     tokenAndThen,
@@ -31,6 +34,7 @@ module ParserProgram (value parseFoundationalProgram) {
     tokenIdentifier,
     tokenPunctuation
   ).
+  import Text (textLength, textUncons).
   # Complete ParserTypes imports are required while explicit import lists do
   # not expose the surface type names used by recursive grammar signatures.
   import ParserTypes.
@@ -100,6 +104,49 @@ module ParserProgram (value parseFoundationalProgram) {
       tokenPeek
     else tokenSucceed Nothing.
 
+  identifierStartsUpper :: Text -> Bool.
+  identifierStartsUpper = \(name) -> case textUncons name {
+    | Just (first, rest) -> charIsUpper first
+    | Nothing -> False
+  }.
+
+  isSimpleSignatureNamePair :: Text -> Text -> Bool.
+  isSimpleSignatureNamePair = \(name, typeName) -> if identifierStartsUpper name then
+    if identifierStartsUpper typeName then True else textLength typeName == 1
+    else True.
+
+  simpleSignatureCandidate :: TokenParser(CanonicalToken).
+  simpleSignatureCandidate = tokenAndThen
+    (\(nameToken) -> case canonicalTokenKind nameToken {
+      | IdentifierKind name -> tokenAndThen
+        (\(separatorToken) -> tokenAndThen
+          (\(typeToken) -> case canonicalTokenKind typeToken {
+            | IdentifierKind typeName -> if tokensAreAdjacent nameToken separatorToken then
+              if tokensAreAdjacent separatorToken typeToken then
+                if isSimpleSignatureNamePair name typeName then
+                  tokenKeepRight
+                    (tokenPunctuation DotPunctuation)
+                    (tokenSucceed separatorToken)
+                  else tokenFailAtSpan
+                    (canonicalTokenSpan nameToken)
+                    (ExpectedSyntax "simple signature declaration" (canonicalTokenEncountered (Just nameToken)))
+                else tokenFailAtSpan
+                  (canonicalTokenSpan typeToken)
+                  (ExpectedSyntax "adjacent signature type" (canonicalTokenEncountered (Just typeToken)))
+              else tokenFailAtSpan
+                (canonicalTokenSpan separatorToken)
+                (ExpectedSyntax "adjacent signature separator" (canonicalTokenEncountered (Just separatorToken)))
+          })
+          tokenIdentifier)
+        (tokenPunctuation DoubleColonPunctuation)
+    })
+    tokenIdentifier.
+
+  simpleSignatureStart :: Bool -> TokenParser(Maybe(CanonicalToken)).
+  simpleSignatureStart = \(allowsDeclarations) -> if allowsDeclarations then
+    tokenLookAhead (tokenOptional (tokenAttempt simpleSignatureCandidate))
+    else tokenSucceed Nothing.
+
   isReservedBindingName :: Text -> Bool.
   isReservedBindingName = \(name) -> if name == "True" then True else name == "False".
 
@@ -142,11 +189,21 @@ module ParserProgram (value parseFoundationalProgram) {
       (InternalParserFailure TokenStreamParseFailure)
   }.
 
+  rejectUnsupportedSignature :: CanonicalToken -> TokenParser(SurfaceStatement).
+  rejectUnsupportedSignature = \(separatorToken) -> tokenFailAtSpan
+    (canonicalTokenSpan separatorToken)
+    (UnexpectedSyntax (canonicalTokenEncountered (Just separatorToken)) "an expression-foundation statement").
+
   parseNonBindingStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseNonBindingStatement = \(allowsDeclarations, parseBlock) -> tokenAndThen
     (\(declarationStart) -> case declarationStart {
       | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
-      | Nothing -> parseExpressionStatement parseBlock
+      | Nothing -> tokenAndThen
+        (\(signatureStart) -> case signatureStart {
+          | Just separatorToken -> rejectUnsupportedSignature separatorToken
+          | Nothing -> parseExpressionStatement parseBlock
+        })
+        (simpleSignatureStart allowsDeclarations)
     })
     (unsupportedDeclarationStart allowsDeclarations).
 

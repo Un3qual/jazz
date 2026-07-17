@@ -46,7 +46,8 @@ tests =
     ("parses empty and populated programs through both facades", testProgramFacades),
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
-    ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures)
+    ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
+    ("rejects simple signatures only in declaration-capable scopes", testSignatureBoundary)
   ]
 
 testPredicateConsumption :: IO ()
@@ -281,6 +282,21 @@ testProgramBoundaryFailures =
     """
     "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"class\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"impl\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
 
+testSignatureBoundary :: IO ()
+testSignatureBoundary =
+  assertJazzOutput
+    "signature boundary"
+    """
+    ( case parseComponentTokens "value::Int." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , parseComponentTokens "Alias::member."
+    , parseComponentTokens "{ value::Int. }."
+    )
+    """
+    "(True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"value\", \"Int\"))]))])))"
+
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
   result <-
@@ -310,7 +326,7 @@ lookupSource expression sourcePath =
                   import Parser (parseSource, parseTokens).
                   import ParserExpression (parseFoundationalExpression).
                   import ParserToken.
-                  import ParserTypes (ParserFailure, ExpectedSyntax, EndOfInput, TokenStreamParseFailure).
+                  import ParserTypes (ParserFailure, ExpectedSyntax, EndOfInput, TokenStreamParseFailure, CanonicalParserFailure).
                   expressionBlockFailure = tokenFailAt Nothing (ExpectedSyntax "block" EndOfInput).
                   componentPath = CanonicalSourcePath "fixtures/parser/component.jz".
                   expressionTokens = \\(source) -> case lexSource (CanonicalSourcePath "fixtures/parser/component.jz") source {

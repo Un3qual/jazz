@@ -353,7 +353,11 @@ testParserFixtureCorpusWellFormed = do
         [ "parser-corpus-" <> Text.justifyRight 4 '0' (showText index)
           | index <- [1 :: Int .. 312]
         ]
-      expressionFoundationNames = drop 26 (parserFixtureFamilyNames ExpressionFoundation)
+      existingNames = Set.fromList (focusedNames <> observedNames)
+      expressionFoundationNames =
+        filter
+          (`Set.notMember` existingNames)
+          (parserFixtureFamilyNames ExpressionFoundation)
   assertEqual "corpus is nonempty" False (null parserFixtureCorpus)
   assertEqual "fixture names are unique" (length names) (Set.size (Set.fromList names))
   assertEqual
