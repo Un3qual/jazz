@@ -1,10 +1,10 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001
-status: proposed
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001
 last_verified: 2026-07-17
@@ -210,20 +210,20 @@ continues to enforce its tighter ceilings.
 **Produces:** One executor-safe `Ready Now` row aligned with the reviewed
 design and this plan. No implementation file changes in this milestone.
 
-- [ ] **Step 1: Mark the approved plan executable.**
+- [x] **Step 1: Mark the approved plan executable.**
 
   Change only `status` from `proposed` to `ready` and `autonomous_ready` from
   `no` to `yes`. Keep the child ID, dependency, deliverable, target paths,
   verification, and plan section unchanged.
 
-- [ ] **Step 2: Promote only this child.**
+- [x] **Step 2: Promote only this child.**
 
   Move the current candidate from `Next Curation Target` to `Ready Now` using
   the plan frontmatter verbatim. Update the bootstrap blocker and executor
   status to name this child as active. Keep control-flow/patterns and
   operators/full parity unpromoted.
 
-- [ ] **Step 3: Validate and commit the promotion.**
+- [x] **Step 3: Validate and commit the promotion.**
 
   Run:
 

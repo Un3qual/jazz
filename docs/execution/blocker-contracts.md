@@ -74,32 +74,34 @@ Each blocked item should answer these questions:
   before the unified `Diagnostic`, uses canonical lexer tokens as the primary
   input, and starts with a generic compiler-local parser kernel. Existing Jazz
   collection/text APIs are sufficient.
-- Smallest unblocker: design and plan
+- Smallest unblocker: implement
   `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`, the accepted
-  parser design's third ordered child. Keep it in `Next Curation Target` until
-  written review fixes its executable boundary.
-- Decision needed: fix the exact named fixture family, declaration/module
-  grammar ownership, grammar-context state, unsupported-signature fallback
-  parity, scale evidence, and focused verification for the next child.
-- Recommended default: extend the landed compiler-local parser stack with
+  parser design's third ordered child. Its reviewed design and implementation
+  plan fix the executable boundary, and it is the sole `Ready Now` row.
+- Decision needed: none for this child. The exact 101-case family,
+  declaration/module ownership, immutable grammar context, lossless
+  unsupported-signature fallback, 513-statement scale profile, and focused
+  verification are fixed by the reviewed contract.
+- Recommended default: execute the landed compiler-local parser extension with
   signatures, explicit type applications, data/class/impl declarations,
   module headers, imports, and exports. Preserve the fixed surface schema and
   stage-0 declaration diagnostics; do not absorb control flow or operators.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`.
-  It is the sole next curation target, not an active executor row.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`
+  is the active executor row, not a curation candidate.
   Control-flow/patterns and operator/full-parity children remain ordered and
   unpromoted.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
   `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
-  the completed foundation and expression-foundation plans, the accepted
-  parser design, compiler-local parser modules, focused bootstrap parity
-  support, the shared fixture manifest, and `jazz-next/jazz-next.cabal`.
-- Verification: written child design and plan review followed by queue/docs
-  validators and `git diff --check` before promotion. The implementation plan
-  must then name exact focused parity, warning-clean build, full-suite, and
-  deterministic scale gates.
+  the completed foundation and expression-foundation plans, the reviewed
+  types/declarations/modules design and plan, compiler-local parser modules,
+  focused bootstrap parity support, the shared fixture manifest, and
+  `jazz-next/jazz-next.cabal`.
+- Verification: the exact focused component/parity suites, both deterministic
+  scale profiles, warning-clean development build, full Cabal suite,
+  `repository-audit-spec`, Cabal metadata, queue/docs validators, and
+  `git diff --check` named in the active implementation plan.
 - Not in scope: control flow, patterns, operators, full-corpus parity, a public
   stdlib parser API, parser-specific host intrinsics or Haskell callbacks,
   recovery or partial ASTs, canonical core, bytecode or a VM, lowered IR, LLVM
