@@ -359,12 +359,14 @@ with all landed expression behavior preserved and no new grammar yet.
 - Create: `jazz-next/jazz/compiler/ParserSignature.jz`
 - Modify: `jazz-next/jazz/compiler/ParserDeclaration.jz`
 - Modify: `jazz-next/jazz/compiler/ParserExpression.jz`
+- Modify: `jazz-next/jazz-next.cabal`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs`
 
 **Produces:** One type grammar shared by signature statements and expression
 type application, including lossless unsupported-signature fallback.
 
-- [ ] **Step 1: Add focused failing behavior tests.**
+- [x] **Step 1: Add focused failing behavior tests.**
 
   Cover primitive and numeric-width types, variables and named types, adjacent
   named application, `List(a)` normalization, list/tuple/unit types,
@@ -376,7 +378,7 @@ type application, including lossless unsupported-signature fallback.
   application tails, adjacency, intervening whitespace, incomplete types, and
   the exact stage-0 structured failures.
 
-- [ ] **Step 2: Implement the shared signature owner.**
+- [x] **Step 2: Implement the shared signature owner.**
 
   Delimit a signature payload in `ParserDeclaration`, interpret it in
   `ParserSignature`, and preserve unsupported tokens rather than rejecting the
@@ -384,7 +386,7 @@ type application, including lossless unsupported-signature fallback.
   `ParserExpression`. Keep matching-binding checks and terminators in the
   declaration owner.
 
-- [ ] **Step 3: Verify focused behavior and landed regressions.**
+- [x] **Step 3: Verify focused behavior and landed regressions.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-component-spec jazz-parser-parity-spec --test-show-details=failures
@@ -394,10 +396,10 @@ type application, including lossless unsupported-signature fallback.
   stage 0; existing hosted expression parity remains green. Declaration and
   module behavior stays assigned to Tasks 4 and 5.
 
-- [ ] **Step 4: Commit the grammar slice.**
+- [x] **Step 4: Commit the grammar slice.**
 
   ```bash
-  git add jazz-next/jazz/compiler/ParserSignature.jz jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/jazz/compiler/ParserExpression.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  git add jazz-next/jazz/compiler/ParserSignature.jz jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/jazz/compiler/ParserExpression.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs jazz-next/jazz-next.cabal docs/superpowers/plans/2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules.md
   git commit -m "feat: parse hosted signatures and type applications"
   ```
 

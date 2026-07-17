@@ -23,11 +23,14 @@ module ParserDeclaration (value parseStatementWithContext) {
     CommaPunctuation
   ).
   import Char (charIsUpper).
+  import List (listPrepend, listReverse).
   import Maybe.
   import ParserContext.
+  import ParserSignature (parseSignaturePayload).
   import ParserToken (
     TokenParser,
     canonicalTokenKind,
+    canonicalTokenLexeme,
     canonicalTokenSpan,
     canonicalTokenEncountered,
     tokensAreAdjacent,
@@ -53,13 +56,21 @@ module ParserDeclaration (value parseStatementWithContext) {
   import ParserTypes.
 
   bindingCandidate :: TokenParser(CanonicalToken).
-  bindingCandidate = tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation).
+  bindingCandidate = tokenAndThen
+    (\(nameToken) -> tokenKeepRight
+      (tokenPunctuation EqualsPunctuation)
+      (tokenSucceed nameToken))
+    tokenIdentifier.
 
   bindingStart :: TokenParser(Maybe(CanonicalToken)).
   bindingStart = tokenLookAhead (tokenOptional (tokenAttempt bindingCandidate)).
 
   signatureShapeCandidate :: TokenParser(CanonicalToken).
-  signatureShapeCandidate = tokenKeepRight tokenIdentifier (tokenPunctuation DoubleColonPunctuation).
+  signatureShapeCandidate = tokenAndThen
+    (\(nameToken) -> tokenKeepRight
+      (tokenPunctuation DoubleColonPunctuation)
+      (tokenSucceed nameToken))
+    tokenIdentifier.
 
   parenthesizedOperatorStatementCandidate :: TokenParser(CanonicalToken).
   parenthesizedOperatorStatementCandidate = tokenKeepRight
@@ -439,21 +450,47 @@ module ParserDeclaration (value parseStatementWithContext) {
       (InternalParserFailure TokenStreamParseFailure)
   }.
 
-  rejectUnsupportedSignature :: (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
-  rejectUnsupportedSignature = \(candidate) -> case candidate {
-    | (nameToken, separatorToken) -> case canonicalTokenKind nameToken {
+  collectSignaturePayloadToken :: [CanonicalToken] -> TokenParser([CanonicalToken]).
+  collectSignaturePayloadToken = \(reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> tokenSucceed (listReverse reversed)
+        | other -> tokenKeepRight anyToken (collectSignaturePayload (listPrepend token reversed))
+      }
+    })
+    tokenPeek.
+
+  collectSignaturePayload :: [CanonicalToken] -> TokenParser([CanonicalToken]).
+  collectSignaturePayload = \(reversed) -> case reversed {
+    | [] -> collectSignaturePayloadToken reversed
+    | [first | rest] -> tokenAndThen
+      (\(statementBoundary) -> case statementBoundary {
+        | Just token -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'.'" (BeforeToken (canonicalTokenKind token) (canonicalTokenLexeme token) Nothing))
+        | Nothing -> collectSignaturePayloadToken reversed
+      })
+      signaturePayloadStatementBoundaryStart
+  }.
+
+  parseSignature :: TokenParser(SurfaceStatement).
+  parseSignature = tokenAndThen
+    (\(nameToken) -> case canonicalTokenKind nameToken {
       | IdentifierKind name -> if isReservedLiteralName name then
         tokenFailAtSpan
           (canonicalTokenSpan nameToken)
           (DeclarationFailure (ReservedLiteralName BindingName name))
-        else tokenFailAtSpan
-          (canonicalTokenSpan separatorToken)
-          (UnexpectedSyntax (canonicalTokenEncountered (Just separatorToken)) "an expression-foundation statement")
-      | other -> tokenFailAtSpan
-        (canonicalTokenSpan nameToken)
-        (InternalParserFailure TokenStreamParseFailure)
-    }
-  }.
+        else tokenKeepRight
+          (tokenPunctuation DoubleColonPunctuation)
+          (tokenAndThen
+            (\(payloadTokens) -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenSucceed
+                (SignatureStatement name (canonicalTokenSpan nameToken) (parseSignaturePayload payloadTokens))))
+            (collectSignaturePayload []))
+    })
+    tokenIdentifier.
 
   rejectOperatorDeclaration :: Bool -> (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
   rejectOperatorDeclaration = \(nestedBlock, candidate) -> case candidate {
@@ -486,7 +523,7 @@ module ParserDeclaration (value parseStatementWithContext) {
           | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
           | Nothing -> tokenAndThen
             (\(signatureStart) -> case signatureStart {
-              | Just candidate -> rejectUnsupportedSignature candidate
+              | Just candidate -> parseSignature
               | Nothing -> parseExpressionStatement parseExpression context
             })
             signatureBoundaryStart

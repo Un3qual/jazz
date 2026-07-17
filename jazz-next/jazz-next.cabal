@@ -375,6 +375,9 @@ test-suite jazz-parser-types-declarations-modules-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
   other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
