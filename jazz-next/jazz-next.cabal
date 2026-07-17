@@ -370,6 +370,15 @@ test-suite jazz-parser-component-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-parser-types-declarations-modules-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  other-modules:
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite jazz-parser-parity-spec
   import: test-common
   type: exitcode-stdio-1.0

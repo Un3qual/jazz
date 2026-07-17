@@ -1,4 +1,7 @@
-module ParserExpression (value parseFoundationalExpression) {
+module ParserExpression (
+  value parseFoundationalExpression,
+  value parseFoundationalExpressionWithContext
+) {
   import Char (charToUInt32).
   import LexerTypes (
     CanonicalToken,
@@ -18,6 +21,7 @@ module ParserExpression (value parseFoundationalExpression) {
   ).
   import List (listPrepend, listReverse).
   import Maybe.
+  import ParserContext.
   import ParserToken (
     ParserGrammarFailure,
     TokenParser,
@@ -322,9 +326,13 @@ module ParserExpression (value parseFoundationalExpression) {
     })
     tokenPeek.
 
-  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpression = \(parseBlock) -> {
-    primary = parsePrimary (\() -> parseFoundationalExpression parseBlock) parseBlock.
+  parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpressionWithContext = \(context, parseBlock) -> {
+    primary = parsePrimary (\() -> parseFoundationalExpressionWithContext context parseBlock) parseBlock.
     tokenAndThen (\(first) -> parseApplicationTail primary first) primary.
   }.
+
+  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpression = \(parseBlock) ->
+    parseFoundationalExpressionWithContext parserContextInitial parseBlock.
 }

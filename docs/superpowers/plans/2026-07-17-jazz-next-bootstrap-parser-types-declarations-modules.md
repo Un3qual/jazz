@@ -306,7 +306,7 @@ Task 6 activates the hosted whole-family gate after all grammar owners land.
 **Produces:** The accepted ownership boundaries and recursive callback seam,
 with all landed expression behavior preserved and no new grammar yet.
 
-- [ ] **Step 1: Register focused tests for the new module seams.**
+- [x] **Step 1: Register focused tests for the new module seams.**
 
   Add the `jazz-parser-types-declarations-modules-spec` component. Its first
   tests must compile through the real module graph and cover:
@@ -320,13 +320,13 @@ with all landed expression behavior preserved and no new grammar yet.
   Run the new suite and record the expected failure caused by the missing
   modules/interfaces.
 
-- [ ] **Step 2: Add the token snapshot and immutable context owner.**
+- [x] **Step 2: Add the token snapshot and immutable context owner.**
 
   Implement only the stable contracts in the interface table. Keep the token
   snapshot non-consuming. Keep context limited to statement mode and visible
   aliases; do not add operator state.
 
-- [ ] **Step 3: Move, do not duplicate, landed statement dispatch.**
+- [x] **Step 3: Move, do not duplicate, landed statement dispatch.**
 
   Transfer binding/expression/signature-boundary classification from
   `ParserProgram` into `ParserDeclaration`. Thread context through
@@ -334,7 +334,7 @@ with all landed expression behavior preserved and no new grammar yet.
   preserving current output and failure values. Remove the old parallel
   classifiers after their new owner is green.
 
-- [ ] **Step 4: Run refactor regression gates.**
+- [x] **Step 4: Run refactor regression gates.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-component-spec jazz-parser-parity-spec jazz-parser-scale-spec parser-core-spec token-parser-spec --test-show-details=failures
@@ -345,7 +345,7 @@ with all landed expression behavior preserved and no new grammar yet.
   101-case hosted whole-family gate remains intentionally inactive until Task
   6; new behavior is driven by the focused suite in the meantime.
 
-- [ ] **Step 5: Commit the behavior-preserving split.**
+- [x] **Step 5: Commit the behavior-preserving split.**
 
   ```bash
   git add jazz-next/jazz/compiler/ParserToken.jz jazz-next/jazz/compiler/ParserContext.jz jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/jazz/compiler/ParserExpression.jz jazz-next/jazz/compiler/ParserProgram.jz jazz-next/jazz/compiler/Parser.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs jazz-next/jazz-next.cabal
