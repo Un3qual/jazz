@@ -142,6 +142,8 @@ expressionFoundationFixtureNames =
     "parser-corpus-0041",
     "expression-foundation-reserved-true-signature",
     "expression-foundation-reserved-false-signature",
+    "expression-foundation-spaced-reserved-true-signature",
+    "expression-foundation-spaced-reserved-false-signature",
     "expression-foundation-identifier-operator-tier",
     "expression-foundation-identifier-operator-precedence",
     "expression-foundation-nested-identifier-operator-tier",
@@ -2555,6 +2557,18 @@ expressionFoundationFixtures =
       "reserved-false-signature"
       """
       False::Int.
+      """
+      ParserRejected,
+    fixture
+      "spaced-reserved-true-signature"
+      """
+      True :: Int.
+      """
+      ParserRejected,
+    fixture
+      "spaced-reserved-false-signature"
+      """
+      False:: Int.
       """
       ParserRejected,
     fixture

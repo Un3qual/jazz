@@ -309,9 +309,11 @@ testReservedSignatureBoundary =
     """
     ( parseComponentTokens "True::Int."
     , parseComponentTokens "False::Int."
+    , parseComponentTokens "True :: Int."
+    , parseComponentTokens "False:: Int."
     )
     """
-    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))))"
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))))"
 
 testSignatureBoundary :: IO ()
 testSignatureBoundary =

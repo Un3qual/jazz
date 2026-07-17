@@ -165,6 +165,9 @@ module ParserProgram (value parseFoundationalProgram) {
     | other -> False
   }.
 
+  isReservedLiteralName :: Text -> Bool.
+  isReservedLiteralName = \(name) -> if name == "True" then True else name == "False".
+
   nextStatementStartsMatchingBinding :: Text -> TokenParser(()).
   nextStatementStartsMatchingBinding = \(name) -> tokenKeepRight
     (tokenPunctuation DotPunctuation)
@@ -197,32 +200,31 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenPeek.
 
-  compactSignatureCandidate :: TokenParser((CanonicalToken, CanonicalToken)).
-  compactSignatureCandidate = tokenAndThen
+  signatureBoundaryCandidate :: TokenParser((CanonicalToken, CanonicalToken)).
+  signatureBoundaryCandidate = tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
       | IdentifierKind name -> tokenAndThen
-        (\(separatorToken) -> tokenAndThen
-          (\(typeToken) -> case canonicalTokenKind typeToken {
-            | IdentifierKind typeName -> if tokensAreAdjacent nameToken separatorToken then
-              if tokensAreAdjacent separatorToken typeToken then
-                signaturePayloadBoundary name typeName nameToken separatorToken
+        (\(separatorToken) -> if isReservedLiteralName name then
+          tokenSucceed (nameToken, separatorToken)
+          else tokenAndThen
+            (\(typeToken) -> case canonicalTokenKind typeToken {
+              | IdentifierKind typeName -> if tokensAreAdjacent nameToken separatorToken then
+                if tokensAreAdjacent separatorToken typeToken then
+                  signaturePayloadBoundary name typeName nameToken separatorToken
+                  else tokenFailAtSpan
+                    (canonicalTokenSpan typeToken)
+                    (ExpectedSyntax "adjacent signature type" (canonicalTokenEncountered (Just typeToken)))
                 else tokenFailAtSpan
-                  (canonicalTokenSpan typeToken)
-                  (ExpectedSyntax "adjacent signature type" (canonicalTokenEncountered (Just typeToken)))
-              else tokenFailAtSpan
-                (canonicalTokenSpan separatorToken)
-                (ExpectedSyntax "adjacent signature separator" (canonicalTokenEncountered (Just separatorToken)))
-          })
-          tokenIdentifier)
+                  (canonicalTokenSpan separatorToken)
+                  (ExpectedSyntax "adjacent signature separator" (canonicalTokenEncountered (Just separatorToken)))
+            })
+            tokenIdentifier)
         (tokenPunctuation DoubleColonPunctuation)
     })
     tokenIdentifier.
 
-  compactSignatureStart :: TokenParser(Maybe((CanonicalToken, CanonicalToken))).
-  compactSignatureStart = tokenLookAhead (tokenOptional (tokenAttempt compactSignatureCandidate)).
-
-  isReservedLiteralName :: Text -> Bool.
-  isReservedLiteralName = \(name) -> if name == "True" then True else name == "False".
+  signatureBoundaryStart :: TokenParser(Maybe((CanonicalToken, CanonicalToken))).
+  signatureBoundaryStart = tokenLookAhead (tokenOptional (tokenAttempt signatureBoundaryCandidate)).
 
   parseBinding :: (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
   parseBinding = \(parseBlock) -> tokenAndThen
@@ -302,7 +304,7 @@ module ParserProgram (value parseFoundationalProgram) {
               | Just candidate -> rejectUnsupportedSignature candidate
               | Nothing -> parseExpressionStatement parseBlock
             })
-            compactSignatureStart
+            signatureBoundaryStart
         })
         (unsupportedDeclarationStart nestedBlock)
     })

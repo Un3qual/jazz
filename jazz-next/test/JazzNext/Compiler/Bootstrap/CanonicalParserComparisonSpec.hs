@@ -500,7 +500,7 @@ testExpressionFoundationFamily = do
     case lookupParserFixtureFamily ExpressionFoundation of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "expression family size" 48 (length fixtures)
+  assertEqual "expression family size" 50 (length fixtures)
   assertEqual
     "resolved expression family order"
     expressionFoundationFixtureNames
@@ -556,6 +556,8 @@ expressionFoundationFixtureNames =
     "parser-corpus-0041",
     "expression-foundation-reserved-true-signature",
     "expression-foundation-reserved-false-signature",
+    "expression-foundation-spaced-reserved-true-signature",
+    "expression-foundation-spaced-reserved-false-signature",
     "expression-foundation-identifier-operator-tier",
     "expression-foundation-identifier-operator-precedence",
     "expression-foundation-nested-identifier-operator-tier",
@@ -580,7 +582,7 @@ expressionFoundationFixtureNames =
 
 testCorpusDeterminism :: IO ()
 testCorpusDeterminism = do
-  assertEqual "fixed corpus size" 355 (length parserFixtureCorpus)
+  assertEqual "fixed corpus size" 357 (length parserFixtureCorpus)
   first <- mapM canonicalFixture parserFixtureCorpus
   second <- mapM canonicalFixture parserFixtureCorpus
   assertEqual "manifest-order deterministic rendering" first second
