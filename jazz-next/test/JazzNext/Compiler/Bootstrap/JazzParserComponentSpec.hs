@@ -201,9 +201,13 @@ testCompositeExpressions =
     , parseComponentExpression "[1, True, 'x']"
     , parseComponentExpression "(1, True)"
     , parseComponentExpression "f 1 True"
+    , parseComponentExpression "f 'x'"
+    , parseComponentExpression "f \\\"text\\\""
+    , parseComponentExpression "f (value)"
+    , parseComponentExpression "f []"
     )
     """
-    "(TokenParseSucceeded(TupleExpression([])), TokenParseSucceeded(ListExpression([])), TokenParseSucceeded(ListExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True)), LiteralExpression(CharacterLiteral('x'))])), TokenParseSucceeded(TupleExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True))])), TokenParseSucceeded(ApplyExpression(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(IntegerLiteral(\"1\"))), LiteralExpression(BooleanLiteral(True)))))"
+    "(TokenParseSucceeded(TupleExpression([])), TokenParseSucceeded(ListExpression([])), TokenParseSucceeded(ListExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True)), LiteralExpression(CharacterLiteral('x'))])), TokenParseSucceeded(TupleExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True))])), TokenParseSucceeded(ApplyExpression(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(IntegerLiteral(\"1\"))), LiteralExpression(BooleanLiteral(True)))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(CharacterLiteral('x')))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(TextLiteral(\"text\")))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), VariableExpression(\"value\"))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), ListExpression([]))))"
 
 testExpressionFailures :: IO ()
 testExpressionFailures =
@@ -251,9 +255,10 @@ testRecursiveBlocks =
     """
     ( parseComponentTokens "{}."
     , parseComponentTokens "{{}.} 2."
+    , parseComponentTokens "f {}."
     )
     """
-    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), ApplyExpression(BlockExpression([ExpressionStatement(CanonicalSpan(1, 2), BlockExpression([]))]), LiteralExpression(IntegerLiteral(\"2\"))))])))"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), ApplyExpression(BlockExpression([ExpressionStatement(CanonicalSpan(1, 2), BlockExpression([]))]), LiteralExpression(IntegerLiteral(\"2\"))))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), ApplyExpression(VariableExpression(\"f\"), BlockExpression([])))])))"
 
 testProgramFailures :: IO ()
 testProgramFailures =
@@ -287,43 +292,16 @@ testSignatureBoundary =
   assertJazzOutput
     "signature boundary"
     """
-    ( case parseComponentTokens "value::Int." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "value::Maybe(Int)." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "value::Map[Int]." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
+    ( isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Maybe(Int).") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Map[Int].") 6
     , parseComponentTokens "Alias::member."
-    , case parseComponentTokens "Alias::member (value)." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "Alias::member [value]." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "Alias::member {}." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "{ value::Int. }." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "{ Result::a. }." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
-    , case parseComponentTokens "{ value::Maybe(Int). }." {
-        | CanonicalParserFailure path failure -> True
-        | other -> False
-      }
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member (value).") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member [value].") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member {}.") 6
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Int. }.") 8
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::a. }.") 9
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Maybe(Int). }.") 8
     , parseComponentTokens "{ Alias::member. }."
     )
     """
@@ -354,11 +332,11 @@ lookupSource expression sourcePath =
                 module App::Main {
                   import LexerTypes.
                   import Lexer (lexSource).
-                  import Maybe (Nothing).
+                  import Maybe (Nothing, Just).
                   import Parser (parseSource, parseTokens).
                   import ParserExpression (parseFoundationalExpression).
                   import ParserToken.
-                  import ParserTypes (ParserFailure, ExpectedSyntax, EndOfInput, TokenStreamParseFailure, CanonicalParserFailure).
+                  import ParserTypes (ParserFailure, ExpectedSyntax, UnexpectedSyntax, FoundToken, EndOfInput, TokenStreamParseFailure, CanonicalParserSuccess, CanonicalParserFailure).
                   expressionBlockFailure = tokenFailAt Nothing (ExpectedSyntax "block" EndOfInput).
                   componentPath = CanonicalSourcePath "fixtures/parser/component.jz".
                   expressionTokens = \\(source) -> case lexSource (CanonicalSourcePath "fixtures/parser/component.jz") source {
@@ -366,6 +344,26 @@ lookupSource expression sourcePath =
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).
+                  isExpressionFoundationSignatureFailure = \\(result, expectedColumn) -> case result {
+                    | CanonicalParserSuccess _ _ -> False
+                    | CanonicalParserFailure _ failure -> case failure {
+                      | ParserFailure code maybeSpan reason -> if code == "E0001" then case maybeSpan {
+                        | Nothing -> False
+                        | Just span -> case span {
+                          | CanonicalSpan line column -> if line == 1 then if column == expectedColumn then case reason {
+                            | UnexpectedSyntax encountered expected -> if expected == "an expression-foundation statement" then case encountered {
+                              | FoundToken kind lexeme -> if lexeme == "::" then case kind {
+                                | PunctuationKind DoubleColonPunctuation -> True
+                                | other -> False
+                              } else False
+                              | other -> False
+                            } else False
+                            | other -> False
+                          } else False else False
+                        }
+                      } else False
+                    }
+                  }.
                   __EXPRESSION__.
                 }
 

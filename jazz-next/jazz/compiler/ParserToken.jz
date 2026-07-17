@@ -88,8 +88,12 @@ module ParserToken (
     parserPeek,
     parserTakeIf
   ).
+  # LexerTypes and ParserCore stay selective to avoid constructor collisions
+  # with ParserTypes. Until selective imports expose abstract type names,
+  # canonicalTokenKind, tokenKeyword, tokenPunctuation, and tokenRun remain
+  # inferred at their module boundary.
   # Complete ParserTypes imports keep the exported polymorphic failure
-  # signatures available without importing ParserCore into grammar owners.
+  # signatures available to grammar owners without importing ParserCore.
   import ParserTypes.
   import Text (textLength).
 
@@ -113,11 +117,13 @@ module ParserToken (
     | CanonicalToken kind lexeme span -> span
   }.
 
+  canonicalTokenEncountered :: Maybe(CanonicalToken) -> ParserEncountered.
   canonicalTokenEncountered = \(current) -> case current {
     | Nothing -> EndOfInput
     | Just token -> FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)
   }.
 
+  selectedTokenSpan :: Maybe(CanonicalToken) -> Maybe(CanonicalSpan).
   selectedTokenSpan = \(current) -> case current {
     | Nothing -> Nothing
     | Just token -> Just (canonicalTokenSpan token)
@@ -132,12 +138,15 @@ module ParserToken (
     }
   }.
 
+  tokenSucceed :: value -> TokenParser(value).
   tokenSucceed = \(value) -> TokenParser (parserSucceed value).
 
+  tokenTransform :: (a -> b) -> TokenParser(a) -> TokenParser(b).
   tokenTransform = \(transform, tokenParser) -> case tokenParser {
     | TokenParser parser -> TokenParser (parserTransform transform parser)
   }.
 
+  tokenAndThen :: (a -> TokenParser(b)) -> TokenParser(a) -> TokenParser(b).
   tokenAndThen = \(next, tokenParser) -> case tokenParser {
     | TokenParser parser -> TokenParser (parserAndThen
       (\(value) -> case next value {
@@ -146,12 +155,15 @@ module ParserToken (
       parser)
   }.
 
+  tokenKeepLeft :: TokenParser(a) -> TokenParser(b) -> TokenParser(a).
   tokenKeepLeft = \(left, right) -> tokenAndThen
     (\(leftValue) -> tokenTransform (\(rightValue) -> leftValue) right)
     left.
 
+  tokenKeepRight :: TokenParser(a) -> TokenParser(b) -> TokenParser(b).
   tokenKeepRight = \(left, right) -> tokenAndThen (\(leftValue) -> right) left.
 
+  tokenChoice :: TokenParser(value) -> TokenParser(value) -> TokenParser(value).
   tokenChoice = \(left, right) -> case left {
     | TokenParser leftParser -> case right {
       | TokenParser rightParser -> TokenParser (parserChoice leftParser rightParser)
@@ -168,14 +180,17 @@ module ParserToken (
     | TokenParser parser -> TokenParser (parserOptional parser)
   }.
 
+  tokenLookAhead :: TokenParser(value) -> TokenParser(value).
   tokenLookAhead = \(tokenParser) -> case tokenParser {
     | TokenParser parser -> TokenParser (parserLookAhead parser)
   }.
 
+  tokenMany :: TokenParser(value) -> TokenParser([value]).
   tokenMany = \(tokenParser) -> case tokenParser {
     | TokenParser parser -> TokenParser (parserMany parser)
   }.
 
+  tokenPeek :: TokenParser(Maybe(CanonicalToken)).
   tokenPeek = TokenParser parserPeek.
 
   tokenFailAt :: Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(value).
@@ -184,12 +199,15 @@ module ParserToken (
   tokenFailAtSpan :: CanonicalSpan -> ParserFailureReason -> TokenParser(value).
   tokenFailAtSpan = \(span, reason) -> tokenFailAt (Just span) reason.
 
+  tokenFailCurrent :: (ParserEncountered -> ParserFailureReason) -> TokenParser(value).
   tokenFailCurrent = \(reason) -> tokenAndThen (\(current) -> tokenFailAt (selectedTokenSpan current) (reason (canonicalTokenEncountered current))) tokenPeek.
 
+  tokenTakeIf :: (CanonicalToken -> Bool) -> Text -> TokenParser(CanonicalToken).
   tokenTakeIf = \(predicate, expected) -> tokenAndThen
     (\(current) -> TokenParser (parserTakeIf predicate (ParserGrammarFailure (selectedTokenSpan current) (ExpectedSyntax expected (canonicalTokenEncountered current)))))
     tokenPeek.
 
+  tokenIdentifier :: TokenParser(CanonicalToken).
   tokenIdentifier = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
       | IdentifierKind name -> True
@@ -227,6 +245,7 @@ module ParserToken (
     })
     (keywordLabel keyword).
 
+  tokenInteger :: TokenParser(CanonicalToken).
   tokenInteger = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
       | IntegerKind value -> True
@@ -234,6 +253,7 @@ module ParserToken (
     })
     "integer literal".
 
+  tokenCharacter :: TokenParser(CanonicalToken).
   tokenCharacter = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
       | CharacterKind value -> True
@@ -241,6 +261,7 @@ module ParserToken (
     })
     "character literal".
 
+  tokenText :: TokenParser(CanonicalToken).
   tokenText = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
       | TextKind value -> True
@@ -248,6 +269,7 @@ module ParserToken (
     })
     "text literal".
 
+  tokenOperator :: TokenParser(CanonicalToken).
   tokenOperator = tokenTakeIf
     (\(token) -> case canonicalTokenKind token {
       | OperatorKind value -> True
@@ -297,6 +319,7 @@ module ParserToken (
     })
     (punctuationLabel punctuation).
 
+  tokenSpanAt :: Int -> [CanonicalToken] -> Maybe(CanonicalSpan).
   tokenSpanAt = \(offset, tokens) -> case tokens {
     | [] -> Nothing
     | [first | remaining] -> if offset == 0 then
@@ -313,6 +336,7 @@ module ParserToken (
     | TokenParser parser -> parserRun parser tokens
   }.
 
+  tokenRunComplete :: TokenParser(value) -> [CanonicalToken] -> TokenParseResult(value).
   tokenRunComplete = \(tokenParser, tokens) -> case tokenRun tokenParser tokens {
     | ParserSucceeded value cursor consumption -> case parserCursorRemaining cursor {
       | [] -> TokenParseSucceeded value

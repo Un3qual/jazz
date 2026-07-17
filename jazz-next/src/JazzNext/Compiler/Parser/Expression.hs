@@ -309,7 +309,7 @@ parseIdentifierExpr identifierToken name = do
           void parseAnyToken
           void parseAnyToken
           pure (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
-    colonToken@Token {tokenKind = TColonColon} : []
+    [colonToken@Token {tokenKind = TColonColon}]
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParser
             (ExpectedSyntax "member name" (ParserEndOfInputAfter "'::'"))

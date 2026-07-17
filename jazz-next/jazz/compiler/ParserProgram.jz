@@ -91,9 +91,13 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenIdentifier.
 
+  # Top-level statements inspect unsupported declaration shapes and stop at
+  # end of input; nested blocks skip that inspection and stop at a right brace.
+  # The modes are complements, so one flag cannot represent an invalid pair.
   unsupportedDeclarationStart :: Bool -> TokenParser(Maybe(CanonicalToken)).
-  unsupportedDeclarationStart = \(allowsDeclarations) -> if allowsDeclarations then
-    tokenAndThen
+  unsupportedDeclarationStart = \(nestedBlock) -> if nestedBlock then
+    tokenSucceed Nothing
+    else tokenAndThen
       (\(current) -> case current {
         | Just token -> case canonicalTokenKind token {
           | IdentifierKind name -> if isAbstractionName name then
@@ -103,8 +107,7 @@ module ParserProgram (value parseFoundationalProgram) {
         }
         | Nothing -> tokenSucceed Nothing
       })
-      tokenPeek
-    else tokenSucceed Nothing.
+      tokenPeek.
 
   identifierStartsUpper :: Text -> Bool.
   identifierStartsUpper = \(name) -> case textUncons name {
@@ -215,7 +218,7 @@ module ParserProgram (value parseFoundationalProgram) {
     (UnexpectedSyntax (canonicalTokenEncountered (Just separatorToken)) "an expression-foundation statement").
 
   parseNonBindingStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
-  parseNonBindingStatement = \(allowsDeclarations, parseBlock) -> tokenAndThen
+  parseNonBindingStatement = \(nestedBlock, parseBlock) -> tokenAndThen
     (\(declarationStart) -> case declarationStart {
       | Just declarationToken -> rejectUnsupportedDeclaration declarationToken
       | Nothing -> tokenAndThen
@@ -225,42 +228,42 @@ module ParserProgram (value parseFoundationalProgram) {
         })
         compactSignatureStart
     })
-    (unsupportedDeclarationStart allowsDeclarations).
+    (unsupportedDeclarationStart nestedBlock).
 
   parseStatement :: Bool -> (() -> TokenParser([SurfaceStatement])) -> TokenParser(SurfaceStatement).
-  parseStatement = \(allowsDeclarations, parseBlock) -> tokenAndThen
+  parseStatement = \(nestedBlock, parseBlock) -> tokenAndThen
     (\(start) -> case start {
       | Just token -> parseBinding parseBlock
-      | Nothing -> parseNonBindingStatement allowsDeclarations parseBlock
+      | Nothing -> parseNonBindingStatement nestedBlock parseBlock
     })
     bindingStart.
 
-  parseStatements :: Bool -> Bool -> (() -> TokenParser([SurfaceStatement])) -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
-  parseStatements = \(stopsAtRightBrace, allowsDeclarations, parseBlock, reversed) -> tokenAndThen
+  parseStatements :: Bool -> (() -> TokenParser([SurfaceStatement])) -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseStatements = \(nestedBlock, parseBlock, reversed) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> if stopsAtRightBrace then
+      | Nothing -> if nestedBlock then
         tokenFailAt Nothing (ExpectedSyntax "'}'" EndOfInput)
         else tokenSucceed (listReverse reversed)
       | Just token -> case canonicalTokenKind token {
-        | PunctuationKind RightBracePunctuation -> if stopsAtRightBrace then
+        | PunctuationKind RightBracePunctuation -> if nestedBlock then
           tokenKeepRight
             (tokenPunctuation RightBracePunctuation)
             (tokenSucceed (listReverse reversed))
           else tokenAndThen
-            (\(statement) -> parseStatements stopsAtRightBrace allowsDeclarations parseBlock (listPrepend statement reversed))
-            (parseStatement allowsDeclarations parseBlock)
+            (\(statement) -> parseStatements nestedBlock parseBlock (listPrepend statement reversed))
+            (parseStatement nestedBlock parseBlock)
         | other -> tokenAndThen
-          (\(statement) -> parseStatements stopsAtRightBrace allowsDeclarations parseBlock (listPrepend statement reversed))
-          (parseStatement allowsDeclarations parseBlock)
+          (\(statement) -> parseStatements nestedBlock parseBlock (listPrepend statement reversed))
+          (parseStatement nestedBlock parseBlock)
       }
     })
     tokenPeek.
 
   parseBlock :: () -> TokenParser([SurfaceStatement]).
-  parseBlock = \() -> parseStatements True False parseBlock [].
+  parseBlock = \() -> parseStatements True parseBlock [].
 
   parseFoundationalProgram :: TokenParser(SurfaceExpr).
   parseFoundationalProgram = tokenTransform
     (\(statements) -> BlockExpression statements)
-    (parseStatements False True parseBlock []).
+    (parseStatements False parseBlock []).
 }

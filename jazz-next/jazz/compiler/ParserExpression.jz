@@ -47,6 +47,9 @@ module ParserExpression (value parseFoundationalExpression) {
   import ParserTypes.
   import Text (textLength, textUncons, textAppend).
 
+  # This FIRST set intentionally mirrors parsePrimary. Classifying into an
+  # intermediate value adds allocation and evaluator work at every application
+  # boundary in the hosted parser.
   startsPrimary :: CanonicalToken -> Bool.
   startsPrimary = \(token) -> case canonicalTokenKind token {
     | IdentifierKind name -> True

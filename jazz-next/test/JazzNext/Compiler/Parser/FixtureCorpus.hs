@@ -2541,24 +2541,96 @@ observedParserFixtures =
 expressionFoundationFixtures :: [ParserFixture]
 expressionFoundationFixtures =
   [ fixture "empty-program" "" ParserAccepted,
-    fixture "empty-block" "{}." ParserAccepted,
-    fixture "grouped-name" "(value)." ParserAccepted,
-    fixture "empty-list" "[]." ParserAccepted,
-    fixture "list-literals" "[1, True, 'x', \"text\"]." ParserAccepted,
-    fixture "parenthesized-application" "(identity) 1." ParserAccepted,
-    fixture "list-missing-close" "[1, 2." ParserRejected,
-    fixture "list-trailing-comma" "[1,]." ParserRejected,
-    fixture "tuple-missing-close" "(1, 2." ParserRejected,
-    fixture "tuple-trailing-comma" "(1,)." ParserRejected,
-    fixture "binding-missing-rhs" "value = ." ParserRejected,
-    fixture "binding-missing-dot" "value = 1" ParserRejected,
-    fixture "expression-missing-dot" "value" ParserRejected,
-    fixture "qualified-missing-member" "Alias::." ParserRejected,
+    fixture
+      "empty-block"
+      """
+      {}.
+      """
+      ParserAccepted,
+    fixture
+      "grouped-name"
+      """
+      (value).
+      """
+      ParserAccepted,
+    fixture
+      "empty-list"
+      """
+      [].
+      """
+      ParserAccepted,
+    fixture
+      "list-literals"
+      """
+      [1, True, 'x', "text"].
+      """
+      ParserAccepted,
+    fixture
+      "parenthesized-application"
+      """
+      (identity) 1.
+      """
+      ParserAccepted,
+    fixture
+      "list-missing-close"
+      """
+      [1, 2.
+      """
+      ParserRejected,
+    fixture
+      "list-trailing-comma"
+      """
+      [1,].
+      """
+      ParserRejected,
+    fixture
+      "tuple-missing-close"
+      """
+      (1, 2.
+      """
+      ParserRejected,
+    fixture
+      "tuple-trailing-comma"
+      """
+      (1,).
+      """
+      ParserRejected,
+    fixture
+      "binding-missing-rhs"
+      """
+      value = .
+      """
+      ParserRejected,
+    fixture
+      "binding-missing-dot"
+      """
+      value = 1
+      """
+      ParserRejected,
+    fixture
+      "expression-missing-dot"
+      """
+      value
+      """
+      ParserRejected,
+    fixture
+      "qualified-missing-member"
+      """
+      Alias::.
+      """
+      ParserRejected,
     fixture "qualified-whitespace" "value = Alias:: value." ParserRejected,
-    fixture "dot-without-expression" "." ParserRejected,
+    fixture
+      "dot-without-expression"
+      """
+      .
+      """
+      ParserRejected,
     fixture
       "max-float64"
-      "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0."
+      """
+      179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0.
+      """
       ParserAccepted
   ]
   where
