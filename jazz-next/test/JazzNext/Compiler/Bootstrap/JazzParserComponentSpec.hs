@@ -49,7 +49,8 @@ tests =
     ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
     ("rejects operator declaration candidates before expression fallback", testOperatorDeclarationBoundary),
     ("rejects reserved literal signatures before signature fallback", testReservedSignatureBoundary),
-    ("rejects compact signatures in every statement scope", testSignatureBoundary)
+    ("rejects compact signatures in every statement scope", testSignatureBoundary),
+    ("uses matching bindings to disambiguate compact signatures", testMatchingBindingSignatureBoundary)
   ]
 
 testPredicateConsumption :: IO ()
@@ -332,6 +333,19 @@ testSignatureBoundary =
     """
     "(True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, True, True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
 
+testMatchingBindingSignatureBoundary :: IO ()
+testMatchingBindingSignatureBoundary =
+  assertJazzOutput
+    "matching binding signature boundary"
+    """
+    ( isExpressionFoundationSignatureFailure (parseComponentTokens "Result::value. Result = 1.") 7
+    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::value. Result = 1. }.") 9
+    , isCanonicalParserSuccess (parseComponentTokens "Result::value. Other = 1.")
+    , isCanonicalParserSuccess (parseComponentTokens "{ Result::value. Other = 1. }.")
+    )
+    """
+    "(True, True, True, True)"
+
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
   result <-
@@ -369,6 +383,10 @@ lookupSource expression sourcePath =
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).
+                  isCanonicalParserSuccess = \\(result) -> case result {
+                    | CanonicalParserSuccess path expression -> True
+                    | CanonicalParserFailure path failure -> False
+                  }.
                   isExpressionFoundationSignatureFailure = \\(result, expectedColumn) -> case result {
                     | CanonicalParserSuccess _ _ -> False
                     | CanonicalParserFailure _ failure -> case failure {

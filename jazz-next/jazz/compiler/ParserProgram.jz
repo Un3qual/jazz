@@ -165,15 +165,29 @@ module ParserProgram (value parseFoundationalProgram) {
     | other -> False
   }.
 
+  nextStatementStartsMatchingBinding :: Text -> TokenParser(()).
+  nextStatementStartsMatchingBinding = \(name) -> tokenKeepRight
+    (tokenPunctuation DotPunctuation)
+    (tokenKeepRight
+      (tokenTakeIf
+        (\(token) -> case canonicalTokenKind token {
+          | IdentifierKind nextName -> nextName == name
+          | other -> False
+        })
+        "matching binding name")
+      (tokenKeepRight
+        (tokenPunctuation EqualsPunctuation)
+        (tokenSucceed ()))).
+
   signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
   signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind DotPunctuation -> if isBareSignatureNamePair name typeName then
           tokenSucceed (nameToken, separatorToken)
-          else tokenFailAtSpan
-            (canonicalTokenSpan nameToken)
-            (ExpectedSyntax "simple signature declaration" (canonicalTokenEncountered (Just nameToken)))
+          else tokenKeepRight
+            (nextStatementStartsMatchingBinding name)
+            (tokenSucceed (nameToken, separatorToken))
         | other -> if startsSignaturePayloadContinuation token then tokenSucceed (nameToken, separatorToken)
           else tokenFailAtSpan
             (canonicalTokenSpan token)
