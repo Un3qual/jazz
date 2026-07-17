@@ -2,6 +2,10 @@ module ParserProgram (value parseFoundationalProgram) {
   import LexerTypes (
     CanonicalToken,
     IdentifierKind,
+    KeywordKind,
+    ModuleKeyword,
+    ImportKeyword,
+    DataKeyword,
     PunctuationKind,
     EqualsPunctuation,
     DoubleColonPunctuation,
@@ -10,6 +14,7 @@ module ParserProgram (value parseFoundationalProgram) {
     LeftBracePunctuation,
     RightBracePunctuation,
     LeftParenPunctuation,
+    RightParenPunctuation,
     LeftBracketPunctuation
   ).
   import Char (charIsUpper).
@@ -26,6 +31,7 @@ module ParserProgram (value parseFoundationalProgram) {
     tokenTransform,
     tokenAndThen,
     tokenKeepRight,
+    tokenChoice,
     tokenAttempt,
     tokenOptional,
     tokenLookAhead,
@@ -34,6 +40,7 @@ module ParserProgram (value parseFoundationalProgram) {
     tokenFailAtSpan,
     tokenTakeIf,
     tokenIdentifier,
+    tokenOperator,
     tokenPunctuation
   ).
   import Text (textLength, textUncons).
@@ -41,11 +48,29 @@ module ParserProgram (value parseFoundationalProgram) {
   # not expose the surface type names used by recursive grammar signatures.
   import ParserTypes.
 
+  bindingCandidate :: TokenParser(CanonicalToken).
+  bindingCandidate = tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation).
+
   bindingStart :: TokenParser(Maybe(CanonicalToken)).
-  bindingStart = tokenLookAhead
-    (tokenOptional
-      (tokenAttempt
-        (tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation)))).
+  bindingStart = tokenLookAhead (tokenOptional (tokenAttempt bindingCandidate)).
+
+  signatureShapeCandidate :: TokenParser(CanonicalToken).
+  signatureShapeCandidate = tokenKeepRight tokenIdentifier (tokenPunctuation DoubleColonPunctuation).
+
+  parenthesizedOperatorStatementCandidate :: TokenParser(CanonicalToken).
+  parenthesizedOperatorStatementCandidate = tokenKeepRight
+    (tokenPunctuation LeftParenPunctuation)
+    (tokenKeepRight
+      tokenOperator
+      (tokenKeepRight
+        (tokenPunctuation RightParenPunctuation)
+        (tokenTakeIf
+          (\(token) -> case canonicalTokenKind token {
+            | PunctuationKind EqualsPunctuation -> True
+            | PunctuationKind DoubleColonPunctuation -> True
+            | other -> False
+          })
+          "operator binding or signature separator"))).
 
   isAbstractionName :: Text -> Bool.
   isAbstractionName = \(name) -> if name == "class" then True else if name == "impl" then True else name == "trait".
@@ -182,6 +207,65 @@ module ParserProgram (value parseFoundationalProgram) {
         (tokenPunctuation EqualsPunctuation)
         (tokenSucceed ()))).
 
+  rejectStatementInsideSignaturePayload :: CanonicalToken -> TokenParser(()).
+  rejectStatementInsideSignaturePayload = \(token) -> tokenFailAtSpan
+    (canonicalTokenSpan token)
+    (ExpectedSyntax "signature terminator before matching binding" (canonicalTokenEncountered (Just token))).
+
+  declarationKeywordCandidate :: TokenParser(CanonicalToken).
+  declarationKeywordCandidate = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | KeywordKind keyword -> case keyword {
+        | ModuleKeyword -> True
+        | ImportKeyword -> True
+        | DataKeyword -> True
+        | other -> False
+      }
+      | other -> False
+    })
+    "declaration keyword".
+
+  signaturePayloadStatementBoundaryCandidate :: TokenParser(CanonicalToken).
+  signaturePayloadStatementBoundaryCandidate = tokenChoice
+    (tokenAttempt bindingCandidate)
+    (tokenChoice
+      (tokenAttempt signatureShapeCandidate)
+      (tokenChoice
+        (tokenAttempt parenthesizedOperatorStatementCandidate)
+        (tokenChoice
+          (tokenAttempt
+            (tokenTransform
+              (\(candidate) -> case candidate {
+                | (declarationToken, symbolToken) -> declarationToken
+              })
+              identifierOperatorDeclarationCandidate))
+          (tokenChoice
+            (tokenAttempt unsupportedDeclarationCandidate)
+            declarationKeywordCandidate)))).
+
+  signaturePayloadStatementBoundaryStart :: TokenParser(Maybe(CanonicalToken)).
+  signaturePayloadStatementBoundaryStart = tokenLookAhead
+    (tokenOptional (tokenAttempt signaturePayloadStatementBoundaryCandidate)).
+
+  # Stage 0 applies the matching-binding rule only after collecting the whole
+  # signature payload. Keep scanning to that terminator without crossing a
+  # token shape that stage 0 treats as the start of another statement.
+  matchingBindingAfterSignaturePayload :: Text -> TokenParser(()).
+  matchingBindingAfterSignaturePayload = \(name) -> tokenAndThen
+    (\(statementBoundary) -> case statementBoundary {
+      | Just token -> rejectStatementInsideSignaturePayload token
+      | Nothing -> tokenAndThen
+        (\(current) -> case current {
+          | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
+          | Just token -> case canonicalTokenKind token {
+            | PunctuationKind DotPunctuation -> nextStatementStartsMatchingBinding name
+            | other -> tokenKeepRight anyToken (matchingBindingAfterSignaturePayload name)
+          }
+        })
+        tokenPeek
+    })
+    signaturePayloadStatementBoundaryStart.
+
   signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
   signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
     (\(current) -> case current {
@@ -192,9 +276,9 @@ module ParserProgram (value parseFoundationalProgram) {
             (nextStatementStartsMatchingBinding name)
             (tokenSucceed (nameToken, separatorToken))
         | other -> if startsSignaturePayloadContinuation token then tokenSucceed (nameToken, separatorToken)
-          else tokenFailAtSpan
-            (canonicalTokenSpan token)
-            (ExpectedSyntax "signature payload continuation" (canonicalTokenEncountered current))
+          else tokenKeepRight
+            (matchingBindingAfterSignaturePayload name)
+            (tokenSucceed (nameToken, separatorToken))
       }
       | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature payload continuation" EndOfInput)
     })
