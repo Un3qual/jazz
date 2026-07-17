@@ -47,7 +47,7 @@ tests =
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
     ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
-    ("rejects simple signatures in every statement scope", testSignatureBoundary)
+    ("rejects compact signatures in every statement scope", testSignatureBoundary)
   ]
 
 testPredicateConsumption :: IO ()
@@ -291,7 +291,27 @@ testSignatureBoundary =
         | CanonicalParserFailure path failure -> True
         | other -> False
       }
+    , case parseComponentTokens "value::Maybe(Int)." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , case parseComponentTokens "value::Map[Int]." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
     , parseComponentTokens "Alias::member."
+    , case parseComponentTokens "Alias::member (value)." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , case parseComponentTokens "Alias::member [value]." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
+    , case parseComponentTokens "Alias::member {}." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
     , case parseComponentTokens "{ value::Int. }." {
         | CanonicalParserFailure path failure -> True
         | other -> False
@@ -300,10 +320,14 @@ testSignatureBoundary =
         | CanonicalParserFailure path failure -> True
         | other -> False
       }
+    , case parseComponentTokens "{ value::Maybe(Int). }." {
+        | CanonicalParserFailure path failure -> True
+        | other -> False
+      }
     , parseComponentTokens "{ Alias::member. }."
     )
     """
-    "(True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
+    "(True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, True, True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do

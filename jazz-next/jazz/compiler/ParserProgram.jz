@@ -8,7 +8,9 @@ module ParserProgram (value parseFoundationalProgram) {
     DotPunctuation,
     AtPunctuation,
     LeftBracePunctuation,
-    RightBracePunctuation
+    RightBracePunctuation,
+    LeftParenPunctuation,
+    LeftBracketPunctuation
   ).
   import Char (charIsUpper).
   import List (listPrepend, listReverse).
@@ -110,26 +112,46 @@ module ParserProgram (value parseFoundationalProgram) {
     | Nothing -> False
   }.
 
-  isSimpleSignatureNamePair :: Text -> Text -> Bool.
-  isSimpleSignatureNamePair = \(name, typeName) -> if identifierStartsUpper name then
+  isBareSignatureNamePair :: Text -> Text -> Bool.
+  isBareSignatureNamePair = \(name, typeName) -> if identifierStartsUpper name then
     if identifierStartsUpper typeName then True else textLength typeName == 1
     else True.
 
-  simpleSignatureCandidate :: TokenParser(CanonicalToken).
-  simpleSignatureCandidate = tokenAndThen
+  startsSignaturePayloadContinuation :: CanonicalToken -> Bool.
+  startsSignaturePayloadContinuation = \(token) -> case canonicalTokenKind token {
+    | PunctuationKind LeftParenPunctuation -> True
+    | PunctuationKind LeftBracketPunctuation -> True
+    | PunctuationKind LeftBracePunctuation -> True
+    | other -> False
+  }.
+
+  signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser(CanonicalToken).
+  signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> if isBareSignatureNamePair name typeName then
+          tokenSucceed separatorToken
+          else tokenFailAtSpan
+            (canonicalTokenSpan nameToken)
+            (ExpectedSyntax "simple signature declaration" (canonicalTokenEncountered (Just nameToken)))
+        | other -> if startsSignaturePayloadContinuation token then tokenSucceed separatorToken
+          else tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax "signature payload continuation" (canonicalTokenEncountered current))
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature payload continuation" EndOfInput)
+    })
+    tokenPeek.
+
+  compactSignatureCandidate :: TokenParser(CanonicalToken).
+  compactSignatureCandidate = tokenAndThen
     (\(nameToken) -> case canonicalTokenKind nameToken {
       | IdentifierKind name -> tokenAndThen
         (\(separatorToken) -> tokenAndThen
           (\(typeToken) -> case canonicalTokenKind typeToken {
             | IdentifierKind typeName -> if tokensAreAdjacent nameToken separatorToken then
               if tokensAreAdjacent separatorToken typeToken then
-                if isSimpleSignatureNamePair name typeName then
-                  tokenKeepRight
-                    (tokenPunctuation DotPunctuation)
-                    (tokenSucceed separatorToken)
-                  else tokenFailAtSpan
-                    (canonicalTokenSpan nameToken)
-                    (ExpectedSyntax "simple signature declaration" (canonicalTokenEncountered (Just nameToken)))
+                signaturePayloadBoundary name typeName nameToken separatorToken
                 else tokenFailAtSpan
                   (canonicalTokenSpan typeToken)
                   (ExpectedSyntax "adjacent signature type" (canonicalTokenEncountered (Just typeToken)))
@@ -142,8 +164,8 @@ module ParserProgram (value parseFoundationalProgram) {
     })
     tokenIdentifier.
 
-  simpleSignatureStart :: TokenParser(Maybe(CanonicalToken)).
-  simpleSignatureStart = tokenLookAhead (tokenOptional (tokenAttempt simpleSignatureCandidate)).
+  compactSignatureStart :: TokenParser(Maybe(CanonicalToken)).
+  compactSignatureStart = tokenLookAhead (tokenOptional (tokenAttempt compactSignatureCandidate)).
 
   isReservedBindingName :: Text -> Bool.
   isReservedBindingName = \(name) -> if name == "True" then True else name == "False".
@@ -201,7 +223,7 @@ module ParserProgram (value parseFoundationalProgram) {
           | Just separatorToken -> rejectUnsupportedSignature separatorToken
           | Nothing -> parseExpressionStatement parseBlock
         })
-        simpleSignatureStart
+        compactSignatureStart
     })
     (unsupportedDeclarationStart allowsDeclarations).
 
