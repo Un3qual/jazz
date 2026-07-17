@@ -49,7 +49,12 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Failure
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
+    ParserFixtureFamily (ExpressionFoundation),
+    ParserFixtureManifestViolation (..),
+    lookupParserFixtureFamily,
     parserFixtureCorpus,
+    parserFixtureFamilyNames,
+    validateParserFixtureManifest,
   )
 import JazzNext.Compiler.Parser.Lexer
   ( LexicalFailure,
@@ -86,6 +91,8 @@ tests =
     ("preserves source-exact numeric values", testNumericFidelity),
     ("canonicalizes the complete parser failure inventory", testFailureInventory),
     ("keeps source result phases distinct", testSourceResultPhases),
+    ("validates fixture-family manifests deterministically", testFixtureFamilyValidation),
+    ("locks the expression-foundation fixture family", testExpressionFoundationFamily),
     ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
@@ -466,9 +473,118 @@ testSourceResultPhases = do
     )
     cases
 
+testFixtureFamilyValidation :: IO ()
+testFixtureFamilyValidation =
+  case parserFixtureCorpus of
+    [] -> failTest "fixture corpus must not be empty"
+    fixture : _ ->
+      let fixtureName = parserFixtureName fixture
+       in assertEqual
+            "manifest violations preserve validation order"
+            [ DuplicateParserFixtureName fixtureName,
+              DuplicateParserFixtureFamilyMember ExpressionFoundation fixtureName,
+              MissingParserFixtureFamilyMember ExpressionFoundation "missing-fixture"
+            ]
+            ( validateParserFixtureManifest
+                [fixture, fixture]
+                [(ExpressionFoundation, [fixtureName, fixtureName, "missing-fixture"])]
+            )
+
+testExpressionFoundationFamily :: IO ()
+testExpressionFoundationFamily = do
+  assertEqual
+    "declared expression family order"
+    expressionFoundationFixtureNames
+    (parserFixtureFamilyNames ExpressionFoundation)
+  fixtures <-
+    case lookupParserFixtureFamily ExpressionFoundation of
+      Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
+      Right values -> pure values
+  assertEqual "expression family size" 52 (length fixtures)
+  assertEqual
+    "resolved expression family order"
+    expressionFoundationFixtureNames
+    (map parserFixtureName fixtures)
+  rendered <- mapM canonicalFixture fixtures
+  assertEqual
+    "expression family contains lexical failures"
+    True
+    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") rendered)
+  assertEqual
+    "expression family contains parser failures"
+    True
+    (any (Text.isInfixOf "CanonicalSourceParserFailure") rendered)
+  assertEqual
+    "expression family contains successes"
+    True
+    (any (Text.isInfixOf "CanonicalSourceSuccess") rendered)
+  where
+    canonicalFixture fixture = do
+      path <- normalizedPath (parserFixturePath fixture)
+      pure
+        ( renderCanonicalSourceResult
+            (canonicalizeSourceResult path (detailedSourceResult (parserFixtureSource fixture)))
+        )
+
+expressionFoundationFixtureNames :: [Text.Text]
+expressionFoundationFixtureNames =
+  [ "lexer-leading-zero-integer",
+    "lexer-crlf-spans",
+    "lexer-unicode-and-escape-values",
+    "lexer-all-supported-escapes",
+    "lexer-unexpected-character",
+    "parser-corpus-0001",
+    "parser-corpus-0024",
+    "parser-corpus-0028",
+    "parser-corpus-0032",
+    "parser-corpus-0310",
+    "parser-corpus-0036",
+    "parser-corpus-0051",
+    "parser-corpus-0182",
+    "parser-corpus-0193",
+    "parser-corpus-0194",
+    "parser-corpus-0206",
+    "parser-corpus-0214",
+    "parser-corpus-0233",
+    "parser-corpus-0234",
+    "parser-corpus-0236",
+    "parser-corpus-0237",
+    "parser-corpus-0240",
+    "parser-corpus-0241",
+    "parser-corpus-0308",
+    "parser-corpus-0309",
+    "parser-corpus-0041",
+    "expression-foundation-reserved-true-signature",
+    "expression-foundation-reserved-false-signature",
+    "expression-foundation-spaced-reserved-true-signature",
+    "expression-foundation-spaced-reserved-false-signature",
+    "expression-foundation-identifier-operator-tier",
+    "expression-foundation-identifier-operator-precedence",
+    "expression-foundation-nested-identifier-operator-tier",
+    "expression-foundation-parenthesized-signature-statement-boundary",
+    "expression-foundation-signature-syntax-statement-boundary",
+    "expression-foundation-empty-program",
+    "expression-foundation-empty-block",
+    "expression-foundation-grouped-name",
+    "expression-foundation-empty-list",
+    "expression-foundation-list-literals",
+    "expression-foundation-parenthesized-application",
+    "expression-foundation-list-missing-close",
+    "expression-foundation-list-trailing-comma",
+    "expression-foundation-tuple-missing-close",
+    "expression-foundation-tuple-trailing-comma",
+    "expression-foundation-binding-missing-rhs",
+    "expression-foundation-binding-missing-dot",
+    "expression-foundation-expression-missing-dot",
+    "expression-foundation-qualified-missing-member",
+    "expression-foundation-qualified-whitespace",
+    "expression-foundation-dot-without-expression",
+    "expression-foundation-max-float64"
+  ]
+
 testCorpusDeterminism :: IO ()
 testCorpusDeterminism = do
-  assertEqual "fixed corpus size" 333 (length parserFixtureCorpus)
+  assertEqual "fixed corpus size" 359 (length parserFixtureCorpus)
   first <- mapM canonicalFixture parserFixtureCorpus
   second <- mapM canonicalFixture parserFixtureCorpus
   assertEqual "manifest-order deterministic rendering" first second

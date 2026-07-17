@@ -287,7 +287,9 @@ grammar.
 
 Add program and block sequencing, literals, names, applications, lists, tuples,
 unit, and ordinary binding and expression statements. Compare an explicit
-stable fixture family for both successful ASTs and structured failures.
+stable fixture family for both successful ASTs and structured failures. This
+child completed on `2026-07-16` with exact 43-case token/source parity and
+deterministic 512-binding scale evidence.
 
 ### Child 3: types, declarations, and modules
 
@@ -391,13 +393,17 @@ must be investigated and explained before closeout.
 
 ## Queue and Documentation Closeout
 
-The contract-and-kernel implementation plan fixed the first-child target paths,
-tests, and verification commands. That child is complete and archived. Its
-closeout names only Child 2, the expression foundation, as the next curation
-target. Child 2 remains outside `Ready Now` until a separate implementation plan
-fixes one explicit stable fixture family, exact grammar/facade ownership, and
-focused parity verification. Children 3 through 5 remain ordered in this design
-but unpromoted.
+The contract/kernel and expression-foundation children are complete and
+archived. The expression child added compiler-local token, expression,
+program, and façade modules; exact complete stage-0 comparison over one explicit
+43-case family; and deterministic scale evidence without parser-specific host
+support.
+
+Its closeout names only Child 3, types/declarations/modules, as the next
+curation target. Child 3 remains outside `Ready Now` until a separate reviewed
+design and implementation plan fix one explicit stable fixture family,
+declaration/module grammar context, exact ownership, and focused parity
+verification. Children 4 and 5 remain ordered in this design but unpromoted.
 
 This ordering keeps the dispatcher aligned with reviewed implementation
 boundaries: completing one child makes the next one eligible for planning, not

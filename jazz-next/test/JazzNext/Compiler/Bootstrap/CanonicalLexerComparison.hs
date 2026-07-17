@@ -13,6 +13,7 @@ module JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
     CanonicalTokenKind (..),
     canonicalLexResultRuntimeValue,
     canonicalLexErrorRuntimeValue,
+    canonicalTokenRuntimeValue,
     canonicalTokenKindRuntimeValue,
     canonicalizeFailure,
     canonicalizeTokenKind,

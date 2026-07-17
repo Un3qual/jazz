@@ -1,0 +1,351 @@
+module ParserToken (
+  type ParserGrammarFailure(..),
+  type TokenParser(..),
+  type TokenParseResult(..),
+  value canonicalTokenKind,
+  value canonicalTokenLexeme,
+  value canonicalTokenSpan,
+  value canonicalTokenEncountered,
+  value tokensAreAdjacent,
+  value tokenSucceed,
+  value tokenTransform,
+  value tokenAndThen,
+  value tokenKeepLeft,
+  value tokenKeepRight,
+  value tokenChoice,
+  value tokenAttempt,
+  value tokenOptional,
+  value tokenLookAhead,
+  value tokenMany,
+  value tokenPeek,
+  value tokenFailAt,
+  value tokenFailAtSpan,
+  value tokenFailCurrent,
+  value tokenTakeIf,
+  value tokenIdentifier,
+  value tokenKeyword,
+  value tokenInteger,
+  value tokenCharacter,
+  value tokenText,
+  value tokenOperator,
+  value tokenPunctuation,
+  value tokenRun,
+  value tokenRunComplete
+) {
+  import LexerTypes (
+    ModuleKeyword,
+    ImportKeyword,
+    AsKeyword,
+    DataKeyword,
+    IfKeyword,
+    ThenKeyword,
+    ElseKeyword,
+    CaseKeyword,
+    ArrowPunctuation,
+    AtPunctuation,
+    EqualsPunctuation,
+    ColonPunctuation,
+    DoubleColonPunctuation,
+    DotPunctuation,
+    LeftBracePunctuation,
+    RightBracePunctuation,
+    LeftParenPunctuation,
+    RightParenPunctuation,
+    LeftBracketPunctuation,
+    RightBracketPunctuation,
+    CommaPunctuation,
+    LambdaPunctuation,
+    CanonicalSpan,
+    IdentifierKind,
+    KeywordKind,
+    IntegerKind,
+    CharacterKind,
+    TextKind,
+    OperatorKind,
+    PunctuationKind,
+    CanonicalToken
+  ).
+  import Maybe.
+  import ParserCore (
+    Parser,
+    ParserSucceeded,
+    ParserFailed,
+    RejectedProblem,
+    ZeroProgressProblem,
+    parserRun,
+    parserCursorRemaining,
+    parserFailureOffset,
+    parserFailureProblem,
+    parserSucceed,
+    parserFail,
+    parserTransform,
+    parserAndThen,
+    parserChoice,
+    parserAttempt,
+    parserOptional,
+    parserLookAhead,
+    parserMany,
+    parserPeek,
+    parserTakeIf
+  ).
+  # LexerTypes and ParserCore stay selective to avoid constructor collisions
+  # with ParserTypes. Until selective imports expose abstract type names,
+  # canonicalTokenKind, tokenKeyword, tokenPunctuation, and tokenRun remain
+  # inferred at their module boundary.
+  # Complete ParserTypes imports keep the exported polymorphic failure
+  # signatures available to grammar owners without importing ParserCore.
+  import ParserTypes.
+  import Text (textLength).
+
+  data ParserGrammarFailure = ParserGrammarFailure (Maybe CanonicalSpan) ParserFailureReason.
+
+  data TokenParser value = TokenParser (Parser(CanonicalToken, ParserGrammarFailure, value)).
+
+  data TokenParseResult value = TokenParseSucceeded value | TokenParseRejected ParserGrammarFailure | TokenParseInvariantFailure ParserGrammarFailure.
+
+  canonicalTokenKind = \(token) -> case token {
+    | CanonicalToken kind lexeme span -> kind
+  }.
+
+  canonicalTokenLexeme :: CanonicalToken -> Text.
+  canonicalTokenLexeme = \(token) -> case token {
+    | CanonicalToken kind lexeme span -> lexeme
+  }.
+
+  canonicalTokenSpan :: CanonicalToken -> CanonicalSpan.
+  canonicalTokenSpan = \(token) -> case token {
+    | CanonicalToken kind lexeme span -> span
+  }.
+
+  canonicalTokenEncountered :: Maybe(CanonicalToken) -> ParserEncountered.
+  canonicalTokenEncountered = \(current) -> case current {
+    | Nothing -> EndOfInput
+    | Just token -> FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)
+  }.
+
+  selectedTokenSpan :: Maybe(CanonicalToken) -> Maybe(CanonicalSpan).
+  selectedTokenSpan = \(current) -> case current {
+    | Nothing -> Nothing
+    | Just token -> Just (canonicalTokenSpan token)
+  }.
+
+  tokensAreAdjacent :: CanonicalToken -> CanonicalToken -> Bool.
+  tokensAreAdjacent = \(earlier, later) -> case canonicalTokenSpan earlier {
+    | CanonicalSpan earlierLine earlierColumn -> case canonicalTokenSpan later {
+      | CanonicalSpan laterLine laterColumn -> if earlierLine == laterLine then
+        laterColumn == earlierColumn + textLength (canonicalTokenLexeme earlier)
+        else False
+    }
+  }.
+
+  tokenSucceed :: value -> TokenParser(value).
+  tokenSucceed = \(value) -> TokenParser (parserSucceed value).
+
+  tokenTransform :: (a -> b) -> TokenParser(a) -> TokenParser(b).
+  tokenTransform = \(transform, tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserTransform transform parser)
+  }.
+
+  tokenAndThen :: (a -> TokenParser(b)) -> TokenParser(a) -> TokenParser(b).
+  tokenAndThen = \(next, tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserAndThen
+      (\(value) -> case next value {
+        | TokenParser nextParser -> nextParser
+      })
+      parser)
+  }.
+
+  tokenKeepLeft :: TokenParser(a) -> TokenParser(b) -> TokenParser(a).
+  tokenKeepLeft = \(left, right) -> tokenAndThen
+    (\(leftValue) -> tokenTransform (\(rightValue) -> leftValue) right)
+    left.
+
+  tokenKeepRight :: TokenParser(a) -> TokenParser(b) -> TokenParser(b).
+  tokenKeepRight = \(left, right) -> tokenAndThen (\(leftValue) -> right) left.
+
+  tokenChoice :: TokenParser(value) -> TokenParser(value) -> TokenParser(value).
+  tokenChoice = \(left, right) -> case left {
+    | TokenParser leftParser -> case right {
+      | TokenParser rightParser -> TokenParser (parserChoice leftParser rightParser)
+    }
+  }.
+
+  tokenAttempt :: TokenParser(value) -> TokenParser(value).
+  tokenAttempt = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserAttempt parser)
+  }.
+
+  tokenOptional :: TokenParser(value) -> TokenParser(Maybe(value)).
+  tokenOptional = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserOptional parser)
+  }.
+
+  tokenLookAhead :: TokenParser(value) -> TokenParser(value).
+  tokenLookAhead = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserLookAhead parser)
+  }.
+
+  tokenMany :: TokenParser(value) -> TokenParser([value]).
+  tokenMany = \(tokenParser) -> case tokenParser {
+    | TokenParser parser -> TokenParser (parserMany parser)
+  }.
+
+  tokenPeek :: TokenParser(Maybe(CanonicalToken)).
+  tokenPeek = TokenParser parserPeek.
+
+  tokenFailAt :: Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(value).
+  tokenFailAt = \(span, reason) -> TokenParser (parserFail (ParserGrammarFailure span reason)).
+
+  tokenFailAtSpan :: CanonicalSpan -> ParserFailureReason -> TokenParser(value).
+  tokenFailAtSpan = \(span, reason) -> tokenFailAt (Just span) reason.
+
+  tokenFailCurrent :: (ParserEncountered -> ParserFailureReason) -> TokenParser(value).
+  tokenFailCurrent = \(reason) -> tokenAndThen (\(current) -> tokenFailAt (selectedTokenSpan current) (reason (canonicalTokenEncountered current))) tokenPeek.
+
+  tokenTakeIf :: (CanonicalToken -> Bool) -> Text -> TokenParser(CanonicalToken).
+  tokenTakeIf = \(predicate, expected) -> tokenAndThen
+    (\(current) -> TokenParser (parserTakeIf predicate (ParserGrammarFailure (selectedTokenSpan current) (ExpectedSyntax expected (canonicalTokenEncountered current)))))
+    tokenPeek.
+
+  tokenIdentifier :: TokenParser(CanonicalToken).
+  tokenIdentifier = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | IdentifierKind name -> True
+      | other -> False
+    })
+    "identifier".
+
+  keywordLabel = \(keyword) -> case keyword {
+    | ModuleKeyword -> "'module'"
+    | ImportKeyword -> "'import'"
+    | AsKeyword -> "'as'"
+    | DataKeyword -> "'data'"
+    | IfKeyword -> "'if'"
+    | ThenKeyword -> "'then'"
+    | ElseKeyword -> "'else'"
+    | CaseKeyword -> "'case'"
+  }.
+
+  keywordsEqual = \(left, right) -> case (left, right) {
+    | (ModuleKeyword, ModuleKeyword) -> True
+    | (ImportKeyword, ImportKeyword) -> True
+    | (AsKeyword, AsKeyword) -> True
+    | (DataKeyword, DataKeyword) -> True
+    | (IfKeyword, IfKeyword) -> True
+    | (ThenKeyword, ThenKeyword) -> True
+    | (ElseKeyword, ElseKeyword) -> True
+    | (CaseKeyword, CaseKeyword) -> True
+    | other -> False
+  }.
+
+  tokenKeyword = \(keyword) -> tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | KeywordKind actual -> keywordsEqual actual keyword
+      | other -> False
+    })
+    (keywordLabel keyword).
+
+  tokenInteger :: TokenParser(CanonicalToken).
+  tokenInteger = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | IntegerKind value -> True
+      | other -> False
+    })
+    "integer literal".
+
+  tokenCharacter :: TokenParser(CanonicalToken).
+  tokenCharacter = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | CharacterKind value -> True
+      | other -> False
+    })
+    "character literal".
+
+  tokenText :: TokenParser(CanonicalToken).
+  tokenText = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | TextKind value -> True
+      | other -> False
+    })
+    "text literal".
+
+  tokenOperator :: TokenParser(CanonicalToken).
+  tokenOperator = tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | OperatorKind value -> True
+      | other -> False
+    })
+    "operator".
+
+  punctuationLabel = \(punctuation) -> case punctuation {
+    | ArrowPunctuation -> "'->'"
+    | AtPunctuation -> "'@'"
+    | EqualsPunctuation -> "'='"
+    | ColonPunctuation -> "':'"
+    | DoubleColonPunctuation -> "'::'"
+    | DotPunctuation -> "'.'"
+    | LeftBracePunctuation -> "'{'"
+    | RightBracePunctuation -> "'}'"
+    | LeftParenPunctuation -> "'('"
+    | RightParenPunctuation -> "')'"
+    | LeftBracketPunctuation -> "'['"
+    | RightBracketPunctuation -> "']'"
+    | CommaPunctuation -> "','"
+    | LambdaPunctuation -> "'\\'"
+  }.
+
+  punctuationsEqual = \(left, right) -> case (left, right) {
+    | (ArrowPunctuation, ArrowPunctuation) -> True
+    | (AtPunctuation, AtPunctuation) -> True
+    | (EqualsPunctuation, EqualsPunctuation) -> True
+    | (ColonPunctuation, ColonPunctuation) -> True
+    | (DoubleColonPunctuation, DoubleColonPunctuation) -> True
+    | (DotPunctuation, DotPunctuation) -> True
+    | (LeftBracePunctuation, LeftBracePunctuation) -> True
+    | (RightBracePunctuation, RightBracePunctuation) -> True
+    | (LeftParenPunctuation, LeftParenPunctuation) -> True
+    | (RightParenPunctuation, RightParenPunctuation) -> True
+    | (LeftBracketPunctuation, LeftBracketPunctuation) -> True
+    | (RightBracketPunctuation, RightBracketPunctuation) -> True
+    | (CommaPunctuation, CommaPunctuation) -> True
+    | (LambdaPunctuation, LambdaPunctuation) -> True
+    | other -> False
+  }.
+
+  tokenPunctuation = \(punctuation) -> tokenTakeIf
+    (\(token) -> case canonicalTokenKind token {
+      | PunctuationKind actual -> punctuationsEqual actual punctuation
+      | other -> False
+    })
+    (punctuationLabel punctuation).
+
+  tokenSpanAt :: Int -> [CanonicalToken] -> Maybe(CanonicalSpan).
+  tokenSpanAt = \(offset, tokens) -> case tokens {
+    | [] -> Nothing
+    | [first | remaining] -> if offset == 0 then
+      Just (canonicalTokenSpan first)
+      else tokenSpanAt (offset - 1) remaining
+  }.
+
+  trailingTokenFailure :: CanonicalToken -> ParserGrammarFailure.
+  trailingTokenFailure = \(token) -> ParserGrammarFailure
+    (Just (canonicalTokenSpan token))
+    (UnexpectedSyntax (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)) "end of input").
+
+  tokenRun = \(tokenParser, tokens) -> case tokenParser {
+    | TokenParser parser -> parserRun parser tokens
+  }.
+
+  tokenRunComplete :: TokenParser(value) -> [CanonicalToken] -> TokenParseResult(value).
+  tokenRunComplete = \(tokenParser, tokens) -> case tokenRun tokenParser tokens {
+    | ParserSucceeded value cursor consumption -> case parserCursorRemaining cursor {
+      | [] -> TokenParseSucceeded value
+      | [first | remaining] -> TokenParseRejected (trailingTokenFailure first)
+    }
+    | ParserFailed failure -> case parserFailureProblem failure {
+      | RejectedProblem grammarFailure -> TokenParseRejected grammarFailure
+      | ZeroProgressProblem -> TokenParseInvariantFailure
+        (ParserGrammarFailure (tokenSpanAt (parserFailureOffset failure) tokens) (InternalParserFailure TokenStreamParseFailure))
+    }
+  }.
+}

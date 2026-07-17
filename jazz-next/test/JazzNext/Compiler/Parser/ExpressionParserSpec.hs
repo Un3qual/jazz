@@ -74,6 +74,7 @@ tests =
     ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
     ("declared operators participate in precedence climbing", testDeclaredOperatorPrecedence),
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
+    ("rejects whitespace after a qualified-name separator", testRejectsWhitespaceAfterQualifiedSeparator),
     ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
     ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
@@ -138,6 +139,22 @@ testQualifiedVariablesListsAndTuples = do
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
+
+testRejectsWhitespaceAfterQualifiedSeparator :: IO ()
+testRejectsWhitespaceAfterQualifiedSeparator = do
+  tokens <- lexSource "Alias:: member."
+  case parseExpressionTokensDetailed Set.empty [] tokens of
+    Left failure -> do
+      assertEqual "spaced qualified member span" (Just (SourceSpan 1 9)) (parserFailureSpan failure)
+      assertEqual
+        "spaced qualified member reason"
+        ( ExpectedSyntax
+            "adjacent member name after '::'"
+            (ParserFoundToken (TIdentifier "member") "member")
+        )
+        (parserFailureReason failure)
+    Right value ->
+      failTest ("spaced qualified member: expected detailed Left, got Right " <> textShow value)
 
 testControlFlowAndBlockExpressionStarters :: IO ()
 testControlFlowAndBlockExpressionStarters = do

@@ -1,0 +1,41 @@
+module Parser (value parseTokens, value parseSource) {
+  import Lexer (lexSource).
+  import LexerTypes (
+    CanonicalSourcePath,
+    CanonicalToken,
+    CanonicalLexSuccess,
+    CanonicalLexFailure
+  ).
+  import ParserProgram (parseFoundationalProgram).
+  import ParserToken (
+    ParserGrammarFailure,
+    TokenParseSucceeded,
+    TokenParseRejected,
+    TokenParseInvariantFailure,
+    tokenRunComplete
+  ).
+  # Complete ParserTypes imports are required while explicit import lists do
+  # not expose abstract type names used by public signatures.
+  import ParserTypes.
+
+  publicParserFailure :: ParserGrammarFailure -> ParserFailure.
+  publicParserFailure = \(grammarFailure) -> case grammarFailure {
+    | ParserGrammarFailure span reason -> ParserFailure "E0001" span reason
+  }.
+
+  parseTokens :: CanonicalSourcePath -> [CanonicalToken] -> CanonicalParserResult.
+  parseTokens = \(sourcePath, tokens) -> case tokenRunComplete parseFoundationalProgram tokens {
+    | TokenParseSucceeded expression -> CanonicalParserSuccess sourcePath expression
+    | TokenParseRejected failure -> CanonicalParserFailure sourcePath (publicParserFailure failure)
+    | TokenParseInvariantFailure failure -> CanonicalParserFailure sourcePath (publicParserFailure failure)
+  }.
+
+  parseSource :: CanonicalSourcePath -> Text -> CanonicalSourceResult.
+  parseSource = \(sourcePath, source) -> case lexSource sourcePath source {
+    | CanonicalLexFailure path failure -> CanonicalSourceLexicalFailure path failure
+    | CanonicalLexSuccess path tokens -> case parseTokens path tokens {
+      | CanonicalParserSuccess parsedPath expression -> CanonicalSourceSuccess parsedPath expression
+      | CanonicalParserFailure parsedPath failure -> CanonicalSourceParserFailure parsedPath failure
+    }
+  }.
+}

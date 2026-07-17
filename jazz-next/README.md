@@ -59,8 +59,11 @@ Shipped Jazz source lives under one package-owned root:
 - [`jazz/stdlib/`](jazz/stdlib/README.md) contains the bundled prelude and
   general user-facing standard-library modules, including total list and text
   utilities plus persistent `Dictionary`, `Queue`, `Map`, and `Set` values.
-- `jazz/compiler/` contains the Jazz-authored compiler implementation, currently
-  the hosted `Lexer` and `LexerTypes` modules.
+- `jazz/compiler/` contains the Jazz-authored compiler implementation. Alongside
+  the hosted lexer and canonical token types, it now includes the generic
+  parser kernel plus compiler-local token, foundational expression, program,
+  and token/source façade modules. This is an incremental bootstrap parser
+  slice, not a complete replacement for the active Haskell parser.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -87,6 +90,9 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Diagnostics/`: diagnostic rendering and metadata coverage.
 - `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
+- `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
+  adapters plus hosted lexer/parser component, exact-parity, and deterministic
+  scale coverage.
 - `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 - `programs/`: shared multi-module correctness and benchmark corpus.
 

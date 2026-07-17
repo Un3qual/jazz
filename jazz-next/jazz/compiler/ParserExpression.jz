@@ -1,0 +1,330 @@
+module ParserExpression (value parseFoundationalExpression) {
+  import Char (charToUInt32).
+  import LexerTypes (
+    CanonicalToken,
+    IdentifierKind,
+    IntegerKind,
+    CharacterKind,
+    TextKind,
+    PunctuationKind,
+    DoubleColonPunctuation,
+    LeftBracePunctuation,
+    LeftParenPunctuation,
+    RightParenPunctuation,
+    LeftBracketPunctuation,
+    RightBracketPunctuation,
+    CommaPunctuation,
+    DotPunctuation
+  ).
+  import List (listPrepend, listReverse).
+  import Maybe.
+  import ParserToken (
+    ParserGrammarFailure,
+    TokenParser,
+    canonicalTokenKind,
+    canonicalTokenLexeme,
+    canonicalTokenSpan,
+    canonicalTokenEncountered,
+    tokensAreAdjacent,
+    tokenSucceed,
+    tokenAndThen,
+    tokenKeepRight,
+    tokenChoice,
+    tokenLookAhead,
+    tokenPeek,
+    tokenFailAt,
+    tokenFailAtSpan,
+    tokenTakeIf,
+    tokenIdentifier,
+    tokenInteger,
+    tokenCharacter,
+    tokenText,
+    tokenPunctuation
+  ).
+  # ParserTypes currently needs a complete import because explicit import lists
+  # expose constructors and values, but not the abstract type names required by
+  # recursive signatures. ParserCore stays isolated behind TokenParser.
+  import ParserTypes.
+  import Text (textLength, textUncons, textAppend).
+
+  # This FIRST set intentionally mirrors parsePrimary. Classifying into an
+  # intermediate value adds allocation and evaluator work at every application
+  # boundary in the hosted parser.
+  startsPrimary :: CanonicalToken -> Bool.
+  startsPrimary = \(token) -> case canonicalTokenKind token {
+    | IdentifierKind name -> True
+    | IntegerKind value -> True
+    | CharacterKind value -> True
+    | TextKind value -> True
+    | PunctuationKind LeftBracePunctuation -> True
+    | PunctuationKind LeftParenPunctuation -> True
+    | PunctuationKind LeftBracketPunctuation -> True
+    | other -> False
+  }.
+
+  float64MaximumWhole :: Text.
+  float64MaximumWhole = "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368".
+
+  decimalDigitsGreater :: Text -> Text -> Bool.
+  decimalDigitsGreater = \(left, right) -> case textUncons left {
+    | Nothing -> False
+    | Just (leftDigit, leftRest) -> case textUncons right {
+      | Nothing -> True
+      | Just (rightDigit, rightRest) -> if charToUInt32 leftDigit > charToUInt32 rightDigit then
+        True
+        else if charToUInt32 leftDigit < charToUInt32 rightDigit then
+          False
+          else decimalDigitsGreater leftRest rightRest
+    }
+  }.
+
+  decimalDigitsContainNonZero :: Text -> Bool.
+  decimalDigitsContainNonZero = \(digits) -> case textUncons digits {
+    | Nothing -> False
+    | Just (digit, rest) -> if digit == '0' then decimalDigitsContainNonZero rest else True
+  }.
+
+  fractionalExceedsFloat64 :: Text -> Text -> Bool.
+  fractionalExceedsFloat64 = \(wholeDigits, fractionalDigits) ->
+    if textLength wholeDigits > textLength float64MaximumWhole then
+      True
+      else if textLength wholeDigits < textLength float64MaximumWhole then
+        False
+        else if decimalDigitsGreater wholeDigits float64MaximumWhole then
+          True
+          else if wholeDigits == float64MaximumWhole then
+            decimalDigitsContainNonZero fractionalDigits
+            else False.
+
+  consumeSuffixIfAdjacent :: CanonicalToken -> CanonicalToken -> SurfaceNumericType -> TokenParser(Maybe(SurfaceNumericType)).
+  consumeSuffixIfAdjacent = \(fractionalToken, suffixToken, targetType) ->
+    if tokensAreAdjacent fractionalToken suffixToken then
+      tokenKeepRight tokenIdentifier (tokenSucceed (Just targetType))
+      else tokenSucceed Nothing.
+
+  parseFractionalSuffix :: CanonicalToken -> TokenParser(Maybe(SurfaceNumericType)).
+  parseFractionalSuffix = \(fractionalToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Just suffixToken -> case canonicalTokenKind suffixToken {
+        | IdentifierKind "f16" -> consumeSuffixIfAdjacent fractionalToken suffixToken Float16Type
+        | IdentifierKind "f32" -> consumeSuffixIfAdjacent fractionalToken suffixToken Float32Type
+        | IdentifierKind "f64" -> consumeSuffixIfAdjacent fractionalToken suffixToken Float64Type
+        | other -> tokenSucceed Nothing
+      }
+      | Nothing -> tokenSucceed Nothing
+    })
+    tokenPeek.
+
+  parseFractional :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseFractional = \(wholeToken, whole) -> tokenAndThen
+    (\(dotToken) -> tokenAndThen
+      (\(fractionalToken) -> tokenAndThen
+        (\(targetType) -> {
+          fractionalDigits = canonicalTokenLexeme fractionalToken.
+          literalText = textAppend (textAppend (canonicalTokenLexeme wholeToken) ".") fractionalDigits.
+          if fractionalExceedsFloat64 whole fractionalDigits then
+            tokenFailAtSpan (canonicalTokenSpan wholeToken) (InvalidFractionalLiteral literalText)
+            else tokenSucceed (LiteralExpression (FractionalLiteral whole fractionalDigits targetType)).
+        })
+        (parseFractionalSuffix fractionalToken))
+      tokenInteger)
+    (tokenPunctuation DotPunctuation).
+
+  fractionalCandidate :: CanonicalToken -> TokenParser(CanonicalToken).
+  fractionalCandidate = \(wholeToken) -> tokenAndThen
+    (\(dotToken) -> tokenAndThen
+      (\(fractionalToken) -> if tokensAreAdjacent wholeToken dotToken then
+        if tokensAreAdjacent dotToken fractionalToken then
+          tokenSucceed fractionalToken
+          else tokenFailAtSpan
+            (canonicalTokenSpan fractionalToken)
+            (ExpectedSyntax "adjacent fractional digits" (FoundToken (canonicalTokenKind fractionalToken) (canonicalTokenLexeme fractionalToken)))
+        else tokenFailAtSpan
+          (canonicalTokenSpan dotToken)
+          (ExpectedSyntax "adjacent decimal point" (FoundToken (canonicalTokenKind dotToken) (canonicalTokenLexeme dotToken))))
+      tokenInteger)
+    (tokenPunctuation DotPunctuation).
+
+  parseNumeric :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseNumeric = \(wholeToken, whole) -> tokenChoice
+    (tokenAndThen
+      (\(candidate) -> parseFractional wholeToken whole)
+      (tokenLookAhead (fractionalCandidate wholeToken)))
+    (tokenSucceed (LiteralExpression (IntegerLiteral whole))).
+
+  parseQualifiedMember :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseQualifiedMember = \(separatorToken, qualifier) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "member name" (EndOfInputAfter "'::'"))
+      | Just memberToken -> case canonicalTokenKind memberToken {
+        | IdentifierKind member -> if tokensAreAdjacent separatorToken memberToken then
+          tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed (QualifiedVariableExpression qualifier member))
+          else tokenFailAtSpan
+            (canonicalTokenSpan memberToken)
+            (ExpectedSyntax "adjacent member name after '::'" (canonicalTokenEncountered current))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan memberToken)
+          (ExpectedSyntax "member name after '::'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseName :: CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseName = \(identifierToken, name) -> tokenAndThen
+    (\(current) -> case current {
+      | Just separator -> case canonicalTokenKind separator {
+        | PunctuationKind DoubleColonPunctuation -> if tokensAreAdjacent identifierToken separator then
+          tokenKeepRight
+            (tokenPunctuation DoubleColonPunctuation)
+            (parseQualifiedMember separator name)
+          else tokenSucceed (VariableExpression name)
+        | other -> tokenSucceed (VariableExpression name)
+      }
+      | Nothing -> tokenSucceed (VariableExpression name)
+    })
+    tokenPeek.
+
+  parseTupleElements :: (() -> TokenParser(SurfaceExpr)) -> [SurfaceExpr] -> TokenParser(SurfaceExpr).
+  parseTupleElements = \(parseExpression, reversed) -> tokenAndThen
+    (\(next) -> tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind CommaPunctuation -> tokenKeepRight
+            (tokenPunctuation CommaPunctuation)
+            (parseTupleElements parseExpression (listPrepend next reversed))
+          | other -> tokenKeepRight
+            (tokenPunctuation RightParenPunctuation)
+            (tokenSucceed (TupleExpression (listReverse (listPrepend next reversed))))
+        }
+        | Nothing -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (TupleExpression (listReverse (listPrepend next reversed))))
+      })
+      tokenPeek)
+    (parseExpression ()).
+
+  parseParenthesizedTail :: (() -> TokenParser(SurfaceExpr)) -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseParenthesizedTail = \(parseExpression, first) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (parseTupleElements parseExpression [first])
+        | other -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed first)
+      }
+      | Nothing -> tokenKeepRight
+        (tokenPunctuation RightParenPunctuation)
+        (tokenSucceed first)
+    })
+    tokenPeek.
+
+  parseParenthesized :: (() -> TokenParser(SurfaceExpr)) -> TokenParser(SurfaceExpr).
+  parseParenthesized = \(parseExpression) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (TupleExpression []))
+        | other -> tokenAndThen
+          (\(first) -> parseParenthesizedTail parseExpression first)
+          (parseExpression ())
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+    })
+    tokenPeek.
+
+  parseListElements :: (() -> TokenParser(SurfaceExpr)) -> [SurfaceExpr] -> TokenParser(SurfaceExpr).
+  parseListElements = \(parseExpression, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(next) -> parseListElements parseExpression (listPrepend next reversed))
+            (parseExpression ()))
+        | other -> tokenKeepRight
+          (tokenPunctuation RightBracketPunctuation)
+          (tokenSucceed (ListExpression (listReverse reversed)))
+      }
+      | Nothing -> tokenKeepRight
+        (tokenPunctuation RightBracketPunctuation)
+        (tokenSucceed (ListExpression (listReverse reversed)))
+    })
+    tokenPeek.
+
+  parseList :: (() -> TokenParser(SurfaceExpr)) -> TokenParser(SurfaceExpr).
+  parseList = \(parseExpression) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation RightBracketPunctuation)
+          (tokenSucceed (ListExpression []))
+        | other -> tokenAndThen
+          (\(first) -> parseListElements parseExpression [first])
+          (parseExpression ())
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+    })
+    tokenPeek.
+
+  parsePrimary :: (() -> TokenParser(SurfaceExpr)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parsePrimary = \(parseExpression, parseBlock) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind whole -> tokenAndThen
+          (\(wholeToken) -> parseNumeric wholeToken whole)
+          tokenInteger
+        | CharacterKind value -> tokenKeepRight
+          tokenCharacter
+          (tokenSucceed (LiteralExpression (CharacterLiteral value)))
+        | TextKind value -> tokenKeepRight
+          tokenText
+          (tokenSucceed (LiteralExpression (TextLiteral value)))
+        | IdentifierKind "True" -> tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (LiteralExpression (BooleanLiteral True)))
+        | IdentifierKind "False" -> tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (LiteralExpression (BooleanLiteral False)))
+        | IdentifierKind name -> tokenAndThen
+          (\(identifierToken) -> parseName identifierToken name)
+          tokenIdentifier
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftParenPunctuation)
+          (parseParenthesized parseExpression)
+        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracketPunctuation)
+          (parseList parseExpression)
+        | PunctuationKind LeftBracePunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracePunctuation)
+          (tokenAndThen (\(statements) -> tokenSucceed (BlockExpression statements)) parseBlock)
+        | other -> tokenKeepRight
+          (tokenTakeIf (\(ignored) -> True) "token")
+          (tokenFailAtSpan (canonicalTokenSpan token) (UnexpectedSyntax (canonicalTokenEncountered current) "expression"))
+      }
+    })
+    tokenPeek.
+
+  parseApplicationTail :: TokenParser(SurfaceExpr) -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseApplicationTail = \(primary, function) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> if startsPrimary token then
+        tokenAndThen
+          (\(argument) -> parseApplicationTail primary (ApplyExpression function argument))
+          primary
+        else tokenSucceed function
+      | Nothing -> tokenSucceed function
+    })
+    tokenPeek.
+
+  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpression = \(parseBlock) -> {
+    primary = parsePrimary (\() -> parseFoundationalExpression parseBlock) parseBlock.
+    tokenAndThen (\(first) -> parseApplicationTail primary first) primary.
+  }.
+}

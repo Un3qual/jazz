@@ -361,6 +361,39 @@ test-suite parser-core-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-parser-component-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs
+  other-modules:
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-parity-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzParserParity
+      JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-scale-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite jazz-lexer-parity-spec
   import: test-common
   type: exitcode-stdio-1.0

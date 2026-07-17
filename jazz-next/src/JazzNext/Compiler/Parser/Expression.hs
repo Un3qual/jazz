@@ -303,12 +303,13 @@ parseIdentifierExpr :: Token -> Text -> Parser SurfaceExpr
 parseIdentifierExpr identifierToken name = do
   tokens <- MP.getInput
   case tokens of
-    colonToken@Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : _
-      | isImmediatelyAfter identifierToken colonToken -> do
+    colonToken@Token {tokenKind = TColonColon} : memberToken@Token {tokenKind = TIdentifier memberName} : _
+      | isImmediatelyAfter identifierToken colonToken,
+        isImmediatelyAfter colonToken memberToken -> do
           void parseAnyToken
           void parseAnyToken
           pure (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
-    colonToken@Token {tokenKind = TColonColon} : []
+    [colonToken@Token {tokenKind = TColonColon}]
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParser
             (ExpectedSyntax "member name" (ParserEndOfInputAfter "'::'"))
@@ -317,7 +318,10 @@ parseIdentifierExpr identifierToken name = do
           failTokenParserAt
             (tokenSpan memberToken)
             ( ExpectedSyntax
-                "member name after '::'"
+                ( case tokenKind memberToken of
+                    TIdentifier {} -> "adjacent member name after '::'"
+                    _ -> "member name after '::'"
+                )
                 (ParserFoundToken (tokenKind memberToken) (tokenLexeme memberToken))
             )
     _ ->

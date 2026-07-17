@@ -371,7 +371,10 @@ The design decomposes into independently reviewable children:
    `2026-07-12`);
 9. complete parser surface/result/failure contract, structured stage-0 failure
    path, total comparison adapter, and grammar-neutral parser kernel (complete
-   on `2026-07-16`).
+   on `2026-07-16`);
+10. foundational Jazz-authored expression, statement, block, and program
+    parsing with distinct token/source façades and exact named-family parity
+    (complete on `2026-07-16`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
@@ -384,13 +387,17 @@ fail-fast complete surface-AST comparison boundary, structured parser failures,
 distinct token and source façades, a compiler-local generic parser kernel, and
 five ordered implementation children.
 
-The first continuation child is complete: the ordinary parser
-surface/result/failure schema, total test-only Haskell adapter, structured
-stage-0 failure path, and generic parser kernel landed without Jazz grammar.
-The expression foundation is now the sole curation target, but remains
-unpromoted until a matching implementation plan fixes its named fixture family,
-ownership, and verification. Types/declarations/modules,
-control-flow/patterns, and operator/full-parity children remain ordered and
+The first two continuation children are complete. The foundation landed the
+ordinary parser surface/result/failure schema, total test-only Haskell adapter,
+structured stage-0 failure path, and generic parser kernel. The expression
+foundation then added compiler-local token, expression, program, and façade
+owners with exact 43-case stage-0 parity and deterministic 512-binding scale
+evidence.
+
+Types/declarations/modules is now the sole curation target, but remains
+unpromoted until a matching reviewed design and implementation plan fix its
+named fixture family, grammar-context ownership, and verification.
+Control-flow/patterns and operator/full-parity children remain ordered and
 unpromoted.
 
 ## Non-Goals

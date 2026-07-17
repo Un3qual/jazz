@@ -38,7 +38,9 @@ import JazzNext.Compiler.Parser.Lexer
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
     ParserFixtureExpectation (..),
-    parserFixtureCorpus
+    ParserFixtureFamily (ExpressionFoundation),
+    parserFixtureCorpus,
+    parserFixtureFamilyNames
   )
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.TestHarness
@@ -351,9 +353,17 @@ testParserFixtureCorpusWellFormed = do
         [ "parser-corpus-" <> Text.justifyRight 4 '0' (showText index)
           | index <- [1 :: Int .. 312]
         ]
+      existingNames = Set.fromList (focusedNames <> observedNames)
+      expressionFoundationNames =
+        filter
+          (`Set.notMember` existingNames)
+          (parserFixtureFamilyNames ExpressionFoundation)
   assertEqual "corpus is nonempty" False (null parserFixtureCorpus)
   assertEqual "fixture names are unique" (length names) (Set.size (Set.fromList names))
-  assertEqual "fixture manifest order" (focusedNames <> observedNames) names
+  assertEqual
+    "fixture manifest order"
+    (focusedNames <> observedNames <> expressionFoundationNames)
+    names
   assertEqual
     "fixture paths normalize"
     (replicate (length parserFixtureCorpus) True)
