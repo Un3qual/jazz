@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001
 last_verified: 2026-07-17
+completed_on: 2026-07-17
 plan_section: "Implementation Batch: Types, Declarations, and Modules"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -19,6 +20,9 @@ target_paths:
   - docs/superpowers/plans/2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules.md
   - jazz-next/README.md
   - jazz-next/jazz/compiler/ParserToken.jz
+  - jazz-next/jazz/compiler/ParserSignature.jz
+  - jazz-next/jazz/compiler/ParserContext.jz
+  - jazz-next/jazz/compiler/ParserDeclaration.jz
   - jazz-next/jazz/compiler/ParserExpression.jz
   - jazz-next/jazz/compiler/ParserProgram.jz
   - jazz-next/jazz/compiler/Parser.jz
@@ -27,8 +31,10 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserComponentSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
   - jazz-next/jazz-next.cabal
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
@@ -69,6 +75,29 @@ statistics, Cabal test components, and the Nix-pinned development environment.
 
 **Design checkpoint:**
 [`2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules-design.md`](../specs/2026-07-17-jazz-next-bootstrap-parser-types-declarations-modules-design.md)
+
+## Completion Evidence
+
+Implemented and verified on `2026-07-17`. The child adds the reviewed
+compiler-local signature, context, declaration, module/import/export, and
+explicit-type-application slice without changing `ParserCore` or `ParserTypes`.
+All 101 `TypesDeclarationsModules` fixtures match complete stage-0 token and
+source results twice; the existing 52 `ExpressionFoundation` fixtures remain
+green.
+
+The unchanged 512-binding scale profile passes with 21,867,028 evaluator
+transitions, 2,641,194 applications, 110,804 list cells, maximum continuation
+depth 1,060, and zero host operations. The additive 513-statement mixed profile
+passes with 9,725,110 transitions, 1,165,103 applications, 66,243 list cells,
+maximum depth 1,073, and zero host operations. Both profiles return identical
+observations across repeated evaluation.
+
+The focused parser/lexer/kernel/repository suites, repeated scale gate,
+warning-clean development build, all registered Cabal suites, `cabal check`,
+queue/docs validators, and whitespace check passed. Direct comparison with
+promotion commit `07880ba` confirms no `jazz-hs/`, `jazz2/`,
+`ParserCore.jz`, or `ParserTypes.jz` change. This completion does not claim
+full parser parity or stage-1 bootstrap readiness.
 
 ## Global Constraints
 
@@ -587,7 +616,7 @@ signatures, bindings, data declarations, imports, and flattened module output.
   zero host operations. Do not raise a ceiling without profiling evidence and
   a design review.
 
-- [ ] **Step 4: Commit scale evidence.**
+- [x] **Step 4: Commit scale evidence.**
 
   ```bash
   git add jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
@@ -610,7 +639,7 @@ signatures, bindings, data declarations, imports, and flattened module output.
 **Produces:** Full current-repository verification evidence, archived child
 status, and one unpromoted control-flow/patterns curation target.
 
-- [ ] **Step 1: Run focused verification from a clean milestone.**
+- [x] **Step 1: Run focused verification from a clean milestone.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec repository-audit-spec --test-show-details=failures
@@ -618,7 +647,7 @@ status, and one unpromoted control-flow/patterns curation target.
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
   ```
 
-- [ ] **Step 2: Run full package and metadata verification.**
+- [x] **Step 2: Run full package and metadata verification.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next all --test-show-details=failures
@@ -628,7 +657,7 @@ status, and one unpromoted control-flow/patterns curation target.
   The warning-clean build and `repository-audit-spec` are the current owners of
   the responsibilities formerly covered by deleted compatibility scripts.
 
-- [ ] **Step 3: Confirm scope and cleanliness before documentation claims.**
+- [x] **Step 3: Confirm scope and cleanliness before documentation claims.**
 
   ```bash
   git diff --check
@@ -641,7 +670,7 @@ status, and one unpromoted control-flow/patterns curation target.
   because adjacent commits were safely combined, compare against the actual
   pre-implementation promotion commit rather than assuming `HEAD~7`.
 
-- [ ] **Step 4: Record exact landed evidence and curate the next child.**
+- [x] **Step 4: Record exact landed evidence and curate the next child.**
 
   Mark this plan and design done with actual verification and scale statistics.
   Remove its `Ready Now` row and archive it in `done-archive.md`. Update the
@@ -650,7 +679,7 @@ status, and one unpromoted control-flow/patterns curation target.
   parity ordered behind it and unpromoted. Do not claim full parser parity or
   stage-1 bootstrap readiness.
 
-- [ ] **Step 5: Validate documentation and commit closeout.**
+- [x] **Step 5: Validate documentation and commit closeout.**
 
   ```bash
   bash scripts/check-execution-queue.sh

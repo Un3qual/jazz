@@ -3,10 +3,13 @@
 ## Status
 
 Approved in discussion and accepted after written review on `2026-07-16`.
-The parser contract-and-kernel child completed on `2026-07-16`. The expression
-foundation is the sole next curation target, but it is not promoted until a
-matching implementation plan fixes its fixture family, ownership, and
-verification. Later grammar children retain their own planning gates.
+The parser contract/kernel and expression-foundation children completed on
+`2026-07-16`; types/declarations/modules completed on `2026-07-17` with exact
+101-case parity and deterministic mixed scale evidence. Control-flow/patterns
+is the sole next curation target but remains unpromoted until its own reviewed
+design and implementation plan fix its fixture family, ownership, failure
+boundaries, scale evidence, and verification. Operators/full parity remains
+ordered behind it.
 
 ## Goal
 
@@ -296,7 +299,10 @@ deterministic 512-binding scale evidence.
 Add signatures, explicit type applications, data/class/impl declarations,
 module headers, imports, exports, and the corresponding grammar-context
 updates. Preserve current unsupported-signature fallbacks and declaration
-diagnostics.
+diagnostics. This child completed on `2026-07-17` with the fixed surface schema,
+exact 101-case token/source parity across repeated evaluation, and a
+deterministic 513-statement mixed profile. `ParserCore` and `ParserTypes`
+remained unchanged.
 
 ### Child 4: control flow and patterns
 
@@ -393,17 +399,19 @@ must be investigated and explained before closeout.
 
 ## Queue and Documentation Closeout
 
-The contract/kernel and expression-foundation children are complete and
-archived. The expression child added compiler-local token, expression,
-program, and façade modules; exact complete stage-0 comparison over one explicit
-43-case family; and deterministic scale evidence without parser-specific host
-support.
+The contract/kernel, expression-foundation, and types/declarations/modules
+children are complete and archived. Together they establish the fixed
+surface/failure schema, compiler-local token/expression/signature/context/
+declaration/program/façade owners, exact complete stage-0 comparison over the
+52-case expression family and 101-case declarations family, and deterministic
+scale evidence without parser-specific host support.
 
-Its closeout names only Child 3, types/declarations/modules, as the next
-curation target. Child 3 remains outside `Ready Now` until a separate reviewed
-design and implementation plan fix one explicit stable fixture family,
-declaration/module grammar context, exact ownership, and focused parity
-verification. Children 4 and 5 remain ordered in this design but unpromoted.
+This closeout names only Child 4, control-flow/patterns, as the next curation
+target. It remains outside `Ready Now` until a separate reviewed design and
+implementation plan fix one explicit stable fixture family, grammar ownership,
+accepted/rejected stage-0 boundaries, recursion/context behavior, additive
+scale evidence, and focused verification. Child 5, operators/full parity,
+remains ordered behind it and unpromoted.
 
 This ordering keeps the dispatcher aligned with reviewed implementation
 boundaries: completing one child makes the next one eligible for planning, not

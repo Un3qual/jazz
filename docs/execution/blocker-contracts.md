@@ -68,44 +68,49 @@ Each blocked item should answer these questions:
   explicit 43-case family matches stage 0 exactly and its isolated 512-binding
   scale suite produces deterministic runtime observations without host
   operations.
+  `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001` added shared
+  signature types and explicit type application, immutable scoped alias
+  context, data/class/impl declarations, module/import/export forms, exact
+  101-case stage-0 parity through both façades, and deterministic
+  513-statement mixed scale evidence. It preserved the fixed parser schema and
+  left `ParserCore` and `ParserTypes` unchanged.
 - Accepted decision: the parser contract is
   `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
   complete ordinary surface AST before lowering, preserves structured failures
   before the unified `Diagnostic`, uses canonical lexer tokens as the primary
   input, and starts with a generic compiler-local parser kernel. Existing Jazz
   collection/text APIs are sufficient.
-- Smallest unblocker: implement
-  `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`, the accepted
-  parser design's third ordered child. Its reviewed design and implementation
-  plan fix the executable boundary, and it is the sole `Ready Now` row.
-- Decision needed: none for this child. The exact 101-case family,
-  declaration/module ownership, immutable grammar context, lossless
-  unsupported-signature fallback, 513-statement scale profile, and focused
-  verification are fixed by the reviewed contract.
-- Recommended default: execute the landed compiler-local parser extension with
-  signatures, explicit type applications, data/class/impl declarations,
-  module headers, imports, and exports. Preserve the fixed surface schema and
-  stage-0 declaration diagnostics; do not absorb control flow or operators.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`
-  is the active executor row, not a curation candidate.
-  Control-flow/patterns and operator/full-parity children remain ordered and
-  unpromoted.
+- Smallest unblocker: curate
+  `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001`, the accepted parser
+  design's fourth ordered child. It is the sole `Next Curation Target` and is
+  not executable until its own written design and implementation plan pass
+  review.
+- Decision needed: fix one explicit named fixture family, exact expression and
+  pattern ownership, accepted/rejected stage-0 boundaries, recursive
+  block/context interactions, additive scale evidence, and focused
+  verification for lambdas, conditionals, cases, guards, and patterns.
+- Recommended default: preserve the fixed surface schema and fail-fast
+  structured failure contract while extending the landed compiler-local
+  expression/declaration/program owners. Keep operators and full-corpus closure
+  behind their separately ordered child.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001` is
+  the sole curation candidate, not a `Ready Now` row. Operators/full parity
+  remains ordered behind it and unpromoted.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
   `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
-  the completed foundation and expression-foundation plans, the reviewed
-  types/declarations/modules design and plan, compiler-local parser modules,
-  focused bootstrap parity support, the shared fixture manifest, and
-  `jazz-next/jazz-next.cabal`.
-- Verification: the exact focused component/parity suites, both deterministic
-  scale profiles, warning-clean development build, full Cabal suite,
-  `repository-audit-spec`, Cabal metadata, queue/docs validators, and
-  `git diff --check` named in the active implementation plan.
-- Not in scope: control flow, patterns, operators, full-corpus parity, a public
-  stdlib parser API, parser-specific host intrinsics or Haskell callbacks,
-  recovery or partial ASTs, canonical core, bytecode or a VM, lowered IR, LLVM
-  emission, object generation, linking, or native-runtime implementation.
+  the completed parser child plans, the accepted parent parser design,
+  compiler-local expression/declaration/program modules, focused bootstrap
+  parity support, the shared fixture manifest, and `jazz-next/jazz-next.cabal`.
+- Verification: written child-design and implementation-plan review followed
+  by `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`,
+  and `git diff --check` before promotion.
+- Not in scope: promoting implementation before review; operators or
+  full-corpus parity; a public stdlib parser API; parser-specific host
+  intrinsics or Haskell callbacks; recovery or partial ASTs; canonical core;
+  bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or
+  native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

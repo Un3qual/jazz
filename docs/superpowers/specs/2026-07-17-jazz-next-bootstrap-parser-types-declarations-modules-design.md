@@ -2,15 +2,35 @@
 
 ## Status
 
-Approved section by section in discussion on `2026-07-17`. This document is
-the written design checkpoint for
+Implemented and verified on `2026-07-17` after section-by-section discussion,
+written review, and milestone execution. This document is the design checkpoint
+for
 `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001`, the third ordered
 child of the accepted
 [bootstrap Jazz parser design](2026-07-12-jazz-next-bootstrap-jazz-parser-design.md).
 
-This child remains a curation target until its written design and subsequent
-implementation plan have both been reviewed. Review of this document does not
-itself promote the child into `Ready Now`.
+The child is complete and archived. Control-flow/patterns is the sole next
+curation target; it is not promoted by this closeout. Operators/full parity
+remains ordered behind it.
+
+## Implementation Outcome
+
+The landed implementation adds `ParserSignature`, `ParserContext`, and
+`ParserDeclaration`; reuses the shared signature grammar for explicit type
+application; preserves complete declaration/module surface values and
+structured failures; and keeps `ParserCore` and `ParserTypes` unchanged.
+Forward alias visibility is implemented as a depth-aware demand-driven scan
+only when compact `name::member` syntax is ambiguous, then scoped through the
+immutable context. This preserves the reviewed semantics without charging the
+existing ordinary-binding scale path for an eager full-stream scan.
+
+All 101 `TypesDeclarationsModules` fixtures match complete stage-0 token/source
+results twice, and the 52-case `ExpressionFoundation` family remains green.
+The 513-statement mixed profile passes with 9,725,110 evaluator transitions,
+1,165,103 applications, 66,243 list cells, maximum continuation depth 1,073,
+and zero host operations. The unchanged 512-binding profile passes with
+21,867,028 transitions, 2,641,194 applications, 110,804 list cells, depth
+1,060, and zero host operations.
 
 ## Goal
 
@@ -145,7 +165,8 @@ grammar in this child. Its responsibilities are:
   expression to the injected expression parser;
 - parse module paths, optional export lists, and module bodies;
 - parse imports, optional aliases, and optional explicit symbol lists;
-- pre-scan aliases at the current statement-list depth;
+- discover forward aliases at the current statement-list depth when compact
+  syntax requires disambiguation;
 - register parsed import aliases idempotently; and
 - enforce declaration scope and duplicate rules through the existing
   `ParserFailureReason` schema.
@@ -164,8 +185,8 @@ implementations.
 `ParserProgram` becomes the sequencing and recursive-orchestration layer. It:
 
 - constructs the initial context;
-- asks `ParserDeclaration` to pre-collect aliases for the current statement
-  list;
+- delegates compact signature/qualified-name ambiguity to `ParserDeclaration`,
+  including depth-aware forward-alias discovery when needed;
 - parses statements in source order while threading explicit context;
 - tracks whether a prior top-level form has appeared;
 - enforces that a module header is the first top-level form;
@@ -180,11 +201,13 @@ not retain parallel signature/declaration classifiers after the move.
 
 ### `ParserExpression.jz`
 
-`ParserExpression` gains grammar context as an explicit input and adds
-explicit type application to its application tail. An `@` must satisfy the
-same adjacency and type-prefix rules as stage 0. The type is parsed by
+`ParserExpression` accepts grammar context at its statement-facing seam and
+adds explicit type application to its application tail. An `@` must satisfy
+the same adjacency and type-prefix rules as stage 0. The type is parsed by
 `ParserSignature`; successful parsing creates the existing
-`TypeApplicationExpression` with the retained source span.
+`TypeApplicationExpression` with the retained source span. This child resolves
+alias ambiguity at the declaration boundary, so recursive expression parsing
+does not capture context it does not inspect.
 
 The expression module does not gain declaration parsing. Its context-aware
 interface is the integration point for alias visibility now and declared
@@ -206,14 +229,15 @@ reason to change the contract.
 The token entry path is:
 
 1. `Parser.parseTokens` receives a normalized path and canonical lexer tokens.
-2. `ParserProgram` asks `ParserDeclaration` to scan the current top-level token
-   list once for import aliases at depth zero.
-3. `ParserProgram` parses forms sequentially with `TopLevelContext`, the
-   collected alias set, and an explicit prior-form bit.
-4. `ParserDeclaration` returns the surface statement or statements produced by
-   one form together with the next immutable context.
-5. A module header creates a `ModuleStatement`, pre-scans only its own body,
-   parses that body with a fresh alias set and `ModuleBodyContext`, and returns
+2. `ParserProgram` parses forms sequentially with `TopLevelContext`, registered
+   aliases, and an explicit prior-form bit.
+3. When compact `name::member` syntax is ambiguous and `name` is not already
+   registered, `ParserDeclaration` scans only the remaining tokens at the
+   current delimiter depth for a forward alias.
+4. `ParserDeclaration` returns ordinary statements directly; import and module
+   forms also return the next immutable context or flattened statement list.
+5. A module header creates a `ModuleStatement`, parses its body with a fresh
+   alias set and `ModuleBodyContext`, and returns
    the header followed by the body statements in the same flattened order as
    stage 0.
 6. A nested expression block inherits aliases from its enclosing scope, changes
@@ -221,11 +245,11 @@ The token entry path is:
 7. `ParserProgram` produces one complete `BlockExpression` or the first
    structured parser failure.
 
-Alias pre-collection intentionally preserves stage-0 forward visibility, so a
-qualified use may precede its import within the same top-level or module-body
-statement list. The scan tracks delimiter depth and stops at the current
-right-brace boundary. It does not collect aliases from nested modules or
-expression blocks into the enclosing scope.
+Demand-driven alias collection intentionally preserves stage-0 forward
+visibility, so a qualified use may precede its import within the same top-level
+or module-body statement list. The scan tracks delimiter depth and stops at the
+current right-brace boundary. It does not collect aliases from nested modules
+or expression blocks into the enclosing scope.
 
 The source entry path first invokes the landed Jazz lexer. A lexical failure
 remains `CanonicalSourceLexicalFailure`; successful lexing continues through
@@ -477,9 +501,9 @@ Add a deterministic generated module containing exactly 512 module-body forms:
 - 128 trailing imports with unique aliases.
 
 Including the module header, the expected surface statement count is exactly
-513. Uses preceding imports prove forward alias pre-collection at scale. The
-generator uses only grammar owned by this child plus the landed expression
-foundation.
+513. Qualified uses before the trailing imports prove forward alias visibility
+at scale. The generator uses only grammar owned by this child plus the landed
+expression foundation.
 
 Run the generated case twice through the ordinary Jazz module graph and require:
 
@@ -576,7 +600,7 @@ Closeout does not claim complete parser parity or stage-1 bootstrap readiness.
 - Signature fallback is lossless and does not become a parser rejection.
 - Explicit type application reuses the signature type grammar.
 - Grammar context is immutable, explicit, and scoped correctly.
-- Alias pre-collection preserves forward visibility without leaking across
+- Depth-aware alias collection preserves forward visibility without leaking across
   scope boundaries.
 - Data, class, impl, module, import, and export forms preserve complete surface
   values and existing structured failures.
