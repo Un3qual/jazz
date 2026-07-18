@@ -536,7 +536,7 @@ module ParserDeclaration (
   collectSignaturePayloadToken :: [CanonicalToken] -> TokenParser([CanonicalToken]).
   collectSignaturePayloadToken = \(reversed) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "'.'" EndOfInput)
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind DotPunctuation -> case reversed {
           | [] -> tokenFailAtSpan
@@ -626,6 +626,16 @@ module ParserDeclaration (
         | other -> tokenSucceed (listReverse reversed, seen)
       }
       | Nothing -> tokenSucceed (listReverse reversed, seen)
+    })
+    tokenPeek.
+
+  parseDataEquals :: CanonicalToken -> TokenParser(CanonicalToken).
+  parseDataEquals = \(dataToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan dataToken)
+        (ExpectedSyntax "'='" (EndOfInputAfter "data type name"))
+      | Just token -> tokenPunctuation EqualsPunctuation
     })
     tokenPeek.
 
@@ -725,6 +735,20 @@ module ParserDeclaration (
     })
     tokenPeek.
 
+  parseDataConstructorToken :: TokenParser(CanonicalToken).
+  parseDataConstructorToken = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing
+        (ExpectedSyntax "constructor declaration" (EndOfInputIn "data declaration"))
+      | Just token -> tokenTakeIf
+        (\(candidate) -> case canonicalTokenKind candidate {
+          | IdentifierKind name -> identifierStartsUpper name
+          | other -> False
+        })
+        "constructor declaration"
+    })
+    tokenPeek.
+
   parseDataConstructor :: Text -> Set(Text) -> TokenParser(SurfaceDataConstructor).
   parseDataConstructor = \(typeName, typeParameters) -> tokenAndThen
     (\(constructorToken) -> case canonicalTokenKind constructorToken {
@@ -732,12 +756,7 @@ module ParserDeclaration (
         (\(arguments) -> tokenSucceed (SurfaceDataConstructor constructorName arguments))
         (parseDataConstructorArguments typeName typeParameters [])
     })
-    (tokenTakeIf
-      (\(token) -> case canonicalTokenKind token {
-        | IdentifierKind name -> identifierStartsUpper name
-        | other -> False
-      })
-      "constructor declaration").
+    parseDataConstructorToken.
 
   dataConstructorName :: SurfaceDataConstructor -> Text.
   dataConstructorName = \(constructor) -> case constructor {
@@ -794,7 +813,7 @@ module ParserDeclaration (
         (\(typeName) -> tokenAndThen
           (\(parameters) -> case parameters {
             | (typeParameters, typeParameterNames) -> tokenKeepRight
-              (tokenPunctuation EqualsPunctuation)
+              (parseDataEquals dataToken)
               (tokenAndThen
                 (\(constructors) -> tokenSucceed
                   (DataStatement (canonicalTokenSpan dataToken) typeName typeParameters constructors))
@@ -1469,31 +1488,31 @@ module ParserDeclaration (
 
   parseAllConstructors :: Text -> CanonicalSpan -> CanonicalSpan -> TokenParser(SurfaceModuleExportSelector).
   parseAllConstructors = \(typeName, typeSpan, allSpan) -> tokenAndThen
-    (\(current) -> case current {
-      | Nothing -> tokenFailAtSpan allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
-      | Just token -> case canonicalTokenKind token {
-        | PunctuationKind DotPunctuation -> tokenKeepRight
-          (tokenPunctuation DotPunctuation)
-          (tokenAndThen
-            (\(afterDot) -> case afterDot {
-              | Just rightParen -> case canonicalTokenKind rightParen {
-                | PunctuationKind RightParenPunctuation -> tokenKeepRight
-                  (tokenPunctuation RightParenPunctuation)
-                  (tokenSucceed
-                    (TypeExportSelector typeName typeSpan (AllConstructorsSelector allSpan)))
-                | other -> tokenFailAtSpan
-                  (canonicalTokenSpan rightParen)
-                  (DeclarationFailure ConstructorExportGroupRequiresAll)
-              }
-              | Nothing -> tokenFailAtSpan allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
-            })
-            tokenPeek)
+    (\(remaining) -> case remaining {
+      | [] -> tokenFailAtSpan allSpan (DeclarationFailure ConstructorExportGroupRequiresAll)
+      | [secondDot | afterSecondDot] -> case canonicalTokenKind secondDot {
+        | PunctuationKind DotPunctuation -> case afterSecondDot {
+          | [] -> tokenFailAtSpan
+            (canonicalTokenSpan secondDot)
+            (DeclarationFailure ConstructorExportGroupRequiresAll)
+          | [rightParen | rest] -> case canonicalTokenKind rightParen {
+            | PunctuationKind RightParenPunctuation -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenKeepRight
+                (tokenPunctuation RightParenPunctuation)
+                (tokenSucceed
+                  (TypeExportSelector typeName typeSpan (AllConstructorsSelector allSpan))))
+            | other -> tokenFailAtSpan
+              (canonicalTokenSpan secondDot)
+              (DeclarationFailure ConstructorExportGroupRequiresAll)
+          }
+        }
         | other -> tokenFailAtSpan
-          (canonicalTokenSpan token)
+          (canonicalTokenSpan secondDot)
           (DeclarationFailure ConstructorExportGroupRequiresAll)
       }
     })
-    tokenPeek.
+    tokenRemaining.
 
   parseTypeExportTail :: Text -> CanonicalSpan -> TokenParser(SurfaceModuleExportSelector).
   parseTypeExportTail = \(typeName, typeSpan) -> tokenAndThen
@@ -1504,7 +1523,7 @@ module ParserDeclaration (
           (tokenAndThen
             (\(afterLeftParen) -> case afterLeftParen {
               | Nothing -> tokenFailAt Nothing
-                (ExpectedSyntax "')'" (EndOfInputIn "constructor export group"))
+                (ExpectedSyntax "constructor export" EndOfInput)
               | Just next -> case canonicalTokenKind next {
                 | PunctuationKind RightParenPunctuation -> tokenFailAtSpan
                   (canonicalTokenSpan next)

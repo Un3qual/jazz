@@ -68,6 +68,17 @@ tests =
     ("requires matching bindings for qualified constructor payloads", assertStage0Parity "unmatched qualified constructor payload" "Result::Alias::a."),
     ("accepts qualified constructor payloads before matching bindings", assertStage0Parity "matched qualified constructor payload" "Result::Alias::a. Result = 1."),
     ("accepts qualified concrete constructor payloads", assertStage0Parity "qualified concrete constructor payload" "Result::Alias::Int."),
+    ("requires matching bindings for parenthesized qualified constructor payloads", assertStage0Parity "unmatched parenthesized qualified constructor payload" "Result::(Alias::a)."),
+    ("accepts parenthesized qualified constructor payloads before matching bindings", assertStage0Parity "matched parenthesized qualified constructor payload" "Result::(Alias::a). Result = 1."),
+    ("accepts parenthesized qualified concrete constructor payloads", assertStage0Parity "parenthesized qualified concrete constructor payload" "Result::(Alias::Int)."),
+    ("preserves data-header EOF context after the type name", assertStage0Parity "data header EOF after type name" "data Box"),
+    ("preserves data-header EOF context after type parameters", assertStage0Parity "data header EOF after type parameters" "data Box a"),
+    ("preserves data-constructor EOF context after equals", assertStage0Parity "data constructor EOF after equals" "data Maybe ="),
+    ("preserves data-constructor EOF context after a pipe", assertStage0Parity "data constructor EOF after pipe" "data Maybe = Just |"),
+    ("reports missing signature terminators as dots", assertStage0Parity "signature terminator EOF" "value :: Int"),
+    ("preserves empty constructor-export EOF context", assertStage0Parity "empty constructor export EOF" "module M(type Box("),
+    ("anchors incomplete all-constructor exports at the second dot", assertStage0Parity "all-constructor export EOF" "module M(type Box(.."),
+    ("anchors malformed all-constructor exports at the second dot", assertStage0Parity "all-constructor export following token" "module M(type Box(..Other"),
     ("stops nested alias discovery at the enclosing brace", assertStage0Parity "nested alias scan boundary" "{ Alias::a. }. import M as Alias."),
     ("matches stage 0 modules imports exports and alias scopes", testModuleDeclarationParity)
   ]
