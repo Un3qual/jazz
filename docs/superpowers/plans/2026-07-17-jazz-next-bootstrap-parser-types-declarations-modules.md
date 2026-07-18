@@ -498,7 +498,7 @@ imports/exports, and depth-aware alias visibility with no cross-scope leakage.
   whole-family proof. Do not relax a failure payload or exclude a case to make
   the focused gate green.
 
-- [ ] **Step 5: Commit the module milestone.**
+- [x] **Step 5: Commit the module milestone.**
 
   ```bash
   git add jazz-next/jazz/compiler/ParserContext.jz jazz-next/jazz/compiler/ParserDeclaration.jz jazz-next/jazz/compiler/ParserProgram.jz jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
@@ -521,20 +521,20 @@ imports/exports, and depth-aware alias visibility with no cross-scope leakage.
 **Produces:** Exact, deterministic token/source parity for the 101-case child
 family while retaining the existing 52-case regression family unchanged.
 
-- [ ] **Step 1: Make repetition and entry-point coverage explicit.**
+- [x] **Step 1: Make repetition and entry-point coverage explicit.**
 
   For each family, obtain the stage-0 expected rendering once, then run hosted
   token entry twice and hosted source entry twice. Assert equality within each
   entry point and exact equality with stage 0, including complete AST/failure
   payloads and spans.
 
-- [ ] **Step 2: Classify every mismatch by owner.**
+- [x] **Step 2: Classify every mismatch by owner.**
 
   For any discrepancy, add the smallest reproducer to the focused suite,
   correct only the owning module, and rerun the affected family. Do not add
   fixture exceptions, rendering normalization, or acceptance-only comparison.
 
-- [ ] **Step 3: Run the parity closure gate.**
+- [x] **Step 3: Run the parity closure gate.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-types-declarations-modules-spec jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec --test-show-details=failures

@@ -4,6 +4,7 @@ module JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
     loadExpressionFoundationFixtures,
+    loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
     runJazzParserTokenBatch,
   )
@@ -50,7 +51,7 @@ import JazzNext.Compiler.Parser.Failure
   )
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    ParserFixtureFamily (ExpressionFoundation),
+    ParserFixtureFamily (ExpressionFoundation, TypesDeclarationsModules),
     lookupParserFixtureFamily,
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -73,8 +74,16 @@ data TokenFixture = TokenFixture CanonicalSourcePath [Token] [CanonicalToken]
 
 loadExpressionFoundationFixtures :: IO [ParserFixture]
 loadExpressionFoundationFixtures =
-  case lookupParserFixtureFamily ExpressionFoundation of
-    Left violations -> fail ("invalid expression-foundation fixture manifest: " <> show violations)
+  loadFixtureFamily "expression-foundation" ExpressionFoundation
+
+loadTypesDeclarationsModulesFixtures :: IO [ParserFixture]
+loadTypesDeclarationsModulesFixtures =
+  loadFixtureFamily "types-declarations-modules" TypesDeclarationsModules
+
+loadFixtureFamily :: String -> ParserFixtureFamily -> IO [ParserFixture]
+loadFixtureFamily label family =
+  case lookupParserFixtureFamily family of
+    Left violations -> fail ("invalid " <> label <> " fixture manifest: " <> show violations)
     Right fixtures -> pure fixtures
 
 expectedTokenBatchRendering :: [ParserFixture] -> IO Text
