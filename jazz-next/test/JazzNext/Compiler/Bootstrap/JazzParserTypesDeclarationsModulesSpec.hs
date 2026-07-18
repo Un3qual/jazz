@@ -77,6 +77,8 @@ tests =
     ("rejects unmatched compact operator payloads like stage 0", assertStage0Parity "unmatched unsupported operator payload" "value::+."),
     ("does not treat a leading extra separator as signature syntax", assertStage0Parity "unsupported extra separator payload" "value::::A."),
     ("preserves later syntax evidence after a leading extra separator", assertStage0Parity "unsupported extra separator payload with syntax evidence" "value::::A -> B."),
+    ("anchors parenthesized operator binding boundaries at the opener", assertStage0Parity "parenthesized operator binding boundary" "value :: Int (+) = 1."),
+    ("anchors parenthesized operator signature boundaries at the opener", assertStage0Parity "parenthesized operator signature boundary" "value :: Int (+) :: Int."),
     ("rejects unmatched multiply-qualified payloads like stage 0", assertStage0Parity "unmatched multiply-qualified payload" "value::A::B::C."),
     ("rejects unmatched constructor multiply-qualified payloads like stage 0", assertStage0Parity "unmatched constructor multiply-qualified payload" "Result::Alias::Member::Extra."),
     ("preserves syntax evidence after extra qualification", assertStage0Parity "multiply-qualified payload with syntax evidence" "value::A::B::C -> D."),

@@ -47,6 +47,7 @@ module ParserDeclaration (
     tokenSucceed,
     tokenTransform,
     tokenAndThen,
+    tokenKeepLeft,
     tokenKeepRight,
     tokenChoice,
     tokenAttempt,
@@ -88,7 +89,7 @@ module ParserDeclaration (
     tokenIdentifier.
 
   parenthesizedOperatorStatementCandidate :: TokenParser(CanonicalToken).
-  parenthesizedOperatorStatementCandidate = tokenKeepRight
+  parenthesizedOperatorStatementCandidate = tokenKeepLeft
     (tokenPunctuation LeftParenPunctuation)
     (tokenKeepRight
       tokenOperator
