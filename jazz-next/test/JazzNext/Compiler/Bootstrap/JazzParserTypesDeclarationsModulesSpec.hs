@@ -59,9 +59,16 @@ tests =
     ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity),
     ("classifies qualified explicit type variables by terminal member", assertStage0Parity "qualified explicit type variable" "value = id @Alias::a item."),
     ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity),
+    ("rejects operator signatures in class bodies", assertStage0Parity "operator class method" "class Eq(a) { operator :: Int. }."),
+    ("rejects operator bindings in impl bodies", assertStage0Parity "operator impl method" "impl Eq(Int) { operator = 1. }."),
+    ("diagnoses uppercase data parameters at the header", assertStage0Parity "uppercase data type parameter" "data Box A = Box."),
     ("rejects qualified lowercase impl targets", assertStage0Parity "qualified lowercase impl target" "impl Eq(Alias::a) { }."),
     ("preserves unsupported capability header diagnostics", assertStage0Parity "unsupported capability header argument" "class Eq(forall a) { }."),
     ("preserves capability header EOF context", assertStage0Parity "capability header EOF context" "class Eq(a"),
+    ("requires matching bindings for qualified constructor payloads", assertStage0Parity "unmatched qualified constructor payload" "Result::Alias::a."),
+    ("accepts qualified constructor payloads before matching bindings", assertStage0Parity "matched qualified constructor payload" "Result::Alias::a. Result = 1."),
+    ("accepts qualified concrete constructor payloads", assertStage0Parity "qualified concrete constructor payload" "Result::Alias::Int."),
+    ("stops nested alias discovery at the enclosing brace", assertStage0Parity "nested alias scan boundary" "{ Alias::a. }. import M as Alias."),
     ("matches stage 0 modules imports exports and alias scopes", testModuleDeclarationParity)
   ]
 

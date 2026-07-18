@@ -419,6 +419,27 @@ module ParserDeclaration (
     (signaturePayloadBeforeTerminator ())
     (nextStatementStartsMatchingBinding name).
 
+  qualifiedConstructorSignatureBoundary :: Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
+  qualifiedConstructorSignatureBoundary = \(name, nameToken, separatorToken) -> tokenKeepRight
+    (tokenPunctuation DoubleColonPunctuation)
+    (tokenAndThen
+      (\(memberToken) -> case canonicalTokenKind memberToken {
+        | IdentifierKind member -> tokenAndThen
+          (\(current) -> case current {
+            | Just token -> case canonicalTokenKind token {
+              | PunctuationKind DotPunctuation -> if identifierStartsLower member then
+                tokenKeepRight
+                  (nextStatementStartsMatchingBinding name)
+                  (tokenSucceed (nameToken, separatorToken))
+                else tokenSucceed (nameToken, separatorToken)
+              | other -> scannedSignaturePayloadCandidate nameToken separatorToken
+            }
+            | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
+          })
+          tokenPeek
+      })
+      tokenIdentifier).
+
   signaturePayloadBoundary :: Text -> Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
   signaturePayloadBoundary = \(name, typeName, nameToken, separatorToken) -> tokenAndThen
     (\(current) -> case current {
@@ -428,6 +449,9 @@ module ParserDeclaration (
           else tokenKeepRight
             (nextStatementStartsMatchingBinding name)
             (tokenSucceed (nameToken, separatorToken))
+        | PunctuationKind DoubleColonPunctuation -> if identifierStartsUpper name then
+          qualifiedConstructorSignatureBoundary name nameToken separatorToken
+          else scannedSignaturePayloadCandidate nameToken separatorToken
         | other -> if isSignaturePayloadSyntax token then
           scannedSignaturePayloadCandidate nameToken separatorToken
           else tokenKeepRight
@@ -594,7 +618,11 @@ module ParserDeclaration (
             else tokenKeepRight
               tokenIdentifier
               (parseDataTypeParameters (setInsert seen name) (listPrepend name reversed))
-          else tokenSucceed (listReverse reversed, seen)
+          else tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax
+              "lowercase type parameter or '='"
+              (canonicalTokenEncountered current))
         | other -> tokenSucceed (listReverse reversed, seen)
       }
       | Nothing -> tokenSucceed (listReverse reversed, seen)
@@ -962,7 +990,11 @@ module ParserDeclaration (
         | PunctuationKind RightBracePunctuation -> tokenKeepRight
           (tokenPunctuation RightBracePunctuation)
           (tokenSucceed (listReverse reversed))
-        | IdentifierKind methodName -> case rest {
+        | IdentifierKind methodName -> if methodName == "operator" then
+          tokenFailAtSpan
+            (canonicalTokenSpan first)
+            (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
+          else case rest {
           | [second | afterSecond] -> case canonicalTokenKind second {
             | PunctuationKind DoubleColonPunctuation -> if setContains seen methodName then
               tokenFailAtSpan
@@ -1019,7 +1051,11 @@ module ParserDeclaration (
         | PunctuationKind RightBracePunctuation -> tokenKeepRight
           (tokenPunctuation RightBracePunctuation)
           (tokenSucceed (listReverse reversed))
-        | IdentifierKind methodName -> case rest {
+        | IdentifierKind methodName -> if methodName == "operator" then
+          tokenFailAtSpan
+            (canonicalTokenSpan first)
+            (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
+          else case rest {
           | [second | afterSecond] -> case canonicalTokenKind second {
             | PunctuationKind EqualsPunctuation -> if setContains seen methodName then
               tokenFailAtSpan
