@@ -544,7 +544,7 @@ family while retaining the existing 52-case regression family unchanged.
   both entries twice with exact deterministic values; the 362-case shared
   corpus and lexer gates remain green.
 
-- [ ] **Step 4: Commit parity closure.**
+- [x] **Step 4: Commit parity closure.**
 
   Stage the parity files, the focused regression test, and only parser owner
   files actually corrected, then commit:
@@ -563,20 +563,20 @@ family while retaining the existing 52-case regression family unchanged.
 **Produces:** Deterministic semantic work/stack evidence for forward aliases,
 signatures, bindings, data declarations, imports, and flattened module output.
 
-- [ ] **Step 1: Add the failing 513-statement scale contract.**
+- [x] **Step 1: Add the failing 513-statement scale contract.**
 
   Add a separate generated-case entry point and assertions for the exact shape,
   output, repetition, host-operation count, and all four ceilings. Keep the
   existing 512-binding generator and assertions untouched.
 
-- [ ] **Step 2: Implement the generator and ordinary runtime path.**
+- [x] **Step 2: Implement the generator and ordinary runtime path.**
 
   Generate only grammar owned by this child and run through the same ordinary
   Jazz compiler/module graph and runtime observation mechanism as the landed
   scale case. The generator must make names unique and make forward-alias use
   observable in the parsed structure.
 
-- [ ] **Step 3: Run scale and warning-clean gates.**
+- [x] **Step 3: Run scale and warning-clean gates.**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-scale-spec --test-show-details=failures

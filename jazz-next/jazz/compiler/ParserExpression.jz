@@ -349,13 +349,13 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpressionWithContext = \(context, parseBlock) -> {
-    primary = parsePrimary (\() -> parseFoundationalExpressionWithContext context parseBlock) parseBlock.
+  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpression = \(parseBlock) -> {
+    primary = parsePrimary (\() -> parseFoundationalExpression parseBlock) parseBlock.
     tokenAndThen (\(first) -> parseApplicationTail primary first) primary.
   }.
 
-  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpression = \(parseBlock) ->
-    parseFoundationalExpressionWithContext parserContextInitial parseBlock.
+  parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpressionWithContext = \(context, parseBlock) ->
+    parseFoundationalExpression parseBlock.
 }

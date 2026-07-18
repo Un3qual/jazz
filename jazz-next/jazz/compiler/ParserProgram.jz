@@ -1,5 +1,9 @@
 module ParserProgram (value parseFoundationalProgram) {
   import LexerTypes (
+    IdentifierKind,
+    ImportKeyword,
+    KeywordKind,
+    ModuleKeyword,
     PunctuationKind,
     RightBracePunctuation
   ).
@@ -7,8 +11,8 @@ module ParserProgram (value parseFoundationalProgram) {
   import Maybe.
   import ParserContext.
   import ParserDeclaration (
-    collectImportAliasesUntilEnd,
-    collectImportAliasesUntilBrace,
+    parseImportWithContext,
+    parseModuleWithContext,
     parseStatementWithContext
   ).
   import ParserExpression (parseFoundationalExpressionWithContext).
@@ -22,7 +26,6 @@ module ParserProgram (value parseFoundationalProgram) {
     tokenAndThen,
     tokenKeepRight,
     tokenPeek,
-    tokenRemaining,
     tokenFailAt,
     tokenFailAtSpan,
     tokenPunctuation
@@ -43,17 +46,53 @@ module ParserProgram (value parseFoundationalProgram) {
     (parseStatementList (parserContextNestedBlock context)).
 
   parseStatementList :: ParserContext -> TokenParser([SurfaceStatement]).
-  parseStatementList = \(context) -> tokenAndThen
-    (\(remaining) -> {
-      aliases = if parserContextStopsAtRightBrace context then
-        collectImportAliasesUntilBrace remaining
-        else collectImportAliasesUntilEnd remaining.
-      parseStatements (parserContextRegisterAliases context aliases) [] False.
-    })
-    tokenRemaining.
+  parseStatementList = \(context) -> parseScopedStatements context [].
 
-  parseNextStatement :: ParserContext -> [SurfaceStatement] -> Bool -> TokenParser([SurfaceStatement]).
-  parseNextStatement = \(context, reversed, seenPriorTopLevelForm) -> tokenAndThen
+  parseScopedNextStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseScopedNextStatement = \(context, reversed) -> tokenAndThen
+    (\(statement) -> parseScopedStatements context (listPrepend statement reversed))
+    (parseStatementWithContext parseExpressionInContext parseStatementList context).
+
+  parseScopedImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseScopedImportStatement = \(context, reversed) -> tokenAndThen
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseScopedStatements
+        nextContext
+        (prependStatements statements reversed)
+    })
+    (parseImportWithContext context).
+
+  parseScopedStatements :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseScopedStatements = \(context, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "'}'" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightBracePunctuation -> tokenKeepRight
+          (tokenPunctuation RightBracePunctuation)
+          (tokenSucceed (listReverse reversed))
+        | KeywordKind ModuleKeyword -> parseModuleNextStatement context reversed False
+        | KeywordKind ImportKeyword -> parseScopedImportStatement context reversed
+        | other -> parseScopedNextStatement context reversed
+      }
+    })
+    tokenPeek.
+
+  parseTopLevelOrdinaryStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseTopLevelOrdinaryStatement = \(context, reversed) -> tokenAndThen
+    (\(statement) -> parseTopLevelStatementsAfterFirst context (listPrepend statement reversed))
+    (parseStatementWithContext parseExpressionInContext parseStatementList context).
+
+  parseTopLevelImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseTopLevelImportStatement = \(context, reversed) -> tokenAndThen
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseTopLevelStatementsAfterFirst
+        nextContext
+        (prependStatements statements reversed)
+    })
+    (parseImportWithContext context).
+
+  parseModuleNextStatement :: ParserContext -> [SurfaceStatement] -> Bool -> TokenParser([SurfaceStatement]).
+  parseModuleNextStatement = \(context, reversed, seenPriorTopLevelForm) -> tokenAndThen
     (\(result) -> case result {
       | (statements, nextContext) -> case statements {
         | [first | rest] -> case first {
@@ -68,29 +107,37 @@ module ParserProgram (value parseFoundationalProgram) {
                   (UnexpectedSyntaxAfter (canonicalTokenEncountered trailing) "module declaration")
               })
               tokenPeek
-          | other -> parseStatements
+          | other -> parseTopLevelStatementsAfterFirst
             nextContext
             (prependStatements statements reversed)
-            True
         }
-        | [] -> parseStatements nextContext reversed True
+        | [] -> parseTopLevelStatementsAfterFirst nextContext reversed
       }
     })
-    (parseStatementWithContext parseExpressionInContext parseStatementList context).
+    (parseModuleWithContext parseStatementList context).
 
-  parseStatements :: ParserContext -> [SurfaceStatement] -> Bool -> TokenParser([SurfaceStatement]).
-  parseStatements = \(context, reversed, seenPriorTopLevelForm) -> tokenAndThen
+  parseTopLevelStatementsInitial :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseTopLevelStatementsInitial = \(context, reversed) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> if parserContextStopsAtRightBrace context then
-        tokenFailAt Nothing (ExpectedSyntax "'}'" EndOfInput)
-        else tokenSucceed (listReverse reversed)
+      | Nothing -> tokenSucceed (listReverse reversed)
       | Just token -> case canonicalTokenKind token {
-        | PunctuationKind RightBracePunctuation -> if parserContextStopsAtRightBrace context then
-          tokenKeepRight
-            (tokenPunctuation RightBracePunctuation)
-            (tokenSucceed (listReverse reversed))
-          else parseNextStatement context reversed seenPriorTopLevelForm
-        | other -> parseNextStatement context reversed seenPriorTopLevelForm
+        | IdentifierKind name -> parseTopLevelOrdinaryStatement context reversed
+        | KeywordKind ModuleKeyword -> parseModuleNextStatement context reversed False
+        | KeywordKind ImportKeyword -> parseTopLevelImportStatement context reversed
+        | other -> parseTopLevelOrdinaryStatement context reversed
+      }
+    })
+    tokenPeek.
+
+  parseTopLevelStatementsAfterFirst :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
+  parseTopLevelStatementsAfterFirst = \(context, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenSucceed (listReverse reversed)
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> parseTopLevelOrdinaryStatement context reversed
+        | KeywordKind ModuleKeyword -> parseModuleNextStatement context reversed True
+        | KeywordKind ImportKeyword -> parseTopLevelImportStatement context reversed
+        | other -> parseTopLevelOrdinaryStatement context reversed
       }
     })
     tokenPeek.
@@ -98,5 +145,5 @@ module ParserProgram (value parseFoundationalProgram) {
   parseFoundationalProgram :: TokenParser(SurfaceExpr).
   parseFoundationalProgram = tokenTransform
     (\(statements) -> BlockExpression statements)
-    (parseStatementList parserContextInitial).
+    (parseTopLevelStatementsInitial parserContextInitial []).
 }
