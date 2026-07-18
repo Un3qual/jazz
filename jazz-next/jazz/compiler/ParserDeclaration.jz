@@ -419,6 +419,11 @@ module ParserDeclaration (
     (signaturePayloadBeforeTerminator ())
     (nextStatementStartsMatchingBinding name).
 
+  matchingBindingAfterUnsupportedPayloadHead :: Text -> TokenParser(()).
+  matchingBindingAfterUnsupportedPayloadHead = \(name) -> tokenKeepRight
+    anyToken
+    (matchingBindingAfterSignaturePayload name).
+
   qualifiedConstructorSignatureBoundary :: Text -> CanonicalToken -> CanonicalToken -> TokenParser((CanonicalToken, CanonicalToken)).
   qualifiedConstructorSignatureBoundary = \(name, nameToken, separatorToken) -> tokenKeepRight
     (tokenPunctuation DoubleColonPunctuation)
@@ -478,11 +483,14 @@ module ParserDeclaration (
                 | PunctuationKind LeftParenPunctuation -> if identifierStartsUpper name then
                   constructorParenthesizedSignatureBoundary name nameToken separatorToken
                   else scannedSignaturePayloadCandidateAfterHead nameToken separatorToken
+                | PunctuationKind DotPunctuation -> tokenFailAtSpan
+                  (canonicalTokenSpan token)
+                  (ExpectedSyntax "signature payload" (canonicalTokenEncountered current))
                 | other -> if isSignaturePayloadSyntax token then
                   scannedSignaturePayloadCandidateAfterHead nameToken separatorToken
-                  else tokenFailAtSpan
-                    (canonicalTokenSpan token)
-                    (ExpectedSyntax "signature payload" (canonicalTokenEncountered current))
+                  else tokenKeepRight
+                    (matchingBindingAfterUnsupportedPayloadHead name)
+                    (tokenSucceed (nameToken, separatorToken))
               }
             })
             tokenPeek
