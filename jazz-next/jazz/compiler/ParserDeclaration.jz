@@ -31,11 +31,11 @@ module ParserDeclaration (
     CommaPunctuation
   ).
   import Char (charIsLower, charIsUpper).
-  import List (listAll, listLength, listPrepend, listReverse).
+  import List (listAll, listLast, listLength, listPrepend, listReverse).
   import Maybe.
   import NonEmpty.
   import ParserContext.
-  import ParserSignature (parseSignaturePayload, parseSignatureType).
+  import ParserSignature (parseSignaturePayload, parseSignatureTypes).
   import Set.
   import ParserToken (
     TokenParser,
@@ -62,7 +62,7 @@ module ParserDeclaration (
     tokenOperator,
     tokenPunctuation
   ).
-  import Text (textAppend, textLength, textUncons).
+  import Text (textAppend, textLength, textSplit, textUncons).
   # Complete ParserTypes imports are required while explicit import lists do
   # not expose the surface type names used by recursive grammar signatures.
   import ParserTypes.
@@ -514,7 +514,17 @@ module ParserDeclaration (
     (\(current) -> case current {
       | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
       | Just token -> case canonicalTokenKind token {
-        | PunctuationKind DotPunctuation -> tokenSucceed (listReverse reversed)
+        | PunctuationKind DotPunctuation -> case reversed {
+          | [] -> tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax
+              "signature text"
+              (BeforeToken
+                (canonicalTokenKind token)
+                (canonicalTokenLexeme token)
+                Nothing))
+          | [first | rest] -> tokenSucceed (listReverse reversed)
+        }
         | other -> tokenKeepRight anyToken (collectSignaturePayload (listPrepend token reversed))
       }
     })
@@ -774,6 +784,11 @@ module ParserDeclaration (
     })
     declarationKind.
 
+  capabilityDeclarationKind :: Text -> ParserDeclarationKind.
+  capabilityDeclarationKind = \(declarationKind) -> if declarationKind == "class" then
+    ClassDeclaration
+    else ImplDeclaration.
+
   parseCapabilityName :: Text -> CanonicalToken -> TokenParser(Text).
   parseCapabilityName = \(declarationKind, declarationToken) -> tokenAndThen
     (\(current) -> case current {
@@ -810,18 +825,30 @@ module ParserDeclaration (
     })
     tokenPeek.
 
-  parseCapabilityArgumentTail :: Text -> CanonicalToken -> [SurfaceSignatureType] -> TokenParser([SurfaceSignatureType]).
-  parseCapabilityArgumentTail = \(declarationKind, declarationToken, reversed) -> tokenAndThen
+  collectCapabilityHeaderTokens :: Text -> CanonicalToken -> Int -> [CanonicalToken] -> TokenParser([CanonicalToken]).
+  collectCapabilityHeaderTokens = \(declarationKind, declarationToken, depth, reversed) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> tokenKeepRight
-        (tokenPunctuation RightParenPunctuation)
-        (tokenSucceed (listReverse reversed))
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (ExpectedSyntax "')'" (EndOfInputIn (textAppend declarationKind " declaration header")))
       | Just token -> case canonicalTokenKind token {
-        | PunctuationKind CommaPunctuation -> tokenKeepRight
-          (tokenPunctuation CommaPunctuation)
-          (tokenAndThen
-            (\(argument) -> parseCapabilityArgumentTail declarationKind declarationToken (listPrepend argument reversed))
-            parseSignatureType)
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          anyToken
+          (collectCapabilityHeaderTokens
+            declarationKind
+            declarationToken
+            (depth + 1)
+            (listPrepend token reversed))
+        | PunctuationKind RightParenPunctuation -> if depth == 1 then tokenKeepRight
+          anyToken
+          (tokenSucceed (listReverse reversed))
+          else tokenKeepRight
+            anyToken
+            (collectCapabilityHeaderTokens
+              declarationKind
+              declarationToken
+              (depth - 1)
+              (listPrepend token reversed))
         | PunctuationKind LeftBracePunctuation -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax
@@ -831,8 +858,12 @@ module ParserDeclaration (
               (canonicalTokenLexeme token)
               (Just (textAppend declarationKind " declaration header"))))
         | other -> tokenKeepRight
-          (tokenPunctuation RightParenPunctuation)
-          (tokenSucceed (listReverse reversed))
+          anyToken
+          (collectCapabilityHeaderTokens
+            declarationKind
+            declarationToken
+            depth
+            (listPrepend token reversed))
       }
     })
     tokenPeek.
@@ -841,20 +872,13 @@ module ParserDeclaration (
   parseCapabilityArguments = \(declarationKind, declarationToken) -> tokenKeepRight
     (tokenPunctuation LeftParenPunctuation)
     (tokenAndThen
-      (\(current) -> case current {
-        | Just token -> case canonicalTokenKind token {
-          | PunctuationKind RightParenPunctuation -> tokenKeepRight
-            (tokenPunctuation RightParenPunctuation)
-            (tokenSucceed [])
-          | other -> tokenAndThen
-            (\(first) -> parseCapabilityArgumentTail declarationKind declarationToken [first])
-            parseSignatureType
-        }
+      (\(tokens) -> case parseSignatureTypes tokens {
+        | Just arguments -> tokenSucceed arguments
         | Nothing -> tokenFailAtSpan
           (canonicalTokenSpan declarationToken)
-          (ExpectedSyntax "')'" (EndOfInputIn (textAppend declarationKind " declaration header")))
+          (UnsupportedSyntax (DeclarationHeaderArguments (capabilityDeclarationKind declarationKind)))
       })
-      tokenPeek).
+      (collectCapabilityHeaderTokens declarationKind declarationToken 1 [])).
 
   parseOptionalCapabilityArguments :: Text -> CanonicalToken -> TokenParser(Maybe([SurfaceSignatureType])).
   parseOptionalCapabilityArguments = \(declarationKind, declarationToken) -> tokenAndThen
@@ -1041,11 +1065,17 @@ module ParserDeclaration (
     })
     tokenRemaining.
 
+  terminalTypeName :: Text -> Text.
+  terminalTypeName = \(name) -> case listLast (textSplit "::" name) {
+    | Just member -> member
+    | Nothing -> name
+  }.
+
   concreteImplType :: SurfaceSignatureType -> Bool.
   concreteImplType = \(signatureType) -> case signatureType {
     | TypeVariable name -> False
-    | NamedType name -> if identifierStartsLower name then False else True
-    | AppliedType name arguments -> if identifierStartsLower name then False else listAll concreteImplType arguments
+    | NamedType name -> if identifierStartsLower (terminalTypeName name) then False else True
+    | AppliedType name arguments -> if identifierStartsLower (terminalTypeName name) then False else listAll concreteImplType arguments
     | ListType element -> concreteImplType element
     | TupleType elements -> listAll concreteImplType elements
     | FunctionType argument result -> False

@@ -23,12 +23,12 @@ import JazzNext.Compiler.ModuleResolver
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgramTokensDetailed,
   )
-import JazzNext.Compiler.Parser.Lexer
-  ( tokenizeDetailed,
-  )
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
     parserFixtureCorpus,
+  )
+import JazzNext.Compiler.Parser.Lexer
+  ( tokenizeDetailed,
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -54,8 +54,14 @@ tests =
     ("preserves landed binding and expression statement dispatch", testFoundationalDispatch),
     ("constructs the recursive signature parser lazily", testDirectSignatureType),
     ("matches stage 0 signature type and fallback behavior", testSignatureParity),
+    ("rejects empty spaced signatures with stage 0 diagnostics", assertStage0Parity "empty spaced signature payload" "value :: ."),
+    ("classifies qualified type variables by terminal member", assertStage0Parity "qualified signature type variable" "qualified :: Alias::a."),
     ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity),
+    ("classifies qualified explicit type variables by terminal member", assertStage0Parity "qualified explicit type variable" "value = id @Alias::a item."),
     ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity),
+    ("rejects qualified lowercase impl targets", assertStage0Parity "qualified lowercase impl target" "impl Eq(Alias::a) { }."),
+    ("preserves unsupported capability header diagnostics", assertStage0Parity "unsupported capability header argument" "class Eq(forall a) { }."),
+    ("preserves capability header EOF context", assertStage0Parity "capability header EOF context" "class Eq(a"),
     ("matches stage 0 modules imports exports and alias scopes", testModuleDeclarationParity)
   ]
 
@@ -299,9 +305,9 @@ assertStage0Parity label source = do
         renderCanonicalSourceResult
           ( canonicalizeSourceResult
               path
-              (case tokenizeDetailed source of
-                Left failure -> Left failure
-                Right tokens -> Right (parseSurfaceProgramTokensDetailed tokens)
+              ( case tokenizeDetailed source of
+                  Left failure -> Left failure
+                  Right tokens -> Right (parseSurfaceProgramTokensDetailed tokens)
               )
           )
       expression = "parseSource componentPath " <> Text.pack (show source)
