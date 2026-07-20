@@ -9,7 +9,11 @@ module ParserExpression (
     IntegerKind,
     CharacterKind,
     TextKind,
+    KeywordKind,
     PunctuationKind,
+    IfKeyword,
+    ThenKeyword,
+    ElseKeyword,
     ArrowPunctuation,
     DoubleColonPunctuation,
     LeftBracePunctuation,
@@ -48,6 +52,7 @@ module ParserExpression (
     tokenFailAtSpan,
     tokenTakeIf,
     tokenIdentifier,
+    tokenKeyword,
     tokenInteger,
     tokenCharacter,
     tokenText,
@@ -68,6 +73,7 @@ module ParserExpression (
     | IntegerKind value -> True
     | CharacterKind value -> True
     | TextKind value -> True
+    | KeywordKind IfKeyword -> True
     | PunctuationKind LeftBracePunctuation -> True
     | PunctuationKind LeftParenPunctuation -> True
     | PunctuationKind LeftBracketPunctuation -> True
@@ -287,6 +293,55 @@ module ParserExpression (
   neverStops :: CanonicalToken -> Bool.
   neverStops = \(token) -> False.
 
+  stopsAtThen :: (CanonicalToken -> Bool) -> CanonicalToken -> Bool.
+  stopsAtThen = \(outerStop, token) -> if outerStop token then True else case canonicalTokenKind token {
+    | KeywordKind ThenKeyword -> True
+    | other -> False
+  }.
+
+  parseConditionalElse :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseConditionalElse = \(stop, parseBlock, ifToken, condition, trueBranch) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | KeywordKind ElseKeyword -> tokenKeepRight
+          (tokenKeyword ElseKeyword)
+          (tokenAndThen
+            (\(falseBranch) -> tokenSucceed (IfExpression condition trueBranch falseBranch))
+            (parseFoundationalExpressionUntil stop parseBlock))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'else'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan ifToken)
+        (ExpectedSyntax "'else'" (EndOfInputAfter "'if'"))
+    })
+    tokenPeek.
+
+  parseConditionalThen :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseConditionalThen = \(stop, parseBlock, ifToken, condition) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | KeywordKind ThenKeyword -> tokenKeepRight
+          (tokenKeyword ThenKeyword)
+          (tokenAndThen
+            (\(trueBranch) -> parseConditionalElse stop parseBlock ifToken condition trueBranch)
+            (parseFoundationalExpressionUntil stop parseBlock))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'then'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan ifToken)
+        (ExpectedSyntax "'then'" (EndOfInputAfter "'if'"))
+    })
+    tokenPeek.
+
+  parseConditional :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
+  parseConditional = \(stop, parseBlock, ifToken) -> tokenAndThen
+    (\(condition) -> parseConditionalThen stop parseBlock ifToken condition)
+    (parseFoundationalExpressionUntil (\(token) -> stopsAtThen stop token) parseBlock).
+
   collectLambdaParameters :: SurfaceLambdaParameter -> [SurfaceLambdaParameter] -> TokenParser(NonEmpty(SurfaceLambdaParameter)).
   collectLambdaParameters = \(first, reversed) -> tokenAndThen
     (\(current) -> case current {
@@ -376,6 +431,9 @@ module ParserExpression (
           | TextKind value -> tokenKeepRight
             tokenText
             (tokenSucceed (LiteralExpression (TextLiteral value)))
+          | KeywordKind IfKeyword -> tokenAndThen
+            (\(ifToken) -> parseConditional stop parseBlock ifToken)
+            (tokenKeyword IfKeyword)
           | IdentifierKind "True" -> tokenKeepRight
             tokenIdentifier
             (tokenSucceed (LiteralExpression (BooleanLiteral True)))

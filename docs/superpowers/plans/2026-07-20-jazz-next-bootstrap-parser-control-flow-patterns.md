@@ -283,17 +283,17 @@ nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --p
 **Produces:** Stage-0-exact `if`/`then`/`else` parsing through the private stop
 seam, including nearest-`if` association and exact malformed boundaries.
 
-- [ ] Add or enable failing conditionals for nesting, block branches, missing
+- [x] Add or enable failing conditionals for nesting, block branches, missing
   condition/`then`/true branch/`else`/false branch, extra `else`, reserved
   binding use, and inherited outer delimiters.
-- [ ] Implement conditional dispatch before ordinary identifier fallback only
+- [x] Implement conditional dispatch before ordinary identifier fallback only
   at expression start, leaving `then`/`else` ordinary outside the matching stop
   site wherever stage 0 allows them.
-- [ ] Match complete stage-0 surfaces and failures for every operator-independent
+- [x] Match complete stage-0 surfaces and failures for every operator-independent
   conditional fixture; do not pull comparison-expression fixtures forward.
-- [ ] Run the focused suite, active conditional suite, and landed parity suites;
+- [x] Run the focused suite, active conditional suite, and landed parity suites;
   expect conditional cases to pass while case/guard cases remain outstanding.
-- [ ] Commit as `feat: parse hosted conditionals`.
+- [x] Commit as `feat: parse hosted conditionals`.
 
 Verification command:
 
