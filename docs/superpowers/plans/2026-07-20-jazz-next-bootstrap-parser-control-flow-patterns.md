@@ -329,7 +329,7 @@ twice while preserving both landed families.
   complete-value equality and deterministic repeated output.
 - [x] Run parser-core, token-parser, schema/comparison, lexer parity, active
   expression/declaration/module, and repository audit regressions.
-- [ ] Commit as `feat: parse hosted cases and guards`.
+- [x] Commit as `feat: parse hosted cases and guards`.
 
 Verification command:
 
@@ -347,16 +347,16 @@ nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --p
 **Produces:** A third additive scale profile with exact output, deterministic
 statistics, zero host operations, and fixed ceilings.
 
-- [ ] Add the reviewed rotating 512-binding generator plus one terminal
+- [x] Add the reviewed rotating 512-binding generator plus one terminal
   expression and assert the parsed block contains exactly 513 statements.
-- [ ] Run it twice through the ordinary module graph and require identical
+- [x] Run it twice through the ordinary module graph and require identical
   output and runtime observation statistics.
-- [ ] Lock zero host operations and the approved initial ceilings, record actual
+- [x] Lock zero host operations and the approved initial ceilings, record actual
   observations, and tighten any ceiling that is excessively loose without
   changing the generated source.
-- [ ] Re-run the expression and declarations profiles unchanged and confirm
+- [x] Re-run the expression and declarations profiles unchanged and confirm
   their existing outputs and ceilings still pass.
-- [ ] Commit as `test: prove parser control flow scale`.
+- [x] Commit as `test: prove parser control flow scale`.
 
 Verification command:
 
