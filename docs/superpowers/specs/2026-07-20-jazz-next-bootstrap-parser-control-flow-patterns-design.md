@@ -484,6 +484,12 @@ coordination surfaces required by this child:
   `jazz-next/jazz/compiler/ParserDeclaration.jz`;
 - modify `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`;
 - modify
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`
+  only for shared-corpus invariants affected by the three focused additions;
+- modify
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`
+  for the fixed corpus total and new family contract;
+- modify
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs`;
 - create
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs`;
@@ -495,10 +501,11 @@ coordination surfaces required by this child:
   plan, `docs/execution/queue.md`, `docs/execution/blocker-contracts.md`, and
   `docs/execution/done-archive.md` during promotion and closeout.
 
-Existing canonical comparison, parser-core, schema, token-parser, lexer, and
-stage-0 parser tests are verification surfaces, not anticipated implementation
-targets. Any required schema or stage-0 behavior change stops this child for a
-separate reviewed correction.
+Parser-core, schema, token-parser, lexer behavior, and stage-0 parser tests are
+verification surfaces, not anticipated implementation targets. The two
+canonical comparison specs may change only for the new corpus total, family
+manifest, and fixed expectation audit. Any required schema or stage-0 behavior
+change stops this child for a separate reviewed correction.
 
 ## Verification Contract
 
