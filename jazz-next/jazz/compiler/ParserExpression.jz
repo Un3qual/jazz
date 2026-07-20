@@ -10,6 +10,7 @@ module ParserExpression (
     CharacterKind,
     TextKind,
     PunctuationKind,
+    ArrowPunctuation,
     DoubleColonPunctuation,
     LeftBracePunctuation,
     LeftParenPunctuation,
@@ -17,12 +18,15 @@ module ParserExpression (
     LeftBracketPunctuation,
     RightBracketPunctuation,
     CommaPunctuation,
+    LambdaPunctuation,
     DotPunctuation,
     AtPunctuation
   ).
   import List (listPrepend, listReverse).
   import Maybe.
+  import NonEmpty (NonEmpty).
   import ParserContext.
+  import ParserPattern (parseLambdaParameter).
   import ParserSignature (parseSignatureType).
   import ParserToken (
     ParserGrammarFailure,
@@ -67,6 +71,7 @@ module ParserExpression (
     | PunctuationKind LeftBracePunctuation -> True
     | PunctuationKind LeftParenPunctuation -> True
     | PunctuationKind LeftBracketPunctuation -> True
+    | PunctuationKind LambdaPunctuation -> True
     | other -> False
   }.
 
@@ -279,44 +284,126 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parsePrimary :: (() -> TokenParser(SurfaceExpr)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parsePrimary = \(parseExpression, parseBlock) -> tokenAndThen
+  neverStops :: CanonicalToken -> Bool.
+  neverStops = \(token) -> False.
+
+  collectLambdaParameters :: SurfaceLambdaParameter -> [SurfaceLambdaParameter] -> TokenParser(NonEmpty(SurfaceLambdaParameter)).
+  collectLambdaParameters = \(first, reversed) -> tokenAndThen
     (\(current) -> case current {
-      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
       | Just token -> case canonicalTokenKind token {
-        | IntegerKind whole -> tokenAndThen
-          (\(wholeToken) -> parseNumeric wholeToken whole)
-          tokenInteger
-        | CharacterKind value -> tokenKeepRight
-          tokenCharacter
-          (tokenSucceed (LiteralExpression (CharacterLiteral value)))
-        | TextKind value -> tokenKeepRight
-          tokenText
-          (tokenSucceed (LiteralExpression (TextLiteral value)))
-        | IdentifierKind "True" -> tokenKeepRight
-          tokenIdentifier
-          (tokenSucceed (LiteralExpression (BooleanLiteral True)))
-        | IdentifierKind "False" -> tokenKeepRight
-          tokenIdentifier
-          (tokenSucceed (LiteralExpression (BooleanLiteral False)))
-        | IdentifierKind name -> tokenAndThen
-          (\(identifierToken) -> parseName identifierToken name)
-          tokenIdentifier
-        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
-          (tokenPunctuation LeftParenPunctuation)
-          (parseParenthesized parseExpression)
-        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
-          (tokenPunctuation LeftBracketPunctuation)
-          (parseList parseExpression)
-        | PunctuationKind LeftBracePunctuation -> tokenKeepRight
-          (tokenPunctuation LeftBracePunctuation)
-          (tokenAndThen (\(statements) -> tokenSucceed (BlockExpression statements)) parseBlock)
-        | other -> tokenKeepRight
-          (tokenTakeIf (\(ignored) -> True) "token")
-          (tokenFailAtSpan (canonicalTokenSpan token) (UnexpectedSyntax (canonicalTokenEncountered current) "expression"))
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(next) -> collectLambdaParameters first (listPrepend next reversed))
+            parseLambdaParameter)
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (NonEmpty first (listReverse reversed)))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "',' or ')'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
       }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "')'" (EndOfInputIn "lambda parameter list"))
     })
     tokenPeek.
+
+  parseLambdaParameters :: TokenParser(NonEmpty(SurfaceLambdaParameter)).
+  parseLambdaParameters = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (NonEmpty (PatternParameter (TuplePattern [])) []))
+        | other -> tokenAndThen
+          (\(first) -> collectLambdaParameters first [])
+          parseLambdaParameter
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "identifier" (EndOfInputIn "lambda parameter list"))
+    })
+    tokenPeek.
+
+  parseLambdaBody :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> NonEmpty(SurfaceLambdaParameter) -> TokenParser(SurfaceExpr).
+  parseLambdaBody = \(stop, parseBlock, lambdaToken, parameters) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind ArrowPunctuation -> tokenKeepRight
+          (tokenPunctuation ArrowPunctuation)
+          (tokenAndThen
+            (\(body) -> tokenSucceed (LambdaExpression parameters body))
+            (parseFoundationalExpressionUntil stop parseBlock))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'->'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan lambdaToken)
+        (ExpectedSyntax "'->'" (EndOfInputAfter "lambda parameters"))
+    })
+    tokenPeek.
+
+  parseLambda :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
+  parseLambda = \(stop, parseBlock, lambdaToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftParenPunctuation)
+          (tokenAndThen
+            (\(parameters) -> parseLambdaBody stop parseBlock lambdaToken parameters)
+            parseLambdaParameters)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'(' after lambda introducer" (AtToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan lambdaToken)
+        (ExpectedSyntax "'('" (EndOfInputAfter "lambda introducer"))
+    })
+    tokenPeek.
+
+  parsePrimary :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parsePrimary = \(stop, parseBlock) -> {
+    parseNestedExpression = \() -> parseFoundationalExpressionUntil neverStops parseBlock.
+    tokenAndThen
+      (\(current) -> case current {
+        | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+        | Just token -> case canonicalTokenKind token {
+          | IntegerKind whole -> tokenAndThen
+            (\(wholeToken) -> parseNumeric wholeToken whole)
+            tokenInteger
+          | CharacterKind value -> tokenKeepRight
+            tokenCharacter
+            (tokenSucceed (LiteralExpression (CharacterLiteral value)))
+          | TextKind value -> tokenKeepRight
+            tokenText
+            (tokenSucceed (LiteralExpression (TextLiteral value)))
+          | IdentifierKind "True" -> tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed (LiteralExpression (BooleanLiteral True)))
+          | IdentifierKind "False" -> tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed (LiteralExpression (BooleanLiteral False)))
+          | IdentifierKind name -> tokenAndThen
+            (\(identifierToken) -> parseName identifierToken name)
+            tokenIdentifier
+          | PunctuationKind LambdaPunctuation -> tokenAndThen
+            (\(lambdaToken) -> parseLambda stop parseBlock lambdaToken)
+            (tokenPunctuation LambdaPunctuation)
+          | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+            (tokenPunctuation LeftParenPunctuation)
+            (parseParenthesized parseNestedExpression)
+          | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
+            (tokenPunctuation LeftBracketPunctuation)
+            (parseList parseNestedExpression)
+          | PunctuationKind LeftBracePunctuation -> tokenKeepRight
+            (tokenPunctuation LeftBracePunctuation)
+            (tokenAndThen (\(statements) -> tokenSucceed (BlockExpression statements)) parseBlock)
+          | other -> tokenKeepRight
+            (tokenTakeIf (\(ignored) -> True) "token")
+            (tokenFailAtSpan (canonicalTokenSpan token) (UnexpectedSyntax (canonicalTokenEncountered current) "expression"))
+        }
+      })
+      tokenPeek.
+  }.
 
   parseTypeApplicationArgument :: CanonicalToken -> TokenParser(SurfaceSignatureType).
   parseTypeApplicationArgument = \(applicationToken) -> tokenAndThen
@@ -328,32 +415,48 @@ module ParserExpression (
     })
     (tokenOptional (tokenAttempt parseSignatureType)).
 
-  parseApplicationTail :: TokenParser(SurfaceExpr) -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseApplicationTail = \(primary, function) -> tokenAndThen
+  parseApplicationTail :: (CanonicalToken -> Bool) -> TokenParser(SurfaceExpr) -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseApplicationTail = \(stop, primary, function) -> tokenAndThen
     (\(current) -> case current {
-      | Just token -> case canonicalTokenKind token {
-        | PunctuationKind AtPunctuation -> tokenAndThen
-          (\(applicationToken) -> tokenAndThen
-            (\(signatureType) -> parseApplicationTail
+      | Just token -> if stop token then tokenSucceed function else case canonicalTokenKind token {
+          | PunctuationKind AtPunctuation -> tokenAndThen
+            (\(applicationToken) -> tokenAndThen
+              (\(signatureType) -> parseApplicationTail
+                stop
+                primary
+                (TypeApplicationExpression function (canonicalTokenSpan applicationToken) signatureType))
+              (parseTypeApplicationArgument applicationToken))
+            (tokenPunctuation AtPunctuation)
+          | other -> if startsPrimary token then
+            tokenAndThen
+              (\(argument) -> parseApplicationTail stop primary (ApplyExpression function argument))
               primary
-              (TypeApplicationExpression function (canonicalTokenSpan applicationToken) signatureType))
-            (parseTypeApplicationArgument applicationToken))
-          (tokenPunctuation AtPunctuation)
-        | other -> if startsPrimary token then
-          tokenAndThen
-            (\(argument) -> parseApplicationTail primary (ApplyExpression function argument))
-            primary
-          else tokenSucceed function
-      }
+            else tokenSucceed function
+        }
       | Nothing -> tokenSucceed function
     })
     tokenPeek.
 
-  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpression = \(parseBlock) -> {
-    primary = parsePrimary (\() -> parseFoundationalExpression parseBlock) parseBlock.
-    tokenAndThen (\(first) -> parseApplicationTail primary first) primary.
+  parseApplicationExpression :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseApplicationExpression = \(stop, parseBlock) -> {
+    primary = parsePrimary stop parseBlock.
+    tokenAndThen (\(first) -> parseApplicationTail stop primary first) primary.
   }.
+
+  parseFoundationalExpressionUntil :: (CanonicalToken -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpressionUntil = \(stop, parseBlock) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> if stop token then
+        tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (UnexpectedSyntax (canonicalTokenEncountered current) "expression")
+        else parseApplicationExpression stop parseBlock
+      | Nothing -> parseApplicationExpression stop parseBlock
+    })
+    tokenPeek.
+
+  parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpression = \(parseBlock) -> parseFoundationalExpressionUntil neverStops parseBlock.
 
   parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseFoundationalExpressionWithContext = \(context, parseBlock) ->

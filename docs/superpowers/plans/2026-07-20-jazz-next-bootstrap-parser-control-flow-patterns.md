@@ -252,20 +252,20 @@ expression/block callbacks.
 **Produces:** Private delimiter-aware expression recursion and exact lambda
 parity without changing public expression signatures.
 
-- [ ] Add focused failing cases proving stop checks happen before primary
+- [x] Add focused failing cases proving stop checks happen before primary
   dispatch and application continuation and do not consume the delimiter.
-- [ ] Add failing lambda cases for multiple parameters, every accepted pattern
+- [x] Add failing lambda cases for multiple parameters, every accepted pattern
   parameter, recursive/nested bodies, missing arrows, trailing commas, bare
   parameters, guarded alternatives, and retained failure spans.
-- [ ] Refactor expression recursion behind the private stop seam while keeping
+- [x] Refactor expression recursion behind the private stop seam while keeping
   existing literal, application, type-application, list, tuple, qualified-name,
   and block behavior byte-identical.
-- [ ] Implement lambda dispatch and parameter/body parsing through
+- [x] Implement lambda dispatch and parameter/body parsing through
   `ParserPattern`.
-- [ ] Run focused lambda, expression, declarations, and landed parity suites;
+- [x] Run focused lambda, expression, declarations, and landed parity suites;
   expect lambda cases and both landed families to pass while conditional/case
   cases remain the only new-family failures.
-- [ ] Commit as `feat: parse hosted lambdas`.
+- [x] Commit as `feat: parse hosted lambdas`.
 
 Verification command:
 
