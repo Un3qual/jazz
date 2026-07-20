@@ -1,0 +1,64 @@
+module ParserContext (
+  type StatementContext(..),
+  type ParserContext,
+  value parserContextInitial,
+  value parserContextModuleBody,
+  value parserContextNestedBlock,
+  value parserContextStatement,
+  value parserContextHasAlias,
+  value parserContextRegisterAlias,
+  value parserContextRegisterAliases,
+  value parserContextIsNestedBlock,
+  value parserContextStopsAtRightBrace
+) {
+  # Complete import keeps the abstract Set type available in signatures.
+  import Set.
+
+  data StatementContext = TopLevelContext | ModuleBodyContext | NestedBlockContext.
+
+  data ParserContext = ParserContext StatementContext (Set(Text)).
+
+  parserContextInitial :: ParserContext.
+  parserContextInitial = ParserContext TopLevelContext setEmpty.
+
+  parserContextModuleBody :: ParserContext -> ParserContext.
+  parserContextModuleBody = \(context) -> ParserContext ModuleBodyContext setEmpty.
+
+  parserContextNestedBlock :: ParserContext -> ParserContext.
+  parserContextNestedBlock = \(context) -> case context {
+    | ParserContext statementContext aliases -> ParserContext NestedBlockContext aliases
+  }.
+
+  parserContextStatement :: ParserContext -> StatementContext.
+  parserContextStatement = \(context) -> case context {
+    | ParserContext statementContext aliases -> statementContext
+  }.
+
+  parserContextHasAlias :: ParserContext -> Text -> Bool.
+  parserContextHasAlias = \(context, alias) -> case context {
+    | ParserContext statementContext aliases -> setContains aliases alias
+  }.
+
+  parserContextRegisterAlias :: ParserContext -> Text -> ParserContext.
+  parserContextRegisterAlias = \(context, alias) -> case context {
+    | ParserContext statementContext aliases -> ParserContext statementContext (setInsert aliases alias)
+  }.
+
+  parserContextRegisterAliases :: ParserContext -> Set(Text) -> ParserContext.
+  parserContextRegisterAliases = \(context, collected) -> case context {
+    | ParserContext statementContext aliases -> ParserContext statementContext (setUnion aliases collected)
+  }.
+
+  parserContextIsNestedBlock :: ParserContext -> Bool.
+  parserContextIsNestedBlock = \(context) -> case parserContextStatement context {
+    | NestedBlockContext -> True
+    | other -> False
+  }.
+
+  parserContextStopsAtRightBrace :: ParserContext -> Bool.
+  parserContextStopsAtRightBrace = \(context) -> case parserContextStatement context {
+    | TopLevelContext -> False
+    | ModuleBodyContext -> True
+    | NestedBlockContext -> True
+  }.
+}

@@ -9,8 +9,9 @@ traversal, backend-neutral host text I/O, the shared stack-safe evaluator, the
 canonical comparison contract, and the Jazz-authored lexer all execute in the
 active `jazz-next` path. The lexer matches the complete fixed stage-0 corpus
 deterministically and traverses large source/token inputs without host stack
-growth. The parser contract and generic kernel foundation completed on
-`2026-07-16`; Jazz grammar porting and the later canonical-core,
+growth. The parser contract/kernel and its expression plus
+types/declarations/modules grammar children completed by `2026-07-17`.
+Control-flow/patterns, operators/full parity, and the later canonical-core,
 backend-neutral lowered IR, LLVM, object/link, and native-runtime stages remain
 separate milestones.
 
@@ -375,6 +376,10 @@ The design decomposes into independently reviewable children:
 10. foundational Jazz-authored expression, statement, block, and program
     parsing with distinct token/source façades and exact named-family parity
     (complete on `2026-07-16`).
+11. shared signature/type grammar, explicit type application, immutable scoped
+    alias context, declarations, modules, imports, exports, exact 101-case
+    parity, and deterministic mixed scale evidence (complete on
+    `2026-07-17`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
@@ -387,18 +392,21 @@ fail-fast complete surface-AST comparison boundary, structured parser failures,
 distinct token and source façades, a compiler-local generic parser kernel, and
 five ordered implementation children.
 
-The first two continuation children are complete. The foundation landed the
+The first three continuation children are complete. The foundation landed the
 ordinary parser surface/result/failure schema, total test-only Haskell adapter,
 structured stage-0 failure path, and generic parser kernel. The expression
 foundation then added compiler-local token, expression, program, and façade
 owners with exact 43-case stage-0 parity and deterministic 512-binding scale
-evidence.
+evidence. Types/declarations/modules then added shared signature types,
+explicit type application, immutable scoped alias context, declarations,
+module/import/export grammar, exact 101-case parity through both façades, and a
+deterministic 513-statement mixed profile without changing the fixed parser
+schema.
 
-Types/declarations/modules is now the sole curation target, but remains
-unpromoted until a matching reviewed design and implementation plan fix its
-named fixture family, grammar-context ownership, and verification.
-Control-flow/patterns and operator/full-parity children remain ordered and
-unpromoted.
+Control-flow/patterns is now the sole curation target, but remains unpromoted
+until a matching reviewed design and implementation plan fix its named fixture
+family, grammar ownership, exact failure boundaries, scale evidence, and
+verification. Operators/full parity remains ordered behind it and unpromoted.
 
 ## Non-Goals
 

@@ -29,6 +29,7 @@ data ParserFixture = ParserFixture
 
 data ParserFixtureFamily
   = ExpressionFoundation
+  | TypesDeclarationsModules
   deriving (Eq, Show)
 
 data ParserFixtureManifestViolation
@@ -39,12 +40,16 @@ data ParserFixtureManifestViolation
 
 parserFixtureCorpus :: [ParserFixture]
 parserFixtureCorpus =
-  focusedLexerFixtures <> observedParserFixtures <> expressionFoundationFixtures
+  focusedLexerFixtures
+    <> observedParserFixtures
+    <> expressionFoundationFixtures
+    <> typesDeclarationsModulesFixtures
 
 parserFixtureFamilyNames :: ParserFixtureFamily -> [Text]
 parserFixtureFamilyNames family =
   case family of
     ExpressionFoundation -> expressionFoundationFixtureNames
+    TypesDeclarationsModules -> typesDeclarationsModulesFixtureNames
 
 lookupParserFixtureFamily ::
   ParserFixtureFamily ->
@@ -81,7 +86,9 @@ validateParserFixtureManifest fixtures families =
 
 parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
 parserFixtureFamilies =
-  [(ExpressionFoundation, expressionFoundationFixtureNames)]
+  [ (ExpressionFoundation, expressionFoundationFixtureNames),
+    (TypesDeclarationsModules, typesDeclarationsModulesFixtureNames)
+  ]
 
 duplicateValues :: (Eq value) => [value] -> [value]
 duplicateValues = go [] []
@@ -166,6 +173,111 @@ expressionFoundationFixtureNames =
     "expression-foundation-qualified-whitespace",
     "expression-foundation-dot-without-expression",
     "expression-foundation-max-float64"
+  ]
+
+typesDeclarationsModulesFixtureNames :: [Text]
+typesDeclarationsModulesFixtureNames =
+  [ "parser-corpus-0034",
+    "parser-corpus-0038",
+    "parser-corpus-0039",
+    "parser-corpus-0047",
+    "parser-corpus-0050",
+    "parser-corpus-0074",
+    "parser-corpus-0076",
+    "parser-corpus-0077",
+    "parser-corpus-0078",
+    "parser-corpus-0131",
+    "parser-corpus-0191",
+    "parser-corpus-0192",
+    "parser-corpus-0204",
+    "parser-corpus-0205",
+    "parser-corpus-0207",
+    "parser-corpus-0208",
+    "parser-corpus-0215",
+    "parser-corpus-0216",
+    "parser-corpus-0220",
+    "parser-corpus-0221",
+    "parser-corpus-0222",
+    "parser-corpus-0210",
+    "parser-corpus-0211",
+    "parser-corpus-0212",
+    "parser-corpus-0052",
+    "parser-corpus-0053",
+    "parser-corpus-0054",
+    "parser-corpus-0055",
+    "parser-corpus-0056",
+    "parser-corpus-0057",
+    "parser-corpus-0058",
+    "parser-corpus-0059",
+    "parser-corpus-0060",
+    "parser-corpus-0061",
+    "parser-corpus-0062",
+    "parser-corpus-0064",
+    "parser-corpus-0065",
+    "parser-corpus-0066",
+    "parser-corpus-0067",
+    "parser-corpus-0068",
+    "parser-corpus-0069",
+    "parser-corpus-0070",
+    "parser-corpus-0071",
+    "parser-corpus-0072",
+    "parser-corpus-0104",
+    "parser-corpus-0105",
+    "parser-corpus-0106",
+    "parser-corpus-0107",
+    "parser-corpus-0108",
+    "parser-corpus-0109",
+    "parser-corpus-0110",
+    "parser-corpus-0111",
+    "parser-corpus-0112",
+    "parser-corpus-0113",
+    "parser-corpus-0114",
+    "parser-corpus-0115",
+    "parser-corpus-0116",
+    "parser-corpus-0117",
+    "parser-corpus-0118",
+    "parser-corpus-0119",
+    "parser-corpus-0120",
+    "parser-corpus-0121",
+    "parser-corpus-0122",
+    "parser-corpus-0123",
+    "parser-corpus-0124",
+    "parser-corpus-0125",
+    "parser-corpus-0126",
+    "parser-corpus-0127",
+    "parser-corpus-0128",
+    "parser-corpus-0129",
+    "parser-corpus-0133",
+    "parser-corpus-0134",
+    "parser-corpus-0135",
+    "parser-corpus-0136",
+    "parser-corpus-0137",
+    "parser-corpus-0138",
+    "parser-corpus-0139",
+    "parser-corpus-0140",
+    "parser-corpus-0141",
+    "parser-corpus-0142",
+    "parser-corpus-0143",
+    "parser-corpus-0144",
+    "parser-corpus-0145",
+    "parser-corpus-0146",
+    "parser-corpus-0147",
+    "parser-corpus-0148",
+    "parser-corpus-0150",
+    "parser-corpus-0151",
+    "parser-corpus-0152",
+    "parser-corpus-0153",
+    "parser-corpus-0154",
+    "parser-corpus-0155",
+    "parser-corpus-0156",
+    "parser-corpus-0157",
+    "parser-corpus-0158",
+    "parser-corpus-0159",
+    "parser-corpus-0235",
+    "parser-corpus-0306",
+    "types-declarations-modules-unsupported-forall-signature",
+    "types-declarations-modules-foundational-impl-method",
+    "types-declarations-modules-applied-explicit-type-application"
   ]
 
 focusedLexerFixtures :: [ParserFixture]
@@ -2703,4 +2815,33 @@ expressionFoundationFixtures =
           parserFixturePath = Text.unpack ("fixtures/parser/expression-foundation-" <> name <> ".jz"),
           parserFixtureSource = source,
           parserFixtureExpectation = expectation
+        }
+
+typesDeclarationsModulesFixtures :: [ParserFixture]
+typesDeclarationsModulesFixtures =
+  [ fixture
+      "unsupported-forall-signature"
+      """
+      x :: forall a.
+      x = 1.
+      """,
+    fixture
+      "foundational-impl-method"
+      """
+      impl Eq(Int) { equals = 1. }.
+      """,
+    fixture
+      "applied-explicit-type-application"
+      """
+      value = id @Maybe(Int) value.
+      value.
+      """
+  ]
+  where
+    fixture name source =
+      ParserFixture
+        { parserFixtureName = "types-declarations-modules-" <> name,
+          parserFixturePath = Text.unpack ("fixtures/parser/types-declarations-modules-" <> name <> ".jz"),
+          parserFixtureSource = source,
+          parserFixtureExpectation = ParserAccepted
         }

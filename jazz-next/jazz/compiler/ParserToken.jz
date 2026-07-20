@@ -18,6 +18,7 @@ module ParserToken (
   value tokenLookAhead,
   value tokenMany,
   value tokenPeek,
+  value tokenRemaining,
   value tokenFailAt,
   value tokenFailAtSpan,
   value tokenFailCurrent,
@@ -70,6 +71,7 @@ module ParserToken (
     Parser,
     ParserSucceeded,
     ParserFailed,
+    Unconsumed,
     RejectedProblem,
     ZeroProgressProblem,
     parserRun,
@@ -192,6 +194,11 @@ module ParserToken (
 
   tokenPeek :: TokenParser(Maybe(CanonicalToken)).
   tokenPeek = TokenParser parserPeek.
+
+  tokenRemaining :: TokenParser([CanonicalToken]).
+  tokenRemaining = TokenParser (Parser (\(cursor) ->
+    ParserSucceeded (parserCursorRemaining cursor) cursor Unconsumed
+  )).
 
   tokenFailAt :: Maybe(CanonicalSpan) -> ParserFailureReason -> TokenParser(value).
   tokenFailAt = \(span, reason) -> TokenParser (parserFail (ParserGrammarFailure span reason)).

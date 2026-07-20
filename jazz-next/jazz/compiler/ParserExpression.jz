@@ -1,4 +1,7 @@
-module ParserExpression (value parseFoundationalExpression) {
+module ParserExpression (
+  value parseFoundationalExpression,
+  value parseFoundationalExpressionWithContext
+) {
   import Char (charToUInt32).
   import LexerTypes (
     CanonicalToken,
@@ -14,10 +17,13 @@ module ParserExpression (value parseFoundationalExpression) {
     LeftBracketPunctuation,
     RightBracketPunctuation,
     CommaPunctuation,
-    DotPunctuation
+    DotPunctuation,
+    AtPunctuation
   ).
   import List (listPrepend, listReverse).
   import Maybe.
+  import ParserContext.
+  import ParserSignature (parseSignatureType).
   import ParserToken (
     ParserGrammarFailure,
     TokenParser,
@@ -30,6 +36,8 @@ module ParserExpression (value parseFoundationalExpression) {
     tokenAndThen,
     tokenKeepRight,
     tokenChoice,
+    tokenAttempt,
+    tokenOptional,
     tokenLookAhead,
     tokenPeek,
     tokenFailAt,
@@ -310,14 +318,33 @@ module ParserExpression (value parseFoundationalExpression) {
     })
     tokenPeek.
 
+  parseTypeApplicationArgument :: CanonicalToken -> TokenParser(SurfaceSignatureType).
+  parseTypeApplicationArgument = \(applicationToken) -> tokenAndThen
+    (\(maybeType) -> case maybeType {
+      | Just signatureType -> tokenSucceed signatureType
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan applicationToken)
+        (UnsupportedSyntax ExplicitTypeApplicationArgument)
+    })
+    (tokenOptional (tokenAttempt parseSignatureType)).
+
   parseApplicationTail :: TokenParser(SurfaceExpr) -> SurfaceExpr -> TokenParser(SurfaceExpr).
   parseApplicationTail = \(primary, function) -> tokenAndThen
     (\(current) -> case current {
-      | Just token -> if startsPrimary token then
-        tokenAndThen
-          (\(argument) -> parseApplicationTail primary (ApplyExpression function argument))
-          primary
-        else tokenSucceed function
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind AtPunctuation -> tokenAndThen
+          (\(applicationToken) -> tokenAndThen
+            (\(signatureType) -> parseApplicationTail
+              primary
+              (TypeApplicationExpression function (canonicalTokenSpan applicationToken) signatureType))
+            (parseTypeApplicationArgument applicationToken))
+          (tokenPunctuation AtPunctuation)
+        | other -> if startsPrimary token then
+          tokenAndThen
+            (\(argument) -> parseApplicationTail primary (ApplyExpression function argument))
+            primary
+          else tokenSucceed function
+      }
       | Nothing -> tokenSucceed function
     })
     tokenPeek.
@@ -327,4 +354,8 @@ module ParserExpression (value parseFoundationalExpression) {
     primary = parsePrimary (\() -> parseFoundationalExpression parseBlock) parseBlock.
     tokenAndThen (\(first) -> parseApplicationTail primary first) primary.
   }.
+
+  parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseFoundationalExpressionWithContext = \(context, parseBlock) ->
+    parseFoundationalExpression parseBlock.
 }

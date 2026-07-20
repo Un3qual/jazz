@@ -61,9 +61,12 @@ Shipped Jazz source lives under one package-owned root:
   utilities plus persistent `Dictionary`, `Queue`, `Map`, and `Set` values.
 - `jazz/compiler/` contains the Jazz-authored compiler implementation. Alongside
   the hosted lexer and canonical token types, it now includes the generic
-  parser kernel plus compiler-local token, foundational expression, program,
-  and token/source façade modules. This is an incremental bootstrap parser
-  slice, not a complete replacement for the active Haskell parser.
+  parser kernel plus compiler-local token, signature, immutable context,
+  declaration, foundational expression, program, and token/source façade
+  modules. The hosted parser currently covers foundational expressions,
+  signatures and explicit type application, data/class/impl declarations, and
+  module/import/export forms with exact named-family parity. It is not yet a
+  complete replacement for the active Haskell parser.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -91,8 +94,9 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
-  adapters plus hosted lexer/parser component, exact-parity, and deterministic
-  scale coverage.
+  adapters plus hosted lexer/parser component coverage, exact 52-case
+  expression and 101-case declarations parity families, and deterministic
+  expression/mixed-grammar scale profiles.
 - `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 - `programs/`: shared multi-module correctness and benchmark corpus.
 

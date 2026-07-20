@@ -7,6 +7,7 @@ import JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
     loadExpressionFoundationFixtures,
+    loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
     runJazzParserTokenBatch,
   )
@@ -14,6 +15,9 @@ import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
     runRuntimeErrors,
+  )
+import JazzNext.Compiler.Parser.FixtureCorpus
+  ( ParserFixture,
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -26,31 +30,51 @@ main = runTestSuite "JazzParserParity" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("matches exact canonical token-entry results twice", testTokenEntryParity),
-    ("matches exact canonical source-entry results twice", testSourceEntryParity)
+  [ ("matches expression-family token entry twice", testExpressionTokenEntryParity),
+    ("matches expression-family source entry twice", testExpressionSourceEntryParity),
+    ("matches declarations-family token entry twice", testDeclarationsTokenEntryParity),
+    ("matches declarations-family source entry twice", testDeclarationsSourceEntryParity)
   ]
 
-testTokenEntryParity :: IO ()
-testTokenEntryParity = do
+testExpressionTokenEntryParity :: IO ()
+testExpressionTokenEntryParity = do
   fixtures <- loadExpressionFoundationFixtures
+  assertTokenEntryParity "expression family" fixtures
+
+testExpressionSourceEntryParity :: IO ()
+testExpressionSourceEntryParity = do
+  fixtures <- loadExpressionFoundationFixtures
+  assertSourceEntryParity "expression family" fixtures
+
+testDeclarationsTokenEntryParity :: IO ()
+testDeclarationsTokenEntryParity = do
+  fixtures <- loadTypesDeclarationsModulesFixtures
+  assertTokenEntryParity "declarations family" fixtures
+
+testDeclarationsSourceEntryParity :: IO ()
+testDeclarationsSourceEntryParity = do
+  fixtures <- loadTypesDeclarationsModulesFixtures
+  assertSourceEntryParity "declarations family" fixtures
+
+assertTokenEntryParity :: Text -> [ParserFixture] -> IO ()
+assertTokenEntryParity label fixtures = do
   expected <- expectedTokenBatchRendering fixtures
   first <- runJazzParserTokenBatch fixtures
   second <- runJazzParserTokenBatch fixtures
-  assertSuccessfulBatch "token first" first
-  assertSuccessfulBatch "token second" second
-  assertEqual "token batch deterministic output" (runOutput first) (runOutput second)
-  assertEqual "token batch exact stage-0 parity" (Just expected) (runOutput first)
+  assertSuccessfulBatch (label <> " token first") first
+  assertSuccessfulBatch (label <> " token second") second
+  assertEqual (label <> " token deterministic output") (runOutput first) (runOutput second)
+  assertEqual (label <> " token exact stage-0 parity") (Just expected) (runOutput first)
 
-testSourceEntryParity :: IO ()
-testSourceEntryParity = do
-  fixtures <- loadExpressionFoundationFixtures
+assertSourceEntryParity :: Text -> [ParserFixture] -> IO ()
+assertSourceEntryParity label fixtures = do
   expected <- expectedSourceBatchRendering fixtures
   first <- runJazzParserSourceBatch fixtures
   second <- runJazzParserSourceBatch fixtures
-  assertSuccessfulBatch "source first" first
-  assertSuccessfulBatch "source second" second
-  assertEqual "source batch deterministic output" (runOutput first) (runOutput second)
-  assertEqual "source batch exact stage-0 parity" (Just expected) (runOutput first)
+  assertSuccessfulBatch (label <> " source first") first
+  assertSuccessfulBatch (label <> " source second") second
+  assertEqual (label <> " source deterministic output") (runOutput first) (runOutput second)
+  assertEqual (label <> " source exact stage-0 parity") (Just expected) (runOutput first)
 
 assertSuccessfulBatch :: Text -> RunResult -> IO ()
 assertSuccessfulBatch label result = do

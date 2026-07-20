@@ -1,0 +1,400 @@
+module ParserSignature (
+  value parseSignaturePayload,
+  value parseSignatureType,
+  value parseSignatureTypes
+) {
+  import Char (charIsLower).
+  import LexerTypes (
+    CanonicalToken,
+    IdentifierKind,
+    IntegerKind,
+    OperatorKind,
+    PunctuationKind,
+    ArrowPunctuation,
+    AtPunctuation,
+    ColonPunctuation,
+    DoubleColonPunctuation,
+    LeftBracePunctuation,
+    RightBracePunctuation,
+    LeftParenPunctuation,
+    RightParenPunctuation,
+    LeftBracketPunctuation,
+    RightBracketPunctuation,
+    CommaPunctuation
+  ).
+  import List (listMap, listPrepend, listReverse).
+  import Maybe.
+  import ParserToken (
+    TokenParser,
+    TokenParseSucceeded,
+    canonicalTokenKind,
+    canonicalTokenLexeme,
+    tokensAreAdjacent,
+    tokenSucceed,
+    tokenTransform,
+    tokenAndThen,
+    tokenKeepRight,
+    tokenChoice,
+    tokenAttempt,
+    tokenPeek,
+    tokenFailAt,
+    tokenFailCurrent,
+    tokenIdentifier,
+    tokenPunctuation,
+    tokenRunComplete
+  ).
+  import ParserTypes.
+  import Text (textAppend, textUncons).
+
+  typeName :: Text -> Text -> SurfaceSignatureType.
+  typeName = \(name, memberName) ->
+    if name == "Int" then IntType
+    else if name == "Float" then FloatType
+    else if name == "Bool" then BoolType
+    else if name == "Char" then CharType
+    else if name == "Text" then TextType
+    else if name == "Int8" then NumericType Int8Type
+    else if name == "Int16" then NumericType Int16Type
+    else if name == "Int32" then NumericType Int32Type
+    else if name == "Int64" then NumericType Int64Type
+    else if name == "UInt8" then NumericType UInt8Type
+    else if name == "UInt16" then NumericType UInt16Type
+    else if name == "UInt32" then NumericType UInt32Type
+    else if name == "UInt64" then NumericType UInt64Type
+    else if name == "Float16" then NumericType Float16Type
+    else if name == "Float32" then NumericType Float32Type
+    else if name == "Float64" then NumericType Float64Type
+    else case textUncons memberName {
+      | Just (first, rest) -> if charIsLower first then TypeVariable name else NamedType name
+      | Nothing -> NamedType name
+    }.
+
+  parseTypeHead :: TokenParser((CanonicalToken, Text)).
+  parseTypeHead = tokenAndThen
+    (\(firstToken) -> case canonicalTokenKind firstToken {
+      | IdentifierKind qualifier -> tokenAndThen
+        (\(current) -> case current {
+          | Just separatorToken -> case canonicalTokenKind separatorToken {
+            | PunctuationKind DoubleColonPunctuation -> tokenKeepRight
+              (tokenPunctuation DoubleColonPunctuation)
+              (tokenAndThen
+                (\(memberToken) -> case canonicalTokenKind memberToken {
+                  | IdentifierKind member -> tokenSucceed
+                    (memberToken, textAppend (textAppend qualifier "::") member)
+                })
+                tokenIdentifier)
+            | other -> tokenSucceed (firstToken, qualifier)
+          }
+          | Nothing -> tokenSucceed (firstToken, qualifier)
+        })
+        tokenPeek
+    })
+    tokenIdentifier.
+
+  parseNamedType :: TokenParser(SurfaceSignatureType).
+  parseNamedType = tokenAndThen
+    (\(head) -> case head {
+      | (headToken, name) -> tokenAndThen
+        (\(current) -> case current {
+          | Just nextToken -> case canonicalTokenKind nextToken {
+            | PunctuationKind LeftParenPunctuation -> if tokensAreAdjacent headToken nextToken then
+              tokenFailCurrent (\(encountered) -> ExpectedSyntax "named signature type" encountered)
+              else tokenSucceed (typeName name (canonicalTokenLexeme headToken))
+            | other -> tokenSucceed (typeName name (canonicalTokenLexeme headToken))
+          }
+          | Nothing -> tokenSucceed (typeName name (canonicalTokenLexeme headToken))
+        })
+        tokenPeek
+    })
+    parseTypeHead.
+
+  finishAppliedType :: Text -> [SurfaceSignatureType] -> SurfaceSignatureType.
+  finishAppliedType = \(name, arguments) -> case arguments {
+    | [element] -> if name == "List" then ListType element else AppliedType name arguments
+    | other -> AppliedType name arguments
+  }.
+
+  deferTypeParser :: (() -> TokenParser(SurfaceSignatureType)) -> TokenParser(SurfaceSignatureType).
+  deferTypeParser = \(parseType) -> tokenAndThen (\(unit) -> parseType ()) (tokenSucceed ()).
+
+  parseAppliedTypeArguments :: (() -> TokenParser(SurfaceSignatureType)) -> Text -> [SurfaceSignatureType] -> TokenParser(SurfaceSignatureType).
+  parseAppliedTypeArguments = \(parseType, name, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(argument) -> parseAppliedTypeArguments parseType name (listPrepend argument reversed))
+            (parseType ()))
+        | other -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (finishAppliedType name (listReverse reversed)))
+      }
+      | Nothing -> tokenKeepRight
+        (tokenPunctuation RightParenPunctuation)
+        (tokenSucceed (finishAppliedType name (listReverse reversed)))
+    })
+    tokenPeek.
+
+  parseAppliedType :: (() -> TokenParser(SurfaceSignatureType)) -> TokenParser(SurfaceSignatureType).
+  parseAppliedType = \(parseType) -> tokenAndThen
+    (\(head) -> case head {
+      | (headToken, name) -> tokenKeepRight
+        (tokenPunctuation LeftParenPunctuation)
+        (tokenAndThen
+          (\(first) -> parseAppliedTypeArguments parseType name [first])
+          (parseType ()))
+    })
+    parseTypeHead.
+
+  parseListType :: (() -> TokenParser(SurfaceSignatureType)) -> TokenParser(SurfaceSignatureType).
+  parseListType = \(parseType) -> tokenKeepRight
+    (tokenPunctuation LeftBracketPunctuation)
+    (tokenAndThen
+      (\(element) -> tokenKeepRight
+        (tokenPunctuation RightBracketPunctuation)
+        (tokenSucceed (ListType element)))
+      (deferTypeParser parseType)).
+
+  parseTupleTail :: (() -> TokenParser(SurfaceSignatureType)) -> [SurfaceSignatureType] -> TokenParser(SurfaceSignatureType).
+  parseTupleTail = \(parseType, reversed) -> tokenAndThen
+    (\(next) -> tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind CommaPunctuation -> tokenKeepRight
+            (tokenPunctuation CommaPunctuation)
+            (parseTupleTail parseType (listPrepend next reversed))
+          | other -> tokenKeepRight
+            (tokenPunctuation RightParenPunctuation)
+            (tokenSucceed (TupleType (listReverse (listPrepend next reversed))))
+        }
+        | Nothing -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (TupleType (listReverse (listPrepend next reversed))))
+      })
+      tokenPeek)
+    (parseType ()).
+
+  parseParenthesizedTypeTail :: (() -> TokenParser(SurfaceSignatureType)) -> SurfaceSignatureType -> TokenParser(SurfaceSignatureType).
+  parseParenthesizedTypeTail = \(parseType, first) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (parseTupleTail parseType [first])
+        | other -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed first)
+      }
+      | Nothing -> tokenKeepRight
+        (tokenPunctuation RightParenPunctuation)
+        (tokenSucceed first)
+    })
+    tokenPeek.
+
+  parseParenthesizedType :: (() -> TokenParser(SurfaceSignatureType)) -> TokenParser(SurfaceSignatureType).
+  parseParenthesizedType = \(parseType) -> tokenKeepRight
+    (tokenPunctuation LeftParenPunctuation)
+    (tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind RightParenPunctuation -> tokenKeepRight
+            (tokenPunctuation RightParenPunctuation)
+            (tokenSucceed (TupleType []))
+          | other -> tokenAndThen (parseParenthesizedTypeTail parseType) (parseType ())
+        }
+        | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature type" EndOfInput)
+      })
+      tokenPeek).
+
+  parseFunctionOperand :: (() -> TokenParser(SurfaceSignatureType)) -> TokenParser(SurfaceSignatureType).
+  parseFunctionOperand = \(parseType) -> tokenChoice
+    (tokenAttempt (parseAppliedType parseType))
+    (tokenChoice
+      parseNamedType
+      (tokenChoice (parseListType parseType) (parseParenthesizedType parseType))).
+
+  parseSignatureTypeFor :: () -> TokenParser(SurfaceSignatureType).
+  parseSignatureTypeFor = \() -> tokenAndThen
+    (\(argumentType) -> tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind ArrowPunctuation -> tokenKeepRight
+            (tokenPunctuation ArrowPunctuation)
+            (tokenAndThen
+              (\(resultType) -> tokenSucceed (FunctionType argumentType resultType))
+              (parseSignatureTypeFor ()))
+          | other -> tokenSucceed argumentType
+        }
+        | Nothing -> tokenSucceed argumentType
+      })
+      tokenPeek)
+    (parseFunctionOperand parseSignatureTypeFor).
+
+  parseSignatureType :: TokenParser(SurfaceSignatureType).
+  parseSignatureType = parseSignatureTypeFor ().
+
+  splitSignatureTypeTokens :: Int -> Int -> [CanonicalToken] -> [CanonicalToken] -> [[CanonicalToken]] -> Maybe([[CanonicalToken]]).
+  splitSignatureTypeTokens = \(parenDepth, bracketDepth, tokens, reversedCurrent, reversedGroups) -> case tokens {
+    | [] -> if parenDepth == 0 then if bracketDepth == 0 then case reversedCurrent {
+      | [] -> case reversedGroups {
+        | [] -> Just []
+        | [first | rest] -> Nothing
+      }
+      | [first | rest] -> Just
+        (listReverse (listPrepend (listReverse reversedCurrent) reversedGroups))
+    } else Nothing else Nothing
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind LeftParenPunctuation -> splitSignatureTypeTokens
+        (parenDepth + 1)
+        bracketDepth
+        rest
+        (listPrepend first reversedCurrent)
+        reversedGroups
+      | PunctuationKind RightParenPunctuation -> if parenDepth == 0 then Nothing else
+        splitSignatureTypeTokens
+          (parenDepth - 1)
+          bracketDepth
+          rest
+          (listPrepend first reversedCurrent)
+          reversedGroups
+      | PunctuationKind LeftBracketPunctuation -> splitSignatureTypeTokens
+        parenDepth
+        (bracketDepth + 1)
+        rest
+        (listPrepend first reversedCurrent)
+        reversedGroups
+      | PunctuationKind RightBracketPunctuation -> if bracketDepth == 0 then Nothing else
+        splitSignatureTypeTokens
+          parenDepth
+          (bracketDepth - 1)
+          rest
+          (listPrepend first reversedCurrent)
+          reversedGroups
+      | PunctuationKind CommaPunctuation -> if parenDepth == 0 then if bracketDepth == 0 then case reversedCurrent {
+        | [] -> Nothing
+        | [currentFirst | currentRest] -> splitSignatureTypeTokens
+          parenDepth
+          bracketDepth
+          rest
+          []
+          (listPrepend (listReverse reversedCurrent) reversedGroups)
+      } else splitSignatureTypeTokens
+        parenDepth
+        bracketDepth
+        rest
+        (listPrepend first reversedCurrent)
+        reversedGroups
+        else splitSignatureTypeTokens
+          parenDepth
+          bracketDepth
+          rest
+          (listPrepend first reversedCurrent)
+          reversedGroups
+      | other -> splitSignatureTypeTokens
+        parenDepth
+        bracketDepth
+        rest
+        (listPrepend first reversedCurrent)
+        reversedGroups
+    }
+  }.
+
+  parseSignatureTypeGroups :: [[CanonicalToken]] -> [SurfaceSignatureType] -> Maybe([SurfaceSignatureType]).
+  parseSignatureTypeGroups = \(groups, reversed) -> case groups {
+    | [] -> Just (listReverse reversed)
+    | [first | rest] -> case tokenRunComplete parseSignatureType first {
+      | TokenParseSucceeded signatureType -> parseSignatureTypeGroups
+        rest
+        (listPrepend signatureType reversed)
+      | other -> Nothing
+    }
+  }.
+
+  parseSignatureTypes :: [CanonicalToken] -> Maybe([SurfaceSignatureType]).
+  parseSignatureTypes = \(tokens) -> case splitSignatureTypeTokens 0 0 tokens [] [] {
+    | Just groups -> parseSignatureTypeGroups groups []
+    | Nothing -> Nothing
+  }.
+
+  parseConstraint :: TokenParser(SurfaceSignatureConstraint).
+  parseConstraint = tokenAndThen
+    (\(signatureType) -> case signatureType {
+      | AppliedType name arguments -> tokenSucceed (SurfaceSignatureConstraint name arguments)
+      | NamedType name -> tokenSucceed (SurfaceSignatureConstraint name [])
+      | other -> tokenFailCurrent (\(encountered) -> ExpectedSyntax "signature constraint" encountered)
+    })
+    parseSignatureType.
+
+  parseConstraintTail :: [SurfaceSignatureConstraint] -> TokenParser([SurfaceSignatureConstraint]).
+  parseConstraintTail = \(reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(constraint) -> parseConstraintTail (listPrepend constraint reversed))
+            parseConstraint)
+        | other -> tokenSucceed (listReverse reversed)
+      }
+      | Nothing -> tokenSucceed (listReverse reversed)
+    })
+    tokenPeek.
+
+  parseConstraints :: TokenParser([SurfaceSignatureConstraint]).
+  parseConstraints = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightBracePunctuation -> tokenSucceed []
+        | other -> tokenAndThen
+          (\(first) -> parseConstraintTail [first])
+          parseConstraint
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature constraint" EndOfInput)
+    })
+    tokenPeek.
+
+  parseConstrainedPayload :: TokenParser(SurfaceSignaturePayload).
+  parseConstrainedPayload = tokenKeepRight
+    (tokenPunctuation AtPunctuation)
+    (tokenKeepRight
+      (tokenPunctuation LeftBracePunctuation)
+      (tokenAndThen
+        (\(constraints) -> tokenKeepRight
+          (tokenPunctuation RightBracePunctuation)
+          (tokenKeepRight
+            (tokenPunctuation ColonPunctuation)
+            (tokenAndThen
+              (\(signatureType) -> tokenSucceed (ConstrainedSignature constraints signatureType))
+              parseSignatureType)))
+        parseConstraints)).
+
+  parseSupportedPayload :: TokenParser(SurfaceSignaturePayload).
+  parseSupportedPayload = tokenChoice
+    (tokenAttempt parseConstrainedPayload)
+    (tokenTransform TypeSignature parseSignatureType).
+
+  signatureToken :: CanonicalToken -> SurfaceSignatureToken.
+  signatureToken = \(token) -> case canonicalTokenKind token {
+    | IdentifierKind name -> SignatureNameToken name
+    | IntegerKind value -> SignatureIntegerToken value
+    | OperatorKind symbol -> SignatureOperatorToken symbol
+    | PunctuationKind ArrowPunctuation -> SignatureArrowToken
+    | PunctuationKind AtPunctuation -> SignatureAtToken
+    | PunctuationKind ColonPunctuation -> SignatureColonToken
+    | PunctuationKind LeftParenPunctuation -> SignatureLeftParenToken
+    | PunctuationKind RightParenPunctuation -> SignatureRightParenToken
+    | PunctuationKind LeftBracePunctuation -> SignatureLeftBraceToken
+    | PunctuationKind RightBracePunctuation -> SignatureRightBraceToken
+    | PunctuationKind LeftBracketPunctuation -> SignatureLeftBracketToken
+    | PunctuationKind RightBracketPunctuation -> SignatureRightBracketToken
+    | PunctuationKind CommaPunctuation -> SignatureCommaToken
+    | other -> SignatureOtherToken (canonicalTokenLexeme token)
+  }.
+
+  parseSignaturePayload :: [CanonicalToken] -> SurfaceSignaturePayload.
+  parseSignaturePayload = \(tokens) -> case tokenRunComplete parseSupportedPayload tokens {
+    | TokenParseSucceeded payload -> payload
+    | other -> UnsupportedSignature (listMap signatureToken tokens)
+  }.
+}

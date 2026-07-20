@@ -46,10 +46,10 @@ tests =
     ("parses empty and populated programs through both facades", testProgramFacades),
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
-    ("rejects reserved bindings and unsupported declaration shapes", testProgramBoundaryFailures),
+    ("parses capability declarations while preserving reserved failures", testProgramBoundaryFailures),
     ("rejects operator declaration candidates before expression fallback", testOperatorDeclarationBoundary),
     ("rejects reserved literal signatures before signature fallback", testReservedSignatureBoundary),
-    ("rejects compact signatures in every statement scope", testSignatureBoundary),
+    ("parses signatures while preserving alias expression ambiguity", testSignatureBoundary),
     ("uses matching bindings to disambiguate compact signatures", testMatchingBindingSignatureBoundary)
   ]
 
@@ -288,7 +288,7 @@ testProgramBoundaryFailures =
     , parseComponentTokens "trait Eq(a) { }."
     )
     """
-    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"class\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"impl\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"True\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedLiteralName(BindingName, \"False\")))), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ClassStatement(CanonicalSpan(1, 1), \"Eq\", [\"a\"], [])])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ImplStatement(CanonicalSpan(1, 1), \"Eq\", [IntType], [])])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), UnsupportedSyntax(AbstractionSyntax(\"trait\")))))"
 
 testOperatorDeclarationBoundary :: IO ()
 testOperatorDeclarationBoundary = do
@@ -329,60 +329,25 @@ testSignatureBoundary =
   assertJazzOutput
     "signature boundary"
     """
-    ( isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Maybe(Int).") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Map[Int].") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int -> Int.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::[Int].") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "unit::().") 5
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Module::Type.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::@{Eq(a)}: Int.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value :: Int.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value:: Int.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias :: member.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias:: member.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(member).") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(a).") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::().") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::((member)).") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::(member) -> Int.") 6
+    ( parseComponentTokens "value::Int."
+    , parseComponentTokens "value :: Maybe(Int)."
+    , parseComponentTokens "{ value::[Int]. }."
     , parseComponentTokens "Alias::member."
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member (value).") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member [value].") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Alias::member {}.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Int. }.") 8
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::a. }.") 9
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Maybe(Int). }.") 8
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::[Int]. }.") 8
-    , parseComponentTokens "{ Alias::member. }."
     )
     """
-    "(True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, False, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])), True, True, True, True, True, True, True, CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([ExpressionStatement(CanonicalSpan(1, 3), QualifiedVariableExpression(\"Alias\", \"member\"))]))])))"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 1), TypeSignature(IntType))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 1), TypeSignature(AppliedType(\"Maybe\", [IntType])))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 3), TypeSignature(ListType(IntType)))]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])))"
 
 testMatchingBindingSignatureBoundary :: IO ()
 testMatchingBindingSignatureBoundary =
   assertJazzOutput
     "matching binding signature boundary"
     """
-    ( isExpressionFoundationSignatureFailure (parseComponentTokens "Result::value. Result = 1.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::value. Result = 1. }.") 9
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::a b. Result = 1.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::a b. Result = 1. }.") 9
-    , isCanonicalParserSuccess (parseComponentTokens "Result::value. Other = 1.")
-    , isCanonicalParserSuccess (parseComponentTokens "{ Result::value. Other = 1. }.")
-    , isCanonicalParserSuccess (parseComponentTokens "Result::a b. Other = 1.")
-    , isCanonicalParserSuccess (parseComponentTokens "{ Result::a b. Other = 1. }.")
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::a Other = 0. Result = 1.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value) Other = 0. Result = 1.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ Result::(value) Other = 0. Result = 1. }.") 9
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::Int -> Other = 0. value = 1.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "{ value::Int -> Other = 0. value = 1. }.") 8
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "value::[Int] Other = 0. value = 1.") 6
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value) -> Other = 0. Result = 1.") 7
-    , isExpressionFoundationSignatureFailure (parseComponentTokens "Result::(value). Result = 1.") 7
+    ( parseComponentTokens "Result::value. Result = 1."
+    , parseComponentTokens "Result::value. Other = 1."
+    , parseComponentTokens "Result::a Other = 0. Result = 1."
     )
     """
-    "(True, True, True, True, True, True, True, True, False, False, False, False, False, False, False, True)"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"Result\", CanonicalSpan(1, 1), TypeSignature(TypeVariable(\"value\"))), LetStatement(\"Result\", CanonicalSpan(1, 16), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Result\", \"value\")), LetStatement(\"Other\", CanonicalSpan(1, 16), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 17)), ExpectedSyntax(\"\\'.\\'\", FoundToken(PunctuationKind(EqualsPunctuation), \"=\")))))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do
@@ -421,36 +386,12 @@ lookupSource expression sourcePath =
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).
-                  isCanonicalParserSuccess = \\(result) -> case result {
-                    | CanonicalParserSuccess path expression -> True
-                    | CanonicalParserFailure path failure -> False
-                  }.
                   isExpressionFoundationOperatorDeclarationFailure = \\(result) -> case result {
                     | CanonicalParserSuccess _ _ -> False
                     | CanonicalParserFailure _ failure -> case failure {
                       | ParserFailure code maybeSpan reason -> if code == "E0001" then case reason {
                         | UnexpectedSyntax encountered expected -> expected == "an expression-foundation statement"
                         | other -> False
-                      } else False
-                    }
-                  }.
-                  isExpressionFoundationSignatureFailure = \\(result, expectedColumn) -> case result {
-                    | CanonicalParserSuccess _ _ -> False
-                    | CanonicalParserFailure _ failure -> case failure {
-                      | ParserFailure code maybeSpan reason -> if code == "E0001" then case maybeSpan {
-                        | Nothing -> False
-                        | Just span -> case span {
-                          | CanonicalSpan line column -> if line == 1 then if column == expectedColumn then case reason {
-                            | UnexpectedSyntax encountered expected -> if expected == "an expression-foundation statement" then case encountered {
-                              | FoundToken kind lexeme -> if lexeme == "::" then case kind {
-                                | PunctuationKind DoubleColonPunctuation -> True
-                                | other -> False
-                              } else False
-                              | other -> False
-                            } else False
-                            | other -> False
-                          } else False else False
-                        }
                       } else False
                     }
                   }.

@@ -49,7 +49,8 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Failure
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    ParserFixtureFamily (ExpressionFoundation),
+    ParserFixtureExpectation (ParserAccepted),
+    ParserFixtureFamily (ExpressionFoundation, TypesDeclarationsModules),
     ParserFixtureManifestViolation (..),
     lookupParserFixtureFamily,
     parserFixtureCorpus,
@@ -93,6 +94,7 @@ tests =
     ("keeps source result phases distinct", testSourceResultPhases),
     ("validates fixture-family manifests deterministically", testFixtureFamilyValidation),
     ("locks the expression-foundation fixture family", testExpressionFoundationFamily),
+    ("locks the types-declarations-modules fixture family", testTypesDeclarationsModulesFamily),
     ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
@@ -526,6 +528,49 @@ testExpressionFoundationFamily = do
             (canonicalizeSourceResult path (detailedSourceResult (parserFixtureSource fixture)))
         )
 
+testTypesDeclarationsModulesFamily :: IO ()
+testTypesDeclarationsModulesFamily = do
+  assertEqual
+    "declared types/declarations/modules family order"
+    typesDeclarationsModulesFixtureNames
+    (parserFixtureFamilyNames TypesDeclarationsModules)
+  fixtures <-
+    case lookupParserFixtureFamily TypesDeclarationsModules of
+      Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
+      Right values -> pure values
+  assertEqual "types/declarations/modules family size" 101 (length fixtures)
+  assertEqual
+    "resolved types/declarations/modules family order"
+    typesDeclarationsModulesFixtureNames
+    (map parserFixtureName fixtures)
+  assertEqual
+    "focused types/declarations/modules expectations"
+    [ ("types-declarations-modules-unsupported-forall-signature", ParserAccepted),
+      ("types-declarations-modules-foundational-impl-method", ParserAccepted),
+      ("types-declarations-modules-applied-explicit-type-application", ParserAccepted)
+    ]
+    (map (\fixture -> (parserFixtureName fixture, parserFixtureExpectation fixture)) (drop 98 fixtures))
+  rendered <- mapM canonicalFixture fixtures
+  assertEqual
+    "types/declarations/modules family excludes lexical failures"
+    False
+    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") rendered)
+  assertEqual
+    "types/declarations/modules family contains parser failures"
+    True
+    (any (Text.isInfixOf "CanonicalSourceParserFailure") rendered)
+  assertEqual
+    "types/declarations/modules family contains successes"
+    True
+    (any (Text.isInfixOf "CanonicalSourceSuccess") rendered)
+  where
+    canonicalFixture fixture = do
+      path <- normalizedPath (parserFixturePath fixture)
+      pure
+        ( renderCanonicalSourceResult
+            (canonicalizeSourceResult path (detailedSourceResult (parserFixtureSource fixture)))
+        )
+
 expressionFoundationFixtureNames :: [Text.Text]
 expressionFoundationFixtureNames =
   [ "lexer-leading-zero-integer",
@@ -582,9 +627,114 @@ expressionFoundationFixtureNames =
     "expression-foundation-max-float64"
   ]
 
+typesDeclarationsModulesFixtureNames :: [Text.Text]
+typesDeclarationsModulesFixtureNames =
+  [ "parser-corpus-0034",
+    "parser-corpus-0038",
+    "parser-corpus-0039",
+    "parser-corpus-0047",
+    "parser-corpus-0050",
+    "parser-corpus-0074",
+    "parser-corpus-0076",
+    "parser-corpus-0077",
+    "parser-corpus-0078",
+    "parser-corpus-0131",
+    "parser-corpus-0191",
+    "parser-corpus-0192",
+    "parser-corpus-0204",
+    "parser-corpus-0205",
+    "parser-corpus-0207",
+    "parser-corpus-0208",
+    "parser-corpus-0215",
+    "parser-corpus-0216",
+    "parser-corpus-0220",
+    "parser-corpus-0221",
+    "parser-corpus-0222",
+    "parser-corpus-0210",
+    "parser-corpus-0211",
+    "parser-corpus-0212",
+    "parser-corpus-0052",
+    "parser-corpus-0053",
+    "parser-corpus-0054",
+    "parser-corpus-0055",
+    "parser-corpus-0056",
+    "parser-corpus-0057",
+    "parser-corpus-0058",
+    "parser-corpus-0059",
+    "parser-corpus-0060",
+    "parser-corpus-0061",
+    "parser-corpus-0062",
+    "parser-corpus-0064",
+    "parser-corpus-0065",
+    "parser-corpus-0066",
+    "parser-corpus-0067",
+    "parser-corpus-0068",
+    "parser-corpus-0069",
+    "parser-corpus-0070",
+    "parser-corpus-0071",
+    "parser-corpus-0072",
+    "parser-corpus-0104",
+    "parser-corpus-0105",
+    "parser-corpus-0106",
+    "parser-corpus-0107",
+    "parser-corpus-0108",
+    "parser-corpus-0109",
+    "parser-corpus-0110",
+    "parser-corpus-0111",
+    "parser-corpus-0112",
+    "parser-corpus-0113",
+    "parser-corpus-0114",
+    "parser-corpus-0115",
+    "parser-corpus-0116",
+    "parser-corpus-0117",
+    "parser-corpus-0118",
+    "parser-corpus-0119",
+    "parser-corpus-0120",
+    "parser-corpus-0121",
+    "parser-corpus-0122",
+    "parser-corpus-0123",
+    "parser-corpus-0124",
+    "parser-corpus-0125",
+    "parser-corpus-0126",
+    "parser-corpus-0127",
+    "parser-corpus-0128",
+    "parser-corpus-0129",
+    "parser-corpus-0133",
+    "parser-corpus-0134",
+    "parser-corpus-0135",
+    "parser-corpus-0136",
+    "parser-corpus-0137",
+    "parser-corpus-0138",
+    "parser-corpus-0139",
+    "parser-corpus-0140",
+    "parser-corpus-0141",
+    "parser-corpus-0142",
+    "parser-corpus-0143",
+    "parser-corpus-0144",
+    "parser-corpus-0145",
+    "parser-corpus-0146",
+    "parser-corpus-0147",
+    "parser-corpus-0148",
+    "parser-corpus-0150",
+    "parser-corpus-0151",
+    "parser-corpus-0152",
+    "parser-corpus-0153",
+    "parser-corpus-0154",
+    "parser-corpus-0155",
+    "parser-corpus-0156",
+    "parser-corpus-0157",
+    "parser-corpus-0158",
+    "parser-corpus-0159",
+    "parser-corpus-0235",
+    "parser-corpus-0306",
+    "types-declarations-modules-unsupported-forall-signature",
+    "types-declarations-modules-foundational-impl-method",
+    "types-declarations-modules-applied-explicit-type-application"
+  ]
+
 testCorpusDeterminism :: IO ()
 testCorpusDeterminism = do
-  assertEqual "fixed corpus size" 359 (length parserFixtureCorpus)
+  assertEqual "fixed corpus size" 362 (length parserFixtureCorpus)
   first <- mapM canonicalFixture parserFixtureCorpus
   second <- mapM canonicalFixture parserFixtureCorpus
   assertEqual "manifest-order deterministic rendering" first second
