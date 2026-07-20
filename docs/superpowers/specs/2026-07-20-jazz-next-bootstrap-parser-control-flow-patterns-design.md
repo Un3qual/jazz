@@ -2,16 +2,16 @@
 
 ## Status
 
-Discussion-approved on `2026-07-20` and pending written review before queue
-promotion. This document is the design checkpoint for
+Discussion-approved, written-reviewed, implemented, and completed on
+`2026-07-20`. This document is the design checkpoint for
 `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001`, the fourth ordered child
 of the accepted
 [bootstrap Jazz parser design](2026-07-12-jazz-next-bootstrap-jazz-parser-design.md).
 
-The contract/kernel, expression-foundation, and types/declarations/modules
-children are complete and archived. This child remains outside `Ready Now`
-until this design and its implementation plan pass review. Operators and full
-parser-corpus parity remain the fifth ordered child.
+The contract/kernel, expression-foundation, types/declarations/modules, and
+this control-flow/patterns child are complete and archived. Operators and full
+parser-corpus parity remain the fifth ordered child and are not promoted by
+this closeout.
 
 ## Goal
 
@@ -559,6 +559,29 @@ After written design and plan review:
 
 Completing this child makes Child 5 eligible for separate design and planning.
 It does not promote Child 5 automatically.
+
+## Completion Evidence
+
+Completed on `2026-07-20` with an independent `ParserPattern` module and
+private stop-aware lambda, conditional, case, guard, and nested-body parsing in
+`ParserExpression`. All 75 `ControlFlowPatterns` fixtures match complete
+stage-0 token/source results twice, while the landed 52-case and 101-case
+families remain exact and deterministic.
+
+All three 513-statement scale profiles pass twice with identical observations
+and zero host operations. The expression profile records 21,959,213 evaluator
+transitions, 2,645,291 applications, 110,804 list cells, and depth 1,060; the
+declarations profile records 9,813,167 / 1,175,085 / 66,243 / depth 1,073; and
+the control-flow profile records 43,557,996 / 5,245,084 / 218,980 / depth
+1,098. The control-flow ceilings were tightened to 45,000,000 transitions,
+5,500,000 applications, 225,000 list cells, and depth 1,100 without changing
+the generated source or either landed profile ceiling.
+
+The exact focused parser/lexer/kernel/repository suites, warning-clean
+development build, all registered Cabal suites, `cabal check`, queue/docs
+validators, and `git diff --check` pass. No legacy path or locked
+parser-kernel/schema/context/façade file changed. Operators/full parity is the
+sole next curation target and remains unpromoted.
 
 ## Acceptance Checklist
 

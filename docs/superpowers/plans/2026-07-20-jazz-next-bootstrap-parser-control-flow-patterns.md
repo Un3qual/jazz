@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001
 last_verified: 2026-07-20
+completed_on: 2026-07-20
 plan_section: "Implementation Batch: Control Flow and Patterns"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -381,24 +382,24 @@ nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --p
 queue row, and operators/full parity as the sole unpromoted next curation
 target.
 
-- [ ] Run the focused parser/lexer/kernel/repository command from frontmatter;
+- [x] Run the focused parser/lexer/kernel/repository command from frontmatter;
   require all named suites to pass.
-- [ ] Run the scale suite twice if the first closeout run changes any generated
+- [x] Run the scale suite twice if the first closeout run changes any generated
   source or ceiling; require all three profiles to pass.
-- [ ] Run the warning-clean development build, all registered Cabal suites, and
+- [x] Run the warning-clean development build, all registered Cabal suites, and
   `cabal check`; require success.
-- [ ] Compare the final diff with the promotion commit and confirm no change to
+- [x] Compare the final diff with the promotion commit and confirm no change to
   `jazz-hs/`, `jazz2/`, `ParserTypes.jz`, `ParserCore.jz`, `ParserContext.jz`,
   `ParserToken.jz`, or `Parser.jz`.
-- [ ] Record 75-case parity, all three scale observations, final suite evidence,
+- [x] Record 75-case parity, all three scale observations, final suite evidence,
   and the exact completion date in the design, plan, parent parser design,
   interpreter profile, and README.
-- [ ] Mark this plan `done` with `completed_on`, remove the `Ready Now` row,
+- [x] Mark this plan `done` with `completed_on`, remove the `Ready Now` row,
   archive it, and replace the curation target with the separately bounded
   operators/full-parity child. Do not promote that child.
-- [ ] Run queue/docs validators and `git diff --check` after every stale
+- [x] Run queue/docs validators and `git diff --check` after every stale
   control-flow-as-future reference is removed.
-- [ ] Commit as `docs: close parser control flow batch`.
+- [x] Commit as `docs: close parser control flow batch`.
 
 Full closeout commands:
 
@@ -412,6 +413,21 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 git diff --check
 ```
+
+## Completion Evidence
+
+Completed on `2026-07-20`. The fixed 75-case family and the landed 52-case and
+101-case families match exact token/source results twice. The twice-run
+513-statement profiles are deterministic with zero host operations:
+expression records 21,959,213 transitions / 2,645,291 applications / 110,804
+list cells / depth 1,060; declarations records 9,813,167 / 1,175,085 / 66,243
+/ depth 1,073; control flow records 43,557,996 / 5,245,084 / 218,980 / depth
+1,098.
+
+The focused matrix, scale suite, warning-clean development build, all
+registered Cabal suites, `cabal check`, locked-path audit, queue/docs
+validators, and `git diff --check` pass. Operators/full parity remains the sole
+unpromoted next curation target.
 
 ## Completion Gate
 
