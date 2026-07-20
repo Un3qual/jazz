@@ -220,18 +220,18 @@ failure constructors, canonical tokens, and `ParserCore` combinators.
 **Produces:** The three stable `ParserPattern` entry points without expression,
 program, declaration, or context dependencies.
 
-- [ ] Add failing direct component cases for literals, wildcard, variables,
+- [x] Add failing direct component cases for literals, wildcard, variables,
   constructors, exact/cons lists, tuple/unit, as-patterns, top-level
   alternatives, lambda identifiers/patterns, and every reviewed malformed
   boundary.
-- [ ] Implement the smallest pattern module that makes those direct cases match
+- [x] Implement the smallest pattern module that makes those direct cases match
   stage 0 exactly, including fractional and cons-list structured failures.
-- [ ] Confirm nested/grouped alternatives and lambda guards remain rejected and
+- [x] Confirm nested/grouped alternatives and lambda guards remain rejected and
   that pattern parsing stops without consuming arm/guard/body delimiters.
-- [ ] Run the focused suite plus active stage-0 pattern suites; expect direct
+- [x] Run the focused suite plus active stage-0 pattern suites; expect direct
   pattern cases to pass while full hosted program cases still fail at lambda,
   `if`, or `case` dispatch.
-- [ ] Commit as `feat: add hosted pattern parser`.
+- [x] Commit as `feat: add hosted pattern parser`.
 
 Verification command:
 
