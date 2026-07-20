@@ -317,17 +317,17 @@ conditional parsing, and existing nested-block/context callbacks.
 **Produces:** Exact token/source parity for all 75 control-flow/pattern fixtures
 twice while preserving both landed families.
 
-- [ ] Add or enable focused failures for case scrutinee braces, required first
+- [x] Add or enable focused failures for case scrutinee braces, required first
   pipe, empty arms, pattern alternatives, one simple guard, missing guard
   expression, second guards, arm arrows, arm-body stops, nested cases/lambdas/
   conditionals/blocks, and closing braces.
-- [ ] Implement case and arm recursion so only top-level pipes and braces stop
+- [x] Implement case and arm recursion so only top-level pipes and braces stop
   an arm body; nested delimiters remain owned by their inner parser.
-- [ ] Preserve unusual accepted stage-0 arm boundaries exactly. Do not clean up
+- [x] Preserve unusual accepted stage-0 arm boundaries exactly. Do not clean up
   or reclassify a fixture to satisfy the family gate.
-- [ ] Run the focused suite and all three parity families twice. Require exact
+- [x] Run the focused suite and all three parity families twice. Require exact
   complete-value equality and deterministic repeated output.
-- [ ] Run parser-core, token-parser, schema/comparison, lexer parity, active
+- [x] Run parser-core, token-parser, schema/comparison, lexer parity, active
   expression/declaration/module, and repository audit regressions.
 - [ ] Commit as `feat: parse hosted cases and guards`.
 

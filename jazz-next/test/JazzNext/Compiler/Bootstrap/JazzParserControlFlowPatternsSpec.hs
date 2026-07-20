@@ -71,7 +71,17 @@ tests =
     ("rejects missing conditional false branches", assertStage0Parity "missing false branch" "x = if cond then 1 else ."),
     ("rejects extra conditional else delimiters", assertStage0Parity "extra else" "x = if cond then 1 else 2 else 3."),
     ("preserves reserved conditional binding failures", assertStage0Parity "reserved conditional binding" "if = 1."),
+    ("parses basic cases", assertStage0Parity "basic case" "x = case value { | Just item -> item | Nothing -> 0 }."),
     ("parses case patterns and guards", assertStage0Parity "guarded case" "x = case value { | Just item | Also item if ok -> item | Nothing -> 0 }."),
+    ("parses case block bodies", assertStage0Parity "case block body" "x = case value { | Just item -> { y = item. y. } | Nothing -> 0 }."),
+    ("rejects missing case scrutinee braces", assertStage0Parity "missing case brace" "x = case value."),
+    ("rejects missing first case pipes", assertStage0Parity "missing first case pipe" "x = case value { item -> item }."),
+    ("rejects empty case arms", assertStage0Parity "empty case arms" "x = case value {}."),
+    ("rejects missing case guard expressions", assertStage0Parity "missing case guard" "x = case value { | item if -> item }."),
+    ("rejects second case guards", assertStage0Parity "second case guard" "x = case value { | item if ok if other -> item }."),
+    ("rejects missing case arm arrows", assertStage0Parity "missing case arm arrow" "x = case value { | item value }."),
+    ("rejects missing case arm bodies", assertStage0Parity "missing case arm body" "x = case value { | item -> }."),
+    ("rejects missing closing case braces", assertStage0Parity "missing closing case brace" "x = case value { | item -> item."),
     ("preserves nested case and lambda bodies", assertStage0Parity "nested case lambda" "x = case value { | Just item -> \\(next) -> next | _ -> 0 }."),
     ("parses recursive control flow in blocks", assertStage0Parity "recursive block" "x = { loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }.")
   ]
