@@ -80,33 +80,34 @@ Each blocked item should answer these questions:
   before the unified `Diagnostic`, uses canonical lexer tokens as the primary
   input, and starts with a generic compiler-local parser kernel. Existing Jazz
   collection/text APIs are sufficient.
-- Smallest unblocker: curate
+- Smallest unblocker: execute
   `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001`, the accepted parser
-  design's fourth ordered child. It is the sole `Next Curation Target` and is
-  not executable until its own written design and implementation plan pass
-  review.
-- Decision needed: fix one explicit named fixture family, exact expression and
-  pattern ownership, accepted/rejected stage-0 boundaries, recursive
-  block/context interactions, additive scale evidence, and focused
-  verification for lambdas, conditionals, cases, guards, and patterns.
-- Recommended default: preserve the fixed surface schema and fail-fast
-  structured failure contract while extending the landed compiler-local
-  expression/declaration/program owners. Keep operators and full-corpus closure
-  behind their separately ordered child.
+  design's fourth ordered child. Its written design and implementation plan
+  passed review, and it is the sole `Ready Now` row.
+- Decision needed: none for this child. The exact 75-case family, independent
+  pattern ownership, stop-aware expression recursion, accepted/rejected
+  stage-0 boundaries, 513-statement scale profile, and focused verification
+  are fixed by the reviewed contract.
+- Recommended default: add compiler-local `ParserPattern` and extend
+  `ParserExpression` with lambdas, conditionals, cases, and single case-arm
+  guards while preserving the fixed schema and structured failures. Keep
+  operators and full-corpus closure behind their separately ordered child.
 - Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001` is
-  the sole curation candidate, not a `Ready Now` row. Operators/full parity
+  the active executor row, not a curation candidate. Operators/full parity
   remains ordered behind it and unpromoted.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
   `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
-  the completed parser child plans, the accepted parent parser design,
-  compiler-local expression/declaration/program modules, focused bootstrap
-  parity support, the shared fixture manifest, and `jazz-next/jazz-next.cabal`.
-- Verification: written child-design and implementation-plan review followed
-  by `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`,
-  and `git diff --check` before promotion.
-- Not in scope: promoting implementation before review; operators or
+  the completed parser child plans, the reviewed control-flow/pattern design
+  and plan, compiler-local pattern/expression/program modules, focused
+  bootstrap parity support, the shared fixture manifest, and
+  `jazz-next/jazz-next.cabal`.
+- Verification: the exact focused component/parity suites, all three
+  deterministic scale profiles, warning-clean development build, full Cabal
+  suite, repository audit, Cabal metadata, queue/docs validators, and
+  `git diff --check` named in the active implementation plan.
+- Not in scope: operators or
   full-corpus parity; a public stdlib parser API; parser-specific host
   intrinsics or Haskell callbacks; recovery or partial ASTs; canonical core;
   bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or

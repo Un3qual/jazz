@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001
-status: planned
+status: ready
 priority: P1
 size: L
 kind: impl
@@ -18,7 +18,6 @@ target_paths:
   - docs/superpowers/specs/2026-07-20-jazz-next-bootstrap-parser-control-flow-patterns-design.md
   - docs/superpowers/plans/2026-07-20-jazz-next-bootstrap-parser-control-flow-patterns.md
   - jazz-next/README.md
-  - jazz-next/jazz/compiler/ParserPattern.jz
   - jazz-next/jazz/compiler/ParserExpression.jz
   - jazz-next/jazz/compiler/ParserProgram.jz
   - jazz-next/jazz/compiler/ParserDeclaration.jz
@@ -27,7 +26,6 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParity.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserParitySpec.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
   - jazz-next/jazz-next.cabal
@@ -159,16 +157,16 @@ covered by focused tests.
 **Produces:** One exact `Ready Now` row whose metadata matches this plan and
 whose former curation row is removed.
 
-- [ ] Change plan status from `planned` to `ready` and keep
+- [x] Change plan status from `planned` to `ready` and keep
   `autonomous_ready: yes`.
-- [ ] Add the P1/L implementation row with the exact dependency, plan section,
+- [x] Add the P1/L implementation row with the exact dependency, plan section,
   target paths, deliverable, verification commands, and `2026-07-20`
   verification date from this plan.
-- [ ] Update executor and blocker text to name this child as active while
+- [x] Update executor and blocker text to name this child as active while
   keeping operators/full parity unpromoted.
-- [ ] Run `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`,
+- [x] Run `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`,
   and `git diff --check`; expect all three to pass.
-- [ ] Commit as `docs: promote parser control flow batch`.
+- [x] Commit as `docs: promote parser control flow batch`.
 
 ### Task 1: Lock the 75-case contract before grammar implementation
 
