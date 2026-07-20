@@ -6,6 +6,7 @@ import Data.Text (Text)
 import JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
+    loadControlFlowPatternsFixtures,
     loadExpressionFoundationFixtures,
     loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
@@ -33,7 +34,9 @@ tests =
   [ ("matches expression-family token entry twice", testExpressionTokenEntryParity),
     ("matches expression-family source entry twice", testExpressionSourceEntryParity),
     ("matches declarations-family token entry twice", testDeclarationsTokenEntryParity),
-    ("matches declarations-family source entry twice", testDeclarationsSourceEntryParity)
+    ("matches declarations-family source entry twice", testDeclarationsSourceEntryParity),
+    ("matches control-flow-family token entry twice", testControlFlowTokenEntryParity),
+    ("matches control-flow-family source entry twice", testControlFlowSourceEntryParity)
   ]
 
 testExpressionTokenEntryParity :: IO ()
@@ -55,6 +58,16 @@ testDeclarationsSourceEntryParity :: IO ()
 testDeclarationsSourceEntryParity = do
   fixtures <- loadTypesDeclarationsModulesFixtures
   assertSourceEntryParity "declarations family" fixtures
+
+testControlFlowTokenEntryParity :: IO ()
+testControlFlowTokenEntryParity = do
+  fixtures <- loadControlFlowPatternsFixtures
+  assertTokenEntryParity "control-flow family" fixtures
+
+testControlFlowSourceEntryParity :: IO ()
+testControlFlowSourceEntryParity = do
+  fixtures <- loadControlFlowPatternsFixtures
+  assertSourceEntryParity "control-flow family" fixtures
 
 assertTokenEntryParity :: Text -> [ParserFixture] -> IO ()
 assertTokenEntryParity label fixtures = do

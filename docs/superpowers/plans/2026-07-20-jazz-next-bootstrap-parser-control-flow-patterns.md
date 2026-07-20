@@ -186,19 +186,19 @@ from the approved design.
 **Produces:** A registered focused suite and deterministic family contract that
 fail because hosted control-flow/pattern grammar is not implemented yet.
 
-- [ ] Add the `ControlFlowPatterns` family, exact 72-name list, and exact three
+- [x] Add the `ControlFlowPatterns` family, exact 72-name list, and exact three
   focused fixtures; extend manifest tests for the new total and family size.
-- [ ] Add the generic family loader and extend repeated parity orchestration to
+- [x] Add the generic family loader and extend repeated parity orchestration to
   all three families without copying batch-runner logic.
-- [ ] Add focused assertions for direct pattern forms, lambda boundaries,
+- [x] Add focused assertions for direct pattern forms, lambda boundaries,
   delimiter ownership, nested control flow, exact failure payloads, and both
   parser façades. Each assertion compares complete stage-0 and hosted results.
-- [ ] Register `jazz-parser-control-flow-patterns-spec` with the same ordinary
+- [x] Register `jazz-parser-control-flow-patterns-spec` with the same ordinary
   comparison/test-source dependencies as the prior focused suite.
-- [ ] Run the new focused suite and canonical manifest suites. Expect the
+- [x] Run the new focused suite and canonical manifest suites. Expect the
   manifest checks to pass and hosted grammar/parity assertions to fail on the
   first unsupported lambda/control-flow fixture.
-- [ ] Commit as `test: define parser control flow parity family`.
+- [x] Commit as `test: define parser control flow parity family`.
 
 Verification command:
 
