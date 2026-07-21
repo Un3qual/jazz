@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedControlFlowPatternsBatchRendering,
@@ -41,6 +42,18 @@ testControlFlowParity = do
   expected <- expectRight "control-flow expected values" (expectedControlFlowPatternsBatchRendering controlFlowExpressions)
   assertContains "fractional literal pattern" "CoreLiteralPattern(CoreFractionalLiteral(\"1\", \"5\", Nothing))" expected
   assertContains "guarded case arm" "CoreCaseArm(CoreVariablePattern(CoreSourceName(\"item\")), Just(CoreVariableExpression(CoreSourceName(\"keep\")))" expected
+  assertContains
+    "mixed parameter keeps source index two"
+    "CoreLambdaExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)), CorePatternCaseExpression(CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)))"
+    expected
+  assertContains
+    "first pattern parameter uses index one"
+    "CoreLambdaExpression(CoreGeneratedName(CoreLambdaPatternArgument(1)), CorePatternCaseExpression(CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(1)))"
+    expected
+  assertContains
+    "second pattern parameter uses index two"
+    "CoreLambdaExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)), CorePatternCaseExpression(CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)))"
+    expected
   first <- runJazzControlFlowPatternsBatch controlFlowExpressions
   second <- runJazzControlFlowPatternsBatch controlFlowExpressions
   assertSuccessfulOutput "control-flow parity first run" expected first
@@ -57,7 +70,16 @@ expectedControlFlowFixtureNames =
     "case-pattern-inventory",
     "case-guarded",
     "case-nested-scrutinee",
-    "case-nested-body"
+    "case-nested-body",
+    "lambda-identifier",
+    "lambda-identifiers-multiple",
+    "lambda-pattern-wildcard",
+    "lambda-pattern-composite",
+    "lambda-pattern-or",
+    "lambda-mixed-parameters",
+    "lambda-two-pattern-parameters",
+    "lambda-nested-control-flow",
+    "block-control-flow"
   ]
 
 controlFlowExpressions :: [SurfaceExpr]
@@ -96,6 +118,64 @@ controlFlowFixtures =
             Nothing
             (SECase (SEVar "item") [SurfaceCaseArm SPWildcard Nothing (seInt 1)]),
           SurfaceCaseArm (SPConstructor "Nothing" []) Nothing (seInt 0)
+        ]
+    ),
+    ( "lambda-identifier",
+      SELambda (SurfaceLambdaIdentifier "value" :| []) (SEVar "value")
+    ),
+    ( "lambda-identifiers-multiple",
+      SELambda
+        (SurfaceLambdaIdentifier "left" :| [SurfaceLambdaIdentifier "right"])
+        (SEVar "left")
+    ),
+    ( "lambda-pattern-wildcard",
+      SELambda (SurfaceLambdaPattern SPWildcard :| []) (seInt 0)
+    ),
+    ( "lambda-pattern-composite",
+      SELambda
+        (SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail"))) :| [])
+        (SEVar "head")
+    ),
+    ( "lambda-pattern-or",
+      SELambda
+        (SurfaceLambdaPattern (SPOr [SPConstructor "Just" [SPVariable "item"], SPConstructor "Nothing" []]) :| [])
+        (SEVar "item")
+    ),
+    ( "lambda-mixed-parameters",
+      SELambda
+        ( SurfaceLambdaIdentifier "first"
+            :| [ SurfaceLambdaPattern (SPConstructor "Just" [SPVariable "second"]),
+                 SurfaceLambdaIdentifier "third"
+               ]
+        )
+        (SEVar "second")
+    ),
+    ( "lambda-two-pattern-parameters",
+      SELambda
+        ( SurfaceLambdaPattern (SPList [SPVariable "head", SPVariable "tail"])
+            :| [SurfaceLambdaPattern (SPTuple [SPVariable "left", SPVariable "right"])]
+        )
+        (SEVar "left")
+    ),
+    ( "lambda-nested-control-flow",
+      SELambda
+        (SurfaceLambdaIdentifier "value" :| [])
+        ( SEIf
+            (SEVar "condition")
+            (SECase (SEVar "value") [SurfaceCaseArm SPWildcard Nothing (seInt 1)])
+            (seInt 0)
+        )
+    ),
+    ( "block-control-flow",
+      SEBlock
+        [ SSLet
+            "choose"
+            span1
+            ( SELambda
+                (SurfaceLambdaPattern (SPConstructor "Just" [SPVariable "item"]) :| [])
+                (SEIf (SEVar "keep") (SEVar "item") (seInt 0))
+            ),
+          SSExpr span1 (SEVar "choose")
         ]
     )
   ]

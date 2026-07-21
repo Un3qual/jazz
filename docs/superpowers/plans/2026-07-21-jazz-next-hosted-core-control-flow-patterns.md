@@ -170,24 +170,24 @@ profile-aware recursive lowering without changing the foundation wrapper.
 **Produces:** Exact nested unary lambda lowering for direct fixtures 10-18,
 including mixed identifier/pattern parameter lists.
 
-- [ ] Add the remaining nine positive direct fixtures from the approved
+- [x] Add the remaining nine positive direct fixtures from the approved
   design. Assert complete canonical output for identifier lambdas, multiple
   parameters, every pattern-lambda shape, nested control flow, and control flow
   inside ordinary blocks.
-- [ ] Include explicit assertions showing that mixed parameters use generated
+- [x] Include explicit assertions showing that mixed parameters use generated
   index 2 and that two pattern parameters use indices 1 and 2 in their original
   source positions.
-- [ ] Run the focused suite and confirm the lambda cases fail with `Nothing`
+- [x] Run the focused suite and confirm the lambda cases fail with `Nothing`
   while the Task-1 control-flow cases remain green.
-- [ ] Lower parameters from the final body toward the first source parameter.
+- [x] Lower parameters from the final body toward the first source parameter.
   Use source names for identifiers and one structured generated name for both
   the binder and one-arm pattern-case scrutinee of each pattern parameter.
-- [ ] Thread the full child-2 profile through lambda bodies so nested cases,
+- [x] Thread the full child-2 profile through lambda bodies so nested cases,
   conditions, lambdas, collections, applications, and ordinary blocks lower
   recursively, while one deferred subtree rejects the whole lambda.
-- [ ] Run the focused suite twice and require identical complete canonical
+- [x] Run the focused suite twice and require identical complete canonical
   values. Run the foundation suite to prove its lambda rejection is unchanged.
-- [ ] Commit as `feat: lower hosted core pattern lambdas`.
+- [x] Commit as `feat: lower hosted core pattern lambdas`.
 
 ### Task 3: Prove parser composition and all-or-nothing ownership
 

@@ -6,6 +6,7 @@ module CoreLower (
   import LexerTypes (CanonicalSpan).
   import List (listPrepend, listReverse).
   import Maybe.
+  import NonEmpty (NonEmpty).
   import ParserTypes.
   import Text (textStartsWith).
 
@@ -152,13 +153,44 @@ module CoreLower (
   lowerCaseArms :: LoweringProfile -> [SurfaceCaseArm] -> Maybe([CoreCaseArm]).
   lowerCaseArms = \(profile, arms) -> lowerCaseArmsFrom profile arms [].
 
+  lowerLambdaParameter :: Int -> SurfaceLambdaParameter -> CoreExpr -> CoreExpr.
+  lowerLambdaParameter = \(parameterIndex, parameter, loweredBody) -> case parameter {
+    | IdentifierParameter name -> CoreLambdaExpression (CoreSourceName name) loweredBody
+    | PatternParameter pattern ->
+      CoreLambdaExpression
+        (CoreGeneratedName (CoreLambdaPatternArgument parameterIndex))
+        (CorePatternCaseExpression
+          (CoreVariableExpression (CoreGeneratedName (CoreLambdaPatternArgument parameterIndex)))
+          [CoreCaseArm (lowerPattern pattern) Nothing loweredBody])
+  }.
+
+  lowerLambdaParameterTail :: Int -> [SurfaceLambdaParameter] -> CoreExpr -> CoreExpr.
+  lowerLambdaParameterTail = \(parameterIndex, parameters, loweredBody) -> case parameters {
+    | [] -> loweredBody
+    | [first | rest] ->
+      lowerLambdaParameter
+        parameterIndex
+        first
+        (lowerLambdaParameterTail (parameterIndex + 1) rest loweredBody)
+  }.
+
+  lowerLambdaParameters :: NonEmpty(SurfaceLambdaParameter) -> CoreExpr -> CoreExpr.
+  lowerLambdaParameters = \(parameters, loweredBody) -> case parameters {
+    | NonEmpty first rest ->
+      lowerLambdaParameter 1 first (lowerLambdaParameterTail 2 rest loweredBody)
+  }.
+
   lowerExpressionWithProfile :: LoweringProfile -> SurfaceExpr -> Maybe(CoreExpr).
   lowerExpressionWithProfile = \(profile, expression) -> case expression {
     | LiteralExpression literal -> Just (CoreLiteralExpression (lowerFoundationLiteral literal))
     | VariableExpression name -> Just (CoreVariableExpression (CoreSourceName name))
     | QualifiedVariableExpression qualifier member ->
       Just (CoreVariableExpression (CoreQualifiedName qualifier member))
-    | LambdaExpression parameters body -> Nothing
+    | LambdaExpression parameters body -> if allowsControlFlowPatterns profile then
+      case lowerExpressionWithProfile profile body {
+        | Nothing -> Nothing
+        | Just loweredBody -> Just (lowerLambdaParameters parameters loweredBody)
+      } else Nothing
     | OperatorValueExpression symbol -> Just (CoreOperatorValueExpression symbol)
     | ListExpression elements -> case lowerExpressions profile elements {
       | Nothing -> Nothing
