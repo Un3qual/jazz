@@ -971,16 +971,8 @@ module ParserExpression (
   }.
 
   parseFoundationalExpressionUntil :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpressionUntil = \(stop, parseBlock) -> tokenAndThen
-    (\(remaining) -> case remaining {
-      | [token | rest] -> if stop remaining then
-        tokenFailAtSpan
-          (canonicalTokenSpan token)
-          (UnexpectedSyntax (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)) "expression")
-        else parseApplicationExpression (Just stop) parseBlock
-      | [] -> parseApplicationExpression (Just stop) parseBlock
-    })
-    tokenRemaining.
+  parseFoundationalExpressionUntil = \(stop, parseBlock) ->
+    parseApplicationExpression (Just stop) parseBlock.
 
   parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseFoundationalExpression = \(parseBlock) -> parseApplicationExpression Nothing parseBlock.

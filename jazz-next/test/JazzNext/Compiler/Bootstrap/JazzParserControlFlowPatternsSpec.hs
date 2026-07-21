@@ -74,6 +74,7 @@ tests =
     ("parses basic cases", assertStage0Parity "basic case" "x = case value { | Just item -> item | Nothing -> 0 }."),
     ("parses type applications in case scrutinees", assertStage0Parity "case type application scrutinee" "x = case id @Int value { | _ -> value }."),
     ("parses control flow in case scrutinees", assertStage0Parity "case control-flow scrutinee" "x = case if cond then a else b { | _ -> b }."),
+    ("parses block-valued case scrutinees", assertStage0Parity "case block scrutinee" "x = case { f = \\(x) -> x. f. } { | _ -> 0 }."),
     ("parses case patterns and guards", assertStage0Parity "guarded case" "x = case value { | Just item | Also item if ok -> item | Nothing -> 0 }."),
     ("starts literal or-pattern arms after pipe bodies", assertStage0Parity "literal or-pattern after pipe body" "x = case value { | _ -> 1 | 2 | 3 | 4 -> 5 }."),
     ("parses case block bodies", assertStage0Parity "case block body" "x = case value { | Just item -> { y = item. y. } | Nothing -> 0 }."),

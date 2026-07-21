@@ -205,7 +205,7 @@ generatedControlFlowProgram =
             _ -> "value__INDEX__ = { loop__INDEX__ = \\(current__INDEX__) -> case current__INDEX__ { | Just next__INDEX__ -> loop__INDEX__ next__INDEX__ | _ -> if False then current__INDEX__ else current__INDEX__ }. loop__INDEX__. }."
         )
         index
-    renderTerminal = "value511."
+    renderTerminal = replaceIndex "value__INDEX__." (bindingCount - 1)
 
 generatedParserProgram :: Int -> Text
 generatedParserProgram bindingCount =
