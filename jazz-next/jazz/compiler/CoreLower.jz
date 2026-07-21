@@ -1,0 +1,135 @@
+module CoreLower (value lowerFoundationExpression) {
+  import CoreTypes.
+  import LexerTypes (CanonicalSpan).
+  import List (listPrepend, listReverse).
+  import Maybe.
+  import ParserTypes.
+  import Text (textStartsWith).
+
+  lowerFoundationNumericType :: SurfaceNumericType -> CoreNumericType.
+  lowerFoundationNumericType = \(numericType) -> case numericType {
+    | Int8Type -> CoreInt8Type
+    | Int16Type -> CoreInt16Type
+    | Int32Type -> CoreInt32Type
+    | Int64Type -> CoreInt64Type
+    | UInt8Type -> CoreUInt8Type
+    | UInt16Type -> CoreUInt16Type
+    | UInt32Type -> CoreUInt32Type
+    | UInt64Type -> CoreUInt64Type
+    | Float16Type -> CoreFloat16Type
+    | Float32Type -> CoreFloat32Type
+    | Float64Type -> CoreFloat64Type
+  }.
+
+  lowerFoundationOptionalNumericType :: Maybe(SurfaceNumericType) -> Maybe(CoreNumericType).
+  lowerFoundationOptionalNumericType = \(maybeNumericType) -> case maybeNumericType {
+    | Nothing -> Nothing
+    | Just numericType -> Just (lowerFoundationNumericType numericType)
+  }.
+
+  lowerFoundationLiteral :: SurfaceLiteral -> CoreLiteral.
+  lowerFoundationLiteral = \(literal) -> case literal {
+    | IntegerLiteral value -> CoreIntegerLiteral value
+    | FractionalLiteral whole fractional maybeWidth ->
+      CoreFractionalLiteral whole fractional (lowerFoundationOptionalNumericType maybeWidth)
+    | BooleanLiteral value -> CoreBooleanLiteral value
+    | CharacterLiteral value -> CoreCharacterLiteral value
+    | TextLiteral value -> CoreTextLiteral value
+  }.
+
+  lowerFoundationSpan :: CanonicalSpan -> CoreSpan.
+  lowerFoundationSpan = \(span) -> case span {
+    | CanonicalSpan line column -> CoreSpan Nothing line column
+  }.
+
+  lowerFoundationExpressionsFrom :: [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
+  lowerFoundationExpressionsFrom = \(expressions, reversed) -> case expressions {
+    | [] -> Just (listReverse reversed)
+    | [first | rest] -> case lowerFoundationExpression first {
+      | Nothing -> Nothing
+      | Just lowered -> lowerFoundationExpressionsFrom rest (listPrepend lowered reversed)
+    }
+  }.
+
+  lowerFoundationExpressions :: [SurfaceExpr] -> Maybe([CoreExpr]).
+  lowerFoundationExpressions = \(expressions) -> lowerFoundationExpressionsFrom expressions [].
+
+  lowerFoundationStatement :: SurfaceStatement -> Maybe(CoreStatement).
+  lowerFoundationStatement = \(statement) -> case statement {
+    | LetStatement name span expression -> if textStartsWith "$operator:" name then Nothing else
+      case lowerFoundationExpression expression {
+        | Nothing -> Nothing
+        | Just lowered -> Just (CoreLetStatement (CoreSourceName name) (lowerFoundationSpan span) lowered)
+      }
+    | SignatureStatement name span payload -> Nothing
+    | DataStatement span name parameters constructors -> Nothing
+    | ClassStatement span name parameters methods -> Nothing
+    | ImplStatement span name arguments methods -> Nothing
+    | ModuleStatement span path exports -> Nothing
+    | ImportStatement span path alias symbols -> Nothing
+    | ExpressionStatement span expression -> case lowerFoundationExpression expression {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreExpressionStatement (lowerFoundationSpan span) lowered)
+    }
+  }.
+
+  lowerFoundationStatementsFrom :: [SurfaceStatement] -> [CoreStatement] -> Maybe([CoreStatement]).
+  lowerFoundationStatementsFrom = \(statements, reversed) -> case statements {
+    | [] -> Just (listReverse reversed)
+    | [first | rest] -> case lowerFoundationStatement first {
+      | Nothing -> Nothing
+      | Just lowered -> lowerFoundationStatementsFrom rest (listPrepend lowered reversed)
+    }
+  }.
+
+  lowerFoundationStatements :: [SurfaceStatement] -> Maybe([CoreStatement]).
+  lowerFoundationStatements = \(statements) -> lowerFoundationStatementsFrom statements [].
+
+  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerFoundationExpression = \(expression) -> case expression {
+    | LiteralExpression literal -> Just (CoreLiteralExpression (lowerFoundationLiteral literal))
+    | VariableExpression name -> Just (CoreVariableExpression (CoreSourceName name))
+    | QualifiedVariableExpression qualifier member ->
+      Just (CoreVariableExpression (CoreQualifiedName qualifier member))
+    | LambdaExpression parameters body -> Nothing
+    | OperatorValueExpression symbol -> Just (CoreOperatorValueExpression symbol)
+    | ListExpression elements -> case lowerFoundationExpressions elements {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreListExpression lowered)
+    }
+    | TupleExpression elements -> case lowerFoundationExpressions elements {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreTupleExpression lowered)
+    }
+    | ApplyExpression function argument -> case lowerFoundationExpression function {
+      | Nothing -> Nothing
+      | Just loweredFunction -> case lowerFoundationExpression argument {
+        | Nothing -> Nothing
+        | Just loweredArgument -> Just (CoreApplyExpression loweredFunction loweredArgument)
+      }
+    }
+    | TypeApplicationExpression function span signatureType -> Nothing
+    | IfExpression condition thenBranch elseBranch -> Nothing
+    | CaseExpression scrutinee arms -> Nothing
+    | BinaryExpression symbol left right -> if symbol == "$" then Nothing else
+      case lowerFoundationExpression left {
+        | Nothing -> Nothing
+        | Just loweredLeft -> case lowerFoundationExpression right {
+          | Nothing -> Nothing
+          | Just loweredRight -> Just (CoreBinaryExpression symbol loweredLeft loweredRight)
+        }
+      }
+    | LeftSectionExpression left symbol -> case lowerFoundationExpression left {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreLeftSectionExpression lowered symbol)
+    }
+    | RightSectionExpression symbol right -> case lowerFoundationExpression right {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreRightSectionExpression symbol lowered)
+    }
+    | BlockExpression statements -> case lowerFoundationStatements statements {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreBlockExpression lowered)
+    }
+  }.
+}

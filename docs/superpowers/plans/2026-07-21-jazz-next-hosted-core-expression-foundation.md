@@ -181,18 +181,18 @@ already-lowered stage-0 values.
 **Produces:** A registered differential suite that fails only because
 `CoreLower.lowerFoundationExpression` does not exist yet.
 
-- [ ] Add direct surface-AST cases for every successful foundation form,
+- [x] Add direct surface-AST cases for every successful foundation form,
   including arbitrary-precision integers, exact fractional source parts and
   widths, nested collections/application, spans, and ordinary blocks.
-- [ ] Add explicit unsupported-boundary cases for every deferred top-level
+- [x] Add explicit unsupported-boundary cases for every deferred top-level
   form and for a supported outer node containing a deferred nested form.
-- [ ] Add the shared runner that computes expected values through stage-0
+- [x] Add the shared runner that computes expected values through stage-0
   `lowerSurfaceExpr`, then independently executes the Jazz function through
   the existing module graph.
-- [ ] Register `jazz-core-expression-foundation-spec` and verify it fails for
+- [x] Register `jazz-core-expression-foundation-spec` and verify it fails for
   the missing `CoreLower` module/function while the canonical contract suite
   remains green.
-- [ ] Keep the red evidence uncommitted and proceed directly to Task 3.
+- [x] Keep the red evidence uncommitted and proceed directly to Task 3.
 
 ### Task 3: Implement pure foundational lowering
 
@@ -203,18 +203,18 @@ already-lowered stage-0 values.
 **Produces:** Exact direct parity for the complete fixed foundation subset and
 all-or-nothing rejection outside it.
 
-- [ ] Implement exact literal and name conversion, preserving canonical text,
+- [x] Implement exact literal and name conversion, preserving canonical text,
   purity spelling, exact fractional source parts, and optional widths.
-- [ ] Implement recursive collection, tuple, application, operator-value,
+- [x] Implement recursive collection, tuple, application, operator-value,
   non-`$` binary, and section lowering.
-- [ ] Implement ordinary block lowering only when every statement and nested
+- [x] Implement ordinary block lowering only when every statement and nested
   expression belongs to the child; reject hidden operator binding names.
-- [ ] Ensure recursive unsupported input returns `Nothing` for the whole tree,
+- [x] Ensure recursive unsupported input returns `Nothing` for the whole tree,
   with no partial canonical result and no compiler diagnostic.
-- [ ] Run the focused direct suite twice and require identical complete values.
-- [ ] Run the canonical comparison, parser component, and repository audit
+- [x] Run the focused direct suite twice and require identical complete values.
+- [x] Run the canonical comparison, parser component, and repository audit
   regressions.
-- [ ] Commit as `feat: lower hosted core foundation`.
+- [x] Commit as `feat: lower hosted core foundation`.
 
 ### Task 4: Prove parser composition and deterministic boundaries
 
