@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
+    expectedCanonicalExpressionBatchRendering,
     expectedControlFlowPatternsBatchRendering,
     expectedSignaturesDeclarationsOperatorsBatchRendering,
     expectedFoundationSourceBatchRendering,
@@ -9,6 +10,7 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
     expectedSignaturesDeclarationsOperatorsSourceBatchRendering,
     expectedParserSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
+    runJazzCanonicalExpressionBatch,
     runJazzControlFlowPatternsSourceBatch,
     runJazzFoundationBatch,
     runJazzFoundationSourceBatch,
@@ -75,6 +77,11 @@ expectedFoundationBatchRendering expressions =
   renderRuntimeValue . (`VList` Nothing)
     <$> mapM expectedFoundationResultRuntimeValue expressions
 
+expectedCanonicalExpressionBatchRendering :: [SurfaceExpr] -> Either Text Text
+expectedCanonicalExpressionBatchRendering expressions =
+  renderRuntimeValue . (`VList` Nothing)
+    <$> mapM (canonicalCoreExprRuntimeValue . lowerSurfaceExpr) expressions
+
 expectedControlFlowPatternsBatchRendering :: [SurfaceExpr] -> Either Text Text
 expectedControlFlowPatternsBatchRendering = expectedFoundationBatchRendering
 
@@ -116,6 +123,9 @@ expectedParserSourceBatchRendering sources = do
 
 runJazzFoundationBatch :: [SurfaceExpr] -> IO RunResult
 runJazzFoundationBatch = runJazzLoweringBatch "lowerFoundationExpression"
+
+runJazzCanonicalExpressionBatch :: [SurfaceExpr] -> IO RunResult
+runJazzCanonicalExpressionBatch = runJazzLoweringBatch "lowerCanonicalExpression"
 
 runJazzControlFlowPatternsBatch :: [SurfaceExpr] -> IO RunResult
 runJazzControlFlowPatternsBatch = runJazzLoweringBatch "lowerControlFlowPatternsExpression"

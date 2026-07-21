@@ -23,6 +23,7 @@ target_paths:
   - jazz-next/jazz-next.cabal
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-core-modules-corpus-closure-spec jazz-core-signatures-declarations-operators-spec jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec canonical-core-comparison-spec canonical-parser-comparison-spec jazz-parser-types-declarations-modules-spec jazz-parser-control-flow-patterns-spec jazz-parser-operators-full-parity-spec jazz-parser-parity-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -151,24 +152,24 @@ surface/core expression and statement constructor.
 **Produces:** `lowerCanonicalExpression`, structural module/import statement
 lowering, and unchanged earlier wrapper behavior through one recursive kernel.
 
-- [ ] Create and register `jazz-core-modules-corpus-closure-spec`, add its path
+- [x] Create and register `jazz-core-modules-corpus-closure-spec`, add its path
   to plan/queue metadata, and add direct complete-expression assertions for
   module and import statements nested through representative recursive owners.
-- [ ] Run the new suite and confirm it fails because
+- [x] Run the new suite and confirm it fails because
   `lowerCanonicalExpression` is absent; keep all three earlier core suites
   green.
-- [ ] Refactor the kernel to compute the lowered value and minimum required
+- [x] Refactor the kernel to compute the lowered value and minimum required
   profile in one traversal. Requirement aggregation must include statements,
   impl bodies, guards, lambdas, applications, and collections.
-- [ ] Add the fourth profile plus total module/import statement transforms.
+- [x] Add the fourth profile plus total module/import statement transforms.
   Preserve the stage-0 rule that expression-level module statements omit their
   export payload.
-- [ ] Route the three existing wrappers through profile admission and expose
+- [x] Route the three existing wrappers through profile admission and expose
   the total wrapper without an impossible `Nothing` case.
-- [ ] Run the focused suite twice plus all three earlier core suites. Require
+- [x] Run the focused suite twice plus all three earlier core suites. Require
   exact stage-0 expression values, deterministic output, and unchanged
   deferrals.
-- [ ] Commit as `feat: complete hosted core expression lowering`.
+- [x] Commit as `feat: complete hosted core expression lowering`.
 
 ### Task 2: Lower modules, metadata, failures, and qualified spans
 

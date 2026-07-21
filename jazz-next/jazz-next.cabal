@@ -410,6 +410,21 @@ test-suite jazz-core-signatures-declarations-operators-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-core-modules-corpus-closure-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite parser-core-spec
   import: test-common
   type: exitcode-stdio-1.0
