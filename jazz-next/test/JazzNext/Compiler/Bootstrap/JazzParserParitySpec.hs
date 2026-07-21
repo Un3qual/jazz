@@ -6,8 +6,12 @@ import Data.Text (Text)
 import JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
+    loadCompleteParserFixtures,
     loadControlFlowPatternsFixtures,
+    loadCorpusClosureFixtures,
     loadExpressionFoundationFixtures,
+    loadMixedOperatorControlFlowFixtures,
+    loadOperatorFixtures,
     loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
     runJazzParserTokenBatch,
@@ -36,7 +40,15 @@ tests =
     ("matches declarations-family token entry twice", testDeclarationsTokenEntryParity),
     ("matches declarations-family source entry twice", testDeclarationsSourceEntryParity),
     ("matches control-flow-family token entry twice", testControlFlowTokenEntryParity),
-    ("matches control-flow-family source entry twice", testControlFlowSourceEntryParity)
+    ("matches control-flow-family source entry twice", testControlFlowSourceEntryParity),
+    ("matches operator-family token entry twice", testOperatorTokenEntryParity),
+    ("matches operator-family source entry twice", testOperatorSourceEntryParity),
+    ("matches mixed-operator-family token entry twice", testMixedOperatorTokenEntryParity),
+    ("matches mixed-operator-family source entry twice", testMixedOperatorSourceEntryParity),
+    ("matches corpus-closure token entry twice", testCorpusClosureTokenEntryParity),
+    ("matches corpus-closure source entry twice", testCorpusClosureSourceEntryParity),
+    ("matches complete-corpus token entry twice", testCompleteCorpusTokenEntryParity),
+    ("matches complete-corpus source entry twice", testCompleteCorpusSourceEntryParity)
   ]
 
 testExpressionTokenEntryParity :: IO ()
@@ -68,6 +80,46 @@ testControlFlowSourceEntryParity :: IO ()
 testControlFlowSourceEntryParity = do
   fixtures <- loadControlFlowPatternsFixtures
   assertSourceEntryParity "control-flow family" fixtures
+
+testOperatorTokenEntryParity :: IO ()
+testOperatorTokenEntryParity = do
+  fixtures <- loadOperatorFixtures
+  assertTokenEntryParity "operator family" fixtures
+
+testOperatorSourceEntryParity :: IO ()
+testOperatorSourceEntryParity = do
+  fixtures <- loadOperatorFixtures
+  assertSourceEntryParity "operator family" fixtures
+
+testMixedOperatorTokenEntryParity :: IO ()
+testMixedOperatorTokenEntryParity = do
+  fixtures <- loadMixedOperatorControlFlowFixtures
+  assertTokenEntryParity "mixed operator family" fixtures
+
+testMixedOperatorSourceEntryParity :: IO ()
+testMixedOperatorSourceEntryParity = do
+  fixtures <- loadMixedOperatorControlFlowFixtures
+  assertSourceEntryParity "mixed operator family" fixtures
+
+testCorpusClosureTokenEntryParity :: IO ()
+testCorpusClosureTokenEntryParity = do
+  fixtures <- loadCorpusClosureFixtures
+  assertTokenEntryParity "corpus closure" fixtures
+
+testCorpusClosureSourceEntryParity :: IO ()
+testCorpusClosureSourceEntryParity = do
+  fixtures <- loadCorpusClosureFixtures
+  assertSourceEntryParity "corpus closure" fixtures
+
+testCompleteCorpusTokenEntryParity :: IO ()
+testCompleteCorpusTokenEntryParity = do
+  fixtures <- loadCompleteParserFixtures
+  assertTokenEntryParity "complete corpus" fixtures
+
+testCompleteCorpusSourceEntryParity :: IO ()
+testCompleteCorpusSourceEntryParity = do
+  fixtures <- loadCompleteParserFixtures
+  assertSourceEntryParity "complete corpus" fixtures
 
 assertTokenEntryParity :: Text -> [ParserFixture] -> IO ()
 assertTokenEntryParity label fixtures = do

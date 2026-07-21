@@ -7,8 +7,9 @@ The parser contract/kernel and expression-foundation children completed on
 `2026-07-16`; types/declarations/modules completed on `2026-07-17` with exact
 101-case parity and deterministic mixed scale evidence; control-flow/patterns
 completed on `2026-07-20` with exact 75-case parity and deterministic
-control-flow scale evidence. Operators/full parity is the sole next curation
-target and remains unpromoted pending its own reviewed design and plan.
+control-flow scale evidence; operators/full parity completed on `2026-07-20`
+with six-family 365-case parity and deterministic operator scale evidence. The
+five ordered grammar children are complete.
 
 ## Goal
 
@@ -321,6 +322,16 @@ adjacency rules, source-order visibility, and full corpus closure. Prove that
 every fixed parser fixture is assigned to a covered grammar family and that the
 complete hosted parser matches stage 0 exactly.
 
+This child completed on `2026-07-20`. `ParserOperator` owns fixed and declared
+metadata, immutable context threads source-order visibility and scope reset,
+and expression/declaration/program parsing matches stage 0 for precedence,
+associativity, values, sections, bindings, signatures, failures, and mixed
+control-flow composition. The 52 / 101 / 75 / 55 / 26 / 56 families assign all
+365 fixtures exactly once and match complete token/source results twice. All
+four scale profiles are deterministic with zero host operations; the operator
+profile records 49,040,140 transitions / 5,914,883 applications / 186,465 list
+cells / depth 1,116.
+
 The children are ordered and may be reviewed as stacked changes. Child 1 fixes
 the contract. Later children must not revise it merely to simplify an
 implementation. If a genuine schema defect is discovered, correct it in the
@@ -403,24 +414,17 @@ must be investigated and explained before closeout.
 
 ## Queue and Documentation Closeout
 
-The contract/kernel, expression-foundation, types/declarations/modules, and
-control-flow/patterns children are complete and archived. Together they
-establish the fixed surface/failure schema, compiler-local token/expression/
-pattern/signature/context/declaration/program/façade owners, exact complete
-stage-0 comparison over the 52-case expression, 101-case declarations, and
-75-case control-flow families, and deterministic scale evidence without
-parser-specific host support.
+The contract/kernel and all five grammar children are complete and archived.
+Together they establish the fixed surface/failure schema, compiler-local
+token/expression/pattern/signature/context/operator/declaration/program/façade
+owners, exact complete stage-0 comparison across six families and all 365
+fixtures, and four deterministic scale profiles without parser-specific host
+support.
 
-This closeout names only Child 5, operators/full parity, as the next curation
-target. It remains outside `Ready Now` until a separate reviewed design and
-implementation plan fix explicit operator and mixed fixture families,
-precedence/associativity/section and adjacency ownership, source-order context
-behavior, complete manifest assignment, additive scale evidence, and focused
-verification.
-
-This ordering keeps the dispatcher aligned with reviewed implementation
-boundaries: completing one child makes the next one eligible for planning, not
-automatically executable.
+`Ready Now` is empty. This closeout does not promote canonical core,
+backend-neutral lowered IR, LLVM lowering, object/link production, or native
+runtime implementation; each requires a separately reviewed child contract and
+plan.
 
 ## Non-Goals
 

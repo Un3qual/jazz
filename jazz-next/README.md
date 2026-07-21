@@ -62,13 +62,15 @@ Shipped Jazz source lives under one package-owned root:
 - `jazz/compiler/` contains the Jazz-authored compiler implementation. Alongside
   the hosted lexer and canonical token types, it now includes the generic
   parser kernel plus compiler-local token, signature, immutable context,
-  declaration, pattern, expression, program, and token/source façade modules.
-  The hosted parser currently covers foundational expressions, signatures and
-  explicit type application, data/class/impl declarations,
-  module/import/export forms, lambdas, conditionals, cases, single case-arm
-  guards, and the complete accepted pattern surface with exact named-family
-  parity. Operators and full corpus closure remain before it can replace the
-  active Haskell parser.
+  operator-metadata, declaration, pattern, expression, program, and
+  token/source façade modules. The hosted parser covers the complete accepted
+  surface grammar, including signatures and explicit type application,
+  data/class/impl and module/import/export declarations, lambdas,
+  conditionals, cases, guards, patterns, fixed and source-local declared
+  operators, precedence, associativity, values, sections, bindings, and
+  operator signatures. Six fixed families assign all 365 parser fixtures
+  exactly once and match the active Haskell stage-0 parser through both façades
+  twice.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -96,10 +98,11 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
-  adapters plus hosted lexer/parser component coverage, exact 52-case
-  expression, 101-case declarations, and 75-case control-flow/pattern parity
-  families, and deterministic expression/declarations/control-flow scale
-  profiles.
+  adapters plus hosted lexer/parser component coverage; exact 52-case
+  expression, 101-case declarations, 75-case control-flow/pattern, 55-case
+  operator, 26-case mixed operator/control-flow, and 56-case corpus-closure
+  families; complete repeated 365-case parity; and deterministic
+  expression/declarations/control-flow/operator scale profiles.
 - `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 - `programs/`: shared multi-module correctness and benchmark corpus.
 
@@ -155,8 +158,30 @@ cabal test --project-dir=jazz-next all --test-show-details=failures
 cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=failures
 ```
 
-Cabal discovers every registered suite. Use a test component name, such as
-`repository-audit-spec`, for a focused run. The repository audit owns the
-Jazz source-format and dependency-layering contracts, editor-package metadata,
-documentation entry points, and the private-package policy. Git's actual ignore
-behavior for generated performance artifacts is checked at the repository gate.
+`cabal test --project-dir=jazz-next all` is the routine matrix. It includes
+`jazz-parser-scale-spec`, which runs all four 65-statement hosted-parser smoke
+profiles twice and requires deterministic semantic observations. The four
+preserved 513-statement profiles are a niche manual diagnostic and are excluded
+from the default matrix. When a maintainer explicitly requests full-scale
+diagnosis, enable and select all four gated targets:
+
+```bash
+cabal test --project-dir=jazz-next -ffull-parser-scale \
+  jazz-parser-scale-full-expression-spec \
+  jazz-parser-scale-full-declarations-spec \
+  jazz-parser-scale-full-control-flow-spec \
+  jazz-parser-scale-full-operator-spec \
+  --test-show-details=failures
+```
+
+Do not add this exhaustive command to routine PR, release, or scheduled
+verification. Use it only to reproduce a suspected scale regression, validate
+a changed full-scale generator or ceiling, or satisfy an explicit maintainer
+request.
+
+Cabal discovers every registered default suite. Use a test component name,
+such as `repository-audit-spec`, for a focused run. The repository audit owns
+the Jazz source-format and dependency-layering contracts, editor-package
+metadata, documentation entry points, and the private-package policy. Git's
+actual ignore behavior for generated performance artifacts is checked at the
+repository gate.

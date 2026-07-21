@@ -3,8 +3,12 @@
 module JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
-    loadExpressionFoundationFixtures,
+    loadCompleteParserFixtures,
     loadControlFlowPatternsFixtures,
+    loadCorpusClosureFixtures,
+    loadExpressionFoundationFixtures,
+    loadMixedOperatorControlFlowFixtures,
+    loadOperatorFixtures,
     loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
     runJazzParserTokenBatch,
@@ -52,8 +56,9 @@ import JazzNext.Compiler.Parser.Failure
   )
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
+    ParserFixtureFamily (ControlFlowPatterns, CorpusClosure, ExpressionFoundation, MixedOperatorControlFlow, Operators, TypesDeclarationsModules),
     lookupParserFixtureFamily,
+    parserFixtureCorpus,
   )
 import JazzNext.Compiler.Parser.Lexer
   ( LexicalFailure,
@@ -85,6 +90,23 @@ loadControlFlowPatternsFixtures :: IO [ParserFixture]
 loadControlFlowPatternsFixtures =
   loadFixtureFamily "control-flow-patterns" ControlFlowPatterns
 
+loadOperatorFixtures :: IO [ParserFixture]
+loadOperatorFixtures =
+  loadFixtureFamily "operators" Operators
+
+loadMixedOperatorControlFlowFixtures :: IO [ParserFixture]
+loadMixedOperatorControlFlowFixtures =
+  loadFixtureFamily "mixed-operator-control-flow" MixedOperatorControlFlow
+
+loadCorpusClosureFixtures :: IO [ParserFixture]
+loadCorpusClosureFixtures =
+  loadFixtureFamily "corpus-closure" CorpusClosure
+
+loadCompleteParserFixtures :: IO [ParserFixture]
+loadCompleteParserFixtures = do
+  _ <- loadCorpusClosureFixtures
+  pure parserFixtureCorpus
+
 loadFixtureFamily :: String -> ParserFixtureFamily -> IO [ParserFixture]
 loadFixtureFamily label family =
   case lookupParserFixtureFamily family of
@@ -98,9 +120,9 @@ expectedTokenBatchRendering fixtures = do
     ( renderRuntimeValue
         ( VList
             ( map
-                (\(TokenFixture path tokens _) ->
-                   canonicalParserResultRuntimeValue
-                     (canonicalizeParserResult path (parseSurfaceProgramTokensDetailed tokens))
+                ( \(TokenFixture path tokens _) ->
+                    canonicalParserResultRuntimeValue
+                      (canonicalizeParserResult path (parseSurfaceProgramTokensDetailed tokens))
                 )
                 tokenFixtures
             )

@@ -35,10 +35,14 @@ module ParserProgram (value parseFoundationalProgram) {
   import ParserTypes.
 
   prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement].
-  prependStatements = \(statements, reversed) -> listFoldLeft
-    (\(result, statement) -> listPrepend statement result)
-    reversed
-    statements.
+  prependStatements = \(statements, reversed) -> case statements {
+    | [] -> reversed
+    | [statement] -> listPrepend statement reversed
+    | other -> listFoldLeft
+      (\(result, statement) -> listPrepend statement result)
+      reversed
+      statements
+  }.
 
   parseExpressionInContext :: ParserContext -> TokenParser(SurfaceExpr).
   parseExpressionInContext = \(context) -> parseFoundationalExpressionWithContext
@@ -50,7 +54,11 @@ module ParserProgram (value parseFoundationalProgram) {
 
   parseScopedNextStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
   parseScopedNextStatement = \(context, reversed) -> tokenAndThen
-    (\(statement) -> parseScopedStatements context (listPrepend statement reversed))
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseScopedStatements
+        nextContext
+        (prependStatements statements reversed)
+    })
     (parseStatementWithContext parseExpressionInContext parseStatementList context).
 
   parseScopedImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
@@ -79,7 +87,11 @@ module ParserProgram (value parseFoundationalProgram) {
 
   parseTopLevelOrdinaryStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
   parseTopLevelOrdinaryStatement = \(context, reversed) -> tokenAndThen
-    (\(statement) -> parseTopLevelStatementsAfterFirst context (listPrepend statement reversed))
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseTopLevelStatementsAfterFirst
+        nextContext
+        (prependStatements statements reversed)
+    })
     (parseStatementWithContext parseExpressionInContext parseStatementList context).
 
   parseTopLevelImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).

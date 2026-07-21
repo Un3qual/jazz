@@ -3,6 +3,7 @@
 module JazzNext.Compiler.Bootstrap.JazzParserScale
   ( runJazzParserControlFlowScale,
     runJazzParserDeclarationsScale,
+    runJazzParserOperatorScale,
     runJazzParserScale,
   )
 where
@@ -30,8 +31,8 @@ import JazzNext.TestSource
   ( readCheckedInJazzProjectModuleSource,
   )
 
-runJazzParserControlFlowScale :: RuntimeObservationRequest -> IO RunResult
-runJazzParserControlFlowScale observationRequest =
+runJazzParserControlFlowScale :: RuntimeObservationRequest -> Int -> IO RunResult
+runJazzParserControlFlowScale observationRequest bindingCount =
   runModuleGraphObserved
     observationRequest
     defaultWarningSettings
@@ -42,7 +43,7 @@ runJazzParserControlFlowScale observationRequest =
     entrySource =
       Text.replace
         "__SOURCE__"
-        (renderRuntimeValue (VText generatedControlFlowProgram))
+        (renderRuntimeValue (VText (generatedControlFlowProgram bindingCount)))
         """
         module App::Main {
           import LexerTypes (CanonicalSourcePath).
@@ -50,6 +51,41 @@ runJazzParserControlFlowScale observationRequest =
           import Parser (parseSource).
           import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
           case parseSource (CanonicalSourcePath "fixtures/parser/generated-control-flow-scale.jz") __SOURCE__ {
+            | CanonicalSourceSuccess _ expression -> case expression {
+              | BlockExpression statements -> listLength statements
+              | other -> 0
+            }
+            | CanonicalSourceLexicalFailure _ _ -> 0
+            | CanonicalSourceParserFailure _ _ -> 0
+          }.
+        }
+
+        """
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just entrySource)
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+runJazzParserOperatorScale :: RuntimeObservationRequest -> Int -> IO RunResult
+runJazzParserOperatorScale observationRequest bindingCount =
+  runModuleGraphObserved
+    observationRequest
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    entrySource =
+      Text.replace
+        "__SOURCE__"
+        (renderRuntimeValue (VText (generatedOperatorProgram bindingCount)))
+        """
+        module App::Main {
+          import LexerTypes (CanonicalSourcePath).
+          import List (listLength).
+          import Parser (parseSource).
+          import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
+          case parseSource (CanonicalSourcePath "fixtures/parser/generated-operator-scale.jz") __SOURCE__ {
             | CanonicalSourceSuccess _ expression -> case expression {
               | BlockExpression statements -> listLength statements
               | other -> 0
@@ -100,8 +136,8 @@ runJazzParserScale observationRequest bindingCount =
         "src/App/Main.jz" -> pure (Just entrySource)
         _ -> readCheckedInJazzProjectModuleSource sourcePath
 
-runJazzParserDeclarationsScale :: RuntimeObservationRequest -> IO RunResult
-runJazzParserDeclarationsScale observationRequest =
+runJazzParserDeclarationsScale :: RuntimeObservationRequest -> Int -> IO RunResult
+runJazzParserDeclarationsScale observationRequest declarationGroupCount =
   runModuleGraphObserved
     observationRequest
     defaultWarningSettings
@@ -111,62 +147,66 @@ runJazzParserDeclarationsScale observationRequest =
   where
     entrySource =
       Text.replace
-        "__SOURCE__"
-        (renderRuntimeValue (VText generatedDeclarationsProgram))
-        """
-        module App::Main {
-          import LexerTypes (CanonicalSourcePath).
-          import List (listFoldLeft, listLength).
-          import Maybe (Just, Nothing).
-          import Parser (parseSource).
-          import ParserTypes (
-            CanonicalSourceSuccess,
-            CanonicalSourceLexicalFailure,
-            CanonicalSourceParserFailure,
-            BlockExpression,
-            QualifiedVariableExpression,
-            ModuleStatement,
-            SignatureStatement,
-            LetStatement,
-            DataStatement,
-            ImportStatement
-          ).
-          case parseSource (CanonicalSourcePath "fixtures/parser/generated-declarations-scale.jz") __SOURCE__ {
-            | CanonicalSourceSuccess _ expression -> case expression {
-              | BlockExpression statements -> {
-                counts = listFoldLeft (\\(counts, statement) -> case counts {
-                  | (modules, signatures, bindings, dataDeclarations, imports) -> case statement {
-                    | ModuleStatement _ _ _ -> (modules + 1, signatures, bindings, dataDeclarations, imports)
-                    | SignatureStatement _ _ _ -> (modules, signatures + 1, bindings, dataDeclarations, imports)
-                    | LetStatement _ _ expression -> case expression {
-                      | QualifiedVariableExpression _ _ -> (modules, signatures, bindings + 1, dataDeclarations, imports)
-                      | other -> counts
-                    }
-                    | DataStatement _ _ _ _ -> (modules, signatures, bindings, dataDeclarations + 1, imports)
-                    | ImportStatement _ _ _ _ -> (modules, signatures, bindings, dataDeclarations, imports + 1)
-                    | other -> counts
+        "__DECLARATION_GROUP_COUNT__"
+        (Text.pack (show declarationGroupCount))
+        ( Text.replace
+            "__SOURCE__"
+            (renderRuntimeValue (VText (generatedDeclarationsProgram declarationGroupCount)))
+            """
+            module App::Main {
+              import LexerTypes (CanonicalSourcePath).
+              import List (listFoldLeft, listLength).
+              import Maybe (Just, Nothing).
+              import Parser (parseSource).
+              import ParserTypes (
+                CanonicalSourceSuccess,
+                CanonicalSourceLexicalFailure,
+                CanonicalSourceParserFailure,
+                BlockExpression,
+                QualifiedVariableExpression,
+                ModuleStatement,
+                SignatureStatement,
+                LetStatement,
+                DataStatement,
+                ImportStatement
+              ).
+              case parseSource (CanonicalSourcePath "fixtures/parser/generated-declarations-scale.jz") __SOURCE__ {
+                | CanonicalSourceSuccess _ expression -> case expression {
+                  | BlockExpression statements -> {
+                    counts = listFoldLeft (\\(counts, statement) -> case counts {
+                      | (modules, signatures, bindings, dataDeclarations, imports) -> case statement {
+                        | ModuleStatement _ _ _ -> (modules + 1, signatures, bindings, dataDeclarations, imports)
+                        | SignatureStatement _ _ _ -> (modules, signatures + 1, bindings, dataDeclarations, imports)
+                        | LetStatement _ _ expression -> case expression {
+                          | QualifiedVariableExpression _ _ -> (modules, signatures, bindings + 1, dataDeclarations, imports)
+                          | other -> counts
+                        }
+                        | DataStatement _ _ _ _ -> (modules, signatures, bindings, dataDeclarations + 1, imports)
+                        | ImportStatement _ _ _ _ -> (modules, signatures, bindings, dataDeclarations, imports + 1)
+                        | other -> counts
+                      }
+                    }) (0, 0, 0, 0, 0) statements.
+                    case counts {
+                      | (1, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__, __DECLARATION_GROUP_COUNT__) -> listLength statements
+                      | other -> 0
+                    }.
                   }
-                }) (0, 0, 0, 0, 0) statements.
-                case counts {
-                  | (1, 128, 128, 128, 128) -> listLength statements
                   | other -> 0
-                }.
-              }
-              | other -> 0
+                }
+                | CanonicalSourceLexicalFailure _ _ -> 0
+                | CanonicalSourceParserFailure _ _ -> 0
+              }.
             }
-            | CanonicalSourceLexicalFailure _ _ -> 0
-            | CanonicalSourceParserFailure _ _ -> 0
-          }.
-        }
 
-        """
+            """
+        )
     lookupSource sourcePath =
       case sourcePath of
         "src/App/Main.jz" -> pure (Just entrySource)
         _ -> readCheckedInJazzProjectModuleSource sourcePath
 
-generatedDeclarationsProgram :: Text
-generatedDeclarationsProgram =
+generatedDeclarationsProgram :: Int -> Text
+generatedDeclarationsProgram declarationCount =
   Text.unlines
     ( ["module Generated::Scale {"]
         <> concatMap renderSignatureBinding [0 .. declarationCount - 1]
@@ -175,8 +215,6 @@ generatedDeclarationsProgram =
         <> ["}"]
     )
   where
-    declarationCount :: Int
-    declarationCount = 128
     replaceIndex template index =
       Text.replace "__INDEX__" (Text.pack (show index)) template
     renderSignatureBinding index =
@@ -188,12 +226,10 @@ generatedDeclarationsProgram =
     renderImport index =
       replaceIndex "import Lib::Module__INDEX__ as Alias__INDEX__." index
 
-generatedControlFlowProgram :: Text
-generatedControlFlowProgram =
+generatedControlFlowProgram :: Int -> Text
+generatedControlFlowProgram bindingCount =
   Text.unlines (map renderBinding [0 .. bindingCount - 1] <> [renderTerminal])
   where
-    bindingCount :: Int
-    bindingCount = 512
     replaceIndex template index =
       Text.replace "__INDEX__" (Text.pack (show index)) template
     renderBinding index =
@@ -206,6 +242,26 @@ generatedControlFlowProgram =
         )
         index
     renderTerminal = replaceIndex "value__INDEX__." (bindingCount - 1)
+
+generatedOperatorProgram :: Int -> Text
+generatedOperatorProgram bindingCount =
+  Text.unlines
+    ( ["operator %% tier 2 left."]
+        <> map renderBinding [0 .. bindingCount - 1]
+        <> [replaceIndex "value__INDEX__." (bindingCount - 1)]
+    )
+  where
+    replaceIndex template index =
+      Text.replace "__INDEX__" (Text.pack (show index)) template
+    renderBinding index =
+      replaceIndex
+        ( case index `mod` 4 of
+            0 -> "value__INDEX__ = combine (1 + 2 * 3 - 4) (5 | 6 + 7)."
+            1 -> "value__INDEX__ = [($), (1 +), (+ 1), f $ g $ z]."
+            2 -> "value__INDEX__ = combine (1 %% 2 + 3) [(%%), (1 %%), (%% 2)]."
+            _ -> "value__INDEX__ = { apply__INDEX__ = \\(item__INDEX__) -> if item__INDEX__ > 0 then case item__INDEX__ { | current__INDEX__ if current__INDEX__ > 1 -> (current__INDEX__ + 1, [current__INDEX__ * 2]) | _ -> current__INDEX__ %% 0 } else item__INDEX__ - 1. apply__INDEX__ (1 + 2). }."
+        )
+        index
 
 generatedParserProgram :: Int -> Text
 generatedParserProgram bindingCount =

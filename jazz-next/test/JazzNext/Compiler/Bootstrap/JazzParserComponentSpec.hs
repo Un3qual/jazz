@@ -47,7 +47,7 @@ tests =
     ("parses recursive blocks and block application", testRecursiveBlocks),
     ("commits binding and statement failures", testProgramFailures),
     ("parses capability declarations while preserving reserved failures", testProgramBoundaryFailures),
-    ("rejects operator declaration candidates before expression fallback", testOperatorDeclarationBoundary),
+    ("parses operator declarations before expression fallback", testOperatorDeclarationBoundary),
     ("rejects reserved literal signatures before signature fallback", testReservedSignatureBoundary),
     ("parses signatures while preserving alias expression ambiguity", testSignatureBoundary),
     ("uses matching bindings to disambiguate compact signatures", testMatchingBindingSignatureBoundary)
@@ -304,12 +304,12 @@ testOperatorDeclarationBoundary = do
   assertJazzOutput
     "symbolic operator declaration boundary"
     """
-    ( isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator %% tier 2.")
-    , isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator + tier 1.")
-    , isExpressionFoundationOperatorDeclarationFailure (parseComponentTokens "operator -> tier 3.")
+    ( parseComponentTokens "operator %% tier 2."
+    , parseComponentTokens "operator + tier 1."
+    , parseComponentTokens "operator -> tier 3."
     )
     """
-    "(True, True, True)"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(BuiltinOperatorCannotBeRedeclared(\"+\")))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 1)), DeclarationFailure(ReservedOperatorSymbol(\"->\")))))"
 
 testReservedSignatureBoundary :: IO ()
 testReservedSignatureBoundary =
@@ -386,15 +386,6 @@ lookupSource expression sourcePath =
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).
-                  isExpressionFoundationOperatorDeclarationFailure = \\(result) -> case result {
-                    | CanonicalParserSuccess _ _ -> False
-                    | CanonicalParserFailure _ failure -> case failure {
-                      | ParserFailure code maybeSpan reason -> if code == "E0001" then case reason {
-                        | UnexpectedSyntax encountered expected -> expected == "an expression-foundation statement"
-                        | other -> False
-                      } else False
-                    }
-                  }.
                   __EXPRESSION__.
                 }
 

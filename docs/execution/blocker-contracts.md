@@ -81,41 +81,39 @@ Each blocked item should answer these questions:
   families remain exact, and all three 513-statement scale profiles are
   deterministic with zero host operations. `ParserCore`, `ParserTypes`,
   `ParserContext`, and the parser façades remain unchanged.
+  `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001` completed the fifth and
+  final grammar child with centralized operator metadata, immutable
+  source-order context, declarations, bindings, signatures, precedence,
+  associativity, values, sections, and mixed control-flow composition. Its six
+  52 / 101 / 75 / 55 / 26 / 56 case families assign all 365 fixtures exactly
+  once and match complete token/source results twice. All four scale profiles
+  are deterministic with zero host operations; the operator profile records
+  49,040,140 transitions / 5,914,883 applications / 186,465 list cells / depth
+  1,116.
 - Accepted decision: the parser contract is
   `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
   complete ordinary surface AST before lowering, preserves structured failures
   before the unified `Diagnostic`, uses canonical lexer tokens as the primary
   input, and starts with a generic compiler-local parser kernel. Existing Jazz
   collection/text APIs are sufficient.
-- Smallest unblocker: curate
-  `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001`, the accepted parser
-  design's fifth and final ordered child. It is the sole `Next Curation Target`
-  and is not executable until its own written design and implementation plan
-  pass review.
-- Decision needed: fix explicit operator and mixed control-flow/operator fixture
-  families; fixed and declared operator ownership; precedence, associativity,
-  sections, adjacency, and source-order context behavior; complete fixture
-  manifest assignment; additive scale evidence; and focused verification.
-- Recommended default: preserve the fixed surface schema, fail-fast structured
-  failures, landed pattern/control-flow ownership, and explicit immutable
-  grammar context while designing the final operator layer and complete parity
-  closure. Keep canonical core and backend stages separate.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001` is the
-  sole curation candidate, not a `Ready Now` row.
-- Target paths: `docs/execution/blocker-contracts.md`,
-  `docs/execution/queue.md`,
-  `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
-  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
-  the completed parser child plans, the accepted parent parser design,
-  compiler-local expression/declaration/context/program modules, focused
-  bootstrap parity support, the shared fixture manifest, and
-  `jazz-next/jazz-next.cabal`.
-- Verification: written child-design and implementation-plan review followed
-  by `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`, and
-  `git diff --check` before promotion.
-- Not in scope: promoting implementation before review; a public stdlib parser
-  API; parser-specific host intrinsics or Haskell callbacks; recovery or
-  partial ASTs; canonical core;
+- Smallest unblocker: none currently. The hosted lexer and complete hosted
+  parser are closed; no source-backed post-parser implementation child has an
+  accepted contract and plan.
+- Decision needed: select and review the next independently shippable boundary
+  among canonical typed core, backend-neutral lowered IR, LLVM lowering,
+  object/link production, or native runtime before promoting implementation.
+- Recommended default: leave `Ready Now` empty and preserve the established
+  pipeline order. Curate one concrete child only when its ownership, inputs,
+  outputs, target paths, verification, and exclusions are reviewable.
+- Candidate child: none. No post-parser child is promoted by this closeout.
+- Target paths: none until a separate reviewed design and plan name the active
+  `jazz-next` owners for the selected boundary.
+- Verification: the completed parser child passed exact 365-case parity, all
+  four repeated scale profiles, the focused matrix, warning-clean build, all
+  Cabal suites, `cabal check`, repository validators, and locked-path audit.
+  A future child must define its own focused verification.
+- Not in scope: a public stdlib parser API; parser-specific host intrinsics or
+  Haskell callbacks; recovery or partial ASTs; canonical core;
   bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or
   native-runtime implementation.
 

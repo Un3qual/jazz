@@ -8,45 +8,60 @@ module ParserContext (
   value parserContextHasAlias,
   value parserContextRegisterAlias,
   value parserContextRegisterAliases,
+  value parserContextRegisterOperator,
+  value parserContextLookupOperator,
   value parserContextIsNestedBlock,
   value parserContextStopsAtRightBrace
 ) {
   # Complete import keeps the abstract Set type available in signatures.
+  import List (listPrepend).
+  import Maybe.
+  import ParserOperator.
   import Set.
 
   data StatementContext = TopLevelContext | ModuleBodyContext | NestedBlockContext.
 
-  data ParserContext = ParserContext StatementContext (Set(Text)).
+  data ParserContext = ParserContext StatementContext (Set(Text)) [OperatorInfo].
 
   parserContextInitial :: ParserContext.
-  parserContextInitial = ParserContext TopLevelContext setEmpty.
+  parserContextInitial = ParserContext TopLevelContext setEmpty [].
 
   parserContextModuleBody :: ParserContext -> ParserContext.
-  parserContextModuleBody = \(context) -> ParserContext ModuleBodyContext setEmpty.
+  parserContextModuleBody = \(context) -> ParserContext ModuleBodyContext setEmpty [].
 
   parserContextNestedBlock :: ParserContext -> ParserContext.
   parserContextNestedBlock = \(context) -> case context {
-    | ParserContext statementContext aliases -> ParserContext NestedBlockContext aliases
+    | ParserContext statementContext aliases operators -> ParserContext NestedBlockContext aliases operators
   }.
 
   parserContextStatement :: ParserContext -> StatementContext.
   parserContextStatement = \(context) -> case context {
-    | ParserContext statementContext aliases -> statementContext
+    | ParserContext statementContext aliases operators -> statementContext
   }.
 
   parserContextHasAlias :: ParserContext -> Text -> Bool.
   parserContextHasAlias = \(context, alias) -> case context {
-    | ParserContext statementContext aliases -> setContains aliases alias
+    | ParserContext statementContext aliases operators -> setContains aliases alias
   }.
 
   parserContextRegisterAlias :: ParserContext -> Text -> ParserContext.
   parserContextRegisterAlias = \(context, alias) -> case context {
-    | ParserContext statementContext aliases -> ParserContext statementContext (setInsert aliases alias)
+    | ParserContext statementContext aliases operators -> ParserContext statementContext (setInsert aliases alias) operators
   }.
 
   parserContextRegisterAliases :: ParserContext -> Set(Text) -> ParserContext.
   parserContextRegisterAliases = \(context, collected) -> case context {
-    | ParserContext statementContext aliases -> ParserContext statementContext (setUnion aliases collected)
+    | ParserContext statementContext aliases operators -> ParserContext statementContext (setUnion aliases collected) operators
+  }.
+
+  parserContextRegisterOperator :: ParserContext -> OperatorInfo -> ParserContext.
+  parserContextRegisterOperator = \(context, operator) -> case context {
+    | ParserContext statementContext aliases operators -> ParserContext statementContext aliases (listPrepend operator operators)
+  }.
+
+  parserContextLookupOperator :: ParserContext -> Text -> Maybe(OperatorInfo).
+  parserContextLookupOperator = \(context, symbol) -> case context {
+    | ParserContext statementContext aliases operators -> operatorLookup operators symbol
   }.
 
   parserContextIsNestedBlock :: ParserContext -> Bool.
