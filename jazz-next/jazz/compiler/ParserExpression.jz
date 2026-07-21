@@ -773,6 +773,16 @@ module ParserExpression (
     })
     tokenPeek.
 
+  parseTypeApplicationArgument :: CanonicalToken -> TokenParser(SurfaceSignatureType).
+  parseTypeApplicationArgument = \(applicationToken) -> tokenAndThen
+    (\(maybeType) -> case maybeType {
+      | Just signatureType -> tokenSucceed signatureType
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan applicationToken)
+        (UnsupportedSyntax ExplicitTypeApplicationArgument)
+    })
+    (tokenOptional (tokenAttempt parseSignatureType)).
+
   parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
   parseCaseOperatorContinuation = \(context, guardMode, stop, parseBlock, minimum, left, operatorToken, symbol) ->
     case parserContextLookupOperator context symbol {
@@ -800,9 +810,9 @@ module ParserExpression (
               (operatorNextMinimum info)))
     }.
 
-  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, minimum, left) -> tokenAndThen
-    (\(remaining) -> if stop remaining then tokenSucceed left else case remaining {
+  parseCasePipeExpressionTailFrom :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTailFrom = \(context, guardMode, stop, parseBlock, minimum, remaining, left) ->
+    if stop remaining then tokenSucceed left else case remaining {
       | [operatorToken | afterOperator] -> case canonicalTokenKind operatorToken {
         | OperatorKind symbol -> if tokensStartRightParen afterOperator then tokenSucceed left else
           if symbol == "|" then tokenAndThen
@@ -829,16 +839,38 @@ module ParserExpression (
         | other -> tokenSucceed left
       }
       | [] -> tokenSucceed left
-    })
+    }.
+
+  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, minimum, left) -> tokenAndThen
+    (\(remaining) -> parseCasePipeExpressionTailFrom context guardMode stop parseBlock minimum remaining left)
     tokenRemaining.
 
   parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> TokenParser(SurfaceExpr).
   parseCasePipeExpressionWithMinimum = \(context, guardMode, stop, parseBlock, minimum) -> {
     parseExpressionUntil = \(nestedStop) ->
       parseCasePipeExpressionWithMinimum context guardMode nestedStop parseBlock 1.
-    tokenAndThen
-      (\(left) -> parseCasePipeExpressionTail context guardMode stop parseBlock minimum left)
-      (parseApplicationExpression context (Just stop) parseExpressionUntil parseBlock).
+    primary = parsePrimary context parseExpressionUntil stop parseBlock.
+    applicationTail = \(function) -> tokenAndThen
+      (\(remaining) -> if stop remaining then tokenSucceed function else case remaining {
+        | [token | rest] -> case canonicalTokenKind token {
+          | PunctuationKind AtPunctuation -> tokenAndThen
+            (\(applicationToken) -> tokenAndThen
+              (\(signatureType) -> applicationTail
+                (TypeApplicationExpression function (canonicalTokenSpan applicationToken) signatureType))
+              (parseTypeApplicationArgument applicationToken))
+            (tokenPunctuation AtPunctuation)
+          | OperatorKind symbol ->
+            parseCasePipeExpressionTailFrom context guardMode stop parseBlock minimum remaining function
+          | other -> if startsPrimary token then tokenAndThen
+            (\(argument) -> applicationTail (ApplyExpression function argument))
+            primary
+            else tokenSucceed function
+        }
+        | [] -> tokenSucceed function
+      })
+      tokenRemaining.
+    tokenAndThen applicationTail primary.
   }.
 
   parseCasePipeExpression :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
@@ -1105,56 +1137,74 @@ module ParserExpression (
       tokenPeek.
   }.
 
-  parseTypeApplicationArgument :: CanonicalToken -> TokenParser(SurfaceSignatureType).
-  parseTypeApplicationArgument = \(applicationToken) -> tokenAndThen
-    (\(maybeType) -> case maybeType {
-      | Just signatureType -> tokenSucceed signatureType
-      | Nothing -> tokenFailAtSpan
-        (canonicalTokenSpan applicationToken)
-        (UnsupportedSyntax ExplicitTypeApplicationArgument)
+  parseUnstoppedPrimary :: ParserContext -> (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseUnstoppedPrimary = \(context, parseExpressionUntil, parseBlock) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind whole -> tokenAndThen
+          (\(wholeToken) -> parseNumeric wholeToken whole)
+          tokenInteger
+        | CharacterKind value -> tokenKeepRight
+          tokenCharacter
+          (tokenSucceed (LiteralExpression (CharacterLiteral value)))
+        | TextKind value -> tokenKeepRight
+          tokenText
+          (tokenSucceed (LiteralExpression (TextLiteral value)))
+        | KeywordKind IfKeyword -> parsePrimary context parseExpressionUntil neverStops parseBlock
+        | KeywordKind CaseKeyword -> parsePrimary context parseExpressionUntil neverStops parseBlock
+        | IdentifierKind "True" -> tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (LiteralExpression (BooleanLiteral True)))
+        | IdentifierKind "False" -> tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (LiteralExpression (BooleanLiteral False)))
+        | IdentifierKind name -> tokenAndThen
+          (\(identifierToken) -> parseName identifierToken name)
+          tokenIdentifier
+        | PunctuationKind LambdaPunctuation -> parsePrimary context parseExpressionUntil neverStops parseBlock
+        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftParenPunctuation)
+          (parseParenthesized context parseExpressionUntil)
+        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracketPunctuation)
+          (parseList parseExpressionUntil)
+        | PunctuationKind LeftBracePunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracePunctuation)
+          (tokenAndThen (\(statements) -> tokenSucceed (BlockExpression statements)) parseBlock)
+        | other -> tokenKeepRight
+          (tokenTakeIf (\(ignored) -> True) "token")
+          (tokenFailAtSpan (canonicalTokenSpan token) (UnexpectedSyntax (canonicalTokenEncountered current) "expression"))
+      }
     })
-    (tokenOptional (tokenAttempt parseSignatureType)).
+    tokenPeek.
 
-  parseApplicationTail :: Maybe(([CanonicalToken] -> Bool)) -> TokenParser(SurfaceExpr) -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseApplicationTail = \(maybeStop, primary, function) -> tokenAndThen
-    (\(remaining) -> case remaining {
-      | [token | rest] -> {
-        continue = case canonicalTokenKind token {
+  parseExpressionAfterPrimary :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> TokenParser(SurfaceExpr) -> TokenParser(SurfaceExpr).
+  parseExpressionAfterPrimary = \(context, stop, parseBlock, minimum, primary) -> {
+    applicationTail = \(function) -> tokenAndThen
+      (\(remaining) -> if stop remaining then tokenSucceed function else case remaining {
+        | [token | rest] -> case canonicalTokenKind token {
           | PunctuationKind AtPunctuation -> tokenAndThen
             (\(applicationToken) -> tokenAndThen
-              (\(signatureType) -> parseApplicationTail
-                maybeStop
-                primary
+              (\(signatureType) -> applicationTail
                 (TypeApplicationExpression function (canonicalTokenSpan applicationToken) signatureType))
               (parseTypeApplicationArgument applicationToken))
             (tokenPunctuation AtPunctuation)
-          | other -> if startsPrimary token then
-            tokenAndThen
-              (\(argument) -> parseApplicationTail maybeStop primary (ApplyExpression function argument))
-              primary
+          | OperatorKind symbol -> parseInfixTailFrom context stop parseBlock minimum remaining function
+          | other -> if startsPrimary token then tokenAndThen
+            (\(argument) -> applicationTail (ApplyExpression function argument))
+            primary
             else tokenSucceed function
-        }.
-        case maybeStop {
-          | Just stop -> if stop remaining then tokenSucceed function else continue
-          | Nothing -> continue
-        }.
-      }
-      | [] -> tokenSucceed function
-    })
-    tokenRemaining.
-
-  parseApplicationExpression :: ParserContext -> Maybe(([CanonicalToken] -> Bool)) -> (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseApplicationExpression = \(context, maybeStop, parseExpressionUntil, parseBlock) -> {
-    primary = case maybeStop {
-      | Just stop -> parsePrimary context parseExpressionUntil stop parseBlock
-      | Nothing -> parsePrimary context parseExpressionUntil neverStops parseBlock
-    }.
-    tokenAndThen (\(first) -> parseApplicationTail maybeStop primary first) primary.
+        }
+        | [] -> tokenSucceed function
+      })
+      tokenRemaining.
+    tokenAndThen applicationTail primary.
   }.
 
-  parseInfixTail :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseInfixTail = \(context, stop, parseBlock, minimum, left) -> tokenAndThen
-    (\(remaining) -> if stop remaining then tokenSucceed left else case remaining {
+  parseInfixTailFrom :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseInfixTailFrom = \(context, stop, parseBlock, minimum, remaining, left) ->
+    if stop remaining then tokenSucceed left else case remaining {
       | [operatorToken | afterOperator] -> case canonicalTokenKind operatorToken {
         | OperatorKind symbol -> if tokensStartRightParen afterOperator then tokenSucceed left else
           case parserContextLookupOperator context symbol {
@@ -1182,22 +1232,32 @@ module ParserExpression (
         | other -> tokenSucceed left
       }
       | [] -> tokenSucceed left
-    })
+    }.
+
+  parseInfixTail :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseInfixTail = \(context, stop, parseBlock, minimum, left) -> tokenAndThen
+    (\(remaining) -> parseInfixTailFrom context stop parseBlock minimum remaining left)
     tokenRemaining.
 
   parseExpressionWithMinimum :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> TokenParser(SurfaceExpr).
   parseExpressionWithMinimum = \(context, stop, parseBlock, minimum) -> {
     parseExpressionUntil = \(nestedStop) -> parseExpressionWithMinimum context nestedStop parseBlock 1.
-    tokenAndThen
-      (\(left) -> parseInfixTail context stop parseBlock minimum left)
-      (parseApplicationExpression context (Just stop) parseExpressionUntil parseBlock).
+    primary = parsePrimary context parseExpressionUntil stop parseBlock.
+    parseExpressionAfterPrimary context stop parseBlock minimum primary.
+  }.
+
+  parseUnstoppedExpression :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseUnstoppedExpression = \(context, parseBlock) -> {
+    parseExpressionUntil = \(stop) -> parseExpressionWithMinimum context stop parseBlock 1.
+    primary = parseUnstoppedPrimary context parseExpressionUntil parseBlock.
+    parseExpressionAfterPrimary context neverStops parseBlock 1 primary.
   }.
 
   parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseFoundationalExpression = \(parseBlock) ->
-    parseExpressionWithMinimum parserContextInitial neverStops parseBlock 1.
+    parseUnstoppedExpression parserContextInitial parseBlock.
 
   parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseFoundationalExpressionWithContext = \(context, parseBlock) ->
-    parseExpressionWithMinimum context neverStops parseBlock 1.
+    parseUnstoppedExpression context parseBlock.
 }

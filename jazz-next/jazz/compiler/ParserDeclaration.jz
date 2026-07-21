@@ -78,12 +78,6 @@ module ParserDeclaration (
       (tokenSucceed nameToken))
     tokenIdentifier.
 
-  bindingStartCandidate :: TokenParser(CanonicalToken).
-  bindingStartCandidate = tokenKeepRight tokenIdentifier (tokenPunctuation EqualsPunctuation).
-
-  bindingStart :: TokenParser(Maybe(CanonicalToken)).
-  bindingStart = tokenLookAhead (tokenOptional (tokenAttempt bindingStartCandidate)).
-
   signatureShapeCandidate :: TokenParser(CanonicalToken).
   signatureShapeCandidate = tokenAndThen
     (\(nameToken) -> tokenKeepRight
@@ -2140,23 +2134,48 @@ module ParserDeclaration (
     (\(statements) -> (statements, context))
     (parseModuleDeclaration parseStatements context).
 
+  parseBindingWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
+  parseBindingWithContext = \(parseExpression, context) -> tokenTransform
+    (\(statement) -> ([statement], context))
+    (parseBinding parseExpression context).
+
+  parseNonBindingWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
+  parseNonBindingWithContext = \(parseExpression, parseStatements, context) -> tokenTransform
+    (\(statement) -> ([statement], context))
+    (parseNonBindingStatement parseExpression parseStatements context).
+
   parseStatementWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
   parseStatementWithContext = \(parseExpression, parseStatements, context) -> tokenAndThen
-    (\(operatorStart) -> case operatorStart {
-      | Just candidate -> parseOperatorDeclaration context
-      | Nothing -> tokenAndThen
-        (\(operatorStatementStart) -> case operatorStatementStart {
-          | Just operatorToken -> parseOperatorStatement parseExpression context
-          | Nothing -> tokenTransform
-            (\(statement) -> ([statement], context))
-            (tokenAndThen
-              (\(start) -> case start {
-                | Just bindingToken -> parseBinding parseExpression context
-                | Nothing -> parseNonBindingStatement parseExpression parseStatements context
+    (\(remaining) -> case remaining {
+      | [token | afterToken] -> case canonicalTokenKind token {
+        | IdentifierKind name -> case afterToken {
+          | [separator | rest] -> case canonicalTokenKind separator {
+            | PunctuationKind EqualsPunctuation -> parseBindingWithContext parseExpression context
+            | other -> if name == "operator" then tokenAndThen
+              (\(operatorStart) -> case operatorStart {
+                | Just candidate -> parseOperatorDeclaration context
+                | Nothing -> parseNonBindingWithContext parseExpression parseStatements context
               })
-              bindingStart)
-        })
-        (tokenLookAhead (tokenOptional (tokenAttempt parenthesizedOperatorStatementCandidate)))
+              operatorDeclarationStart
+              else parseNonBindingWithContext parseExpression parseStatements context
+          }
+          | [] -> if name == "operator" then tokenAndThen
+            (\(operatorStart) -> case operatorStart {
+              | Just candidate -> parseOperatorDeclaration context
+              | Nothing -> parseNonBindingWithContext parseExpression parseStatements context
+            })
+            operatorDeclarationStart
+            else parseNonBindingWithContext parseExpression parseStatements context
+        }
+        | PunctuationKind LeftParenPunctuation -> tokenAndThen
+          (\(operatorStatementStart) -> case operatorStatementStart {
+            | Just operatorToken -> parseOperatorStatement parseExpression context
+            | Nothing -> parseNonBindingWithContext parseExpression parseStatements context
+          })
+          (tokenLookAhead (tokenOptional (tokenAttempt parenthesizedOperatorStatementCandidate)))
+        | other -> parseNonBindingWithContext parseExpression parseStatements context
+      }
+      | [] -> parseNonBindingWithContext parseExpression parseStatements context
     })
-    operatorDeclarationStart.
+    tokenRemaining.
 }

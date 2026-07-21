@@ -35,10 +35,14 @@ module ParserProgram (value parseFoundationalProgram) {
   import ParserTypes.
 
   prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement].
-  prependStatements = \(statements, reversed) -> listFoldLeft
-    (\(result, statement) -> listPrepend statement result)
-    reversed
-    statements.
+  prependStatements = \(statements, reversed) -> case statements {
+    | [] -> reversed
+    | [statement] -> listPrepend statement reversed
+    | other -> listFoldLeft
+      (\(result, statement) -> listPrepend statement result)
+      reversed
+      statements
+  }.
 
   parseExpressionInContext :: ParserContext -> TokenParser(SurfaceExpr).
   parseExpressionInContext = \(context) -> parseFoundationalExpressionWithContext

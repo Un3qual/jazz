@@ -3,6 +3,7 @@
 module JazzNext.Compiler.Bootstrap.JazzParserScale
   ( runJazzParserControlFlowScale,
     runJazzParserDeclarationsScale,
+    runJazzParserOperatorScale,
     runJazzParserScale,
   )
 where
@@ -50,6 +51,41 @@ runJazzParserControlFlowScale observationRequest =
           import Parser (parseSource).
           import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
           case parseSource (CanonicalSourcePath "fixtures/parser/generated-control-flow-scale.jz") __SOURCE__ {
+            | CanonicalSourceSuccess _ expression -> case expression {
+              | BlockExpression statements -> listLength statements
+              | other -> 0
+            }
+            | CanonicalSourceLexicalFailure _ _ -> 0
+            | CanonicalSourceParserFailure _ _ -> 0
+          }.
+        }
+
+        """
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just entrySource)
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+runJazzParserOperatorScale :: RuntimeObservationRequest -> IO RunResult
+runJazzParserOperatorScale observationRequest =
+  runModuleGraphObserved
+    observationRequest
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    entrySource =
+      Text.replace
+        "__SOURCE__"
+        (renderRuntimeValue (VText generatedOperatorProgram))
+        """
+        module App::Main {
+          import LexerTypes (CanonicalSourcePath).
+          import List (listLength).
+          import Parser (parseSource).
+          import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
+          case parseSource (CanonicalSourcePath "fixtures/parser/generated-operator-scale.jz") __SOURCE__ {
             | CanonicalSourceSuccess _ expression -> case expression {
               | BlockExpression statements -> listLength statements
               | other -> 0
@@ -206,6 +242,28 @@ generatedControlFlowProgram =
         )
         index
     renderTerminal = replaceIndex "value__INDEX__." (bindingCount - 1)
+
+generatedOperatorProgram :: Text
+generatedOperatorProgram =
+  Text.unlines
+    ( ["operator %% tier 2 left."]
+        <> map renderBinding [0 .. bindingCount - 1]
+        <> [replaceIndex "value__INDEX__." (bindingCount - 1)]
+    )
+  where
+    bindingCount :: Int
+    bindingCount = 512
+    replaceIndex template index =
+      Text.replace "__INDEX__" (Text.pack (show index)) template
+    renderBinding index =
+      replaceIndex
+        ( case index `mod` 4 of
+            0 -> "value__INDEX__ = combine (1 + 2 * 3 - 4) (5 | 6 + 7)."
+            1 -> "value__INDEX__ = [($), (1 +), (+ 1), f $ g $ z]."
+            2 -> "value__INDEX__ = combine (1 %% 2 + 3) [(%%), (1 %%), (%% 2)]."
+            _ -> "value__INDEX__ = { apply__INDEX__ = \\(item__INDEX__) -> if item__INDEX__ > 0 then case item__INDEX__ { | current__INDEX__ if current__INDEX__ > 1 -> (current__INDEX__ + 1, [current__INDEX__ * 2]) | _ -> current__INDEX__ %% 0 } else item__INDEX__ - 1. apply__INDEX__ (1 + 2). }."
+        )
+        index
 
 generatedParserProgram :: Int -> Text
 generatedParserProgram bindingCount =

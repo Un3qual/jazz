@@ -7,6 +7,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzParserScale
   ( runJazzParserControlFlowScale,
     runJazzParserDeclarationsScale,
+    runJazzParserOperatorScale,
     runJazzParserScale,
   )
 import JazzNext.Compiler.Driver
@@ -35,8 +36,36 @@ tests :: [NamedTest]
 tests =
   [ ("parses a large generated program deterministically", testLargeGeneratedProgram),
     ("parses mixed declarations and forward aliases deterministically", testDeclarationsGeneratedProgram),
-    ("parses generated control flow and patterns deterministically", testControlFlowGeneratedProgram)
+    ("parses generated control flow and patterns deterministically", testControlFlowGeneratedProgram),
+    ("parses generated operators and control flow deterministically", testOperatorGeneratedProgram)
   ]
+
+testOperatorGeneratedProgram :: IO ()
+testOperatorGeneratedProgram = do
+  first <- runJazzParserOperatorScale RuntimeObservationStatistics
+  second <- runJazzParserOperatorScale RuntimeObservationStatistics
+  assertSuccessfulBatch "operator first" first
+  assertSuccessfulBatch "operator second" second
+  assertEqual "operator structured statement count" (Just "513") (runOutput first)
+  assertEqual "operator deterministic output" (runOutput first) (runOutput second)
+  firstReport <- requireObservation "operator first" first
+  secondReport <- requireObservation "operator second" second
+  assertEqual "operator first termination" RuntimeSucceeded (runtimeObservationTermination firstReport)
+  assertEqual "operator second termination" RuntimeSucceeded (runtimeObservationTermination secondReport)
+  let firstStatistics = runtimeObservationStatistics firstReport
+      secondStatistics = runtimeObservationStatistics secondReport
+  assertEqual "operator deterministic statistics" firstStatistics secondStatistics
+  assertEqual "operator host operations" 0 (runtimeHostOperations firstStatistics)
+  assertAtMost "operator evaluator transitions" transitionCeiling (runtimeEvaluatorTransitions firstStatistics)
+  assertAtMost "operator applications" applicationCeiling (runtimeApplications firstStatistics)
+  assertAtMost "operator list cells" listCellCeiling (runtimeListCellsConstructed firstStatistics)
+  assertAtMost "operator continuation depth" continuationDepthCeiling (runtimeMaximumContinuationDepth firstStatistics)
+  putStrLn ("SCALE_STATS operator " <> show firstStatistics)
+  where
+    transitionCeiling = 52000000
+    applicationCeiling = 6300000
+    listCellCeiling = 190000
+    continuationDepthCeiling = 1150
 
 testControlFlowGeneratedProgram :: IO ()
 testControlFlowGeneratedProgram = do
