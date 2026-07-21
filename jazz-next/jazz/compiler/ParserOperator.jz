@@ -1,0 +1,134 @@
+module ParserOperator (
+  type OperatorAssociativity(..),
+  type OperatorInfo,
+  value operatorInfoSymbol,
+  value operatorInfoPrecedence,
+  value operatorInfoAssociativity,
+  value operatorLookup,
+  value operatorForTier,
+  value operatorForPrecedence,
+  value operatorWithAssociativity,
+  value operatorIsBuiltin,
+  value operatorIsReserved,
+  value operatorIsValidUserSymbol
+) {
+  import List (listAll, listContains).
+  import Maybe.
+  import Text (textIsEmpty, textToChars).
+
+  data OperatorAssociativity = LeftAssociative | RightAssociative | NonAssociative.
+
+  data OperatorInfo = OperatorInfo Text Int OperatorAssociativity.
+
+  operatorInfoSymbol :: OperatorInfo -> Text.
+  operatorInfoSymbol = \(info) -> case info {
+    | OperatorInfo symbol precedence associativity -> symbol
+  }.
+
+  operatorInfoPrecedence :: OperatorInfo -> Int.
+  operatorInfoPrecedence = \(info) -> case info {
+    | OperatorInfo symbol precedence associativity -> precedence
+  }.
+
+  operatorInfoAssociativity :: OperatorInfo -> OperatorAssociativity.
+  operatorInfoAssociativity = \(info) -> case info {
+    | OperatorInfo symbol precedence associativity -> associativity
+  }.
+
+  operatorWithAssociativity :: OperatorInfo -> OperatorAssociativity -> OperatorInfo.
+  operatorWithAssociativity = \(info, associativity) -> case info {
+    | OperatorInfo symbol precedence previous -> OperatorInfo symbol precedence associativity
+  }.
+
+  builtinOperator :: Text -> Maybe(OperatorInfo).
+  builtinOperator = \(symbol) -> if symbol == "*" then
+    Just (OperatorInfo symbol 5 LeftAssociative)
+    else if symbol == "/" then
+      Just (OperatorInfo symbol 5 LeftAssociative)
+      else if symbol == "+" then
+        Just (OperatorInfo symbol 4 LeftAssociative)
+        else if symbol == "-" then
+          Just (OperatorInfo symbol 4 LeftAssociative)
+          else if symbol == "|" then
+            Just (OperatorInfo symbol 3 LeftAssociative)
+            else if symbol == "==" then
+              Just (OperatorInfo symbol 2 LeftAssociative)
+              else if symbol == "!=" then
+                Just (OperatorInfo symbol 2 LeftAssociative)
+                else if symbol == "<" then
+                  Just (OperatorInfo symbol 2 LeftAssociative)
+                  else if symbol == "<=" then
+                    Just (OperatorInfo symbol 2 LeftAssociative)
+                    else if symbol == ">" then
+                      Just (OperatorInfo symbol 2 LeftAssociative)
+                      else if symbol == ">=" then
+                        Just (OperatorInfo symbol 2 LeftAssociative)
+                        else if symbol == "$" then
+                          Just (OperatorInfo symbol 1 RightAssociative)
+                          else Nothing.
+
+  declaredOperator :: [OperatorInfo] -> Text -> Maybe(OperatorInfo).
+  declaredOperator = \(operators, symbol) -> case operators {
+    | [] -> Nothing
+    | [first | rest] -> if operatorInfoSymbol first == symbol then
+      Just first
+      else declaredOperator rest symbol
+  }.
+
+  operatorLookup :: [OperatorInfo] -> Text -> Maybe(OperatorInfo).
+  operatorLookup = \(operators, symbol) -> case declaredOperator operators symbol {
+    | Just info -> Just info
+    | Nothing -> builtinOperator symbol
+  }.
+
+  operatorForTier :: Text -> Int -> Maybe(OperatorInfo).
+  operatorForTier = \(symbol, tier) -> if tier == 1 then
+    Just (OperatorInfo symbol 5 LeftAssociative)
+    else if tier == 2 then
+      Just (OperatorInfo symbol 4 LeftAssociative)
+      else if tier == 3 then
+        Just (OperatorInfo symbol 3 LeftAssociative)
+        else if tier == 4 then
+          Just (OperatorInfo symbol 2 LeftAssociative)
+          else if tier == 5 then
+            Just (OperatorInfo symbol 1 RightAssociative)
+            else Nothing.
+
+  operatorForPrecedence :: Text -> Int -> Maybe(OperatorInfo).
+  operatorForPrecedence = \(symbol, precedence) -> if precedence < 1 then
+    Nothing
+    else if precedence > 99 then
+      Nothing
+      else Just (OperatorInfo symbol precedence LeftAssociative).
+
+  operatorIsBuiltin :: Text -> Bool.
+  operatorIsBuiltin = \(symbol) -> case builtinOperator symbol {
+    | Just info -> True
+    | Nothing -> False
+  }.
+
+  operatorIsReserved :: Text -> Bool.
+  operatorIsReserved = \(symbol) -> if symbol == "->" then
+    True
+    else if symbol == "=>" then
+      True
+      else if symbol == "//" then
+        True
+        else if symbol == "/*" then
+          True
+          else if symbol == "*/" then
+            True
+            else symbol == "--".
+
+  operatorSymbolCharacters :: [Char].
+  operatorSymbolCharacters = ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
+
+  operatorIsValidUserSymbol :: Text -> Bool.
+  operatorIsValidUserSymbol = \(symbol) -> if textIsEmpty symbol then
+    False
+    else if operatorIsBuiltin symbol then
+      False
+      else if operatorIsReserved symbol then
+        False
+        else listAll (\(character) -> listContains character operatorSymbolCharacters) (textToChars symbol).
+}

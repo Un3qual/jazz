@@ -44,7 +44,9 @@ main = runTestSuite "JazzParserOperatorsFullParity" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses frozen precedence", assertStage0Parity "frozen precedence" "x = 1 + 2 * 3."),
+  [ ("owns centralized operator metadata", testOperatorMetadata),
+    ("threads immutable operator context", testOperatorContext),
+    ("parses frozen precedence", assertStage0Parity "frozen precedence" "x = 1 + 2 * 3."),
     ("parses frozen left associativity", assertStage0Parity "frozen left associativity" "x = 10 - 3 - 1."),
     ("parses frozen right associativity", assertStage0Parity "frozen right associativity" "x = f $ g $ z."),
     ("parses operator values", assertStage0Parity "operator value" "x = (+)."),
@@ -83,6 +85,66 @@ tests =
     ("parses sections inside composite expressions", assertStage0Parity "composite sections" "xs = [(+ 1), (10 -), (*)].")
   ]
 
+testOperatorMetadata :: IO ()
+testOperatorMetadata =
+  assertOperatorOutput
+    "operator metadata"
+    """
+    { builtin = case operatorLookup [] "*" {
+        | Just info -> (operatorInfoSymbol info, operatorInfoPrecedence info, operatorInfoAssociativity info)
+        | Nothing -> ("", 0, LeftAssociative)
+      }.
+      tier = case operatorForTier "%%" 5 {
+        | Just info -> (operatorInfoPrecedence info, operatorInfoAssociativity info)
+        | Nothing -> (0, LeftAssociative)
+      }.
+      custom = case operatorForPrecedence "<|" 25 {
+        | Just info -> case operatorWithAssociativity info RightAssociative {
+          | changed -> (operatorInfoPrecedence changed, operatorInfoAssociativity changed)
+        }
+        | Nothing -> (0, LeftAssociative)
+      }.
+      ( builtin
+      , tier
+      , custom
+      , operatorIsBuiltin "+"
+      , operatorIsReserved "->"
+      , operatorIsValidUserSymbol "%%"
+      , operatorIsValidUserSymbol "abc"
+      ).
+    }
+    """
+    "((\"*\", 5, LeftAssociative), (1, RightAssociative), (25, RightAssociative), True, True, True, False)"
+
+testOperatorContext :: IO ()
+testOperatorContext =
+  assertOperatorOutput
+    "operator context"
+    """
+    case operatorForTier "%%" 2 {
+      | Just info -> {
+        top = parserContextRegisterOperator parserContextInitial info.
+        nested = parserContextNestedBlock top.
+        moduleBody = parserContextModuleBody top.
+        ( case parserContextLookupOperator top "%%" {
+            | Just found -> operatorInfoPrecedence found
+            | Nothing -> 0
+          }
+        , case parserContextLookupOperator nested "%%" {
+            | Just found -> operatorInfoPrecedence found
+            | Nothing -> 0
+          }
+        , case parserContextLookupOperator moduleBody "%%" {
+            | Just found -> operatorInfoPrecedence found
+            | Nothing -> 0
+          }
+        ).
+      }
+      | Nothing -> (0, 0, 0)
+    }
+    """
+    "(4, 4, 0)"
+
 assertStage0Parity :: Text.Text -> Text.Text -> IO ()
 assertStage0Parity label source = do
   path <- canonicalPath
@@ -111,6 +173,40 @@ canonicalPath =
   case normalizeCanonicalSourcePath "fixtures/parser/operators-full-parity.jz" of
     Left message -> failTest message
     Right path -> pure path
+
+assertOperatorOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
+assertOperatorOutput label expression expected = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      (lookupOperatorSource expression)
+  assertEqual (label <> " compile errors") [] (runCompileErrors result)
+  assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+  assertEqual (label <> " output") (Just expected) (runOutput result)
+
+lookupOperatorSource :: Text.Text -> FilePath -> IO (Maybe Text.Text)
+lookupOperatorSource expression sourcePath =
+  case sourcePath of
+    "src/App/Main.jz" ->
+      pure
+        ( Just
+            ( Text.replace
+                "__EXPRESSION__"
+                expression
+                """
+                module App::Main {
+                  import Maybe.
+                  import ParserContext.
+                  import ParserOperator.
+                  __EXPRESSION__.
+                }
+
+                """
+            )
+        )
+    _ -> readCheckedInJazzProjectModuleSource sourcePath
 
 lookupSource :: Text.Text -> FilePath -> IO (Maybe Text.Text)
 lookupSource expression sourcePath =
