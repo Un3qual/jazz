@@ -9,9 +9,9 @@ traversal, backend-neutral host text I/O, the shared stack-safe evaluator, the
 canonical comparison contract, and the Jazz-authored lexer all execute in the
 active `jazz-next` path. The lexer matches the complete fixed stage-0 corpus
 deterministically and traverses large source/token inputs without host stack
-growth. The parser contract/kernel and its expression plus
-types/declarations/modules grammar children completed by `2026-07-17`.
-Control-flow/patterns, operators/full parity, and the later canonical-core,
+growth. The parser contract/kernel and its expression,
+types/declarations/modules, and control-flow/patterns grammar children completed
+by `2026-07-20`. Operators/full parity and the later canonical-core,
 backend-neutral lowered IR, LLVM, object/link, and native-runtime stages remain
 separate milestones.
 
@@ -392,7 +392,7 @@ fail-fast complete surface-AST comparison boundary, structured parser failures,
 distinct token and source façades, a compiler-local generic parser kernel, and
 five ordered implementation children.
 
-The first three continuation children are complete. The foundation landed the
+The first four continuation children are complete. The foundation landed the
 ordinary parser surface/result/failure schema, total test-only Haskell adapter,
 structured stage-0 failure path, and generic parser kernel. The expression
 foundation then added compiler-local token, expression, program, and façade
@@ -401,12 +401,15 @@ evidence. Types/declarations/modules then added shared signature types,
 explicit type application, immutable scoped alias context, declarations,
 module/import/export grammar, exact 101-case parity through both façades, and a
 deterministic 513-statement mixed profile without changing the fixed parser
-schema.
+schema. Control-flow/patterns then added independent pattern ownership plus
+stop-aware lambdas, conditionals, cases, single case-arm guards, exact 75-case
+token/source parity, and a deterministic 513-statement control-flow profile.
+All three scale profiles remain deterministic with zero host operations.
 
-Control-flow/patterns is now the sole curation target, but remains unpromoted
-until a matching reviewed design and implementation plan fix its named fixture
-family, grammar ownership, exact failure boundaries, scale evidence, and
-verification. Operators/full parity remains ordered behind it and unpromoted.
+Operators/full parity is now the sole curation target, but remains unpromoted
+until a matching reviewed design and implementation plan fix operator and mixed
+fixture families, precedence/associativity/section and source-order context
+ownership, complete manifest assignment, scale evidence, and verification.
 
 ## Non-Goals
 

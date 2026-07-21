@@ -5,7 +5,8 @@ module Main (main) where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzParserScale
-  ( runJazzParserDeclarationsScale,
+  ( runJazzParserControlFlowScale,
+    runJazzParserDeclarationsScale,
     runJazzParserScale,
   )
 import JazzNext.Compiler.Driver
@@ -33,8 +34,36 @@ main = runTestSuite "JazzParserScale" tests
 tests :: [NamedTest]
 tests =
   [ ("parses a large generated program deterministically", testLargeGeneratedProgram),
-    ("parses mixed declarations and forward aliases deterministically", testDeclarationsGeneratedProgram)
+    ("parses mixed declarations and forward aliases deterministically", testDeclarationsGeneratedProgram),
+    ("parses generated control flow and patterns deterministically", testControlFlowGeneratedProgram)
   ]
+
+testControlFlowGeneratedProgram :: IO ()
+testControlFlowGeneratedProgram = do
+  first <- runJazzParserControlFlowScale RuntimeObservationStatistics
+  second <- runJazzParserControlFlowScale RuntimeObservationStatistics
+  assertSuccessfulBatch "control flow first" first
+  assertSuccessfulBatch "control flow second" second
+  assertEqual "control flow structured statement count" (Just "513") (runOutput first)
+  assertEqual "control flow deterministic output" (runOutput first) (runOutput second)
+  firstReport <- requireObservation "control flow first" first
+  secondReport <- requireObservation "control flow second" second
+  assertEqual "control flow first termination" RuntimeSucceeded (runtimeObservationTermination firstReport)
+  assertEqual "control flow second termination" RuntimeSucceeded (runtimeObservationTermination secondReport)
+  let firstStatistics = runtimeObservationStatistics firstReport
+      secondStatistics = runtimeObservationStatistics secondReport
+  assertEqual "control flow deterministic statistics" firstStatistics secondStatistics
+  assertEqual "control flow host operations" 0 (runtimeHostOperations firstStatistics)
+  assertAtMost "control flow evaluator transitions" transitionCeiling (runtimeEvaluatorTransitions firstStatistics)
+  assertAtMost "control flow applications" applicationCeiling (runtimeApplications firstStatistics)
+  assertAtMost "control flow list cells" listCellCeiling (runtimeListCellsConstructed firstStatistics)
+  assertAtMost "control flow continuation depth" continuationDepthCeiling (runtimeMaximumContinuationDepth firstStatistics)
+  putStrLn ("SCALE_STATS control-flow " <> show firstStatistics)
+  where
+    transitionCeiling = 45000000
+    applicationCeiling = 5500000
+    listCellCeiling = 225000
+    continuationDepthCeiling = 1100
 
 testLargeGeneratedProgram :: IO ()
 testLargeGeneratedProgram = do

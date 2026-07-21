@@ -1,0 +1,350 @@
+module ParserPattern (
+  value parseCasePattern,
+  value parseCaseArmPattern,
+  value parseLambdaParameter
+) {
+  import Char (charIsUpper).
+  import LexerTypes (
+    CanonicalToken,
+    IdentifierKind,
+    IntegerKind,
+    CharacterKind,
+    TextKind,
+    OperatorKind,
+    PunctuationKind,
+    ArrowPunctuation,
+    AtPunctuation,
+    DotPunctuation,
+    LeftParenPunctuation,
+    RightParenPunctuation,
+    LeftBracketPunctuation,
+    RightBracketPunctuation,
+    RightBracePunctuation,
+    CommaPunctuation
+  ).
+  import List (listPrepend, listReverse).
+  import Maybe.
+  import ParserToken (
+    TokenParser,
+    canonicalTokenKind,
+    canonicalTokenLexeme,
+    canonicalTokenSpan,
+    tokensAreAdjacent,
+    tokenSucceed,
+    tokenAndThen,
+    tokenKeepRight,
+    tokenPeek,
+    tokenRemaining,
+    tokenFailAt,
+    tokenFailAtSpan,
+    tokenFailCurrent,
+    tokenIdentifier,
+    tokenInteger,
+    tokenCharacter,
+    tokenText,
+    tokenOperator,
+    tokenPunctuation
+  ).
+  # ParserTypes remains complete so recursive signatures can name its types.
+  import ParserTypes.
+  import Text (textUncons).
+
+  identifierStartsUpper :: Text -> Bool.
+  identifierStartsUpper = \(name) -> case textUncons name {
+    | Just (first, rest) -> charIsUpper first
+    | Nothing -> False
+  }.
+
+  patternArgumentBoundary :: CanonicalToken -> Bool.
+  patternArgumentBoundary = \(token) -> case canonicalTokenKind token {
+    | PunctuationKind ArrowPunctuation -> True
+    | PunctuationKind CommaPunctuation -> True
+    | PunctuationKind RightBracketPunctuation -> True
+    | PunctuationKind RightParenPunctuation -> True
+    | PunctuationKind RightBracePunctuation -> True
+    | other -> False
+  }.
+
+  startsCasePattern :: CanonicalToken -> Bool.
+  startsCasePattern = \(token) -> case canonicalTokenKind token {
+    | IntegerKind value -> True
+    | CharacterKind value -> True
+    | TextKind value -> True
+    | IdentifierKind name -> True
+    | PunctuationKind LeftBracketPunctuation -> True
+    | PunctuationKind LeftParenPunctuation -> True
+    | other -> False
+  }.
+
+  parseIntegralPatternLiteral :: CanonicalToken -> Text -> TokenParser(SurfacePattern).
+  parseIntegralPatternLiteral = \(wholeToken, whole) -> tokenAndThen
+    (\(remaining) -> case remaining {
+      | [dotToken | afterDot] -> case afterDot {
+        | [fractionalToken | rest] -> case canonicalTokenKind dotToken {
+          | PunctuationKind DotPunctuation -> case canonicalTokenKind fractionalToken {
+            | IntegerKind fractional -> if tokensAreAdjacent wholeToken dotToken then
+              if tokensAreAdjacent dotToken fractionalToken then
+                tokenFailAtSpan (canonicalTokenSpan wholeToken) (UnsupportedSyntax FractionalLiteralPattern)
+                else tokenSucceed (LiteralPattern (IntegerLiteral whole))
+              else tokenSucceed (LiteralPattern (IntegerLiteral whole))
+            | other -> tokenSucceed (LiteralPattern (IntegerLiteral whole))
+          }
+          | other -> tokenSucceed (LiteralPattern (IntegerLiteral whole))
+        }
+        | [] -> tokenSucceed (LiteralPattern (IntegerLiteral whole))
+      }
+      | other -> tokenSucceed (LiteralPattern (IntegerLiteral whole))
+    })
+    tokenRemaining.
+
+  parseAsPatternOrVariable :: (() -> TokenParser(SurfacePattern)) -> Text -> TokenParser(SurfacePattern).
+  parseAsPatternOrVariable = \(parseTail, name) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind AtPunctuation -> tokenKeepRight
+          (tokenPunctuation AtPunctuation)
+          (tokenAndThen (\(tailPattern) -> tokenSucceed (AsPattern name tailPattern)) (parseTail ()))
+        | other -> tokenSucceed (VariablePattern name)
+      }
+      | Nothing -> tokenSucceed (VariablePattern name)
+    })
+    tokenPeek.
+
+  parseTuplePatternElements :: [SurfacePattern] -> TokenParser([SurfacePattern]).
+  parseTuplePatternElements = \(reversed) -> tokenAndThen
+    (\(next) -> tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind CommaPunctuation -> tokenKeepRight
+            (tokenPunctuation CommaPunctuation)
+            (parseTuplePatternElements (listPrepend next reversed))
+          | other -> tokenSucceed (listReverse (listPrepend next reversed))
+        }
+        | Nothing -> tokenSucceed (listReverse (listPrepend next reversed))
+      })
+      tokenPeek)
+    parseCasePattern.
+
+  parseTuplePattern :: CanonicalToken -> TokenParser(SurfacePattern).
+  parseTuplePattern = \(leftParenToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightParenPunctuation -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (TuplePattern []))
+        | other -> tokenAndThen
+          (\(first) -> tokenAndThen
+            (\(afterFirst) -> case afterFirst {
+              | Just separator -> case canonicalTokenKind separator {
+                | PunctuationKind CommaPunctuation -> tokenKeepRight
+                  (tokenPunctuation CommaPunctuation)
+                  (tokenAndThen
+                    (\(elements) -> tokenKeepRight
+                      (tokenPunctuation RightParenPunctuation)
+                      (tokenSucceed (TuplePattern elements)))
+                    (parseTuplePatternElements [first]))
+                | other -> tokenFailAtSpan
+                  (canonicalTokenSpan separator)
+                  (ExpectedSyntax "','" (FoundToken (canonicalTokenKind separator) (canonicalTokenLexeme separator)))
+              }
+              | Nothing -> tokenFailAtSpan
+                (canonicalTokenSpan leftParenToken)
+                (ExpectedSyntax "','" (EndOfInputIn "tuple pattern"))
+            })
+            tokenPeek)
+          parseCasePattern
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "case pattern" EndOfInput)
+    })
+    tokenPeek.
+
+  collectListPatterns :: [SurfacePattern] -> TokenParser(SurfacePattern).
+  collectListPatterns = \(reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind CommaPunctuation -> tokenKeepRight
+          (tokenPunctuation CommaPunctuation)
+          (tokenAndThen
+            (\(next) -> collectListPatterns (listPrepend next reversed))
+            parseCasePattern)
+        | OperatorKind "|" -> tokenKeepRight
+          tokenOperator
+          (tokenAndThen
+            (\(tailPattern) -> tokenKeepRight
+              (tokenPunctuation RightBracketPunctuation)
+              (case listReverse reversed {
+                | [headPattern] -> tokenSucceed (ConsListPattern headPattern tailPattern)
+                | other -> tokenFailAt Nothing (PatternFailure ConsLikeListPatternHeadCount)
+              }))
+            parseCasePattern)
+        | PunctuationKind RightBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation RightBracketPunctuation)
+          (tokenSucceed (ListPattern (listReverse reversed)))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "',' or ']'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "']'" (EndOfInputIn "list pattern"))
+    })
+    tokenPeek.
+
+  parseListPattern :: TokenParser(SurfacePattern).
+  parseListPattern = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind RightBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation RightBracketPunctuation)
+          (tokenSucceed (ListPattern []))
+        | other -> tokenAndThen
+          (\(first) -> collectListPatterns [first])
+          parseCasePattern
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "case pattern" EndOfInput)
+    })
+    tokenPeek.
+
+  parseConstructorArgumentPattern :: TokenParser(SurfacePattern).
+  parseConstructorArgumentPattern = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind value -> tokenAndThen
+          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken value)
+          tokenInteger
+        | CharacterKind value -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral value)))
+        | TextKind value -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral value)))
+        | IdentifierKind "True" -> tokenKeepRight tokenIdentifier (tokenSucceed (LiteralPattern (BooleanLiteral True)))
+        | IdentifierKind "False" -> tokenKeepRight tokenIdentifier (tokenSucceed (LiteralPattern (BooleanLiteral False)))
+        | IdentifierKind "_" -> tokenKeepRight tokenIdentifier (tokenSucceed WildcardPattern)
+        | IdentifierKind name -> tokenKeepRight
+          tokenIdentifier
+          (if identifierStartsUpper name then
+            tokenSucceed (ConstructorPattern name [])
+            else parseAsPatternOrVariable (\() -> parseConstructorArgumentPattern) name)
+        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracketPunctuation)
+          parseListPattern
+        | PunctuationKind LeftParenPunctuation -> tokenAndThen
+          (\(leftParenToken) -> parseTuplePattern leftParenToken)
+          (tokenPunctuation LeftParenPunctuation)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "constructor pattern argument" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "constructor pattern argument" EndOfInput)
+    })
+    tokenPeek.
+
+  parseConstructorPatternFrom :: Text -> [SurfacePattern] -> TokenParser(SurfacePattern).
+  parseConstructorPatternFrom = \(constructorName, reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> if patternArgumentBoundary token then
+        tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
+        else if startsCasePattern token then tokenAndThen
+          (\(next) -> parseConstructorPatternFrom constructorName (listPrepend next reversed))
+          parseConstructorArgumentPattern
+        else tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
+      | Nothing -> tokenSucceed (ConstructorPattern constructorName (listReverse reversed))
+    })
+    tokenPeek.
+
+  parseIdentifierCasePattern :: Text -> TokenParser(SurfacePattern).
+  parseIdentifierCasePattern = \(name) -> if name == "_" then
+    tokenSucceed WildcardPattern
+    else if name == "True" then tokenSucceed (LiteralPattern (BooleanLiteral True))
+    else if name == "False" then tokenSucceed (LiteralPattern (BooleanLiteral False))
+    else if identifierStartsUpper name then parseConstructorPatternFrom name []
+    else parseAsPatternOrVariable (\() -> parseCasePattern) name.
+
+  parseCasePattern :: TokenParser(SurfacePattern).
+  parseCasePattern = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind value -> tokenAndThen
+          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken value)
+          tokenInteger
+        | CharacterKind value -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral value)))
+        | TextKind value -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral value)))
+        | IdentifierKind name -> tokenKeepRight tokenIdentifier (parseIdentifierCasePattern name)
+        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
+          (tokenPunctuation LeftBracketPunctuation)
+          parseListPattern
+        | PunctuationKind LeftParenPunctuation -> tokenAndThen
+          (\(leftParenToken) -> parseTuplePattern leftParenToken)
+          (tokenPunctuation LeftParenPunctuation)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "case pattern" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "case pattern" EndOfInput)
+    })
+    tokenPeek.
+
+  collectCasePatternAlternatives :: [SurfacePattern] -> TokenParser(SurfacePattern).
+  collectCasePatternAlternatives = \(reversed) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | OperatorKind "|" -> tokenKeepRight
+          tokenOperator
+          (tokenAndThen
+            (\(next) -> collectCasePatternAlternatives (listPrepend next reversed))
+            parseCasePattern)
+        | other -> case listReverse reversed {
+          | [single] -> tokenSucceed single
+          | alternatives -> tokenSucceed (OrPattern alternatives)
+        }
+      }
+      | Nothing -> case listReverse reversed {
+        | [single] -> tokenSucceed single
+        | alternatives -> tokenSucceed (OrPattern alternatives)
+      }
+    })
+    tokenPeek.
+
+  parseCaseArmPattern :: TokenParser(SurfacePattern).
+  parseCaseArmPattern = tokenAndThen
+    (\(first) -> collectCasePatternAlternatives [first])
+    parseCasePattern.
+
+  parsePatternLambdaParameter :: TokenParser(SurfaceLambdaParameter).
+  parsePatternLambdaParameter = tokenAndThen
+    (\(pattern) -> tokenSucceed (PatternParameter pattern))
+    parseCaseArmPattern.
+
+  finishIdentifierLambdaParameter :: Text -> TokenParser(SurfaceLambdaParameter).
+  finishIdentifierLambdaParameter = \(name) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind AtPunctuation -> tokenAndThen
+          (\(pattern) -> tokenSucceed (PatternParameter pattern))
+          (tokenAndThen (\(first) -> collectCasePatternAlternatives [first]) (parseIdentifierCasePattern name))
+        | OperatorKind "|" -> tokenAndThen
+          (\(pattern) -> tokenSucceed (PatternParameter pattern))
+          (tokenAndThen (\(first) -> collectCasePatternAlternatives [first]) (parseIdentifierCasePattern name))
+        | other -> tokenSucceed (IdentifierParameter name)
+      }
+      | Nothing -> tokenSucceed (IdentifierParameter name)
+    })
+    tokenPeek.
+
+  parseLambdaParameter :: TokenParser(SurfaceLambdaParameter).
+  parseLambdaParameter = tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind value -> parsePatternLambdaParameter
+        | CharacterKind value -> parsePatternLambdaParameter
+        | TextKind value -> parsePatternLambdaParameter
+        | PunctuationKind LeftParenPunctuation -> parsePatternLambdaParameter
+        | PunctuationKind LeftBracketPunctuation -> parsePatternLambdaParameter
+        | IdentifierKind name -> if name == "_" then parsePatternLambdaParameter
+          else if name == "True" then parsePatternLambdaParameter
+          else if name == "False" then parsePatternLambdaParameter
+          else if identifierStartsUpper name then parsePatternLambdaParameter
+          else tokenKeepRight tokenIdentifier (finishIdentifierLambdaParameter name)
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "identifier" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+      }
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "identifier" (EndOfInputIn "lambda parameter list"))
+    })
+    tokenPeek.
+}

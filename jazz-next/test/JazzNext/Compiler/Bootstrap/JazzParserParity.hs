@@ -4,6 +4,7 @@ module JazzNext.Compiler.Bootstrap.JazzParserParity
   ( expectedSourceBatchRendering,
     expectedTokenBatchRendering,
     loadExpressionFoundationFixtures,
+    loadControlFlowPatternsFixtures,
     loadTypesDeclarationsModulesFixtures,
     runJazzParserSourceBatch,
     runJazzParserTokenBatch,
@@ -51,7 +52,7 @@ import JazzNext.Compiler.Parser.Failure
   )
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    ParserFixtureFamily (ExpressionFoundation, TypesDeclarationsModules),
+    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
     lookupParserFixtureFamily,
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -79,6 +80,10 @@ loadExpressionFoundationFixtures =
 loadTypesDeclarationsModulesFixtures :: IO [ParserFixture]
 loadTypesDeclarationsModulesFixtures =
   loadFixtureFamily "types-declarations-modules" TypesDeclarationsModules
+
+loadControlFlowPatternsFixtures :: IO [ParserFixture]
+loadControlFlowPatternsFixtures =
+  loadFixtureFamily "control-flow-patterns" ControlFlowPatterns
 
 loadFixtureFamily :: String -> ParserFixtureFamily -> IO [ParserFixture]
 loadFixtureFamily label family =

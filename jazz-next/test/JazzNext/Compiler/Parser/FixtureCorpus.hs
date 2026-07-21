@@ -30,6 +30,7 @@ data ParserFixture = ParserFixture
 data ParserFixtureFamily
   = ExpressionFoundation
   | TypesDeclarationsModules
+  | ControlFlowPatterns
   deriving (Eq, Show)
 
 data ParserFixtureManifestViolation
@@ -44,12 +45,14 @@ parserFixtureCorpus =
     <> observedParserFixtures
     <> expressionFoundationFixtures
     <> typesDeclarationsModulesFixtures
+    <> controlFlowPatternsFixtures
 
 parserFixtureFamilyNames :: ParserFixtureFamily -> [Text]
 parserFixtureFamilyNames family =
   case family of
     ExpressionFoundation -> expressionFoundationFixtureNames
     TypesDeclarationsModules -> typesDeclarationsModulesFixtureNames
+    ControlFlowPatterns -> controlFlowPatternsFixtureNames
 
 lookupParserFixtureFamily ::
   ParserFixtureFamily ->
@@ -87,7 +90,8 @@ validateParserFixtureManifest fixtures families =
 parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
 parserFixtureFamilies =
   [ (ExpressionFoundation, expressionFoundationFixtureNames),
-    (TypesDeclarationsModules, typesDeclarationsModulesFixtureNames)
+    (TypesDeclarationsModules, typesDeclarationsModulesFixtureNames),
+    (ControlFlowPatterns, controlFlowPatternsFixtureNames)
   ]
 
 duplicateValues :: (Eq value) => [value] -> [value]
@@ -278,6 +282,85 @@ typesDeclarationsModulesFixtureNames =
     "types-declarations-modules-unsupported-forall-signature",
     "types-declarations-modules-foundational-impl-method",
     "types-declarations-modules-applied-explicit-type-application"
+  ]
+
+controlFlowPatternsFixtureNames :: [Text]
+controlFlowPatternsFixtureNames =
+  [ "parser-corpus-0042",
+    "parser-corpus-0045",
+    "parser-corpus-0046",
+    "parser-corpus-0048",
+    "parser-corpus-0049",
+    "parser-corpus-0063",
+    "parser-corpus-0086",
+    "parser-corpus-0087",
+    "parser-corpus-0088",
+    "parser-corpus-0090",
+    "parser-corpus-0091",
+    "parser-corpus-0092",
+    "parser-corpus-0093",
+    "parser-corpus-0094",
+    "parser-corpus-0095",
+    "parser-corpus-0096",
+    "parser-corpus-0097",
+    "parser-corpus-0098",
+    "parser-corpus-0100",
+    "parser-corpus-0101",
+    "parser-corpus-0102",
+    "parser-corpus-0195",
+    "parser-corpus-0197",
+    "parser-corpus-0199",
+    "parser-corpus-0200",
+    "parser-corpus-0201",
+    "parser-corpus-0245",
+    "parser-corpus-0246",
+    "parser-corpus-0247",
+    "parser-corpus-0248",
+    "parser-corpus-0249",
+    "parser-corpus-0258",
+    "parser-corpus-0259",
+    "parser-corpus-0260",
+    "parser-corpus-0261",
+    "parser-corpus-0262",
+    "parser-corpus-0263",
+    "parser-corpus-0264",
+    "parser-corpus-0265",
+    "parser-corpus-0266",
+    "parser-corpus-0267",
+    "parser-corpus-0268",
+    "parser-corpus-0269",
+    "parser-corpus-0270",
+    "parser-corpus-0272",
+    "parser-corpus-0273",
+    "parser-corpus-0274",
+    "parser-corpus-0275",
+    "parser-corpus-0276",
+    "parser-corpus-0277",
+    "parser-corpus-0279",
+    "parser-corpus-0280",
+    "parser-corpus-0282",
+    "parser-corpus-0283",
+    "parser-corpus-0284",
+    "parser-corpus-0285",
+    "parser-corpus-0286",
+    "parser-corpus-0287",
+    "parser-corpus-0288",
+    "parser-corpus-0289",
+    "parser-corpus-0290",
+    "parser-corpus-0292",
+    "parser-corpus-0293",
+    "parser-corpus-0294",
+    "parser-corpus-0295",
+    "parser-corpus-0296",
+    "parser-corpus-0297",
+    "parser-corpus-0298",
+    "parser-corpus-0301",
+    "parser-corpus-0302",
+    "parser-corpus-0303",
+    "parser-corpus-0304",
+    "control-flow-patterns-guarded-or-pattern",
+    "control-flow-patterns-lambda-guard-rejected",
+    "control-flow-patterns-recursive-block"
   ]
 
 focusedLexerFixtures :: [ParserFixture]
@@ -2844,4 +2927,28 @@ typesDeclarationsModulesFixtures =
           parserFixturePath = Text.unpack ("fixtures/parser/types-declarations-modules-" <> name <> ".jz"),
           parserFixtureSource = source,
           parserFixtureExpectation = ParserAccepted
+        }
+
+controlFlowPatternsFixtures :: [ParserFixture]
+controlFlowPatternsFixtures =
+  [ fixture
+      "guarded-or-pattern"
+      "x = case value { | Just item | Also item if ok -> item | Nothing -> 0 }."
+      ParserAccepted,
+    fixture
+      "lambda-guard-rejected"
+      "f = \\(Just item | Also item if ok) -> item."
+      ParserRejected,
+    fixture
+      "recursive-block"
+      "x = { loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
+      ParserAccepted
+  ]
+  where
+    fixture name source expectation =
+      ParserFixture
+        { parserFixtureName = "control-flow-patterns-" <> name,
+          parserFixturePath = Text.unpack ("fixtures/parser/control-flow-patterns-" <> name <> ".jz"),
+          parserFixtureSource = source,
+          parserFixtureExpectation = expectation
         }

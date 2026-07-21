@@ -74,6 +74,13 @@ Each blocked item should answer these questions:
   101-case stage-0 parity through both façades, and deterministic
   513-statement mixed scale evidence. It preserved the fixed parser schema and
   left `ParserCore` and `ParserTypes` unchanged.
+  `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001` added independent
+  compiler-local pattern grammar plus stop-aware lambdas, conditionals, cases,
+  single case-arm guards, and nested control-flow bodies. Its fixed 75-case
+  family matches complete stage-0 token/source results twice, both landed
+  families remain exact, and all three 513-statement scale profiles are
+  deterministic with zero host operations. `ParserCore`, `ParserTypes`,
+  `ParserContext`, and the parser façades remain unchanged.
 - Accepted decision: the parser contract is
   `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
   complete ordinary surface AST before lowering, preserves structured failures
@@ -81,34 +88,34 @@ Each blocked item should answer these questions:
   input, and starts with a generic compiler-local parser kernel. Existing Jazz
   collection/text APIs are sufficient.
 - Smallest unblocker: curate
-  `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001`, the accepted parser
-  design's fourth ordered child. It is the sole `Next Curation Target` and is
-  not executable until its own written design and implementation plan pass
-  review.
-- Decision needed: fix one explicit named fixture family, exact expression and
-  pattern ownership, accepted/rejected stage-0 boundaries, recursive
-  block/context interactions, additive scale evidence, and focused
-  verification for lambdas, conditionals, cases, guards, and patterns.
-- Recommended default: preserve the fixed surface schema and fail-fast
-  structured failure contract while extending the landed compiler-local
-  expression/declaration/program owners. Keep operators and full-corpus closure
-  behind their separately ordered child.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001` is
-  the sole curation candidate, not a `Ready Now` row. Operators/full parity
-  remains ordered behind it and unpromoted.
+  `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001`, the accepted parser
+  design's fifth and final ordered child. It is the sole `Next Curation Target`
+  and is not executable until its own written design and implementation plan
+  pass review.
+- Decision needed: fix explicit operator and mixed control-flow/operator fixture
+  families; fixed and declared operator ownership; precedence, associativity,
+  sections, adjacency, and source-order context behavior; complete fixture
+  manifest assignment; additive scale evidence; and focused verification.
+- Recommended default: preserve the fixed surface schema, fail-fast structured
+  failures, landed pattern/control-flow ownership, and explicit immutable
+  grammar context while designing the final operator layer and complete parity
+  closure. Keep canonical core and backend stages separate.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001` is the
+  sole curation candidate, not a `Ready Now` row.
 - Target paths: `docs/execution/blocker-contracts.md`,
   `docs/execution/queue.md`,
   `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
   `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`,
   the completed parser child plans, the accepted parent parser design,
-  compiler-local expression/declaration/program modules, focused bootstrap
-  parity support, the shared fixture manifest, and `jazz-next/jazz-next.cabal`.
+  compiler-local expression/declaration/context/program modules, focused
+  bootstrap parity support, the shared fixture manifest, and
+  `jazz-next/jazz-next.cabal`.
 - Verification: written child-design and implementation-plan review followed
-  by `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`,
-  and `git diff --check` before promotion.
-- Not in scope: promoting implementation before review; operators or
-  full-corpus parity; a public stdlib parser API; parser-specific host
-  intrinsics or Haskell callbacks; recovery or partial ASTs; canonical core;
+  by `bash scripts/check-execution-queue.sh`, `bash scripts/check-docs.sh`, and
+  `git diff --check` before promotion.
+- Not in scope: promoting implementation before review; a public stdlib parser
+  API; parser-specific host intrinsics or Haskell callbacks; recovery or
+  partial ASTs; canonical core;
   bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or
   native-runtime implementation.
 

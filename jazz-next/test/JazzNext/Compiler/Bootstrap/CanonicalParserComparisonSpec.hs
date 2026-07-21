@@ -49,8 +49,8 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Failure
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    ParserFixtureExpectation (ParserAccepted),
-    ParserFixtureFamily (ExpressionFoundation, TypesDeclarationsModules),
+    ParserFixtureExpectation (ParserAccepted, ParserRejected),
+    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
     ParserFixtureManifestViolation (..),
     lookupParserFixtureFamily,
     parserFixtureCorpus,
@@ -95,6 +95,7 @@ tests =
     ("validates fixture-family manifests deterministically", testFixtureFamilyValidation),
     ("locks the expression-foundation fixture family", testExpressionFoundationFamily),
     ("locks the types-declarations-modules fixture family", testTypesDeclarationsModulesFamily),
+    ("locks the control-flow-patterns fixture family", testControlFlowPatternsFamily),
     ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
@@ -571,6 +572,49 @@ testTypesDeclarationsModulesFamily = do
             (canonicalizeSourceResult path (detailedSourceResult (parserFixtureSource fixture)))
         )
 
+testControlFlowPatternsFamily :: IO ()
+testControlFlowPatternsFamily = do
+  assertEqual
+    "declared control-flow/patterns family order"
+    controlFlowPatternsFixtureNames
+    (parserFixtureFamilyNames ControlFlowPatterns)
+  fixtures <-
+    case lookupParserFixtureFamily ControlFlowPatterns of
+      Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
+      Right values -> pure values
+  assertEqual "control-flow/patterns family size" 75 (length fixtures)
+  assertEqual
+    "resolved control-flow/patterns family order"
+    controlFlowPatternsFixtureNames
+    (map parserFixtureName fixtures)
+  assertEqual
+    "focused control-flow/pattern expectations"
+    [ ("control-flow-patterns-guarded-or-pattern", ParserAccepted),
+      ("control-flow-patterns-lambda-guard-rejected", ParserRejected),
+      ("control-flow-patterns-recursive-block", ParserAccepted)
+    ]
+    (map (\fixture -> (parserFixtureName fixture, parserFixtureExpectation fixture)) (drop 72 fixtures))
+  rendered <- mapM canonicalFixture fixtures
+  assertEqual
+    "control-flow/patterns family excludes lexical failures"
+    False
+    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") rendered)
+  assertEqual
+    "control-flow/patterns family contains parser failures"
+    True
+    (any (Text.isInfixOf "CanonicalSourceParserFailure") rendered)
+  assertEqual
+    "control-flow/patterns family contains successes"
+    True
+    (any (Text.isInfixOf "CanonicalSourceSuccess") rendered)
+  where
+    canonicalFixture fixture = do
+      path <- normalizedPath (parserFixturePath fixture)
+      pure
+        ( renderCanonicalSourceResult
+            (canonicalizeSourceResult path (detailedSourceResult (parserFixtureSource fixture)))
+        )
+
 expressionFoundationFixtureNames :: [Text.Text]
 expressionFoundationFixtureNames =
   [ "lexer-leading-zero-integer",
@@ -732,9 +776,88 @@ typesDeclarationsModulesFixtureNames =
     "types-declarations-modules-applied-explicit-type-application"
   ]
 
+controlFlowPatternsFixtureNames :: [Text.Text]
+controlFlowPatternsFixtureNames =
+  [ "parser-corpus-0042",
+    "parser-corpus-0045",
+    "parser-corpus-0046",
+    "parser-corpus-0048",
+    "parser-corpus-0049",
+    "parser-corpus-0063",
+    "parser-corpus-0086",
+    "parser-corpus-0087",
+    "parser-corpus-0088",
+    "parser-corpus-0090",
+    "parser-corpus-0091",
+    "parser-corpus-0092",
+    "parser-corpus-0093",
+    "parser-corpus-0094",
+    "parser-corpus-0095",
+    "parser-corpus-0096",
+    "parser-corpus-0097",
+    "parser-corpus-0098",
+    "parser-corpus-0100",
+    "parser-corpus-0101",
+    "parser-corpus-0102",
+    "parser-corpus-0195",
+    "parser-corpus-0197",
+    "parser-corpus-0199",
+    "parser-corpus-0200",
+    "parser-corpus-0201",
+    "parser-corpus-0245",
+    "parser-corpus-0246",
+    "parser-corpus-0247",
+    "parser-corpus-0248",
+    "parser-corpus-0249",
+    "parser-corpus-0258",
+    "parser-corpus-0259",
+    "parser-corpus-0260",
+    "parser-corpus-0261",
+    "parser-corpus-0262",
+    "parser-corpus-0263",
+    "parser-corpus-0264",
+    "parser-corpus-0265",
+    "parser-corpus-0266",
+    "parser-corpus-0267",
+    "parser-corpus-0268",
+    "parser-corpus-0269",
+    "parser-corpus-0270",
+    "parser-corpus-0272",
+    "parser-corpus-0273",
+    "parser-corpus-0274",
+    "parser-corpus-0275",
+    "parser-corpus-0276",
+    "parser-corpus-0277",
+    "parser-corpus-0279",
+    "parser-corpus-0280",
+    "parser-corpus-0282",
+    "parser-corpus-0283",
+    "parser-corpus-0284",
+    "parser-corpus-0285",
+    "parser-corpus-0286",
+    "parser-corpus-0287",
+    "parser-corpus-0288",
+    "parser-corpus-0289",
+    "parser-corpus-0290",
+    "parser-corpus-0292",
+    "parser-corpus-0293",
+    "parser-corpus-0294",
+    "parser-corpus-0295",
+    "parser-corpus-0296",
+    "parser-corpus-0297",
+    "parser-corpus-0298",
+    "parser-corpus-0301",
+    "parser-corpus-0302",
+    "parser-corpus-0303",
+    "parser-corpus-0304",
+    "control-flow-patterns-guarded-or-pattern",
+    "control-flow-patterns-lambda-guard-rejected",
+    "control-flow-patterns-recursive-block"
+  ]
+
 testCorpusDeterminism :: IO ()
 testCorpusDeterminism = do
-  assertEqual "fixed corpus size" 362 (length parserFixtureCorpus)
+  assertEqual "fixed corpus size" 365 (length parserFixtureCorpus)
   first <- mapM canonicalFixture parserFixtureCorpus
   second <- mapM canonicalFixture parserFixtureCorpus
   assertEqual "manifest-order deterministic rendering" first second

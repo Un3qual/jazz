@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.Bootstrap.JazzParserScale
-  ( runJazzParserDeclarationsScale,
+  ( runJazzParserControlFlowScale,
+    runJazzParserDeclarationsScale,
     runJazzParserScale,
   )
 where
@@ -28,6 +29,41 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestSource
   ( readCheckedInJazzProjectModuleSource,
   )
+
+runJazzParserControlFlowScale :: RuntimeObservationRequest -> IO RunResult
+runJazzParserControlFlowScale observationRequest =
+  runModuleGraphObserved
+    observationRequest
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    entrySource =
+      Text.replace
+        "__SOURCE__"
+        (renderRuntimeValue (VText generatedControlFlowProgram))
+        """
+        module App::Main {
+          import LexerTypes (CanonicalSourcePath).
+          import List (listLength).
+          import Parser (parseSource).
+          import ParserTypes (CanonicalSourceSuccess, CanonicalSourceLexicalFailure, CanonicalSourceParserFailure, BlockExpression).
+          case parseSource (CanonicalSourcePath "fixtures/parser/generated-control-flow-scale.jz") __SOURCE__ {
+            | CanonicalSourceSuccess _ expression -> case expression {
+              | BlockExpression statements -> listLength statements
+              | other -> 0
+            }
+            | CanonicalSourceLexicalFailure _ _ -> 0
+            | CanonicalSourceParserFailure _ _ -> 0
+          }.
+        }
+
+        """
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just entrySource)
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
 
 runJazzParserScale :: RuntimeObservationRequest -> Int -> IO RunResult
 runJazzParserScale observationRequest bindingCount =
@@ -151,6 +187,25 @@ generatedDeclarationsProgram =
       replaceIndex "data Type__INDEX__ a__INDEX__ = Constructor__INDEX__ a__INDEX__." index
     renderImport index =
       replaceIndex "import Lib::Module__INDEX__ as Alias__INDEX__." index
+
+generatedControlFlowProgram :: Text
+generatedControlFlowProgram =
+  Text.unlines (map renderBinding [0 .. bindingCount - 1] <> [renderTerminal])
+  where
+    bindingCount :: Int
+    bindingCount = 512
+    replaceIndex template index =
+      Text.replace "__INDEX__" (Text.pack (show index)) template
+    renderBinding index =
+      replaceIndex
+        ( case index `mod` 4 of
+            0 -> "value__INDEX__ = \\(condition__INDEX__) -> if condition__INDEX__ then if True then condition__INDEX__ else False else True."
+            1 -> "value__INDEX__ = \\([head__INDEX__ | tail__INDEX__]) -> case tail__INDEX__ { | [] -> head__INDEX__ | rest__INDEX__ -> head__INDEX__ }."
+            2 -> "value__INDEX__ = \\(whole__INDEX__@[head__INDEX__ | tail__INDEX__]) -> case whole__INDEX__ { | Just item__INDEX__ if True -> item__INDEX__ | _ -> head__INDEX__ }."
+            _ -> "value__INDEX__ = { loop__INDEX__ = \\(current__INDEX__) -> case current__INDEX__ { | Just next__INDEX__ -> loop__INDEX__ next__INDEX__ | _ -> if False then current__INDEX__ else current__INDEX__ }. loop__INDEX__. }."
+        )
+        index
+    renderTerminal = replaceIndex "value__INDEX__." (bindingCount - 1)
 
 generatedParserProgram :: Int -> Text
 generatedParserProgram bindingCount =

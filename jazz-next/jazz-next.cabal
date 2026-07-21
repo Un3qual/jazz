@@ -383,6 +383,18 @@ test-suite jazz-parser-types-declarations-modules-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-parser-control-flow-patterns-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite jazz-parser-parity-spec
   import: test-common
   type: exitcode-stdio-1.0
