@@ -1,10 +1,10 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001
-status: proposed
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001
 last_verified: 2026-07-21
@@ -127,17 +127,17 @@ Nix-pinned development environment.
 **Produces:** One exact P1/L `Ready Now` row matching approved plan metadata,
 with the parent bootstrap blocker naming child 4 as active.
 
-- [ ] Change plan status to `ready` and `autonomous_ready` to `yes` after user
+- [x] Change plan status to `ready` and `autonomous_ready` to `yes` after user
   approval.
-- [ ] Move the sole candidate from `Next Curation Target` to `Ready Now` with
+- [x] Move the sole candidate from `Next Curation Target` to `Ready Now` with
   exact dependency, section, existing target paths, deliverable, verification,
   and date parity. Keep not-yet-created `Core.jz` and focused-spec paths out of
   both metadata sets until their creating tasks add them atomically.
-- [ ] Update the blocker contract to name modules/corpus closure as active
+- [x] Update the blocker contract to name modules/corpus closure as active
   while preserving every backend stage as unpromoted.
-- [ ] Run `bash scripts/check-execution-queue.sh`,
+- [x] Run `bash scripts/check-execution-queue.sh`,
   `bash scripts/check-docs.sh`, and `git diff --check`.
-- [ ] Commit as `docs: promote hosted core modules closure`.
+- [x] Commit as `docs: promote hosted core modules closure`.
 
 ### Task 1: Make the shared expression transformation complete
 

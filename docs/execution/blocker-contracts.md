@@ -118,21 +118,23 @@ Each blocked item should answer these questions:
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: write and approve the modules/corpus-closure child plan.
-- Decision needed: review the child-4 plan before promoting any executable row.
+- Smallest unblocker: execute the approved modules/corpus-closure child through
+  its fixed direct, composed, and accepted-corpus families.
+- Decision needed: resolved on `2026-07-21`; the reviewed implementation plan
+  is active as child 4 of the canonical-core milestone.
 - Recommended default: add module/import extraction, explicit export and import
   metadata, expected-path validation, structured `E4005`/`E4006` failures,
   complete span qualification, the composed source-to-core facade, and exact
   closure over the accepted parser corpus.
 - Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` is the
-  sole `Next Curation Target`; `Ready Now` remains empty.
+  sole active `Ready Now` row. No backend child is promoted.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
-  planned `jazz-next/jazz/compiler/Core.jz`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`, planned
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
   and `jazz-next/jazz-next.cabal`.
+  `Core.jz` and the focused test path join active metadata when their creating
+  tasks add them.
 - Verification: focused modules/corpus closure plus all three earlier hosted
   core profiles, canonical-core, canonical-parser, complete hosted-parser, and
   repository-audit suites; warning-clean development build; routine Cabal
