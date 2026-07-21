@@ -715,35 +715,135 @@ module ParserExpression (
     | [] -> False
   }.
 
-  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, left) -> tokenAndThen
-    (\(remaining) -> if stop remaining then tokenSucceed left else case remaining {
-      | [token | rest] -> case canonicalTokenKind token {
-        | OperatorKind "|" -> tokenAndThen
-          (\(isBoundary) -> if isBoundary then tokenSucceed left else tokenKeepRight
-            tokenOperator
-            (tokenAndThen
-              (\(right) -> parseCasePipeExpressionTail
+  tokensStartRightParen :: [CanonicalToken] -> Bool.
+  tokensStartRightParen = \(tokens) -> case tokens {
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind RightParenPunctuation -> True
+      | other -> False
+    }
+    | [] -> False
+  }.
+
+  operatorNextMinimum :: OperatorInfo -> Int.
+  operatorNextMinimum = \(info) -> case operatorInfoAssociativity info {
+    | RightAssociative -> operatorInfoPrecedence info
+    | LeftAssociative -> operatorInfoPrecedence info + 1
+    | NonAssociative -> operatorInfoPrecedence info + 1
+  }.
+
+  operatorIsNonAssociative :: OperatorInfo -> Bool.
+  operatorIsNonAssociative = \(info) -> case operatorInfoAssociativity info {
+    | NonAssociative -> True
+    | other -> False
+  }.
+
+  samePrecedenceNonAssociativeStop :: ParserContext -> OperatorInfo -> ([CanonicalToken] -> Bool) -> [CanonicalToken] -> Bool.
+  samePrecedenceNonAssociativeStop = \(context, info, outerStop, tokens) -> if outerStop tokens then True else case tokens {
+    | [token | rest] -> case canonicalTokenKind token {
+      | OperatorKind symbol -> case parserContextLookupOperator context symbol {
+        | Just next -> if operatorInfoPrecedence next == operatorInfoPrecedence info then
+          if operatorIsNonAssociative info then True else operatorIsNonAssociative next
+          else False
+        | Nothing -> False
+      }
+      | other -> False
+    }
+    | [] -> False
+  }.
+
+  rejectNonAssociativeContinuation :: ParserContext -> OperatorInfo -> CanonicalToken -> TokenParser(()).
+  rejectNonAssociativeContinuation = \(context, info, operatorToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | OperatorKind symbol -> case parserContextLookupOperator context symbol {
+          | Just next -> if operatorInfoPrecedence next == operatorInfoPrecedence info then
+            if operatorIsNonAssociative info then tokenFailAtSpan
+              (canonicalTokenSpan operatorToken)
+              (NonAssociativeOperatorChain (operatorInfoSymbol info))
+              else if operatorIsNonAssociative next then tokenFailAtSpan
+                (canonicalTokenSpan operatorToken)
+                (NonAssociativeOperatorChain (operatorInfoSymbol next))
+                else tokenSucceed ()
+            else tokenSucceed ()
+          | Nothing -> tokenSucceed ()
+        }
+        | other -> tokenSucceed ()
+      }
+      | Nothing -> tokenSucceed ()
+    })
+    tokenPeek.
+
+  parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseCaseOperatorContinuation = \(context, guardMode, stop, parseBlock, minimum, left, operatorToken, symbol) ->
+    case parserContextLookupOperator context symbol {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan operatorToken)
+        (UndeclaredOperator symbol ExpressionOperatorUse)
+      | Just info -> if operatorInfoPrecedence info < minimum then tokenSucceed left else
+        tokenKeepRight
+          tokenOperator
+          (tokenAndThen
+            (\(right) -> tokenKeepRight
+              (rejectNonAssociativeContinuation context info operatorToken)
+              (parseCasePipeExpressionTail
                 context
                 guardMode
                 stop
                 parseBlock
-                (BinaryExpression "|" left right))
-              (parseCasePipeExpression context guardMode (\(tokens) -> stopsAtPipeOr stop tokens) parseBlock)))
-          (if guardMode then pipeStartsCaseGuardBoundary left else pipeStartsCaseArmBoundary left)
+                minimum
+                (BinaryExpression symbol left right)))
+            (parseCasePipeExpressionWithMinimum
+              context
+              guardMode
+              (\(tokens) -> samePrecedenceNonAssociativeStop context info stop tokens)
+              parseBlock
+              (operatorNextMinimum info)))
+    }.
+
+  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, minimum, left) -> tokenAndThen
+    (\(remaining) -> if stop remaining then tokenSucceed left else case remaining {
+      | [operatorToken | afterOperator] -> case canonicalTokenKind operatorToken {
+        | OperatorKind symbol -> if tokensStartRightParen afterOperator then tokenSucceed left else
+          if symbol == "|" then tokenAndThen
+            (\(isBoundary) -> if isBoundary then tokenSucceed left else
+              parseCaseOperatorContinuation
+                context
+                guardMode
+                stop
+                parseBlock
+                minimum
+                left
+                operatorToken
+                symbol)
+            (if guardMode then pipeStartsCaseGuardBoundary left else pipeStartsCaseArmBoundary left)
+            else parseCaseOperatorContinuation
+              context
+              guardMode
+              stop
+              parseBlock
+              minimum
+              left
+              operatorToken
+              symbol
         | other -> tokenSucceed left
       }
       | [] -> tokenSucceed left
     })
     tokenRemaining.
 
-  parseCasePipeExpression :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseCasePipeExpression = \(context, guardMode, stop, parseBlock) -> {
-    parseExpressionUntil = \(nestedStop) -> parseCasePipeExpression context guardMode nestedStop parseBlock.
+  parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionWithMinimum = \(context, guardMode, stop, parseBlock, minimum) -> {
+    parseExpressionUntil = \(nestedStop) ->
+      parseCasePipeExpressionWithMinimum context guardMode nestedStop parseBlock 1.
     tokenAndThen
-      (\(left) -> parseCasePipeExpressionTail context guardMode stop parseBlock left)
+      (\(left) -> parseCasePipeExpressionTail context guardMode stop parseBlock minimum left)
       (parseApplicationExpression context (Just stop) parseExpressionUntil parseBlock).
   }.
+
+  parseCasePipeExpression :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseCasePipeExpression = \(context, guardMode, stop, parseBlock) ->
+    parseCasePipeExpressionWithMinimum context guardMode stop parseBlock 1.
 
   parseCaseScrutinee :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> TokenParser(SurfaceExpr).
   parseCaseScrutinee = \(parseExpressionUntil) -> parseExpressionUntil caseBodyStarts.
@@ -1051,64 +1151,6 @@ module ParserExpression (
     }.
     tokenAndThen (\(first) -> parseApplicationTail maybeStop primary first) primary.
   }.
-
-  tokensStartRightParen :: [CanonicalToken] -> Bool.
-  tokensStartRightParen = \(tokens) -> case tokens {
-    | [first | rest] -> case canonicalTokenKind first {
-      | PunctuationKind RightParenPunctuation -> True
-      | other -> False
-    }
-    | [] -> False
-  }.
-
-  operatorNextMinimum :: OperatorInfo -> Int.
-  operatorNextMinimum = \(info) -> case operatorInfoAssociativity info {
-    | RightAssociative -> operatorInfoPrecedence info
-    | LeftAssociative -> operatorInfoPrecedence info + 1
-    | NonAssociative -> operatorInfoPrecedence info + 1
-  }.
-
-  operatorIsNonAssociative :: OperatorInfo -> Bool.
-  operatorIsNonAssociative = \(info) -> case operatorInfoAssociativity info {
-    | NonAssociative -> True
-    | other -> False
-  }.
-
-  samePrecedenceNonAssociativeStop :: ParserContext -> OperatorInfo -> ([CanonicalToken] -> Bool) -> [CanonicalToken] -> Bool.
-  samePrecedenceNonAssociativeStop = \(context, info, outerStop, tokens) -> if outerStop tokens then True else case tokens {
-    | [token | rest] -> case canonicalTokenKind token {
-      | OperatorKind symbol -> case parserContextLookupOperator context symbol {
-        | Just next -> if operatorInfoPrecedence next == operatorInfoPrecedence info then
-          if operatorIsNonAssociative info then True else operatorIsNonAssociative next
-          else False
-        | Nothing -> False
-      }
-      | other -> False
-    }
-    | [] -> False
-  }.
-
-  rejectNonAssociativeContinuation :: ParserContext -> OperatorInfo -> CanonicalToken -> TokenParser(()).
-  rejectNonAssociativeContinuation = \(context, info, operatorToken) -> tokenAndThen
-    (\(current) -> case current {
-      | Just token -> case canonicalTokenKind token {
-        | OperatorKind symbol -> case parserContextLookupOperator context symbol {
-          | Just next -> if operatorInfoPrecedence next == operatorInfoPrecedence info then
-            if operatorIsNonAssociative info then tokenFailAtSpan
-              (canonicalTokenSpan operatorToken)
-              (NonAssociativeOperatorChain (operatorInfoSymbol info))
-              else if operatorIsNonAssociative next then tokenFailAtSpan
-                (canonicalTokenSpan operatorToken)
-                (NonAssociativeOperatorChain (operatorInfoSymbol next))
-                else tokenSucceed ()
-            else tokenSucceed ()
-          | Nothing -> tokenSucceed ()
-        }
-        | other -> tokenSucceed ()
-      }
-      | Nothing -> tokenSucceed ()
-    })
-    tokenPeek.
 
   parseInfixTail :: ParserContext -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
   parseInfixTail = \(context, stop, parseBlock, minimum, left) -> tokenAndThen
