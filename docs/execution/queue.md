@@ -9,11 +9,11 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-07-20`): the hosted parser is complete through
-exact repeated 365-case parity and deterministic operator scale evidence.
-`Ready Now` is empty; there is no source-backed next curation target and no
-named candidate currently. Canonical core and backend stages remain
-unpromoted.
+Current executor status (`2026-07-21`): the hosted parser is complete through
+exact repeated 365-case parity. The hosted canonical-core design is accepted,
+and the expression-foundation child has a proposed implementation plan awaiting
+review. `Ready Now` remains empty until that plan is approved; every later core
+and backend stage remains unpromoted.
 
 ## Next Curation Target
 
@@ -28,6 +28,7 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001` | `impl` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The accepted hosted canonical-core design selects a complete comparison contract plus the smallest honest expression-lowering subset as the next pipeline child. | `jazz-next/jazz/compiler/CoreTypes.jz`, `jazz-next/jazz/compiler/CoreLower.jz`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs`, `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`, `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs`, `jazz-next/jazz-next.cabal` | `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next canonical-core-comparison-spec jazz-core-expression-foundation-spec canonical-parser-comparison-spec jazz-parser-component-spec repository-audit-spec --test-show-details=failures`<br>`nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all`<br>`nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next all --test-show-details=failures`<br>`nix --extra-experimental-features 'nix-command flakes' develop -c bash -lc 'cd jazz-next && cabal check'`<br>`bash scripts/check-execution-queue.sh`<br>`bash scripts/check-docs.sh`<br>`git diff --check` | Review and approve the [proposed child plan](../superpowers/plans/2026-07-21-jazz-next-hosted-core-expression-foundation.md), then set it to `ready`/`autonomous_ready: yes` and promote the exact matching row into `Ready Now`. |
 
 ## Blocked
 

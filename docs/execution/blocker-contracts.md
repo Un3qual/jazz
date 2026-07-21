@@ -90,32 +90,38 @@ Each blocked item should answer these questions:
   are deterministic with zero host operations; the operator profile records
   49,040,140 transitions / 5,914,883 applications / 186,465 list cells / depth
   1,116.
-- Accepted decision: the parser contract is
-  `2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`. It compares the
-  complete ordinary surface AST before lowering, preserves structured failures
-  before the unified `Diagnostic`, uses canonical lexer tokens as the primary
-  input, and starts with a generic compiler-local parser kernel. Existing Jazz
-  collection/text APIs are sufficient.
-- Smallest unblocker: none currently. The hosted lexer and complete hosted
-  parser are closed; no source-backed post-parser implementation child has an
-  accepted contract and plan.
-- Decision needed: select and review the next independently shippable boundary
-  among canonical typed core, backend-neutral lowered IR, LLVM lowering,
-  object/link production, or native runtime before promoting implementation.
-- Recommended default: leave `Ready Now` empty and preserve the established
-  pipeline order. Curate one concrete child only when its ownership, inputs,
-  outputs, target paths, verification, and exclusions are reviewable.
-- Candidate child: none. No post-parser child is promoted by this closeout.
-- Target paths: none until a separate reviewed design and plan name the active
-  `jazz-next` owners for the selected boundary.
-- Verification: the completed parser child passed exact 365-case parity, all
-  four repeated scale profiles, the focused matrix, warning-clean build, all
-  Cabal suites, `cabal check`, repository validators, and locked-path audit.
-  A future child must define its own focused verification.
-- Not in scope: a public stdlib parser API; parser-specific host intrinsics or
-  Haskell callbacks; recovery or partial ASTs; canonical core;
-  bytecode or a VM; lowered IR; LLVM emission; object generation; linking; or
-  native-runtime implementation.
+- Accepted decision: the hosted canonical-core contract is
+  `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
+  active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
+  lowering, compares canonical values through a structural test-only adapter,
+  and orders four independently reviewable children before any backend work.
+- Smallest unblocker: review the proposed core contract/expression-foundation
+  child plan, then promote it without widening its explicit unsupported
+  boundary.
+- Decision needed: approve or revise
+  `2026-07-21-jazz-next-hosted-core-expression-foundation.md` before changing
+  its status to `ready` and `autonomous_ready` to `yes`.
+- Recommended default: approve the staged child. Its `Maybe`-returning internal
+  foundation entry point prevents deferred control-flow, declaration, module,
+  and backend work from leaking placeholder core nodes or temporary errors.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001`.
+- Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
+  `jazz-next/jazz/compiler/CoreLower.jz`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs`,
+  and `jazz-next/jazz-next.cabal`.
+- Verification: the focused canonical-core/foundation suites, warning-clean
+  development build, routine Cabal `all` matrix, `cabal check`, queue/docs
+  validators, and `git diff --check`. Exhaustive parser scale components remain
+  manual and are not part of this child.
+- Not in scope: a public parser or lowerer API; production lowerer replacement;
+  total lowering for control flow, patterns, lambdas, signatures,
+  declarations, operators, or modules; type inference; name resolution;
+  analysis; evaluation; host callbacks or intrinsics; bytecode or a VM;
+  lowered IR; LLVM emission; object generation; linking; or native-runtime
+  implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
