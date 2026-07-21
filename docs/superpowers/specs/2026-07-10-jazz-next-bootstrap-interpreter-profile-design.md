@@ -424,19 +424,24 @@ profiles remain deterministic with zero host operations; the operator profile
 records 49,040,140 transitions / 5,914,883 applications / 186,465 list cells /
 depth 1,116.
 
-The first post-parser child is also complete. `CoreTypes.jz` defines the full
+The first two post-parser children are complete. `CoreTypes.jz` defines the full
 canonical comparison schema, a checked test-only Haskell adapter translates
 only already-lowered stage-0 values, and the shared harness compares ordinary
 Jazz results directly and after hosted parser composition. The internal
 `CoreLower.lowerFoundationExpression` entry point exactly owns literals,
 source and qualified names, operator values, collections, tuples, application,
 non-`$` binary nodes, sections, and ordinary blocks. Deferred and recursively
-unsupported forms return `Nothing`; no production lowerer or façade changed.
+unsupported forms return `Nothing`. A shared private profile now also exposes
+`lowerControlFlowPatternsExpression` for every pattern, guarded case,
+conditional, nested control-flow, and multi-parameter or pattern-lambda rule,
+including exact one-based generated names. The 18 direct and 14 composed
+positive fixtures match stage 0 twice, while 12 nested later-child fixtures
+return only `Nothing`; no production lowerer or façade changed.
 
-Control-flow/pattern/lambda lowering is the sole next curation target.
-Signatures/declarations/operators and modules/corpus closure remain the final
-two canonical-core children. Lowered IR, LLVM, object/link production, and the
-native runtime remain behind separate reviewed contracts and plans.
+Signatures/declarations/operators are the sole next curation target, and
+modules/corpus closure remains the final canonical-core child. Lowered IR,
+LLVM, object/link production, and the native runtime remain behind separate
+reviewed contracts and plans.
 
 ## Non-Goals
 

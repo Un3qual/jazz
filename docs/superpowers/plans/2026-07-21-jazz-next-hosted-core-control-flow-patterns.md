@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001
 last_verified: 2026-07-21
+completed_on: 2026-07-21
 plan_section: "Implementation Batch: Hosted Core Control Flow and Patterns"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -229,22 +230,22 @@ source facade.
 `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001` as the sole next
 curation candidate.
 
-- [ ] Run the exact focused verification command from frontmatter.
-- [ ] Run the warning-clean development build, routine non-exhaustive Cabal
+- [x] Run the exact focused verification command from frontmatter.
+- [x] Run the warning-clean development build, routine non-exhaustive Cabal
   `all`, and `cabal check`. Confirm no opt-in exhaustive parser scale component
   is enabled or invoked.
-- [ ] Update the hosted canonical-core design, bootstrap profile, and
+- [x] Update the hosted canonical-core design, bootstrap profile, and
   `jazz-next/README.md` with the landed child-2 entry point, exact generated-name
   rule, parity evidence, and remaining child-3/child-4 boundary.
-- [ ] Mark this plan done, archive the child with concrete verification
+- [x] Mark this plan done, archive the child with concrete verification
   evidence, empty `Ready Now`, and seed only
   `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001` in
   `Next Curation Target` without promoting it.
-- [ ] Update the parent blocker contract to make the child-3 implementation
+- [x] Update the parent blocker contract to make the child-3 implementation
   plan the next approval gate while leaving modules and all backend stages
   unpromoted.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close hosted core control flow`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close hosted core control flow`.
 
 ## Done Criteria
 

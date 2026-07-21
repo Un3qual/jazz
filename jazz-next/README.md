@@ -71,7 +71,8 @@ Shipped Jazz source lives under one package-owned root:
   operator signatures. Six fixed families assign all 365 parser fixtures
   exactly once and match the active Haskell stage-0 parser through both façades
   twice. `CoreTypes.jz` defines the complete hosted canonical-core comparison
-  schema, and `CoreLower.jz` begins the pure hosted lowering port.
+  schema, and `CoreLower.jz` now hosts expression lowering through patterns,
+  cases, conditionals, and lambdas.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -95,17 +96,27 @@ translates already-lowered values into this schema.
 internal milestone entry point. It currently lowers literals, source and
 qualified variables, operator values, lists, tuples, ordinary application,
 non-`$` binary expressions, both section forms, and blocks containing ordinary
-non-operator bindings or expression statements. It returns `Nothing` for the
-whole tree when any nested form belongs to a later child, including lambdas,
-control flow, patterns, type application, `$`, signatures, declarations,
-operator bindings, imports, and modules. It is not a supported public compiler
-API and does not replace the production Haskell lowerer.
+non-operator bindings or expression statements. It retains that exact child-1
+boundary even as later profiles land.
+
+`CoreLower.lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe CoreExpr`
+reuses the same private recursive kernel and additionally lowers every pattern,
+guarded case, conditional, nested control-flow, and multi-parameter or
+pattern-lambda rule. Pattern parameters use structured generated names with
+their original one-based source positions. The whole tree still returns
+`Nothing` when any nested form belongs to a later child, including type
+application, `$`, signatures, declarations, operator bindings, imports, and
+modules. Neither entry point is a supported public compiler API, and neither
+replaces the production Haskell lowerer.
 
 `canonical-core-comparison-spec` inventories the complete comparison contract.
 `jazz-core-expression-foundation-spec` compares the hosted lowerer with stage 0
 through direct surface values and through the hosted parser, runs both paths
 twice for deterministic complete-value equality, and keeps parser failures
 distinct from valid-but-deferred lowering.
+`jazz-core-control-flow-patterns-spec` adds 18 direct and 14 parser-composed
+positive fixtures plus 12 nested later-child rejection fixtures. Every family
+runs twice and compares complete values or exact `Nothing` results.
 
 ## Editor support
 

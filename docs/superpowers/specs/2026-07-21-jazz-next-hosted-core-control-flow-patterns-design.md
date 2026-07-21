@@ -10,6 +10,11 @@ that internal hosted boundary through patterns, cases, conditionals, and
 lambdas. It does not promote a production parser-to-core facade or change the
 stage-0 Haskell compiler path.
 
+Implementation status (`2026-07-21`): complete. The shared profile-driven
+kernel preserves the foundation wrapper, the new child-2 wrapper matches all
+fixed direct and composed positive fixtures twice, and every fixed nested
+later-child fixture returns `Nothing` twice.
+
 ## Goal
 
 Make the Jazz-authored lowerer match

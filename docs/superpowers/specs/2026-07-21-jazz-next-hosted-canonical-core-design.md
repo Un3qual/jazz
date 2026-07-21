@@ -11,15 +11,16 @@ semantic oracle. The hosted implementation will match the current
 `JazzNext.Compiler.Parser.Lower` boundary before any redesign of the core,
 type-inference port, or backend work begins.
 
-Implementation status (`2026-07-21`): child 1 is complete. `CoreTypes.jz`
-defines the full comparison schema, the checked Haskell adapter rejects values
-outside the lowering boundary, and `CoreLower.lowerFoundationExpression`
-matches stage 0 directly and through hosted parser composition for literals,
-source/qualified names, operator values, collections, tuples, ordinary
-application, non-`$` binary nodes, both sections, and ordinary blocks. Every
-deferred or recursively unsupported tree returns `Nothing`. Children 2-4
-remain: control flow/patterns/lambdas; signatures/declarations/operators; and
-modules/corpus closure.
+Implementation status (`2026-07-21`): children 1 and 2 are complete.
+`CoreTypes.jz` defines the full comparison schema, and the checked Haskell
+adapter rejects values outside the lowering boundary. One private profile-driven
+kernel preserves `CoreLower.lowerFoundationExpression` while
+`lowerControlFlowPatternsExpression` adds every pattern, guarded case,
+conditional, nested control-flow, and multi-parameter or pattern-lambda rule.
+Exact one-based generated parameter names and all-or-nothing later-child
+rejection match stage 0 directly and through hosted parser composition.
+Children 3 and 4 remain: signatures/declarations/operators and modules/corpus
+closure.
 
 ## Goal
 
@@ -242,6 +243,10 @@ The internal `Maybe` boundary remains in place for the later children.
 Add every pattern form, guarded case arms, conditionals, and nested control
 flow. Add multi-parameter unary-lambda lowering and generated pattern-argument
 desugaring with exact one-based indices.
+
+Completed on `2026-07-21` with one shared profile-driven lowerer, exact repeated
+parity for 18 direct and 14 parser-composed positive fixtures, and 12 repeated
+nested later-child rejection fixtures.
 
 ### 3. Signatures, Declarations, and Operators
 

@@ -99,37 +99,45 @@ Each blocked item should answer these questions:
   direct and hosted-parser composition match stage 0 exactly, while every
   deferred or recursively unsupported tree returns `Nothing` without a fake
   core value or lowering diagnostic.
+  `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` then refactored the hosted
+  lowerer around one shared profile-driven kernel and added every pattern,
+  guarded case, conditional, nested control-flow, and multi-parameter or
+  pattern-lambda rule. Its 18 direct and 14 composed positive fixtures match
+  stage 0 twice; 12 root and nested later-child fixtures return only `Nothing`
+  twice; and exact one-based generated parameter names are preserved for both
+  binder and scrutinee.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: execute the active control-flow/pattern/lambda child
-  without widening its exact later-child boundary.
-- Decision needed: none for the active child. Its design and implementation
-  plan were approved on `2026-07-21`.
-- Recommended default: preserve the foundation wrapper and use one shared
-  profile-driven recursive lowerer for patterns, guarded cases, conditionals,
-  nested control flow, and multi-parameter/pattern lambdas. Retain `Nothing`
-  for signatures, declaration/operator desugaring, modules, and every backend
-  stage.
-- Candidate child: active as
-  `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` in `Ready Now`.
+- Smallest unblocker: write and approve the signatures/declarations/operators
+  child plan with fixed direct/composed families and exact transformation
+  behavior.
+- Decision needed: approve that implementation plan before promotion. The
+  parent canonical-core design fixes this as child 3.
+- Recommended default: extend the shared internal lowerer through signature
+  types and constraints, explicit type application, `$` application,
+  statement/declaration payloads, and exact operator-storage names while
+  retaining all-or-nothing `Nothing` for modules and imports.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001`
+  is the sole `Next Curation Target`; `Ready Now` is empty.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs`,
+  planned
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs`,
   and `jazz-next/jazz-next.cabal`.
-- Verification: focused control-flow/pattern, foundation, canonical-core,
-  canonical-parser, hosted-parser control-flow, and repository-audit suites;
-  warning-clean development build; routine Cabal `all`; `cabal check`;
-  queue/docs validators; and `git diff --check`. Exhaustive parser scale
-  components remain manual and are not part of this child.
+- Verification: focused signatures/declarations/operators,
+  control-flow/pattern, foundation, canonical-core, canonical-parser,
+  hosted-parser operator, and repository-audit suites; warning-clean
+  development build; routine Cabal `all`; `cabal check`; queue/docs validators;
+  and `git diff --check`. Exhaustive parser scale components remain manual and
+  are not part of this child.
 - Not in scope: a public parser or lowerer API; production lowerer replacement;
-  signatures, declarations, operator-binding/`$` desugaring, modules, type
-  inference, name resolution, analysis, evaluation, host callbacks or
-  intrinsics, bytecode or a VM, lowered IR, LLVM emission, object generation,
-  linking, or native-runtime implementation.
+  modules, type inference, name resolution, analysis, evaluation, host
+  callbacks or intrinsics, bytecode or a VM, lowered IR, LLVM emission, object
+  generation, linking, or native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
