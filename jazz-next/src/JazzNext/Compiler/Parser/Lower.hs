@@ -3,7 +3,10 @@
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
 -- compiler phases.
 module JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr,
+  ( ModuleDeclaration (..),
+    ModuleLoweringFailure (..),
+    lowerSurfaceExpr,
+    lowerSurfaceModuleDetailed,
     lowerSurfaceModule
   ) where
 
@@ -60,6 +63,7 @@ import JazzNext.Compiler.Name
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
+    SourceSpan,
     mkErrorDiagnostic,
     qualifySourceSpan
   )
@@ -71,12 +75,39 @@ import JazzNext.Compiler.ModuleGraph
     DeclaredModuleExports (..),
     ResolvedImport (..)
   )
-import JazzNext.Compiler.ModuleExports (qualifyModuleExportSelectorSpans)
+import JazzNext.Compiler.ModuleExports
+  ( qualifyModuleExportSelectorSpans,
+  )
+
+-- | The declaration inputs retained when module validation fails. Keeping
+-- these values structured lets hosted-lowering parity compare semantic inputs
+-- without recovering them from rendered diagnostics.
+data ModuleDeclaration = ModuleDeclaration
+  { moduleDeclarationSpan :: SourceSpan,
+    moduleDeclarationPath :: [Text]
+  }
+  deriving (Eq, Show)
+
+-- | Failures owned specifically by module lowering, before they are rendered
+-- into the compiler's shared diagnostic representation.
+data ModuleLoweringFailure
+  = MultipleModuleDeclarations FilePath [ModuleDeclaration]
+  | ModulePathMismatch FilePath [Text] ModuleDeclaration
+  deriving (Eq, Show)
 
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
 lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
 lowerSurfaceModule sourcePath expectedPath surfaceExpr =
+  case lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr of
+    Left failure -> Left (moduleLoweringFailureDiagnostic failure)
+    Right coreModule -> Right coreModule
+
+-- | Preserve the semantic inputs for the two module-lowering failures. The
+-- public compiler entry point above renders these into the existing E4005 and
+-- E4006 diagnostics, so production behavior remains unchanged.
+lowerSurfaceModuleDetailed :: FilePath -> [Text] -> SurfaceExpr -> Either ModuleLoweringFailure CoreModule
+lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
   do
     (declaredPath, declaredExports) <- validateDeclaration
@@ -94,7 +125,7 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
         _ -> []
 
     declarations =
-      [ (modulePath, spanValue, moduleExports)
+      [ (ModuleDeclaration spanValue modulePath, moduleExports)
         | SSModule spanValue modulePath moduleExports <- statements
       ]
 
@@ -125,40 +156,45 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
     validateDeclaration =
       case declarations of
         [] -> Right (Nothing, Nothing)
-        [(declaredPath, declarationSpan, declaredExportSelectors)]
-          | declaredPath == expectedPath ->
+        [(declaration, declaredExportSelectors)]
+          | moduleDeclarationPath declaration == expectedPath ->
               Right
-                ( Just declaredPath,
+                ( Just (moduleDeclarationPath declaration),
                   DeclaredModuleExports
-                    (qualifySourceSpan sourcePath declarationSpan)
+                    (qualifySourceSpan sourcePath (moduleDeclarationSpan declaration))
                     . map (qualifyModuleExportSelectorSpans sourcePath)
                     <$> declaredExportSelectors
                 )
           | otherwise ->
-              Left
-                ( mkErrorDiagnostic
-                    E4006 CompilationOrigin
-                    ( "module declaration mismatch at '"
-                        <> Text.pack sourcePath
-                        <> "': expected '"
-                        <> renderModulePath expectedPath
-                        <> "', found '"
-                        <> renderModulePath declaredPath
-                        <> "'"
-                    )
-                )
+              Left (ModulePathMismatch sourcePath expectedPath declaration)
         declaredModules ->
-          Left
-            ( mkErrorDiagnostic
-                E4005 CompilationOrigin
-                ( "multiple module declarations in '"
-                    <> Text.pack sourcePath
-                    <> "': "
-                    <> Text.intercalate ", " (map (renderModulePath . declaredModulePath) declaredModules)
-                )
-            )
+          Left (MultipleModuleDeclarations sourcePath (map fst declaredModules))
 
-    declaredModulePath (modulePath, _, _) = modulePath
+moduleLoweringFailureDiagnostic :: ModuleLoweringFailure -> Diagnostic
+moduleLoweringFailureDiagnostic failure =
+  case failure of
+    MultipleModuleDeclarations sourcePath declarations ->
+      mkErrorDiagnostic
+        E4005
+        CompilationOrigin
+        ( "multiple module declarations in '"
+            <> Text.pack sourcePath
+            <> "': "
+            <> Text.intercalate ", " (map (renderModulePath . moduleDeclarationPath) declarations)
+        )
+    ModulePathMismatch sourcePath expectedPath declaration ->
+      mkErrorDiagnostic
+        E4006
+        CompilationOrigin
+        ( "module declaration mismatch at '"
+            <> Text.pack sourcePath
+            <> "': expected '"
+            <> renderModulePath expectedPath
+            <> "', found '"
+            <> renderModulePath (moduleDeclarationPath declaration)
+            <> "'"
+        )
+  where
     renderModulePath = Text.intercalate "::"
 
 qualifyExprSourceSpans :: FilePath -> Expr -> Expr

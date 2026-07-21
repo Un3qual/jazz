@@ -70,7 +70,8 @@ Shipped Jazz source lives under one package-owned root:
   operators, precedence, associativity, values, sections, bindings, and
   operator signatures. Six fixed families assign all 365 parser fixtures
   exactly once and match the active Haskell stage-0 parser through both façades
-  twice.
+  twice. `CoreTypes.jz` defines the complete hosted canonical-core comparison
+  schema, and `CoreLower.jz` begins the pure hosted lowering port.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -81,6 +82,30 @@ outside this shipped-source root. Small, focused fixtures remain under `test/`.
 Ordinary multi-argument Jazz functions use compact lambdas such as
 `\(left, right) -> left == right`. The compiler preserves currying and partial
 application by lowering that surface form to nested unary core lambdas.
+
+### Hosted canonical core
+
+`CoreTypes` represents every core constructor emitted by the active Haskell
+stage-0 lowerer, including exact fractional source parts, generated lowering
+names, optional-path spans, signatures, declarations, imports, exports, and
+module results. The Haskell comparison adapter is test-only and structurally
+translates already-lowered values into this schema.
+
+`CoreLower.lowerFoundationExpression :: SurfaceExpr -> Maybe CoreExpr` is an
+internal milestone entry point. It currently lowers literals, source and
+qualified variables, operator values, lists, tuples, ordinary application,
+non-`$` binary expressions, both section forms, and blocks containing ordinary
+non-operator bindings or expression statements. It returns `Nothing` for the
+whole tree when any nested form belongs to a later child, including lambdas,
+control flow, patterns, type application, `$`, signatures, declarations,
+operator bindings, imports, and modules. It is not a supported public compiler
+API and does not replace the production Haskell lowerer.
+
+`canonical-core-comparison-spec` inventories the complete comparison contract.
+`jazz-core-expression-foundation-spec` compares the hosted lowerer with stage 0
+through direct surface values and through the hosted parser, runs both paths
+twice for deterministic complete-value equality, and keeps parser failures
+distinct from valid-but-deferred lowering.
 
 ## Editor support
 
@@ -98,7 +123,8 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
-  adapters plus hosted lexer/parser component coverage; exact 52-case
+  adapters plus hosted lexer/parser/core component coverage; the complete core
+  schema and expression-foundation direct/composed parity; exact 52-case
   expression, 101-case declarations, 75-case control-flow/pattern, 55-case
   operator, 26-case mixed operator/control-flow, and 56-case corpus-closure
   families; complete repeated 365-case parity; and deterministic
