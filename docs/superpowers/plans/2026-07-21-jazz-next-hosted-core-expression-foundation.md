@@ -67,8 +67,9 @@ Nix-pinned development environment.
 
 - Modify compiler behavior only under `jazz-next/`; `jazz-hs/` and `jazz2/`
   remain read-only references.
-- Keep the production Haskell lowerer and all downstream compiler phases
-  unchanged.
+- Keep the existing production `lowerSurfaceModule` diagnostic behavior and all
+  downstream compiler phases unchanged. A typed detailed result may expose the
+  same validation outcome to the structural comparison adapter.
 - Do not add type inference, name resolution, analysis, evaluation,
   backend-neutral IR, LLVM, object/link, or native-runtime behavior.
 - Do not add host lowerer intrinsics, Haskell callbacks, bytecode, or a VM.
@@ -102,7 +103,7 @@ Nix-pinned development environment.
 | --- | --- |
 | `CoreTypes` | Export the complete canonical core ADTs described by the design, including optional-path one-based spans and only source, qualified, and lowering-generated names. |
 | `CoreLower` | Export `lowerFoundationExpression :: SurfaceExpr -> Maybe CoreExpr`. Return `Just` only when the entire tree belongs to this child; return `Nothing` without partial output for every other form. |
-| `CanonicalCoreComparison` | Export checked `Either Text RuntimeValue` conversions for `Expr`, `CoreModule`, and `Either Diagnostic CoreModule`; reject post-lowering names, invalid canonical paths, and unrelated diagnostics without partial functions. |
+| `CanonicalCoreComparison` | Export checked `Either Text RuntimeValue` conversions for `Expr`, `CoreModule`, and the typed detailed module-lowering result; reject post-lowering names and invalid canonical paths without partial functions, while unrelated diagnostics remain excluded by the result type. |
 | `JazzCoreParity` | Run a supplied Jazz lowering expression through the existing compiler module graph and compare it with a stage-0 value produced before canonical adaptation. |
 
 `lowerFoundationExpression` is an internal milestone interface, not the final
@@ -169,9 +170,10 @@ already-lowered stage-0 values.
 - [x] Add the complete `CoreTypes` schema. Represent fractional literals with
   exact normalized whole/fractional source parts and optional width; do not
   derive canonical data from rounded `Double` rendering.
-- [x] Add structural Haskell conversions for `Expr` and `CoreModule`. For
-  module results, return a checked adapter error for any diagnostic other than
-  `E4005` or `E4006` instead of crashing or silently reclassifying it.
+- [x] Add structural Haskell conversions for `Expr` and `CoreModule`. Preserve
+  the semantic inputs of the typed `E4005`/`E4006` module failures; keep the
+  production diagnostic wrapper stable and exclude unrelated diagnostics from
+  the adapter by type.
 - [x] Require exact optional-path span preservation and exact source,
   qualified, lambda-pattern, and operator-storage name representations.
 - [x] Run `canonical-core-comparison-spec` and the existing canonical parser

@@ -18,15 +18,9 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
     normalizeCanonicalSourcePath,
     runtimeIntValue,
   )
-import JazzNext.Compiler.DiagnosticCatalog
-  ( ErrorCode (E4005, E4006),
-    diagnosticCodeText,
-    errorCode,
-  )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan (..),
-    diagnosticCode,
+  ( SourceSpan (..),
+    qualifySourceSpan,
   )
 import JazzNext.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import JazzNext.Compiler.ModuleExports
@@ -44,6 +38,10 @@ import JazzNext.Compiler.Name
     IdentifierLike (identifierText),
     Name (..),
     NameNamespace (..),
+  )
+import JazzNext.Compiler.Parser.Lower
+  ( ModuleDeclaration (..),
+    ModuleLoweringFailure (..),
   )
 import JazzNext.Compiler.Runtime (RuntimeValue (..))
 
@@ -100,24 +98,34 @@ canonicalCoreModuleRuntimeValue coreModule =
         canonicalCoreExprRuntimeValue (coreModuleExpr coreModule)
       ]
 
-canonicalCoreModuleResultRuntimeValue :: Either Diagnostic CoreModule -> Either Text RuntimeValue
+canonicalCoreModuleResultRuntimeValue :: Either ModuleLoweringFailure CoreModule -> Either Text RuntimeValue
 canonicalCoreModuleResultRuntimeValue result =
   case result of
     Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue coreModule
-    Left diagnostic
-      | diagnosticCode diagnostic == errorCode E4005 -> pure (loweringFailure E4005)
-      | diagnosticCode diagnostic == errorCode E4006 -> pure (loweringFailure E4006)
-      | otherwise ->
-          Left
-            ( "diagnostic "
-                <> diagnosticCodeText (diagnosticCode diagnostic)
-                <> " is not owned by module lowering"
-            )
-  where
-    loweringFailure code =
-      constructor1
-        "CoreModuleLoweringFailed"
-        (VText (diagnosticCodeText (errorCode code)))
+    Left failure -> constructor1 "CoreModuleLoweringFailed" <$> coreModuleLoweringFailureRuntimeValue failure
+
+coreModuleLoweringFailureRuntimeValue :: ModuleLoweringFailure -> Either Text RuntimeValue
+coreModuleLoweringFailureRuntimeValue failure =
+  case failure of
+    MultipleModuleDeclarations sourcePath declarations ->
+      constructor2 "CoreMultipleModuleDeclarationsFailure"
+        <$> coreSourcePathRuntimeValue sourcePath
+        <*> listRuntimeValue (coreModuleDeclarationRuntimeValue sourcePath) declarations
+    ModulePathMismatch sourcePath expectedPath declaration ->
+      constructor3 "CoreModulePathMismatchFailure"
+        <$> coreSourcePathRuntimeValue sourcePath
+        <*> pure (listRuntimeValuePure VText expectedPath)
+        <*> coreModuleDeclarationRuntimeValue sourcePath declaration
+
+coreModuleDeclarationRuntimeValue :: FilePath -> ModuleDeclaration -> Either Text RuntimeValue
+coreModuleDeclarationRuntimeValue sourcePath declaration =
+  constructor2 "CoreModuleDeclaration"
+    <$> coreSpanRuntimeValue (qualifySourceSpan sourcePath (moduleDeclarationSpan declaration))
+    <*> pure (listRuntimeValuePure VText (moduleDeclarationPath declaration))
+
+coreSourcePathRuntimeValue :: FilePath -> Either Text RuntimeValue
+coreSourcePathRuntimeValue sourcePath =
+  canonicalSourcePathRuntimeValue <$> normalizeCanonicalSourcePath sourcePath
 
 coreLiteralRuntimeValue :: Literal -> Either Text RuntimeValue
 coreLiteralRuntimeValue literalValue =
@@ -434,7 +442,10 @@ listRuntimeValuePure :: (value -> RuntimeValue) -> [value] -> RuntimeValue
 listRuntimeValuePure converter values = VList (map converter values) Nothing
 
 nonEmptyRuntimeValue :: (value -> Either Text RuntimeValue) -> NonEmpty.NonEmpty value -> Either Text RuntimeValue
-nonEmptyRuntimeValue converter = fmap (canonicalConstructor "NonEmpty") . mapM converter . NonEmpty.toList
+nonEmptyRuntimeValue converter values =
+  constructor2 "NonEmpty"
+    <$> converter (NonEmpty.head values)
+    <*> listRuntimeValue converter (NonEmpty.tail values)
 
 maybeRuntimeValue :: (value -> Either Text RuntimeValue) -> Maybe value -> Either Text RuntimeValue
 maybeRuntimeValue converter maybeValue =
@@ -455,4 +466,6 @@ fractionalDigits :: Integer -> Integer -> Text
 fractionalDigits fractionalPart scale =
   Text.justifyRight digitCount '0' (Text.pack (show (abs fractionalPart)))
   where
+    -- FractionalLiteralSource constructs scale as 10^fractionalDigitCount,
+    -- making the decimal exponent the exact source-width of these digits.
     digitCount = max 0 (length (show scale) - 1)

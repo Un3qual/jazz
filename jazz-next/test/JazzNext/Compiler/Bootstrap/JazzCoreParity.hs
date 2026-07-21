@@ -96,32 +96,15 @@ expectedParserSourceBatchRendering sources = do
 
 runJazzFoundationBatch :: [SurfaceExpr] -> IO RunResult
 runJazzFoundationBatch expressions =
-  runModuleGraph
-    defaultWarningSettings
-    resolverConfig
-    ["App", "Main"]
-    lookupSource
-  where
-    entrySource =
-      Text.replace
-        "__CALLS__"
-        (Text.intercalate ",\n    " (map renderCall expressions))
-        """
-        module App::Main {
-          import CoreLower (lowerFoundationExpression).
-          import LexerTypes (CanonicalSpan).
-          import Maybe.
-          import NonEmpty.
-          import ParserTypes.
-          [ __CALLS__
-          ].
-        }
-
-        """
-    lookupSource sourcePath =
-      case sourcePath of
-        "src/App/Main.jz" -> pure (Just entrySource)
-        _ -> readCheckedInJazzProjectModuleSource sourcePath
+  runGeneratedBatch
+    """
+    import CoreLower (lowerFoundationExpression).
+    import LexerTypes (CanonicalSpan).
+    import Maybe.
+    import NonEmpty.
+    import ParserTypes.
+    """
+    (map renderCall expressions)
 
 runJazzFoundationSourceBatch :: [Text] -> IO RunResult
 runJazzFoundationSourceBatch sources =

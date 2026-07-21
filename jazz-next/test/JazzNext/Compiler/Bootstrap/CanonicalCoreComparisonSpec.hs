@@ -10,11 +10,8 @@ import JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
     canonicalCoreModuleResultRuntimeValue,
     canonicalCoreModuleRuntimeValue,
   )
-import JazzNext.Compiler.DiagnosticCatalog (ErrorCode (E0001, E4005))
 import JazzNext.Compiler.Diagnostics
-  ( DiagnosticOrigin (CompilationOrigin),
-    SourceSpan (..),
-    mkErrorDiagnostic,
+  ( SourceSpan (..),
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
@@ -43,6 +40,13 @@ import JazzNext.Compiler.Name
     resolvedAmbientName,
     sourceName,
   )
+import JazzNext.Compiler.Parser.AST
+  ( SurfaceExpr (SEBlock),
+    SurfaceStatement (SSModule),
+  )
+import JazzNext.Compiler.Parser.Lower
+  ( lowerSurfaceModuleDetailed,
+  )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
@@ -64,7 +68,7 @@ tests =
     ("preserves arbitrary integers and exact fractional source parts", testNumericFidelity),
     ("rejects names introduced after lowering", testNameBoundary),
     ("canonicalizes module metadata and qualified spans", testModuleInventory),
-    ("accepts only lowering-owned module diagnostics", testModuleFailureBoundary)
+    ("preserves structured module-lowering failures", testModuleFailureBoundary)
   ]
 
 testJazzSchemaRendering :: IO ()
@@ -122,27 +126,53 @@ testModuleInventory = do
   let rendered = renderRuntimeValue value
   assertContains "declared path" "[\"App\", \"Main\"]" rendered
   assertContains "qualified span" "CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1)" rendered
-  assertContains "selected export" "CoreSelectedConstructors" rendered
+  assertContains
+    "selected export"
+    "CoreSelectedConstructors(NonEmpty(CoreLocatedExportName(\"Some\", CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1)), [CoreLocatedExportName(\"None\", CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1))]))"
+    rendered
   assertContains "import metadata" "CoreResolvedImport" rendered
 
 testModuleFailureBoundary :: IO ()
 testModuleFailureBoundary = do
-  accepted <-
+  multipleDeclarations <-
     expectRight
-      "lowering diagnostic"
+      "multiple module declarations"
       ( canonicalCoreModuleResultRuntimeValue
-          (Left (mkErrorDiagnostic E4005 CompilationOrigin "multiple module declarations"))
+          ( lowerSurfaceModuleDetailed
+              "src/App/Main.jz"
+              ["App", "Main"]
+              ( SEBlock
+                  [ SSModule span1 ["App", "First"] Nothing,
+                    SSModule span2 ["App", "Second"] Nothing
+                  ]
+              )
+          )
       )
   assertEqual
-    "lowering diagnostic value"
-    "CoreModuleLoweringFailed(\"E4005\")"
-    (renderRuntimeValue accepted)
-  assertTextLeftContains
-    "unrelated diagnostic rejection"
-    "not owned by module lowering"
+    "multiple module declaration value"
+    "CoreModuleLoweringFailed(CoreMultipleModuleDeclarationsFailure(CanonicalSourcePath(\"src/App/Main.jz\"), [CoreModuleDeclaration(CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1), [\"App\", \"First\"]), CoreModuleDeclaration(CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 2, 3), [\"App\", \"Second\"])]))"
+    (renderRuntimeValue multipleDeclarations)
+
+  pathMismatch <-
+    expectRight
+      "module path mismatch"
     ( canonicalCoreModuleResultRuntimeValue
-        (Left (mkErrorDiagnostic E0001 CompilationOrigin "parser failure"))
+        ( lowerSurfaceModuleDetailed
+            "src/App/Main.jz"
+            ["App", "Main"]
+            (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])
+        )
     )
+  assertEqual
+    "module path mismatch value"
+    "CoreModuleLoweringFailed(CoreModulePathMismatchFailure(CanonicalSourcePath(\"src/App/Main.jz\"), [\"App\", \"Main\"], CoreModuleDeclaration(CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 2, 3), [\"Wrong\", \"Path\"])))"
+    (renderRuntimeValue pathMismatch)
+
+  successfulModule <-
+    expectRight
+      "successful module result"
+      (canonicalCoreModuleResultRuntimeValue (Right moduleInventory))
+  assertContains "successful module result" "CoreModuleLowered" (renderRuntimeValue successfulModule)
 
 assertTextLeftContains :: Show value => Text.Text -> Text.Text -> Either Text.Text value -> IO ()
 assertTextLeftContains label needle value =
@@ -302,11 +332,14 @@ expectedConstructors =
     "CoreBooleanLiteral",
     "CoreCharacterLiteral",
     "CoreTextLiteral",
+    "CoreLiteralExpression",
+    "CoreVariableExpression",
     "CoreSourceName",
     "CoreQualifiedName",
     "CoreGeneratedName",
     "CoreLambdaPatternArgument",
     "CoreOperatorBinding",
+    "CoreSpan",
     "CoreLambdaExpression",
     "CoreOperatorValueExpression",
     "CoreListExpression",
@@ -319,7 +352,16 @@ expectedConstructors =
     "CoreLeftSectionExpression",
     "CoreRightSectionExpression",
     "CoreBlockExpression",
+    "CoreWildcardPattern",
+    "CoreVariablePattern",
+    "CoreLiteralPattern",
+    "CoreConstructorPattern",
+    "CoreListPattern",
+    "CoreConsListPattern",
+    "CoreTuplePattern",
+    "CoreAsPattern",
     "CoreOrPattern",
+    "CoreCaseArm",
     "CoreLetStatement",
     "CoreSignatureStatement",
     "CoreDataStatement",
@@ -328,8 +370,52 @@ expectedConstructors =
     "CoreModuleStatement",
     "CoreImportStatement",
     "CoreExpressionStatement",
+    "CoreDataConstructor",
+    "CoreNamedConstructorArgument",
+    "CoreOpaqueConstructorArgument",
+    "CoreClassMethodSignature",
+    "CoreImplMethod",
+    "CoreTypeSignature",
     "CoreConstrainedSignature",
-    "CoreUnsupportedSignature"
+    "CoreUnsupportedSignature",
+    "CoreSignatureConstraint",
+    "CoreIntType",
+    "CoreFloatType",
+    "CoreNumericType",
+    "CoreInt8Type",
+    "CoreInt16Type",
+    "CoreInt32Type",
+    "CoreInt64Type",
+    "CoreUInt8Type",
+    "CoreUInt16Type",
+    "CoreUInt32Type",
+    "CoreUInt64Type",
+    "CoreFloat16Type",
+    "CoreFloat32Type",
+    "CoreFloat64Type",
+    "CoreBoolType",
+    "CoreCharType",
+    "CoreTextType",
+    "CoreTypeVariable",
+    "CoreNamedType",
+    "CoreAppliedType",
+    "CoreListType",
+    "CoreTupleType",
+    "CoreFunctionType",
+    "CoreSignatureNameToken",
+    "CoreSignatureIntegerToken",
+    "CoreSignatureArrowToken",
+    "CoreSignatureAtToken",
+    "CoreSignatureColonToken",
+    "CoreSignatureLeftParenToken",
+    "CoreSignatureRightParenToken",
+    "CoreSignatureLeftBraceToken",
+    "CoreSignatureRightBraceToken",
+    "CoreSignatureLeftBracketToken",
+    "CoreSignatureRightBracketToken",
+    "CoreSignatureCommaToken",
+    "CoreSignatureOperatorToken",
+    "CoreSignatureOtherToken"
   ]
 
 jazzSchemaFixture :: Text.Text

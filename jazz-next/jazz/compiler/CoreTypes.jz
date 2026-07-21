@@ -51,5 +51,9 @@ module CoreTypes {
 
   data CoreModule = CoreModule (Maybe [Text]) (Maybe CoreDeclaredModuleExports) [CoreResolvedImport] CoreExpr.
 
-  data CoreModuleLoweringResult = CoreModuleLowered CoreModule | CoreModuleLoweringFailed Text.
+  data CoreModuleDeclaration = CoreModuleDeclaration CoreSpan [Text].
+
+  data CoreModuleLoweringFailure = CoreMultipleModuleDeclarationsFailure CanonicalSourcePath [CoreModuleDeclaration] | CoreModulePathMismatchFailure CanonicalSourcePath [Text] CoreModuleDeclaration.
+
+  data CoreModuleLoweringResult = CoreModuleLowered CoreModule | CoreModuleLoweringFailed CoreModuleLoweringFailure.
 }

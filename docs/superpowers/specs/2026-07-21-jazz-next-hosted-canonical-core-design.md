@@ -69,6 +69,12 @@ The hosted lowerer mirrors the output of:
 - `lowerSurfaceExpr :: SurfaceExpr -> Expr`; and
 - `lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule`.
 
+Stage 0 also exposes
+`lowerSurfaceModuleDetailed :: FilePath -> [Text] -> SurfaceExpr -> Either ModuleLoweringFailure CoreModule`
+for structural parity. The established `lowerSurfaceModule` entry point renders
+that typed failure as the same `E4005`/`E4006` diagnostic consumed by production
+callers.
+
 The current `Expr` is the canonical core consumed by analysis, type inference,
 and the interpreter. It is not itself a fully annotated typed-core tree. Hosting
 this boundary therefore does not imply a hosted typechecker or freeze a future
@@ -94,7 +100,8 @@ Test-only Haskell support belongs under
 `jazz-next/test/JazzNext/Compiler/Bootstrap/`:
 
 - `CanonicalCoreComparison.hs` converts stage-0 `Expr`, `CoreModule`, and the
-  two permitted module-lowering failures into the hosted comparison schema.
+  typed result from `lowerSurfaceModuleDetailed` into the hosted comparison
+  schema.
 - Shared parity support executes Jazz lowering through the existing
   interpreter and compares canonical values.
 - Focused suite entry points own each implementation child's fixed fixture
@@ -180,7 +187,8 @@ Module lowering can fail only for the two conditions currently owned by stage
 The hosted result uses structured failure reasons containing the diagnostic
 code and the semantic inputs needed for comparison. Tests compare those
 structures rather than duplicating presentation strings. The test-only Haskell
-adapter extracts the same structure from the stage-0 result.
+adapter translates the typed stage-0 result directly; the production-facing
+wrapper remains responsible for rendering the same failures as diagnostics.
 
 No analyzer, resolver, type, warning, import-availability, or runtime error is
 reclassified as a lowering failure. Parser and lexer failures remain owned by
