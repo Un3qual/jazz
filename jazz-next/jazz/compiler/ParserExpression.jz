@@ -617,16 +617,40 @@ module ParserExpression (
       | [] -> False
     }.
 
-  expressionHasPipeRoot :: SurfaceExpr -> Bool.
-  expressionHasPipeRoot = \(expression) -> case expression {
-    | BinaryExpression "|" left right -> True
-    | other -> False
+  casePipeCanContinueExpression :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> Bool.
+  casePipeCanContinueExpression = \(context, parentOperator, minimum, left) -> {
+    pipePrecedence = case parserContextLookupOperator context "|" {
+      | Just info -> operatorInfoPrecedence info
+      | Nothing -> 0
+    }.
+    leftHasBoundaryPrecedenceRoot = case left {
+      | BinaryExpression symbol leftOperand rightOperand -> case parserContextLookupOperator context symbol {
+        | Just info -> operatorInfoPrecedence info <= pipePrecedence
+        | Nothing -> False
+      }
+      | other -> False
+    }.
+    samePrecedencePipeCanBind = case left {
+      | LiteralExpression literal -> case parentOperator {
+        | Just symbol -> case parserContextLookupOperator context symbol {
+          | Just info -> operatorInfoPrecedence info < pipePrecedence
+          | Nothing -> False
+        }
+        | Nothing -> False
+      }
+      | other -> True
+    }.
+    if minimum < pipePrecedence then
+      if leftHasBoundaryPrecedenceRoot then False else True
+      else if minimum == pipePrecedence then
+        samePrecedencePipeCanBind
+        else False.
   }.
 
-  parsedPatternStartsArmBoundary :: SurfaceExpr -> SurfacePattern -> Bool.
-  parsedPatternStartsArmBoundary = \(left, pattern) -> case pattern {
+  parsedPatternStartsArmBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> SurfacePattern -> Bool.
+  parsedPatternStartsArmBoundary = \(context, parentOperator, minimum, left, pattern) -> case pattern {
     | OrPattern alternatives -> if listAll patternIsLiteral alternatives then
-      expressionHasPipeRoot left
+      if casePipeCanContinueExpression context parentOperator minimum left then False else True
       else orPatternStartsDefiniteArmBoundary alternatives
     | other -> True
   }.
@@ -647,14 +671,17 @@ module ParserExpression (
           tokenRemaining)
         parseCaseArmPattern)))).
 
-  pipeStartsCaseArmBoundary :: SurfaceExpr -> TokenParser(Bool).
-  pipeStartsCaseArmBoundary = \(left) -> tokenAndThen
+  pipeStartsCaseArmBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
+  pipeStartsCaseArmBoundary = \(context, parentOperator, minimum, left) -> tokenAndThen
     (\(prefix) -> case prefix {
       | Just (pattern, remaining) -> case remaining {
         | [first | rest] -> case canonicalTokenKind first {
-          | PunctuationKind ArrowPunctuation -> tokenSucceed (parsedPatternStartsArmBoundary left pattern)
+          | PunctuationKind ArrowPunctuation -> tokenSucceed
+            (parsedPatternStartsArmBoundary context parentOperator minimum left pattern)
           | KeywordKind IfKeyword -> tokenSucceed
-            (if parsedPatternStartsArmBoundary left pattern then guardTokensEndAtArrow rest else False)
+            (if parsedPatternStartsArmBoundary context parentOperator minimum left pattern then
+              guardTokensEndAtArrow rest
+              else False)
           | other -> tokenSucceed False
         }
         | [] -> tokenSucceed False
@@ -670,13 +697,15 @@ module ParserExpression (
     })
     peekCaseArmPatternPrefix.
 
-  pipeStartsCaseGuardBoundary :: SurfaceExpr -> TokenParser(Bool).
-  pipeStartsCaseGuardBoundary = \(left) -> tokenAndThen
+  pipeStartsCaseGuardBoundary :: ParserContext -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(Bool).
+  pipeStartsCaseGuardBoundary = \(context, parentOperator, minimum, left) -> tokenAndThen
     (\(prefix) -> case prefix {
       | Just (pattern, remaining) -> case remaining {
         | [first | rest] -> case canonicalTokenKind first {
           | PunctuationKind ArrowPunctuation -> tokenSucceed
-            (if guardBoundaryPatternIsDefinite pattern then expressionHasPipeRoot left else False)
+            (if guardBoundaryPatternIsDefinite pattern then
+              if casePipeCanContinueExpression context parentOperator minimum left then False else True
+              else False)
           | KeywordKind IfKeyword -> tokenSucceed
             (if guardBoundaryPatternIsDefinite pattern then guardTokensEndAtArrow rest else False)
           | other -> tokenSucceed False
@@ -783,8 +812,8 @@ module ParserExpression (
     })
     (tokenOptional (tokenAttempt parseSignatureType)).
 
-  parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
-  parseCaseOperatorContinuation = \(context, guardMode, stop, parseBlock, minimum, left, operatorToken, symbol) ->
+  parseCaseOperatorContinuation :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> SurfaceExpr -> CanonicalToken -> Text -> TokenParser(SurfaceExpr).
+  parseCaseOperatorContinuation = \(context, guardMode, stop, parseBlock, parentOperator, minimum, left, operatorToken, symbol) ->
     case parserContextLookupOperator context symbol {
       | Nothing -> tokenFailAtSpan
         (canonicalTokenSpan operatorToken)
@@ -800,6 +829,7 @@ module ParserExpression (
                 guardMode
                 stop
                 parseBlock
+                parentOperator
                 minimum
                 (BinaryExpression symbol left right)))
             (parseCasePipeExpressionWithMinimum
@@ -807,11 +837,12 @@ module ParserExpression (
               guardMode
               (\(tokens) -> samePrecedenceNonAssociativeStop context info stop tokens)
               parseBlock
+              (Just symbol)
               (operatorNextMinimum info)))
     }.
 
-  parseCasePipeExpressionTailFrom :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseCasePipeExpressionTailFrom = \(context, guardMode, stop, parseBlock, minimum, remaining, left) ->
+  parseCasePipeExpressionTailFrom :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> [CanonicalToken] -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTailFrom = \(context, guardMode, stop, parseBlock, parentOperator, minimum, remaining, left) ->
     if stop remaining then tokenSucceed left else case remaining {
       | [operatorToken | afterOperator] -> case canonicalTokenKind operatorToken {
         | OperatorKind symbol -> if tokensStartRightParen afterOperator then tokenSucceed left else
@@ -822,16 +853,20 @@ module ParserExpression (
                 guardMode
                 stop
                 parseBlock
+                parentOperator
                 minimum
                 left
                 operatorToken
                 symbol)
-            (if guardMode then pipeStartsCaseGuardBoundary left else pipeStartsCaseArmBoundary left)
+            (if guardMode then
+              pipeStartsCaseGuardBoundary context parentOperator minimum left
+              else pipeStartsCaseArmBoundary context parentOperator minimum left)
             else parseCaseOperatorContinuation
               context
               guardMode
               stop
               parseBlock
+              parentOperator
               minimum
               left
               operatorToken
@@ -841,15 +876,15 @@ module ParserExpression (
       | [] -> tokenSucceed left
     }.
 
-  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, minimum, left) -> tokenAndThen
-    (\(remaining) -> parseCasePipeExpressionTailFrom context guardMode stop parseBlock minimum remaining left)
+  parseCasePipeExpressionTail :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionTail = \(context, guardMode, stop, parseBlock, parentOperator, minimum, left) -> tokenAndThen
+    (\(remaining) -> parseCasePipeExpressionTailFrom context guardMode stop parseBlock parentOperator minimum remaining left)
     tokenRemaining.
 
-  parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Int -> TokenParser(SurfaceExpr).
-  parseCasePipeExpressionWithMinimum = \(context, guardMode, stop, parseBlock, minimum) -> {
+  parseCasePipeExpressionWithMinimum :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> Maybe(Text) -> Int -> TokenParser(SurfaceExpr).
+  parseCasePipeExpressionWithMinimum = \(context, guardMode, stop, parseBlock, parentOperator, minimum) -> {
     parseExpressionUntil = \(nestedStop) ->
-      parseCasePipeExpressionWithMinimum context guardMode nestedStop parseBlock 1.
+      parseCasePipeExpressionWithMinimum context guardMode nestedStop parseBlock Nothing 1.
     primary = parsePrimary context parseExpressionUntil stop parseBlock.
     applicationTail = \(function) -> tokenAndThen
       (\(remaining) -> if stop remaining then tokenSucceed function else case remaining {
@@ -861,7 +896,7 @@ module ParserExpression (
               (parseTypeApplicationArgument applicationToken))
             (tokenPunctuation AtPunctuation)
           | OperatorKind symbol ->
-            parseCasePipeExpressionTailFrom context guardMode stop parseBlock minimum remaining function
+            parseCasePipeExpressionTailFrom context guardMode stop parseBlock parentOperator minimum remaining function
           | other -> if startsPrimary token then tokenAndThen
             (\(argument) -> applicationTail (ApplyExpression function argument))
             primary
@@ -875,7 +910,7 @@ module ParserExpression (
 
   parseCasePipeExpression :: ParserContext -> Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseCasePipeExpression = \(context, guardMode, stop, parseBlock) ->
-    parseCasePipeExpressionWithMinimum context guardMode stop parseBlock 1.
+    parseCasePipeExpressionWithMinimum context guardMode stop parseBlock Nothing 1.
 
   parseCaseScrutinee :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> TokenParser(SurfaceExpr).
   parseCaseScrutinee = \(parseExpressionUntil) -> parseExpressionUntil caseBodyStarts.

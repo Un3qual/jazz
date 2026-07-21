@@ -8,6 +8,9 @@ import JazzNext.Compiler.Bootstrap.JazzParserScale
 import JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
   ( assertScaleRun,
     fullExpressionLimits,
+    fullScaleWorkload,
+    scaleWorkloadBindingCount,
+    scaleWorkloadExpectedStatementCount,
   )
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (RuntimeObservationStatistics),
@@ -18,12 +21,13 @@ import JazzNext.TestHarness
 
 main :: IO ()
 main =
-  runTestSuite "JazzParserScaleFullExpression"
+  runTestSuite
+    "JazzParserScaleFullExpression"
     [ ("parses the full generated expression program", testFullExpressionScale)
     ]
 
 testFullExpressionScale :: IO ()
 testFullExpressionScale = do
-  result <- runJazzParserScale RuntimeObservationStatistics 512
-  statistics <- assertScaleRun "full expression" 513 fullExpressionLimits result
+  result <- runJazzParserScale RuntimeObservationStatistics (scaleWorkloadBindingCount fullScaleWorkload)
+  statistics <- assertScaleRun "full expression" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullExpressionLimits result
   putStrLn ("SCALE_STATS full-expression " <> show statistics)

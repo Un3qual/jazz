@@ -2,12 +2,18 @@
 
 module JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
   ( ScaleLimits (..),
+    ScaleWorkload,
     assertDeterministicScalePair,
     assertScaleRun,
+    fullScaleWorkload,
     fullControlFlowLimits,
     fullDeclarationsLimits,
     fullExpressionLimits,
     fullOperatorLimits,
+    scaleWorkloadBindingCount,
+    scaleWorkloadDeclarationGroupCount,
+    scaleWorkloadExpectedStatementCount,
+    smokeScaleWorkload,
     smokeControlFlowLimits,
     smokeDeclarationsLimits,
     smokeExpressionLimits,
@@ -40,6 +46,28 @@ data ScaleLimits = ScaleLimits
     scaleListCellCeiling :: Word64,
     scaleContinuationDepthCeiling :: Word64
   }
+
+data ScaleWorkload = ScaleWorkload
+  { scaleWorkloadBindingCount :: Int,
+    scaleWorkloadDeclarationGroupCount :: Int,
+    scaleWorkloadExpectedStatementCount :: Int
+  }
+
+smokeScaleWorkload :: ScaleWorkload
+smokeScaleWorkload =
+  ScaleWorkload
+    { scaleWorkloadBindingCount = 64,
+      scaleWorkloadDeclarationGroupCount = 16,
+      scaleWorkloadExpectedStatementCount = 65
+    }
+
+fullScaleWorkload :: ScaleWorkload
+fullScaleWorkload =
+  ScaleWorkload
+    { scaleWorkloadBindingCount = 512,
+      scaleWorkloadDeclarationGroupCount = 128,
+      scaleWorkloadExpectedStatementCount = 513
+    }
 
 assertDeterministicScalePair :: Text -> Int -> ScaleLimits -> IO RunResult -> IO ()
 assertDeterministicScalePair label expectedStatementCount limits run = do

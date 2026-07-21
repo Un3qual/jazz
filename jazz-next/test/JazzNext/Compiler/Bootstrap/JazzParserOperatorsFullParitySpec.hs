@@ -84,6 +84,10 @@ tests =
     ("parses operators in case guards", assertStage0Parity "case operator guard" "x = case value { | item if item > 0 -> item | _ -> 0 }."),
     ("parses operators in case bodies", assertStage0Parity "case operator body" "x = case value { | item -> item + 1 | _ -> 0 }."),
     ("preserves case-arm pipe ownership", assertStage0Parity "case arm pipe" "x = case value { | item if left | right | True -> item }."),
+    ("preserves tier-3 left-associative roots before case-guard pipes", assertStage0Parity "tier-3 left-associative case guard pipe" "operator %% tier 3 left. x = case value { | item if left %% right | True -> item | _ -> 0 }."),
+    ("preserves tier-3 non-associative roots before case-guard pipes", assertStage0Parity "tier-3 non-associative case guard pipe" "operator %% tier 3 nonassoc. x = case value { | item if (left %% right) | True -> item | _ -> 0 }."),
+    ("preserves tier-3 left-associative roots before case-body pipes", assertStage0Parity "tier-3 left-associative case body pipe" "operator %% tier 3 left. x = case value { | item -> left %% right | 1 | 2 -> item | _ -> 0 }."),
+    ("preserves tier-3 non-associative roots before case-body pipes", assertStage0Parity "tier-3 non-associative case body pipe" "operator %% tier 3 nonassoc. x = case value { | item -> (left %% right) | 1 | 2 -> item | _ -> 0 }."),
     ("parses operators in nested blocks", assertStage0Parity "nested block operator" "x = { y = 1 + 2 * 3. y. }."),
     ("parses sections inside composite expressions", assertStage0Parity "composite sections" "xs = [(+ 1), (10 -), (*)].")
   ]

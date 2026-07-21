@@ -8,6 +8,9 @@ import JazzNext.Compiler.Bootstrap.JazzParserScale
 import JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
   ( assertScaleRun,
     fullControlFlowLimits,
+    fullScaleWorkload,
+    scaleWorkloadBindingCount,
+    scaleWorkloadExpectedStatementCount,
   )
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (RuntimeObservationStatistics),
@@ -18,12 +21,13 @@ import JazzNext.TestHarness
 
 main :: IO ()
 main =
-  runTestSuite "JazzParserScaleFullControlFlow"
+  runTestSuite
+    "JazzParserScaleFullControlFlow"
     [ ("parses the full generated control-flow program", testFullControlFlowScale)
     ]
 
 testFullControlFlowScale :: IO ()
 testFullControlFlowScale = do
-  result <- runJazzParserControlFlowScale RuntimeObservationStatistics 512
-  statistics <- assertScaleRun "full control-flow" 513 fullControlFlowLimits result
+  result <- runJazzParserControlFlowScale RuntimeObservationStatistics (scaleWorkloadBindingCount fullScaleWorkload)
+  statistics <- assertScaleRun "full control-flow" (scaleWorkloadExpectedStatementCount fullScaleWorkload) fullControlFlowLimits result
   putStrLn ("SCALE_STATS full-control-flow " <> show statistics)

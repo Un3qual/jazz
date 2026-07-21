@@ -10,10 +10,14 @@ import JazzNext.Compiler.Bootstrap.JazzParserScale
   )
 import JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
   ( assertDeterministicScalePair,
+    scaleWorkloadBindingCount,
+    scaleWorkloadDeclarationGroupCount,
+    scaleWorkloadExpectedStatementCount,
     smokeControlFlowLimits,
     smokeDeclarationsLimits,
     smokeExpressionLimits,
     smokeOperatorLimits,
+    smokeScaleWorkload,
   )
 import JazzNext.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (RuntimeObservationStatistics),
@@ -28,17 +32,17 @@ main = runTestSuite "JazzParserScale" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses a generated expression smoke program deterministically", assertDeterministicScalePair "expression" smokeStatementCount smokeExpressionLimits (runJazzParserScale RuntimeObservationStatistics smokeBindingCount)),
-    ("parses generated declaration smoke program deterministically", assertDeterministicScalePair "declarations" smokeStatementCount smokeDeclarationsLimits (runJazzParserDeclarationsScale RuntimeObservationStatistics smokeDeclarationGroupCount)),
-    ("parses generated control-flow smoke program deterministically", assertDeterministicScalePair "control-flow" smokeStatementCount smokeControlFlowLimits (runJazzParserControlFlowScale RuntimeObservationStatistics smokeBindingCount)),
-    ("parses generated operator smoke program deterministically", assertDeterministicScalePair "operator" smokeStatementCount smokeOperatorLimits (runJazzParserOperatorScale RuntimeObservationStatistics smokeBindingCount))
+  [ ("parses a generated expression smoke program deterministically", assertDeterministicScalePair "expression" expectedStatementCount smokeExpressionLimits (runJazzParserScale RuntimeObservationStatistics bindingCount)),
+    ("parses generated declaration smoke program deterministically", assertDeterministicScalePair "declarations" expectedStatementCount smokeDeclarationsLimits (runJazzParserDeclarationsScale RuntimeObservationStatistics declarationGroupCount)),
+    ("parses generated control-flow smoke program deterministically", assertDeterministicScalePair "control-flow" expectedStatementCount smokeControlFlowLimits (runJazzParserControlFlowScale RuntimeObservationStatistics bindingCount)),
+    ("parses generated operator smoke program deterministically", assertDeterministicScalePair "operator" expectedStatementCount smokeOperatorLimits (runJazzParserOperatorScale RuntimeObservationStatistics bindingCount))
   ]
 
-smokeBindingCount :: Int
-smokeBindingCount = 64
+bindingCount :: Int
+bindingCount = scaleWorkloadBindingCount smokeScaleWorkload
 
-smokeDeclarationGroupCount :: Int
-smokeDeclarationGroupCount = 16
+declarationGroupCount :: Int
+declarationGroupCount = scaleWorkloadDeclarationGroupCount smokeScaleWorkload
 
-smokeStatementCount :: Int
-smokeStatementCount = 65
+expectedStatementCount :: Int
+expectedStatementCount = scaleWorkloadExpectedStatementCount smokeScaleWorkload
