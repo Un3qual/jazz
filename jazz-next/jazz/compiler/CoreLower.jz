@@ -2,10 +2,11 @@ module CoreLower (
   value lowerFoundationExpression,
   value lowerControlFlowPatternsExpression,
   value lowerSignaturesDeclarationsOperatorsExpression,
-  value lowerCanonicalExpression
+  value lowerCanonicalExpression,
+  value lowerModule
 ) {
   import CoreTypes.
-  import LexerTypes (CanonicalSpan).
+  import LexerTypes (CanonicalSourcePath, CanonicalSpan).
   import List (listPrepend, listReverse).
   import Maybe.
   import NonEmpty (NonEmpty).
@@ -13,6 +14,8 @@ module CoreLower (
   import Text (textIsEmpty, textSplit, textStartsWith).
 
   data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile | SignaturesDeclarationsOperatorsProfile | ModulesCorpusClosureProfile.
+
+  data CollectedModuleDeclaration = CollectedModuleDeclaration CoreModuleDeclaration (Maybe([CoreModuleExportSelector])).
 
   profileAllows :: LoweringProfile -> LoweringProfile -> Bool.
   profileAllows = \(available, required) -> case available {
@@ -490,5 +493,334 @@ module CoreLower (
   lowerCanonicalExpression :: SurfaceExpr -> CoreExpr.
   lowerCanonicalExpression = \(expression) -> case lowerProfiledExpression expression {
     | (required, lowered) -> lowered
+  }.
+
+  qualifySpan :: CanonicalSourcePath -> CoreSpan -> CoreSpan.
+  qualifySpan = \(sourcePath, span) -> case span {
+    | CoreSpan maybePath line column -> CoreSpan (Just sourcePath) line column
+  }.
+
+  qualifyOptionalExpression :: CanonicalSourcePath -> Maybe(CoreExpr) -> Maybe(CoreExpr).
+  qualifyOptionalExpression = \(sourcePath, maybeExpression) -> case maybeExpression {
+    | Nothing -> Nothing
+    | Just expression -> Just (qualifyExpression sourcePath expression)
+  }.
+
+  qualifyCaseArm :: CanonicalSourcePath -> CoreCaseArm -> CoreCaseArm.
+  qualifyCaseArm = \(sourcePath, arm) -> case arm {
+    | CoreCaseArm pattern guard body ->
+      CoreCaseArm
+        pattern
+        (qualifyOptionalExpression sourcePath guard)
+        (qualifyExpression sourcePath body)
+  }.
+
+  qualifyCaseArmsFrom :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm] -> [CoreCaseArm].
+  qualifyCaseArmsFrom = \(sourcePath, arms, reversed) -> case arms {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyCaseArmsFrom sourcePath rest (listPrepend (qualifyCaseArm sourcePath first) reversed)
+  }.
+
+  qualifyCaseArms :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm].
+  qualifyCaseArms = \(sourcePath, arms) -> qualifyCaseArmsFrom sourcePath arms [].
+
+  qualifyClassMethod :: CanonicalSourcePath -> CoreClassMethodSignature -> CoreClassMethodSignature.
+  qualifyClassMethod = \(sourcePath, method) -> case method {
+    | CoreClassMethodSignature name span payload ->
+      CoreClassMethodSignature name (qualifySpan sourcePath span) payload
+  }.
+
+  qualifyClassMethodsFrom :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  qualifyClassMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyClassMethodsFrom sourcePath rest (listPrepend (qualifyClassMethod sourcePath first) reversed)
+  }.
+
+  qualifyClassMethods :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  qualifyClassMethods = \(sourcePath, methods) -> qualifyClassMethodsFrom sourcePath methods [].
+
+  qualifyImplMethod :: CanonicalSourcePath -> CoreImplMethod -> CoreImplMethod.
+  qualifyImplMethod = \(sourcePath, method) -> case method {
+    | CoreImplMethod name span body ->
+      CoreImplMethod name (qualifySpan sourcePath span) (qualifyExpression sourcePath body)
+  }.
+
+  qualifyImplMethodsFrom :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod] -> [CoreImplMethod].
+  qualifyImplMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyImplMethodsFrom sourcePath rest (listPrepend (qualifyImplMethod sourcePath first) reversed)
+  }.
+
+  qualifyImplMethods :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod].
+  qualifyImplMethods = \(sourcePath, methods) -> qualifyImplMethodsFrom sourcePath methods [].
+
+  qualifyStatement :: CanonicalSourcePath -> CoreStatement -> CoreStatement.
+  qualifyStatement = \(sourcePath, statement) -> case statement {
+    | CoreLetStatement name span expression ->
+      CoreLetStatement name (qualifySpan sourcePath span) (qualifyExpression sourcePath expression)
+    | CoreSignatureStatement name span payload ->
+      CoreSignatureStatement name (qualifySpan sourcePath span) payload
+    | CoreDataStatement span name parameters constructors ->
+      CoreDataStatement (qualifySpan sourcePath span) name parameters constructors
+    | CoreClassStatement span name parameters methods ->
+      CoreClassStatement
+        (qualifySpan sourcePath span)
+        name
+        parameters
+        (qualifyClassMethods sourcePath methods)
+    | CoreImplStatement span name arguments methods ->
+      CoreImplStatement
+        (qualifySpan sourcePath span)
+        name
+        arguments
+        (qualifyImplMethods sourcePath methods)
+    | CoreModuleStatement span path ->
+      CoreModuleStatement (qualifySpan sourcePath span) path
+    | CoreImportStatement span path alias symbols ->
+      CoreImportStatement (qualifySpan sourcePath span) path alias symbols
+    | CoreExpressionStatement span expression ->
+      CoreExpressionStatement (qualifySpan sourcePath span) (qualifyExpression sourcePath expression)
+  }.
+
+  qualifyStatementsFrom :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement] -> [CoreStatement].
+  qualifyStatementsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyStatementsFrom sourcePath rest (listPrepend (qualifyStatement sourcePath first) reversed)
+  }.
+
+  qualifyStatements :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement].
+  qualifyStatements = \(sourcePath, statements) -> qualifyStatementsFrom sourcePath statements [].
+
+  qualifyExpressionsFrom :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr] -> [CoreExpr].
+  qualifyExpressionsFrom = \(sourcePath, expressions, reversed) -> case expressions {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyExpressionsFrom sourcePath rest (listPrepend (qualifyExpression sourcePath first) reversed)
+  }.
+
+  qualifyExpressions :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr].
+  qualifyExpressions = \(sourcePath, expressions) -> qualifyExpressionsFrom sourcePath expressions [].
+
+  qualifyExpression :: CanonicalSourcePath -> CoreExpr -> CoreExpr.
+  qualifyExpression = \(sourcePath, expression) -> case expression {
+    | CoreLiteralExpression literal -> CoreLiteralExpression literal
+    | CoreVariableExpression name -> CoreVariableExpression name
+    | CoreLambdaExpression parameter body ->
+      CoreLambdaExpression parameter (qualifyExpression sourcePath body)
+    | CoreOperatorValueExpression symbol -> CoreOperatorValueExpression symbol
+    | CoreListExpression elements ->
+      CoreListExpression (qualifyExpressions sourcePath elements)
+    | CoreTupleExpression elements ->
+      CoreTupleExpression (qualifyExpressions sourcePath elements)
+    | CoreApplyExpression function argument ->
+      CoreApplyExpression
+        (qualifyExpression sourcePath function)
+        (qualifyExpression sourcePath argument)
+    | CoreTypeApplicationExpression function span signatureType ->
+      CoreTypeApplicationExpression
+        (qualifyExpression sourcePath function)
+        (qualifySpan sourcePath span)
+        signatureType
+    | CoreIfExpression condition thenBranch elseBranch ->
+      CoreIfExpression
+        (qualifyExpression sourcePath condition)
+        (qualifyExpression sourcePath thenBranch)
+        (qualifyExpression sourcePath elseBranch)
+    | CorePatternCaseExpression scrutinee arms ->
+      CorePatternCaseExpression
+        (qualifyExpression sourcePath scrutinee)
+        (qualifyCaseArms sourcePath arms)
+    | CoreBinaryExpression symbol left right ->
+      CoreBinaryExpression
+        symbol
+        (qualifyExpression sourcePath left)
+        (qualifyExpression sourcePath right)
+    | CoreLeftSectionExpression left symbol ->
+      CoreLeftSectionExpression (qualifyExpression sourcePath left) symbol
+    | CoreRightSectionExpression symbol right ->
+      CoreRightSectionExpression symbol (qualifyExpression sourcePath right)
+    | CoreBlockExpression statements ->
+      CoreBlockExpression (qualifyStatements sourcePath statements)
+  }.
+
+  lowerNameNamespace :: SurfaceNameNamespace -> CoreNameNamespace.
+  lowerNameNamespace = \(namespace) -> case namespace {
+    | ValueName -> CoreValueName
+    | ConstructorName -> CoreConstructorName
+    | TypeName -> CoreTypeName
+    | CapabilityName -> CoreCapabilityName
+  }.
+
+  lowerOptionalNameNamespace :: Maybe(SurfaceNameNamespace) -> Maybe(CoreNameNamespace).
+  lowerOptionalNameNamespace = \(maybeNamespace) -> case maybeNamespace {
+    | Nothing -> Nothing
+    | Just namespace -> Just (lowerNameNamespace namespace)
+  }.
+
+  lowerLocatedExportName :: CanonicalSourcePath -> SurfaceLocatedExportName -> CoreLocatedExportName.
+  lowerLocatedExportName = \(sourcePath, located) -> case located {
+    | SurfaceLocatedExportName name span ->
+      CoreLocatedExportName name (qualifySpan sourcePath (lowerFoundationSpan span))
+  }.
+
+  lowerLocatedExportNamesFrom :: CanonicalSourcePath -> [SurfaceLocatedExportName] -> [CoreLocatedExportName] -> [CoreLocatedExportName].
+  lowerLocatedExportNamesFrom = \(sourcePath, names, reversed) -> case names {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerLocatedExportNamesFrom sourcePath rest (listPrepend (lowerLocatedExportName sourcePath first) reversed)
+  }.
+
+  lowerLocatedExportNames :: CanonicalSourcePath -> NonEmpty(SurfaceLocatedExportName) -> NonEmpty(CoreLocatedExportName).
+  lowerLocatedExportNames = \(sourcePath, names) -> case names {
+    | NonEmpty first rest ->
+      NonEmpty
+        (lowerLocatedExportName sourcePath first)
+        (lowerLocatedExportNamesFrom sourcePath rest [])
+  }.
+
+  lowerTypeConstructorSelector :: CanonicalSourcePath -> SurfaceTypeConstructorSelector -> CoreTypeConstructorSelector.
+  lowerTypeConstructorSelector = \(sourcePath, selector) -> case selector {
+    | AbstractTypeSelector -> CoreAbstractType
+    | AllConstructorsSelector span ->
+      CoreAllConstructors (qualifySpan sourcePath (lowerFoundationSpan span))
+    | SelectedConstructorsSelector names ->
+      CoreSelectedConstructors (lowerLocatedExportNames sourcePath names)
+  }.
+
+  lowerModuleExportSelector :: CanonicalSourcePath -> SurfaceModuleExportSelector -> CoreModuleExportSelector.
+  lowerModuleExportSelector = \(sourcePath, selector) -> case selector {
+    | NamedExportSelector maybeNamespace name ->
+      CoreNamedExportSelector (lowerOptionalNameNamespace maybeNamespace) name
+    | TypeExportSelector name span constructorSelector ->
+      CoreTypeExportSelector
+        name
+        (qualifySpan sourcePath (lowerFoundationSpan span))
+        (lowerTypeConstructorSelector sourcePath constructorSelector)
+  }.
+
+  lowerModuleExportSelectorsFrom :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector] -> [CoreModuleExportSelector].
+  lowerModuleExportSelectorsFrom = \(sourcePath, selectors, reversed) -> case selectors {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerModuleExportSelectorsFrom sourcePath rest (listPrepend (lowerModuleExportSelector sourcePath first) reversed)
+  }.
+
+  lowerModuleExportSelectors :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector].
+  lowerModuleExportSelectors = \(sourcePath, selectors) -> lowerModuleExportSelectorsFrom sourcePath selectors [].
+
+  lowerOptionalModuleExports :: CanonicalSourcePath -> Maybe([SurfaceModuleExportSelector]) -> Maybe([CoreModuleExportSelector]).
+  lowerOptionalModuleExports = \(sourcePath, maybeExports) -> case maybeExports {
+    | Nothing -> Nothing
+    | Just selectors -> Just (lowerModuleExportSelectors sourcePath selectors)
+  }.
+
+  collectDeclarationsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CollectedModuleDeclaration] -> [CollectedModuleDeclaration].
+  collectDeclarationsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ModuleStatement span path exports ->
+        collectDeclarationsFrom
+          sourcePath
+          rest
+          ( listPrepend
+              ( CollectedModuleDeclaration
+                  (CoreModuleDeclaration (qualifySpan sourcePath (lowerFoundationSpan span)) path)
+                  (lowerOptionalModuleExports sourcePath exports)
+              )
+              reversed
+          )
+      | other -> collectDeclarationsFrom sourcePath rest reversed
+    }
+  }.
+
+  collectDeclarations :: CanonicalSourcePath -> [SurfaceStatement] -> [CollectedModuleDeclaration].
+  collectDeclarations = \(sourcePath, statements) -> collectDeclarationsFrom sourcePath statements [].
+
+  collectImportsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CoreResolvedImport] -> [CoreResolvedImport].
+  collectImportsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ImportStatement span path alias symbols ->
+        collectImportsFrom
+          sourcePath
+          rest
+          ( listPrepend
+              (CoreResolvedImport (qualifySpan sourcePath (lowerFoundationSpan span)) path alias symbols)
+              reversed
+          )
+      | other -> collectImportsFrom sourcePath rest reversed
+    }
+  }.
+
+  collectImports :: CanonicalSourcePath -> [SurfaceStatement] -> [CoreResolvedImport].
+  collectImports = \(sourcePath, statements) -> collectImportsFrom sourcePath statements [].
+
+  collectExecutableStatementsFrom :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement].
+  collectExecutableStatementsFrom = \(statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ModuleStatement span path exports -> collectExecutableStatementsFrom rest reversed
+      | ImportStatement span path alias symbols -> collectExecutableStatementsFrom rest reversed
+      | other -> collectExecutableStatementsFrom rest (listPrepend first reversed)
+    }
+  }.
+
+  collectExecutableStatements :: [SurfaceStatement] -> [SurfaceStatement].
+  collectExecutableStatements = \(statements) -> collectExecutableStatementsFrom statements [].
+
+  declarationValue :: CollectedModuleDeclaration -> CoreModuleDeclaration.
+  declarationValue = \(collected) -> case collected {
+    | CollectedModuleDeclaration declaration exports -> declaration
+  }.
+
+  declarationValuesFrom :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration] -> [CoreModuleDeclaration].
+  declarationValuesFrom = \(declarations, reversed) -> case declarations {
+    | [] -> listReverse reversed
+    | [first | rest] -> declarationValuesFrom rest (listPrepend (declarationValue first) reversed)
+  }.
+
+  declarationValues :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration].
+  declarationValues = \(declarations) -> declarationValuesFrom declarations [].
+
+  declaredExports :: CoreSpan -> Maybe([CoreModuleExportSelector]) -> Maybe(CoreDeclaredModuleExports).
+  declaredExports = \(span, maybeExports) -> case maybeExports {
+    | Nothing -> Nothing
+    | Just exports -> Just (CoreDeclaredModuleExports span exports)
+  }.
+
+  moduleResult :: CanonicalSourcePath -> [Text] -> [CoreResolvedImport] -> CoreExpr -> [CollectedModuleDeclaration] -> CoreModuleLoweringResult.
+  moduleResult = \(sourcePath, expectedPath, imports, body, declarations) -> case declarations {
+    | [] -> CoreModuleLowered (CoreModule Nothing Nothing imports body)
+    | [CollectedModuleDeclaration declaration exports] -> case declaration {
+      | CoreModuleDeclaration span declaredPath -> if declaredPath == expectedPath then
+        CoreModuleLowered
+          (CoreModule (Just declaredPath) (declaredExports span exports) imports body)
+      else
+        CoreModuleLoweringFailed
+          (CoreModulePathMismatchFailure sourcePath expectedPath declaration)
+    }
+    | multiple ->
+      CoreModuleLoweringFailed
+        (CoreMultipleModuleDeclarationsFailure sourcePath (declarationValues multiple))
+  }.
+
+  lowerModule :: CanonicalSourcePath -> [Text] -> SurfaceExpr -> CoreModuleLoweringResult.
+  lowerModule = \(sourcePath, expectedPath, expression) -> {
+    statements = case expression {
+      | BlockExpression values -> values
+      | other -> []
+    }.
+    executable = case expression {
+      | BlockExpression values -> BlockExpression (collectExecutableStatements values)
+      | other -> expression
+    }.
+    declarations = collectDeclarations sourcePath statements.
+    imports = collectImports sourcePath statements.
+    body = qualifyExpression sourcePath (lowerCanonicalExpression executable).
+    moduleResult sourcePath expectedPath imports body declarations.
   }.
 }

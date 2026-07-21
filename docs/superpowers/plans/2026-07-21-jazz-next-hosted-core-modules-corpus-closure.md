@@ -183,22 +183,22 @@ fixtures.
 **Produces:** `lowerModule` with exact extraction, validation, selector
 conversion, structured failures, and complete qualification.
 
-- [ ] Add the 17 direct fixtures in the approved order and compare their
+- [x] Add the 17 direct fixtures in the approved order and compare their
   complete expected module results through the stage-0 detailed lowerer and
   canonical adapter. Include explicit assertions for omitted/empty exports,
   metadata order, nested import retention, all span owners, and both failures.
-- [ ] Run the focused suite and confirm module-result cases fail because
+- [x] Run the focused suite and confirm module-result cases fail because
   `lowerModule` is absent while Task-1 expression cases remain green.
-- [ ] Add pure conversion helpers for namespaces, located names, type
+- [x] Add pure conversion helpers for namespaces, located names, type
   constructor selectors, export selectors, declarations, and resolved imports.
-- [ ] Collect and remove only top-level metadata in source order; validate
+- [x] Collect and remove only top-level metadata in source order; validate
   declaration count before path equality; preserve the exact declaration list
   in `CoreMultipleModuleDeclarationsFailure`.
-- [ ] Add one recursive qualification pass for every span-bearing core owner
+- [x] Add one recursive qualification pass for every span-bearing core owner
   plus metadata/failure declaration spans. Keep line and column unchanged.
-- [ ] Run the focused suite twice and the three earlier core suites; require
+- [x] Run the focused suite twice and the three earlier core suites; require
   exact structural results and unchanged direct-expression spans.
-- [ ] Commit as `feat: lower hosted core modules`.
+- [x] Commit as `feat: lower hosted core modules`.
 
 ### Task 3: Compose source parsing and module lowering
 
