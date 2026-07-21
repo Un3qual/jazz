@@ -382,6 +382,20 @@ test-suite jazz-core-expression-foundation-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-core-control-flow-patterns-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite parser-core-spec
   import: test-common
   type: exitcode-stdio-1.0

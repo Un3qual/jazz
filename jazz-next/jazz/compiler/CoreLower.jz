@@ -1,10 +1,21 @@
-module CoreLower (value lowerFoundationExpression) {
+module CoreLower (
+  value lowerFoundationExpression,
+  value lowerControlFlowPatternsExpression
+) {
   import CoreTypes.
   import LexerTypes (CanonicalSpan).
   import List (listPrepend, listReverse).
   import Maybe.
   import ParserTypes.
   import Text (textStartsWith).
+
+  data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile.
+
+  allowsControlFlowPatterns :: LoweringProfile -> Bool.
+  allowsControlFlowPatterns = \(profile) -> case profile {
+    | FoundationProfile -> False
+    | ControlFlowPatternsProfile -> True
+  }.
 
   lowerFoundationNumericType :: SurfaceNumericType -> CoreNumericType.
   lowerFoundationNumericType = \(numericType) -> case numericType {
@@ -42,22 +53,22 @@ module CoreLower (value lowerFoundationExpression) {
     | CanonicalSpan line column -> CoreSpan Nothing line column
   }.
 
-  lowerFoundationExpressionsFrom :: [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
-  lowerFoundationExpressionsFrom = \(expressions, reversed) -> case expressions {
+  lowerExpressionsFrom :: LoweringProfile -> [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
+  lowerExpressionsFrom = \(profile, expressions, reversed) -> case expressions {
     | [] -> Just (listReverse reversed)
-    | [first | rest] -> case lowerFoundationExpression first {
+    | [first | rest] -> case lowerExpressionWithProfile profile first {
       | Nothing -> Nothing
-      | Just lowered -> lowerFoundationExpressionsFrom rest (listPrepend lowered reversed)
+      | Just lowered -> lowerExpressionsFrom profile rest (listPrepend lowered reversed)
     }
   }.
 
-  lowerFoundationExpressions :: [SurfaceExpr] -> Maybe([CoreExpr]).
-  lowerFoundationExpressions = \(expressions) -> lowerFoundationExpressionsFrom expressions [].
+  lowerExpressions :: LoweringProfile -> [SurfaceExpr] -> Maybe([CoreExpr]).
+  lowerExpressions = \(profile, expressions) -> lowerExpressionsFrom profile expressions [].
 
-  lowerFoundationStatement :: SurfaceStatement -> Maybe(CoreStatement).
-  lowerFoundationStatement = \(statement) -> case statement {
+  lowerStatement :: LoweringProfile -> SurfaceStatement -> Maybe(CoreStatement).
+  lowerStatement = \(profile, statement) -> case statement {
     | LetStatement name span expression -> if textStartsWith "$operator:" name then Nothing else
-      case lowerFoundationExpression expression {
+      case lowerExpressionWithProfile profile expression {
         | Nothing -> Nothing
         | Just lowered -> Just (CoreLetStatement (CoreSourceName name) (lowerFoundationSpan span) lowered)
       }
@@ -67,69 +78,148 @@ module CoreLower (value lowerFoundationExpression) {
     | ImplStatement span name arguments methods -> Nothing
     | ModuleStatement span path exports -> Nothing
     | ImportStatement span path alias symbols -> Nothing
-    | ExpressionStatement span expression -> case lowerFoundationExpression expression {
+    | ExpressionStatement span expression -> case lowerExpressionWithProfile profile expression {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreExpressionStatement (lowerFoundationSpan span) lowered)
     }
   }.
 
-  lowerFoundationStatementsFrom :: [SurfaceStatement] -> [CoreStatement] -> Maybe([CoreStatement]).
-  lowerFoundationStatementsFrom = \(statements, reversed) -> case statements {
+  lowerStatementsFrom :: LoweringProfile -> [SurfaceStatement] -> [CoreStatement] -> Maybe([CoreStatement]).
+  lowerStatementsFrom = \(profile, statements, reversed) -> case statements {
     | [] -> Just (listReverse reversed)
-    | [first | rest] -> case lowerFoundationStatement first {
+    | [first | rest] -> case lowerStatement profile first {
       | Nothing -> Nothing
-      | Just lowered -> lowerFoundationStatementsFrom rest (listPrepend lowered reversed)
+      | Just lowered -> lowerStatementsFrom profile rest (listPrepend lowered reversed)
     }
   }.
 
-  lowerFoundationStatements :: [SurfaceStatement] -> Maybe([CoreStatement]).
-  lowerFoundationStatements = \(statements) -> lowerFoundationStatementsFrom statements [].
+  lowerStatements :: LoweringProfile -> [SurfaceStatement] -> Maybe([CoreStatement]).
+  lowerStatements = \(profile, statements) -> lowerStatementsFrom profile statements [].
 
-  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
-  lowerFoundationExpression = \(expression) -> case expression {
+  lowerPattern :: SurfacePattern -> CorePattern.
+  lowerPattern = \(pattern) -> case pattern {
+    | WildcardPattern -> CoreWildcardPattern
+    | VariablePattern name -> CoreVariablePattern (CoreSourceName name)
+    | LiteralPattern literal -> CoreLiteralPattern (lowerFoundationLiteral literal)
+    | ConstructorPattern name patterns ->
+      CoreConstructorPattern (CoreSourceName name) (lowerPatterns patterns)
+    | ListPattern patterns -> CoreListPattern (lowerPatterns patterns)
+    | ConsListPattern headPattern tailPattern ->
+      CoreConsListPattern (lowerPattern headPattern) (lowerPattern tailPattern)
+    | TuplePattern patterns -> CoreTuplePattern (lowerPatterns patterns)
+    | AsPattern name nested -> CoreAsPattern (CoreSourceName name) (lowerPattern nested)
+    | OrPattern patterns -> CoreOrPattern (lowerPatterns patterns)
+  }.
+
+  lowerPatternsFrom :: [SurfacePattern] -> [CorePattern] -> [CorePattern].
+  lowerPatternsFrom = \(patterns, reversed) -> case patterns {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerPatternsFrom rest (listPrepend (lowerPattern first) reversed)
+  }.
+
+  lowerPatterns :: [SurfacePattern] -> [CorePattern].
+  lowerPatterns = \(patterns) -> lowerPatternsFrom patterns [].
+
+  lowerOptionalExpression :: LoweringProfile -> Maybe(SurfaceExpr) -> Maybe(Maybe(CoreExpr)).
+  lowerOptionalExpression = \(profile, maybeExpression) -> case maybeExpression {
+    | Nothing -> Just Nothing
+    | Just expression -> case lowerExpressionWithProfile profile expression {
+      | Nothing -> Nothing
+      | Just lowered -> Just (Just lowered)
+    }
+  }.
+
+  lowerCaseArm :: LoweringProfile -> SurfaceCaseArm -> Maybe(CoreCaseArm).
+  lowerCaseArm = \(profile, arm) -> case arm {
+    | SurfaceCaseArm pattern guard body -> case lowerOptionalExpression profile guard {
+      | Nothing -> Nothing
+      | Just loweredGuard -> case lowerExpressionWithProfile profile body {
+        | Nothing -> Nothing
+        | Just loweredBody -> Just (CoreCaseArm (lowerPattern pattern) loweredGuard loweredBody)
+      }
+    }
+  }.
+
+  lowerCaseArmsFrom :: LoweringProfile -> [SurfaceCaseArm] -> [CoreCaseArm] -> Maybe([CoreCaseArm]).
+  lowerCaseArmsFrom = \(profile, arms, reversed) -> case arms {
+    | [] -> Just (listReverse reversed)
+    | [first | rest] -> case lowerCaseArm profile first {
+      | Nothing -> Nothing
+      | Just lowered -> lowerCaseArmsFrom profile rest (listPrepend lowered reversed)
+    }
+  }.
+
+  lowerCaseArms :: LoweringProfile -> [SurfaceCaseArm] -> Maybe([CoreCaseArm]).
+  lowerCaseArms = \(profile, arms) -> lowerCaseArmsFrom profile arms [].
+
+  lowerExpressionWithProfile :: LoweringProfile -> SurfaceExpr -> Maybe(CoreExpr).
+  lowerExpressionWithProfile = \(profile, expression) -> case expression {
     | LiteralExpression literal -> Just (CoreLiteralExpression (lowerFoundationLiteral literal))
     | VariableExpression name -> Just (CoreVariableExpression (CoreSourceName name))
     | QualifiedVariableExpression qualifier member ->
       Just (CoreVariableExpression (CoreQualifiedName qualifier member))
     | LambdaExpression parameters body -> Nothing
     | OperatorValueExpression symbol -> Just (CoreOperatorValueExpression symbol)
-    | ListExpression elements -> case lowerFoundationExpressions elements {
+    | ListExpression elements -> case lowerExpressions profile elements {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreListExpression lowered)
     }
-    | TupleExpression elements -> case lowerFoundationExpressions elements {
+    | TupleExpression elements -> case lowerExpressions profile elements {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreTupleExpression lowered)
     }
-    | ApplyExpression function argument -> case lowerFoundationExpression function {
+    | ApplyExpression function argument -> case lowerExpressionWithProfile profile function {
       | Nothing -> Nothing
-      | Just loweredFunction -> case lowerFoundationExpression argument {
+      | Just loweredFunction -> case lowerExpressionWithProfile profile argument {
         | Nothing -> Nothing
         | Just loweredArgument -> Just (CoreApplyExpression loweredFunction loweredArgument)
       }
     }
     | TypeApplicationExpression function span signatureType -> Nothing
-    | IfExpression condition thenBranch elseBranch -> Nothing
-    | CaseExpression scrutinee arms -> Nothing
-    | BinaryExpression symbol left right -> if symbol == "$" then Nothing else
-      case lowerFoundationExpression left {
+    | IfExpression condition thenBranch elseBranch -> if allowsControlFlowPatterns profile then
+      case lowerExpressionWithProfile profile condition {
         | Nothing -> Nothing
-        | Just loweredLeft -> case lowerFoundationExpression right {
+        | Just loweredCondition -> case lowerExpressionWithProfile profile thenBranch {
+          | Nothing -> Nothing
+          | Just loweredThen -> case lowerExpressionWithProfile profile elseBranch {
+            | Nothing -> Nothing
+            | Just loweredElse -> Just (CoreIfExpression loweredCondition loweredThen loweredElse)
+          }
+        }
+      } else Nothing
+    | CaseExpression scrutinee arms -> if allowsControlFlowPatterns profile then
+      case lowerExpressionWithProfile profile scrutinee {
+        | Nothing -> Nothing
+        | Just loweredScrutinee -> case lowerCaseArms profile arms {
+          | Nothing -> Nothing
+          | Just loweredArms -> Just (CorePatternCaseExpression loweredScrutinee loweredArms)
+        }
+      } else Nothing
+    | BinaryExpression symbol left right -> if symbol == "$" then Nothing else
+      case lowerExpressionWithProfile profile left {
+        | Nothing -> Nothing
+        | Just loweredLeft -> case lowerExpressionWithProfile profile right {
           | Nothing -> Nothing
           | Just loweredRight -> Just (CoreBinaryExpression symbol loweredLeft loweredRight)
         }
       }
-    | LeftSectionExpression left symbol -> case lowerFoundationExpression left {
+    | LeftSectionExpression left symbol -> case lowerExpressionWithProfile profile left {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreLeftSectionExpression lowered symbol)
     }
-    | RightSectionExpression symbol right -> case lowerFoundationExpression right {
+    | RightSectionExpression symbol right -> case lowerExpressionWithProfile profile right {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreRightSectionExpression symbol lowered)
     }
-    | BlockExpression statements -> case lowerFoundationStatements statements {
+    | BlockExpression statements -> case lowerStatements profile statements {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreBlockExpression lowered)
     }
   }.
+
+  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerFoundationExpression = lowerExpressionWithProfile FoundationProfile.
+
+  lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerControlFlowPatternsExpression = lowerExpressionWithProfile ControlFlowPatternsProfile.
 }

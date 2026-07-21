@@ -21,6 +21,7 @@ target_paths:
   - jazz-next/jazz/compiler/CoreLower.jz
   - jazz-next/jazz/compiler/CoreTypes.jz
   - jazz-next/jazz-next.cabal
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec canonical-core-comparison-spec canonical-parser-comparison-spec jazz-parser-control-flow-patterns-spec repository-audit-spec --test-show-details=failures
@@ -135,28 +136,28 @@ frontmatter, with the parent bootstrap blocker naming this child as active.
 **Produces:** The new exported child-2 wrapper, exact pattern conversion, and
 profile-aware recursive lowering without changing the foundation wrapper.
 
-- [ ] Register `jazz-core-control-flow-patterns-spec` and add the first nine
+- [x] Register `jazz-core-control-flow-patterns-spec` and add the first nine
   direct fixtures from the approved design: four conditional cases and five
   case/pattern cases, including the complete pattern inventory and guarded,
   empty-arm, nested-scrutinee, and nested-body behavior.
-- [ ] Add harness wrappers that request the new entry point while continuing to
+- [x] Add harness wrappers that request the new entry point while continuing to
   compute expected values through stage-0 `lowerSurfaceExpr` and the checked
   canonical adapter.
-- [ ] Run the new focused suite and confirm it fails because
+- [x] Run the new focused suite and confirm it fails because
   `lowerControlFlowPatternsExpression` is not exported; keep the existing
   foundation suite green.
-- [ ] Refactor foundational expression, expression-list, statement, and
+- [x] Refactor foundational expression, expression-list, statement, and
   statement-list recursion behind the two private profiles. Do not duplicate
   the child-1 constructor logic.
-- [ ] Add structural lowering for every approved pattern constructor, optional
+- [x] Add structural lowering for every approved pattern constructor, optional
   case guards, source-ordered case arms, conditionals, and recursive child-2
   subtrees.
-- [ ] Confirm `FoundationProfile` still rejects all control-flow constructors
+- [x] Confirm `FoundationProfile` still rejects all control-flow constructors
   and `ControlFlowPatternsProfile` rejects every later-child constructor.
-- [ ] Run the new focused suite, foundation suite, canonical-core suite, and
+- [x] Run the new focused suite, foundation suite, canonical-core suite, and
   canonical-parser suite; require complete exact values and no compile/runtime
   errors.
-- [ ] Commit as `feat: lower hosted core control flow`.
+- [x] Commit as `feat: lower hosted core control flow`.
 
 ### Task 2: Lower identifier and pattern lambdas with exact generated indices
 

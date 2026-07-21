@@ -2,8 +2,10 @@
 
 module JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
+    expectedControlFlowPatternsBatchRendering,
     expectedFoundationSourceBatchRendering,
     expectedParserSourceBatchRendering,
+    runJazzControlFlowPatternsBatch,
     runJazzFoundationBatch,
     runJazzFoundationSourceBatch,
     runJazzParserSourceBatch,
@@ -67,6 +69,9 @@ expectedFoundationBatchRendering expressions =
   renderRuntimeValue . (`VList` Nothing)
     <$> mapM expectedFoundationResultRuntimeValue expressions
 
+expectedControlFlowPatternsBatchRendering :: [SurfaceExpr] -> Either Text Text
+expectedControlFlowPatternsBatchRendering = expectedFoundationBatchRendering
+
 expectedFoundationResultRuntimeValue :: SurfaceExpr -> Either Text RuntimeValue
 expectedFoundationResultRuntimeValue expression =
   canonicalConstructor "Just" . pure
@@ -106,6 +111,18 @@ runJazzFoundationBatch expressions =
     """
     (map renderCall expressions)
 
+runJazzControlFlowPatternsBatch :: [SurfaceExpr] -> IO RunResult
+runJazzControlFlowPatternsBatch expressions =
+  runGeneratedBatch
+    """
+    import CoreLower (lowerControlFlowPatternsExpression).
+    import LexerTypes (CanonicalSpan).
+    import Maybe.
+    import NonEmpty.
+    import ParserTypes.
+    """
+    (map renderControlFlowPatternsCall expressions)
+
 runJazzFoundationSourceBatch :: [Text] -> IO RunResult
 runJazzFoundationSourceBatch sources =
   runGeneratedBatch
@@ -134,6 +151,11 @@ runJazzParserSourceBatch sources =
 renderCall :: SurfaceExpr -> Text
 renderCall expression =
   "lowerFoundationExpression "
+    <> renderJazzRuntimeValue (surfaceExprRuntimeValue expression)
+
+renderControlFlowPatternsCall :: SurfaceExpr -> Text
+renderControlFlowPatternsCall expression =
+  "lowerControlFlowPatternsExpression "
     <> renderJazzRuntimeValue (surfaceExprRuntimeValue expression)
 
 renderFoundationSourceCall :: Text -> Text
