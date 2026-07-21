@@ -104,21 +104,20 @@ Each blocked item should answer these questions:
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: write and approve the control-flow/pattern/lambda child
-  plan with a fixed direct/composed family and exact generated-name behavior.
-- Decision needed: approve that implementation plan before promotion. The
-  parent canonical-core design already fixes this child as the next ordered
+- Smallest unblocker: execute the active control-flow/pattern/lambda child
+  without widening its exact later-child boundary.
+- Decision needed: none for the active child. Its design and implementation
+  plan were approved on `2026-07-21`.
+- Recommended default: preserve the foundation wrapper and use one shared
+  profile-driven recursive lowerer for patterns, guarded cases, conditionals,
+  nested control flow, and multi-parameter/pattern lambdas. Retain `Nothing`
+  for signatures, declaration/operator desugaring, modules, and every backend
   stage.
-- Recommended default: extend the internal lowerer to patterns, guarded cases,
-  conditionals, nested control flow, and multi-parameter/pattern lambdas while
-  retaining `Nothing` for signatures, declaration/operator desugaring,
-  modules, and every backend stage.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` is the
-  sole `Next Curation Target`; `Ready Now` is empty.
+- Candidate child: active as
+  `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` in `Ready Now`.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  planned
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs`,
   and `jazz-next/jazz-next.cabal`.
 - Verification: focused control-flow/pattern, foundation, canonical-core,

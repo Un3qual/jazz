@@ -1,10 +1,10 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001
-status: proposed
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001
 last_verified: 2026-07-21
@@ -21,7 +21,6 @@ target_paths:
   - jazz-next/jazz/compiler/CoreLower.jz
   - jazz-next/jazz/compiler/CoreTypes.jz
   - jazz-next/jazz-next.cabal
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec canonical-core-comparison-spec canonical-parser-comparison-spec jazz-parser-control-flow-patterns-spec repository-audit-spec --test-show-details=failures
@@ -114,16 +113,16 @@ Nix-pinned development environment.
 **Produces:** One exact P1/L `Ready Now` row matching the approved plan
 frontmatter, with the parent bootstrap blocker naming this child as active.
 
-- [ ] Change plan status to `ready` and `autonomous_ready` to `yes` after user
+- [x] Change plan status to `ready` and `autonomous_ready` to `yes` after user
   approval.
-- [ ] Move the named candidate from `Next Curation Target` to `Ready Now` with
+- [x] Move the named candidate from `Next Curation Target` to `Ready Now` with
   exact dependency, plan section, target paths, deliverable, verification, and
   date parity.
-- [ ] Update the blocker contract to record the approved child while preserving
+- [x] Update the blocker contract to record the approved child while preserving
   child 3, child 4, and every backend stage as unpromoted.
-- [ ] Run `bash scripts/check-execution-queue.sh`,
+- [x] Run `bash scripts/check-execution-queue.sh`,
   `bash scripts/check-docs.sh`, and `git diff --check`.
-- [ ] Commit as `docs: promote hosted core control flow`.
+- [x] Commit as `docs: promote hosted core control flow`.
 
 ### Task 1: Lower patterns, cases, and conditionals through a shared profile
 
