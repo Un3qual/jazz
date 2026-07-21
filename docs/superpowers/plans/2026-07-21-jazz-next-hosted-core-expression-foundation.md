@@ -227,19 +227,19 @@ foundation lowerer.
 **Produces:** Exact source-to-surface-to-foundation parity without adding a
 production `Core.jz` facade early.
 
-- [ ] Add a fixed composed-source family covering scalar bindings, nested
+- [x] Add a fixed composed-source family covering scalar bindings, nested
   lists/tuples, qualified application, operator values, generic binary nodes,
   both sections, multiple statements, and empty/unit forms.
-- [ ] Compute expected results through independent stage-0 lexing, parsing,
+- [x] Compute expected results through independent stage-0 lexing, parsing,
   and `lowerSurfaceExpr`; do not adapt hosted surface output into the expected
   value.
-- [ ] Execute every direct and composed case twice and require exact identical
+- [x] Execute every direct and composed case twice and require exact identical
   canonical output.
-- [ ] Assert parser-rejected input remains parser-owned and deferred valid
+- [x] Assert parser-rejected input remains parser-owned and deferred valid
   surface forms return `Nothing`, not a lowering diagnostic.
-- [ ] Run the focused suites plus all landed hosted parser parity suites; do not
+- [x] Run the focused suites plus all landed hosted parser parity suites; do not
   invoke manual full-scale components.
-- [ ] Commit as `test: prove hosted core foundation parity`.
+- [x] Commit as `test: prove hosted core foundation parity`.
 
 ### Task 5: Verify and close the child
 

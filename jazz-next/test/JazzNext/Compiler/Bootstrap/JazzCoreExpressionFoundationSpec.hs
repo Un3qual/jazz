@@ -6,7 +6,11 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
+    expectedFoundationSourceBatchRendering,
+    expectedParserSourceBatchRendering,
     runJazzFoundationBatch,
+    runJazzFoundationSourceBatch,
+    runJazzParserSourceBatch,
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -34,7 +38,9 @@ main = runTestSuite "JazzCoreExpressionFoundation" tests
 tests :: [NamedTest]
 tests =
   [ ("matches stage 0 for every foundational expression form", testFoundationParity),
-    ("rejects every deferred or recursively unsupported form", testUnsupportedBoundary)
+    ("rejects every deferred or recursively unsupported form", testUnsupportedBoundary),
+    ("matches stage 0 through the hosted parser twice", testComposedParity),
+    ("keeps parser failures and deferred lowering distinct", testComposedBoundaries)
   ]
 
 testFoundationParity :: IO ()
@@ -43,21 +49,65 @@ testFoundationParity = do
   assertContains "arbitrary integer" "1234567890123456789012345678901234567890" expected
   assertContains "exact fractional source" "CoreFractionalLiteral(\"1\", \"050\", Just(CoreFloat32Type))" expected
   assertContains "unqualified binding span" "CoreSpan(Nothing, 3, 5)" expected
-  actual <- runJazzFoundationBatch foundationExpressions
-  assertSuccessfulOutput "foundation parity" expected actual
+  first <- runJazzFoundationBatch foundationExpressions
+  second <- runJazzFoundationBatch foundationExpressions
+  assertSuccessfulOutput "foundation parity first run" expected first
+  assertSuccessfulOutput "foundation parity second run" expected second
+  assertEqual "foundation parity deterministic output" (runOutput first) (runOutput second)
 
 testUnsupportedBoundary :: IO ()
 testUnsupportedBoundary = do
-  actual <- runJazzFoundationBatch unsupportedExpressions
+  first <- runJazzFoundationBatch unsupportedExpressions
+  second <- runJazzFoundationBatch unsupportedExpressions
   let expected =
         Just
           ( "["
               <> Text.intercalate ", " (replicate (length unsupportedExpressions) "Nothing")
               <> "]"
           )
-  assertEqual "unsupported compile errors" [] (runCompileErrors actual)
-  assertEqual "unsupported runtime errors" [] (runRuntimeErrors actual)
-  assertEqual "unsupported results" expected (runOutput actual)
+  assertEqual "unsupported first compile errors" [] (runCompileErrors first)
+  assertEqual "unsupported first runtime errors" [] (runRuntimeErrors first)
+  assertEqual "unsupported first results" expected (runOutput first)
+  assertEqual "unsupported second compile errors" [] (runCompileErrors second)
+  assertEqual "unsupported second runtime errors" [] (runRuntimeErrors second)
+  assertEqual "unsupported second results" expected (runOutput second)
+  assertEqual "unsupported deterministic output" (runOutput first) (runOutput second)
+
+testComposedParity :: IO ()
+testComposedParity = do
+  expected <- expectRight "composed expected values" (expectedFoundationSourceBatchRendering composedSources)
+  first <- runJazzFoundationSourceBatch composedSources
+  second <- runJazzFoundationSourceBatch composedSources
+  assertSuccessfulOutput "composed parity first run" expected first
+  assertSuccessfulOutput "composed parity second run" expected second
+  assertEqual "composed deterministic output" (runOutput first) (runOutput second)
+
+testComposedBoundaries :: IO ()
+testComposedBoundaries = do
+  expectedParserFailure <-
+    expectRight
+      "parser-owned failure expectation"
+      (expectedParserSourceBatchRendering [parserRejectedSource])
+  firstParserFailure <- runJazzParserSourceBatch [parserRejectedSource]
+  secondParserFailure <- runJazzParserSourceBatch [parserRejectedSource]
+  assertContains "parser-owned failure form" "CanonicalSourceParserFailure" expectedParserFailure
+  assertSuccessfulOutput "parser-owned failure first run" expectedParserFailure firstParserFailure
+  assertSuccessfulOutput "parser-owned failure second run" expectedParserFailure secondParserFailure
+  assertEqual "parser failure deterministic output" (runOutput firstParserFailure) (runOutput secondParserFailure)
+
+  expectedDeferredParse <-
+    expectRight
+      "deferred parser success expectation"
+      (expectedParserSourceBatchRendering [deferredSource])
+  deferredParse <- runJazzParserSourceBatch [deferredSource]
+  assertContains "deferred source parsed" "CanonicalSourceSuccess" expectedDeferredParse
+  assertSuccessfulOutput "deferred parser ownership" expectedDeferredParse deferredParse
+
+  firstDeferred <- runJazzFoundationSourceBatch [deferredSource]
+  secondDeferred <- runJazzFoundationSourceBatch [deferredSource]
+  assertSuccessfulOutput "deferred lowering first run" "[Nothing]" firstDeferred
+  assertSuccessfulOutput "deferred lowering second run" "[Nothing]" secondDeferred
+  assertEqual "deferred lowering deterministic output" (runOutput firstDeferred) (runOutput secondDeferred)
 
 foundationExpressions :: [SurfaceExpr]
 foundationExpressions =
@@ -110,6 +160,26 @@ unsupportedExpressions =
     SEApply (SEVar "f") (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x")),
     SEBlock [SSLet "value" span1 (SECase (SEVar "value") [])]
   ]
+
+composedSources :: [Text.Text]
+composedSources =
+  [ "answer = 42. answer.",
+    "values = [(1, True), (), [\"Jazz\"]]. values.",
+    "(Text::length) [\"Jazz\"].",
+    "(+).",
+    "1 + 2 * 3.",
+    "(1 +).",
+    "(+ 2).",
+    "[].",
+    "().",
+    "1.050f32."
+  ]
+
+parserRejectedSource :: Text.Text
+parserRejectedSource = "value = ."
+
+deferredSource :: Text.Text
+deferredSource = "\\(value) -> value."
 
 span1 :: SourceSpan
 span1 = SourceSpan 1 1
