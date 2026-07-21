@@ -69,6 +69,18 @@ testDirectParity = do
     "unsupported signature token inventory"
     "CoreSignatureOtherToken(\"forall\")"
     expected
+  assertContains
+    "opaque data constructor argument"
+    "CoreDataConstructor(CoreSourceName(\"Opaque\"), [CoreOpaqueConstructorArgument])"
+    expected
+  assertContains
+    "class method signature payload"
+    "CoreClassMethodSignature(CoreSourceName(\"equals\"), CoreSpan(Nothing, 2, 3), CoreTypeSignature"
+    expected
+  assertContains
+    "impl method recursively lowered body"
+    "CoreImplMethod(CoreSourceName(\"apply\"), CoreSpan(Nothing, 2, 3), CoreIfExpression"
+    expected
   first <- runJazzSignaturesDeclarationsOperatorsBatch directExpressions
   second <- runJazzSignaturesDeclarationsOperatorsBatch directExpressions
   assertSuccessfulOutput "direct parity first run" expected first
@@ -102,7 +114,14 @@ expectedDirectFixtureNames =
     "signature-qualified-names",
     "signature-constraints",
     "unsupported-signature-token-inventory",
-    "operator-signature"
+    "operator-signature",
+    "data-empty",
+    "data-constructors",
+    "class-empty",
+    "class-methods",
+    "impl-empty",
+    "impl-methods",
+    "mixed-block"
   ]
 
 directExpressions :: [SurfaceExpr]
@@ -231,6 +250,76 @@ directFixtures =
             "$operator:%25%25"
             span1
             (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)))
+        ]
+    ),
+    ( "data-empty",
+      SEBlock [SSData span1 "Empty" [] []]
+    ),
+    ( "data-constructors",
+      SEBlock
+        [ SSData
+            span1
+            "Result"
+            ["error", "value"]
+            [ SurfaceDataConstructor "Failure" [SurfaceDataConstructorArgumentName "error"],
+              SurfaceDataConstructor "Success" [SurfaceDataConstructorArgumentName "value"],
+              SurfaceDataConstructor "Opaque" [SurfaceDataConstructorArgumentOpaque]
+            ]
+        ]
+    ),
+    ( "class-empty",
+      SEBlock [SSClass span1 "Marker" ["a"] []]
+    ),
+    ( "class-methods",
+      SEBlock
+        [ SSClass
+            span1
+            "Eq"
+            ["a"]
+            [ SurfaceClassMethodSignature
+                "equals"
+                span2
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool))
+                ),
+              SurfaceClassMethodSignature
+                "compare"
+                span1
+                ( SurfaceConstrainedSignature
+                    [SurfaceSignatureConstraint "Alias::Ord" [SurfaceTypeVariable "a"]]
+                    (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeInt)
+                )
+            ]
+        ]
+    ),
+    ( "impl-empty",
+      SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []]
+    ),
+    ( "impl-methods",
+      SEBlock
+        [ SSImpl
+            span1
+            "Transform"
+            [SurfaceTypeApplication "Alias::Box" [SurfaceTypeInt]]
+            [ SurfaceImplMethod
+                "apply"
+                span2
+                ( SEIf
+                    (SEVar "condition")
+                    (SETypeApplication (SEVar "identity") span2 SurfaceTypeText)
+                    (SEBinary "$" (SEVar "fallback") (SEVar "value"))
+                )
+            ]
+        ]
+    ),
+    ( "mixed-block",
+      SEBlock
+        [ SSSignature "convert" span1 (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText)),
+          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [SurfaceDataConstructorArgumentName "a"]],
+          SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SurfaceSignatureType (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeText))],
+          SSImpl span1 "Render" [SurfaceTypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "value"))],
+          SSLet "convert" span2 (SETypeApplication (SEVar "identity") span2 SurfaceTypeText),
+          SSExpr span2 (SEVar "convert")
         ]
     )
   ]

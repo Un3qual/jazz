@@ -152,6 +152,82 @@ module CoreLower (
     | UnsupportedSignature tokens -> CoreUnsupportedSignature (lowerSignatureTokens tokens)
   }.
 
+  lowerSourceNamesFrom :: [Text] -> [CoreName] -> [CoreName].
+  lowerSourceNamesFrom = \(names, reversed) -> case names {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSourceNamesFrom rest (listPrepend (CoreSourceName first) reversed)
+  }.
+
+  lowerSourceNames :: [Text] -> [CoreName].
+  lowerSourceNames = \(names) -> lowerSourceNamesFrom names [].
+
+  lowerDataConstructorArgument :: SurfaceDataConstructorArgument -> CoreDataConstructorArgument.
+  lowerDataConstructorArgument = \(argument) -> case argument {
+    | NamedConstructorArgument name -> CoreNamedConstructorArgument (CoreSourceName name)
+    | OpaqueConstructorArgument -> CoreOpaqueConstructorArgument
+  }.
+
+  lowerDataConstructorArgumentsFrom :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument] -> [CoreDataConstructorArgument].
+  lowerDataConstructorArgumentsFrom = \(arguments, reversed) -> case arguments {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerDataConstructorArgumentsFrom rest (listPrepend (lowerDataConstructorArgument first) reversed)
+  }.
+
+  lowerDataConstructorArguments :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument].
+  lowerDataConstructorArguments = \(arguments) -> lowerDataConstructorArgumentsFrom arguments [].
+
+  lowerDataConstructor :: SurfaceDataConstructor -> CoreDataConstructor.
+  lowerDataConstructor = \(constructor) -> case constructor {
+    | SurfaceDataConstructor name arguments ->
+      CoreDataConstructor (CoreSourceName name) (lowerDataConstructorArguments arguments)
+  }.
+
+  lowerDataConstructorsFrom :: [SurfaceDataConstructor] -> [CoreDataConstructor] -> [CoreDataConstructor].
+  lowerDataConstructorsFrom = \(constructors, reversed) -> case constructors {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerDataConstructorsFrom rest (listPrepend (lowerDataConstructor first) reversed)
+  }.
+
+  lowerDataConstructors :: [SurfaceDataConstructor] -> [CoreDataConstructor].
+  lowerDataConstructors = \(constructors) -> lowerDataConstructorsFrom constructors [].
+
+  lowerClassMethodSignature :: SurfaceClassMethodSignature -> CoreClassMethodSignature.
+  lowerClassMethodSignature = \(method) -> case method {
+    | SurfaceClassMethodSignature name span payload ->
+      CoreClassMethodSignature (CoreSourceName name) (lowerFoundationSpan span) (lowerSignaturePayload payload)
+  }.
+
+  lowerClassMethodSignaturesFrom :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  lowerClassMethodSignaturesFrom = \(methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerClassMethodSignaturesFrom rest (listPrepend (lowerClassMethodSignature first) reversed)
+  }.
+
+  lowerClassMethodSignatures :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature].
+  lowerClassMethodSignatures = \(methods) -> lowerClassMethodSignaturesFrom methods [].
+
+  lowerImplMethod :: LoweringProfile -> SurfaceImplMethod -> Maybe(CoreImplMethod).
+  lowerImplMethod = \(profile, method) -> case method {
+    | SurfaceImplMethod name span body -> case lowerExpressionWithProfile profile body {
+      | Nothing -> Nothing
+      | Just loweredBody -> Just (CoreImplMethod (CoreSourceName name) (lowerFoundationSpan span) loweredBody)
+    }
+  }.
+
+  lowerImplMethodsFrom :: LoweringProfile -> [SurfaceImplMethod] -> [CoreImplMethod] -> Maybe([CoreImplMethod]).
+  lowerImplMethodsFrom = \(profile, methods, reversed) -> case methods {
+    | [] -> Just (listReverse reversed)
+    | [first | rest] -> case lowerImplMethod profile first {
+      | Nothing -> Nothing
+      | Just lowered -> lowerImplMethodsFrom profile rest (listPrepend lowered reversed)
+    }
+  }.
+
+  lowerImplMethods :: LoweringProfile -> [SurfaceImplMethod] -> Maybe([CoreImplMethod]).
+  lowerImplMethods = \(profile, methods) -> lowerImplMethodsFrom profile methods [].
+
   lowerExpressionsFrom :: LoweringProfile -> [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
   lowerExpressionsFrom = \(profile, expressions, reversed) -> case expressions {
     | [] -> Just (listReverse reversed)
@@ -181,9 +257,37 @@ module CoreLower (
     | SignatureStatement name span payload -> if allowsSignaturesDeclarationsOperators profile then
       Just (CoreSignatureStatement (lowerBindingName name) (lowerFoundationSpan span) (lowerSignaturePayload payload))
       else Nothing
-    | DataStatement span name parameters constructors -> Nothing
-    | ClassStatement span name parameters methods -> Nothing
-    | ImplStatement span name arguments methods -> Nothing
+    | DataStatement span name parameters constructors ->
+      if allowsSignaturesDeclarationsOperators profile then
+        Just
+          (CoreDataStatement
+            (lowerFoundationSpan span)
+            (CoreSourceName name)
+            (lowerSourceNames parameters)
+            (lowerDataConstructors constructors))
+      else Nothing
+    | ClassStatement span name parameters methods ->
+      if allowsSignaturesDeclarationsOperators profile then
+        Just
+          (CoreClassStatement
+            (lowerFoundationSpan span)
+            (CoreSourceName name)
+            (lowerSourceNames parameters)
+            (lowerClassMethodSignatures methods))
+      else Nothing
+    | ImplStatement span name arguments methods ->
+      if allowsSignaturesDeclarationsOperators profile then
+        case lowerImplMethods profile methods {
+          | Nothing -> Nothing
+          | Just loweredMethods ->
+            Just
+              (CoreImplStatement
+                (lowerFoundationSpan span)
+                (CoreSourceName name)
+                (lowerSignatureTypes arguments)
+                loweredMethods)
+        }
+      else Nothing
     | ModuleStatement span path exports -> Nothing
     | ImportStatement span path alias symbols -> Nothing
     | ExpressionStatement span expression -> case lowerExpressionWithProfile profile expression {

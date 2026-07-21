@@ -170,19 +170,19 @@ type application, `$` application, and shared ordinary/operator binding names.
 **Produces:** Structural declaration lowering with recursive impl method bodies
 and unchanged source order/spans.
 
-- [ ] Add direct fixtures 14-20 in approved order, covering empty and populated
+- [x] Add direct fixtures 14-20 in approved order, covering empty and populated
   data/class/impl declarations, named and opaque constructor arguments, method
   signatures, recursive method bodies, and one mixed block.
-- [ ] Run the focused suite and confirm declaration cases return `Nothing`
+- [x] Run the focused suite and confirm declaration cases return `Nothing`
   while all Task-1 cases remain green.
-- [ ] Add total helpers for data constructors, class method signatures, and
+- [x] Add total helpers for data constructors, class method signatures, and
   lists of declaration payloads; reuse signature and name helpers.
-- [ ] Lower impl method bodies through the full child-3 profile so nested type
+- [x] Lower impl method bodies through the full child-3 profile so nested type
   applications, `$`, control flow, lambdas, and ordinary blocks are admitted,
   while one module/import subtree rejects the full declaration.
-- [ ] Run the focused suite twice and both earlier hosted-core suites; require
+- [x] Run the focused suite twice and both earlier hosted-core suites; require
   exact values and unchanged earlier-child boundaries.
-- [ ] Commit as `feat: lower hosted core declarations`.
+- [x] Commit as `feat: lower hosted core declarations`.
 
 ### Task 3: Prove hosted-parser composition and module deferral
 
