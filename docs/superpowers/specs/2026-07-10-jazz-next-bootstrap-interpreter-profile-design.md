@@ -390,7 +390,14 @@ The design decomposes into independently reviewable children:
     and deterministic operator scale evidence (complete on `2026-07-20`); and
 14. the complete hosted canonical-core schema, checked structural stage-0
     adapter, shared parity harness, and pure expression-foundation lowerer with
-    exact repeated direct/composed parity (complete on `2026-07-21`).
+    exact repeated direct/composed parity (complete on `2026-07-21`);
+15. every pattern, guarded and unguarded case, conditional, nested control-flow,
+    and multi-parameter or pattern-lambda lowering rule with exact generated
+    names and repeated direct/composed parity (complete on `2026-07-21`); and
+16. every signature type, constraint, unsupported token, declaration payload,
+    explicit type application, `$` application, and exact hidden
+    operator-storage name with repeated direct/composed parity (complete on
+    `2026-07-21`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
@@ -424,7 +431,7 @@ profiles remain deterministic with zero host operations; the operator profile
 records 49,040,140 transitions / 5,914,883 applications / 186,465 list cells /
 depth 1,116.
 
-The first two post-parser children are complete. `CoreTypes.jz` defines the full
+The first three post-parser children are complete. `CoreTypes.jz` defines the full
 canonical comparison schema, a checked test-only Haskell adapter translates
 only already-lowered stage-0 values, and the shared harness compares ordinary
 Jazz results directly and after hosted parser composition. The internal
@@ -438,10 +445,15 @@ including exact one-based generated names. The 18 direct and 14 composed
 positive fixtures match stage 0 twice, while 12 nested later-child fixtures
 return only `Nothing`; no production lowerer or façade changed.
 
-Signatures/declarations/operators are the sole next curation target, and
-modules/corpus closure remains the final canonical-core child. Lowered IR,
-LLVM, object/link production, and the native runtime remain behind separate
-reviewed contracts and plans.
+The third ordered profile adds every signature type and constraint, tokenized
+unsupported signature, explicit type application, `$` application, data,
+class, and impl payload, plus exact hidden operator-storage names. Its 20 direct
+and 16 parser-composed positive fixtures match complete stage-0 values twice;
+all 8 root and nested module/import fixtures return only `Nothing` twice.
+
+Modules/corpus closure is now the sole next curation target and final
+canonical-core child. Lowered IR, LLVM, object/link production, and the native
+runtime remain behind separate reviewed contracts and plans.
 
 ## Non-Goals
 

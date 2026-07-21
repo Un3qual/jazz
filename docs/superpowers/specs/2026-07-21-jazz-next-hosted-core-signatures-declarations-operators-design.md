@@ -2,9 +2,11 @@
 
 ## Status
 
-Approved in discussion on `2026-07-21` as the third child of the hosted
-canonical-core milestone. Written-spec review remains the gate before the
-implementation plan and queue promotion.
+Approved and completed on `2026-07-21` as the third child of the hosted
+canonical-core milestone. The shared lowerer now matches all 20 direct and 16
+hosted-parser-composed positive fixtures twice, while all 8 nested
+module/import fixtures return only `Nothing` twice. Modules/corpus closure
+remains the fourth child.
 
 ## Goal
 

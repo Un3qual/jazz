@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001
 last_verified: 2026-07-21
+completed_on: 2026-07-21
 plan_section: "Implementation Batch: Hosted Core Signatures, Declarations, and Operators"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -219,20 +220,20 @@ deferral at representative recursive owners.
 **Produces:** Complete routine evidence, durable child-3 closure, and modules /
 corpus closure as the sole next curation target.
 
-- [ ] Run the exact focused verification command from frontmatter.
-- [ ] Run the warning-clean development build, routine non-exhaustive Cabal
+- [x] Run the exact focused verification command from frontmatter.
+- [x] Run the warning-clean development build, routine non-exhaustive Cabal
   `all`, and `cabal check`. Confirm no opt-in exhaustive parser scale component
   is enabled or invoked.
-- [ ] Update the hosted canonical-core design, bootstrap profile, and
+- [x] Update the hosted canonical-core design, bootstrap profile, and
   `jazz-next/README.md` with the child-3 entry point, exact transformations,
   fixture evidence, and remaining module boundary.
-- [ ] Mark this plan done, archive the child with concrete evidence, empty
+- [x] Mark this plan done, archive the child with concrete evidence, empty
   `Ready Now`, and seed only the child-4 modules/corpus candidate in
   `Next Curation Target` without promoting it.
-- [ ] Update the parent blocker contract to make the child-4 design/plan the
+- [x] Update the parent blocker contract to make the child-4 design/plan the
   next approval gate while leaving all backend stages unpromoted.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close hosted core declarations`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close hosted core declarations`.
 
 ## Done Criteria
 

@@ -11,16 +11,18 @@ semantic oracle. The hosted implementation will match the current
 `JazzNext.Compiler.Parser.Lower` boundary before any redesign of the core,
 type-inference port, or backend work begins.
 
-Implementation status (`2026-07-21`): children 1 and 2 are complete.
+Implementation status (`2026-07-21`): children 1 through 3 are complete.
 `CoreTypes.jz` defines the full comparison schema, and the checked Haskell
 adapter rejects values outside the lowering boundary. One private profile-driven
 kernel preserves `CoreLower.lowerFoundationExpression` while
 `lowerControlFlowPatternsExpression` adds every pattern, guarded case,
 conditional, nested control-flow, and multi-parameter or pattern-lambda rule.
-Exact one-based generated parameter names and all-or-nothing later-child
-rejection match stage 0 directly and through hosted parser composition.
-Children 3 and 4 remain: signatures/declarations/operators and modules/corpus
-closure.
+The third ordered profile adds signature types and constraints, unsupported
+tokens, explicit type application, `$` application, declaration payloads, and
+exact hidden operator-storage names. Its 20 direct and 16 parser-composed
+positive fixtures match complete stage-0 values twice; all 8 module/import
+deferrals return only `Nothing` twice. Only child 4, modules/corpus closure,
+remains.
 
 ## Goal
 
@@ -254,6 +256,10 @@ Add signature types and constraints, tokenized unsupported signatures, data,
 class, and impl payloads, explicit type application, `$` application
 desugaring, and exact hidden operator-binding names.
 
+Completed on `2026-07-21` with the ordered third profile, exact repeated parity
+for 20 direct and 16 parser-composed positive fixtures, and 8 repeated root or
+nested module/import rejection fixtures.
+
 ### 4. Modules and Corpus Closure
 
 Add module/import extraction, explicit export metadata, expected-path
@@ -293,18 +299,17 @@ evidence.
 
 ## Queue Transition
 
-After this design is reviewed, a separate implementation plan will define only
-the first child: contract, harness, and expression foundation. The plan and
-queue row must agree exactly on target paths, verification, deliverable, and
+Each child receives a separate reviewed implementation plan. Its plan and queue
+row must agree exactly on target paths, verification, deliverable, and
 dependencies.
 
 The implementation plan will describe responsibilities, observable behavior,
 test cases, and integration points. It will not reproduce the code to be
 written.
 
-When the first child closes, its evidence moves to `done-archive.md` and only
-the second child may be curated. Later children remain in this design rather
-than appearing as simultaneously executable queue rows.
+When a child closes, its evidence moves to `done-archive.md` and only its
+ordered successor may be curated. Children 1 through 3 are closed, so only
+child 4 may now be curated; it is not executable until its plan is reviewed.
 
 ## Non-Goals
 

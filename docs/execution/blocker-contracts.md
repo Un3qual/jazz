@@ -106,36 +106,43 @@ Each blocked item should answer these questions:
   stage 0 twice; 12 root and nested later-child fixtures return only `Nothing`
   twice; and exact one-based generated parameter names are preserved for both
   binder and scrutinee.
+  `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001` then added the
+  ordered third lowering profile for every signature type, constraint,
+  unsupported token, declaration payload, explicit type application, `$`
+  application, and exact hidden operator-storage name. Its 20 direct and 16
+  hosted-parser-composed positive fixtures match complete stage-0 values
+  twice, while all 8 root and nested module/import fixtures return only
+  `Nothing` twice.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: execute the approved signatures/declarations/operators
-  child through its fixed direct, composed, and deferred families.
-- Decision needed: resolved on `2026-07-21`; the reviewed implementation plan
-  is active as child 3 of the canonical-core milestone.
-- Recommended default: extend the shared internal lowerer through signature
-  types and constraints, explicit type application, `$` application,
-  statement/declaration payloads, and exact operator-storage names while
-  retaining all-or-nothing `Nothing` for modules and imports.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001`
-  is the sole active `Ready Now` row. No later child is promoted.
+- Smallest unblocker: write and approve the modules/corpus-closure child plan.
+- Decision needed: review the child-4 plan before promoting any executable row.
+- Recommended default: add module/import extraction, explicit export and import
+  metadata, expected-path validation, structured `E4005`/`E4006` failures,
+  complete span qualification, the composed source-to-core facade, and exact
+  closure over the accepted parser corpus.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` is the
+  sole `Next Curation Target`; `Ready Now` remains empty.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`, and
-  `jazz-next/jazz-next.cabal`. The focused test path joins active metadata when
-  Task 1 creates it.
-- Verification: focused signatures/declarations/operators,
-  control-flow/pattern, foundation, canonical-core, canonical-parser,
-  hosted-parser operator, and repository-audit suites; warning-clean
-  development build; routine Cabal `all`; `cabal check`; queue/docs validators;
-  and `git diff --check`. Exhaustive parser scale components remain manual and
-  are not part of this child.
+  planned `jazz-next/jazz/compiler/Core.jz`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`, planned
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs`,
+  and `jazz-next/jazz-next.cabal`.
+- Verification: focused modules/corpus closure plus all three earlier hosted
+  core profiles, canonical-core, canonical-parser, complete hosted-parser, and
+  repository-audit suites; warning-clean development build; routine Cabal
+  `all`; `cabal check`; queue/docs validators; and `git diff --check`.
+  Exhaustive parser scale components remain manual and are not part of this
+  child.
 - Not in scope: a public parser or lowerer API; production lowerer replacement;
-  modules, type inference, name resolution, analysis, evaluation, host
-  callbacks or intrinsics, bytecode or a VM, lowered IR, LLVM emission, object
-  generation, linking, or native-runtime implementation.
+  type inference, name resolution, analysis, evaluation, host callbacks or
+  intrinsics, bytecode or a VM, lowered IR, LLVM emission, object generation,
+  linking, or native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
