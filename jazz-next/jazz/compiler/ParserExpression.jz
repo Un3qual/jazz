@@ -309,15 +309,15 @@ module ParserExpression (
     | [] -> False
   }.
 
-  parseConditionalElse :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseConditionalElse = \(stop, parseBlock, ifToken, condition, trueBranch) -> tokenAndThen
+  parseConditionalElse :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseConditionalElse = \(parseExpressionUntil, stop, parseBlock, ifToken, condition, trueBranch) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | KeywordKind ElseKeyword -> tokenKeepRight
           (tokenKeyword ElseKeyword)
           (tokenAndThen
             (\(falseBranch) -> tokenSucceed (IfExpression condition trueBranch falseBranch))
-            (parseFoundationalExpressionUntil stop parseBlock))
+            (parseExpressionUntil stop))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax "'else'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
@@ -328,15 +328,15 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parseConditionalThen :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> TokenParser(SurfaceExpr).
-  parseConditionalThen = \(stop, parseBlock, ifToken, condition) -> tokenAndThen
+  parseConditionalThen :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> SurfaceExpr -> TokenParser(SurfaceExpr).
+  parseConditionalThen = \(parseExpressionUntil, stop, parseBlock, ifToken, condition) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | KeywordKind ThenKeyword -> tokenKeepRight
           (tokenKeyword ThenKeyword)
           (tokenAndThen
-            (\(trueBranch) -> parseConditionalElse stop parseBlock ifToken condition trueBranch)
-            (parseFoundationalExpressionUntil stop parseBlock))
+            (\(trueBranch) -> parseConditionalElse parseExpressionUntil stop parseBlock ifToken condition trueBranch)
+            (parseExpressionUntil stop))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax "'then'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
@@ -347,10 +347,10 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parseConditional :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
-  parseConditional = \(stop, parseBlock, ifToken) -> tokenAndThen
-    (\(condition) -> parseConditionalThen stop parseBlock ifToken condition)
-    (parseFoundationalExpressionUntil (\(tokens) -> stopsAtThen stop tokens) parseBlock).
+  parseConditional :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
+  parseConditional = \(parseExpressionUntil, stop, parseBlock, ifToken) -> tokenAndThen
+    (\(condition) -> parseConditionalThen parseExpressionUntil stop parseBlock ifToken condition)
+    (parseExpressionUntil (\(tokens) -> stopsAtThen stop tokens)).
 
   decrementDepth :: Int -> Int.
   decrementDepth = \(depth) -> if depth > 0 then depth - 1 else 0.
@@ -386,6 +386,44 @@ module ParserExpression (
 
   hasTopLevelArrowBeforeTerminator :: [CanonicalToken] -> Bool.
   hasTopLevelArrowBeforeTerminator = \(tokens) -> hasTopLevelArrowBeforeTerminatorFrom tokens 0 0 0.
+
+  hasTopLevelElseBeforeArrowFrom :: [CanonicalToken] -> Int -> Int -> Int -> Bool.
+  hasTopLevelElseBeforeArrowFrom = \(tokens, parenDepth, braceDepth, bracketDepth) -> case tokens {
+    | [] -> False
+    | [token | rest] -> {
+      topLevel = if parenDepth == 0 then
+        if braceDepth == 0 then bracketDepth == 0 else False
+        else False.
+      case canonicalTokenKind token {
+        | KeywordKind ElseKeyword -> if topLevel then True else
+          hasTopLevelElseBeforeArrowFrom rest parenDepth braceDepth bracketDepth
+        | PunctuationKind ArrowPunctuation -> if topLevel then False else
+          hasTopLevelElseBeforeArrowFrom rest parenDepth braceDepth bracketDepth
+        | PunctuationKind LeftParenPunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest (parenDepth + 1) braceDepth bracketDepth
+        | PunctuationKind RightParenPunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest (decrementDepth parenDepth) braceDepth bracketDepth
+        | PunctuationKind LeftBracePunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest parenDepth (braceDepth + 1) bracketDepth
+        | PunctuationKind RightBracePunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest parenDepth (decrementDepth braceDepth) bracketDepth
+        | PunctuationKind LeftBracketPunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest parenDepth braceDepth (bracketDepth + 1)
+        | PunctuationKind RightBracketPunctuation ->
+          hasTopLevelElseBeforeArrowFrom rest parenDepth braceDepth (decrementDepth bracketDepth)
+        | other -> hasTopLevelElseBeforeArrowFrom rest parenDepth braceDepth bracketDepth
+      }.
+    }
+  }.
+
+  hasTopLevelElseBeforeArrow :: [CanonicalToken] -> Bool.
+  hasTopLevelElseBeforeArrow = \(tokens) -> hasTopLevelElseBeforeArrowFrom tokens 0 0 0.
+
+  guardTokensEndAtArrow :: [CanonicalToken] -> Bool.
+  guardTokensEndAtArrow = \(tokens) ->
+    if hasTopLevelArrowBeforeTerminator tokens then
+      if hasTopLevelElseBeforeArrow tokens then False else True
+      else False.
 
   hasTopLevelArmArrowFrom :: [CanonicalToken] -> Int -> Int -> Int -> Bool.
   hasTopLevelArmArrowFrom = \(tokens, parenDepth, braceDepth, bracketDepth) -> case tokens {
@@ -534,6 +572,12 @@ module ParserExpression (
     | other -> True
   }.
 
+  guardBoundaryPatternIsDefinite :: SurfacePattern -> Bool.
+  guardBoundaryPatternIsDefinite = \(pattern) -> case pattern {
+    | VariablePattern name -> False
+    | other -> True
+  }.
+
   peekCaseArmPatternPrefix :: TokenParser(Maybe((SurfacePattern, [CanonicalToken]))).
   peekCaseArmPatternPrefix = tokenOptional (tokenAttempt (tokenLookAhead
     (tokenKeepRight
@@ -551,7 +595,7 @@ module ParserExpression (
         | [first | rest] -> case canonicalTokenKind first {
           | PunctuationKind ArrowPunctuation -> tokenSucceed (parsedPatternStartsArmBoundary left pattern)
           | KeywordKind IfKeyword -> tokenSucceed
-            (if parsedPatternStartsArmBoundary left pattern then hasTopLevelArrowBeforeTerminator rest else False)
+            (if parsedPatternStartsArmBoundary left pattern then guardTokensEndAtArrow rest else False)
           | other -> tokenSucceed False
         }
         | [] -> tokenSucceed False
@@ -564,6 +608,23 @@ module ParserExpression (
           | [] -> tokenSucceed False
         })
         tokenRemaining
+    })
+    peekCaseArmPatternPrefix.
+
+  pipeStartsCaseGuardBoundary :: SurfaceExpr -> TokenParser(Bool).
+  pipeStartsCaseGuardBoundary = \(left) -> tokenAndThen
+    (\(prefix) -> case prefix {
+      | Just (pattern, remaining) -> case remaining {
+        | [first | rest] -> case canonicalTokenKind first {
+          | PunctuationKind ArrowPunctuation -> tokenSucceed
+            (if guardBoundaryPatternIsDefinite pattern then expressionHasPipeRoot left else False)
+          | KeywordKind IfKeyword -> tokenSucceed
+            (if guardBoundaryPatternIsDefinite pattern then guardTokensEndAtArrow rest else False)
+          | other -> tokenSucceed False
+        }
+        | [] -> tokenSucceed False
+      }
+      | Nothing -> tokenSucceed False
     })
     peekCaseArmPatternPrefix.
 
@@ -608,8 +669,8 @@ module ParserExpression (
                 stop
                 parseBlock
                 (BinaryExpression "|" left right))
-              (parseFoundationalExpressionUntil (\(tokens) -> stopsAtPipeOr stop tokens) parseBlock)))
-          (if guardMode then tokenSucceed False else pipeStartsCaseArmBoundary left)
+              (parseCasePipeExpression guardMode (\(tokens) -> stopsAtPipeOr stop tokens) parseBlock)))
+          (if guardMode then pipeStartsCaseGuardBoundary left else pipeStartsCaseArmBoundary left)
         | other -> tokenSucceed left
       }
       | [] -> tokenSucceed left
@@ -617,9 +678,12 @@ module ParserExpression (
     tokenRemaining.
 
   parseCasePipeExpression :: Bool -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseCasePipeExpression = \(guardMode, stop, parseBlock) -> tokenAndThen
-    (\(left) -> parseCasePipeExpressionTail guardMode stop parseBlock left)
-    (parseFoundationalExpressionUntil stop parseBlock).
+  parseCasePipeExpression = \(guardMode, stop, parseBlock) -> {
+    parseExpressionUntil = \(nestedStop) -> parseCasePipeExpression guardMode nestedStop parseBlock.
+    tokenAndThen
+      (\(left) -> parseCasePipeExpressionTail guardMode stop parseBlock left)
+      (parseApplicationExpression (Just stop) parseExpressionUntil parseBlock).
+  }.
 
   parseCaseScrutinee :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseCaseScrutinee = \(parseBlock) -> parseFoundationalExpressionUntil caseBodyStarts parseBlock.
@@ -793,15 +857,15 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parseLambdaBody :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> NonEmpty(SurfaceLambdaParameter) -> TokenParser(SurfaceExpr).
-  parseLambdaBody = \(stop, parseBlock, lambdaToken, parameters) -> tokenAndThen
+  parseLambdaBody :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> NonEmpty(SurfaceLambdaParameter) -> TokenParser(SurfaceExpr).
+  parseLambdaBody = \(parseExpressionUntil, stop, parseBlock, lambdaToken, parameters) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind ArrowPunctuation -> tokenKeepRight
           (tokenPunctuation ArrowPunctuation)
           (tokenAndThen
             (\(body) -> tokenSucceed (LambdaExpression parameters body))
-            (parseFoundationalExpressionUntil stop parseBlock))
+            (parseExpressionUntil stop))
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
           (ExpectedSyntax "'->'" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
@@ -812,14 +876,14 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parseLambda :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
-  parseLambda = \(stop, parseBlock, lambdaToken) -> tokenAndThen
+  parseLambda :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> TokenParser(SurfaceExpr).
+  parseLambda = \(parseExpressionUntil, stop, parseBlock, lambdaToken) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
         | PunctuationKind LeftParenPunctuation -> tokenKeepRight
           (tokenPunctuation LeftParenPunctuation)
           (tokenAndThen
-            (\(parameters) -> parseLambdaBody stop parseBlock lambdaToken parameters)
+            (\(parameters) -> parseLambdaBody parseExpressionUntil stop parseBlock lambdaToken parameters)
             parseLambdaParameters)
         | other -> tokenFailAtSpan
           (canonicalTokenSpan token)
@@ -831,9 +895,9 @@ module ParserExpression (
     })
     tokenPeek.
 
-  parsePrimary :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parsePrimary = \(stop, parseBlock) -> {
-    parseNestedExpression = \() -> parseFoundationalExpressionUntil neverStops parseBlock.
+  parsePrimary :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parsePrimary = \(parseExpressionUntil, stop, parseBlock) -> {
+    parseNestedExpression = \() -> parseExpressionUntil neverStops.
     tokenAndThen
       (\(current) -> case current {
         | Nothing -> tokenFailAt Nothing (ExpectedSyntax "expression" EndOfInput)
@@ -848,7 +912,7 @@ module ParserExpression (
             tokenText
             (tokenSucceed (LiteralExpression (TextLiteral value)))
           | KeywordKind IfKeyword -> tokenAndThen
-            (\(ifToken) -> parseConditional stop parseBlock ifToken)
+            (\(ifToken) -> parseConditional parseExpressionUntil stop parseBlock ifToken)
             (tokenKeyword IfKeyword)
           | KeywordKind CaseKeyword -> tokenAndThen
             (\(caseToken) -> parseCase parseBlock caseToken)
@@ -863,7 +927,7 @@ module ParserExpression (
             (\(identifierToken) -> parseName identifierToken name)
             tokenIdentifier
           | PunctuationKind LambdaPunctuation -> tokenAndThen
-            (\(lambdaToken) -> parseLambda stop parseBlock lambdaToken)
+            (\(lambdaToken) -> parseLambda parseExpressionUntil stop parseBlock lambdaToken)
             (tokenPunctuation LambdaPunctuation)
           | PunctuationKind LeftParenPunctuation -> tokenKeepRight
             (tokenPunctuation LeftParenPunctuation)
@@ -920,8 +984,8 @@ module ParserExpression (
     })
     tokenRemaining.
 
-  parseApplicationExpression :: Maybe(([CanonicalToken] -> Bool)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseApplicationExpression = \(maybeStop, parseBlock) -> {
+  parseApplicationExpression :: Maybe(([CanonicalToken] -> Bool)) -> (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
+  parseApplicationExpression = \(maybeStop, parseExpressionUntil, parseBlock) -> {
     parseNestedExpression = \() -> parseFoundationalExpression parseBlock.
     unstoppedPrimary = tokenAndThen
       (\(current) -> case current {
@@ -936,8 +1000,8 @@ module ParserExpression (
           | TextKind value -> tokenKeepRight
             tokenText
             (tokenSucceed (LiteralExpression (TextLiteral value)))
-          | KeywordKind IfKeyword -> parsePrimary neverStops parseBlock
-          | KeywordKind CaseKeyword -> parsePrimary neverStops parseBlock
+          | KeywordKind IfKeyword -> parsePrimary parseExpressionUntil neverStops parseBlock
+          | KeywordKind CaseKeyword -> parsePrimary parseExpressionUntil neverStops parseBlock
           | IdentifierKind "True" -> tokenKeepRight
             tokenIdentifier
             (tokenSucceed (LiteralExpression (BooleanLiteral True)))
@@ -947,7 +1011,7 @@ module ParserExpression (
           | IdentifierKind name -> tokenAndThen
             (\(identifierToken) -> parseName identifierToken name)
             tokenIdentifier
-          | PunctuationKind LambdaPunctuation -> parsePrimary neverStops parseBlock
+          | PunctuationKind LambdaPunctuation -> parsePrimary parseExpressionUntil neverStops parseBlock
           | PunctuationKind LeftParenPunctuation -> tokenKeepRight
             (tokenPunctuation LeftParenPunctuation)
             (parseParenthesized parseNestedExpression)
@@ -964,18 +1028,23 @@ module ParserExpression (
       })
       tokenPeek.
     primary = case maybeStop {
-      | Just stop -> parsePrimary stop parseBlock
+      | Just stop -> parsePrimary parseExpressionUntil stop parseBlock
       | Nothing -> unstoppedPrimary
     }.
     tokenAndThen (\(first) -> parseApplicationTail maybeStop primary first) primary.
   }.
 
   parseFoundationalExpressionUntil :: ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpressionUntil = \(stop, parseBlock) ->
-    parseApplicationExpression (Just stop) parseBlock.
+  parseFoundationalExpressionUntil = \(stop, parseBlock) -> {
+    parseExpressionUntil = \(nestedStop) -> parseFoundationalExpressionUntil nestedStop parseBlock.
+    parseApplicationExpression (Just stop) parseExpressionUntil parseBlock.
+  }.
 
   parseFoundationalExpression :: TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
-  parseFoundationalExpression = \(parseBlock) -> parseApplicationExpression Nothing parseBlock.
+  parseFoundationalExpression = \(parseBlock) -> {
+    parseExpressionUntil = \(stop) -> parseFoundationalExpressionUntil stop parseBlock.
+    parseApplicationExpression Nothing parseExpressionUntil parseBlock.
+  }.
 
   parseFoundationalExpressionWithContext :: ParserContext -> TokenParser([SurfaceStatement]) -> TokenParser(SurfaceExpr).
   parseFoundationalExpressionWithContext = \(context, parseBlock) ->
