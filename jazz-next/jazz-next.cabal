@@ -428,6 +428,7 @@ test-suite jazz-parser-scale-spec
   main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
   other-modules:
       JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
