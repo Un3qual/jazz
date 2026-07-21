@@ -167,10 +167,26 @@ case outer { | Just item -> case item { | _ -> 1 } | Nothing -> 0 }.
 { loop = \(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }.
 ```
 
-The direct unsupported family contains exactly 12 fixtures that place later
-forms at the root or beneath a condition, case scrutinee, case guard, case body,
-lambda body, or block statement. It covers type application, `$`, signature,
-data, class, impl, operator-storage binding, module, and import ownership.
+The direct unsupported family contains exactly 12 stable fixtures:
+
+1. `type-application-root`
+2. `type-application-condition`
+3. `type-application-case-scrutinee`
+4. `type-application-case-guard`
+5. `type-application-lambda-body`
+6. `dollar-case-body`
+7. `signature-if-block`
+8. `data-case-block`
+9. `class-lambda-block`
+10. `impl-lambda-block`
+11. `operator-storage-nested-block`
+12. `module-import-nested-block`
+
+Together they place later forms at the root or beneath a condition, case
+scrutinee, case guard, case body, lambda body, or block statement. The final
+fixture includes both statement forms so the fixed family covers type
+application, `$`, signature, data, class, impl, operator-storage binding,
+module, and import ownership without expanding past 12 cases.
 
 Every direct and composed positive family is compared with stage 0 twice. The
 unsupported family is also run twice and must produce only `Nothing`, with no
