@@ -4,8 +4,10 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
     expectedControlFlowPatternsBatchRendering,
     expectedFoundationSourceBatchRendering,
+    expectedControlFlowPatternsSourceBatchRendering,
     expectedParserSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
+    runJazzControlFlowPatternsSourceBatch,
     runJazzFoundationBatch,
     runJazzFoundationSourceBatch,
     runJazzParserSourceBatch,
@@ -82,6 +84,9 @@ expectedFoundationSourceBatchRendering sources = do
   expressions <- mapM parseFoundationSource sources
   expectedFoundationBatchRendering expressions
 
+expectedControlFlowPatternsSourceBatchRendering :: [Text] -> Either Text Text
+expectedControlFlowPatternsSourceBatchRendering = expectedFoundationSourceBatchRendering
+
 expectedParserSourceBatchRendering :: [Text] -> Either Text Text
 expectedParserSourceBatchRendering sources = do
   sourcePath <- foundationSourcePath
@@ -100,34 +105,41 @@ expectedParserSourceBatchRendering sources = do
     )
 
 runJazzFoundationBatch :: [SurfaceExpr] -> IO RunResult
-runJazzFoundationBatch expressions =
-  runGeneratedBatch
-    """
-    import CoreLower (lowerFoundationExpression).
-    import LexerTypes (CanonicalSpan).
-    import Maybe.
-    import NonEmpty.
-    import ParserTypes.
-    """
-    (map renderCall expressions)
+runJazzFoundationBatch = runJazzLoweringBatch "lowerFoundationExpression"
 
 runJazzControlFlowPatternsBatch :: [SurfaceExpr] -> IO RunResult
-runJazzControlFlowPatternsBatch expressions =
+runJazzControlFlowPatternsBatch = runJazzLoweringBatch "lowerControlFlowPatternsExpression"
+
+runJazzLoweringBatch :: Text -> [SurfaceExpr] -> IO RunResult
+runJazzLoweringBatch loweringFunction expressions =
   runGeneratedBatch
-    """
-    import CoreLower (lowerControlFlowPatternsExpression).
+    ( Text.replace
+        "__LOWER__"
+        loweringFunction
+        """
+    import CoreLower (__LOWER__).
     import LexerTypes (CanonicalSpan).
     import Maybe.
     import NonEmpty.
     import ParserTypes.
     """
-    (map renderControlFlowPatternsCall expressions)
+    )
+    (map (renderLoweringCall loweringFunction) expressions)
 
 runJazzFoundationSourceBatch :: [Text] -> IO RunResult
-runJazzFoundationSourceBatch sources =
+runJazzFoundationSourceBatch = runJazzLoweringSourceBatch "lowerFoundationExpression"
+
+runJazzControlFlowPatternsSourceBatch :: [Text] -> IO RunResult
+runJazzControlFlowPatternsSourceBatch = runJazzLoweringSourceBatch "lowerControlFlowPatternsExpression"
+
+runJazzLoweringSourceBatch :: Text -> [Text] -> IO RunResult
+runJazzLoweringSourceBatch loweringFunction sources =
   runGeneratedBatch
-    """
-    import CoreLower (lowerFoundationExpression).
+    ( Text.replace
+        "__LOWER__"
+        loweringFunction
+        """
+    import CoreLower (__LOWER__).
     import LexerTypes (CanonicalSourcePath).
     import Maybe.
     import Parser (parseSource).
@@ -137,7 +149,8 @@ runJazzFoundationSourceBatch sources =
       CanonicalSourceParserFailure
     ).
     """
-    (map renderFoundationSourceCall sources)
+    )
+    (map (renderLoweringSourceCall loweringFunction) sources)
 
 runJazzParserSourceBatch :: [Text] -> IO RunResult
 runJazzParserSourceBatch sources =
@@ -148,28 +161,28 @@ runJazzParserSourceBatch sources =
     """
     (map renderParserSourceCall sources)
 
-renderCall :: SurfaceExpr -> Text
-renderCall expression =
-  "lowerFoundationExpression "
+renderLoweringCall :: Text -> SurfaceExpr -> Text
+renderLoweringCall loweringFunction expression =
+  loweringFunction
+    <> " "
     <> renderJazzRuntimeValue (surfaceExprRuntimeValue expression)
 
-renderControlFlowPatternsCall :: SurfaceExpr -> Text
-renderControlFlowPatternsCall expression =
-  "lowerControlFlowPatternsExpression "
-    <> renderJazzRuntimeValue (surfaceExprRuntimeValue expression)
-
-renderFoundationSourceCall :: Text -> Text
-renderFoundationSourceCall source =
+renderLoweringSourceCall :: Text -> Text -> Text
+renderLoweringSourceCall loweringFunction source =
   Text.replace
-    "__SOURCE__"
-    (renderJazzRuntimeValue (VText source))
-    """
+    "__LOWER__"
+    loweringFunction
+    ( Text.replace
+        "__SOURCE__"
+        (renderJazzRuntimeValue (VText source))
+        """
     case parseSource (CanonicalSourcePath "fixtures/core/foundation.jz") __SOURCE__ {
-      | CanonicalSourceSuccess path expression -> lowerFoundationExpression expression
+      | CanonicalSourceSuccess path expression -> __LOWER__ expression
       | CanonicalSourceLexicalFailure path failure -> Nothing
       | CanonicalSourceParserFailure path failure -> Nothing
     }
     """
+    )
 
 renderParserSourceCall :: Text -> Text
 renderParserSourceCall source =

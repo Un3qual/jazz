@@ -200,26 +200,26 @@ source facade.
 **Produces:** Exact repeated parity for the approved 14-source family and exact
 `Nothing` results for the approved 12-case deferred family.
 
-- [ ] Add the 14 composed sources verbatim from the approved design, retaining
+- [x] Add the 14 composed sources verbatim from the approved design, retaining
   their stable order and covering nested conditions, blocks, every parser-owned
   pattern shape, guards, nested cases, identifier/pattern/mixed lambdas, and the
   recursive block example.
-- [ ] Add the 12 named direct unsupported cases from the approved design across
+- [x] Add the 12 named direct unsupported cases from the approved design across
   roots, conditions, case scrutinees, guards, bodies, lambdas, and block
   statements.
-- [ ] Run the focused suite and confirm the composed assertions fail because
+- [x] Run the focused suite and confirm the composed assertions fail because
   the child-2 source-batch wrapper is not present; keep direct child-2 and
   foundation evidence green.
-- [ ] Generalize only the private harness plumbing needed for foundation and
+- [x] Generalize only the private harness plumbing needed for foundation and
   child-2 source wrappers to share generated module construction and checked-in
   source lookup. Preserve all existing public foundation helpers.
-- [ ] Execute direct positive, composed positive, and unsupported families
+- [x] Execute direct positive, composed positive, and unsupported families
   twice. Require exact stage-0 values for positive cases, only `Nothing` for
   unsupported cases, no compile/runtime errors, and identical repeated output.
-- [ ] Run `jazz-core-expression-foundation-spec`,
+- [x] Run `jazz-core-expression-foundation-spec`,
   `canonical-core-comparison-spec`, `canonical-parser-comparison-spec`,
   `jazz-parser-control-flow-patterns-spec`, and `repository-audit-spec`.
-- [ ] Commit as `test: prove hosted core control flow parity`.
+- [x] Commit as `test: prove hosted core control flow parity`.
 
 ### Task 4: Verify and close the child
 

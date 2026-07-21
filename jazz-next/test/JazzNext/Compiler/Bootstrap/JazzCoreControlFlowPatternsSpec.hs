@@ -6,7 +6,9 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedControlFlowPatternsBatchRendering,
+    expectedControlFlowPatternsSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
+    runJazzControlFlowPatternsSourceBatch,
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -33,7 +35,9 @@ main = runTestSuite "JazzCoreControlFlowPatterns" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("matches stage 0 for conditions, cases, and every pattern", testControlFlowParity)
+  [ ("matches stage 0 for conditions, cases, and every pattern", testControlFlowParity),
+    ("matches stage 0 through the hosted parser twice", testComposedParity),
+    ("rejects later-child forms at every nested boundary", testUnsupportedBoundary)
   ]
 
 testControlFlowParity :: IO ()
@@ -59,6 +63,30 @@ testControlFlowParity = do
   assertSuccessfulOutput "control-flow parity first run" expected first
   assertSuccessfulOutput "control-flow parity second run" expected second
   assertEqual "control-flow parity deterministic output" (runOutput first) (runOutput second)
+
+testComposedParity :: IO ()
+testComposedParity = do
+  assertEqual "composed fixture count" 14 (length composedSources)
+  expected <- expectRight "composed control-flow expected values" (expectedControlFlowPatternsSourceBatchRendering composedSources)
+  first <- runJazzControlFlowPatternsSourceBatch composedSources
+  second <- runJazzControlFlowPatternsSourceBatch composedSources
+  assertSuccessfulOutput "composed control-flow first run" expected first
+  assertSuccessfulOutput "composed control-flow second run" expected second
+  assertEqual "composed control-flow deterministic output" (runOutput first) (runOutput second)
+
+testUnsupportedBoundary :: IO ()
+testUnsupportedBoundary = do
+  assertEqual "unsupported fixture count" 12 (length unsupportedExpressions)
+  first <- runJazzControlFlowPatternsBatch unsupportedExpressions
+  second <- runJazzControlFlowPatternsBatch unsupportedExpressions
+  let expected = Just ("[" <> Text.intercalate ", " (replicate 12 "Nothing") <> "]")
+  assertEqual "unsupported first compile errors" [] (runCompileErrors first)
+  assertEqual "unsupported first runtime errors" [] (runRuntimeErrors first)
+  assertEqual "unsupported first output" expected (runOutput first)
+  assertEqual "unsupported second compile errors" [] (runCompileErrors second)
+  assertEqual "unsupported second runtime errors" [] (runRuntimeErrors second)
+  assertEqual "unsupported second output" expected (runOutput second)
+  assertEqual "unsupported deterministic output" (runOutput first) (runOutput second)
 
 expectedControlFlowFixtureNames :: [Text.Text]
 expectedControlFlowFixtureNames =
@@ -199,6 +227,62 @@ patternInventory =
       SurfaceCaseArm (SPAs "whole" (SPConstructor "Nothing" [])) Nothing (seInt 12),
       SurfaceCaseArm (SPOr [SPConstructor "Just" [SPVariable "item"], SPConstructor "Nothing" []]) Nothing (seInt 13)
     ]
+
+composedSources :: [Text.Text]
+composedSources =
+  [ "if True then 1 else 0.",
+    "if outer then if inner then 1 else 2 else 3.",
+    "if cond then { value = 1. value. } else { value = 2. value. }.",
+    "case value { | Just item -> item | Nothing -> 0 }.",
+    "case value { | Just item if keep -> item | Nothing -> 0 }.",
+    "case value { | _ -> 0 | name -> 1 | 2 -> 2 | 'x' -> 3 | \"x\" -> 4 | True -> 5 | Just item -> 6 | [head, tail] -> 7 | [head | tail] -> 8 | () -> 9 | (left, right) -> 10 | whole@Nothing -> 11 | Just item | Nothing -> 12 }.",
+    "case if cond then left else right { | _ -> 0 }.",
+    "case outer { | Just item -> case item { | _ -> 1 } | Nothing -> 0 }.",
+    "\\(value) -> value.",
+    "\\(left, right) -> left.",
+    "\\([head | tail]) -> head.",
+    "\\(Just item | Nothing) -> item.",
+    "\\(first, Just second, third) -> second.",
+    "{ loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
+  ]
+
+unsupportedExpressions :: [SurfaceExpr]
+unsupportedExpressions =
+  [ SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
+    SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0),
+    SECase
+      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+      [SurfaceCaseArm SPWildcard Nothing (seInt 0)],
+    SECase
+      (SEVar "value")
+      [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 SurfaceTypeBool)) (seInt 0)],
+    SELambda
+      (SurfaceLambdaIdentifier "value" :| [])
+      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt),
+    SECase
+      (SEVar "value")
+      [SurfaceCaseArm SPWildcard Nothing (SEBinary "$" (SEVar "function") (seInt 1))],
+    SEIf
+      (SEVar "condition")
+      (SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)])
+      (seInt 0),
+    SECase
+      (SEVar "value")
+      [SurfaceCaseArm SPWildcard Nothing (SEBlock [SSData span1 "Thing" [] []])],
+    SELambda
+      (SurfaceLambdaIdentifier "value" :| [])
+      (SEBlock [SSClass span1 "Show" ["a"] []]),
+    SELambda
+      (SurfaceLambdaIdentifier "value" :| [])
+      (SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []]),
+    SEBlock
+      [SSLet "nested" span1 (SEBlock [SSLet "$operator:2B" span1 (SEVar "add")])],
+    SEBlock
+      [ SSModule span1 ["App", "Main"] Nothing,
+        SSImport span1 ["Core", "Text"] Nothing Nothing,
+        SSExpr span1 (seInt 0)
+      ]
+  ]
 
 span1 :: SourceSpan
 span1 = SourceSpan 1 1
