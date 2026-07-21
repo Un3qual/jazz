@@ -50,7 +50,11 @@ module ParserProgram (value parseFoundationalProgram) {
 
   parseScopedNextStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
   parseScopedNextStatement = \(context, reversed) -> tokenAndThen
-    (\(statement) -> parseScopedStatements context (listPrepend statement reversed))
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseScopedStatements
+        nextContext
+        (prependStatements statements reversed)
+    })
     (parseStatementWithContext parseExpressionInContext parseStatementList context).
 
   parseScopedImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
@@ -79,7 +83,11 @@ module ParserProgram (value parseFoundationalProgram) {
 
   parseTopLevelOrdinaryStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).
   parseTopLevelOrdinaryStatement = \(context, reversed) -> tokenAndThen
-    (\(statement) -> parseTopLevelStatementsAfterFirst context (listPrepend statement reversed))
+    (\(result) -> case result {
+      | (statements, nextContext) -> parseTopLevelStatementsAfterFirst
+        nextContext
+        (prependStatements statements reversed)
+    })
     (parseStatementWithContext parseExpressionInContext parseStatementList context).
 
   parseTopLevelImportStatement :: ParserContext -> [SurfaceStatement] -> TokenParser([SurfaceStatement]).

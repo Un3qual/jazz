@@ -9,6 +9,7 @@ module ParserDeclaration (
     CanonicalToken,
     CanonicalSpan,
     IdentifierKind,
+    IntegerKind,
     OperatorKind,
     KeywordKind,
     ModuleKeyword,
@@ -35,6 +36,7 @@ module ParserDeclaration (
   import Maybe.
   import NonEmpty.
   import ParserContext.
+  import ParserOperator.
   import ParserSignature (parseSignaturePayload, parseSignatureTypes).
   import Set.
   import ParserToken (
@@ -59,6 +61,7 @@ module ParserDeclaration (
     tokenFailAtSpan,
     tokenTakeIf,
     tokenIdentifier,
+    tokenInteger,
     tokenKeyword,
     tokenOperator,
     tokenPunctuation
@@ -1760,70 +1763,355 @@ module ParserDeclaration (
       })
     (tokenKeyword ModuleKeyword).
 
-  rejectOperatorDeclaration :: Bool -> (CanonicalToken, CanonicalToken) -> TokenParser(SurfaceStatement).
-  rejectOperatorDeclaration = \(nestedBlock, candidate) -> case candidate {
-    | (declarationToken, symbolToken) -> if nestedBlock then
+  data OperatorFixity = TierFixity | PrecedenceFixity.
+
+  decimalDigitValue :: Char -> Int.
+  decimalDigitValue = \(digit) -> if digit == '0' then 0 else
+    if digit == '1' then 1 else
+    if digit == '2' then 2 else
+    if digit == '3' then 3 else
+    if digit == '4' then 4 else
+    if digit == '5' then 5 else
+    if digit == '6' then 6 else
+    if digit == '7' then 7 else
+    if digit == '8' then 8 else 9.
+
+  operatorIntegerValue :: Text -> Maybe(Int).
+  operatorIntegerValue = \(digits) -> case textUncons digits {
+    | Nothing -> Nothing
+    | Just (first, rest) -> case textUncons rest {
+      | Nothing -> Just (decimalDigitValue first)
+      | Just (second, afterSecond) -> case textUncons afterSecond {
+        | Nothing -> Just ((decimalDigitValue first * 10) + decimalDigitValue second)
+        | Just (third, trailing) -> Nothing
+      }
+    }
+  }.
+
+  parseOperatorDeclarationSymbol :: TokenParser((CanonicalToken, Text)).
+  parseOperatorDeclarationSymbol = tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAt Nothing (ExpectedSyntax "operator symbol after 'operator'" EndOfInput)
+      | Just token -> case canonicalTokenKind token {
+        | OperatorKind symbol -> tokenKeepRight tokenOperator (tokenSucceed (token, symbol))
+        | PunctuationKind ArrowPunctuation -> tokenKeepRight
+          (tokenPunctuation ArrowPunctuation)
+          (tokenSucceed (token, canonicalTokenLexeme token))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "operator symbol after 'operator'" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  validateOperatorDeclaration :: ParserContext -> CanonicalToken -> Text -> TokenParser(()).
+  validateOperatorDeclaration = \(context, declarationToken, symbol) -> if operatorIsBuiltin symbol then
+    tokenFailAtSpan
+      (canonicalTokenSpan declarationToken)
+      (DeclarationFailure (BuiltinOperatorCannotBeRedeclared symbol))
+    else if operatorIsReserved symbol then
+      tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (DeclarationFailure (ReservedOperatorSymbol symbol))
+      else if operatorIsValidUserSymbol symbol then case parserContextLookupOperator context symbol {
+        | Just info -> tokenFailAtSpan
+          (canonicalTokenSpan declarationToken)
+          (DeclarationFailure (DuplicateOperatorDeclaration symbol))
+        | Nothing -> tokenSucceed ()
+      }
+      else tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (DeclarationFailure (InvalidOperatorSymbol symbol)).
+
+  parseOperatorFixity :: CanonicalToken -> TokenParser(OperatorFixity).
+  parseOperatorFixity = \(declarationToken) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (ExpectedSyntax "'tier' or 'precedence'" (EndOfInputIn "operator declaration"))
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> if name == "tier" then tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed TierFixity)
+          else if name == "precedence" then tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed PrecedenceFixity)
+            else tokenFailAtSpan
+              (canonicalTokenSpan token)
+              (ExpectedSyntax "'tier' or 'precedence' in operator declaration" (canonicalTokenEncountered current))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax "'tier' or 'precedence' in operator declaration" (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  operatorFixityLabel :: OperatorFixity -> Text.
+  operatorFixityLabel = \(fixity) -> case fixity {
+    | TierFixity -> "tier"
+    | PrecedenceFixity -> "precedence"
+  }.
+
+  parseOperatorFixityValue :: CanonicalToken -> Text -> OperatorFixity -> TokenParser(OperatorInfo).
+  parseOperatorFixityValue = \(declarationToken, symbol, fixity) -> tokenAndThen
+    (\(current) -> case current {
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (ExpectedSyntax
+          (case fixity {
+            | TierFixity -> "operator tier 1-5"
+            | PrecedenceFixity -> "operator precedence 1-99"
+          })
+          (EndOfInputIn "operator declaration"))
+      | Just token -> case canonicalTokenKind token {
+        | IntegerKind digits -> case operatorIntegerValue digits {
+          | Just value -> case (case fixity {
+            | TierFixity -> operatorForTier symbol value
+            | PrecedenceFixity -> operatorForPrecedence symbol value
+          }) {
+            | Just info -> tokenKeepRight tokenInteger (tokenSucceed info)
+            | Nothing -> tokenFailAtSpan
+              (canonicalTokenSpan declarationToken)
+              (DeclarationFailure (case fixity {
+                | TierFixity -> OperatorTierOutOfRange
+                | PrecedenceFixity -> OperatorPrecedenceOutOfRange
+              }))
+          }
+          | Nothing -> tokenFailAtSpan
+            (canonicalTokenSpan declarationToken)
+            (DeclarationFailure (case fixity {
+              | TierFixity -> OperatorTierOutOfRange
+              | PrecedenceFixity -> OperatorPrecedenceOutOfRange
+            }))
+        }
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax
+            (case fixity {
+              | TierFixity -> "operator tier 1-5"
+              | PrecedenceFixity -> "operator precedence 1-99"
+            })
+            (canonicalTokenEncountered current))
+      }
+    })
+    tokenPeek.
+
+  parseOperatorAssociativity :: OperatorInfo -> TokenParser(OperatorInfo).
+  parseOperatorAssociativity = \(info) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | IdentifierKind name -> if name == "left" then tokenKeepRight
+          tokenIdentifier
+          (tokenSucceed (operatorWithAssociativity info LeftAssociative))
+          else if name == "right" then tokenKeepRight
+            tokenIdentifier
+            (tokenSucceed (operatorWithAssociativity info RightAssociative))
+            else if name == "nonassoc" then tokenKeepRight
+              tokenIdentifier
+              (tokenSucceed (operatorWithAssociativity info NonAssociative))
+              else tokenFailAtSpan
+                (canonicalTokenSpan token)
+                (ExpectedSyntax
+                  "operator associativity 'left', 'right', or 'nonassoc'"
+                  (canonicalTokenEncountered current))
+        | other -> tokenSucceed info
+      }
+      | Nothing -> tokenSucceed info
+    })
+    tokenPeek.
+
+  consumeOperatorDeclarationDot :: CanonicalToken -> OperatorFixity -> TokenParser(()).
+  consumeOperatorDeclarationDot = \(declarationToken, fixity) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind DotPunctuation -> tokenKeepRight
+          (tokenPunctuation DotPunctuation)
+          (tokenSucceed ())
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan token)
+          (ExpectedSyntax
+            (textAppend "'.' after operator declaration " (operatorFixityLabel fixity))
+            (canonicalTokenEncountered current))
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (ExpectedSyntax
+          (textAppend "'.' after operator declaration " (operatorFixityLabel fixity))
+          EndOfInput)
+    })
+    tokenPeek.
+
+  parseOperatorDeclaration :: ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
+  parseOperatorDeclaration = \(context) -> tokenAndThen
+    (\(declarationToken) -> if parserContextIsNestedBlock context then
       tokenFailAtSpan
         (canonicalTokenSpan declarationToken)
         (DeclarationFailure (DeclarationOutsideAllowedScope OperatorDeclaration))
-      else case canonicalTokenKind symbolToken {
-        | IdentifierKind name -> tokenFailAtSpan
-          (canonicalTokenSpan symbolToken)
-          (ExpectedSyntax "operator symbol after 'operator'" (canonicalTokenEncountered (Just symbolToken)))
-        | OperatorKind symbol -> tokenFailAtSpan
-          (canonicalTokenSpan symbolToken)
-          (UnexpectedSyntax (canonicalTokenEncountered (Just symbolToken)) "an expression-foundation statement")
-        | PunctuationKind ArrowPunctuation -> tokenFailAtSpan
-          (canonicalTokenSpan symbolToken)
-          (UnexpectedSyntax (canonicalTokenEncountered (Just symbolToken)) "an expression-foundation statement")
-        | other -> tokenFailAtSpan
-          (canonicalTokenSpan symbolToken)
-          (InternalParserFailure TokenStreamParseFailure)
-      }
+      else tokenAndThen
+        (\(symbolResult) -> case symbolResult {
+          | (symbolToken, symbol) -> tokenKeepRight
+            (validateOperatorDeclaration context declarationToken symbol)
+            (tokenAndThen
+              (\(fixity) -> tokenAndThen
+                (\(info) -> tokenAndThen
+                  (\(associated) -> tokenKeepRight
+                    (consumeOperatorDeclarationDot declarationToken fixity)
+                    (tokenSucceed ([], parserContextRegisterOperator context associated)))
+                  (parseOperatorAssociativity info))
+                (parseOperatorFixityValue declarationToken symbol fixity))
+              (parseOperatorFixity declarationToken))
+        })
+        parseOperatorDeclarationSymbol)
+    operatorKeyword.
+
+  operatorBindingCharacter :: Char -> Text.
+  operatorBindingCharacter = \(character) -> if character == '!' then "%21" else
+    if character == '%' then "%25" else
+    if character == '&' then "%26" else
+    if character == '*' then "%2A" else
+    if character == '+' then "%2B" else
+    if character == '-' then "%2D" else
+    if character == '/' then "%2F" else
+    if character == '<' then "%3C" else
+    if character == '>' then "%3E" else
+    if character == '?' then "%3F" else
+    if character == '^' then "%5E" else
+    if character == '|' then "%7C" else "%7E".
+
+  operatorBindingSuffix :: Text -> Text.
+  operatorBindingSuffix = \(symbol) -> case textUncons symbol {
+    | Nothing -> ""
+    | Just (first, rest) -> textAppend (operatorBindingCharacter first) (operatorBindingSuffix rest)
   }.
+
+  operatorBindingName :: Text -> Text.
+  operatorBindingName = \(symbol) -> textAppend "$operator:" (operatorBindingSuffix symbol).
+
+  parseParenthesizedOperator :: TokenParser((CanonicalToken, Text)).
+  parseParenthesizedOperator = tokenKeepRight
+    (tokenPunctuation LeftParenPunctuation)
+    (tokenAndThen
+      (\(operatorToken) -> case canonicalTokenKind operatorToken {
+        | OperatorKind symbol -> tokenKeepRight
+          (tokenPunctuation RightParenPunctuation)
+          (tokenSucceed (operatorToken, symbol))
+      })
+      tokenOperator).
+
+  validateOperatorStatement :: ParserContext -> CanonicalToken -> Text -> ParserDeclarationKind -> ParserOperatorUse -> TokenParser(()).
+  validateOperatorStatement = \(context, operatorToken, symbol, declarationKind, operatorUse) -> if parserContextIsNestedBlock context then
+    tokenFailAtSpan
+      (canonicalTokenSpan operatorToken)
+      (DeclarationFailure (DeclarationOutsideAllowedScope declarationKind))
+    else if operatorIsBuiltin symbol then tokenFailAtSpan
+      (canonicalTokenSpan operatorToken)
+      (DeclarationFailure (case declarationKind {
+        | OperatorBinding -> BuiltinOperatorCannotBeBound symbol
+        | OperatorSignature -> BuiltinOperatorCannotBeSigned symbol
+        | other -> BuiltinOperatorCannotBeRedeclared symbol
+      }))
+      else case parserContextLookupOperator context symbol {
+        | Just info -> tokenSucceed ()
+        | Nothing -> tokenFailAtSpan
+          (canonicalTokenSpan operatorToken)
+          (UndeclaredOperator symbol operatorUse)
+      }.
+
+  parseOperatorBinding :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(SurfaceStatement).
+  parseOperatorBinding = \(parseExpression, context) -> tokenAndThen
+    (\(operatorResult) -> case operatorResult {
+      | (operatorToken, symbol) -> tokenKeepRight
+        (validateOperatorStatement context operatorToken symbol OperatorBinding BindingOperatorUse)
+        (tokenKeepRight
+          (tokenPunctuation EqualsPunctuation)
+          (tokenAndThen
+            (\(expression) -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenSucceed
+                (LetStatement (operatorBindingName symbol) (canonicalTokenSpan operatorToken) expression)))
+            (parseExpression context)))
+    })
+    parseParenthesizedOperator.
+
+  parseOperatorSignature :: ParserContext -> TokenParser(SurfaceStatement).
+  parseOperatorSignature = \(context) -> tokenAndThen
+    (\(operatorResult) -> case operatorResult {
+      | (operatorToken, symbol) -> tokenKeepRight
+        (validateOperatorStatement context operatorToken symbol OperatorSignature SignatureOperatorUse)
+        (tokenKeepRight
+          (tokenPunctuation DoubleColonPunctuation)
+          (tokenAndThen
+            (\(payloadTokens) -> tokenKeepRight
+              (tokenPunctuation DotPunctuation)
+              (tokenSucceed
+                (SignatureStatement
+                  (operatorBindingName symbol)
+                  (canonicalTokenSpan operatorToken)
+                  (parseSignaturePayload payloadTokens))))
+            (collectSignaturePayload [])))
+    })
+    parseParenthesizedOperator.
+
+  parseOperatorStatement :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
+  parseOperatorStatement = \(parseExpression, context) -> tokenAndThen
+    (\(remaining) -> case remaining {
+      | [leftParen | afterLeftParen] -> case afterLeftParen {
+        | [operatorToken | afterOperator] -> case afterOperator {
+          | [rightParen | afterRightParen] -> case afterRightParen {
+            | [separator | rest] -> case canonicalTokenKind separator {
+              | PunctuationKind EqualsPunctuation -> tokenTransform
+                (\(statement) -> ([statement], context))
+                (parseOperatorBinding parseExpression context)
+              | PunctuationKind DoubleColonPunctuation -> tokenTransform
+                (\(statement) -> ([statement], context))
+                (parseOperatorSignature context)
+              | other -> tokenFailAtSpan
+                (canonicalTokenSpan separator)
+                (InternalParserFailure TokenStreamParseFailure)
+            }
+        }
+      }
+    }
+    })
+    tokenRemaining.
 
   parseNonDataStatement :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(SurfaceStatement).
   parseNonDataStatement = \(parseExpression, parseStatements, context) -> tokenAndThen
-    (\(operatorStart) -> case operatorStart {
-      | Just candidate -> rejectOperatorDeclaration (parserContextIsNestedBlock context) candidate
+    (\(declarationStart) -> case declarationStart {
+      | Just declarationToken -> case canonicalTokenKind declarationToken {
+        | IdentifierKind "class" -> parseCapabilityDeclaration parseExpression context "class"
+        | IdentifierKind "impl" -> parseCapabilityDeclaration parseExpression context "impl"
+        | other -> rejectUnsupportedDeclaration declarationToken
+      }
       | Nothing -> tokenAndThen
-        (\(declarationStart) -> case declarationStart {
-          | Just declarationToken -> case canonicalTokenKind declarationToken {
-            | IdentifierKind "class" -> parseCapabilityDeclaration parseExpression context "class"
-            | IdentifierKind "impl" -> parseCapabilityDeclaration parseExpression context "impl"
-            | other -> rejectUnsupportedDeclaration declarationToken
+        (\(signatureStart) -> case signatureStart {
+          | Just candidate -> case candidate {
+            | (nameToken, separatorToken) -> case canonicalTokenKind nameToken {
+              | IdentifierKind name -> if isReservedLiteralName name then parseSignature
+                else if tokensAreAdjacent nameToken separatorToken then
+                  if parserContextHasAlias context name then parseExpressionStatement parseExpression context
+                  else tokenAndThen
+                    (\(remaining) -> {
+                      aliases = if parserContextIsNestedBlock context then
+                        collectImportAliasesUntilEnd remaining
+                        else if parserContextStopsAtRightBrace context then
+                          collectImportAliasesUntilBrace remaining
+                          else collectImportAliasesUntilEnd remaining.
+                      collectedContext = parserContextRegisterAliases context aliases.
+                      if parserContextHasAlias collectedContext name then
+                        parseExpressionStatement parseExpression collectedContext
+                        else parseSignature.
+                    })
+                    tokenRemaining
+                  else parseSignature
+              | other -> parseSignature
+            }
           }
-          | Nothing -> tokenAndThen
-            (\(signatureStart) -> case signatureStart {
-              | Just candidate -> case candidate {
-                | (nameToken, separatorToken) -> case canonicalTokenKind nameToken {
-                  | IdentifierKind name -> if isReservedLiteralName name then parseSignature
-                    else if tokensAreAdjacent nameToken separatorToken then
-                      if parserContextHasAlias context name then parseExpressionStatement parseExpression context
-                      else tokenAndThen
-                        (\(remaining) -> {
-                          aliases = if parserContextIsNestedBlock context then
-                            collectImportAliasesUntilEnd remaining
-                            else if parserContextStopsAtRightBrace context then
-                              collectImportAliasesUntilBrace remaining
-                              else collectImportAliasesUntilEnd remaining.
-                          collectedContext = parserContextRegisterAliases context aliases.
-                          if parserContextHasAlias collectedContext name then
-                            parseExpressionStatement parseExpression collectedContext
-                            else parseSignature.
-                        })
-                        tokenRemaining
-                      else parseSignature
-                  | other -> parseSignature
-                }
-              }
-              | Nothing -> parseExpressionStatement parseExpression context
-            })
-            signatureBoundaryStart
+          | Nothing -> parseExpressionStatement parseExpression context
         })
-        (unsupportedDeclarationStart (parserContextIsNestedBlock context))
+        signatureBoundaryStart
     })
-    operatorDeclarationStart.
+    (unsupportedDeclarationStart (parserContextIsNestedBlock context)).
 
   parseNonBindingStatement :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(SurfaceStatement).
   parseNonBindingStatement = \(parseExpression, parseStatements, context) -> tokenAndThen
@@ -1852,11 +2140,23 @@ module ParserDeclaration (
     (\(statements) -> (statements, context))
     (parseModuleDeclaration parseStatements context).
 
-  parseStatementWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(SurfaceStatement).
+  parseStatementWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
   parseStatementWithContext = \(parseExpression, parseStatements, context) -> tokenAndThen
-    (\(start) -> case start {
-      | Just bindingToken -> parseBinding parseExpression context
-      | Nothing -> parseNonBindingStatement parseExpression parseStatements context
+    (\(operatorStart) -> case operatorStart {
+      | Just candidate -> parseOperatorDeclaration context
+      | Nothing -> tokenAndThen
+        (\(operatorStatementStart) -> case operatorStatementStart {
+          | Just operatorToken -> parseOperatorStatement parseExpression context
+          | Nothing -> tokenTransform
+            (\(statement) -> ([statement], context))
+            (tokenAndThen
+              (\(start) -> case start {
+                | Just bindingToken -> parseBinding parseExpression context
+                | Nothing -> parseNonBindingStatement parseExpression parseStatements context
+              })
+              bindingStart)
+        })
+        (tokenLookAhead (tokenOptional (tokenAttempt parenthesizedOperatorStatementCandidate)))
     })
-    bindingStart.
+    operatorDeclarationStart.
 }
