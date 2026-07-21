@@ -375,7 +375,8 @@ The 512 bindings rotate through:
 - operator expressions inside lambdas, conditionals, case guards, case bodies,
   lists, tuples, and nested blocks.
 
-Run the profile twice through the ordinary Jazz module graph and require:
+For the original `2026-07-20` closure, run this profile and all three landed
+profiles twice through the ordinary Jazz module graph and require:
 
 - output `513` both times;
 - identical runtime observation statistics;
@@ -388,6 +389,13 @@ Initial ceilings may be conservative for the first measured red/green run but
 must be tightened above the stable observation before closeout. The three
 landed scale profiles retain their existing sources, outputs, and ceilings.
 
+Ongoing verification follows the later
+[parser scale tiering policy](2026-07-21-jazz-parser-scale-test-tiering-design.md):
+the default suite runs all four 65-statement profiles twice, while the preserved
+513-statement profiles are individually gated behind `full-parser-scale` and
+run only for an explicitly requested niche diagnosis. The historical twice-run
+full-scale closure evidence below remains the acceptance record for this child.
+
 ## Verification and Closeout
 
 Completion requires:
@@ -397,7 +405,7 @@ Completion requires:
 - exact parity for all six families;
 - repeated complete 365-case token/source parity;
 - all four scale profiles with deterministic statistics and zero host
-  operations;
+  operations for the original closure;
 - a warning-clean development build;
 - every registered Cabal suite;
 - `cabal check`;
@@ -435,6 +443,12 @@ The focused matrix, scale suite, warning-clean build, all Cabal suites,
 core, lowering, backend, runtime, public-parser, host-callback, or legacy work
 entered the child.
 
+For ongoing verification after closure, `jazz-parser-scale-spec` is the
+twice-run 65-statement smoke gate in default `cabal test all`. The four
+513-statement components retain these sources and ceilings behind the
+default-disabled `full-parser-scale` flag and are reserved for explicit manual
+diagnosis rather than routine PR, release, or scheduled validation.
+
 ## Acceptance Criteria
 
 - The approved module ownership and immutable source-order context are present.
@@ -444,7 +458,8 @@ entered the child.
 - The existing surface/failure/kernel/façade contracts remain unchanged.
 - All 365 fixtures are assigned exactly once across the six fixed families.
 - Focused and complete token/source parity is exact and deterministic.
-- The operator scale profile passes twice with recorded bounded observations
-  and zero host operations; all prior profiles remain green.
+- The operator scale profile passed twice for closure with recorded bounded
+  observations and zero host operations; ongoing verification uses the
+  twice-run smoke tier and the manual-only preserved full tier.
 - No runtime, core, backend, public-parser, host-callback, or legacy-reference
   work enters the change.

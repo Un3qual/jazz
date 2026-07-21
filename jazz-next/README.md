@@ -158,8 +158,30 @@ cabal test --project-dir=jazz-next all --test-show-details=failures
 cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=failures
 ```
 
-Cabal discovers every registered suite. Use a test component name, such as
-`repository-audit-spec`, for a focused run. The repository audit owns the
-Jazz source-format and dependency-layering contracts, editor-package metadata,
-documentation entry points, and the private-package policy. Git's actual ignore
-behavior for generated performance artifacts is checked at the repository gate.
+`cabal test --project-dir=jazz-next all` is the routine matrix. It includes
+`jazz-parser-scale-spec`, which runs all four 65-statement hosted-parser smoke
+profiles twice and requires deterministic semantic observations. The four
+preserved 513-statement profiles are a niche manual diagnostic and are excluded
+from the default matrix. When a maintainer explicitly requests full-scale
+diagnosis, enable and select all four gated targets:
+
+```bash
+cabal test --project-dir=jazz-next -ffull-parser-scale \
+  jazz-parser-scale-full-expression-spec \
+  jazz-parser-scale-full-declarations-spec \
+  jazz-parser-scale-full-control-flow-spec \
+  jazz-parser-scale-full-operator-spec \
+  --test-show-details=failures
+```
+
+Do not add this exhaustive command to routine PR, release, or scheduled
+verification. Use it only to reproduce a suspected scale regression, validate
+a changed full-scale generator or ceiling, or satisfy an explicit maintainer
+request.
+
+Cabal discovers every registered default suite. Use a test component name,
+such as `repository-audit-spec`, for a focused run. The repository audit owns
+the Jazz source-format and dependency-layering contracts, editor-package
+metadata, documentation entry points, and the private-package policy. Git's
+actual ignore behavior for generated performance artifacts is checked at the
+repository gate.

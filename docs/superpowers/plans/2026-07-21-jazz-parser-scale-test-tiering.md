@@ -19,6 +19,8 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
 **Design checkpoint:**
 [`2026-07-21-jazz-parser-scale-test-tiering-design.md`](../specs/2026-07-21-jazz-parser-scale-test-tiering-design.md)
 
+**Status:** Complete on `2026-07-21`.
+
 ## Global Constraints
 
 - Preserve the four existing full-scale source shapes, outputs, and ceilings.
@@ -43,47 +45,77 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
 
 ## Task 1: Parameterize the scale runners and land deterministic smoke coverage
 
-- [ ] Change the default scale spec first to request 64 bindings or 16
+- [x] Change the default scale spec first to request 64 bindings or 16
   declaration groups and exact 65-statement results.
-- [ ] Run `jazz-parser-scale-spec` and confirm it fails because the three fixed
+- [x] Run `jazz-parser-scale-spec` and confirm it fails because the three fixed
   profile runners do not yet accept a size.
-- [ ] Parameterize all four generators and runners without changing their
+- [x] Parameterize all four generators and runners without changing their
   grammar templates.
-- [ ] Add the shared assertion owner and keep complete-statistics equality in
+- [x] Add the shared assertion owner and keep complete-statistics equality in
   the twice-run smoke path.
-- [ ] Run the smoke suite, record stable observations, and set measured ceilings
+- [x] Run the smoke suite, record stable observations, and set measured ceilings
   above those values.
-- [ ] Repeat the smoke suite to prove the observations are stable.
-- [ ] Commit as `test: add fast hosted parser scale gate`.
+- [x] Repeat the smoke suite to prove the observations are stable.
+- [x] Commit as `test: add fast hosted parser scale gate`.
 
 ## Task 2: Add independently runnable exhaustive components
 
-- [ ] Add `full-parser-scale` as a default-disabled manual Cabal flag.
-- [ ] Add one gated test entrypoint for each expression, declarations,
+- [x] Add `full-parser-scale` as a default-disabled manual Cabal flag.
+- [x] Add one gated test entrypoint for each expression, declarations,
   control-flow, and operator profile.
-- [ ] Make every full entrypoint run once at the existing size and reuse the
+- [x] Make every full entrypoint run once at the existing size and reuse the
   landed full ceilings through the shared assertion owner.
-- [ ] Compile all four components explicitly with the flag without executing
+- [x] Compile all four components explicitly with the flag without executing
   the exhaustive workloads.
-- [ ] Confirm Cabal can address each component independently and that the
+- [x] Confirm Cabal can address each component independently and that the
   default-disabled flag keeps them out of routine `all`.
-- [ ] Commit as `test: gate exhaustive hosted parser scale profiles`.
+- [x] Commit as `test: gate exhaustive hosted parser scale profiles`.
 
 ## Task 3: Update the verification contract and close the follow-up
 
-- [ ] Update README and performance guidance with the default smoke and
+- [x] Update README and performance guidance with the default smoke and
   explicit exhaustive commands.
-- [ ] Update the operators/full-parity design and plan so historical twice-run
+- [x] Update the operators/full-parity design and plan so historical twice-run
   evidence remains clear while ongoing verification uses smoke twice and full
   only when explicitly requested for niche diagnosis.
-- [ ] Run the default `all` matrix and confirm no gated full component appears.
-- [ ] Compile-check all four exhaustive components with
+- [x] Run the default `all` matrix and confirm no gated full component appears.
+- [x] Compile-check all four exhaustive components with
   `-ffull-parser-scale`; do not execute them in routine verification.
-- [ ] Run the warning-clean build, `cabal check`, queue/docs validators, and
+- [x] Run the warning-clean build, `cabal check`, queue/docs validators, and
   `git diff --check`.
-- [ ] Confirm no parser, runtime, observation, fixture-corpus, queue, or legacy
+- [x] Confirm no parser, runtime, observation, fixture-corpus, queue, or legacy
   compiler path changed.
-- [ ] Commit as `docs: document parser scale test tiers` and push PR `#117`.
+- [x] Commit as `docs: document parser scale test tiers`; leave the PR push to
+  the controller.
+
+## Completion Evidence
+
+Completed on `2026-07-21` across `bf04918`, `354f51f`, and this documentation
+closeout. The default smoke suite ran all four 65-statement profiles twice with
+identical complete statistics and zero host operations:
+
+| Profile | Evaluator transitions | Applications | List cells | Maximum continuation depth |
+| --- | ---: | ---: | ---: | ---: |
+| Expression | 2,701,565 | 326,516 | 13,526 | 165 |
+| Declarations | 1,147,204 | 137,013 | 7,474 | 173 |
+| Control flow | 5,187,384 | 627,007 | 26,321 | 200 |
+| Operator | 6,140,452 | 740,815 | 22,899 | 220 |
+
+The Nix-pinned routine
+`cabal test --project-dir=jazz-next all --test-show-details=failures` command
+exited `0`. Its complete build/run log contains `jazz-parser-scale-spec` and no
+`jazz-parser-scale-full-*` component. The observed wall-clock time was 77.10
+seconds; this is reporting evidence only and is not a correctness threshold.
+
+The Nix-pinned compile-only command selected
+`-ffull-parser-scale -fdevelopment` plus all four
+`test:jazz-parser-scale-full-*` targets and exited `0` after preprocessing and
+building every target. No exhaustive component was executed. The warning-clean
+development build, `cabal check`, queue validator, docs validator, and
+`git diff --check` also passed. The closeout diff contains only this plan, the
+operators/full-parity design and plan, `jazz-next/README.md`, and
+`jazz-next/PERFORMANCE.md`; parser, runtime, observation, fixture-corpus, queue,
+and legacy compiler paths are unchanged.
 
 ## Completion Gate
 
@@ -95,4 +127,5 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
 - Full workloads are not executed by this follow-up; they are reserved for an
   explicit maintainer request or scale-regression investigation.
 - Documentation and actual Cabal commands agree.
-- All focused, default, exhaustive, build, package, and repository checks pass.
+- Default correctness, exhaustive-target compile-only, warning-clean build,
+  package, and repository checks pass; exhaustive runtime remains manual-only.

@@ -35,6 +35,7 @@ target_paths:
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-operators-full-parity-spec jazz-parser-component-spec jazz-parser-parity-spec canonical-parser-comparison-spec parser-core-spec token-parser-spec canonical-lexer-comparison-spec jazz-lexer-parity-spec jazz-parser-control-flow-patterns-spec jazz-parser-types-declarations-modules-spec operator-fixity-spec operator-invalid-syntax-spec operator-section-spec if-expression-parser-spec lambda-parser-spec pattern-parser-spec adt-pattern-parser-spec expression-parser-spec declaration-parser-spec module-import-parser-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-parser-scale-spec --test-show-details=failures
+  - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -ffull-parser-scale -fdevelopment test:jazz-parser-scale-full-expression-spec test:jazz-parser-scale-full-declarations-spec test:jazz-parser-scale-full-control-flow-spec test:jazz-parser-scale-full-operator-spec
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next all --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c bash -lc 'cd jazz-next && cabal check'
@@ -103,7 +104,7 @@ observation statistics, Cabal test components, and the Nix-pinned environment.
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs` | Preserve complete corpus order and source classifications. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs` | Lock the 365-case total, six family sizes, and exclusive assignment failures. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScale.hs` | Generate and run the additive operator/control-flow profile. |
-| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs` | Require deterministic output/statistics, zero host operations, and bounded cost for all four profiles. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs` | Require twice-run deterministic output/statistics, zero host operations, and bounded cost for all four 65-statement smoke profiles. |
 | `jazz-next/jazz-next.cabal` | Register the focused suite; existing Jazz source discovery includes the new compiler module. |
 | Coordination docs in frontmatter | Promote, record evidence, archive, and move the parent milestone without absorbing later stages. |
 
@@ -132,11 +133,13 @@ contracts and behaviors must remain reviewable and covered.
 - Run every hosted focused and complete batch twice and require identical
   output.
 - Preserve lexical failures as source-façade lexical failures.
-- The operator profile produces exactly 513 surface statements twice, reports
-  identical statistics, performs zero host operations, and finishes under
-  tightened measured ceilings.
+- For the original closure, the operator profile produces exactly 513 surface
+  statements twice, reports identical statistics, performs zero host
+  operations, and finishes under tightened measured ceilings.
 - All three prior profiles retain their sources, output, observations, and
-  ceilings.
+  ceilings. Ongoing verification uses twice-run 65-statement smoke profiles by
+  default; the preserved 513-statement profiles are manual-only diagnostics
+  behind `full-parser-scale`.
 
 ## Implementation Batch: Operators and Full Parity
 
@@ -335,6 +338,12 @@ registered Cabal suites, `cabal check`, locked-path audit, queue/docs
 validators, and `git diff --check` pass. `Ready Now` is empty; canonical core,
 lowering, backend, object/link, and native-runtime work remain unpromoted.
 
+That twice-run 513-statement record is historical closure evidence. Ongoing
+verification runs all four 65-statement profiles twice through the default
+`jazz-parser-scale-spec`. The four preserved full profiles are buildable only
+with `full-parser-scale` and should run solely for an explicitly requested
+niche diagnosis, not as part of routine `cabal test all`.
+
 ## Completion Gate
 
 - Queue, plan, design, blocker contract, archive, and README agree.
@@ -344,8 +353,9 @@ lowering, backend, object/link, and native-runtime work remain unpromoted.
 - Fixed parser schema/kernel/pattern/token/façade and legacy paths are unchanged.
 - Six manifest families assign all 365 fixtures exactly once.
 - Focused and complete token/source parity is byte-identical and deterministic.
-- All four scale profiles pass twice with recorded bounded observations and
-  zero host operations.
+- All four scale profiles passed twice for closure with recorded bounded
+  observations and zero host operations; ongoing verification retains
+  twice-run smoke coverage and manual-only full components.
 - Focused suites, warning-clean build, all Cabal suites, `cabal check`, and
   repository validators pass.
 - No canonical-core, lowering, backend, runtime, host-callback, or public-parser
