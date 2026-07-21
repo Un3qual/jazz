@@ -195,22 +195,22 @@ and approved 16-source and 8-case families.
 **Produces:** Repeated source-to-core parity and all-or-nothing child-4
 deferral at representative recursive owners.
 
-- [ ] Add all 16 composed sources verbatim in approved order, covering explicit
+- [x] Add all 16 composed sources verbatim in approved order, covering explicit
   type application, right-associated `$`, signatures, data/class/impl forms,
   operator signature/binding storage, and mixed declarations/control flow.
-- [ ] Add all 8 named deferred direct fixtures, placing module/import
+- [x] Add all 8 named deferred direct fixtures, placing module/import
   statements at roots and inside conditions, cases, lambdas, lets, impl
   methods, and hidden operator bindings.
-- [ ] Run the focused suite and confirm composed assertions fail until the
+- [x] Run the focused suite and confirm composed assertions fail until the
   child-3 source wrapper is wired; retain direct and earlier-child green
   evidence.
-- [ ] Generalize only the private harness plumbing needed by the new source
+- [x] Generalize only the private harness plumbing needed by the new source
   wrapper. Preserve every existing public helper and stage-0 oracle path.
-- [ ] Execute all positive and deferred families twice. Require exact stage-0
+- [x] Execute all positive and deferred families twice. Require exact stage-0
   values for positives, only `Nothing` for deferrals, no compile/runtime
   errors, and byte-identical repeated rendering.
-- [ ] Run the focused regression command from frontmatter.
-- [ ] Commit as `test: prove hosted core declaration parity`.
+- [x] Run the focused regression command from frontmatter.
+- [x] Commit as `test: prove hosted core declaration parity`.
 
 ### Task 4: Verify and close the child
 

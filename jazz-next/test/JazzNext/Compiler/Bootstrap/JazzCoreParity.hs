@@ -6,6 +6,7 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
     expectedSignaturesDeclarationsOperatorsBatchRendering,
     expectedFoundationSourceBatchRendering,
     expectedControlFlowPatternsSourceBatchRendering,
+    expectedSignaturesDeclarationsOperatorsSourceBatchRendering,
     expectedParserSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
     runJazzControlFlowPatternsSourceBatch,
@@ -13,6 +14,7 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
     runJazzFoundationSourceBatch,
     runJazzParserSourceBatch,
     runJazzSignaturesDeclarationsOperatorsBatch,
+    runJazzSignaturesDeclarationsOperatorsSourceBatch,
   )
 where
 
@@ -92,6 +94,9 @@ expectedFoundationSourceBatchRendering sources = do
 expectedControlFlowPatternsSourceBatchRendering :: [Text] -> Either Text Text
 expectedControlFlowPatternsSourceBatchRendering = expectedFoundationSourceBatchRendering
 
+expectedSignaturesDeclarationsOperatorsSourceBatchRendering :: [Text] -> Either Text Text
+expectedSignaturesDeclarationsOperatorsSourceBatchRendering = expectedFoundationSourceBatchRendering
+
 expectedParserSourceBatchRendering :: [Text] -> Either Text Text
 expectedParserSourceBatchRendering sources = do
   sourcePath <- foundationSourcePath
@@ -139,6 +144,10 @@ runJazzFoundationSourceBatch = runJazzLoweringSourceBatch "lowerFoundationExpres
 
 runJazzControlFlowPatternsSourceBatch :: [Text] -> IO RunResult
 runJazzControlFlowPatternsSourceBatch = runJazzLoweringSourceBatch "lowerControlFlowPatternsExpression"
+
+runJazzSignaturesDeclarationsOperatorsSourceBatch :: [Text] -> IO RunResult
+runJazzSignaturesDeclarationsOperatorsSourceBatch =
+  runJazzLoweringSourceBatch "lowerSignaturesDeclarationsOperatorsExpression"
 
 runJazzLoweringSourceBatch :: Text -> [Text] -> IO RunResult
 runJazzLoweringSourceBatch loweringFunction sources =

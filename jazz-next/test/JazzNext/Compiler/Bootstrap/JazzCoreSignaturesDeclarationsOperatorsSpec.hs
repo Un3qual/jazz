@@ -2,11 +2,14 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedSignaturesDeclarationsOperatorsBatchRendering,
+    expectedSignaturesDeclarationsOperatorsSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
     runJazzSignaturesDeclarationsOperatorsBatch,
+    runJazzSignaturesDeclarationsOperatorsSourceBatch,
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -34,7 +37,9 @@ main = runTestSuite "JazzCoreSignaturesDeclarationsOperators" tests
 tests :: [NamedTest]
 tests =
   [ ("matches stage 0 for signatures and operator expressions", testDirectParity),
-    ("preserves earlier profiles and module deferral", testProfileBoundaries)
+    ("preserves earlier profiles and module deferral", testProfileBoundaries),
+    ("matches stage 0 through the hosted parser twice", testComposedParity),
+    ("rejects modules and imports at every nested boundary", testDeferredBoundary)
   ]
 
 testDirectParity :: IO ()
@@ -99,6 +104,29 @@ testProfileBoundaries = do
     "child-3 module/import rejection"
     (nothingListRendering (length initialDeferredExpressions))
     child3
+
+testComposedParity :: IO ()
+testComposedParity = do
+  assertEqual "composed fixture names" expectedComposedFixtureNames (map fst composedFixtures)
+  expected <-
+    expectRight
+      "composed expected values"
+      (expectedSignaturesDeclarationsOperatorsSourceBatchRendering composedSources)
+  first <- runJazzSignaturesDeclarationsOperatorsSourceBatch composedSources
+  second <- runJazzSignaturesDeclarationsOperatorsSourceBatch composedSources
+  assertSuccessfulOutput "composed parity first run" expected first
+  assertSuccessfulOutput "composed parity second run" expected second
+  assertEqual "composed parity deterministic output" (runOutput first) (runOutput second)
+
+testDeferredBoundary :: IO ()
+testDeferredBoundary = do
+  assertEqual "deferred fixture names" expectedDeferredFixtureNames (map fst deferredFixtures)
+  first <- runJazzSignaturesDeclarationsOperatorsBatch deferredExpressions
+  second <- runJazzSignaturesDeclarationsOperatorsBatch deferredExpressions
+  let expected = nothingListRendering (length deferredExpressions)
+  assertSuccessfulOutput "deferred boundary first run" expected first
+  assertSuccessfulOutput "deferred boundary second run" expected second
+  assertEqual "deferred boundary deterministic output" (runOutput first) (runOutput second)
 
 expectedDirectFixtureNames :: [Text.Text]
 expectedDirectFixtureNames =
@@ -343,6 +371,131 @@ initialDeferredExpressions :: [SurfaceExpr]
 initialDeferredExpressions =
   [ SEBlock [SSModule span1 ["App", "Main"] Nothing],
     SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing]
+  ]
+
+expectedComposedFixtureNames :: [Text.Text]
+expectedComposedFixtureNames =
+  [ "explicit-type-primitive",
+    "explicit-type-applied-chain",
+    "dollar-right-associated",
+    "signature-primitives",
+    "signature-recursive-shapes",
+    "signature-qualified",
+    "signature-constrained",
+    "signature-unsupported-forall",
+    "data-nullary",
+    "data-parameterized",
+    "class-empty",
+    "class-method-signature",
+    "impl-empty",
+    "impl-method-body",
+    "operator-signature-binding",
+    "mixed-declarations-control-flow"
+  ]
+
+composedSources :: [Text.Text]
+composedSources = map snd composedFixtures
+
+composedFixtures :: [(Text.Text, Text.Text)]
+composedFixtures =
+  [ ("explicit-type-primitive", "value = id @Int 1. value."),
+    ("explicit-type-applied-chain", "value = id @Maybe(Int) @List(Text) item. value."),
+    ("dollar-right-associated", "value = f $ g $ item. value."),
+    ("signature-primitives", "integer :: Int. floating :: Float. boolean :: Bool. character :: Char. text :: Text."),
+    ( "signature-recursive-shapes",
+      "variable :: a. named :: Result. maybe :: Maybe(Char). list :: [a]. tuple :: (Int, Bool). unit :: (). apply :: (Int -> Int) -> Text."
+    ),
+    ("signature-qualified", "qualified :: Alias::Result."),
+    ( "signature-constrained",
+      "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a)."
+    ),
+    ("signature-unsupported-forall", "value :: forall a. value = 1."),
+    ("data-nullary", "data Maybe = Nothing | Just."),
+    ("data-parameterized", "data Maybe a = None | Some a | Pair (a, a) [a]."),
+    ("class-empty", "class Marker(a) { }."),
+    ( "class-method-signature",
+      "class Eq(a) { equals :: a -> a -> Bool. notEquals :: a -> a -> Bool. }."
+    ),
+    ("impl-empty", "impl Eq(Int) { }."),
+    ( "impl-method-body",
+      "impl Eq(Int) { equals = \\(left, right) -> left == right. }."
+    ),
+    ( "operator-signature-binding",
+      "operator %% tier 2. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left + right. value = 1 %% 2."
+    ),
+    ( "mixed-declarations-control-flow",
+      "data Maybe a = Nothing | Just a. class Select(a) { select :: Bool -> a -> a -> a. }. impl Select(Int) { select = \\(condition, left, right) -> if condition then left else right. }. choose :: Int. choose = if True then id @Int 1 else 0. choose."
+    )
+  ]
+
+expectedDeferredFixtureNames :: [Text.Text]
+expectedDeferredFixtureNames =
+  [ "module-root",
+    "import-root",
+    "module-in-if-branch",
+    "import-in-case-body",
+    "module-in-lambda-body",
+    "import-in-let-value",
+    "module-in-impl-method",
+    "import-in-operator-binding"
+  ]
+
+deferredExpressions :: [SurfaceExpr]
+deferredExpressions = map snd deferredFixtures
+
+deferredFixtures :: [(Text.Text, SurfaceExpr)]
+deferredFixtures =
+  [ ("module-root", SEBlock [SSModule span1 ["App", "Main"] Nothing]),
+    ("import-root", SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing]),
+    ( "module-in-if-branch",
+      SEIf
+        (SEVar "condition")
+        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)])
+        (seInt 0)
+    ),
+    ( "import-in-case-body",
+      SECase
+        (SEVar "value")
+        [ SurfaceCaseArm
+            SPWildcard
+            Nothing
+            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 0)])
+        ]
+    ),
+    ( "module-in-lambda-body",
+      SELambda
+        (SurfaceLambdaIdentifier "value" :| [])
+        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (SEVar "value")])
+    ),
+    ( "import-in-let-value",
+      SEBlock
+        [ SSLet
+            "value"
+            span1
+            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)])
+        ]
+    ),
+    ( "module-in-impl-method",
+      SEBlock
+        [ SSImpl
+            span1
+            "Render"
+            [SurfaceTypeInt]
+            [ SurfaceImplMethod
+                "render"
+                span2
+                (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)])
+            ]
+        ]
+    ),
+    ( "import-in-operator-binding",
+      SEBlock
+        [ SSLet
+            "$operator:%25%25"
+            span1
+            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)])
+        ]
+    )
   ]
 
 span1 :: SourceSpan
