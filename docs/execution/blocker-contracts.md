@@ -95,16 +95,15 @@ Each blocked item should answer these questions:
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: review the proposed core contract/expression-foundation
-  child plan, then promote it without widening its explicit unsupported
-  boundary.
-- Decision needed: approve or revise
-  `2026-07-21-jazz-next-hosted-core-expression-foundation.md` before changing
-  its status to `ready` and `autonomous_ready` to `yes`.
-- Recommended default: approve the staged child. Its `Maybe`-returning internal
+- Smallest unblocker: execute the active core contract/expression-foundation
+  child without widening its explicit unsupported boundary.
+- Decision needed: none for the active child. Its design and implementation
+  plan were approved on `2026-07-21`.
+- Recommended default: follow the staged child. Its `Maybe`-returning internal
   foundation entry point prevents deferred control-flow, declaration, module,
   and backend work from leaking placeholder core nodes or temporary errors.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001`.
+- Candidate child: active as
+  `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001` in `Ready Now`.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,

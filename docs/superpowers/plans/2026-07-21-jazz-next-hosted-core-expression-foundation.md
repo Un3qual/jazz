@@ -1,10 +1,10 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001
-status: proposed
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001
 last_verified: 2026-07-21
@@ -17,12 +17,6 @@ target_paths:
   - docs/superpowers/specs/2026-07-21-jazz-next-hosted-canonical-core-design.md
   - docs/superpowers/plans/2026-07-21-jazz-next-hosted-core-expression-foundation.md
   - jazz-next/README.md
-  - jazz-next/jazz/compiler/CoreTypes.jz
-  - jazz-next/jazz/compiler/CoreLower.jz
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs
   - jazz-next/jazz-next.cabal
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next canonical-core-comparison-spec jazz-core-expression-foundation-spec canonical-parser-comparison-spec jazz-parser-component-spec repository-audit-spec --test-show-details=failures
@@ -141,16 +135,16 @@ by adapter inventory tests but are not emitted by the foundation lowerer.
 **Produces:** One exact P1/L `Ready Now` row matching the approved frontmatter,
 with the parent bootstrap blocker naming this child as active.
 
-- [ ] Change plan status to `ready` and `autonomous_ready` to `yes` after user
+- [x] Change plan status to `ready` and `autonomous_ready` to `yes` after user
   approval.
-- [ ] Move the named candidate from `Next Curation Target` to `Ready Now` with
+- [x] Move the named candidate from `Next Curation Target` to `Ready Now` with
   exact dependency, plan section, target paths, deliverable, verification, and
   date parity.
-- [ ] Update the parent blocker contract to identify the active child while
+- [x] Update the parent blocker contract to identify the active child while
   preserving control-flow, declarations, modules, and every backend stage as
   unpromoted.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: promote hosted core foundation`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: promote hosted core foundation`.
 
 ### Task 1: Establish the canonical schema and stage-0 adapter
 
