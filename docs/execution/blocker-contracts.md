@@ -111,23 +111,21 @@ Each blocked item should answer these questions:
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: write and approve the signatures/declarations/operators
-  child plan with fixed direct/composed families and exact transformation
-  behavior.
-- Decision needed: approve that implementation plan before promotion. The
-  parent canonical-core design fixes this as child 3.
+- Smallest unblocker: execute the approved signatures/declarations/operators
+  child through its fixed direct, composed, and deferred families.
+- Decision needed: resolved on `2026-07-21`; the reviewed implementation plan
+  is active as child 3 of the canonical-core milestone.
 - Recommended default: extend the shared internal lowerer through signature
   types and constraints, explicit type application, `$` application,
   statement/declaration payloads, and exact operator-storage names while
   retaining all-or-nothing `Nothing` for modules and imports.
 - Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001`
-  is the sole `Next Curation Target`; `Ready Now` is empty.
+  is the sole active `Ready Now` row. No later child is promoted.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  planned
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs`,
-  and `jazz-next/jazz-next.cabal`.
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`, and
+  `jazz-next/jazz-next.cabal`. The focused test path joins active metadata when
+  Task 1 creates it.
 - Verification: focused signatures/declarations/operators,
   control-flow/pattern, foundation, canonical-core, canonical-parser,
   hosted-parser operator, and repository-audit suites; warning-clean
