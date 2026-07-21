@@ -395,6 +395,19 @@ test-suite jazz-parser-control-flow-patterns-spec
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
 
+test-suite jazz-parser-operators-full-parity-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserOperatorsFullParitySpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
 test-suite jazz-parser-parity-spec
   import: test-common
   type: exitcode-stdio-1.0

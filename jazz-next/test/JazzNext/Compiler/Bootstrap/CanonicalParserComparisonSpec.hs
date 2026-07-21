@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
@@ -50,7 +51,7 @@ import JazzNext.Compiler.Parser.Failure
 import JazzNext.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
     ParserFixtureExpectation (ParserAccepted, ParserRejected),
-    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
+    ParserFixtureFamily (..),
     ParserFixtureManifestViolation (..),
     lookupParserFixtureFamily,
     parserFixtureCorpus,
@@ -96,6 +97,8 @@ tests =
     ("locks the expression-foundation fixture family", testExpressionFoundationFamily),
     ("locks the types-declarations-modules fixture family", testTypesDeclarationsModulesFamily),
     ("locks the control-flow-patterns fixture family", testControlFlowPatternsFamily),
+    ("locks the final parser fixture families", testFinalParserFamilies),
+    ("assigns every fixture to exactly one family", testCompleteFixtureAssignment),
     ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
@@ -492,6 +495,59 @@ testFixtureFamilyValidation =
                 [fixture, fixture]
                 [(ExpressionFoundation, [fixtureName, fixtureName, "missing-fixture"])]
             )
+
+testCompleteFixtureAssignment :: IO ()
+testCompleteFixtureAssignment =
+  case parserFixtureCorpus of
+    firstFixture : secondFixture : _ -> do
+      let firstName = parserFixtureName firstFixture
+          secondName = parserFixtureName secondFixture
+      assertEqual
+        "cross-family and unassigned violations preserve order"
+        [ DuplicateParserFixtureFamilyAssignment firstName,
+          UnassignedParserFixture secondName
+        ]
+        ( validateParserFixtureManifest
+            [firstFixture, secondFixture]
+            [ (ExpressionFoundation, [firstName]),
+              (Operators, [firstName])
+            ]
+        )
+      let families = [ExpressionFoundation, TypesDeclarationsModules, ControlFlowPatterns, Operators, MixedOperatorControlFlow, CorpusClosure]
+          assignedNames = concatMap parserFixtureFamilyNames families
+          corpusNames = map parserFixtureName parserFixtureCorpus
+      assertEqual "complete corpus size" 365 (length corpusNames)
+      assertEqual "complete assignment count" 365 (length assignedNames)
+      assertEqual "complete assignment membership" (sort corpusNames) (sort assignedNames)
+    _ -> failTest "fixture corpus must contain at least two fixtures"
+
+testFinalParserFamilies :: IO ()
+testFinalParserFamilies = do
+  assertFamilySize Operators 55
+  assertFamilySize MixedOperatorControlFlow 26
+  assertFamilySize CorpusClosure 56
+  assertEqual
+    "operator family boundaries"
+    ("lexer-operator-runs", "parser-corpus-0307")
+    (familyBoundaries Operators)
+  assertEqual
+    "mixed operator family boundaries"
+    ("parser-corpus-0021", "parser-corpus-0305")
+    (familyBoundaries MixedOperatorControlFlow)
+  assertEqual
+    "corpus closure boundaries"
+    ("lexer-arbitrary-precision-integer", "parser-corpus-0312")
+    (familyBoundaries CorpusClosure)
+  where
+    assertFamilySize family expectedSize =
+      case lookupParserFixtureFamily family of
+        Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
+        Right fixtures -> assertEqual (showText family <> " family size") expectedSize (length fixtures)
+    familyBoundaries family =
+      case parserFixtureFamilyNames family of
+        [] -> ("", "")
+        firstName : remainingNames ->
+          (firstName, foldl (\_ name -> name) firstName remainingNames)
 
 testExpressionFoundationFamily :: IO ()
 testExpressionFoundationFamily = do

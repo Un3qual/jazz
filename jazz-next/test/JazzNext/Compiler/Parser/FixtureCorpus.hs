@@ -31,12 +31,17 @@ data ParserFixtureFamily
   = ExpressionFoundation
   | TypesDeclarationsModules
   | ControlFlowPatterns
+  | Operators
+  | MixedOperatorControlFlow
+  | CorpusClosure
   deriving (Eq, Show)
 
 data ParserFixtureManifestViolation
   = DuplicateParserFixtureName Text
   | DuplicateParserFixtureFamilyMember ParserFixtureFamily Text
   | MissingParserFixtureFamilyMember ParserFixtureFamily Text
+  | DuplicateParserFixtureFamilyAssignment Text
+  | UnassignedParserFixture Text
   deriving (Eq, Show)
 
 parserFixtureCorpus :: [ParserFixture]
@@ -53,6 +58,9 @@ parserFixtureFamilyNames family =
     ExpressionFoundation -> expressionFoundationFixtureNames
     TypesDeclarationsModules -> typesDeclarationsModulesFixtureNames
     ControlFlowPatterns -> controlFlowPatternsFixtureNames
+    Operators -> operatorFixtureNames
+    MixedOperatorControlFlow -> mixedOperatorControlFlowFixtureNames
+    CorpusClosure -> corpusClosureFixtureNames
 
 lookupParserFixtureFamily ::
   ParserFixtureFamily ->
@@ -77,8 +85,17 @@ validateParserFixtureManifest ::
 validateParserFixtureManifest fixtures families =
   map DuplicateParserFixtureName (duplicateValues fixtureNames)
     <> concatMap validateFamily families
+    <> map DuplicateParserFixtureFamilyAssignment duplicateFamilyAssignments
+    <> map UnassignedParserFixture unassignedFixtureNames
   where
     fixtureNames = map parserFixtureName fixtures
+    familyMemberNames = concatMap snd families
+    duplicateFamilyAssignments =
+      filter
+        (\name -> length [family | (family, names) <- families, name `elem` names] > 1)
+        (uniqueValues familyMemberNames)
+    unassignedFixtureNames =
+      filter (`notElem` familyMemberNames) (uniqueValues fixtureNames)
 
     validateFamily (family, memberNames) =
       map (DuplicateParserFixtureFamilyMember family) (duplicateValues memberNames)
@@ -91,7 +108,10 @@ parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
 parserFixtureFamilies =
   [ (ExpressionFoundation, expressionFoundationFixtureNames),
     (TypesDeclarationsModules, typesDeclarationsModulesFixtureNames),
-    (ControlFlowPatterns, controlFlowPatternsFixtureNames)
+    (ControlFlowPatterns, controlFlowPatternsFixtureNames),
+    (Operators, operatorFixtureNames),
+    (MixedOperatorControlFlow, mixedOperatorControlFlowFixtureNames),
+    (CorpusClosure, corpusClosureFixtureNames)
   ]
 
 duplicateValues :: (Eq value) => [value] -> [value]
@@ -361,6 +381,155 @@ controlFlowPatternsFixtureNames =
     "control-flow-patterns-guarded-or-pattern",
     "control-flow-patterns-lambda-guard-rejected",
     "control-flow-patterns-recursive-block"
+  ]
+
+operatorFixtureNames :: [Text]
+operatorFixtureNames =
+  [ "lexer-operator-runs",
+    "parser-corpus-0025",
+    "parser-corpus-0026",
+    "parser-corpus-0043",
+    "parser-corpus-0044",
+    "parser-corpus-0073",
+    "parser-corpus-0075",
+    "parser-corpus-0079",
+    "parser-corpus-0080",
+    "parser-corpus-0081",
+    "parser-corpus-0082",
+    "parser-corpus-0083",
+    "parser-corpus-0084",
+    "parser-corpus-0085",
+    "parser-corpus-0099",
+    "parser-corpus-0160",
+    "parser-corpus-0161",
+    "parser-corpus-0162",
+    "parser-corpus-0163",
+    "parser-corpus-0164",
+    "parser-corpus-0165",
+    "parser-corpus-0166",
+    "parser-corpus-0169",
+    "parser-corpus-0170",
+    "parser-corpus-0171",
+    "parser-corpus-0172",
+    "parser-corpus-0173",
+    "parser-corpus-0175",
+    "parser-corpus-0176",
+    "parser-corpus-0177",
+    "parser-corpus-0178",
+    "parser-corpus-0179",
+    "parser-corpus-0180",
+    "parser-corpus-0181",
+    "parser-corpus-0183",
+    "parser-corpus-0186",
+    "parser-corpus-0187",
+    "parser-corpus-0188",
+    "parser-corpus-0189",
+    "parser-corpus-0196",
+    "parser-corpus-0223",
+    "parser-corpus-0224",
+    "parser-corpus-0225",
+    "parser-corpus-0226",
+    "parser-corpus-0227",
+    "parser-corpus-0228",
+    "parser-corpus-0229",
+    "parser-corpus-0230",
+    "parser-corpus-0231",
+    "parser-corpus-0232",
+    "parser-corpus-0239",
+    "parser-corpus-0243",
+    "parser-corpus-0299",
+    "parser-corpus-0300",
+    "parser-corpus-0307"
+  ]
+
+mixedOperatorControlFlowFixtureNames :: [Text]
+mixedOperatorControlFlowFixtureNames =
+  [ "parser-corpus-0021",
+    "parser-corpus-0022",
+    "parser-corpus-0027",
+    "parser-corpus-0089",
+    "parser-corpus-0103",
+    "parser-corpus-0149",
+    "parser-corpus-0167",
+    "parser-corpus-0168",
+    "parser-corpus-0174",
+    "parser-corpus-0184",
+    "parser-corpus-0185",
+    "parser-corpus-0198",
+    "parser-corpus-0244",
+    "parser-corpus-0250",
+    "parser-corpus-0251",
+    "parser-corpus-0252",
+    "parser-corpus-0253",
+    "parser-corpus-0254",
+    "parser-corpus-0255",
+    "parser-corpus-0256",
+    "parser-corpus-0257",
+    "parser-corpus-0271",
+    "parser-corpus-0278",
+    "parser-corpus-0281",
+    "parser-corpus-0291",
+    "parser-corpus-0305"
+  ]
+
+corpusClosureFixtureNames :: [Text]
+corpusClosureFixtureNames =
+  [ "lexer-arbitrary-precision-integer",
+    "lexer-all-token-constructors",
+    "lexer-comments-spaces-and-tabs",
+    "lexer-lf-spans",
+    "lexer-empty-character",
+    "lexer-multi-scalar-character",
+    "lexer-unterminated-character",
+    "lexer-unterminated-text",
+    "lexer-raw-newline",
+    "lexer-invalid-escape",
+    "lexer-unterminated-unicode-escape",
+    "lexer-empty-unicode-escape",
+    "lexer-nonhex-unicode-escape",
+    "lexer-overlong-unicode-escape",
+    "lexer-nonscalar-unicode-escape",
+    "parser-corpus-0002",
+    "parser-corpus-0003",
+    "parser-corpus-0004",
+    "parser-corpus-0005",
+    "parser-corpus-0006",
+    "parser-corpus-0007",
+    "parser-corpus-0008",
+    "parser-corpus-0009",
+    "parser-corpus-0010",
+    "parser-corpus-0011",
+    "parser-corpus-0012",
+    "parser-corpus-0013",
+    "parser-corpus-0014",
+    "parser-corpus-0015",
+    "parser-corpus-0016",
+    "parser-corpus-0017",
+    "parser-corpus-0018",
+    "parser-corpus-0019",
+    "parser-corpus-0020",
+    "parser-corpus-0023",
+    "parser-corpus-0029",
+    "parser-corpus-0030",
+    "parser-corpus-0031",
+    "parser-corpus-0033",
+    "parser-corpus-0035",
+    "parser-corpus-0037",
+    "parser-corpus-0040",
+    "parser-corpus-0130",
+    "parser-corpus-0132",
+    "parser-corpus-0190",
+    "parser-corpus-0202",
+    "parser-corpus-0203",
+    "parser-corpus-0209",
+    "parser-corpus-0213",
+    "parser-corpus-0217",
+    "parser-corpus-0218",
+    "parser-corpus-0219",
+    "parser-corpus-0238",
+    "parser-corpus-0242",
+    "parser-corpus-0311",
+    "parser-corpus-0312"
   ]
 
 focusedLexerFixtures :: [ParserFixture]
