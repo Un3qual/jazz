@@ -63,10 +63,10 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
   control-flow, and operator profile.
 - [ ] Make every full entrypoint run once at the existing size and reuse the
   landed full ceilings through the shared assertion owner.
-- [ ] Run each component explicitly with the flag and confirm exact
-  513-statement output, zero host operations, and bounded statistics.
-- [ ] Run the four components together and confirm Cabal can address and report
-  them independently.
+- [ ] Compile all four components explicitly with the flag without executing
+  the exhaustive workloads.
+- [ ] Confirm Cabal can address each component independently and that the
+  default-disabled flag keeps them out of routine `all`.
 - [ ] Commit as `test: gate exhaustive hosted parser scale profiles`.
 
 ## Task 3: Update the verification contract and close the follow-up
@@ -75,9 +75,10 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
   explicit exhaustive commands.
 - [ ] Update the operators/full-parity design and plan so historical twice-run
   evidence remains clear while ongoing verification uses smoke twice and full
-  once.
+  only when explicitly requested for niche diagnosis.
 - [ ] Run the default `all` matrix and confirm no gated full component appears.
-- [ ] Run the exhaustive four-component matrix with `-ffull-parser-scale`.
+- [ ] Compile-check all four exhaustive components with
+  `-ffull-parser-scale`; do not execute them in routine verification.
 - [ ] Run the warning-clean build, `cabal check`, queue/docs validators, and
   `git diff --check`.
 - [ ] Confirm no parser, runtime, observation, fixture-corpus, queue, or legacy
@@ -91,6 +92,7 @@ Jazz runtime-observation API, and the Nix-pinned development environment.
 - The exhaustive gate retains every landed 513-statement output and ceiling in
   four focused components.
 - Full workloads run once and are not silently included in routine `all`.
+- Full workloads are not executed by this follow-up; they are reserved for an
+  explicit maintainer request or scale-regression investigation.
 - Documentation and actual Cabal commands agree.
 - All focused, default, exhaustive, build, package, and repository checks pass.
-

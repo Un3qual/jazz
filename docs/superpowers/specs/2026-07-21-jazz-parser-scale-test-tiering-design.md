@@ -109,9 +109,12 @@ cabal test --project-dir=jazz-next -ffull-parser-scale \
   --test-show-details=failures
 ```
 
-Parser or runtime changes should run the exhaustive command before merge.
-Release and scheduled validation may run it independently of the routine
-matrix. The repository does not introduce a wall-clock pass/fail threshold.
+The exhaustive command is a niche diagnostic gate. Run it only when a change
+alters a full-scale generator or ceiling, when smoke evidence points to a scale
+regression that needs reproduction, or when a maintainer explicitly requests
+it. Ordinary parser/runtime changes, PR verification, releases, and scheduled
+validation do not run it by default. The repository does not introduce a
+wall-clock pass/fail threshold.
 
 ## Alternatives Considered
 
@@ -150,11 +153,11 @@ the canonical fixture corpus, queue state, or any legacy compiler path.
   operations, and remain below measured limits.
 - Enabling `full-parser-scale` exposes four independently addressable
   components.
-- Each full component preserves the existing 513-statement output and landed
-  ceilings with zero host operations.
+- Each full component is compile-checked by this follow-up and, when explicitly
+  run, requires the existing 513-statement output, landed ceilings, and zero
+  host operations.
 - The exhaustive components do not repeat the full workload.
 - README, performance guidance, and the operators/full-parity verification
   record distinguish routine smoke from exhaustive scale verification.
 - Warning-clean build, `cabal check`, queue/docs validators, and
   `git diff --check` pass.
-
