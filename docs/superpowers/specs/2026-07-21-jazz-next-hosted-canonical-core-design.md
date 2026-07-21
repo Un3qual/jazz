@@ -11,6 +11,16 @@ semantic oracle. The hosted implementation will match the current
 `JazzNext.Compiler.Parser.Lower` boundary before any redesign of the core,
 type-inference port, or backend work begins.
 
+Implementation status (`2026-07-21`): child 1 is complete. `CoreTypes.jz`
+defines the full comparison schema, the checked Haskell adapter rejects values
+outside the lowering boundary, and `CoreLower.lowerFoundationExpression`
+matches stage 0 directly and through hosted parser composition for literals,
+source/qualified names, operator values, collections, tuples, ordinary
+application, non-`$` binary nodes, both sections, and ordinary blocks. Every
+deferred or recursively unsupported tree returns `Nothing`. Children 2-4
+remain: control flow/patterns/lambdas; signatures/declarations/operators; and
+modules/corpus closure.
+
 ## Goal
 
 Add a Jazz-authored lowering stage that consumes the existing Jazz-authored
@@ -215,6 +225,9 @@ expression family.
 This is the first executable child. It proves that the comparison boundary and
 pure hosted lowering work; it does not contain placeholder constructors for
 later transformations.
+
+Completed on `2026-07-21` with exact repeated direct and parser-composed parity.
+The internal `Maybe` boundary remains in place for the later children.
 
 ### 2. Patterns, Control Flow, and Lambda Desugaring
 

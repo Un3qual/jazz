@@ -90,37 +90,47 @@ Each blocked item should answer these questions:
   are deterministic with zero host operations; the operator profile records
   49,040,140 transitions / 5,914,883 applications / 186,465 list cells / depth
   1,116.
+  `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001` then defined the complete
+  ordinary Jazz canonical-core schema, a checked structural stage-0 adapter,
+  and the shared direct/composed parity harness. Its internal
+  `lowerFoundationExpression` entry point exactly lowers literals, source and
+  qualified names, operator values, collections, tuples, application,
+  non-`$` binary nodes, both section forms, and ordinary blocks. Repeated
+  direct and hosted-parser composition match stage 0 exactly, while every
+  deferred or recursively unsupported tree returns `Nothing` without a fake
+  core value or lowering diagnostic.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and orders four independently reviewable children before any backend work.
-- Smallest unblocker: execute the active core contract/expression-foundation
-  child without widening its explicit unsupported boundary.
-- Decision needed: none for the active child. Its design and implementation
-  plan were approved on `2026-07-21`.
-- Recommended default: follow the staged child. Its `Maybe`-returning internal
-  foundation entry point prevents deferred control-flow, declaration, module,
-  and backend work from leaking placeholder core nodes or temporary errors.
-- Candidate child: active as
-  `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001` in `Ready Now`.
+- Smallest unblocker: write and approve the control-flow/pattern/lambda child
+  plan with a fixed direct/composed family and exact generated-name behavior.
+- Decision needed: approve that implementation plan before promotion. The
+  parent canonical-core design already fixes this child as the next ordered
+  stage.
+- Recommended default: extend the internal lowerer to patterns, guarded cases,
+  conditionals, nested control flow, and multi-parameter/pattern lambdas while
+  retaining `Nothing` for signatures, declaration/operator desugaring,
+  modules, and every backend stage.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` is the
+  sole `Next Curation Target`; `Ready Now` is empty.
 - Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
   `jazz-next/jazz/compiler/CoreLower.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs`,
+  planned
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs`,
   and `jazz-next/jazz-next.cabal`.
-- Verification: the focused canonical-core/foundation suites, warning-clean
-  development build, routine Cabal `all` matrix, `cabal check`, queue/docs
-  validators, and `git diff --check`. Exhaustive parser scale components remain
-  manual and are not part of this child.
+- Verification: focused control-flow/pattern, foundation, canonical-core,
+  canonical-parser, hosted-parser control-flow, and repository-audit suites;
+  warning-clean development build; routine Cabal `all`; `cabal check`;
+  queue/docs validators; and `git diff --check`. Exhaustive parser scale
+  components remain manual and are not part of this child.
 - Not in scope: a public parser or lowerer API; production lowerer replacement;
-  total lowering for control flow, patterns, lambdas, signatures,
-  declarations, operators, or modules; type inference; name resolution;
-  analysis; evaluation; host callbacks or intrinsics; bytecode or a VM;
-  lowered IR; LLVM emission; object generation; linking; or native-runtime
-  implementation.
+  signatures, declarations, operator-binding/`$` desugaring, modules, type
+  inference, name resolution, analysis, evaluation, host callbacks or
+  intrinsics, bytecode or a VM, lowered IR, LLVM emission, object generation,
+  linking, or native-runtime implementation.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

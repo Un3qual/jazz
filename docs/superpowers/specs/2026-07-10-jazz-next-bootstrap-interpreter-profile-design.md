@@ -352,7 +352,9 @@ package and repository checks. The bootstrap readiness gate requires:
 6. deterministic repeated output from the Jazz lexer;
 7. no-prelude tests proving only kernel bridge names remain visible;
 8. bundled-prelude drift tests covering every new bridge and public alias; and
-9. `cabal test --project-dir=jazz-next all`,
+9. exact repeated direct and hosted-parser-composed canonical-core parity for
+   every landed lowering family, with deferred forms remaining explicit; and
+10. `cabal test --project-dir=jazz-next all`,
    the development warning build, queue/docs validation, and `git diff --check`
    passing after each completed child.
 
@@ -375,7 +377,7 @@ The design decomposes into independently reviewable children:
    on `2026-07-16`);
 10. foundational Jazz-authored expression, statement, block, and program
     parsing with distinct token/source façades and exact named-family parity
-    (complete on `2026-07-16`).
+    (complete on `2026-07-16`);
 11. shared signature/type grammar, explicit type application, immutable scoped
     alias context, declarations, modules, imports, exports, exact 101-case
     parity, and deterministic mixed scale evidence (complete on
@@ -385,12 +387,15 @@ The design decomposes into independently reviewable children:
     evidence (complete on `2026-07-20`); and
 13. fixed and source-local declared operators, precedence, associativity,
     values, sections, bindings, signatures, exact six-family 365-case parity,
-    and deterministic operator scale evidence (complete on `2026-07-20`).
+    and deterministic operator scale evidence (complete on `2026-07-20`); and
+14. the complete hosted canonical-core schema, checked structural stage-0
+    adapter, shared parity harness, and pure expression-foundation lowerer with
+    exact repeated direct/composed parity (complete on `2026-07-21`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
 
-## Hosted Parser Continuation
+## Hosted Compiler Continuation
 
 The first hosted lexer milestone is complete. On `2026-07-16`, the separate
 Jazz-authored parser design was accepted after written review. It fixes a
@@ -419,9 +424,19 @@ profiles remain deterministic with zero host operations; the operator profile
 records 49,040,140 transitions / 5,914,883 applications / 186,465 list cells /
 depth 1,116.
 
-No post-parser implementation is promoted by this closeout. Canonical core,
-lowered IR, LLVM, object/link production, and native runtime remain behind
-separate reviewed contracts and plans.
+The first post-parser child is also complete. `CoreTypes.jz` defines the full
+canonical comparison schema, a checked test-only Haskell adapter translates
+only already-lowered stage-0 values, and the shared harness compares ordinary
+Jazz results directly and after hosted parser composition. The internal
+`CoreLower.lowerFoundationExpression` entry point exactly owns literals,
+source and qualified names, operator values, collections, tuples, application,
+non-`$` binary nodes, sections, and ordinary blocks. Deferred and recursively
+unsupported forms return `Nothing`; no production lowerer or façade changed.
+
+Control-flow/pattern/lambda lowering is the sole next curation target.
+Signatures/declarations/operators and modules/corpus closure remain the final
+two canonical-core children. Lowered IR, LLVM, object/link production, and the
+native runtime remain behind separate reviewed contracts and plans.
 
 ## Non-Goals
 

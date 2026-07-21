@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001
 last_verified: 2026-07-21
+completed_on: 2026-07-21
 plan_section: "Implementation Batch: Core Contract and Expression Foundation"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -17,7 +18,13 @@ target_paths:
   - docs/superpowers/specs/2026-07-21-jazz-next-hosted-canonical-core-design.md
   - docs/superpowers/plans/2026-07-21-jazz-next-hosted-core-expression-foundation.md
   - jazz-next/README.md
+  - jazz-next/jazz/compiler/CoreLower.jz
+  - jazz-next/jazz/compiler/CoreTypes.jz
   - jazz-next/jazz-next.cabal
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreExpressionFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next canonical-core-comparison-spec jazz-core-expression-foundation-spec canonical-parser-comparison-spec jazz-parser-component-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -249,22 +256,22 @@ production `Core.jz` facade early.
 named `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` curation target rather
 than premature promotion.
 
-- [ ] Run the exact focused verification command from frontmatter.
-- [ ] Run the warning-clean development build, routine `all` matrix, and
+- [x] Run the exact focused verification command from frontmatter.
+- [x] Run the warning-clean development build, routine `all` matrix, and
   `cabal check`. Confirm the exhaustive parser scale components were neither
   built with `full-parser-scale` nor run directly.
-- [ ] Update the hosted canonical-core design and bootstrap profile with the
+- [x] Update the hosted canonical-core design and bootstrap profile with the
   landed foundation boundary and explicit remaining children.
-- [ ] Update `jazz-next/README.md` with the hosted core contract, internal
+- [x] Update `jazz-next/README.md` with the hosted core contract, internal
   foundation entry point, parity evidence, and unsupported boundary.
-- [ ] Mark this plan done, archive closure evidence, empty `Ready Now`, and
+- [x] Mark this plan done, archive closure evidence, empty `Ready Now`, and
   validate and record only `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001`
   in `Next Curation Target`. Its target paths must name existing `CoreTypes.jz`,
   `CoreLower.jz`, `JazzCoreParity.hs`, and `jazz-next.cabal` plus its planned
   focused test; its verification must include focused parity, all prior core
   suites, the routine matrix, and repository validators.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close hosted core foundation`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close hosted core foundation`.
 
 ## Done Criteria
 
