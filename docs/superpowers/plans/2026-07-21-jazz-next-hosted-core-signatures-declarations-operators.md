@@ -22,6 +22,7 @@ target_paths:
   - jazz-next/jazz/compiler/CoreTypes.jz
   - jazz-next/jazz-next.cabal
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-core-signatures-declarations-operators-spec jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec canonical-core-comparison-spec canonical-parser-comparison-spec jazz-parser-types-declarations-modules-spec jazz-parser-operators-full-parity-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -140,24 +141,24 @@ ADTs, the canonical stage-0 adapter, and the approved direct fixtures 1-13.
 **Produces:** The exported child-3 wrapper, total signature helpers, explicit
 type application, `$` application, and shared ordinary/operator binding names.
 
-- [ ] Register `jazz-core-signatures-declarations-operators-spec`; add direct
+- [x] Register `jazz-core-signatures-declarations-operators-spec`; add direct
   fixtures 1-13 in approved order, including every signature type, numeric
   width, constraint, unsupported token, and exact operator name.
-- [ ] Add the direct harness wrapper for the new entry point while continuing
+- [x] Add the direct harness wrapper for the new entry point while continuing
   to compute expected values through stage-0 `lowerSurfaceExpr` and the checked
   adapter. Add the now-existing test path to plan and queue metadata.
-- [ ] Run the focused suite and confirm it fails because
+- [x] Run the focused suite and confirm it fails because
   `lowerSignaturesDeclarationsOperatorsExpression` is not exported. Keep the
   landed foundation and control-flow suites green.
-- [ ] Add the ordered third profile and total recursive helpers for signature
+- [x] Add the ordered third profile and total recursive helpers for signature
   names, types, constraints, payloads, and tokens.
-- [ ] Lower explicit type applications, binary `$`, ordinary lets/signatures,
+- [x] Lower explicit type applications, binary `$`, ordinary lets/signatures,
   and `$operator:` bindings/signatures with exact spans and stored names.
-- [ ] Prove the two earlier wrappers still reject every child-3 form and the
+- [x] Prove the two earlier wrappers still reject every child-3 form and the
   new wrapper still rejects module/import statements.
-- [ ] Run the focused suite twice plus both earlier hosted-core suites and
+- [x] Run the focused suite twice plus both earlier hosted-core suites and
   require exact deterministic canonical values with no compile/runtime errors.
-- [ ] Commit as `feat: lower hosted core signatures and operators`.
+- [x] Commit as `feat: lower hosted core signatures and operators`.
 
 ### Task 2: Lower data, class, and impl payloads
 

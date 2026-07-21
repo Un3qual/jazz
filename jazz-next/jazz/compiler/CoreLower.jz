@@ -1,6 +1,7 @@
 module CoreLower (
   value lowerFoundationExpression,
-  value lowerControlFlowPatternsExpression
+  value lowerControlFlowPatternsExpression,
+  value lowerSignaturesDeclarationsOperatorsExpression
 ) {
   import CoreTypes.
   import LexerTypes (CanonicalSpan).
@@ -8,14 +9,22 @@ module CoreLower (
   import Maybe.
   import NonEmpty (NonEmpty).
   import ParserTypes.
-  import Text (textStartsWith).
+  import Text (textIsEmpty, textSplit, textStartsWith).
 
-  data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile.
+  data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile | SignaturesDeclarationsOperatorsProfile.
 
   allowsControlFlowPatterns :: LoweringProfile -> Bool.
   allowsControlFlowPatterns = \(profile) -> case profile {
     | FoundationProfile -> False
     | ControlFlowPatternsProfile -> True
+    | SignaturesDeclarationsOperatorsProfile -> True
+  }.
+
+  allowsSignaturesDeclarationsOperators :: LoweringProfile -> Bool.
+  allowsSignaturesDeclarationsOperators = \(profile) -> case profile {
+    | FoundationProfile -> False
+    | ControlFlowPatternsProfile -> False
+    | SignaturesDeclarationsOperatorsProfile -> True
   }.
 
   lowerFoundationNumericType :: SurfaceNumericType -> CoreNumericType.
@@ -54,6 +63,95 @@ module CoreLower (
     | CanonicalSpan line column -> CoreSpan Nothing line column
   }.
 
+  lowerSignatureName :: Text -> CoreName.
+  lowerSignatureName = \(name) -> case textSplit "::" name {
+    | [qualifier, member] -> if textIsEmpty qualifier then CoreSourceName name else
+      if textIsEmpty member then CoreSourceName name else CoreQualifiedName qualifier member
+    | other -> CoreSourceName name
+  }.
+
+  lowerBindingName :: Text -> CoreName.
+  lowerBindingName = \(name) -> if textStartsWith "$operator:" name then
+    CoreGeneratedName (CoreOperatorBinding name)
+  else CoreSourceName name.
+
+  lowerSignatureTypesFrom :: [SurfaceSignatureType] -> [CoreSignatureType] -> [CoreSignatureType].
+  lowerSignatureTypesFrom = \(signatureTypes, reversed) -> case signatureTypes {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSignatureTypesFrom rest (listPrepend (lowerSignatureType first) reversed)
+  }.
+
+  lowerSignatureTypes :: [SurfaceSignatureType] -> [CoreSignatureType].
+  lowerSignatureTypes = \(signatureTypes) -> lowerSignatureTypesFrom signatureTypes [].
+
+  lowerSignatureType :: SurfaceSignatureType -> CoreSignatureType.
+  lowerSignatureType = \(signatureType) -> case signatureType {
+    | IntType -> CoreIntType
+    | FloatType -> CoreFloatType
+    | NumericType numericType -> CoreNumericType (lowerFoundationNumericType numericType)
+    | BoolType -> CoreBoolType
+    | CharType -> CoreCharType
+    | TextType -> CoreTextType
+    | TypeVariable name -> CoreTypeVariable (CoreSourceName name)
+    | NamedType name -> CoreNamedType (lowerSignatureName name)
+    | AppliedType name arguments -> CoreAppliedType (lowerSignatureName name) (lowerSignatureTypes arguments)
+    | ListType elementType -> CoreListType (lowerSignatureType elementType)
+    | TupleType elementTypes -> CoreTupleType (lowerSignatureTypes elementTypes)
+    | FunctionType argumentType resultType ->
+      CoreFunctionType (lowerSignatureType argumentType) (lowerSignatureType resultType)
+  }.
+
+  lowerSignatureConstraint :: SurfaceSignatureConstraint -> CoreSignatureConstraint.
+  lowerSignatureConstraint = \(constraint) -> case constraint {
+    | SurfaceSignatureConstraint name arguments ->
+      CoreSignatureConstraint (lowerSignatureName name) (lowerSignatureTypes arguments)
+  }.
+
+  lowerSignatureConstraintsFrom :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint] -> [CoreSignatureConstraint].
+  lowerSignatureConstraintsFrom = \(constraints, reversed) -> case constraints {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerSignatureConstraintsFrom rest (listPrepend (lowerSignatureConstraint first) reversed)
+  }.
+
+  lowerSignatureConstraints :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint].
+  lowerSignatureConstraints = \(constraints) -> lowerSignatureConstraintsFrom constraints [].
+
+  lowerSignatureToken :: SurfaceSignatureToken -> CoreSignatureToken.
+  lowerSignatureToken = \(token) -> case token {
+    | SignatureNameToken name -> CoreSignatureNameToken (CoreSourceName name)
+    | SignatureIntegerToken value -> CoreSignatureIntegerToken value
+    | SignatureArrowToken -> CoreSignatureArrowToken
+    | SignatureAtToken -> CoreSignatureAtToken
+    | SignatureColonToken -> CoreSignatureColonToken
+    | SignatureLeftParenToken -> CoreSignatureLeftParenToken
+    | SignatureRightParenToken -> CoreSignatureRightParenToken
+    | SignatureLeftBraceToken -> CoreSignatureLeftBraceToken
+    | SignatureRightBraceToken -> CoreSignatureRightBraceToken
+    | SignatureLeftBracketToken -> CoreSignatureLeftBracketToken
+    | SignatureRightBracketToken -> CoreSignatureRightBracketToken
+    | SignatureCommaToken -> CoreSignatureCommaToken
+    | SignatureOperatorToken symbol -> CoreSignatureOperatorToken symbol
+    | SignatureOtherToken value -> CoreSignatureOtherToken value
+  }.
+
+  lowerSignatureTokensFrom :: [SurfaceSignatureToken] -> [CoreSignatureToken] -> [CoreSignatureToken].
+  lowerSignatureTokensFrom = \(tokens, reversed) -> case tokens {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSignatureTokensFrom rest (listPrepend (lowerSignatureToken first) reversed)
+  }.
+
+  lowerSignatureTokens :: [SurfaceSignatureToken] -> [CoreSignatureToken].
+  lowerSignatureTokens = \(tokens) -> lowerSignatureTokensFrom tokens [].
+
+  lowerSignaturePayload :: SurfaceSignaturePayload -> CoreSignaturePayload.
+  lowerSignaturePayload = \(payload) -> case payload {
+    | TypeSignature signatureType -> CoreTypeSignature (lowerSignatureType signatureType)
+    | ConstrainedSignature constraints signatureType ->
+      CoreConstrainedSignature (lowerSignatureConstraints constraints) (lowerSignatureType signatureType)
+    | UnsupportedSignature tokens -> CoreUnsupportedSignature (lowerSignatureTokens tokens)
+  }.
+
   lowerExpressionsFrom :: LoweringProfile -> [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
   lowerExpressionsFrom = \(profile, expressions, reversed) -> case expressions {
     | [] -> Just (listReverse reversed)
@@ -66,14 +164,23 @@ module CoreLower (
   lowerExpressions :: LoweringProfile -> [SurfaceExpr] -> Maybe([CoreExpr]).
   lowerExpressions = \(profile, expressions) -> lowerExpressionsFrom profile expressions [].
 
+  lowerLetStatement :: LoweringProfile -> Text -> CanonicalSpan -> SurfaceExpr -> Maybe(CoreStatement).
+  lowerLetStatement = \(profile, name, span, expression) ->
+    case lowerExpressionWithProfile profile expression {
+      | Nothing -> Nothing
+      | Just lowered -> Just (CoreLetStatement (lowerBindingName name) (lowerFoundationSpan span) lowered)
+    }.
+
   lowerStatement :: LoweringProfile -> SurfaceStatement -> Maybe(CoreStatement).
   lowerStatement = \(profile, statement) -> case statement {
-    | LetStatement name span expression -> if textStartsWith "$operator:" name then Nothing else
-      case lowerExpressionWithProfile profile expression {
-        | Nothing -> Nothing
-        | Just lowered -> Just (CoreLetStatement (CoreSourceName name) (lowerFoundationSpan span) lowered)
-      }
-    | SignatureStatement name span payload -> Nothing
+    | LetStatement name span expression -> if textStartsWith "$operator:" name then
+      if allowsSignaturesDeclarationsOperators profile then
+        lowerLetStatement profile name span expression
+      else Nothing
+    else lowerLetStatement profile name span expression
+    | SignatureStatement name span payload -> if allowsSignaturesDeclarationsOperators profile then
+      Just (CoreSignatureStatement (lowerBindingName name) (lowerFoundationSpan span) (lowerSignaturePayload payload))
+      else Nothing
     | DataStatement span name parameters constructors -> Nothing
     | ClassStatement span name parameters methods -> Nothing
     | ImplStatement span name arguments methods -> Nothing
@@ -207,7 +314,14 @@ module CoreLower (
         | Just loweredArgument -> Just (CoreApplyExpression loweredFunction loweredArgument)
       }
     }
-    | TypeApplicationExpression function span signatureType -> Nothing
+    | TypeApplicationExpression function span signatureType ->
+      if allowsSignaturesDeclarationsOperators profile then
+        case lowerExpressionWithProfile profile function {
+          | Nothing -> Nothing
+          | Just loweredFunction ->
+            Just (CoreTypeApplicationExpression loweredFunction (lowerFoundationSpan span) (lowerSignatureType signatureType))
+        }
+      else Nothing
     | IfExpression condition thenBranch elseBranch -> if allowsControlFlowPatterns profile then
       case lowerExpressionWithProfile profile condition {
         | Nothing -> Nothing
@@ -227,14 +341,23 @@ module CoreLower (
           | Just loweredArms -> Just (CorePatternCaseExpression loweredScrutinee loweredArms)
         }
       } else Nothing
-    | BinaryExpression symbol left right -> if symbol == "$" then Nothing else
-      case lowerExpressionWithProfile profile left {
-        | Nothing -> Nothing
-        | Just loweredLeft -> case lowerExpressionWithProfile profile right {
+    | BinaryExpression symbol left right -> if symbol == "$" then
+      if allowsSignaturesDeclarationsOperators profile then
+        case lowerExpressionWithProfile profile left {
           | Nothing -> Nothing
-          | Just loweredRight -> Just (CoreBinaryExpression symbol loweredLeft loweredRight)
+          | Just loweredLeft -> case lowerExpressionWithProfile profile right {
+            | Nothing -> Nothing
+            | Just loweredRight -> Just (CoreApplyExpression loweredLeft loweredRight)
+          }
         }
+      else Nothing
+    else case lowerExpressionWithProfile profile left {
+      | Nothing -> Nothing
+      | Just loweredLeft -> case lowerExpressionWithProfile profile right {
+        | Nothing -> Nothing
+        | Just loweredRight -> Just (CoreBinaryExpression symbol loweredLeft loweredRight)
       }
+    }
     | LeftSectionExpression left symbol -> case lowerExpressionWithProfile profile left {
       | Nothing -> Nothing
       | Just lowered -> Just (CoreLeftSectionExpression lowered symbol)
@@ -254,4 +377,8 @@ module CoreLower (
 
   lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe(CoreExpr).
   lowerControlFlowPatternsExpression = lowerExpressionWithProfile ControlFlowPatternsProfile.
+
+  lowerSignaturesDeclarationsOperatorsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerSignaturesDeclarationsOperatorsExpression =
+    lowerExpressionWithProfile SignaturesDeclarationsOperatorsProfile.
 }
