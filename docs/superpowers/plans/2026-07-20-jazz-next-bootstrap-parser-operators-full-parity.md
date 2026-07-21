@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001
 last_verified: 2026-07-20
+completed_on: 2026-07-20
 plan_section: "Implementation Batch: Operators and Full Parity"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -19,6 +20,7 @@ target_paths:
   - docs/superpowers/plans/2026-07-20-jazz-next-bootstrap-parser-operators-full-parity.md
   - jazz-next/README.md
   - jazz-next/jazz/compiler/ParserContext.jz
+  - jazz-next/jazz/compiler/ParserOperator.jz
   - jazz-next/jazz/compiler/ParserExpression.jz
   - jazz-next/jazz/compiler/ParserDeclaration.jz
   - jazz-next/jazz/compiler/ParserProgram.jz
@@ -164,16 +166,16 @@ approved design.
 **Produces:** A registered test contract that fails because hosted operator
 grammar is absent, while proving all 365 fixtures are assigned exactly once.
 
-- [ ] Add the three family constructors and exact ordered name lists.
-- [ ] Add deterministic cross-family duplicate and unassigned violations.
-- [ ] Lock corpus total 365 and family sizes 52/101/75/55/26/56.
-- [ ] Add family and complete-corpus loaders and repeated token/source parity
+- [x] Add the three family constructors and exact ordered name lists.
+- [x] Add deterministic cross-family duplicate and unassigned violations.
+- [x] Lock corpus total 365 and family sizes 52/101/75/55/26/56.
+- [x] Add family and complete-corpus loaders and repeated token/source parity
   cases.
-- [ ] Register the focused suite and add behavior cases for built-ins,
+- [x] Register the focused suite and add behavior cases for built-ins,
   declarations, visibility, sections, scope, and mixed delimiters.
-- [ ] Run the comparison and parity suites; verify manifest tests pass and the
+- [x] Run the comparison and parity suites; verify manifest tests pass and the
   operator behavior/parity cases fail for missing hosted grammar.
-- [ ] Commit as `test: lock hosted operator parity`.
+- [x] Commit as `test: lock hosted operator parity`.
 
 Verification command:
 
@@ -191,16 +193,16 @@ design.
 **Produces:** One metadata owner and an immutable context capable of exact
 lookup, registration, reset, and inheritance; no token grammar yet.
 
-- [ ] Run focused metadata/context cases and confirm they fail for the missing
+- [x] Run focused metadata/context cases and confirm they fail for the missing
   module/interfaces.
-- [ ] Add associativity and abstract operator metadata with selectors.
-- [ ] Add the frozen built-in table, tier and precedence mapping, optional
+- [x] Add associativity and abstract operator metadata with selectors.
+- [x] Add the frozen built-in table, tier and precedence mapping, optional
   associativity replacement, declared-first lookup, and exact symbol policy.
-- [ ] Extend context so top level starts empty, module bodies reset, nested
+- [x] Extend context so top level starts empty, module bodies reset, nested
   blocks inherit, and registration returns a new value.
-- [ ] Run the focused suite plus landed component, control-flow, and
+- [x] Run the focused suite plus landed component, control-flow, and
   declarations suites; require metadata/context cases and regressions to pass.
-- [ ] Commit as `feat: add hosted operator context`.
+- [x] Commit as `feat: add hosted operator context`.
 
 ### Task 3: Parse declarations, signatures, bindings, and source order
 
@@ -211,17 +213,17 @@ lookup, registration, reset, and inheritance; no token grammar yet.
 **Produces:** Exact declaration validation and statement sequencing where only
 following statements see new metadata.
 
-- [ ] Add failing behavior cases for valid tier/precedence/associativity,
+- [x] Add failing behavior cases for valid tier/precedence/associativity,
   invalid symbols/ranges/words, duplicates, forward use, module isolation,
   nested rejection, and binding/signature requirements.
-- [ ] Change ordinary statement sequencing to return and thread statement lists
+- [x] Change ordinary statement sequencing to return and thread statement lists
   plus next context, allowing declarations to emit an empty list.
-- [ ] Implement declaration parsing and exact validation/failure ownership.
-- [ ] Implement parenthesized user-operator bindings and signatures through the
+- [x] Implement declaration parsing and exact validation/failure ownership.
+- [x] Implement parenthesized user-operator bindings and signatures through the
   existing surface constructors and hidden binding-name convention.
-- [ ] Run focused and landed declaration/module/component suites; require the
+- [x] Run focused and landed declaration/module/component suites; require the
   new source-order cases and prior alias/module behavior to pass.
-- [ ] Commit as `feat: parse hosted operator declarations`.
+- [x] Commit as `feat: parse hosted operator declarations`.
 
 ### Task 4: Parse precedence, associativity, values, and sections
 
@@ -233,17 +235,17 @@ grammar.
 **Produces:** Complete non-control-flow operator expression behavior through
 existing AST/failure constructors.
 
-- [ ] Add failing cases for all frozen precedence tiers, left/right grouping,
+- [x] Add failing cases for all frozen precedence tiers, left/right grouping,
   declared precedence, non-associative rejection, application binding power,
   undeclared use, operator values, both sections, and malformed operands.
-- [ ] Introduce the private stop-aware minimum-precedence recursion without
+- [x] Introduce the private stop-aware minimum-precedence recursion without
   changing public entry points.
-- [ ] Resolve visible metadata before consuming infix operators and preserve
+- [x] Resolve visible metadata before consuming infix operators and preserve
   caller-owned delimiters.
-- [ ] Add exact bare-value and section recognition in parenthesized expressions.
-- [ ] Run focused, stage-0 operator, expression, component, and landed parity
+- [x] Add exact bare-value and section recognition in parenthesized expressions.
+- [x] Run focused, stage-0 operator, expression, component, and landed parity
   suites; require non-control operator cases to pass.
-- [ ] Commit as `feat: parse hosted operator expressions`.
+- [x] Commit as `feat: parse hosted operator expressions`.
 
 ### Task 5: Compose operators with control flow and close focused parity
 
@@ -255,15 +257,15 @@ conditional, case, guard, body, list, tuple, and block grammar.
 **Produces:** Exact mixed operator/control-flow parsing, including pipe/arm
 ownership and the fixed 55- and 26-case family parity.
 
-- [ ] Run the 26-case mixed family and confirm remaining failures are delimiter
+- [x] Run the 26-case mixed family and confirm remaining failures are delimiter
   or precedence integration failures rather than manifest errors.
-- [ ] Route every recursive expression site through the same private climber.
-- [ ] Preserve `then`, `else`, arrow, next-arm pipe, brace, comma, bracket,
+- [x] Route every recursive expression site through the same private climber.
+- [x] Preserve `then`, `else`, arrow, next-arm pipe, brace, comma, bracket,
   parenthesis, and dot ownership while permitting visible operators inside the
   bounded expression.
-- [ ] Match complete stage-0 token/source results for both new operator families
+- [x] Match complete stage-0 token/source results for both new operator families
   twice; keep all three landed families exact.
-- [ ] Run focused/parser/operator/control-flow/parity suites and commit as
+- [x] Run focused/parser/operator/control-flow/parity suites and commit as
   `feat: compose hosted operators with control flow`.
 
 ### Task 6: Prove complete corpus parity and operator scale
@@ -276,17 +278,17 @@ behavioral regression needs a smaller reproduction.
 **Produces:** Repeated exact 365-case parity and deterministic 513-statement
 operator scale evidence without changing earlier profile behavior.
 
-- [ ] Run the `CorpusClosure` and complete-corpus batches; reproduce every
+- [x] Run the `CorpusClosure` and complete-corpus batches; reproduce every
   mismatch in the focused suite before changing production grammar.
-- [ ] Fix only root grammar/context ownership mismatches and rerun the smallest
+- [x] Fix only root grammar/context ownership mismatches and rerun the smallest
   red/green test plus all family parity after each correction.
-- [ ] Add the generated operator/control-flow profile and its exact output,
+- [x] Add the generated operator/control-flow profile and its exact output,
   termination, deterministic statistics, and zero-host-operation checks.
-- [ ] Measure the profile twice, record stable observations, and tighten all
+- [x] Measure the profile twice, record stable observations, and tighten all
   four ceilings above measured values without weakening prior ceilings.
-- [ ] Require all six families, complete corpus, and all four scale profiles to
+- [x] Require all six families, complete corpus, and all four scale profiles to
   pass twice.
-- [ ] Commit as `test: prove hosted parser full parity`.
+- [x] Commit as `test: prove hosted parser full parity`.
 
 ### Task 7: Verify and close the final parser child
 
@@ -297,18 +299,41 @@ README, and only directly affected evidence docs.
 archived child, empty `Ready Now`, and no automatic promotion of canonical
 core or backend work.
 
-- [ ] Run the complete focused command from frontmatter.
-- [ ] Run the scale suite twice and record the exact operator observation.
-- [ ] Run the warning-clean development build, all Cabal suites, and
+- [x] Run the complete focused command from frontmatter.
+- [x] Run the scale suite twice and record the exact operator observation.
+- [x] Run the warning-clean development build, all Cabal suites, and
   `cabal check`.
-- [ ] Confirm no diff under legacy or fixed parser paths listed in Global
+- [x] Confirm no diff under legacy or fixed parser paths listed in Global
   Constraints.
-- [ ] Record six family sizes, complete 365-case parity, all four observations,
+- [x] Record six family sizes, complete 365-case parity, all four observations,
   and exact verification evidence in child/parent docs and README.
-- [ ] Mark this plan `done` with `completed_on`, remove and archive the queue
+- [x] Mark this plan `done` with `completed_on`, remove and archive the queue
   row, and update the umbrella blocker without promoting later stages.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close hosted parser parity batch`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close hosted parser parity batch`.
+
+## Completion Evidence
+
+Completed on `2026-07-20`. The fixed 52-case `ExpressionFoundation`, 101-case
+`TypesDeclarationsModules`, 75-case `ControlFlowPatterns`, 55-case `Operators`,
+26-case `MixedOperatorControlFlow`, and 56-case `CorpusClosure` families assign
+all 365 fixtures exactly once and match complete stage-0 token/source results
+twice.
+
+All four scale profiles pass twice with identical observations and zero host
+operations. Expression records 21,664,601 transitions / 2,618,398 applications
+/ 111,317 list cells / depth 1,061; declarations records 9,412,648 / 1,128,569
+/ 66,627 / depth 1,074; control flow records 41,704,920 / 5,037,319 / 219,749
+/ depth 1,096; and operators records 49,040,140 / 5,914,883 / 186,465 / depth
+1,116 under tightened ceilings of 52,000,000 / 6,300,000 / 190,000 / 1,150.
+The earlier landed ceilings remain unchanged. Ordinary first-token statement dispatch
+avoids speculative operator probes, preserving the landed expression budget
+without weakening the uniform statement/context contract.
+
+The focused matrix, scale suite, warning-clean development build, all
+registered Cabal suites, `cabal check`, locked-path audit, queue/docs
+validators, and `git diff --check` pass. `Ready Now` is empty; canonical core,
+lowering, backend, object/link, and native-runtime work remain unpromoted.
 
 ## Completion Gate
 

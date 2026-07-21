@@ -10,10 +10,10 @@ canonical comparison contract, and the Jazz-authored lexer all execute in the
 active `jazz-next` path. The lexer matches the complete fixed stage-0 corpus
 deterministically and traverses large source/token inputs without host stack
 growth. The parser contract/kernel and its expression,
-types/declarations/modules, and control-flow/patterns grammar children completed
-by `2026-07-20`. Operators/full parity and the later canonical-core,
-backend-neutral lowered IR, LLVM, object/link, and native-runtime stages remain
-separate milestones.
+types/declarations/modules, control-flow/patterns, and operators/full-parity
+grammar children completed by `2026-07-20`. The hosted parser matches all 365
+fixed stage-0 fixtures exactly. Canonical core, backend-neutral lowered IR,
+LLVM, object/link, and native-runtime stages remain separate milestones.
 
 ## Goal
 
@@ -379,7 +379,13 @@ The design decomposes into independently reviewable children:
 11. shared signature/type grammar, explicit type application, immutable scoped
     alias context, declarations, modules, imports, exports, exact 101-case
     parity, and deterministic mixed scale evidence (complete on
-    `2026-07-17`).
+    `2026-07-17`);
+12. stop-aware lambdas, conditionals, cases, guards, the complete accepted
+    pattern surface, exact 75-case parity, and deterministic control-flow scale
+    evidence (complete on `2026-07-20`); and
+13. fixed and source-local declared operators, precedence, associativity,
+    values, sections, bindings, signatures, exact six-family 365-case parity,
+    and deterministic operator scale evidence (complete on `2026-07-20`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
@@ -392,7 +398,7 @@ fail-fast complete surface-AST comparison boundary, structured parser failures,
 distinct token and source façades, a compiler-local generic parser kernel, and
 five ordered implementation children.
 
-The first four continuation children are complete. The foundation landed the
+All five continuation grammar children are complete. The foundation landed the
 ordinary parser surface/result/failure schema, total test-only Haskell adapter,
 structured stage-0 failure path, and generic parser kernel. The expression
 foundation then added compiler-local token, expression, program, and façade
@@ -404,12 +410,18 @@ deterministic 513-statement mixed profile without changing the fixed parser
 schema. Control-flow/patterns then added independent pattern ownership plus
 stop-aware lambdas, conditionals, cases, single case-arm guards, exact 75-case
 token/source parity, and a deterministic 513-statement control-flow profile.
-All three scale profiles remain deterministic with zero host operations.
+Operators/full parity then added one compiler-local metadata owner, immutable
+source-order operator context, declarations, bindings, signatures, precedence,
+associativity, values, sections, and exact mixed control-flow composition. Six
+families of 52 / 101 / 75 / 55 / 26 / 56 cases assign all 365 fixtures exactly
+once and match complete stage-0 token/source results twice. All four scale
+profiles remain deterministic with zero host operations; the operator profile
+records 49,040,140 transitions / 5,914,883 applications / 186,465 list cells /
+depth 1,116.
 
-Operators/full parity is now the sole curation target, but remains unpromoted
-until a matching reviewed design and implementation plan fix operator and mixed
-fixture families, precedence/associativity/section and source-order context
-ownership, complete manifest assignment, scale evidence, and verification.
+No post-parser implementation is promoted by this closeout. Canonical core,
+lowered IR, LLVM, object/link production, and native runtime remain behind
+separate reviewed contracts and plans.
 
 ## Non-Goals
 

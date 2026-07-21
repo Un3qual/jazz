@@ -412,6 +412,29 @@ Update the parent parser and interpreter-profile designs to record full hosted
 parser parity. Do not promote canonical-core or backend implementation without
 a separately reviewed child contract and plan.
 
+## Completion Evidence
+
+Completed on `2026-07-20`. `ParserOperator` is the single metadata owner;
+immutable `ParserContext` state preserves source order, module reset, and
+nested-block inheritance; and declaration, expression, and program parsing
+match stage 0 for built-in and declared precedence, associativity, values,
+sections, signatures, bindings, failures, and mixed control-flow delimiters.
+
+The six fixed families contain 52 / 101 / 75 / 55 / 26 / 56 fixtures and
+assign all 365 manifest entries exactly once. Complete token/source parity
+passes twice. The four twice-run scale observations are deterministic with
+zero host operations: expression 21,664,601 transitions / 2,618,398
+applications / 111,317 list cells / depth 1,061; declarations 9,412,648 /
+1,128,569 / 66,627 / depth 1,074; control flow 41,704,920 / 5,037,319 /
+219,749 / depth 1,096; operators 49,040,140 / 5,914,883 / 186,465 / depth
+1,116. The operator ceilings are 52,000,000 / 6,300,000 / 190,000 / 1,150;
+all prior ceilings remain unchanged.
+
+The focused matrix, scale suite, warning-clean build, all Cabal suites,
+`cabal check`, repository validators, and locked-path audit pass. No canonical
+core, lowering, backend, runtime, public-parser, host-callback, or legacy work
+entered the child.
+
 ## Acceptance Criteria
 
 - The approved module ownership and immutable source-order context are present.
