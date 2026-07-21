@@ -95,7 +95,7 @@ Nix-pinned development environment.
 | --- | --- |
 | `CoreTypes` | Export the complete canonical core ADTs described by the design, including optional-path one-based spans and only source, qualified, and lowering-generated names. |
 | `CoreLower` | Export `lowerFoundationExpression :: SurfaceExpr -> Maybe CoreExpr`. Return `Just` only when the entire tree belongs to this child; return `Nothing` without partial output for every other form. |
-| `CanonicalCoreComparison` | Export `canonicalCoreExprRuntimeValue :: Expr -> RuntimeValue`, `canonicalCoreModuleRuntimeValue :: CoreModule -> RuntimeValue`, and a total checked conversion for `Either Diagnostic CoreModule`. |
+| `CanonicalCoreComparison` | Export checked `Either Text RuntimeValue` conversions for `Expr`, `CoreModule`, and `Either Diagnostic CoreModule`; reject post-lowering names, invalid canonical paths, and unrelated diagnostics without partial functions. |
 | `JazzCoreParity` | Run a supplied Jazz lowering expression through the existing compiler module graph and compare it with a stage-0 value produced before canonical adaptation. |
 
 `lowerFoundationExpression` is an internal milestone interface, not the final
@@ -154,22 +154,22 @@ with the parent bootstrap blocker naming this child as active.
 **Produces:** One stable data contract plus a total adapter that only translates
 already-lowered stage-0 values.
 
-- [ ] Register `canonical-core-comparison-spec` and write failing inventory
+- [x] Register `canonical-core-comparison-spec` and write failing inventory
   cases for every core expression, statement, pattern, literal, signature,
   name, span, module, import, export, and permitted module-failure form.
-- [ ] Verify the suite fails because the hosted core module and adapter are
+- [x] Verify the suite fails because the hosted core module and adapter are
   absent.
-- [ ] Add the complete `CoreTypes` schema. Represent fractional literals with
+- [x] Add the complete `CoreTypes` schema. Represent fractional literals with
   exact normalized whole/fractional source parts and optional width; do not
   derive canonical data from rounded `Double` rendering.
-- [ ] Add structural Haskell conversions for `Expr` and `CoreModule`. For
+- [x] Add structural Haskell conversions for `Expr` and `CoreModule`. For
   module results, return a checked adapter error for any diagnostic other than
   `E4005` or `E4006` instead of crashing or silently reclassifying it.
-- [ ] Require exact optional-path span preservation and exact source,
+- [x] Require exact optional-path span preservation and exact source,
   qualified, lambda-pattern, and operator-storage name representations.
-- [ ] Run `canonical-core-comparison-spec` and the existing canonical parser
+- [x] Run `canonical-core-comparison-spec` and the existing canonical parser
   comparison suite; require both to pass.
-- [ ] Commit as `feat: define hosted canonical core contract`.
+- [x] Commit as `feat: define hosted canonical core contract`.
 
 ### Task 2: Lock red foundation parity evidence
 
