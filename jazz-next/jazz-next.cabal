@@ -39,6 +39,11 @@ flag profiling-workflow
   default: False
   manual: True
 
+flag full-parser-scale
+  description: Build exhaustive hosted parser scale test components.
+  default: False
+  manual: True
+
 common warning-settings
   ghc-options:
       -Wall
@@ -426,6 +431,58 @@ test-suite jazz-parser-scale-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-scale-full-expression-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleFullExpressionSpec.hs
+  if !flag(full-parser-scale)
+    buildable: False
+  other-modules:
+      JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-scale-full-declarations-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleFullDeclarationsSpec.hs
+  if !flag(full-parser-scale)
+    buildable: False
+  other-modules:
+      JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-scale-full-control-flow-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleFullControlFlowSpec.hs
+  if !flag(full-parser-scale)
+    buildable: False
+  other-modules:
+      JazzNext.Compiler.Bootstrap.JazzParserScale
+      JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-parser-scale-full-operator-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzParserScaleFullOperatorSpec.hs
+  if !flag(full-parser-scale)
+    buildable: False
   other-modules:
       JazzNext.Compiler.Bootstrap.JazzParserScale
       JazzNext.Compiler.Bootstrap.JazzParserScaleAssertions
