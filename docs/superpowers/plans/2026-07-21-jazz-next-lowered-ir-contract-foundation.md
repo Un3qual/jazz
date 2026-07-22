@@ -19,6 +19,7 @@ target_paths:
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
   - jazz-next/src/JazzNext/Compiler/LoweredIR.hs
+  - jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
 verification:
@@ -199,19 +200,19 @@ canonical structural rendering, without validation decisions.
 **Produces:** Ordered, complete `validateLoweredProgram` findings with exact
 paths and details.
 
-- [ ] Add all 31 invalid Haskell fixtures and their full expected failure
+- [x] Add all 31 invalid Haskell fixtures and their full expected failure
   lists; add explicit order assertions for programs containing multiple
   independent failures.
-- [ ] Run the focused suite and confirm invalid cases fail because the
+- [x] Run the focused suite and confirm invalid cases fail because the
   validator is absent.
-- [ ] Implement declaration/index validation first, then function/block scope,
+- [x] Implement declaration/index validation first, then function/block scope,
   operand use order, layout/operation shape, edges, calls, closure environments,
   and terminators.
-- [ ] Preserve complete stable traversal order while using internal lookup
+- [x] Preserve complete stable traversal order while using internal lookup
   structures only for resolution.
-- [ ] Run the focused suite twice and require exact valid empties plus all 31
+- [x] Run the focused suite twice and require exact valid empties plus all 31
   complete ordered failure values.
-- [ ] Commit as `feat: validate backend-neutral lowered IR`.
+- [x] Commit as `feat: validate backend-neutral lowered IR`.
 
 ### Task 3: Mirror and validate the contract in Jazz
 

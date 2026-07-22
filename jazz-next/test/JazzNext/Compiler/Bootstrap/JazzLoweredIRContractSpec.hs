@@ -8,6 +8,7 @@ import JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
     canonicalLoweredProgramsRuntimeValue
   )
 import JazzNext.Compiler.LoweredIR
+import JazzNext.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -23,8 +24,60 @@ tests :: [NamedTest]
 tests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
     ("renders the scalar contract deterministically", testScalarContractRendering),
-    ("renders the complete valid contract deterministically", testValidContractRendering)
+    ("renders the complete valid contract deterministically", testValidContractRendering),
+    ("accepts every fixed valid program", testValidPrograms),
+    ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
+    ("reports every fixed invalid program exactly", testInvalidPrograms),
+    ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
+    ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
+    ("preserves complete program failure order", testCompleteFailureOrder)
   ]
+
+testValidPrograms :: IO ()
+testValidPrograms =
+  mapM_
+    (\fixture -> assertEqual (validFixtureName fixture <> " validation") [] (validateLoweredProgram (validFixtureProgram fixture)))
+    validFixtures
+
+testInvalidFixtureManifest :: IO ()
+testInvalidFixtureManifest = do
+  assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
+  assertEqual "invalid fixture count" 31 (length invalidFixtures)
+  assertEqual "complete fixture count" 41 (length validFixtures + length invalidFixtures)
+
+testInvalidPrograms :: IO ()
+testInvalidPrograms =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          (invalidFixtureName fixture <> " failures")
+          (invalidFixtureFailures fixture)
+          (validateLoweredProgram (invalidFixtureProgram fixture))
+    )
+    invalidFixtures
+
+testBlockLocalTemporaryScope :: IO ()
+testBlockLocalTemporaryScope =
+  assertEqual "block-local temporary validation" [] (validateLoweredProgram blockLocalTemporaryProgram)
+
+testDuplicateVariantTagOrder :: IO ()
+testDuplicateVariantTagOrder =
+  assertEqual
+    "duplicate variant tag order"
+    [ layoutFailure "choice" LoweredDuplicateVariantTag (LoweredTagDetail 1),
+      layoutFailure "choice" LoweredDuplicateVariantTag (LoweredTagDetail 2)
+    ]
+    (validateLoweredProgram duplicateVariantTagsProgram)
+
+testCompleteFailureOrder :: IO ()
+testCompleteFailureOrder =
+  assertEqual
+    "complete failure order"
+    [ layoutFailure "duplicate" LoweredDuplicateLayout (identifierDetail "duplicate"),
+      programFailure LoweredMissingEntryFunction (identifierDetail "missing"),
+      blockFailure "main" "entry" LoweredMissingTerminator LoweredNoValidationDetail
+    ]
+    (validateLoweredProgram completeFailureOrderProgram)
 
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
@@ -299,6 +352,513 @@ validConstructorInventory =
     "LoweredDirectTailCall",
     "LoweredClosureTailCall"
   ]
+
+data InvalidFixture = InvalidFixture
+  { invalidFixtureName :: Text,
+    invalidFixtureProgram :: LoweredProgram,
+    invalidFixtureFailures :: [LoweredIRValidationFailure]
+  }
+
+invalidFixtures :: [InvalidFixture]
+invalidFixtures =
+  [ InvalidFixture
+      "duplicate-layout"
+      (unitProgram [productLayout "duplicate" [], productLayout "duplicate" []] [])
+      [layoutFailure "duplicate" LoweredDuplicateLayout (identifierDetail "duplicate")],
+    InvalidFixture
+      "unknown-layout"
+      (unitProgram [productLayout "holder" [managed "missing"]] [])
+      [layoutFailure "holder" LoweredUnknownLayout (identifierDetail "missing")],
+    InvalidFixture
+      "duplicate-variant-tag"
+      (unitProgram [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 1 [], LoweredVariantLayout 1 [i64]])] [])
+      [layoutFailure "option" LoweredDuplicateVariantTag (LoweredTagDetail 1)],
+    InvalidFixture
+      "duplicate-runtime-service"
+      (unitProgram [] [unitService "duplicate", unitService "duplicate"])
+      [serviceFailure "duplicate" LoweredDuplicateRuntimeService (identifierDetail "duplicate")],
+    InvalidFixture
+      "duplicate-function"
+      (program [] [] [unitMain, unitMain] "main")
+      [functionFailure "main" LoweredDuplicateFunction (identifierDetail "main")],
+    InvalidFixture
+      "missing-entry-function"
+      (program [] [] [unitMain] "missing")
+      [programFailure LoweredMissingEntryFunction (identifierDetail "missing")],
+    InvalidFixture
+      "duplicate-block"
+      ( program
+          []
+          []
+          [function "main" Nothing [] LoweredUnitRepresentation [unitBlock "entry", unitBlock "entry"] "entry"]
+          "main"
+      )
+      [blockFailure "main" "entry" LoweredDuplicateBlock (identifierDetail "entry")],
+    InvalidFixture
+      "missing-entry-block"
+      (program [] [] [function "main" Nothing [] LoweredUnitRepresentation [unitBlock "body"] "missing"] "main")
+      [functionFailure "main" LoweredMissingEntryBlock (identifierDetail "missing")],
+    InvalidFixture
+      "missing-terminator"
+      ( program
+          []
+          []
+          [LoweredFunction (functionId "main") Nothing [] LoweredUnitRepresentation [LoweredBlock (blockId "entry") [] [] Nothing] (blockId "entry")]
+          "main"
+      )
+      [blockFailure "main" "entry" LoweredMissingTerminator LoweredNoValidationDetail],
+    InvalidFixture
+      "duplicate-temporary"
+      (instructionUnitProgram [addInstruction "value" 1 2, addInstruction "value" 3 4])
+      [instructionFailure "main" "entry" 1 LoweredDuplicateTemporary (identifierDetail "value")],
+    InvalidFixture
+      "use-before-definition"
+      ( instructionUnitProgram
+          [ instruction
+              "first"
+              i64
+              (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [temporary "later" i64, int64 1]),
+            addInstruction "later" 2 3
+          ]
+      )
+      [instructionFailure "main" "entry" 0 LoweredUseBeforeDefinition (identifierDetail "later")],
+    InvalidFixture
+      "cross-block-temporary"
+      ( program
+          []
+          []
+          [ function
+              "main"
+              Nothing
+              []
+              i64
+              [ block "entry" [] [addInstruction "value" 1 2] (LoweredJump (blockId "next") []),
+                block "next" [] [] (LoweredReturn (temporary "value" i64))
+              ]
+              "entry"
+          ]
+          "main"
+      )
+      [terminatorFailure "main" "next" LoweredCrossBlockTemporary (identifierDetail "value")],
+    InvalidFixture
+      "unknown-parameter"
+      (program [] [] [function "main" Nothing [] LoweredUnitRepresentation [block "entry" [] [] (LoweredReturn (functionParameter "missing" LoweredUnitRepresentation))] "entry"] "main")
+      [terminatorFailure "main" "entry" LoweredUnknownParameter (identifierDetail "missing")],
+    InvalidFixture
+      "unknown-function-call"
+      ( callInstructionProgram
+          LoweredUnitRepresentation
+          (LoweredDirectCall (functionId "missing") [])
+          []
+      )
+      [instructionFailure "main" "entry" 0 LoweredUnknownFunction (identifierDetail "missing")],
+    InvalidFixture
+      "unknown-block-target"
+      (program [] [] [function "main" Nothing [] LoweredUnitRepresentation [block "entry" [] [] (LoweredJump (blockId "missing") [])] "entry"] "main")
+      [terminatorFailure "main" "entry" LoweredUnknownBlock (identifierDetail "missing")],
+    InvalidFixture
+      "instruction-result-representation"
+      ( instructionReturnProgram
+          LoweredBoolRepresentation
+          [instruction "value" LoweredBoolRepresentation (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [int64 1, int64 2])]
+          (temporary "value" LoweredBoolRepresentation)
+      )
+      [instructionFailure "main" "entry" 0 LoweredInstructionResultRepresentationMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "invalid-field-projection"
+      ( projectionProgram
+          (productLayout "pair" [i64])
+          i64
+          (LoweredProjectField (layoutId "pair") 1 (temporary "value" (managed "pair")))
+      )
+      [instructionFailure "main" "entry" 1 LoweredInvalidFieldProjection (LoweredIndexDetail 1)],
+    InvalidFixture
+      "invalid-tag-projection"
+      ( projectionProgram
+          (productLayout "pair" [i64])
+          (unsigned LoweredIntegerWidth64)
+          (LoweredProjectVariantTag (layoutId "pair") (temporary "value" (managed "pair")))
+      )
+      [instructionFailure "main" "entry" 1 LoweredInvalidTagProjection LoweredNoValidationDetail],
+    InvalidFixture
+      "closure-environment-layout"
+      closureEnvironmentMismatchProgram
+      [instructionFailure "main" "entry" 1 LoweredClosureEnvironmentMismatch (representationDetail (managed "environment") (managed "wrong-environment"))],
+    InvalidFixture
+      "jump-argument-arity"
+      (edgeProgram (LoweredJump (blockId "target") []) i64)
+      [terminatorFailure "main" "entry" LoweredEdgeArityMismatch (LoweredArityDetail 1 0)],
+    InvalidFixture
+      "jump-argument-representation"
+      (edgeProgram (LoweredJump (blockId "target") [immediate (LoweredBoolImmediate True)]) i64)
+      [terminatorFailure "main" "entry" LoweredEdgeRepresentationMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "branch-non-boolean"
+      ( branchProgram
+          (int64 1)
+          (block "yes" [] [] (LoweredReturn (immediate LoweredUnitImmediate)))
+          (block "no" [] [] (LoweredReturn (immediate LoweredUnitImmediate)))
+      )
+      [terminatorFailure "main" "entry" LoweredBranchConditionMismatch (representationDetail LoweredBoolRepresentation i64)],
+    InvalidFixture
+      "switch-duplicate-case-tag"
+      (switchProgram [LoweredSwitchCase 0 (blockId "target") [], LoweredSwitchCase 0 (blockId "target") []] (unitBlock "target"))
+      [terminatorFailure "main" "entry" LoweredDuplicateSwitchCaseTag (LoweredTagDetail 0)],
+    InvalidFixture
+      "switch-target-arguments"
+      ( switchProgram
+          [LoweredSwitchCase 0 (blockId "target") []]
+          (block "target" [parameter "value" i64] [] (LoweredReturn (immediate LoweredUnitImmediate)))
+      )
+      [terminatorFailure "main" "entry" LoweredEdgeArityMismatch (LoweredArityDetail 1 0)],
+    InvalidFixture
+      "return-representation"
+      (program [] [] [function "main" Nothing [] i64 [block "entry" [] [] (LoweredReturn (immediate (LoweredBoolImmediate True)))] "entry"] "main")
+      [terminatorFailure "main" "entry" LoweredReturnRepresentationMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "direct-call-signature"
+      ( callInstructionProgram
+          i64
+          (LoweredDirectCall (functionId "identity") [immediate (LoweredBoolImmediate True)])
+          [identityFunction]
+      )
+      [instructionFailure "main" "entry" 0 LoweredDirectCallSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "closure-call-signature"
+      (invalidClosureCallProgram False)
+      [instructionFailure "main" "entry" 2 LoweredClosureCallSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "runtime-call-signature"
+      ( callInstructionProgram
+          LoweredUnitRepresentation
+          (LoweredRuntimeCall (serviceId "consume") [immediate (LoweredBoolImmediate True)])
+          []
+      )
+      [instructionFailure "main" "entry" 0 LoweredRuntimeCallSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "direct-tail-signature"
+      ( program
+          []
+          []
+          [ identityFunction,
+            function "main" Nothing [] i64 [block "entry" [] [] (LoweredDirectTailCall (functionId "identity") [immediate (LoweredBoolImmediate True)])] "entry"
+          ]
+          "main"
+      )
+      [terminatorFailure "main" "entry" LoweredDirectTailCallSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "closure-tail-signature"
+      (invalidClosureCallProgram True)
+      [terminatorFailure "main" "entry" LoweredClosureTailCallSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    InvalidFixture
+      "unknown-runtime-service"
+      (callInstructionProgram LoweredUnitRepresentation (LoweredRuntimeCall (serviceId "missing") []) [])
+      [instructionFailure "main" "entry" 0 LoweredUnknownRuntimeService (identifierDetail "missing")]
+  ]
+
+expectedInvalidFixtureNames :: [Text]
+expectedInvalidFixtureNames =
+  [ "duplicate-layout",
+    "unknown-layout",
+    "duplicate-variant-tag",
+    "duplicate-runtime-service",
+    "duplicate-function",
+    "missing-entry-function",
+    "duplicate-block",
+    "missing-entry-block",
+    "missing-terminator",
+    "duplicate-temporary",
+    "use-before-definition",
+    "cross-block-temporary",
+    "unknown-parameter",
+    "unknown-function-call",
+    "unknown-block-target",
+    "instruction-result-representation",
+    "invalid-field-projection",
+    "invalid-tag-projection",
+    "closure-environment-layout",
+    "jump-argument-arity",
+    "jump-argument-representation",
+    "branch-non-boolean",
+    "switch-duplicate-case-tag",
+    "switch-target-arguments",
+    "return-representation",
+    "direct-call-signature",
+    "closure-call-signature",
+    "runtime-call-signature",
+    "direct-tail-signature",
+    "closure-tail-signature",
+    "unknown-runtime-service"
+  ]
+
+blockLocalTemporaryProgram :: LoweredProgram
+blockLocalTemporaryProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        i64
+        [ block "entry" [] [addInstruction "value" 1 2] (LoweredReturn (temporary "value" i64)),
+          block "other" [] [addInstruction "value" 3 4] (LoweredReturn (temporary "value" i64))
+        ]
+        "entry"
+    ]
+    "main"
+
+duplicateVariantTagsProgram :: LoweredProgram
+duplicateVariantTagsProgram =
+  unitProgram
+    [ LoweredLayout
+        (layoutId "choice")
+        ( LoweredVariantLayouts
+            [ LoweredVariantLayout 1 [],
+              LoweredVariantLayout 1 [i64],
+              LoweredVariantLayout 2 [],
+              LoweredVariantLayout 2 [LoweredBoolRepresentation]
+            ]
+        )
+    ]
+    []
+
+completeFailureOrderProgram :: LoweredProgram
+completeFailureOrderProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [productLayout "duplicate" [], productLayout "duplicate" []]
+    []
+    [LoweredFunction (functionId "main") Nothing [] LoweredUnitRepresentation [LoweredBlock (blockId "entry") [] [] Nothing] (blockId "entry")]
+    (functionId "missing")
+
+unitProgram :: [LoweredLayout] -> [LoweredRuntimeService] -> LoweredProgram
+unitProgram layouts services = program layouts services [unitMain] "main"
+
+unitMain :: LoweredFunction
+unitMain = scalarFunction "main" LoweredUnitRepresentation LoweredUnitImmediate
+
+unitBlock :: Text -> LoweredBlock
+unitBlock name = block name [] [] (LoweredReturn (immediate LoweredUnitImmediate))
+
+unitService :: Text -> LoweredRuntimeService
+unitService name = LoweredRuntimeService (serviceId name) (LoweredCallSignature [] LoweredUnitRepresentation)
+
+productLayout :: Text -> [LoweredRepresentation] -> LoweredLayout
+productLayout name = LoweredLayout (layoutId name) . LoweredProductLayout
+
+addInstruction :: Text -> Integer -> Integer -> LoweredInstruction
+addInstruction name left right =
+  instruction name i64 (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [int64 left, int64 right])
+
+instructionUnitProgram :: [LoweredInstruction] -> LoweredProgram
+instructionUnitProgram instructions =
+  program [] [] [function "main" Nothing [] LoweredUnitRepresentation [block "entry" [] instructions (LoweredReturn (immediate LoweredUnitImmediate))] "entry"] "main"
+
+instructionReturnProgram :: LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+instructionReturnProgram resultRepresentation instructions resultOperand =
+  program [] [] [function "main" Nothing [] resultRepresentation [block "entry" [] instructions (LoweredReturn resultOperand)] "entry"] "main"
+
+callInstructionProgram :: LoweredRepresentation -> LoweredOperation -> [LoweredFunction] -> LoweredProgram
+callInstructionProgram resultRepresentation operation additionalFunctions =
+  program
+    []
+    runtimeServices
+    ( additionalFunctions
+        <> [ function
+               "main"
+               Nothing
+               []
+               resultRepresentation
+               [block "entry" [] [instruction "result" resultRepresentation operation] (LoweredReturn (temporary "result" resultRepresentation))]
+               "entry"
+           ]
+    )
+    "main"
+  where
+    runtimeServices =
+      case operation of
+        LoweredRuntimeCall service _
+          | service == serviceId "consume" ->
+              [LoweredRuntimeService service (LoweredCallSignature [i64] LoweredUnitRepresentation)]
+        _ -> []
+
+projectionProgram :: LoweredLayout -> LoweredRepresentation -> LoweredOperation -> LoweredProgram
+projectionProgram layout resultRepresentation projection =
+  program
+    [layout]
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        resultRepresentation
+        [ block
+            "entry"
+            []
+            [ instruction "value" (managed "pair") (LoweredConstructProduct (layoutId "pair") [int64 1]),
+              instruction "projection" resultRepresentation projection
+            ]
+            (LoweredReturn (temporary "projection" resultRepresentation))
+        ]
+        "entry"
+    ]
+    "main"
+
+closureEnvironmentMismatchProgram :: LoweredProgram
+closureEnvironmentMismatchProgram =
+  program
+    [ LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [i64]),
+      LoweredLayout (layoutId "wrong-environment") (LoweredClosureEnvironmentLayout [i64])
+    ]
+    []
+    [ function
+        "captured"
+        (Just (parameter "environment" (managed "environment")))
+        []
+        LoweredUnitRepresentation
+        [unitBlock "entry"]
+        "entry",
+      function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            [ instruction "environment" (managed "wrong-environment") (LoweredConstructProduct (layoutId "wrong-environment") [int64 1]),
+              instruction
+                "closure"
+                (LoweredClosureRepresentation (LoweredCallSignature [] LoweredUnitRepresentation))
+                (LoweredConstructClosure (functionId "captured") (temporary "environment" (managed "wrong-environment")))
+            ]
+            (LoweredReturn (immediate LoweredUnitImmediate))
+        ]
+        "entry"
+    ]
+    "main"
+
+edgeProgram :: LoweredTerminator -> LoweredRepresentation -> LoweredProgram
+edgeProgram edge targetRepresentation =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block "entry" [] [] edge,
+          block "target" [parameter "value" targetRepresentation] [] (LoweredReturn (immediate LoweredUnitImmediate))
+        ]
+        "entry"
+    ]
+    "main"
+
+branchProgram :: LoweredOperand -> LoweredBlock -> LoweredBlock -> LoweredProgram
+branchProgram condition yesBlock noBlock =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        (block "entry" [] [] (LoweredBranch condition (blockId "yes") [] (blockId "no") []) : [yesBlock, noBlock])
+        "entry"
+    ]
+    "main"
+
+switchProgram :: [LoweredSwitchCase] -> LoweredBlock -> LoweredProgram
+switchProgram cases targetBlock =
+  program
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 0 []])]
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            [instruction "option" (managed "option") (LoweredConstructVariant (layoutId "option") 0 [])]
+            (LoweredSwitch (temporary "option" (managed "option")) cases Nothing),
+          targetBlock
+        ]
+        "entry"
+    ]
+    "main"
+
+invalidClosureCallProgram :: Bool -> LoweredProgram
+invalidClosureCallProgram useTailCall =
+  program
+    [LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [i64])]
+    []
+    [ function
+        "captured"
+        (Just (parameter "environment" (managed "environment")))
+        [parameter "value" i64]
+        i64
+        [block "entry" [] [] (LoweredReturn (functionParameter "value" i64))]
+        "entry",
+      mainFunction
+    ]
+    "main"
+  where
+    signature = LoweredCallSignature [i64] i64
+    setup =
+      [ instruction "environment" (managed "environment") (LoweredConstructProduct (layoutId "environment") [int64 1]),
+        instruction "closure" (LoweredClosureRepresentation signature) (LoweredConstructClosure (functionId "captured") (temporary "environment" (managed "environment")))
+      ]
+    closureOperand = temporary "closure" (LoweredClosureRepresentation signature)
+    invalidArgument = immediate (LoweredBoolImmediate True)
+    mainFunction
+      | useTailCall =
+          function "main" Nothing [] i64 [block "entry" [] setup (LoweredClosureTailCall closureOperand [invalidArgument])] "entry"
+      | otherwise =
+          function
+            "main"
+            Nothing
+            []
+            i64
+            [ block
+                "entry"
+                []
+                (setup <> [instruction "result" i64 (LoweredClosureCall closureOperand [invalidArgument])])
+                (LoweredReturn (temporary "result" i64))
+            ]
+            "entry"
+
+programFailure :: LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+programFailure = LoweredIRValidationFailure LoweredProgramPath
+
+layoutFailure :: Text -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+layoutFailure name = LoweredIRValidationFailure (LoweredLayoutPath (layoutId name))
+
+serviceFailure :: Text -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+serviceFailure name = LoweredIRValidationFailure (LoweredRuntimeServicePath (serviceId name))
+
+functionFailure :: Text -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+functionFailure name = LoweredIRValidationFailure (LoweredFunctionPath (functionId name))
+
+blockFailure :: Text -> Text -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+blockFailure functionName blockName = LoweredIRValidationFailure (LoweredBlockPath (functionId functionName) (blockId blockName))
+
+instructionFailure :: Text -> Text -> Int -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+instructionFailure functionName blockName instructionIndex =
+  LoweredIRValidationFailure (LoweredInstructionPath (functionId functionName) (blockId blockName) instructionIndex)
+
+terminatorFailure :: Text -> Text -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
+terminatorFailure functionName blockName = LoweredIRValidationFailure (LoweredTerminatorPath (functionId functionName) (blockId blockName))
+
+identifierDetail :: Text -> LoweredIRValidationDetail
+identifierDetail = LoweredIdentifierDetail
+
+representationDetail :: LoweredRepresentation -> LoweredRepresentation -> LoweredIRValidationDetail
+representationDetail = LoweredRepresentationDetail
 
 scalarFunction :: Text -> LoweredRepresentation -> LoweredImmediate -> LoweredFunction
 scalarFunction name representation value =
