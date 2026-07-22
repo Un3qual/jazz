@@ -74,6 +74,8 @@ library jazz-next-internal
       JazzNext.Compiler.Driver
       JazzNext.Compiler.Force
       JazzNext.Compiler.FractionalLiteral
+      JazzNext.Compiler.LoweredIR
+      JazzNext.Compiler.LoweredIR.Validate
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleExports
       JazzNext.Compiler.ModuleInterface
@@ -363,6 +365,8 @@ test-suite canonical-core-comparison-spec
   main-is: JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
       JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
@@ -378,6 +382,60 @@ test-suite jazz-core-expression-foundation-spec
       JazzNext.Compiler.Bootstrap.CanonicalParserComparison
       JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-core-control-flow-patterns-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-core-signatures-declarations-operators-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzCoreSignaturesDeclarationsOperatorsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-core-modules-corpus-closure-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Compiler.Bootstrap.JazzCoreParity
+      JazzNext.Compiler.Parser.FixtureCorpus
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
+
+test-suite jazz-lowered-ir-contract-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource

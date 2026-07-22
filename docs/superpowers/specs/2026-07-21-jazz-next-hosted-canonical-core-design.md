@@ -2,8 +2,8 @@
 
 ## Status
 
-Approved in discussion on `2026-07-21`. This design selects canonical-core
-lowering as the next hosted compiler milestone after the Jazz-authored parser
+Approved and completed on `2026-07-21`. This design selected canonical-core
+lowering as the hosted compiler milestone after the Jazz-authored parser
 reached complete stage-0 parity.
 
 The active Haskell implementation under `jazz-next/` remains stage 0 and the
@@ -11,15 +11,21 @@ semantic oracle. The hosted implementation will match the current
 `JazzNext.Compiler.Parser.Lower` boundary before any redesign of the core,
 type-inference port, or backend work begins.
 
-Implementation status (`2026-07-21`): child 1 is complete. `CoreTypes.jz`
-defines the full comparison schema, the checked Haskell adapter rejects values
-outside the lowering boundary, and `CoreLower.lowerFoundationExpression`
-matches stage 0 directly and through hosted parser composition for literals,
-source/qualified names, operator values, collections, tuples, ordinary
-application, non-`$` binary nodes, both sections, and ordinary blocks. Every
-deferred or recursively unsupported tree returns `Nothing`. Children 2-4
-remain: control flow/patterns/lambdas; signatures/declarations/operators; and
-modules/corpus closure.
+Implementation status (`2026-07-21`): all four children are complete.
+`CoreTypes.jz` defines the full comparison schema, and the checked Haskell
+adapter rejects values outside the lowering boundary. One private profile-driven
+kernel preserves `CoreLower.lowerFoundationExpression` while
+`lowerControlFlowPatternsExpression` adds every pattern, guarded case,
+conditional, nested control-flow, and multi-parameter or pattern-lambda rule.
+The third ordered profile adds signature types and constraints, unsupported
+tokens, explicit type application, `$` application, declaration payloads, and
+exact hidden operator-storage names. Its 20 direct and 16 parser-composed
+positive fixtures match complete stage-0 values twice; all 8 module/import
+deferrals return only `Nothing` twice. The final profile makes expression
+lowering total, owns exact module/import metadata and structured path failures,
+and exposes the private `Core.lowerCoreSource` facade. All 17 direct module
+fixtures, 13 composed sources, and 196 accepted parser-corpus fixtures match
+complete stage-0 results twice.
 
 ## Goal
 
@@ -243,11 +249,19 @@ Add every pattern form, guarded case arms, conditionals, and nested control
 flow. Add multi-parameter unary-lambda lowering and generated pattern-argument
 desugaring with exact one-based indices.
 
+Completed on `2026-07-21` with one shared profile-driven lowerer, exact repeated
+parity for 18 direct and 14 parser-composed positive fixtures, and 12 repeated
+nested later-child rejection fixtures.
+
 ### 3. Signatures, Declarations, and Operators
 
 Add signature types and constraints, tokenized unsupported signatures, data,
 class, and impl payloads, explicit type application, `$` application
 desugaring, and exact hidden operator-binding names.
+
+Completed on `2026-07-21` with the ordered third profile, exact repeated parity
+for 20 direct and 16 parser-composed positive fixtures, and 8 repeated root or
+nested module/import rejection fixtures.
 
 ### 4. Modules and Corpus Closure
 
@@ -255,6 +269,14 @@ Add module/import extraction, explicit export metadata, expected-path
 validation, structured `E4005`/`E4006` failures, complete span qualification,
 and the composed source-to-core facade. Close the manifest over every
 successfully parsed fixture in the accepted parser corpus.
+
+Completed on `2026-07-21`. `CoreLower.lowerCanonicalExpression` is total over
+the fixed surface schema; `CoreLower.lowerModule` preserves module/import
+metadata, validates expected paths, and recursively qualifies every retained
+span; and `Core.lowerCoreSource` calls the hosted parser once before forwarding
+lexical/parser failures or returning a structured module result. The audited
+196-entry accepted-corpus manifest and the fixed 17 direct / 13 composed
+families all match stage 0 twice.
 
 Only one child is promoted into `Ready Now` at a time. Each child plan must
 name concrete paths, a fixed fixture family, focused verification, and the
@@ -288,18 +310,17 @@ evidence.
 
 ## Queue Transition
 
-After this design is reviewed, a separate implementation plan will define only
-the first child: contract, harness, and expression foundation. The plan and
-queue row must agree exactly on target paths, verification, deliverable, and
+Each child receives a separate reviewed implementation plan. Its plan and queue
+row must agree exactly on target paths, verification, deliverable, and
 dependencies.
 
 The implementation plan will describe responsibilities, observable behavior,
 test cases, and integration points. It will not reproduce the code to be
 written.
 
-When the first child closes, its evidence moves to `done-archive.md` and only
-the second child may be curated. Later children remain in this design rather
-than appearing as simultaneously executable queue rows.
+All four children are closed and their evidence is archived. No canonical-core
+successor is promoted. Backend-neutral lowered-IR design approval is the next
+separate gate before any backend implementation plan or queue row exists.
 
 ## Non-Goals
 

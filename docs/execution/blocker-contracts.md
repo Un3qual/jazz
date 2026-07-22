@@ -99,38 +99,56 @@ Each blocked item should answer these questions:
   direct and hosted-parser composition match stage 0 exactly, while every
   deferred or recursively unsupported tree returns `Nothing` without a fake
   core value or lowering diagnostic.
+  `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` then refactored the hosted
+  lowerer around one shared profile-driven kernel and added every pattern,
+  guarded case, conditional, nested control-flow, and multi-parameter or
+  pattern-lambda rule. Its 18 direct and 14 composed positive fixtures match
+  stage 0 twice; 12 root and nested later-child fixtures return only `Nothing`
+  twice; and exact one-based generated parameter names are preserved for both
+  binder and scrutinee.
+  `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001` then added the
+  ordered third lowering profile for every signature type, constraint,
+  unsupported token, declaration payload, explicit type application, `$`
+  application, and exact hidden operator-storage name. Its 20 direct and 16
+  hosted-parser-composed positive fixtures match complete stage-0 values
+  twice, while all 8 root and nested module/import fixtures return only
+  `Nothing` twice.
+  `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` completed the fourth and
+  final canonical-core profile with total expression lowering, exact
+  module/import metadata and source qualification, structured `E4005`/`E4006`
+  counterparts, and the single-call `Core.lowerCoreSource` facade. All 17
+  direct module fixtures and 13 composed sources match stage 0 twice, and an
+  audited ordered manifest covers all 196 accepted parser fixtures with exact
+  repeated module results.
+  `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` then established matching
+  Haskell/Jazz backend-neutral CFG schemas, complete stable validators, and a
+  checked comparison adapter. Its exact 10-valid / 31-invalid manifest runs all
+  41 programs through Jazz twice with complete ordered parity and keeps
+  temporaries block-local.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
-  and orders four independently reviewable children before any backend work.
-- Smallest unblocker: write and approve the control-flow/pattern/lambda child
-  plan with a fixed direct/composed family and exact generated-name behavior.
-- Decision needed: approve that implementation plan before promotion. The
-  parent canonical-core design already fixes this child as the next ordered
-  stage.
-- Recommended default: extend the internal lowerer to patterns, guarded cases,
-  conditionals, nested control flow, and multi-parameter/pattern lambdas while
-  retaining `Nothing` for signatures, declaration/operator desugaring,
-  modules, and every backend stage.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` is the
-  sole `Next Curation Target`; `Ready Now` is empty.
-- Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
-  `jazz-next/jazz/compiler/CoreLower.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  planned
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreControlFlowPatternsSpec.hs`,
-  and `jazz-next/jazz-next.cabal`.
-- Verification: focused control-flow/pattern, foundation, canonical-core,
-  canonical-parser, hosted-parser control-flow, and repository-audit suites;
-  warning-clean development build; routine Cabal `all`; `cabal check`;
-  queue/docs validators; and `git diff --check`. Exhaustive parser scale
-  components remain manual and are not part of this child.
-- Not in scope: a public parser or lowerer API; production lowerer replacement;
-  signatures, declarations, operator-binding/`$` desugaring, modules, type
-  inference, name resolution, analysis, evaluation, host callbacks or
-  intrinsics, bytecode or a VM, lowered IR, LLVM emission, object generation,
-  linking, or native-runtime implementation.
+  and completed four independently reviewable children before backend work.
+- Accepted decision: the backend-neutral lowered-IR contract is
+  `2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md`. It selects a
+  mirrored Haskell/Jazz CFG contract with explicit closures, calls,
+  representations, layout requests, structured validation, and canonical
+  parity while preserving canonical core as interpreter input.
+- Smallest unblocker: none currently. A typed-core elaboration design must
+  define per-node resolved types, capability evidence, names, and
+  representation ownership before an implementation child can be promoted.
+- Decision needed: no typed-core elaboration design is accepted yet.
+- Recommended default: keep the IR independent of LLVM instruction objects,
+  preserve block-local temporaries and typed block arguments, and do not add
+  bytecode or a VM.
+- Candidate child: none. Do not infer a typed-core implementation batch from
+  the completed IR contract.
+- Target paths: none until a reviewed typed-core design names concrete owners.
+- Verification: not applicable until that design and child plan exist.
+- Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
+  object generation; linking; native-runtime or ABI implementation; a public
+  compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

@@ -1,10 +1,42 @@
-module CoreLower (value lowerFoundationExpression) {
+module CoreLower (
+  value lowerFoundationExpression,
+  value lowerControlFlowPatternsExpression,
+  value lowerSignaturesDeclarationsOperatorsExpression,
+  value lowerCanonicalExpression,
+  value lowerModule
+) {
   import CoreTypes.
-  import LexerTypes (CanonicalSpan).
+  import LexerTypes (CanonicalSourcePath, CanonicalSpan).
   import List (listPrepend, listReverse).
   import Maybe.
+  import NonEmpty (NonEmpty).
   import ParserTypes.
-  import Text (textStartsWith).
+  import Text (textIsEmpty, textSplit, textStartsWith).
+
+  data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile | SignaturesDeclarationsOperatorsProfile | ModulesCorpusClosureProfile.
+
+  data CollectedModuleDeclaration = CollectedModuleDeclaration CoreModuleDeclaration (Maybe([CoreModuleExportSelector])).
+
+  profileAllows :: LoweringProfile -> LoweringProfile -> Bool.
+  profileAllows = \(available, required) -> case available {
+    | FoundationProfile -> case required {
+      | FoundationProfile -> True
+      | other -> False
+    }
+    | ControlFlowPatternsProfile -> case required {
+      | FoundationProfile -> True
+      | ControlFlowPatternsProfile -> True
+      | other -> False
+    }
+    | SignaturesDeclarationsOperatorsProfile -> case required {
+      | ModulesCorpusClosureProfile -> False
+      | other -> True
+    }
+    | ModulesCorpusClosureProfile -> True
+  }.
+
+  maximumProfile :: LoweringProfile -> LoweringProfile -> LoweringProfile.
+  maximumProfile = \(left, right) -> if profileAllows left right then left else right.
 
   lowerFoundationNumericType :: SurfaceNumericType -> CoreNumericType.
   lowerFoundationNumericType = \(numericType) -> case numericType {
@@ -42,94 +74,753 @@ module CoreLower (value lowerFoundationExpression) {
     | CanonicalSpan line column -> CoreSpan Nothing line column
   }.
 
-  lowerFoundationExpressionsFrom :: [SurfaceExpr] -> [CoreExpr] -> Maybe([CoreExpr]).
-  lowerFoundationExpressionsFrom = \(expressions, reversed) -> case expressions {
-    | [] -> Just (listReverse reversed)
-    | [first | rest] -> case lowerFoundationExpression first {
-      | Nothing -> Nothing
-      | Just lowered -> lowerFoundationExpressionsFrom rest (listPrepend lowered reversed)
+  lowerSignatureName :: Text -> CoreName.
+  lowerSignatureName = \(name) -> case textSplit "::" name {
+    | [qualifier, member] -> if textIsEmpty qualifier then CoreSourceName name else
+      if textIsEmpty member then CoreSourceName name else CoreQualifiedName qualifier member
+    | other -> CoreSourceName name
+  }.
+
+  lowerBindingName :: Text -> CoreName.
+  lowerBindingName = \(name) -> if textStartsWith "$operator:" name then
+    CoreGeneratedName (CoreOperatorBinding name)
+  else CoreSourceName name.
+
+  lowerSignatureTypesFrom :: [SurfaceSignatureType] -> [CoreSignatureType] -> [CoreSignatureType].
+  lowerSignatureTypesFrom = \(signatureTypes, reversed) -> case signatureTypes {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSignatureTypesFrom rest (listPrepend (lowerSignatureType first) reversed)
+  }.
+
+  lowerSignatureTypes :: [SurfaceSignatureType] -> [CoreSignatureType].
+  lowerSignatureTypes = \(signatureTypes) -> lowerSignatureTypesFrom signatureTypes [].
+
+  lowerSignatureType :: SurfaceSignatureType -> CoreSignatureType.
+  lowerSignatureType = \(signatureType) -> case signatureType {
+    | IntType -> CoreIntType
+    | FloatType -> CoreFloatType
+    | NumericType numericType -> CoreNumericType (lowerFoundationNumericType numericType)
+    | BoolType -> CoreBoolType
+    | CharType -> CoreCharType
+    | TextType -> CoreTextType
+    | TypeVariable name -> CoreTypeVariable (CoreSourceName name)
+    | NamedType name -> CoreNamedType (lowerSignatureName name)
+    | AppliedType name arguments -> CoreAppliedType (lowerSignatureName name) (lowerSignatureTypes arguments)
+    | ListType elementType -> CoreListType (lowerSignatureType elementType)
+    | TupleType elementTypes -> CoreTupleType (lowerSignatureTypes elementTypes)
+    | FunctionType argumentType resultType ->
+      CoreFunctionType (lowerSignatureType argumentType) (lowerSignatureType resultType)
+  }.
+
+  lowerSignatureConstraint :: SurfaceSignatureConstraint -> CoreSignatureConstraint.
+  lowerSignatureConstraint = \(constraint) -> case constraint {
+    | SurfaceSignatureConstraint name arguments ->
+      CoreSignatureConstraint (lowerSignatureName name) (lowerSignatureTypes arguments)
+  }.
+
+  lowerSignatureConstraintsFrom :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint] -> [CoreSignatureConstraint].
+  lowerSignatureConstraintsFrom = \(constraints, reversed) -> case constraints {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerSignatureConstraintsFrom rest (listPrepend (lowerSignatureConstraint first) reversed)
+  }.
+
+  lowerSignatureConstraints :: [SurfaceSignatureConstraint] -> [CoreSignatureConstraint].
+  lowerSignatureConstraints = \(constraints) -> lowerSignatureConstraintsFrom constraints [].
+
+  lowerSignatureToken :: SurfaceSignatureToken -> CoreSignatureToken.
+  lowerSignatureToken = \(token) -> case token {
+    | SignatureNameToken name -> CoreSignatureNameToken (CoreSourceName name)
+    | SignatureIntegerToken value -> CoreSignatureIntegerToken value
+    | SignatureArrowToken -> CoreSignatureArrowToken
+    | SignatureAtToken -> CoreSignatureAtToken
+    | SignatureColonToken -> CoreSignatureColonToken
+    | SignatureLeftParenToken -> CoreSignatureLeftParenToken
+    | SignatureRightParenToken -> CoreSignatureRightParenToken
+    | SignatureLeftBraceToken -> CoreSignatureLeftBraceToken
+    | SignatureRightBraceToken -> CoreSignatureRightBraceToken
+    | SignatureLeftBracketToken -> CoreSignatureLeftBracketToken
+    | SignatureRightBracketToken -> CoreSignatureRightBracketToken
+    | SignatureCommaToken -> CoreSignatureCommaToken
+    | SignatureOperatorToken symbol -> CoreSignatureOperatorToken symbol
+    | SignatureOtherToken value -> CoreSignatureOtherToken value
+  }.
+
+  lowerSignatureTokensFrom :: [SurfaceSignatureToken] -> [CoreSignatureToken] -> [CoreSignatureToken].
+  lowerSignatureTokensFrom = \(tokens, reversed) -> case tokens {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSignatureTokensFrom rest (listPrepend (lowerSignatureToken first) reversed)
+  }.
+
+  lowerSignatureTokens :: [SurfaceSignatureToken] -> [CoreSignatureToken].
+  lowerSignatureTokens = \(tokens) -> lowerSignatureTokensFrom tokens [].
+
+  lowerSignaturePayload :: SurfaceSignaturePayload -> CoreSignaturePayload.
+  lowerSignaturePayload = \(payload) -> case payload {
+    | TypeSignature signatureType -> CoreTypeSignature (lowerSignatureType signatureType)
+    | ConstrainedSignature constraints signatureType ->
+      CoreConstrainedSignature (lowerSignatureConstraints constraints) (lowerSignatureType signatureType)
+    | UnsupportedSignature tokens -> CoreUnsupportedSignature (lowerSignatureTokens tokens)
+  }.
+
+  lowerSourceNamesFrom :: [Text] -> [CoreName] -> [CoreName].
+  lowerSourceNamesFrom = \(names, reversed) -> case names {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerSourceNamesFrom rest (listPrepend (CoreSourceName first) reversed)
+  }.
+
+  lowerSourceNames :: [Text] -> [CoreName].
+  lowerSourceNames = \(names) -> lowerSourceNamesFrom names [].
+
+  lowerDataConstructorArgument :: SurfaceDataConstructorArgument -> CoreDataConstructorArgument.
+  lowerDataConstructorArgument = \(argument) -> case argument {
+    | NamedConstructorArgument name -> CoreNamedConstructorArgument (CoreSourceName name)
+    | OpaqueConstructorArgument -> CoreOpaqueConstructorArgument
+  }.
+
+  lowerDataConstructorArgumentsFrom :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument] -> [CoreDataConstructorArgument].
+  lowerDataConstructorArgumentsFrom = \(arguments, reversed) -> case arguments {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerDataConstructorArgumentsFrom rest (listPrepend (lowerDataConstructorArgument first) reversed)
+  }.
+
+  lowerDataConstructorArguments :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument].
+  lowerDataConstructorArguments = \(arguments) -> lowerDataConstructorArgumentsFrom arguments [].
+
+  lowerDataConstructor :: SurfaceDataConstructor -> CoreDataConstructor.
+  lowerDataConstructor = \(constructor) -> case constructor {
+    | SurfaceDataConstructor name arguments ->
+      CoreDataConstructor (CoreSourceName name) (lowerDataConstructorArguments arguments)
+  }.
+
+  lowerDataConstructorsFrom :: [SurfaceDataConstructor] -> [CoreDataConstructor] -> [CoreDataConstructor].
+  lowerDataConstructorsFrom = \(constructors, reversed) -> case constructors {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerDataConstructorsFrom rest (listPrepend (lowerDataConstructor first) reversed)
+  }.
+
+  lowerDataConstructors :: [SurfaceDataConstructor] -> [CoreDataConstructor].
+  lowerDataConstructors = \(constructors) -> lowerDataConstructorsFrom constructors [].
+
+  lowerClassMethodSignature :: SurfaceClassMethodSignature -> CoreClassMethodSignature.
+  lowerClassMethodSignature = \(method) -> case method {
+    | SurfaceClassMethodSignature name span payload ->
+      CoreClassMethodSignature (CoreSourceName name) (lowerFoundationSpan span) (lowerSignaturePayload payload)
+  }.
+
+  lowerClassMethodSignaturesFrom :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  lowerClassMethodSignaturesFrom = \(methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerClassMethodSignaturesFrom rest (listPrepend (lowerClassMethodSignature first) reversed)
+  }.
+
+  lowerClassMethodSignatures :: [SurfaceClassMethodSignature] -> [CoreClassMethodSignature].
+  lowerClassMethodSignatures = \(methods) -> lowerClassMethodSignaturesFrom methods [].
+
+  lowerImplMethod :: SurfaceImplMethod -> (LoweringProfile, CoreImplMethod).
+  lowerImplMethod = \(method) -> case method {
+    | SurfaceImplMethod name span body -> case lowerProfiledExpression body {
+      | (required, loweredBody) ->
+        (required, CoreImplMethod (CoreSourceName name) (lowerFoundationSpan span) loweredBody)
     }
   }.
 
-  lowerFoundationExpressions :: [SurfaceExpr] -> Maybe([CoreExpr]).
-  lowerFoundationExpressions = \(expressions) -> lowerFoundationExpressionsFrom expressions [].
+  lowerImplMethodsFrom :: [SurfaceImplMethod] -> [CoreImplMethod] -> LoweringProfile -> (LoweringProfile, [CoreImplMethod]).
+  lowerImplMethodsFrom = \(methods, reversed, required) -> case methods {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerImplMethod first {
+      | (methodRequired, lowered) ->
+        lowerImplMethodsFrom rest (listPrepend lowered reversed) (maximumProfile required methodRequired)
+    }
+  }.
 
-  lowerFoundationStatement :: SurfaceStatement -> Maybe(CoreStatement).
-  lowerFoundationStatement = \(statement) -> case statement {
-    | LetStatement name span expression -> if textStartsWith "$operator:" name then Nothing else
-      case lowerFoundationExpression expression {
-        | Nothing -> Nothing
-        | Just lowered -> Just (CoreLetStatement (CoreSourceName name) (lowerFoundationSpan span) lowered)
+  lowerImplMethods :: [SurfaceImplMethod] -> (LoweringProfile, [CoreImplMethod]).
+  lowerImplMethods = \(methods) -> lowerImplMethodsFrom methods [] FoundationProfile.
+
+  lowerExpressionsFrom :: [SurfaceExpr] -> [CoreExpr] -> LoweringProfile -> (LoweringProfile, [CoreExpr]).
+  lowerExpressionsFrom = \(expressions, reversed, required) -> case expressions {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerProfiledExpression first {
+      | (expressionRequired, lowered) ->
+        lowerExpressionsFrom rest (listPrepend lowered reversed) (maximumProfile required expressionRequired)
+    }
+  }.
+
+  lowerExpressions :: [SurfaceExpr] -> (LoweringProfile, [CoreExpr]).
+  lowerExpressions = \(expressions) -> lowerExpressionsFrom expressions [] FoundationProfile.
+
+  lowerStatement :: SurfaceStatement -> (LoweringProfile, CoreStatement).
+  lowerStatement = \(statement) -> case statement {
+    | LetStatement name span expression -> case lowerProfiledExpression expression {
+      | (expressionRequired, lowered) -> {
+        required = if textStartsWith "$operator:" name then
+          maximumProfile SignaturesDeclarationsOperatorsProfile expressionRequired
+        else expressionRequired.
+        (required, CoreLetStatement (lowerBindingName name) (lowerFoundationSpan span) lowered).
       }
-    | SignatureStatement name span payload -> Nothing
-    | DataStatement span name parameters constructors -> Nothing
-    | ClassStatement span name parameters methods -> Nothing
-    | ImplStatement span name arguments methods -> Nothing
-    | ModuleStatement span path exports -> Nothing
-    | ImportStatement span path alias symbols -> Nothing
-    | ExpressionStatement span expression -> case lowerFoundationExpression expression {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreExpressionStatement (lowerFoundationSpan span) lowered)
+    }
+    | SignatureStatement name span payload ->
+      ( SignaturesDeclarationsOperatorsProfile,
+        CoreSignatureStatement (lowerBindingName name) (lowerFoundationSpan span) (lowerSignaturePayload payload)
+      )
+    | DataStatement span name parameters constructors ->
+      ( SignaturesDeclarationsOperatorsProfile,
+        CoreDataStatement
+          (lowerFoundationSpan span)
+          (CoreSourceName name)
+          (lowerSourceNames parameters)
+          (lowerDataConstructors constructors)
+      )
+    | ClassStatement span name parameters methods ->
+      ( SignaturesDeclarationsOperatorsProfile,
+        CoreClassStatement
+          (lowerFoundationSpan span)
+          (CoreSourceName name)
+          (lowerSourceNames parameters)
+          (lowerClassMethodSignatures methods)
+      )
+    | ImplStatement span name arguments methods -> case lowerImplMethods methods {
+      | (methodsRequired, loweredMethods) ->
+        ( maximumProfile SignaturesDeclarationsOperatorsProfile methodsRequired,
+          CoreImplStatement
+            (lowerFoundationSpan span)
+            (CoreSourceName name)
+            (lowerSignatureTypes arguments)
+            loweredMethods
+        )
+    }
+    | ModuleStatement span path exports ->
+      (ModulesCorpusClosureProfile, CoreModuleStatement (lowerFoundationSpan span) path)
+    | ImportStatement span path alias symbols ->
+      (ModulesCorpusClosureProfile, CoreImportStatement (lowerFoundationSpan span) path alias symbols)
+    | ExpressionStatement span expression -> case lowerProfiledExpression expression {
+      | (required, lowered) ->
+        (required, CoreExpressionStatement (lowerFoundationSpan span) lowered)
     }
   }.
 
-  lowerFoundationStatementsFrom :: [SurfaceStatement] -> [CoreStatement] -> Maybe([CoreStatement]).
-  lowerFoundationStatementsFrom = \(statements, reversed) -> case statements {
-    | [] -> Just (listReverse reversed)
-    | [first | rest] -> case lowerFoundationStatement first {
-      | Nothing -> Nothing
-      | Just lowered -> lowerFoundationStatementsFrom rest (listPrepend lowered reversed)
+  lowerStatementsFrom :: [SurfaceStatement] -> [CoreStatement] -> LoweringProfile -> (LoweringProfile, [CoreStatement]).
+  lowerStatementsFrom = \(statements, reversed, required) -> case statements {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerStatement first {
+      | (statementRequired, lowered) ->
+        lowerStatementsFrom rest (listPrepend lowered reversed) (maximumProfile required statementRequired)
     }
   }.
 
-  lowerFoundationStatements :: [SurfaceStatement] -> Maybe([CoreStatement]).
-  lowerFoundationStatements = \(statements) -> lowerFoundationStatementsFrom statements [].
+  lowerStatements :: [SurfaceStatement] -> (LoweringProfile, [CoreStatement]).
+  lowerStatements = \(statements) -> lowerStatementsFrom statements [] FoundationProfile.
 
-  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
-  lowerFoundationExpression = \(expression) -> case expression {
-    | LiteralExpression literal -> Just (CoreLiteralExpression (lowerFoundationLiteral literal))
-    | VariableExpression name -> Just (CoreVariableExpression (CoreSourceName name))
+  lowerPattern :: SurfacePattern -> CorePattern.
+  lowerPattern = \(pattern) -> case pattern {
+    | WildcardPattern -> CoreWildcardPattern
+    | VariablePattern name -> CoreVariablePattern (CoreSourceName name)
+    | LiteralPattern literal -> CoreLiteralPattern (lowerFoundationLiteral literal)
+    | ConstructorPattern name patterns ->
+      CoreConstructorPattern (CoreSourceName name) (lowerPatterns patterns)
+    | ListPattern patterns -> CoreListPattern (lowerPatterns patterns)
+    | ConsListPattern headPattern tailPattern ->
+      CoreConsListPattern (lowerPattern headPattern) (lowerPattern tailPattern)
+    | TuplePattern patterns -> CoreTuplePattern (lowerPatterns patterns)
+    | AsPattern name nested -> CoreAsPattern (CoreSourceName name) (lowerPattern nested)
+    | OrPattern patterns -> CoreOrPattern (lowerPatterns patterns)
+  }.
+
+  lowerPatternsFrom :: [SurfacePattern] -> [CorePattern] -> [CorePattern].
+  lowerPatternsFrom = \(patterns, reversed) -> case patterns {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerPatternsFrom rest (listPrepend (lowerPattern first) reversed)
+  }.
+
+  lowerPatterns :: [SurfacePattern] -> [CorePattern].
+  lowerPatterns = \(patterns) -> lowerPatternsFrom patterns [].
+
+  lowerOptionalExpression :: Maybe(SurfaceExpr) -> (LoweringProfile, Maybe(CoreExpr)).
+  lowerOptionalExpression = \(maybeExpression) -> case maybeExpression {
+    | Nothing -> (FoundationProfile, Nothing)
+    | Just expression -> case lowerProfiledExpression expression {
+      | (required, lowered) -> (required, Just lowered)
+    }
+  }.
+
+  lowerCaseArm :: SurfaceCaseArm -> (LoweringProfile, CoreCaseArm).
+  lowerCaseArm = \(arm) -> case arm {
+    | SurfaceCaseArm pattern guard body -> case lowerOptionalExpression guard {
+      | (guardRequired, loweredGuard) -> case lowerProfiledExpression body {
+        | (bodyRequired, loweredBody) ->
+          ( maximumProfile guardRequired bodyRequired,
+            CoreCaseArm (lowerPattern pattern) loweredGuard loweredBody
+          )
+      }
+    }
+  }.
+
+  lowerCaseArmsFrom :: [SurfaceCaseArm] -> [CoreCaseArm] -> LoweringProfile -> (LoweringProfile, [CoreCaseArm]).
+  lowerCaseArmsFrom = \(arms, reversed, required) -> case arms {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerCaseArm first {
+      | (armRequired, lowered) ->
+        lowerCaseArmsFrom rest (listPrepend lowered reversed) (maximumProfile required armRequired)
+    }
+  }.
+
+  lowerCaseArms :: [SurfaceCaseArm] -> (LoweringProfile, [CoreCaseArm]).
+  lowerCaseArms = \(arms) -> lowerCaseArmsFrom arms [] FoundationProfile.
+
+  lowerLambdaParameter :: Int -> SurfaceLambdaParameter -> CoreExpr -> CoreExpr.
+  lowerLambdaParameter = \(parameterIndex, parameter, loweredBody) -> case parameter {
+    | IdentifierParameter name -> CoreLambdaExpression (CoreSourceName name) loweredBody
+    | PatternParameter pattern ->
+      CoreLambdaExpression
+        (CoreGeneratedName (CoreLambdaPatternArgument parameterIndex))
+        (CorePatternCaseExpression
+          (CoreVariableExpression (CoreGeneratedName (CoreLambdaPatternArgument parameterIndex)))
+          [CoreCaseArm (lowerPattern pattern) Nothing loweredBody])
+  }.
+
+  lowerLambdaParameterTail :: Int -> [SurfaceLambdaParameter] -> CoreExpr -> CoreExpr.
+  lowerLambdaParameterTail = \(parameterIndex, parameters, loweredBody) -> case parameters {
+    | [] -> loweredBody
+    | [first | rest] ->
+      lowerLambdaParameter
+        parameterIndex
+        first
+        (lowerLambdaParameterTail (parameterIndex + 1) rest loweredBody)
+  }.
+
+  lowerLambdaParameters :: NonEmpty(SurfaceLambdaParameter) -> CoreExpr -> CoreExpr.
+  lowerLambdaParameters = \(parameters, loweredBody) -> case parameters {
+    | NonEmpty first rest ->
+      lowerLambdaParameter 1 first (lowerLambdaParameterTail 2 rest loweredBody)
+  }.
+
+  lowerProfiledExpression :: SurfaceExpr -> (LoweringProfile, CoreExpr).
+  lowerProfiledExpression = \(expression) -> case expression {
+    | LiteralExpression literal ->
+      (FoundationProfile, CoreLiteralExpression (lowerFoundationLiteral literal))
+    | VariableExpression name ->
+      (FoundationProfile, CoreVariableExpression (CoreSourceName name))
     | QualifiedVariableExpression qualifier member ->
-      Just (CoreVariableExpression (CoreQualifiedName qualifier member))
-    | LambdaExpression parameters body -> Nothing
-    | OperatorValueExpression symbol -> Just (CoreOperatorValueExpression symbol)
-    | ListExpression elements -> case lowerFoundationExpressions elements {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreListExpression lowered)
+      (FoundationProfile, CoreVariableExpression (CoreQualifiedName qualifier member))
+    | LambdaExpression parameters body -> case lowerProfiledExpression body {
+      | (bodyRequired, loweredBody) ->
+        ( maximumProfile ControlFlowPatternsProfile bodyRequired,
+          lowerLambdaParameters parameters loweredBody
+        )
     }
-    | TupleExpression elements -> case lowerFoundationExpressions elements {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreTupleExpression lowered)
+    | OperatorValueExpression symbol ->
+      (FoundationProfile, CoreOperatorValueExpression symbol)
+    | ListExpression elements -> case lowerExpressions elements {
+      | (required, lowered) -> (required, CoreListExpression lowered)
     }
-    | ApplyExpression function argument -> case lowerFoundationExpression function {
-      | Nothing -> Nothing
-      | Just loweredFunction -> case lowerFoundationExpression argument {
-        | Nothing -> Nothing
-        | Just loweredArgument -> Just (CoreApplyExpression loweredFunction loweredArgument)
+    | TupleExpression elements -> case lowerExpressions elements {
+      | (required, lowered) -> (required, CoreTupleExpression lowered)
+    }
+    | ApplyExpression function argument -> case lowerProfiledExpression function {
+      | (functionRequired, loweredFunction) -> case lowerProfiledExpression argument {
+        | (argumentRequired, loweredArgument) ->
+          ( maximumProfile functionRequired argumentRequired,
+            CoreApplyExpression loweredFunction loweredArgument
+          )
       }
     }
-    | TypeApplicationExpression function span signatureType -> Nothing
-    | IfExpression condition thenBranch elseBranch -> Nothing
-    | CaseExpression scrutinee arms -> Nothing
-    | BinaryExpression symbol left right -> if symbol == "$" then Nothing else
-      case lowerFoundationExpression left {
-        | Nothing -> Nothing
-        | Just loweredLeft -> case lowerFoundationExpression right {
-          | Nothing -> Nothing
-          | Just loweredRight -> Just (CoreBinaryExpression symbol loweredLeft loweredRight)
+    | TypeApplicationExpression function span signatureType -> case lowerProfiledExpression function {
+      | (functionRequired, loweredFunction) ->
+        ( maximumProfile SignaturesDeclarationsOperatorsProfile functionRequired,
+          CoreTypeApplicationExpression loweredFunction (lowerFoundationSpan span) (lowerSignatureType signatureType)
+        )
+    }
+    | IfExpression condition thenBranch elseBranch -> case lowerProfiledExpression condition {
+      | (conditionRequired, loweredCondition) -> case lowerProfiledExpression thenBranch {
+        | (thenRequired, loweredThen) -> case lowerProfiledExpression elseBranch {
+          | (elseRequired, loweredElse) -> {
+            branchesRequired = maximumProfile thenRequired elseRequired.
+            required = maximumProfile ControlFlowPatternsProfile (maximumProfile conditionRequired branchesRequired).
+            (required, CoreIfExpression loweredCondition loweredThen loweredElse).
+          }
         }
       }
-    | LeftSectionExpression left symbol -> case lowerFoundationExpression left {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreLeftSectionExpression lowered symbol)
     }
-    | RightSectionExpression symbol right -> case lowerFoundationExpression right {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreRightSectionExpression symbol lowered)
+    | CaseExpression scrutinee arms -> case lowerProfiledExpression scrutinee {
+      | (scrutineeRequired, loweredScrutinee) -> case lowerCaseArms arms {
+        | (armsRequired, loweredArms) ->
+          ( maximumProfile ControlFlowPatternsProfile (maximumProfile scrutineeRequired armsRequired),
+            CorePatternCaseExpression loweredScrutinee loweredArms
+          )
+      }
     }
-    | BlockExpression statements -> case lowerFoundationStatements statements {
-      | Nothing -> Nothing
-      | Just lowered -> Just (CoreBlockExpression lowered)
+    | BinaryExpression symbol left right -> case lowerProfiledExpression left {
+      | (leftRequired, loweredLeft) -> case lowerProfiledExpression right {
+        | (rightRequired, loweredRight) -> {
+          childrenRequired = maximumProfile leftRequired rightRequired.
+          if symbol == "$" then
+            ( maximumProfile SignaturesDeclarationsOperatorsProfile childrenRequired,
+              CoreApplyExpression loweredLeft loweredRight
+            )
+          else
+            (childrenRequired, CoreBinaryExpression symbol loweredLeft loweredRight).
+        }
+      }
     }
+    | LeftSectionExpression left symbol -> case lowerProfiledExpression left {
+      | (required, lowered) -> (required, CoreLeftSectionExpression lowered symbol)
+    }
+    | RightSectionExpression symbol right -> case lowerProfiledExpression right {
+      | (required, lowered) -> (required, CoreRightSectionExpression symbol lowered)
+    }
+    | BlockExpression statements -> case lowerStatements statements {
+      | (required, lowered) -> (required, CoreBlockExpression lowered)
+    }
+  }.
+
+  lowerExpressionWithProfile :: LoweringProfile -> SurfaceExpr -> Maybe(CoreExpr).
+  lowerExpressionWithProfile = \(profile, expression) -> case lowerProfiledExpression expression {
+    | (required, lowered) -> if profileAllows profile required then Just lowered else Nothing
+  }.
+
+  lowerFoundationExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerFoundationExpression = lowerExpressionWithProfile FoundationProfile.
+
+  lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerControlFlowPatternsExpression = lowerExpressionWithProfile ControlFlowPatternsProfile.
+
+  lowerSignaturesDeclarationsOperatorsExpression :: SurfaceExpr -> Maybe(CoreExpr).
+  lowerSignaturesDeclarationsOperatorsExpression =
+    lowerExpressionWithProfile SignaturesDeclarationsOperatorsProfile.
+
+  lowerCanonicalExpression :: SurfaceExpr -> CoreExpr.
+  lowerCanonicalExpression = \(expression) -> case lowerProfiledExpression expression {
+    | (required, lowered) -> lowered
+  }.
+
+  qualifySpan :: CanonicalSourcePath -> CoreSpan -> CoreSpan.
+  qualifySpan = \(sourcePath, span) -> case span {
+    | CoreSpan maybePath line column -> CoreSpan (Just sourcePath) line column
+  }.
+
+  qualifyOptionalExpression :: CanonicalSourcePath -> Maybe(CoreExpr) -> Maybe(CoreExpr).
+  qualifyOptionalExpression = \(sourcePath, maybeExpression) -> case maybeExpression {
+    | Nothing -> Nothing
+    | Just expression -> Just (qualifyExpression sourcePath expression)
+  }.
+
+  qualifyCaseArm :: CanonicalSourcePath -> CoreCaseArm -> CoreCaseArm.
+  qualifyCaseArm = \(sourcePath, arm) -> case arm {
+    | CoreCaseArm pattern guard body ->
+      CoreCaseArm
+        pattern
+        (qualifyOptionalExpression sourcePath guard)
+        (qualifyExpression sourcePath body)
+  }.
+
+  qualifyCaseArmsFrom :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm] -> [CoreCaseArm].
+  qualifyCaseArmsFrom = \(sourcePath, arms, reversed) -> case arms {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyCaseArmsFrom sourcePath rest (listPrepend (qualifyCaseArm sourcePath first) reversed)
+  }.
+
+  qualifyCaseArms :: CanonicalSourcePath -> [CoreCaseArm] -> [CoreCaseArm].
+  qualifyCaseArms = \(sourcePath, arms) -> qualifyCaseArmsFrom sourcePath arms [].
+
+  qualifyClassMethod :: CanonicalSourcePath -> CoreClassMethodSignature -> CoreClassMethodSignature.
+  qualifyClassMethod = \(sourcePath, method) -> case method {
+    | CoreClassMethodSignature name span payload ->
+      CoreClassMethodSignature name (qualifySpan sourcePath span) payload
+  }.
+
+  qualifyClassMethodsFrom :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  qualifyClassMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyClassMethodsFrom sourcePath rest (listPrepend (qualifyClassMethod sourcePath first) reversed)
+  }.
+
+  qualifyClassMethods :: CanonicalSourcePath -> [CoreClassMethodSignature] -> [CoreClassMethodSignature].
+  qualifyClassMethods = \(sourcePath, methods) -> qualifyClassMethodsFrom sourcePath methods [].
+
+  qualifyImplMethod :: CanonicalSourcePath -> CoreImplMethod -> CoreImplMethod.
+  qualifyImplMethod = \(sourcePath, method) -> case method {
+    | CoreImplMethod name span body ->
+      CoreImplMethod name (qualifySpan sourcePath span) (qualifyExpression sourcePath body)
+  }.
+
+  qualifyImplMethodsFrom :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod] -> [CoreImplMethod].
+  qualifyImplMethodsFrom = \(sourcePath, methods, reversed) -> case methods {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyImplMethodsFrom sourcePath rest (listPrepend (qualifyImplMethod sourcePath first) reversed)
+  }.
+
+  qualifyImplMethods :: CanonicalSourcePath -> [CoreImplMethod] -> [CoreImplMethod].
+  qualifyImplMethods = \(sourcePath, methods) -> qualifyImplMethodsFrom sourcePath methods [].
+
+  qualifyStatement :: CanonicalSourcePath -> CoreStatement -> CoreStatement.
+  qualifyStatement = \(sourcePath, statement) -> case statement {
+    | CoreLetStatement name span expression ->
+      CoreLetStatement name (qualifySpan sourcePath span) (qualifyExpression sourcePath expression)
+    | CoreSignatureStatement name span payload ->
+      CoreSignatureStatement name (qualifySpan sourcePath span) payload
+    | CoreDataStatement span name parameters constructors ->
+      CoreDataStatement (qualifySpan sourcePath span) name parameters constructors
+    | CoreClassStatement span name parameters methods ->
+      CoreClassStatement
+        (qualifySpan sourcePath span)
+        name
+        parameters
+        (qualifyClassMethods sourcePath methods)
+    | CoreImplStatement span name arguments methods ->
+      CoreImplStatement
+        (qualifySpan sourcePath span)
+        name
+        arguments
+        (qualifyImplMethods sourcePath methods)
+    | CoreModuleStatement span path ->
+      CoreModuleStatement (qualifySpan sourcePath span) path
+    | CoreImportStatement span path alias symbols ->
+      CoreImportStatement (qualifySpan sourcePath span) path alias symbols
+    | CoreExpressionStatement span expression ->
+      CoreExpressionStatement (qualifySpan sourcePath span) (qualifyExpression sourcePath expression)
+  }.
+
+  qualifyStatementsFrom :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement] -> [CoreStatement].
+  qualifyStatementsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyStatementsFrom sourcePath rest (listPrepend (qualifyStatement sourcePath first) reversed)
+  }.
+
+  qualifyStatements :: CanonicalSourcePath -> [CoreStatement] -> [CoreStatement].
+  qualifyStatements = \(sourcePath, statements) -> qualifyStatementsFrom sourcePath statements [].
+
+  qualifyExpressionsFrom :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr] -> [CoreExpr].
+  qualifyExpressionsFrom = \(sourcePath, expressions, reversed) -> case expressions {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      qualifyExpressionsFrom sourcePath rest (listPrepend (qualifyExpression sourcePath first) reversed)
+  }.
+
+  qualifyExpressions :: CanonicalSourcePath -> [CoreExpr] -> [CoreExpr].
+  qualifyExpressions = \(sourcePath, expressions) -> qualifyExpressionsFrom sourcePath expressions [].
+
+  qualifyExpression :: CanonicalSourcePath -> CoreExpr -> CoreExpr.
+  qualifyExpression = \(sourcePath, expression) -> case expression {
+    | CoreLiteralExpression literal -> CoreLiteralExpression literal
+    | CoreVariableExpression name -> CoreVariableExpression name
+    | CoreLambdaExpression parameter body ->
+      CoreLambdaExpression parameter (qualifyExpression sourcePath body)
+    | CoreOperatorValueExpression symbol -> CoreOperatorValueExpression symbol
+    | CoreListExpression elements ->
+      CoreListExpression (qualifyExpressions sourcePath elements)
+    | CoreTupleExpression elements ->
+      CoreTupleExpression (qualifyExpressions sourcePath elements)
+    | CoreApplyExpression function argument ->
+      CoreApplyExpression
+        (qualifyExpression sourcePath function)
+        (qualifyExpression sourcePath argument)
+    | CoreTypeApplicationExpression function span signatureType ->
+      CoreTypeApplicationExpression
+        (qualifyExpression sourcePath function)
+        (qualifySpan sourcePath span)
+        signatureType
+    | CoreIfExpression condition thenBranch elseBranch ->
+      CoreIfExpression
+        (qualifyExpression sourcePath condition)
+        (qualifyExpression sourcePath thenBranch)
+        (qualifyExpression sourcePath elseBranch)
+    | CorePatternCaseExpression scrutinee arms ->
+      CorePatternCaseExpression
+        (qualifyExpression sourcePath scrutinee)
+        (qualifyCaseArms sourcePath arms)
+    | CoreBinaryExpression symbol left right ->
+      CoreBinaryExpression
+        symbol
+        (qualifyExpression sourcePath left)
+        (qualifyExpression sourcePath right)
+    | CoreLeftSectionExpression left symbol ->
+      CoreLeftSectionExpression (qualifyExpression sourcePath left) symbol
+    | CoreRightSectionExpression symbol right ->
+      CoreRightSectionExpression symbol (qualifyExpression sourcePath right)
+    | CoreBlockExpression statements ->
+      CoreBlockExpression (qualifyStatements sourcePath statements)
+  }.
+
+  lowerNameNamespace :: SurfaceNameNamespace -> CoreNameNamespace.
+  lowerNameNamespace = \(namespace) -> case namespace {
+    | ValueName -> CoreValueName
+    | ConstructorName -> CoreConstructorName
+    | TypeName -> CoreTypeName
+    | CapabilityName -> CoreCapabilityName
+  }.
+
+  lowerOptionalNameNamespace :: Maybe(SurfaceNameNamespace) -> Maybe(CoreNameNamespace).
+  lowerOptionalNameNamespace = \(maybeNamespace) -> case maybeNamespace {
+    | Nothing -> Nothing
+    | Just namespace -> Just (lowerNameNamespace namespace)
+  }.
+
+  lowerLocatedExportName :: CanonicalSourcePath -> SurfaceLocatedExportName -> CoreLocatedExportName.
+  lowerLocatedExportName = \(sourcePath, located) -> case located {
+    | SurfaceLocatedExportName name span ->
+      CoreLocatedExportName name (qualifySpan sourcePath (lowerFoundationSpan span))
+  }.
+
+  lowerLocatedExportNamesFrom :: CanonicalSourcePath -> [SurfaceLocatedExportName] -> [CoreLocatedExportName] -> [CoreLocatedExportName].
+  lowerLocatedExportNamesFrom = \(sourcePath, names, reversed) -> case names {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerLocatedExportNamesFrom sourcePath rest (listPrepend (lowerLocatedExportName sourcePath first) reversed)
+  }.
+
+  lowerLocatedExportNames :: CanonicalSourcePath -> NonEmpty(SurfaceLocatedExportName) -> NonEmpty(CoreLocatedExportName).
+  lowerLocatedExportNames = \(sourcePath, names) -> case names {
+    | NonEmpty first rest ->
+      NonEmpty
+        (lowerLocatedExportName sourcePath first)
+        (lowerLocatedExportNamesFrom sourcePath rest [])
+  }.
+
+  lowerTypeConstructorSelector :: CanonicalSourcePath -> SurfaceTypeConstructorSelector -> CoreTypeConstructorSelector.
+  lowerTypeConstructorSelector = \(sourcePath, selector) -> case selector {
+    | AbstractTypeSelector -> CoreAbstractType
+    | AllConstructorsSelector span ->
+      CoreAllConstructors (qualifySpan sourcePath (lowerFoundationSpan span))
+    | SelectedConstructorsSelector names ->
+      CoreSelectedConstructors (lowerLocatedExportNames sourcePath names)
+  }.
+
+  lowerModuleExportSelector :: CanonicalSourcePath -> SurfaceModuleExportSelector -> CoreModuleExportSelector.
+  lowerModuleExportSelector = \(sourcePath, selector) -> case selector {
+    | NamedExportSelector maybeNamespace name ->
+      CoreNamedExportSelector (lowerOptionalNameNamespace maybeNamespace) name
+    | TypeExportSelector name span constructorSelector ->
+      CoreTypeExportSelector
+        name
+        (qualifySpan sourcePath (lowerFoundationSpan span))
+        (lowerTypeConstructorSelector sourcePath constructorSelector)
+  }.
+
+  lowerModuleExportSelectorsFrom :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector] -> [CoreModuleExportSelector].
+  lowerModuleExportSelectorsFrom = \(sourcePath, selectors, reversed) -> case selectors {
+    | [] -> listReverse reversed
+    | [first | rest] ->
+      lowerModuleExportSelectorsFrom sourcePath rest (listPrepend (lowerModuleExportSelector sourcePath first) reversed)
+  }.
+
+  lowerModuleExportSelectors :: CanonicalSourcePath -> [SurfaceModuleExportSelector] -> [CoreModuleExportSelector].
+  lowerModuleExportSelectors = \(sourcePath, selectors) -> lowerModuleExportSelectorsFrom sourcePath selectors [].
+
+  lowerOptionalModuleExports :: CanonicalSourcePath -> Maybe([SurfaceModuleExportSelector]) -> Maybe([CoreModuleExportSelector]).
+  lowerOptionalModuleExports = \(sourcePath, maybeExports) -> case maybeExports {
+    | Nothing -> Nothing
+    | Just selectors -> Just (lowerModuleExportSelectors sourcePath selectors)
+  }.
+
+  collectDeclarationsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CollectedModuleDeclaration] -> [CollectedModuleDeclaration].
+  collectDeclarationsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ModuleStatement span path exports ->
+        collectDeclarationsFrom
+          sourcePath
+          rest
+          ( listPrepend
+              ( CollectedModuleDeclaration
+                  (CoreModuleDeclaration (qualifySpan sourcePath (lowerFoundationSpan span)) path)
+                  (lowerOptionalModuleExports sourcePath exports)
+              )
+              reversed
+          )
+      | other -> collectDeclarationsFrom sourcePath rest reversed
+    }
+  }.
+
+  collectDeclarations :: CanonicalSourcePath -> [SurfaceStatement] -> [CollectedModuleDeclaration].
+  collectDeclarations = \(sourcePath, statements) -> collectDeclarationsFrom sourcePath statements [].
+
+  collectImportsFrom :: CanonicalSourcePath -> [SurfaceStatement] -> [CoreResolvedImport] -> [CoreResolvedImport].
+  collectImportsFrom = \(sourcePath, statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ImportStatement span path alias symbols ->
+        collectImportsFrom
+          sourcePath
+          rest
+          ( listPrepend
+              (CoreResolvedImport (qualifySpan sourcePath (lowerFoundationSpan span)) path alias symbols)
+              reversed
+          )
+      | other -> collectImportsFrom sourcePath rest reversed
+    }
+  }.
+
+  collectImports :: CanonicalSourcePath -> [SurfaceStatement] -> [CoreResolvedImport].
+  collectImports = \(sourcePath, statements) -> collectImportsFrom sourcePath statements [].
+
+  collectExecutableStatementsFrom :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement].
+  collectExecutableStatementsFrom = \(statements, reversed) -> case statements {
+    | [] -> listReverse reversed
+    | [first | rest] -> case first {
+      | ModuleStatement span path exports -> collectExecutableStatementsFrom rest reversed
+      | ImportStatement span path alias symbols -> collectExecutableStatementsFrom rest reversed
+      | other -> collectExecutableStatementsFrom rest (listPrepend first reversed)
+    }
+  }.
+
+  collectExecutableStatements :: [SurfaceStatement] -> [SurfaceStatement].
+  collectExecutableStatements = \(statements) -> collectExecutableStatementsFrom statements [].
+
+  declarationValue :: CollectedModuleDeclaration -> CoreModuleDeclaration.
+  declarationValue = \(collected) -> case collected {
+    | CollectedModuleDeclaration declaration exports -> declaration
+  }.
+
+  declarationValuesFrom :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration] -> [CoreModuleDeclaration].
+  declarationValuesFrom = \(declarations, reversed) -> case declarations {
+    | [] -> listReverse reversed
+    | [first | rest] -> declarationValuesFrom rest (listPrepend (declarationValue first) reversed)
+  }.
+
+  declarationValues :: [CollectedModuleDeclaration] -> [CoreModuleDeclaration].
+  declarationValues = \(declarations) -> declarationValuesFrom declarations [].
+
+  declaredExports :: CoreSpan -> Maybe([CoreModuleExportSelector]) -> Maybe(CoreDeclaredModuleExports).
+  declaredExports = \(span, maybeExports) -> case maybeExports {
+    | Nothing -> Nothing
+    | Just exports -> Just (CoreDeclaredModuleExports span exports)
+  }.
+
+  moduleResult :: CanonicalSourcePath -> [Text] -> [CoreResolvedImport] -> CoreExpr -> [CollectedModuleDeclaration] -> CoreModuleLoweringResult.
+  moduleResult = \(sourcePath, expectedPath, imports, body, declarations) -> case declarations {
+    | [] -> CoreModuleLowered (CoreModule Nothing Nothing imports body)
+    | [CollectedModuleDeclaration declaration exports] -> case declaration {
+      | CoreModuleDeclaration span declaredPath -> if declaredPath == expectedPath then
+        CoreModuleLowered
+          (CoreModule (Just declaredPath) (declaredExports span exports) imports body)
+      else
+        CoreModuleLoweringFailed
+          (CoreModulePathMismatchFailure sourcePath expectedPath declaration)
+    }
+    | multiple ->
+      CoreModuleLoweringFailed
+        (CoreMultipleModuleDeclarationsFailure sourcePath (declarationValues multiple))
+  }.
+
+  lowerModule :: CanonicalSourcePath -> [Text] -> SurfaceExpr -> CoreModuleLoweringResult.
+  lowerModule = \(sourcePath, expectedPath, expression) -> {
+    statements = case expression {
+      | BlockExpression values -> values
+      | other -> []
+    }.
+    executable = case expression {
+      | BlockExpression values -> BlockExpression (collectExecutableStatements values)
+      | other -> expression
+    }.
+    declarations = collectDeclarations sourcePath statements.
+    imports = collectImports sourcePath statements.
+    body = qualifyExpression sourcePath (lowerCanonicalExpression executable).
+    moduleResult sourcePath expectedPath imports body declarations.
   }.
 }

@@ -71,7 +71,11 @@ Shipped Jazz source lives under one package-owned root:
   operator signatures. Six fixed families assign all 365 parser fixtures
   exactly once and match the active Haskell stage-0 parser through both façades
   twice. `CoreTypes.jz` defines the complete hosted canonical-core comparison
-  schema, and `CoreLower.jz` begins the pure hosted lowering port.
+  schema and composed result. `CoreLower.jz` owns all four private lowering
+  profiles, including total expression lowering, exact module/import metadata,
+  structured expected-path failures, and recursive source qualification.
+  `Core.jz` is the thin source facade that calls the hosted parser once and
+  forwards lexical/parser failures before module lowering.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -95,17 +99,73 @@ translates already-lowered values into this schema.
 internal milestone entry point. It currently lowers literals, source and
 qualified variables, operator values, lists, tuples, ordinary application,
 non-`$` binary expressions, both section forms, and blocks containing ordinary
-non-operator bindings or expression statements. It returns `Nothing` for the
-whole tree when any nested form belongs to a later child, including lambdas,
-control flow, patterns, type application, `$`, signatures, declarations,
-operator bindings, imports, and modules. It is not a supported public compiler
-API and does not replace the production Haskell lowerer.
+non-operator bindings or expression statements. It retains that exact child-1
+boundary even as later profiles land.
+
+`CoreLower.lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe CoreExpr`
+reuses the same private recursive kernel and additionally lowers every pattern,
+guarded case, conditional, nested control-flow, and multi-parameter or
+pattern-lambda rule. Pattern parameters use structured generated names with
+their original one-based source positions. It retains the exact child-2
+boundary, returning `Nothing` for nested type application, `$`, signatures,
+declarations, operator bindings, imports, and modules.
+
+`CoreLower.lowerSignaturesDeclarationsOperatorsExpression :: SurfaceExpr -> Maybe CoreExpr`
+adds every signature type and constraint, tokenized unsupported signatures,
+explicit type application, `$` application, data/class/impl payloads, and exact
+hidden operator-storage names. Modules and imports remain all-or-nothing
+`Nothing` at any depth. None of these entry points is a supported public
+compiler API, and none replaces the production Haskell lowerer.
+
+`CoreLower.lowerCanonicalExpression :: SurfaceExpr -> CoreExpr` is the total
+fourth profile. `CoreLower.lowerModule :: CanonicalSourcePath -> [Text] -> SurfaceExpr -> CoreModuleLoweringResult`
+extracts only top-level module/import metadata, preserves nested executable
+forms, validates the expected module path with structured `E4005`/`E4006`
+counterparts, and qualifies every retained span. `Core.lowerCoreSource :: CanonicalSourcePath -> [Text] -> Text -> CanonicalCoreSourceResult`
+composes the hosted parser and module lowerer while keeping lexical, parser,
+and module outcomes structurally distinct. These remain private bootstrap and
+differential-testing boundaries; production compilation still uses the Haskell
+parser/lowerer.
 
 `canonical-core-comparison-spec` inventories the complete comparison contract.
 `jazz-core-expression-foundation-spec` compares the hosted lowerer with stage 0
 through direct surface values and through the hosted parser, runs both paths
 twice for deterministic complete-value equality, and keeps parser failures
 distinct from valid-but-deferred lowering.
+`jazz-core-control-flow-patterns-spec` adds 18 direct and 14 parser-composed
+positive fixtures plus 12 nested later-child rejection fixtures. Every family
+runs twice and compares complete values or exact `Nothing` results.
+`jazz-core-signatures-declarations-operators-spec` adds 20 direct and 16
+parser-composed positive fixtures plus 8 root or nested module/import rejection
+fixtures. Every family runs twice and compares complete values or exact
+`Nothing` results.
+`jazz-core-modules-corpus-closure-spec` adds 17 direct module fixtures, 13
+composed sources, and an audited ordered manifest of all 196 accepted fixtures
+from the fixed 365-case parser corpus. Every result runs twice and matches the
+complete stage-0 value; the fixed mixed-surface source is the only added bounded
+smoke case.
+
+### Backend-neutral lowered IR
+
+`JazzNext.Compiler.LoweredIR` owns the stage-0 backend-neutral CFG schema and
+stable identifiers. `JazzNext.Compiler.LoweredIR.Validate` validates complete
+untrusted programs into ordered structured failures. The ordinary Jazz mirrors
+are `LoweredIRTypes.jz` and `LoweredIRValidate.jz`; neither schema contains LLVM
+types, target layouts, object/link details, or native-runtime implementation
+names.
+
+`jazz-lowered-ir-contract-spec` audits exactly 10 valid and 31 invalid fixed
+fixtures. It executes all 41 programs through the Jazz validator twice and
+requires exact complete program/failure parity with the Haskell validator. Its
+checked comparison adapter rejects unknown constructors, wrong arity, wrong
+field categories, and malformed nested values instead of guessing defaults.
+Temporary identifiers are block-local; values crossing CFG edges use typed
+block arguments.
+
+This is a contract and validation boundary, not a source lowerer. Canonical
+core remains the reference-interpreter input. Typed-core elaboration,
+core-to-IR lowering, LLVM emission, object generation/linking, and a native
+runtime remain separate design gates.
 
 ## Editor support
 
@@ -124,7 +184,8 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
   adapters plus hosted lexer/parser/core component coverage; the complete core
-  schema and expression-foundation direct/composed parity; exact 52-case
+  schema, all four private lowering profiles, source-to-core facade, and
+  17-direct / 13-composed / 196-accepted core closure; exact 52-case
   expression, 101-case declarations, 75-case control-flow/pattern, 55-case
   operator, 26-case mixed operator/control-flow, and 56-case corpus-closure
   families; complete repeated 365-case parity; and deterministic

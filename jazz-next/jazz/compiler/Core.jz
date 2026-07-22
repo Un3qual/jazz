@@ -1,0 +1,21 @@
+module Core (value lowerCoreSource) {
+  import CoreLower (lowerModule).
+  import CoreTypes.
+  import LexerTypes (CanonicalSourcePath).
+  import Parser (parseSource).
+  import ParserTypes (
+    CanonicalSourceSuccess,
+    CanonicalSourceLexicalFailure,
+    CanonicalSourceParserFailure
+  ).
+
+  lowerCoreSource :: CanonicalSourcePath -> [Text] -> Text -> CanonicalCoreSourceResult.
+  lowerCoreSource = \(sourcePath, expectedPath, source) -> case parseSource sourcePath source {
+    | CanonicalSourceSuccess parsedPath expression ->
+      CanonicalCoreSourceModuleResult (lowerModule parsedPath expectedPath expression)
+    | CanonicalSourceLexicalFailure parsedPath failure ->
+      CanonicalCoreSourceLexicalFailure parsedPath failure
+    | CanonicalSourceParserFailure parsedPath failure ->
+      CanonicalCoreSourceParserFailure parsedPath failure
+  }.
+}

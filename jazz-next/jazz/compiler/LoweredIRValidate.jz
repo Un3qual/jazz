@@ -1,0 +1,1111 @@
+module LoweredIRValidate (
+  value validateProgram
+) {
+  import Char (charToUInt32).
+  import List (listAppend, listAt, listConcat, listLength, listPrepend, listReverse).
+  import LoweredIRTypes.
+  import Maybe.
+
+  data ProgramContext = ProgramContext [LoweredLayout] [LoweredRuntimeService] [LoweredFunction].
+
+  data FunctionContext = FunctionContext ProgramContext LoweredFunction.
+
+  data OperationValidation = OperationValidation [LoweredIRValidationFailure] (Maybe(LoweredRepresentation)).
+
+  failure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure.
+  failure = LoweredIRValidationFailure.
+
+  identifierDetail :: Text -> LoweredIRValidationDetail.
+  identifierDetail = LoweredIdentifierDetail.
+
+  layoutIdText :: LoweredLayoutId -> Text.
+  layoutIdText = \(layoutId) -> case layoutId {
+    | LoweredLayoutId value -> value
+  }.
+
+  serviceIdText :: LoweredRuntimeServiceId -> Text.
+  serviceIdText = \(serviceId) -> case serviceId {
+    | LoweredRuntimeServiceId value -> value
+  }.
+
+  functionIdText :: LoweredFunctionId -> Text.
+  functionIdText = \(functionId) -> case functionId {
+    | LoweredFunctionId value -> value
+  }.
+
+  blockIdText :: LoweredBlockId -> Text.
+  blockIdText = \(blockId) -> case blockId {
+    | LoweredBlockId value -> value
+  }.
+
+  temporaryIdText :: LoweredTemporaryId -> Text.
+  temporaryIdText = \(temporaryId) -> case temporaryId {
+    | LoweredTemporaryId value -> value
+  }.
+
+  parameterIdText :: LoweredParameterId -> Text.
+  parameterIdText = \(parameterId) -> case parameterId {
+    | LoweredParameterId value -> value
+  }.
+
+  layoutIdEqual :: LoweredLayoutId -> LoweredLayoutId -> Bool.
+  layoutIdEqual = \(left, right) -> layoutIdText left == layoutIdText right.
+
+  serviceIdEqual :: LoweredRuntimeServiceId -> LoweredRuntimeServiceId -> Bool.
+  serviceIdEqual = \(left, right) -> serviceIdText left == serviceIdText right.
+
+  functionIdEqual :: LoweredFunctionId -> LoweredFunctionId -> Bool.
+  functionIdEqual = \(left, right) -> functionIdText left == functionIdText right.
+
+  blockIdEqual :: LoweredBlockId -> LoweredBlockId -> Bool.
+  blockIdEqual = \(left, right) -> blockIdText left == blockIdText right.
+
+  temporaryIdEqual :: LoweredTemporaryId -> LoweredTemporaryId -> Bool.
+  temporaryIdEqual = \(left, right) -> temporaryIdText left == temporaryIdText right.
+
+  parameterIdEqual :: LoweredParameterId -> LoweredParameterId -> Bool.
+  parameterIdEqual = \(left, right) -> parameterIdText left == parameterIdText right.
+
+  integerWidthEqual :: LoweredIntegerWidth -> LoweredIntegerWidth -> Bool.
+  integerWidthEqual = \(left, right) -> case (left, right) {
+    | (LoweredIntegerWidth8, LoweredIntegerWidth8) -> True
+    | (LoweredIntegerWidth16, LoweredIntegerWidth16) -> True
+    | (LoweredIntegerWidth32, LoweredIntegerWidth32) -> True
+    | (LoweredIntegerWidth64, LoweredIntegerWidth64) -> True
+    | other -> False
+  }.
+
+  floatWidthEqual :: LoweredFloatWidth -> LoweredFloatWidth -> Bool.
+  floatWidthEqual = \(left, right) -> case (left, right) {
+    | (LoweredFloatWidth16, LoweredFloatWidth16) -> True
+    | (LoweredFloatWidth32, LoweredFloatWidth32) -> True
+    | (LoweredFloatWidth64, LoweredFloatWidth64) -> True
+    | other -> False
+  }.
+
+  representationEqual :: LoweredRepresentation -> LoweredRepresentation -> Bool.
+  representationEqual = \(left, right) -> case (left, right) {
+    | (LoweredUnitRepresentation, LoweredUnitRepresentation) -> True
+    | (LoweredBoolRepresentation, LoweredBoolRepresentation) -> True
+    | (LoweredSignedIntegerRepresentation leftWidth, LoweredSignedIntegerRepresentation rightWidth) -> integerWidthEqual leftWidth rightWidth
+    | (LoweredUnsignedIntegerRepresentation leftWidth, LoweredUnsignedIntegerRepresentation rightWidth) -> integerWidthEqual leftWidth rightWidth
+    | (LoweredFloatRepresentation leftWidth, LoweredFloatRepresentation rightWidth) -> floatWidthEqual leftWidth rightWidth
+    | (LoweredCharRepresentation, LoweredCharRepresentation) -> True
+    | (LoweredManagedReferenceRepresentation leftId, LoweredManagedReferenceRepresentation rightId) -> layoutIdEqual leftId rightId
+    | (LoweredClosureRepresentation leftSignature, LoweredClosureRepresentation rightSignature) -> callSignatureEqual leftSignature rightSignature
+    | other -> False
+  }.
+
+  representationListEqual :: [LoweredRepresentation] -> [LoweredRepresentation] -> Bool.
+  representationListEqual = \(left, right) -> case (left, right) {
+    | ([], []) -> True
+    | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
+      if representationEqual leftFirst rightFirst then representationListEqual leftRest rightRest else False
+    | other -> False
+  }.
+
+  callSignatureEqual :: LoweredCallSignature -> LoweredCallSignature -> Bool.
+  callSignatureEqual = \(left, right) -> case (left, right) {
+    | (LoweredCallSignature leftParameters leftResult, LoweredCallSignature rightParameters rightResult) ->
+      if representationListEqual leftParameters rightParameters then representationEqual leftResult rightResult else False
+  }.
+
+  layoutIdMember :: LoweredLayoutId -> [LoweredLayoutId] -> Bool.
+  layoutIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if layoutIdEqual candidate first then True else layoutIdMember candidate rest
+  }.
+
+  serviceIdMember :: LoweredRuntimeServiceId -> [LoweredRuntimeServiceId] -> Bool.
+  serviceIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if serviceIdEqual candidate first then True else serviceIdMember candidate rest
+  }.
+
+  functionIdMember :: LoweredFunctionId -> [LoweredFunctionId] -> Bool.
+  functionIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if functionIdEqual candidate first then True else functionIdMember candidate rest
+  }.
+
+  blockIdMember :: LoweredBlockId -> [LoweredBlockId] -> Bool.
+  blockIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if blockIdEqual candidate first then True else blockIdMember candidate rest
+  }.
+
+  temporaryIdMember :: LoweredTemporaryId -> [LoweredTemporaryId] -> Bool.
+  temporaryIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if temporaryIdEqual candidate first then True else temporaryIdMember candidate rest
+  }.
+
+  parameterIdMember :: LoweredParameterId -> [LoweredParameterId] -> Bool.
+  parameterIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if parameterIdEqual candidate first then True else parameterIdMember candidate rest
+  }.
+
+  intMember :: Int -> [Int] -> Bool.
+  intMember = \(candidate, values) -> case values {
+    | [] -> False
+    | [first | rest] -> if candidate == first then True else intMember candidate rest
+  }.
+
+  lookupLayout :: LoweredLayoutId -> [LoweredLayout] -> Maybe(LoweredLayoutShape).
+  lookupLayout = \(candidate, layouts) -> case layouts {
+    | [] -> Nothing
+    | [LoweredLayout layoutId shape | rest] -> case lookupLayout candidate rest {
+      | Just laterShape -> Just laterShape
+      | Nothing -> if layoutIdEqual candidate layoutId then Just shape else Nothing
+    }
+  }.
+
+  lookupService :: LoweredRuntimeServiceId -> [LoweredRuntimeService] -> Maybe(LoweredCallSignature).
+  lookupService = \(candidate, services) -> case services {
+    | [] -> Nothing
+    | [LoweredRuntimeService serviceId signature | rest] -> case lookupService candidate rest {
+      | Just laterSignature -> Just laterSignature
+      | Nothing -> if serviceIdEqual candidate serviceId then Just signature else Nothing
+    }
+  }.
+
+  lookupFunction :: LoweredFunctionId -> [LoweredFunction] -> Maybe(LoweredFunction).
+  lookupFunction = \(candidate, functions) -> case functions {
+    | [] -> Nothing
+    | [function | rest] -> case function {
+      | LoweredFunction functionId environment parameters result blocks entry -> case lookupFunction candidate rest {
+        | Just laterFunction -> Just laterFunction
+        | Nothing -> if functionIdEqual candidate functionId then Just function else Nothing
+      }
+    }
+  }.
+
+  lookupBlock :: LoweredBlockId -> [LoweredBlock] -> Maybe(LoweredBlock).
+  lookupBlock = \(candidate, blocks) -> case blocks {
+    | [] -> Nothing
+    | [block | rest] -> case block {
+      | LoweredBlock blockId parameters instructions terminator -> case lookupBlock candidate rest {
+        | Just laterBlock -> Just laterBlock
+        | Nothing -> if blockIdEqual candidate blockId then Just block else Nothing
+      }
+    }
+  }.
+
+  lookupParameter :: LoweredParameterId -> [LoweredParameter] -> Maybe(LoweredRepresentation).
+  lookupParameter = \(candidate, parameters) -> case parameters {
+    | [] -> Nothing
+    | [LoweredParameter parameterId representation | rest] -> case lookupParameter candidate rest {
+      | Just laterRepresentation -> Just laterRepresentation
+      | Nothing -> if parameterIdEqual candidate parameterId then Just representation else Nothing
+    }
+  }.
+
+  lookupTemporary :: LoweredTemporaryId -> [LoweredInstruction] -> Maybe(LoweredRepresentation).
+  lookupTemporary = \(candidate, instructions) -> case instructions {
+    | [] -> Nothing
+    | [LoweredInstruction temporaryId representation operation | rest] ->
+      if temporaryIdEqual candidate temporaryId then Just representation else lookupTemporary candidate rest
+  }.
+
+  lookupVariant :: Int -> [LoweredVariantLayout] -> Maybe([LoweredRepresentation]).
+  lookupVariant = \(tag, variants) -> case variants {
+    | [] -> Nothing
+    | [LoweredVariantLayout candidate fields | rest] -> if tag == candidate then Just fields else lookupVariant tag rest
+  }.
+
+  duplicateLayoutFailuresFrom :: [LoweredLayout] -> [LoweredLayoutId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateLayoutFailuresFrom = \(layouts, seen, reversed) -> case layouts {
+    | [] -> listReverse reversed
+    | [LoweredLayout layoutId shape | rest] ->
+      if layoutIdMember layoutId seen then
+        duplicateLayoutFailuresFrom rest seen (listPrepend (failure (LoweredLayoutPath layoutId) LoweredDuplicateLayout (identifierDetail (layoutIdText layoutId))) reversed)
+      else duplicateLayoutFailuresFrom rest (listPrepend layoutId seen) reversed
+  }.
+
+  duplicateLayoutFailures :: [LoweredLayout] -> [LoweredIRValidationFailure].
+  duplicateLayoutFailures = \(layouts) -> duplicateLayoutFailuresFrom layouts [] [].
+
+  duplicateServiceFailuresFrom :: [LoweredRuntimeService] -> [LoweredRuntimeServiceId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateServiceFailuresFrom = \(services, seen, reversed) -> case services {
+    | [] -> listReverse reversed
+    | [LoweredRuntimeService serviceId signature | rest] ->
+      if serviceIdMember serviceId seen then
+        duplicateServiceFailuresFrom rest seen (listPrepend (failure (LoweredRuntimeServicePath serviceId) LoweredDuplicateRuntimeService (identifierDetail (serviceIdText serviceId))) reversed)
+      else duplicateServiceFailuresFrom rest (listPrepend serviceId seen) reversed
+  }.
+
+  duplicateServiceFailures :: [LoweredRuntimeService] -> [LoweredIRValidationFailure].
+  duplicateServiceFailures = \(services) -> duplicateServiceFailuresFrom services [] [].
+
+  duplicateFunctionFailuresFrom :: [LoweredFunction] -> [LoweredFunctionId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateFunctionFailuresFrom = \(functions, seen, reversed) -> case functions {
+    | [] -> listReverse reversed
+    | [LoweredFunction functionId environment parameters result blocks entry | rest] ->
+      if functionIdMember functionId seen then
+        duplicateFunctionFailuresFrom rest seen (listPrepend (failure (LoweredFunctionPath functionId) LoweredDuplicateFunction (identifierDetail (functionIdText functionId))) reversed)
+      else duplicateFunctionFailuresFrom rest (listPrepend functionId seen) reversed
+  }.
+
+  duplicateFunctionFailures :: [LoweredFunction] -> [LoweredIRValidationFailure].
+  duplicateFunctionFailures = \(functions) -> duplicateFunctionFailuresFrom functions [] [].
+
+  duplicateVariantTagFailuresFrom :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [Int] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateVariantTagFailuresFrom = \(path, variants, seen, reversed) -> case variants {
+    | [] -> listReverse reversed
+    | [LoweredVariantLayout tag fields | rest] ->
+      if intMember tag seen then
+        duplicateVariantTagFailuresFrom path rest seen (listPrepend (failure path LoweredDuplicateVariantTag (LoweredTagDetail tag)) reversed)
+      else duplicateVariantTagFailuresFrom path rest (listPrepend tag seen) reversed
+  }.
+
+  duplicateVariantTagFailures :: LoweredIRValidationPath -> LoweredLayoutShape -> [LoweredIRValidationFailure].
+  duplicateVariantTagFailures = \(path, shape) -> case shape {
+    | LoweredVariantLayouts variants -> duplicateVariantTagFailuresFrom path variants [] []
+    | other -> []
+  }.
+
+  tagWithinSharedCarrier :: Int -> Bool.
+  tagWithinSharedCarrier = \(tag) -> tag >= 0.
+
+  validateTag :: LoweredIRValidationPath -> Int -> [LoweredIRValidationFailure].
+  validateTag = \(path, tag) -> if tagWithinSharedCarrier tag then [] else
+    [failure path LoweredTagOutOfRange (LoweredTagDetail tag)].
+
+  validateVariantTags :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredIRValidationFailure].
+  validateVariantTags = \(path, variants) -> case variants {
+    | [] -> []
+    | [LoweredVariantLayout tag fields | rest] -> listAppend (validateTag path tag) (validateVariantTags path rest)
+  }.
+
+  variantTagRangeFailures :: LoweredIRValidationPath -> LoweredLayoutShape -> [LoweredIRValidationFailure].
+  variantTagRangeFailures = \(path, shape) -> case shape {
+    | LoweredVariantLayouts variants -> validateVariantTags path variants
+    | other -> []
+  }.
+
+  variantRepresentations :: [LoweredVariantLayout] -> [LoweredRepresentation].
+  variantRepresentations = \(variants) -> case variants {
+    | [] -> []
+    | [LoweredVariantLayout tag fields | rest] -> listAppend fields (variantRepresentations rest)
+  }.
+
+  layoutRepresentations :: LoweredLayoutShape -> [LoweredRepresentation].
+  layoutRepresentations = \(shape) -> case shape {
+    | LoweredProductLayout fields -> fields
+    | LoweredVariantLayouts variants -> variantRepresentations variants
+    | LoweredClosureEnvironmentLayout fields -> fields
+    | LoweredTextLayout -> []
+    | LoweredListLayout elementRepresentation -> [elementRepresentation]
+  }.
+
+  validateRepresentation :: ProgramContext -> LoweredIRValidationPath -> LoweredRepresentation -> [LoweredIRValidationFailure].
+  validateRepresentation = \(context, path, representation) -> case context {
+    | ProgramContext layouts services functions -> case representation {
+      | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
+        | Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
+        | Just shape -> []
+      }
+      | LoweredClosureRepresentation signature -> validateCallSignatureRepresentations context path signature
+      | other -> []
+    }
+  }.
+
+  validateRepresentations :: ProgramContext -> LoweredIRValidationPath -> [LoweredRepresentation] -> [LoweredIRValidationFailure].
+  validateRepresentations = \(context, path, representations) -> case representations {
+    | [] -> []
+    | [first | rest] -> listAppend (validateRepresentation context path first) (validateRepresentations context path rest)
+  }.
+
+  validateCallSignatureRepresentations :: ProgramContext -> LoweredIRValidationPath -> LoweredCallSignature -> [LoweredIRValidationFailure].
+  validateCallSignatureRepresentations = \(context, path, signature) -> case signature {
+    | LoweredCallSignature parameters result -> validateRepresentations context path (listPrepend result parameters)
+  }.
+
+  validateLayout :: ProgramContext -> LoweredLayout -> [LoweredIRValidationFailure].
+  validateLayout = \(context, layout) -> case layout {
+    | LoweredLayout layoutId shape ->
+      listConcat
+        [ validateRepresentations context (LoweredLayoutPath layoutId) (layoutRepresentations shape),
+          variantTagRangeFailures (LoweredLayoutPath layoutId) shape,
+          duplicateVariantTagFailures (LoweredLayoutPath layoutId) shape
+        ]
+  }.
+
+  validateLayouts :: ProgramContext -> [LoweredLayout] -> [LoweredIRValidationFailure].
+  validateLayouts = \(context, layouts) -> case layouts {
+    | [] -> []
+    | [first | rest] -> listAppend (validateLayout context first) (validateLayouts context rest)
+  }.
+
+  validateService :: ProgramContext -> LoweredRuntimeService -> [LoweredIRValidationFailure].
+  validateService = \(context, service) -> case service {
+    | LoweredRuntimeService serviceId signature -> validateCallSignatureRepresentations context (LoweredRuntimeServicePath serviceId) signature
+  }.
+
+  validateServices :: ProgramContext -> [LoweredRuntimeService] -> [LoweredIRValidationFailure].
+  validateServices = \(context, services) -> case services {
+    | [] -> []
+    | [first | rest] -> listAppend (validateService context first) (validateServices context rest)
+  }.
+
+  functionParameters :: LoweredFunction -> [LoweredParameter].
+  functionParameters = \(function) -> case function {
+    | LoweredFunction functionId environment parameters result blocks entry -> case environment {
+      | Nothing -> parameters
+      | Just environmentParameter -> listPrepend environmentParameter parameters
+    }
+  }.
+
+  duplicateParameterFailuresFrom :: LoweredIRValidationPath -> [LoweredParameter] -> [LoweredParameterId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateParameterFailuresFrom = \(path, parameters, seen, reversed) -> case parameters {
+    | [] -> listReverse reversed
+    | [LoweredParameter parameterId representation | rest] ->
+      if parameterIdMember parameterId seen then
+        duplicateParameterFailuresFrom path rest seen (listPrepend (failure path LoweredDuplicateParameter (identifierDetail (parameterIdText parameterId))) reversed)
+      else duplicateParameterFailuresFrom path rest (listPrepend parameterId seen) reversed
+  }.
+
+  duplicateParameterFailures :: LoweredIRValidationPath -> [LoweredParameter] -> [LoweredIRValidationFailure].
+  duplicateParameterFailures = \(path, parameters) -> duplicateParameterFailuresFrom path parameters [] [].
+
+  parameterRepresentations :: [LoweredParameter] -> [LoweredRepresentation].
+  parameterRepresentations = \(parameters) -> case parameters {
+    | [] -> []
+    | [LoweredParameter parameterId representation | rest] -> listPrepend representation (parameterRepresentations rest)
+  }.
+
+  functionSignature :: LoweredFunction -> LoweredCallSignature.
+  functionSignature = \(function) -> case function {
+    | LoweredFunction functionId environment parameters result blocks entry ->
+      LoweredCallSignature (parameterRepresentations parameters) result
+  }.
+
+  validateClosureEnvironmentParameter :: ProgramContext -> LoweredIRValidationPath -> LoweredParameter -> [LoweredIRValidationFailure].
+  validateClosureEnvironmentParameter = \(context, path, parameter) -> case context {
+    | ProgramContext layouts services functions -> case parameter {
+      | LoweredParameter parameterId representation -> case representation {
+        | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
+          | Just shape -> case shape {
+            | LoweredClosureEnvironmentLayout fields -> []
+            | other -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
+          }
+          | Nothing -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
+        }
+        | other -> [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail]
+      }
+    }
+  }.
+
+  closureEnvironmentFailures :: ProgramContext -> LoweredIRValidationPath -> Maybe(LoweredParameter) -> [LoweredIRValidationFailure].
+  closureEnvironmentFailures = \(context, path, environment) -> case environment {
+    | Nothing -> []
+    | Just parameter -> validateClosureEnvironmentParameter context path parameter
+  }.
+
+  duplicateBlockFailuresFrom :: LoweredFunctionId -> [LoweredBlock] -> [LoweredBlockId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateBlockFailuresFrom = \(functionId, blocks, seen, reversed) -> case blocks {
+    | [] -> listReverse reversed
+    | [LoweredBlock blockId parameters instructions terminator | rest] ->
+      if blockIdMember blockId seen then
+        duplicateBlockFailuresFrom functionId rest seen (listPrepend (failure (LoweredBlockPath functionId blockId) LoweredDuplicateBlock (identifierDetail (blockIdText blockId))) reversed)
+      else duplicateBlockFailuresFrom functionId rest (listPrepend blockId seen) reversed
+  }.
+
+  duplicateBlockFailures :: LoweredFunctionId -> [LoweredBlock] -> [LoweredIRValidationFailure].
+  duplicateBlockFailures = \(functionId, blocks) -> duplicateBlockFailuresFrom functionId blocks [] [].
+
+  duplicateTemporaryFailuresFrom :: LoweredFunctionId -> LoweredBlockId -> [LoweredInstruction] -> Int -> [LoweredTemporaryId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateTemporaryFailuresFrom = \(functionId, blockId, instructions, index, seen, reversed) -> case instructions {
+    | [] -> listReverse reversed
+    | [LoweredInstruction temporaryId representation operation | rest] ->
+      if temporaryIdMember temporaryId seen then
+        duplicateTemporaryFailuresFrom functionId blockId rest (index + 1) seen (listPrepend (failure (LoweredInstructionPath functionId blockId index) LoweredDuplicateTemporary (identifierDetail (temporaryIdText temporaryId))) reversed)
+      else duplicateTemporaryFailuresFrom functionId blockId rest (index + 1) (listPrepend temporaryId seen) reversed
+  }.
+
+  duplicateTemporaryFailures :: LoweredFunctionId -> LoweredBlockId -> [LoweredInstruction] -> [LoweredIRValidationFailure].
+  duplicateTemporaryFailures = \(functionId, blockId, instructions) -> duplicateTemporaryFailuresFrom functionId blockId instructions 0 [] [].
+
+  blockContainsTemporary :: LoweredTemporaryId -> LoweredBlock -> Bool.
+  blockContainsTemporary = \(temporaryId, block) -> case block {
+    | LoweredBlock blockId parameters instructions terminator -> case lookupTemporary temporaryId instructions {
+      | Nothing -> False
+      | Just representation -> True
+    }
+  }.
+
+  blocksContainTemporary :: LoweredTemporaryId -> [LoweredBlock] -> Bool.
+  blocksContainTemporary = \(temporaryId, blocks) -> case blocks {
+    | [] -> False
+    | [first | rest] -> if blockContainsTemporary temporaryId first then True else blocksContainTemporary temporaryId rest
+  }.
+
+  immediateRepresentation :: LoweredImmediate -> LoweredRepresentation.
+  immediateRepresentation = \(immediate) -> case immediate {
+    | LoweredUnitImmediate -> LoweredUnitRepresentation
+    | LoweredBoolImmediate value -> LoweredBoolRepresentation
+    | LoweredSignedIntegerImmediate width value -> LoweredSignedIntegerRepresentation width
+    | LoweredUnsignedIntegerImmediate width value -> LoweredUnsignedIntegerRepresentation width
+    | LoweredFloatImmediate width value -> LoweredFloatRepresentation width
+    | LoweredCharImmediate value -> LoweredCharRepresentation
+  }.
+
+  integerRangeFailures :: LoweredIRValidationPath -> LoweredRepresentation -> Int -> Int -> Int -> [LoweredIRValidationFailure].
+  integerRangeFailures = \(path, representation, minimumValue, maximumValue, actualValue) ->
+    if actualValue < minimumValue then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail representation)]
+    else if actualValue > maximumValue then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail representation)]
+    else [].
+
+  signedIntegerBounds :: LoweredIntegerWidth -> (Int, Int).
+  signedIntegerBounds = \(width) -> case width {
+    | LoweredIntegerWidth8 -> ((0 - 128), 127)
+    | LoweredIntegerWidth16 -> ((0 - 32768), 32767)
+    | LoweredIntegerWidth32 -> ((0 - 2147483648), 2147483647)
+    | LoweredIntegerWidth64 -> ((0 - 9223372036854775808), 9223372036854775807)
+  }.
+
+  validateUnsignedImmediate :: LoweredIRValidationPath -> LoweredIntegerWidth -> Int -> [LoweredIRValidationFailure].
+  validateUnsignedImmediate = \(path, width, value) -> case width {
+    | LoweredIntegerWidth8 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 255 value
+    | LoweredIntegerWidth16 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 65535 value
+    | LoweredIntegerWidth32 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 4294967295 value
+    | LoweredIntegerWidth64 -> if value < 0 then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (LoweredUnsignedIntegerRepresentation width))]
+      else []
+  }.
+
+  validateImmediate :: LoweredIRValidationPath -> LoweredImmediate -> [LoweredIRValidationFailure].
+  validateImmediate = \(path, immediate) -> case immediate {
+    | LoweredSignedIntegerImmediate width value -> case signedIntegerBounds width {
+      | (minimumValue, maximumValue) -> integerRangeFailures path (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
+    }
+    | LoweredUnsignedIntegerImmediate width value -> validateUnsignedImmediate path width value
+    | LoweredCharImmediate value -> if charToUInt32 value < 55296 then [] else if charToUInt32 value > 57343 then [] else
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail LoweredCharRepresentation)]
+    | other -> []
+  }.
+
+  operandRepresentation :: LoweredOperand -> LoweredRepresentation.
+  operandRepresentation = \(operand) -> case operand {
+    | LoweredFunctionParameterOperand parameterId representation -> representation
+    | LoweredBlockParameterOperand parameterId representation -> representation
+    | LoweredTemporaryOperand temporaryId representation -> representation
+    | LoweredImmediateOperand immediate -> immediateRepresentation immediate
+  }.
+
+  validateParameterOperand :: LoweredIRValidationPath -> LoweredParameterId -> LoweredRepresentation -> [LoweredParameter] -> [LoweredIRValidationFailure].
+  validateParameterOperand = \(path, parameterId, actual, parameters) -> case lookupParameter parameterId parameters {
+    | Nothing -> [failure path LoweredUnknownParameter (identifierDetail (parameterIdText parameterId))]
+    | Just expected -> if representationEqual expected actual then [] else [failure path LoweredEdgeRepresentationMismatch (LoweredRepresentationDetail expected actual)]
+  }.
+
+  validateOperand :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredOperand -> [LoweredIRValidationFailure].
+  validateOperand = \(context, block, seenTemporaries, path, operand) -> case context {
+    | FunctionContext programContext function -> case function {
+      | LoweredFunction functionId environment functionParameterList functionResult blocks entry -> case block {
+        | LoweredBlock blockId blockParameters instructions terminator -> case operand {
+          | LoweredFunctionParameterOperand parameterId representation ->
+            validateParameterOperand path parameterId representation (functionParameters function)
+          | LoweredBlockParameterOperand parameterId representation ->
+            validateParameterOperand path parameterId representation blockParameters
+          | LoweredTemporaryOperand temporaryId representation ->
+            if blockContainsTemporary temporaryId block then
+              if temporaryIdMember temporaryId seenTemporaries then case lookupTemporary temporaryId instructions {
+                | Nothing -> []
+                | Just expected -> if representationEqual expected representation then [] else [failure path LoweredInstructionResultRepresentationMismatch (LoweredRepresentationDetail expected representation)]
+              } else [failure path LoweredUseBeforeDefinition (identifierDetail (temporaryIdText temporaryId))]
+            else if blocksContainTemporary temporaryId blocks then [failure path LoweredCrossBlockTemporary (identifierDetail (temporaryIdText temporaryId))]
+            else [failure path LoweredUseBeforeDefinition (identifierDetail (temporaryIdText temporaryId))]
+          | LoweredImmediateOperand immediate -> validateImmediate path immediate
+        }
+      }
+    }
+  }.
+
+  validateOperands :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  validateOperands = \(context, block, seenTemporaries, path, operands) -> case operands {
+    | [] -> []
+    | [first | rest] -> listAppend (validateOperand context block seenTemporaries path first) (validateOperands context block seenTemporaries path rest)
+  }.
+
+  operandRepresentations :: [LoweredOperand] -> [LoweredRepresentation].
+  operandRepresentations = \(operands) -> case operands {
+    | [] -> []
+    | [first | rest] -> listPrepend (operandRepresentation first) (operandRepresentations rest)
+  }.
+
+  firstRepresentationMismatch :: [LoweredRepresentation] -> [LoweredRepresentation] -> Maybe((LoweredRepresentation, LoweredRepresentation)).
+  firstRepresentationMismatch = \(expected, actual) -> case (expected, actual) {
+    | ([expectedFirst | expectedRest], [actualFirst | actualRest]) ->
+      if representationEqual expectedFirst actualFirst then firstRepresentationMismatch expectedRest actualRest else Just (expectedFirst, actualFirst)
+    | other -> Nothing
+  }.
+
+  representationListFailures :: LoweredIRValidationPath -> LoweredIRValidationKind -> [LoweredRepresentation] -> [LoweredRepresentation] -> [LoweredIRValidationFailure].
+  representationListFailures = \(path, kind, expected, actual) ->
+    if listLength expected == listLength actual then case firstRepresentationMismatch expected actual {
+      | Nothing -> []
+      | Just (expectedRepresentation, actualRepresentation) -> [failure path kind (LoweredRepresentationDetail expectedRepresentation actualRepresentation)]
+    } else case kind {
+      | LoweredEdgeRepresentationMismatch -> [failure path LoweredEdgeArityMismatch (LoweredArityDetail (listLength expected) (listLength actual))]
+      | other -> [failure path kind (LoweredArityDetail (listLength expected) (listLength actual))]
+    }.
+
+  representationMismatchFailure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredRepresentation -> LoweredRepresentation -> [LoweredIRValidationFailure].
+  representationMismatchFailure = \(path, kind, expected, actual) ->
+    if representationEqual expected actual then [] else [failure path kind (LoweredRepresentationDetail expected actual)].
+
+  repeatRepresentationForOperands :: LoweredRepresentation -> [LoweredOperand] -> [LoweredRepresentation].
+  repeatRepresentationForOperands = \(representation, operands) -> case operands {
+    | [] -> []
+    | [first | rest] -> listPrepend representation (repeatRepresentationForOperands representation rest)
+  }.
+
+  managedOperandFailures :: LoweredIRValidationPath -> LoweredLayoutId -> LoweredOperand -> [LoweredIRValidationFailure].
+  managedOperandFailures = \(path, layoutId, operand) ->
+    representationMismatchFailure path LoweredInstructionResultRepresentationMismatch (LoweredManagedReferenceRepresentation layoutId) (operandRepresentation operand).
+
+  constructValidation :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredLayoutId -> [LoweredRepresentation] -> [LoweredOperand] -> OperationValidation.
+  constructValidation = \(context, block, seen, path, layoutId, expected, operands) ->
+    OperationValidation
+      (listAppend (validateOperands context block seen path operands) (representationListFailures path LoweredInstructionResultRepresentationMismatch expected (operandRepresentations operands)))
+      (Just (LoweredManagedReferenceRepresentation layoutId)).
+
+  callMismatchFailures :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredCallSignature -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  callMismatchFailures = \(path, kind, signature, operands) -> case signature {
+    | LoweredCallSignature parameters result -> representationListFailures path kind parameters (operandRepresentations operands)
+  }.
+
+  isNumericRepresentation :: LoweredRepresentation -> Bool.
+  isNumericRepresentation = \(representation) -> case representation {
+    | LoweredSignedIntegerRepresentation width -> True
+    | LoweredUnsignedIntegerRepresentation width -> True
+    | LoweredFloatRepresentation width -> True
+    | other -> False
+  }.
+
+  arithmeticRepresentationAllowed :: LoweredArithmeticPrimitive -> LoweredRepresentation -> Bool.
+  arithmeticRepresentationAllowed = \(operation, representation) -> case operation {
+    | other -> isNumericRepresentation representation
+  }.
+
+  comparisonRepresentationAllowed :: LoweredComparisonPrimitive -> LoweredRepresentation -> Bool.
+  comparisonRepresentationAllowed = \(operation, representation) -> case operation {
+    | LoweredEqual -> True
+    | LoweredNotEqual -> True
+    | other -> isNumericRepresentation representation
+  }.
+
+  homogeneousBinaryFailures :: LoweredIRValidationPath -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  homogeneousBinaryFailures = \(path, operands) -> case operands {
+    | [left, right] -> representationMismatchFailure path LoweredPrimitiveSignatureMismatch (operandRepresentation left) (operandRepresentation right)
+    | other -> [failure path LoweredPrimitiveSignatureMismatch (LoweredArityDetail 2 (listLength operands))]
+  }.
+
+  arithmeticPrimitiveFailures :: LoweredIRValidationPath -> LoweredArithmeticPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  arithmeticPrimitiveFailures = \(path, operation, operands) -> listAppend
+    (homogeneousBinaryFailures path operands)
+    (case operands {
+      | [first, second] ->
+        if arithmeticRepresentationAllowed operation (operandRepresentation first) then []
+        else [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+      | other -> []
+    }).
+
+  comparisonPrimitiveFailures :: LoweredIRValidationPath -> LoweredComparisonPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  comparisonPrimitiveFailures = \(path, operation, operands) -> listAppend
+    (homogeneousBinaryFailures path operands)
+    (case operands {
+      | [first, second] ->
+        if comparisonRepresentationAllowed operation (operandRepresentation first) then []
+        else [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+      | other -> []
+    }).
+
+  booleanPrimitiveRepresentations :: LoweredBooleanPrimitive -> [LoweredRepresentation].
+  booleanPrimitiveRepresentations = \(operation) -> case operation {
+    | LoweredBooleanNot -> [LoweredBoolRepresentation]
+    | LoweredBooleanAnd -> [LoweredBoolRepresentation, LoweredBoolRepresentation]
+    | LoweredBooleanOr -> [LoweredBoolRepresentation, LoweredBoolRepresentation]
+  }.
+
+  booleanPrimitiveFailures :: LoweredIRValidationPath -> LoweredBooleanPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  booleanPrimitiveFailures = \(path, operation, operands) ->
+    representationListFailures path LoweredPrimitiveSignatureMismatch (booleanPrimitiveRepresentations operation) (operandRepresentations operands).
+
+  directCallMismatchFailures :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredFunction -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  directCallMismatchFailures = \(path, kind, function, operands) -> case function {
+    | LoweredFunction functionId environment parameters result blocks entry -> case environment {
+      | Just environmentParameter -> [failure path kind LoweredNoValidationDetail]
+      | Nothing -> callMismatchFailures path kind (functionSignature function) operands
+    }
+  }.
+
+  projectFieldValidation :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredLayoutId -> Int -> LoweredOperand -> [LoweredRepresentation] -> OperationValidation.
+  projectFieldValidation = \(context, block, seen, path, layoutId, index, operand, fields) -> case listAt index fields {
+    | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidFieldProjection (LoweredIndexDetail index)]) Nothing
+    | Just representation -> OperationValidation
+      (listConcat [(validateOperands context block seen path [operand]), (managedOperandFailures path layoutId operand)])
+      (Just representation)
+  }.
+
+  validateOperation :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredOperation -> OperationValidation.
+  validateOperation = \(context, block, seen, path, operation) -> case context {
+    | FunctionContext programContext function -> case programContext {
+      | ProgramContext layouts services functions -> case operation {
+        | LoweredPrimitiveOperation primitive operands -> case primitive {
+          | LoweredArithmeticPrimitive arithmetic -> case operands {
+            | [] -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (arithmeticPrimitiveFailures path arithmetic operands))
+              Nothing
+            | [first | rest] -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (arithmeticPrimitiveFailures path arithmetic operands))
+              (Just (operandRepresentation first))
+          }
+          | LoweredComparisonPrimitive comparison -> OperationValidation
+            (listAppend (validateOperands context block seen path operands) (comparisonPrimitiveFailures path comparison operands))
+            (Just LoweredBoolRepresentation)
+          | LoweredBooleanPrimitive boolean -> OperationValidation
+            (listAppend (validateOperands context block seen path operands) (booleanPrimitiveFailures path boolean operands))
+            (Just LoweredBoolRepresentation)
+        }
+        | LoweredConstructProduct layoutId operands -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredProductLayout fields -> constructValidation context block seen path layoutId fields operands
+            | LoweredClosureEnvironmentLayout fields -> constructValidation context block seen path layoutId fields operands
+            | other -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredInvalidFieldProjection LoweredNoValidationDetail]) Nothing
+          }
+        }
+        | LoweredConstructVariant layoutId tag operands -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredVariantLayouts variants -> case lookupVariant tag variants {
+              | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)]) Nothing
+              | Just fields -> constructValidation context block seen path layoutId fields operands
+            }
+            | other -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]) Nothing
+          }
+        }
+        | LoweredConstructList layoutId operands -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredListLayout elementRepresentation -> constructValidation context block seen path layoutId (repeatRepresentationForOperands elementRepresentation operands) operands
+            | other -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredInvalidFieldProjection LoweredNoValidationDetail]) Nothing
+          }
+        }
+        | LoweredConstructText layoutId text -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))] Nothing
+          | Just shape -> case shape {
+            | LoweredTextLayout -> OperationValidation [] (Just (LoweredManagedReferenceRepresentation layoutId))
+            | other -> OperationValidation [failure path LoweredInvalidFieldProjection LoweredNoValidationDetail] Nothing
+          }
+        }
+        | LoweredConstructClosure targetFunctionId environmentOperand -> case lookupFunction targetFunctionId functions {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [environmentOperand]) [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunctionId))]) Nothing
+          | Just targetFunction -> case targetFunction {
+            | LoweredFunction ignoredId targetEnvironment targetParameters targetResult targetBlocks targetEntry -> case targetEnvironment {
+              | Nothing -> OperationValidation
+                (listAppend (validateOperands context block seen path [environmentOperand]) [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail])
+                (Just (LoweredClosureRepresentation (functionSignature targetFunction)))
+              | Just environmentParameter -> case environmentParameter {
+                | LoweredParameter environmentId expectedEnvironment -> OperationValidation
+                  (listConcat
+                    [ validateOperands context block seen path [environmentOperand],
+                      validateClosureEnvironmentParameter programContext path environmentParameter,
+                      representationMismatchFailure path LoweredClosureEnvironmentMismatch expectedEnvironment (operandRepresentation environmentOperand)
+                    ])
+                  (Just (LoweredClosureRepresentation (functionSignature targetFunction)))
+              }
+            }
+          }
+        }
+        | LoweredProjectField layoutId index operand -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredProductLayout fields -> projectFieldValidation context block seen path layoutId index operand fields
+            | LoweredClosureEnvironmentLayout fields -> projectFieldValidation context block seen path layoutId index operand fields
+            | other -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidFieldProjection (LoweredIndexDetail index)]) Nothing
+          }
+        }
+        | LoweredProjectVariantTag layoutId operand -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredVariantLayouts variants -> OperationValidation
+              (listAppend (validateOperands context block seen path [operand]) (managedOperandFailures path layoutId operand))
+              (Just (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64))
+            | other -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]) Nothing
+          }
+        }
+        | LoweredProjectVariantField layoutId tag index operand -> case lookupLayout layoutId layouts {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
+          | Just shape -> case shape {
+            | LoweredVariantLayouts variants -> case lookupVariant tag variants {
+              | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)]) Nothing
+              | Just fields -> projectFieldValidation context block seen path layoutId index operand fields
+            }
+            | other -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)]) Nothing
+          }
+        }
+        | LoweredDirectCall targetFunctionId operands -> case lookupFunction targetFunctionId functions {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunctionId))]) Nothing
+          | Just targetFunction -> case functionSignature targetFunction {
+            | LoweredCallSignature parameters result -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (directCallMismatchFailures path LoweredDirectCallSignatureMismatch targetFunction operands))
+              (Just result)
+          }
+        }
+        | LoweredClosureCall functionOperand operands -> case operandRepresentation functionOperand {
+          | LoweredClosureRepresentation signature -> case signature {
+            | LoweredCallSignature parameters result -> OperationValidation
+              (listAppend (validateOperands context block seen path (listPrepend functionOperand operands)) (callMismatchFailures path LoweredClosureCallSignatureMismatch signature operands))
+              (Just result)
+          }
+          | actual -> OperationValidation
+            (listAppend
+              (validateOperands context block seen path (listPrepend functionOperand operands))
+              [failure path LoweredClosureCallSignatureMismatch (LoweredRepresentationDetail (LoweredClosureRepresentation (LoweredCallSignature [] LoweredUnitRepresentation)) actual)])
+            Nothing
+        }
+        | LoweredRuntimeCall serviceId operands -> case lookupService serviceId services {
+          | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownRuntimeService (identifierDetail (serviceIdText serviceId))]) Nothing
+          | Just signature -> case signature {
+            | LoweredCallSignature parameters result -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (callMismatchFailures path LoweredRuntimeCallSignatureMismatch signature operands))
+              (Just result)
+          }
+        }
+      }
+    }
+  }.
+
+  validateInstruction :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> Int -> LoweredInstruction -> [LoweredIRValidationFailure].
+  validateInstruction = \(context, block, seen, index, instruction) -> case context {
+    | FunctionContext programContext function -> case function {
+      | LoweredFunction functionId environment parameters functionResult blocks entry -> case block {
+        | LoweredBlock blockId blockParameters instructions terminator -> case instruction {
+          | LoweredInstruction temporaryId result operation -> case validateOperation context block seen (LoweredInstructionPath functionId blockId index) operation {
+            | OperationValidation operationFailures maybeExpected -> case maybeExpected {
+              | Nothing -> listAppend
+                operationFailures
+                (validateRepresentation programContext (LoweredInstructionPath functionId blockId index) result)
+              | Just expected -> listConcat
+                [ operationFailures,
+                  validateRepresentation programContext (LoweredInstructionPath functionId blockId index) result,
+                  representationMismatchFailure (LoweredInstructionPath functionId blockId index) LoweredInstructionResultRepresentationMismatch expected result
+                ]
+            }
+          }
+        }
+      }
+    }
+  }.
+
+  validateInstructionsFrom :: FunctionContext -> LoweredBlock -> [LoweredInstruction] -> Int -> [LoweredTemporaryId] -> [LoweredIRValidationFailure].
+  validateInstructionsFrom = \(context, block, instructions, index, seen) -> case instructions {
+    | [] -> []
+    | [instruction | rest] -> case instruction {
+      | LoweredInstruction temporaryId result operation ->
+        listAppend
+          (validateInstruction context block seen index instruction)
+          (validateInstructionsFrom context block rest (index + 1) (listPrepend temporaryId seen))
+    }
+  }.
+
+  validateEdge :: FunctionContext -> LoweredIRValidationPath -> LoweredBlockId -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  validateEdge = \(context, path, targetBlockId, operands) -> case context {
+    | FunctionContext programContext function -> case function {
+      | LoweredFunction functionId environment parameters result blocks entry -> case lookupBlock targetBlockId blocks {
+        | Nothing -> [failure path LoweredUnknownBlock (identifierDetail (blockIdText targetBlockId))]
+        | Just targetBlock -> case targetBlock {
+          | LoweredBlock blockId targetParameters instructions terminator ->
+            if blockIdEqual targetBlockId entry then
+              [failure path LoweredEntryBlockIncomingEdge (identifierDetail (blockIdText targetBlockId))]
+            else representationListFailures path LoweredEdgeRepresentationMismatch (parameterRepresentations targetParameters) (operandRepresentations operands)
+        }
+      }
+    }
+  }.
+
+  duplicateSwitchTagFailuresFrom :: LoweredIRValidationPath -> [LoweredSwitchCase] -> [Int] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateSwitchTagFailuresFrom = \(path, cases, seen, reversed) -> case cases {
+    | [] -> listReverse reversed
+    | [LoweredSwitchCase tag target operands | rest] ->
+      if intMember tag seen then duplicateSwitchTagFailuresFrom path rest seen (listPrepend (failure path LoweredDuplicateSwitchCaseTag (LoweredTagDetail tag)) reversed)
+      else duplicateSwitchTagFailuresFrom path rest (listPrepend tag seen) reversed
+  }.
+
+  duplicateSwitchTagFailures :: LoweredIRValidationPath -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  duplicateSwitchTagFailures = \(path, cases) -> duplicateSwitchTagFailuresFrom path cases [] [].
+
+  validateSwitchCases :: FunctionContext -> LoweredIRValidationPath -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  validateSwitchCases = \(context, path, cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> listAppend (validateEdge context path target operands) (validateSwitchCases context path rest)
+  }.
+
+  switchOperands :: [LoweredSwitchCase] -> [LoweredOperand].
+  switchOperands = \(cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> listAppend operands (switchOperands rest)
+  }.
+
+  defaultOperands :: Maybe(LoweredSwitchDefault) -> [LoweredOperand].
+  defaultOperands = \(maybeDefault) -> case maybeDefault {
+    | Nothing -> []
+    | Just switchDefault -> case switchDefault {
+      | LoweredSwitchDefault target operands -> operands
+    }
+  }.
+
+  validateSwitchDefault :: FunctionContext -> LoweredIRValidationPath -> Maybe(LoweredSwitchDefault) -> [LoweredIRValidationFailure].
+  validateSwitchDefault = \(context, path, maybeDefault) -> case maybeDefault {
+    | Nothing -> []
+    | Just switchDefault -> case switchDefault {
+      | LoweredSwitchDefault target operands -> validateEdge context path target operands
+    }
+  }.
+
+  invalidSwitchTagFailures :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  invalidSwitchTagFailures = \(path, variants, cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> if tagWithinSharedCarrier tag then case lookupVariant tag variants {
+        | Nothing -> listPrepend (failure path LoweredInvalidTagProjection (LoweredTagDetail tag)) (invalidSwitchTagFailures path variants rest)
+        | Just fields -> invalidSwitchTagFailures path variants rest
+      }
+      else invalidSwitchTagFailures path variants rest
+  }.
+
+  validateSwitchTags :: LoweredIRValidationPath -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  validateSwitchTags = \(path, cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> listAppend (validateTag path tag) (validateSwitchTags path rest)
+  }.
+
+  switchCaseTagMember :: Int -> [LoweredSwitchCase] -> Bool.
+  switchCaseTagMember = \(candidate, cases) -> case cases {
+    | [] -> False
+    | [LoweredSwitchCase tag target operands | rest] -> if candidate == tag then True else switchCaseTagMember candidate rest
+  }.
+
+  missingSwitchTagFailuresFrom :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> [Int] -> [LoweredIRValidationFailure].
+  missingSwitchTagFailuresFrom = \(path, variants, cases, seen) -> case variants {
+    | [] -> []
+    | [LoweredVariantLayout tag fields | rest] -> if intMember tag seen then
+        missingSwitchTagFailuresFrom path rest cases seen
+      else if tagWithinSharedCarrier tag then
+        if switchCaseTagMember tag cases then
+          missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen)
+        else listPrepend
+          (failure path LoweredMissingSwitchCaseTag (LoweredTagDetail tag))
+          (missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen))
+      else missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen)
+  }.
+
+  switchCoverageFailures :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> Maybe(LoweredSwitchDefault) -> [LoweredIRValidationFailure].
+  switchCoverageFailures = \(path, variants, cases, maybeDefault) -> case maybeDefault {
+    | Nothing -> missingSwitchTagFailuresFrom path variants cases []
+    | Just switchDefault -> []
+  }.
+
+  switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> Maybe(LoweredSwitchDefault) -> [LoweredIRValidationFailure].
+  switchShapeFailures = \(context, path, operand, cases, maybeDefault) -> case context {
+    | FunctionContext programContext function -> case programContext {
+      | ProgramContext layouts services functions -> case operandRepresentation operand {
+        | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
+          | Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
+          | Just shape -> case shape {
+            | LoweredVariantLayouts variants -> listAppend
+              (invalidSwitchTagFailures path variants cases)
+              (switchCoverageFailures path variants cases maybeDefault)
+            | other -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+          }
+        }
+        | other -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+      }
+    }
+  }.
+
+  validateDirectTailCall :: FunctionContext -> LoweredIRValidationPath -> LoweredRepresentation -> LoweredFunctionId -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  validateDirectTailCall = \(context, path, result, targetFunctionId, operands) -> case context {
+    | FunctionContext programContext function -> case programContext {
+      | ProgramContext layouts services functions -> case lookupFunction targetFunctionId functions {
+        | Nothing -> [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunctionId))]
+        | Just targetFunction -> case functionSignature targetFunction {
+          | LoweredCallSignature parameters targetResult -> listAppend
+            (directCallMismatchFailures path LoweredDirectTailCallSignatureMismatch targetFunction operands)
+            (representationMismatchFailure path LoweredDirectTailCallSignatureMismatch result targetResult)
+        }
+      }
+    }
+  }.
+
+  validateClosureTailCall :: LoweredIRValidationPath -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  validateClosureTailCall = \(path, result, functionOperand, operands) -> case operandRepresentation functionOperand {
+    | LoweredClosureRepresentation signature -> case signature {
+      | LoweredCallSignature parameters targetResult -> listAppend
+        (callMismatchFailures path LoweredClosureTailCallSignatureMismatch signature operands)
+        (representationMismatchFailure path LoweredClosureTailCallSignatureMismatch result targetResult)
+    }
+    | actual -> [failure path LoweredClosureTailCallSignatureMismatch (LoweredRepresentationDetail (LoweredClosureRepresentation (LoweredCallSignature [] result)) actual)]
+  }.
+
+  validateTerminatorWith :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredRepresentation -> LoweredTerminator -> [LoweredIRValidationFailure].
+  validateTerminatorWith = \(context, block, seen, path, functionResult, terminator) -> case terminator {
+    | LoweredReturn operand -> listAppend
+      (validateOperands context block seen path [operand])
+      (representationMismatchFailure path LoweredReturnRepresentationMismatch functionResult (operandRepresentation operand))
+    | LoweredJump target operands -> listAppend (validateOperands context block seen path operands) (validateEdge context path target operands)
+    | LoweredBranch condition thenBlock thenOperands elseBlock elseOperands -> listConcat
+      [ validateOperands context block seen path (listPrepend condition (listAppend thenOperands elseOperands)),
+        representationMismatchFailure path LoweredBranchConditionMismatch LoweredBoolRepresentation (operandRepresentation condition),
+        validateEdge context path thenBlock thenOperands,
+        validateEdge context path elseBlock elseOperands
+      ]
+    | LoweredSwitch operand cases maybeDefault -> listConcat
+      [ validateOperands context block seen path (listPrepend operand (listAppend (switchOperands cases) (defaultOperands maybeDefault))),
+        validateSwitchTags path cases,
+        switchShapeFailures context path operand cases maybeDefault,
+        duplicateSwitchTagFailures path cases,
+        validateSwitchCases context path cases,
+        validateSwitchDefault context path maybeDefault
+      ]
+    | LoweredDirectTailCall targetFunctionId operands -> listAppend
+      (validateOperands context block seen path operands)
+      (validateDirectTailCall context path functionResult targetFunctionId operands)
+    | LoweredClosureTailCall functionOperand operands -> listAppend
+      (validateOperands context block seen path (listPrepend functionOperand operands))
+      (validateClosureTailCall path functionResult functionOperand operands)
+  }.
+
+  instructionIds :: [LoweredInstruction] -> [LoweredTemporaryId].
+  instructionIds = \(instructions) -> case instructions {
+    | [] -> []
+    | [LoweredInstruction temporaryId representation operation | rest] -> listPrepend temporaryId (instructionIds rest)
+  }.
+
+  validateTerminator :: FunctionContext -> LoweredBlock -> LoweredTerminator -> [LoweredIRValidationFailure].
+  validateTerminator = \(context, block, terminator) -> case context {
+    | FunctionContext programContext function -> case function {
+      | LoweredFunction functionId environment parameters functionResult blocks entry -> case block {
+        | LoweredBlock blockId blockParameters instructions maybeTerminator ->
+          validateTerminatorWith context block (instructionIds instructions) (LoweredTerminatorPath functionId blockId) functionResult terminator
+      }
+    }
+  }.
+
+  missingTerminatorFailures :: LoweredFunctionId -> LoweredBlockId -> Maybe(LoweredTerminator) -> [LoweredIRValidationFailure].
+  missingTerminatorFailures = \(functionId, blockId, maybeTerminator) -> case maybeTerminator {
+    | Nothing -> [failure (LoweredBlockPath functionId blockId) LoweredMissingTerminator LoweredNoValidationDetail]
+    | Just terminator -> []
+  }.
+
+  presentTerminatorFailures :: FunctionContext -> LoweredBlock -> Maybe(LoweredTerminator) -> [LoweredIRValidationFailure].
+  presentTerminatorFailures = \(context, block, maybeTerminator) -> case maybeTerminator {
+    | Nothing -> []
+    | Just terminator -> validateTerminator context block terminator
+  }.
+
+  validateBlock :: FunctionContext -> LoweredBlock -> [LoweredIRValidationFailure].
+  validateBlock = \(context, block) -> case context {
+    | FunctionContext programContext function -> case function {
+      | LoweredFunction functionId environment functionParameters result blocks entry -> case block {
+        | LoweredBlock blockId parameters instructions maybeTerminator -> listConcat
+          [ duplicateParameterFailures (LoweredBlockPath functionId blockId) parameters,
+            validateRepresentations programContext (LoweredBlockPath functionId blockId) (parameterRepresentations parameters),
+            duplicateTemporaryFailures functionId blockId instructions,
+            validateInstructionsFrom context block instructions 0 [],
+            missingTerminatorFailures functionId blockId maybeTerminator,
+            presentTerminatorFailures context block maybeTerminator
+          ]
+        }
+      }
+  }.
+
+  validateBlocks :: FunctionContext -> [LoweredBlock] -> [LoweredIRValidationFailure].
+  validateBlocks = \(context, blocks) -> case blocks {
+    | [] -> []
+    | [first | rest] -> listAppend (validateBlock context first) (validateBlocks context rest)
+  }.
+
+  missingEntryBlockFailures :: LoweredFunctionId -> LoweredBlockId -> [LoweredBlock] -> [LoweredIRValidationFailure].
+  missingEntryBlockFailures = \(functionId, entry, blocks) -> case lookupBlock entry blocks {
+    | Nothing -> [failure (LoweredFunctionPath functionId) LoweredMissingEntryBlock (identifierDetail (blockIdText entry))]
+    | Just block -> []
+  }.
+
+  entryBlockParameterFailures :: LoweredFunctionId -> LoweredBlockId -> [LoweredBlock] -> [LoweredIRValidationFailure].
+  entryBlockParameterFailures = \(functionId, entry, blocks) -> case lookupBlock entry blocks {
+    | Nothing -> []
+    | Just block -> case block {
+      | LoweredBlock blockId parameters instructions terminator -> case parameters {
+        | [] -> []
+        | other -> [failure (LoweredBlockPath functionId entry) LoweredEntryBlockParameters (LoweredArityDetail 0 (listLength parameters))]
+      }
+    }
+  }.
+
+  validateFunction :: ProgramContext -> LoweredFunction -> [LoweredIRValidationFailure].
+  validateFunction = \(programContext, function) -> case function {
+    | LoweredFunction functionId environment parameters result blocks entry -> listConcat
+      [ duplicateBlockFailures functionId blocks,
+        missingEntryBlockFailures functionId entry blocks,
+        duplicateParameterFailures (LoweredFunctionPath functionId) (functionParameters function),
+        entryBlockParameterFailures functionId entry blocks,
+        closureEnvironmentFailures programContext (LoweredFunctionPath functionId) environment,
+        validateRepresentations programContext (LoweredFunctionPath functionId) (listPrepend result (parameterRepresentations (functionParameters function))),
+        validateBlocks (FunctionContext programContext function) blocks
+      ]
+  }.
+
+  validateFunctions :: ProgramContext -> [LoweredFunction] -> [LoweredIRValidationFailure].
+  validateFunctions = \(context, functions) -> case functions {
+    | [] -> []
+    | [first | rest] -> listAppend (validateFunction context first) (validateFunctions context rest)
+  }.
+
+  versionEqual :: LoweredIRVersion -> LoweredIRVersion -> Bool.
+  versionEqual = \(left, right) -> case (left, right) {
+    | (LoweredIRVersion leftValue, LoweredIRVersion rightValue) -> leftValue == rightValue
+  }.
+
+  supportedVersion :: LoweredIRVersion.
+  supportedVersion = LoweredIRVersion 1.
+
+  versionFailures :: LoweredIRVersion -> [LoweredIRValidationFailure].
+  versionFailures = \(version) -> if versionEqual version supportedVersion then [] else
+    [failure LoweredProgramPath LoweredUnsupportedVersion (LoweredVersionDetail supportedVersion version)].
+
+  missingEntryFunctionFailures :: LoweredFunctionId -> [LoweredFunction] -> [LoweredIRValidationFailure].
+  missingEntryFunctionFailures = \(entryFunction, functions) -> case lookupFunction entryFunction functions {
+    | Nothing -> [failure LoweredProgramPath LoweredMissingEntryFunction (identifierDetail (functionIdText entryFunction))]
+    | Just entry -> []
+  }.
+
+  entryFunctionParameterFailures :: LoweredFunctionId -> [LoweredFunction] -> [LoweredIRValidationFailure].
+  entryFunctionParameterFailures = \(entryFunction, functions) -> case lookupFunction entryFunction functions {
+    | Nothing -> []
+    | Just entry -> case listLength (functionParameters entry) {
+      | 0 -> []
+      | parameterCount -> [failure (LoweredFunctionPath entryFunction) LoweredEntryFunctionParameters (LoweredArityDetail 0 parameterCount)]
+    }
+  }.
+
+  validateProgram :: LoweredProgram -> [LoweredIRValidationFailure].
+  validateProgram = \(program) -> case program {
+    | LoweredProgram version layouts services functions entryFunction -> listConcat
+      [ versionFailures version,
+        duplicateLayoutFailures layouts,
+        duplicateServiceFailures services,
+        duplicateFunctionFailures functions,
+        missingEntryFunctionFailures entryFunction functions,
+        entryFunctionParameterFailures entryFunction functions,
+        validateLayouts (ProgramContext layouts services functions) layouts,
+        validateServices (ProgramContext layouts services functions) services,
+        validateFunctions (ProgramContext layouts services functions) functions
+      ]
+  }.
+}
