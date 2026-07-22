@@ -2,8 +2,7 @@
 
 ## Status
 
-Approved in discussion on `2026-07-21`. This document is awaiting the written
-specification review that precedes implementation planning.
+Approved in discussion and reviewed in written form on `2026-07-21`.
 
 Hosted lexing, parsing, and canonical-core lowering already match stage 0 over
 the complete fixed parser corpus. The next compiler milestone establishes the
