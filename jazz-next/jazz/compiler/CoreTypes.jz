@@ -1,7 +1,8 @@
 module CoreTypes {
-  import LexerTypes (CanonicalSourcePath).
+  import LexerTypes (CanonicalLexError, CanonicalSourcePath).
   import Maybe.
   import NonEmpty.
+  import ParserTypes (ParserFailure).
 
   data CoreGeneratedNameKind = CoreLambdaPatternArgument Int | CoreOperatorBinding Text.
 
@@ -56,4 +57,6 @@ module CoreTypes {
   data CoreModuleLoweringFailure = CoreMultipleModuleDeclarationsFailure CanonicalSourcePath [CoreModuleDeclaration] | CoreModulePathMismatchFailure CanonicalSourcePath [Text] CoreModuleDeclaration.
 
   data CoreModuleLoweringResult = CoreModuleLowered CoreModule | CoreModuleLoweringFailed CoreModuleLoweringFailure.
+
+  data CanonicalCoreSourceResult = CanonicalCoreSourceLexicalFailure CanonicalSourcePath CanonicalLexError | CanonicalCoreSourceParserFailure CanonicalSourcePath ParserFailure | CanonicalCoreSourceModuleResult CoreModuleLoweringResult.
 }

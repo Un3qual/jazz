@@ -363,6 +363,8 @@ test-suite canonical-core-comparison-spec
   main-is: JazzNext/Compiler/Bootstrap/CanonicalCoreComparisonSpec.hs
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Bootstrap.CanonicalParserComparison
       JazzNext.Compiler.Bootstrap.CanonicalValue
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout

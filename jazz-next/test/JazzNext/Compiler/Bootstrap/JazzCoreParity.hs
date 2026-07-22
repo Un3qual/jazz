@@ -3,6 +3,7 @@
 module JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
     expectedCanonicalExpressionBatchRendering,
+    expectedCoreSourceBatchRendering,
     expectedModuleBatchRendering,
     expectedControlFlowPatternsBatchRendering,
     expectedSignaturesDeclarationsOperatorsBatchRendering,
@@ -12,6 +13,7 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
     expectedParserSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
     runJazzCanonicalExpressionBatch,
+    runJazzCoreSourceBatch,
     runJazzModuleBatch,
     runJazzControlFlowPatternsSourceBatch,
     runJazzFoundationBatch,
@@ -26,6 +28,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
   ( canonicalCoreExprRuntimeValue,
+    canonicalCoreSourceResultRuntimeValue,
     canonicalCoreModuleResultRuntimeValue,
   )
 import JazzNext.Compiler.Bootstrap.CanonicalParserComparison
@@ -94,6 +97,16 @@ expectedModuleBatchRendering inputs =
       canonicalCoreModuleResultRuntimeValue
         (lowerSurfaceModuleDetailed sourcePath expectedPath expression)
 
+expectedCoreSourceBatchRendering :: [(FilePath, [Text], Text)] -> Either Text Text
+expectedCoreSourceBatchRendering inputs =
+  renderRuntimeValue . (`VList` Nothing) <$> mapM expectedSourceResult inputs
+  where
+    expectedSourceResult (sourcePath, expectedPath, source) = do
+      canonicalSourcePath <- normalizeCanonicalSourcePath sourcePath
+      canonicalCoreSourceResultRuntimeValue
+        canonicalSourcePath
+        (fmap (fmap (lowerSurfaceModuleDetailed sourcePath expectedPath)) (sourceResult source))
+
 expectedControlFlowPatternsBatchRendering :: [SurfaceExpr] -> Either Text Text
 expectedControlFlowPatternsBatchRendering = expectedFoundationBatchRendering
 
@@ -150,6 +163,15 @@ runJazzModuleBatch inputs =
     import ParserTypes.
     """
     (map renderModuleCall inputs)
+
+runJazzCoreSourceBatch :: [(FilePath, [Text], Text)] -> IO RunResult
+runJazzCoreSourceBatch inputs =
+  runGeneratedBatch
+    """
+    import Core (lowerCoreSource).
+    import LexerTypes (CanonicalSourcePath).
+    """
+    (map renderCoreSourceCall inputs)
 
 runJazzControlFlowPatternsBatch :: [SurfaceExpr] -> IO RunResult
 runJazzControlFlowPatternsBatch = runJazzLoweringBatch "lowerControlFlowPatternsExpression"
@@ -226,6 +248,15 @@ renderModuleCall (sourcePath, expectedPath, expression) =
     <> renderJazzRuntimeValue (VList (map VText expectedPath) Nothing)
     <> " "
     <> renderJazzRuntimeValue (surfaceExprRuntimeValue expression)
+
+renderCoreSourceCall :: (FilePath, [Text], Text) -> Text
+renderCoreSourceCall (sourcePath, expectedPath, source) =
+  "lowerCoreSource (CanonicalSourcePath "
+    <> renderJazzRuntimeValue (VText (Text.pack sourcePath))
+    <> ") "
+    <> renderJazzRuntimeValue (VList (map VText expectedPath) Nothing)
+    <> " "
+    <> renderJazzRuntimeValue (VText source)
 
 renderLoweringSourceCall :: Text -> Text -> Text
 renderLoweringSourceCall loweringFunction source =

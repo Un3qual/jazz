@@ -6,8 +6,10 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedCanonicalExpressionBatchRendering,
+    expectedCoreSourceBatchRendering,
     expectedModuleBatchRendering,
     runJazzCanonicalExpressionBatch,
+    runJazzCoreSourceBatch,
     runJazzModuleBatch,
     runJazzSignaturesDeclarationsOperatorsBatch,
   )
@@ -43,7 +45,8 @@ tests :: [NamedTest]
 tests =
   [ ("lowers module and import statements through the complete expression entry", testCompleteExpressionParity),
     ("preserves the child-3 module and import deferral boundary", testEarlierProfileBoundary),
-    ("matches stage 0 for fixed module results twice", testDirectModuleParity)
+    ("matches stage 0 for fixed module results twice", testDirectModuleParity),
+    ("composes parsing and module lowering for the fixed source family twice", testComposedSourceParity)
   ]
 
 testCompleteExpressionParity :: IO ()
@@ -96,6 +99,23 @@ testDirectModuleParity = do
   assertSuccessfulOutput "direct module second run" expected second
   assertEqual "direct module deterministic output" (runOutput first) (runOutput second)
 
+testComposedSourceParity :: IO ()
+testComposedSourceParity = do
+  assertEqual "composed source fixture names" expectedComposedSourceFixtureNames (map composedFixtureName composedSourceFixtures)
+  expected <-
+    expectRight
+      "composed source expected values"
+      (expectedCoreSourceBatchRendering composedSourceInputs)
+  assertContains "facade module result" "CanonicalCoreSourceModuleResult" expected
+  assertContains "facade path mismatch" "CoreModulePathMismatchFailure" expected
+  assertContains "facade lexical failure" "CanonicalCoreSourceLexicalFailure" expected
+  assertContains "facade parser failure" "CanonicalCoreSourceParserFailure" expected
+  first <- runJazzCoreSourceBatch composedSourceInputs
+  second <- runJazzCoreSourceBatch composedSourceInputs
+  assertSuccessfulOutput "composed source first run" expected first
+  assertSuccessfulOutput "composed source second run" expected second
+  assertEqual "composed source deterministic output" (runOutput first) (runOutput second)
+
 completeExpressions :: [SurfaceExpr]
 completeExpressions =
   [ SEBlock
@@ -122,6 +142,88 @@ data DirectModuleFixture = DirectModuleFixture
     directFixtureExpectedPath :: [Text.Text],
     directFixtureExpression :: SurfaceExpr
   }
+
+data ComposedSourceFixture = ComposedSourceFixture
+  { composedFixtureName :: Text.Text,
+    composedFixtureSourcePath :: FilePath,
+    composedFixtureExpectedPath :: [Text.Text],
+    composedFixtureSource :: Text.Text
+  }
+
+expectedComposedSourceFixtureNames :: [Text.Text]
+expectedComposedSourceFixtureNames =
+  [ "module-free",
+    "module-no-exports",
+    "module-empty-exports",
+    "module-named-exports",
+    "module-type-exports",
+    "import-plain",
+    "import-alias",
+    "import-symbols",
+    "nested-import",
+    "mixed-full-surface",
+    "path-mismatch",
+    "lexical-failure",
+    "parser-failure"
+  ]
+
+composedSourceInputs :: [(FilePath, [Text.Text], Text.Text)]
+composedSourceInputs =
+  map
+    (\fixture ->
+       ( composedFixtureSourcePath fixture,
+         composedFixtureExpectedPath fixture,
+         composedFixtureSource fixture
+       )
+    )
+    composedSourceFixtures
+
+composedSourceFixtures :: [ComposedSourceFixture]
+composedSourceFixtures =
+  [ composedFixture "module-free" "1.",
+    composedFixture "module-no-exports" "module App::Main { 1. }",
+    composedFixture "module-empty-exports" "module App::Main () { 1. }",
+    composedFixture "module-named-exports" "module App::Main (value answer, constructor Some, type Maybe, class Eq) { answer = 1. }",
+    composedFixture "module-type-exports" "module App::Main (type Hidden, type Choice(..), type Pair(Pair, Unit)) { 1. }",
+    composedFixture "import-plain" "module App::Main { import Core::List. 1. }",
+    composedFixture "import-alias" "module App::Main { import Core::Text as Text. Text::length. }",
+    composedFixture "import-symbols" "module App::Main { import Core::Text (length, uncons). length. }",
+    composedFixture
+      "nested-import"
+      "module App::Main { import Lib::Math as Math. result = { Math::answer. }. }",
+    composedFixture "mixed-full-surface" mixedFullSurfaceSource,
+    ComposedSourceFixture
+      "path-mismatch"
+      composedSourcePath
+      moduleExpectedPath
+      "module Wrong::Path { 1. }",
+    composedFixture "lexical-failure" ";",
+    composedFixture "parser-failure" "if True then 1."
+  ]
+
+composedFixture :: Text.Text -> Text.Text -> ComposedSourceFixture
+composedFixture name source =
+  ComposedSourceFixture name composedSourcePath moduleExpectedPath source
+
+mixedFullSurfaceSource :: Text.Text
+mixedFullSurfaceSource =
+  """
+  module App::Main (value main, type Maybe(..), class Eq) {
+    import Core::List as List.
+    operator %% tier 2.
+    main :: Int.
+    data Maybe a = None | Some a.
+    class Eq(a) { equals :: a -> a -> Bool. }.
+    impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+    main = case Some 1 {
+      | Some value if True -> if False then 0 else value %% 2
+      | _ -> 0
+    }.
+  }
+  """
+
+composedSourcePath :: FilePath
+composedSourcePath = "fixtures/core/source-facade.jz"
 
 expectedDirectModuleFixtureNames :: [Text.Text]
 expectedDirectModuleFixtureNames =

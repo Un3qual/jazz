@@ -18,6 +18,7 @@ target_paths:
   - docs/superpowers/specs/2026-07-21-jazz-next-hosted-core-modules-corpus-closure-design.md
   - docs/superpowers/plans/2026-07-21-jazz-next-hosted-core-modules-corpus-closure.md
   - jazz-next/README.md
+  - jazz-next/jazz/compiler/Core.jz
   - jazz-next/jazz/compiler/CoreLower.jz
   - jazz-next/jazz/compiler/CoreTypes.jz
   - jazz-next/jazz-next.cabal
@@ -212,20 +213,20 @@ this plan, and `docs/execution/queue.md`.
 **Produces:** `CanonicalCoreSourceResult` and `lowerCoreSource` with strict
 phase ownership.
 
-- [ ] Add all 13 composed sources in approved order and stage-0 expected-result
+- [x] Add all 13 composed sources in approved order and stage-0 expected-result
   support for module success/failure, lexical failure, and parser failure.
-- [ ] Run the focused suite and confirm source cases fail because `Core.jz` and
+- [x] Run the focused suite and confirm source cases fail because `Core.jz` and
   `CanonicalCoreSourceResult` do not exist; retain direct module tests green.
-- [ ] Add the composed result ADT without changing the existing parser or
+- [x] Add the composed result ADT without changing the existing parser or
   module result types.
-- [ ] Create `Core.jz`, call `Parser.parseSource` exactly once, forward lexical
+- [x] Create `Core.jz`, call `Parser.parseSource` exactly once, forward lexical
   and parser values unchanged, and call `lowerModule` only after parse success.
-- [ ] Register `Core.jz` as checked-in compiler source and add its path to both
+- [x] Register `Core.jz` as checked-in compiler source and add its path to both
   plan and queue metadata in the same change.
-- [ ] Run all direct and 13 composed fixtures twice. Require complete exact
+- [x] Run all direct and 13 composed fixtures twice. Require complete exact
   results, phase-distinct failures, deterministic output, and no compiler or
   runtime errors.
-- [ ] Commit as `feat: compose hosted source to canonical core`.
+- [x] Commit as `feat: compose hosted source to canonical core`.
 
 ### Task 4: Close the accepted parser corpus
 

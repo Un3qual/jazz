@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.Bootstrap.CanonicalCoreComparison
   ( canonicalCoreExprRuntimeValue,
+    canonicalCoreSourceResultRuntimeValue,
     canonicalCoreModuleResultRuntimeValue,
     canonicalCoreModuleRuntimeValue,
   )
@@ -11,8 +12,16 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
+import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+  ( canonicalLexErrorRuntimeValue,
+    canonicalizeFailure,
+  )
+import JazzNext.Compiler.Bootstrap.CanonicalParserComparison
+  ( parserFailureRuntimeValue,
+  )
 import JazzNext.Compiler.Bootstrap.CanonicalValue
-  ( canonicalConstructor,
+  ( CanonicalSourcePath,
+    canonicalConstructor,
     canonicalNullaryConstructor,
     canonicalSourcePathRuntimeValue,
     normalizeCanonicalSourcePath,
@@ -43,6 +52,8 @@ import JazzNext.Compiler.Parser.Lower
   ( ModuleDeclaration (..),
     ModuleLoweringFailure (..),
   )
+import JazzNext.Compiler.Parser.Failure (ParserFailure)
+import JazzNext.Compiler.Parser.Lexer (LexicalFailure)
 import JazzNext.Compiler.Runtime (RuntimeValue (..))
 
 canonicalCoreExprRuntimeValue :: Expr -> Either Text RuntimeValue
@@ -103,6 +114,30 @@ canonicalCoreModuleResultRuntimeValue result =
   case result of
     Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue coreModule
     Left failure -> constructor1 "CoreModuleLoweringFailed" <$> coreModuleLoweringFailureRuntimeValue failure
+
+canonicalCoreSourceResultRuntimeValue ::
+  CanonicalSourcePath ->
+  Either LexicalFailure (Either ParserFailure (Either ModuleLoweringFailure CoreModule)) ->
+  Either Text RuntimeValue
+canonicalCoreSourceResultRuntimeValue sourcePath result =
+  case result of
+    Left lexicalFailure ->
+      pure
+        ( canonicalConstructor
+            "CanonicalCoreSourceLexicalFailure"
+            [ canonicalSourcePathRuntimeValue sourcePath,
+              canonicalLexErrorRuntimeValue (canonicalizeFailure lexicalFailure)
+            ]
+        )
+    Right (Left parserFailure) ->
+      pure
+        ( canonicalConstructor
+            "CanonicalCoreSourceParserFailure"
+            [canonicalSourcePathRuntimeValue sourcePath, parserFailureRuntimeValue parserFailure]
+        )
+    Right (Right moduleResult) ->
+      constructor1 "CanonicalCoreSourceModuleResult"
+        <$> canonicalCoreModuleResultRuntimeValue moduleResult
 
 coreModuleLoweringFailureRuntimeValue :: ModuleLoweringFailure -> Either Text RuntimeValue
 coreModuleLoweringFailureRuntimeValue failure =
