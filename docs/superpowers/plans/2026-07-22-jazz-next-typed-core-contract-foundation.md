@@ -18,6 +18,9 @@ target_paths:
   - docs/superpowers/plans/2026-07-22-jazz-next-typed-core-contract-foundation.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
+  - jazz-next/src/JazzNext/Compiler/TypedCore.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-core-modules-corpus-closure-spec jazz-core-signatures-declarations-operators-spec jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -565,7 +568,7 @@ failures rather than constructible typed-core values.
 - Produces: constructible complete Haskell typed-core values plus
   `canonicalTypedProgramRuntimeValue`, without validation decisions.
 
-- [ ] **Step 1: Register the failing focused test**
+- [x] **Step 1: Register the failing focused test**
 
   Add `JazzNext.Compiler.TypedCore` to library `exposed-modules`. Add test suite
   `jazz-typed-core-contract-spec` with main
@@ -577,7 +580,7 @@ failures rather than constructible typed-core values.
   canonical rendering for all 16 valid fixtures and all three
   `TypedCoreOutcome` constructors.
 
-- [ ] **Step 2: Prove the schema is absent**
+- [x] **Step 2: Prove the schema is absent**
 
   Run:
 
@@ -588,27 +591,27 @@ failures rather than constructible typed-core values.
   Expected: build failure naming missing module
   `JazzNext.Compiler.TypedCore` or missing exported constructors.
 
-- [ ] **Step 3: Implement the exact Haskell schema**
+- [x] **Step 3: Implement the exact Haskell schema**
 
   Add every constructor in `Exact Contract Schema` and `Exact Validation
   Contract`, derive `Eq` and `Show`, and export all constructors plus the four
   stable identifier newtypes. Do not import `TypeInference.Types`, `LoweredIR`,
   `Runtime`, or backend modules.
 
-- [ ] **Step 4: Implement canonical structural rendering**
+- [x] **Step 4: Implement canonical structural rendering**
 
   Convert every typed-core constructor to the identically named canonical
   constructor. Render lists in stored order, `Maybe` as `Nothing`/`Just`,
   integer widths and ordinals through `runtimeIntValue`, and literal integer or
   fractional payloads as stored `Text`. Do not call Haskell `Show`.
 
-- [ ] **Step 5: Make the valid manifest green twice**
+- [x] **Step 5: Make the valid manifest green twice**
 
   Run the focused suite twice. Expected: all 16 names occur once in fixed
   order; the count is `16`; complete canonical program output is identical
   across both in-process constructions and both suite executions.
 
-- [ ] **Step 6: Commit the Haskell boundary**
+- [x] **Step 6: Commit the Haskell boundary**
 
   ```bash
   git add jazz-next/jazz-next.cabal jazz-next/src/JazzNext/Compiler/TypedCore.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
