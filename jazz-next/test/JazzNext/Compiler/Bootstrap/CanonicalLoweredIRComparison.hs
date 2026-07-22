@@ -3,16 +3,19 @@
 module JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
     canonicalLoweredProgramsRuntimeValue,
-    canonicalLoweredValidationFailuresRuntimeValue
+    canonicalLoweredValidationFailuresRuntimeValue,
+    decodeCanonicalLoweredValidationFailuresRuntimeValue
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
     canonicalNullaryConstructor,
     runtimeIntValue
   )
 import JazzNext.Compiler.LoweredIR
+import JazzNext.Compiler.Name (identifierText)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     untypedIntMetadata
@@ -34,6 +37,290 @@ canonicalLoweredProgramsRuntimeValue = listValue canonicalLoweredProgramRuntimeV
 
 canonicalLoweredValidationFailuresRuntimeValue :: [LoweredIRValidationFailure] -> RuntimeValue
 canonicalLoweredValidationFailuresRuntimeValue = listValue validationFailureValue
+
+decodeCanonicalLoweredValidationFailuresRuntimeValue :: RuntimeValue -> Either Text [LoweredIRValidationFailure]
+decodeCanonicalLoweredValidationFailuresRuntimeValue value =
+  case value of
+    VList failures _ -> traverse decodeValidationFailure failures
+    _ -> Left ("validation failures expected a List, got " <> runtimeValueCategory value)
+
+decodeValidationFailure :: RuntimeValue -> Either Text LoweredIRValidationFailure
+decodeValidationFailure value = do
+  (name, arguments) <- expectConstructor "validation failure" value
+  if name /= "LoweredIRValidationFailure"
+    then Left ("unknown validation failure constructor '" <> name <> "'")
+    else do
+      fields <- expectArity name 3 arguments
+      case fields of
+        [pathValue, kindValue, detailValue] ->
+          LoweredIRValidationFailure
+            <$> decodeValidationPath pathValue
+            <*> decodeValidationKind kindValue
+            <*> decodeValidationDetail detailValue
+        _ -> impossibleArity name
+
+decodeValidationPath :: RuntimeValue -> Either Text LoweredIRValidationPath
+decodeValidationPath value = do
+  (name, arguments) <- expectConstructor "validation path" value
+  case name of
+    "LoweredProgramPath" -> expectNullary name arguments LoweredProgramPath
+    "LoweredLayoutPath" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [layoutId] -> LoweredLayoutPath <$> decodeLayoutId layoutId
+        _ -> impossibleArity name
+    "LoweredRuntimeServicePath" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [serviceId] -> LoweredRuntimeServicePath <$> decodeRuntimeServiceId serviceId
+        _ -> impossibleArity name
+    "LoweredFunctionPath" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [functionId] -> LoweredFunctionPath <$> decodeFunctionId functionId
+        _ -> impossibleArity name
+    "LoweredBlockPath" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [functionId, blockId] -> LoweredBlockPath <$> decodeFunctionId functionId <*> decodeBlockId blockId
+        _ -> impossibleArity name
+    "LoweredInstructionPath" -> do
+      fields <- expectArity name 3 arguments
+      case fields of
+        [functionId, blockId, instructionIndex] ->
+          LoweredInstructionPath <$> decodeFunctionId functionId <*> decodeBlockId blockId <*> decodeInt "instruction index" instructionIndex
+        _ -> impossibleArity name
+    "LoweredTerminatorPath" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [functionId, blockId] -> LoweredTerminatorPath <$> decodeFunctionId functionId <*> decodeBlockId blockId
+        _ -> impossibleArity name
+    _ -> Left ("unknown validation path constructor '" <> name <> "'")
+
+decodeValidationKind :: RuntimeValue -> Either Text LoweredIRValidationKind
+decodeValidationKind value = do
+  (name, arguments) <- expectConstructor "validation kind" value
+  kind <-
+    case name of
+      "LoweredDuplicateLayout" -> Right LoweredDuplicateLayout
+      "LoweredUnknownLayout" -> Right LoweredUnknownLayout
+      "LoweredDuplicateVariantTag" -> Right LoweredDuplicateVariantTag
+      "LoweredDuplicateRuntimeService" -> Right LoweredDuplicateRuntimeService
+      "LoweredUnknownRuntimeService" -> Right LoweredUnknownRuntimeService
+      "LoweredDuplicateFunction" -> Right LoweredDuplicateFunction
+      "LoweredMissingEntryFunction" -> Right LoweredMissingEntryFunction
+      "LoweredDuplicateBlock" -> Right LoweredDuplicateBlock
+      "LoweredMissingEntryBlock" -> Right LoweredMissingEntryBlock
+      "LoweredMissingTerminator" -> Right LoweredMissingTerminator
+      "LoweredDuplicateTemporary" -> Right LoweredDuplicateTemporary
+      "LoweredUseBeforeDefinition" -> Right LoweredUseBeforeDefinition
+      "LoweredCrossBlockTemporary" -> Right LoweredCrossBlockTemporary
+      "LoweredUnknownParameter" -> Right LoweredUnknownParameter
+      "LoweredUnknownFunction" -> Right LoweredUnknownFunction
+      "LoweredUnknownBlock" -> Right LoweredUnknownBlock
+      "LoweredInstructionResultRepresentationMismatch" -> Right LoweredInstructionResultRepresentationMismatch
+      "LoweredInvalidFieldProjection" -> Right LoweredInvalidFieldProjection
+      "LoweredInvalidTagProjection" -> Right LoweredInvalidTagProjection
+      "LoweredClosureEnvironmentMismatch" -> Right LoweredClosureEnvironmentMismatch
+      "LoweredEdgeArityMismatch" -> Right LoweredEdgeArityMismatch
+      "LoweredEdgeRepresentationMismatch" -> Right LoweredEdgeRepresentationMismatch
+      "LoweredBranchConditionMismatch" -> Right LoweredBranchConditionMismatch
+      "LoweredDuplicateSwitchCaseTag" -> Right LoweredDuplicateSwitchCaseTag
+      "LoweredReturnRepresentationMismatch" -> Right LoweredReturnRepresentationMismatch
+      "LoweredDirectCallSignatureMismatch" -> Right LoweredDirectCallSignatureMismatch
+      "LoweredClosureCallSignatureMismatch" -> Right LoweredClosureCallSignatureMismatch
+      "LoweredRuntimeCallSignatureMismatch" -> Right LoweredRuntimeCallSignatureMismatch
+      "LoweredDirectTailCallSignatureMismatch" -> Right LoweredDirectTailCallSignatureMismatch
+      "LoweredClosureTailCallSignatureMismatch" -> Right LoweredClosureTailCallSignatureMismatch
+      _ -> Left ("unknown validation kind constructor '" <> name <> "'")
+  expectNullary name arguments kind
+
+decodeValidationDetail :: RuntimeValue -> Either Text LoweredIRValidationDetail
+decodeValidationDetail value = do
+  (name, arguments) <- expectConstructor "validation detail" value
+  case name of
+    "LoweredNoValidationDetail" -> expectNullary name arguments LoweredNoValidationDetail
+    "LoweredIdentifierDetail" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [identifier] -> LoweredIdentifierDetail <$> decodeText "validation identifier" identifier
+        _ -> impossibleArity name
+    "LoweredRepresentationDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> LoweredRepresentationDetail <$> decodeRepresentation expected <*> decodeRepresentation actual
+        _ -> impossibleArity name
+    "LoweredArityDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> LoweredArityDetail <$> decodeInt "expected arity" expected <*> decodeInt "actual arity" actual
+        _ -> impossibleArity name
+    "LoweredIndexDetail" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [index] -> LoweredIndexDetail <$> decodeInt "validation index" index
+        _ -> impossibleArity name
+    "LoweredTagDetail" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [tag] -> LoweredTagDetail <$> decodeInteger "validation tag" tag
+        _ -> impossibleArity name
+    _ -> Left ("unknown validation detail constructor '" <> name <> "'")
+
+decodeRepresentation :: RuntimeValue -> Either Text LoweredRepresentation
+decodeRepresentation value = do
+  (name, arguments) <- expectConstructor "representation" value
+  case name of
+    "LoweredUnitRepresentation" -> expectNullary name arguments LoweredUnitRepresentation
+    "LoweredBoolRepresentation" -> expectNullary name arguments LoweredBoolRepresentation
+    "LoweredSignedIntegerRepresentation" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [width] -> LoweredSignedIntegerRepresentation <$> decodeIntegerWidth width
+        _ -> impossibleArity name
+    "LoweredUnsignedIntegerRepresentation" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [width] -> LoweredUnsignedIntegerRepresentation <$> decodeIntegerWidth width
+        _ -> impossibleArity name
+    "LoweredFloatRepresentation" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [width] -> LoweredFloatRepresentation <$> decodeFloatWidth width
+        _ -> impossibleArity name
+    "LoweredCharRepresentation" -> expectNullary name arguments LoweredCharRepresentation
+    "LoweredManagedReferenceRepresentation" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [layoutId] -> LoweredManagedReferenceRepresentation <$> decodeLayoutId layoutId
+        _ -> impossibleArity name
+    "LoweredClosureRepresentation" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [signature] -> LoweredClosureRepresentation <$> decodeCallSignature signature
+        _ -> impossibleArity name
+    _ -> Left ("unknown representation constructor '" <> name <> "'")
+
+decodeCallSignature :: RuntimeValue -> Either Text LoweredCallSignature
+decodeCallSignature value = do
+  fields <- expectNamedConstructor "call signature" "LoweredCallSignature" 2 value
+  case fields of
+    [parameters, result] -> LoweredCallSignature <$> decodeList "call parameters" decodeRepresentation parameters <*> decodeRepresentation result
+    _ -> impossibleArity "LoweredCallSignature"
+
+decodeIntegerWidth :: RuntimeValue -> Either Text LoweredIntegerWidth
+decodeIntegerWidth value = do
+  (name, arguments) <- expectConstructor "integer width" value
+  width <-
+    case name of
+      "LoweredIntegerWidth8" -> Right LoweredIntegerWidth8
+      "LoweredIntegerWidth16" -> Right LoweredIntegerWidth16
+      "LoweredIntegerWidth32" -> Right LoweredIntegerWidth32
+      "LoweredIntegerWidth64" -> Right LoweredIntegerWidth64
+      _ -> Left ("unknown integer width constructor '" <> name <> "'")
+  expectNullary name arguments width
+
+decodeFloatWidth :: RuntimeValue -> Either Text LoweredFloatWidth
+decodeFloatWidth value = do
+  (name, arguments) <- expectConstructor "float width" value
+  width <-
+    case name of
+      "LoweredFloatWidth16" -> Right LoweredFloatWidth16
+      "LoweredFloatWidth32" -> Right LoweredFloatWidth32
+      "LoweredFloatWidth64" -> Right LoweredFloatWidth64
+      _ -> Left ("unknown float width constructor '" <> name <> "'")
+  expectNullary name arguments width
+
+decodeLayoutId :: RuntimeValue -> Either Text LoweredLayoutId
+decodeLayoutId value = LoweredLayoutId <$> decodeTextConstructor "LoweredLayoutId" value
+
+decodeRuntimeServiceId :: RuntimeValue -> Either Text LoweredRuntimeServiceId
+decodeRuntimeServiceId value = LoweredRuntimeServiceId <$> decodeTextConstructor "LoweredRuntimeServiceId" value
+
+decodeFunctionId :: RuntimeValue -> Either Text LoweredFunctionId
+decodeFunctionId value = LoweredFunctionId <$> decodeTextConstructor "LoweredFunctionId" value
+
+decodeBlockId :: RuntimeValue -> Either Text LoweredBlockId
+decodeBlockId value = LoweredBlockId <$> decodeTextConstructor "LoweredBlockId" value
+
+decodeTextConstructor :: Text -> RuntimeValue -> Either Text Text
+decodeTextConstructor name value = do
+  fields <- expectNamedConstructor name name 1 value
+  case fields of
+    [textValue] -> decodeText (name <> " value") textValue
+    _ -> impossibleArity name
+
+decodeList :: Text -> (RuntimeValue -> Either Text value) -> RuntimeValue -> Either Text [value]
+decodeList label decodeElement value =
+  case value of
+    VList elements _ -> traverse decodeElement elements
+    _ -> Left (label <> " expected a List, got " <> runtimeValueCategory value)
+
+decodeText :: Text -> RuntimeValue -> Either Text Text
+decodeText label value =
+  case value of
+    VText textValue -> Right textValue
+    _ -> Left (label <> " expected Text, got " <> runtimeValueCategory value)
+
+decodeInteger :: Text -> RuntimeValue -> Either Text Integer
+decodeInteger label value =
+  case value of
+    VInt integer _ -> Right integer
+    _ -> Left (label <> " expected Int, got " <> runtimeValueCategory value)
+
+decodeInt :: Text -> RuntimeValue -> Either Text Int
+decodeInt label value = do
+  integer <- decodeInteger label value
+  if integer < toInteger (minBound :: Int) || integer > toInteger (maxBound :: Int)
+    then Left (label <> " is outside the host Int range: " <> Text.pack (show integer))
+    else Right (fromInteger integer)
+
+expectConstructor :: Text -> RuntimeValue -> Either Text (Text, [RuntimeValue])
+expectConstructor label value =
+  case value of
+    VConstructor _ _ constructorName _ arguments -> Right (identifierText constructorName, arguments)
+    _ -> Left (label <> " expected a constructor, got " <> runtimeValueCategory value)
+
+expectNamedConstructor :: Text -> Text -> Int -> RuntimeValue -> Either Text [RuntimeValue]
+expectNamedConstructor label expectedName expectedArity value = do
+  (actualName, arguments) <- expectConstructor label value
+  if actualName /= expectedName
+    then Left (label <> " expected constructor '" <> expectedName <> "', got '" <> actualName <> "'")
+    else expectArity expectedName expectedArity arguments
+
+expectArity :: Text -> Int -> [RuntimeValue] -> Either Text [RuntimeValue]
+expectArity name expected arguments
+  | length arguments == expected = Right arguments
+  | otherwise = Left (name <> " expected " <> Text.pack (show expected) <> " field(s), got " <> Text.pack (show (length arguments)))
+
+expectNullary :: Text -> [RuntimeValue] -> value -> Either Text value
+expectNullary name arguments value = do
+  _ <- expectArity name 0 arguments
+  Right value
+
+impossibleArity :: Text -> Either Text value
+impossibleArity name = Left ("internal checked-adapter arity mismatch for '" <> name <> "'")
+
+runtimeValueCategory :: RuntimeValue -> Text
+runtimeValueCategory value =
+  case value of
+    VInt {} -> "Int"
+    VFloat {} -> "Float"
+    VBool {} -> "Bool"
+    VChar {} -> "Char"
+    VText {} -> "Text"
+    VList {} -> "List"
+    VTuple {} -> "Tuple"
+    VConstructor {} -> "constructor"
+    VClosure {} -> "closure"
+    VBuiltin {} -> "builtin"
+    VOperator {} -> "operator"
+    VSectionLeft {} -> "left section"
+    VSectionRight {} -> "right section"
+    VQualifiedMethod {} -> "qualified method"
+    VTyped {} -> "typed value"
+    VExplicitTypeApplication {} -> "explicit type application"
+    _ -> "runtime value"
 
 versionValue :: LoweredIRVersion -> RuntimeValue
 versionValue (LoweredIRVersion version) = constructor "LoweredIRVersion" [integerValue version]

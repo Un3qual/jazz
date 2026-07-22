@@ -7,7 +7,12 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
     canonicalLoweredProgramsRuntimeValue,
-    canonicalLoweredValidationFailuresRuntimeValue
+    canonicalLoweredValidationFailuresRuntimeValue,
+    decodeCanonicalLoweredValidationFailuresRuntimeValue
+  )
+import JazzNext.Compiler.Bootstrap.CanonicalValue
+  ( canonicalConstructor,
+    canonicalNullaryConstructor
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
@@ -28,6 +33,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
+    failTest,
     runTestSuite
   )
 import JazzNext.TestSource (readCheckedInJazzProjectModuleSource)
@@ -46,9 +52,86 @@ tests =
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
+    ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
+    ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
+    ("rejects wrong validation constructor arity", testCheckedValidationAdapterWrongArity),
+    ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
+    ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
     ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity)
   ]
+
+testCheckedValidationAdapterRoundTrip :: IO ()
+testCheckedValidationAdapterRoundTrip =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          (invalidFixtureName fixture <> " checked validation round-trip")
+          (Right (invalidFixtureFailures fixture))
+          (decodeCanonicalLoweredValidationFailuresRuntimeValue (canonicalLoweredValidationFailuresRuntimeValue (invalidFixtureFailures fixture)))
+    )
+    invalidFixtures
+
+testCheckedValidationAdapterUnknownConstructor :: IO ()
+testCheckedValidationAdapterUnknownConstructor =
+  assertTextLeftContains
+    "unknown validation constructor"
+    "unknown validation failure constructor 'UnexpectedFailure'"
+    (decodeCanonicalLoweredValidationFailuresRuntimeValue (VList [canonicalNullaryConstructor "UnexpectedFailure"] Nothing))
+
+testCheckedValidationAdapterWrongArity :: IO ()
+testCheckedValidationAdapterWrongArity =
+  assertTextLeftContains
+    "wrong validation failure arity"
+    "LoweredIRValidationFailure expected 3 field(s), got 2"
+    ( decodeCanonicalLoweredValidationFailuresRuntimeValue
+        ( VList
+            [ canonicalConstructor
+                "LoweredIRValidationFailure"
+                [canonicalNullaryConstructor "LoweredProgramPath", canonicalNullaryConstructor "LoweredMissingEntryFunction"]
+            ]
+            Nothing
+        )
+    )
+
+testCheckedValidationAdapterWrongFieldCategory :: IO ()
+testCheckedValidationAdapterWrongFieldCategory =
+  assertTextLeftContains
+    "wrong validation path field category"
+    "validation path expected a constructor, got Text"
+    ( decodeCanonicalLoweredValidationFailuresRuntimeValue
+        ( VList
+            [ canonicalConstructor
+                "LoweredIRValidationFailure"
+                [VText "not-a-path", canonicalNullaryConstructor "LoweredMissingEntryFunction", canonicalNullaryConstructor "LoweredNoValidationDetail"]
+            ]
+            Nothing
+        )
+    )
+
+testCheckedValidationAdapterMalformedNestedValue :: IO ()
+testCheckedValidationAdapterMalformedNestedValue =
+  assertTextLeftContains
+    "malformed nested layout identifier"
+    "LoweredLayoutId expected 1 field(s), got 0"
+    ( decodeCanonicalLoweredValidationFailuresRuntimeValue
+        ( VList
+            [ canonicalConstructor
+                "LoweredIRValidationFailure"
+                [ canonicalConstructor "LoweredLayoutPath" [canonicalNullaryConstructor "LoweredLayoutId"],
+                  canonicalNullaryConstructor "LoweredUnknownLayout",
+                  canonicalConstructor "LoweredIdentifierDetail" [VText "missing"]
+                ]
+            ]
+            Nothing
+        )
+    )
+
+assertTextLeftContains :: Show value => Text -> Text -> Either Text value -> IO ()
+assertTextLeftContains label expected result =
+  case result of
+    Left actual -> assertContains label expected actual
+    Right value -> failTest (label <> ": expected Left, got Right " <> Text.pack (show value))
 
 testJazzValidationParity :: IO ()
 testJazzValidationParity = do

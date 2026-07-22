@@ -237,11 +237,11 @@ parity to stage 0.
 - [x] Implement the Jazz validator through deterministic list traversal and
   compiler-local association-list lookups; aggregate all findings in source
   order.
-- [ ] Decode hosted results through the checked adapter and reject any unknown
+- [x] Decode hosted results through the checked adapter and reject any unknown
   constructor, arity, field type, or validation-detail shape.
 - [x] Run all 41 fixtures twice and require exact Haskell/Jazz program and
   failure-list parity with no compiler/runtime diagnostics.
-- [ ] Commit as `feat: validate lowered IR in Jazz`.
+- [x] Commit as `feat: validate lowered IR in Jazz`.
 
 ### Task 4: Harden contract evidence and regressions
 
@@ -254,16 +254,16 @@ suite.
 **Produces:** Audited determinism, schema-drift rejection, and focused
 regression evidence.
 
-- [ ] Add negative adapter cases for unknown constructors, wrong arity, wrong
+- [x] Add negative adapter cases for unknown constructors, wrong arity, wrong
   field category, and malformed nested values; require explicit checked
   failures rather than crashes or defaults.
-- [ ] Add repeated batch assertions over all 41 fixtures and require
+- [x] Add repeated batch assertions over all 41 fixtures and require
   byte-identical canonical rendering and exact failure ordering.
-- [ ] Run the focused regression command from frontmatter, including all four
+- [x] Run the focused regression command from frontmatter, including all four
   hosted canonical-core suites and repository audit.
-- [ ] Confirm the new suite contains no synthetic scale generator and enables
+- [x] Confirm the new suite contains no synthetic scale generator and enables
   no `full-parser-scale` Cabal flag.
-- [ ] Commit as `test: prove lowered IR contract parity`.
+- [x] Commit as `test: prove lowered IR contract parity`.
 
 ### Task 5: Verify and close the child
 
