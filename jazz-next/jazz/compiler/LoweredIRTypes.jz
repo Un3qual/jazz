@@ -1,0 +1,71 @@
+module LoweredIRTypes {
+  import Maybe.
+
+  data LoweredIRVersion = LoweredIRVersion Int.
+
+  data LoweredFunctionId = LoweredFunctionId Text.
+
+  data LoweredBlockId = LoweredBlockId Text.
+
+  data LoweredTemporaryId = LoweredTemporaryId Text.
+
+  data LoweredLayoutId = LoweredLayoutId Text.
+
+  data LoweredRuntimeServiceId = LoweredRuntimeServiceId Text.
+
+  data LoweredParameterId = LoweredParameterId Text.
+
+  data LoweredIntegerWidth = LoweredIntegerWidth8 | LoweredIntegerWidth16 | LoweredIntegerWidth32 | LoweredIntegerWidth64.
+
+  data LoweredFloatWidth = LoweredFloatWidth16 | LoweredFloatWidth32 | LoweredFloatWidth64.
+
+  data LoweredRepresentation = LoweredUnitRepresentation | LoweredBoolRepresentation | LoweredSignedIntegerRepresentation LoweredIntegerWidth | LoweredUnsignedIntegerRepresentation LoweredIntegerWidth | LoweredFloatRepresentation LoweredFloatWidth | LoweredCharRepresentation | LoweredManagedReferenceRepresentation LoweredLayoutId | LoweredClosureRepresentation LoweredCallSignature.
+
+  data LoweredCallSignature = LoweredCallSignature [LoweredRepresentation] LoweredRepresentation.
+
+  data LoweredVariantLayout = LoweredVariantLayout Int [LoweredRepresentation].
+
+  data LoweredLayoutShape = LoweredProductLayout [LoweredRepresentation] | LoweredVariantLayouts [LoweredVariantLayout] | LoweredClosureEnvironmentLayout [LoweredRepresentation] | LoweredTextLayout | LoweredListLayout LoweredRepresentation.
+
+  data LoweredLayout = LoweredLayout LoweredLayoutId LoweredLayoutShape.
+
+  data LoweredRuntimeService = LoweredRuntimeService LoweredRuntimeServiceId LoweredCallSignature.
+
+  data LoweredParameter = LoweredParameter LoweredParameterId LoweredRepresentation.
+
+  data LoweredImmediate = LoweredUnitImmediate | LoweredBoolImmediate Bool | LoweredSignedIntegerImmediate LoweredIntegerWidth Int | LoweredUnsignedIntegerImmediate LoweredIntegerWidth Int | LoweredFloatImmediate LoweredFloatWidth Text | LoweredCharImmediate Char.
+
+  data LoweredOperand = LoweredFunctionParameterOperand LoweredParameterId LoweredRepresentation | LoweredBlockParameterOperand LoweredParameterId LoweredRepresentation | LoweredTemporaryOperand LoweredTemporaryId LoweredRepresentation | LoweredImmediateOperand LoweredImmediate.
+
+  data LoweredArithmeticPrimitive = LoweredAdd | LoweredSubtract | LoweredMultiply | LoweredDivide | LoweredRemainder.
+
+  data LoweredComparisonPrimitive = LoweredEqual | LoweredNotEqual | LoweredLessThan | LoweredLessThanOrEqual | LoweredGreaterThan | LoweredGreaterThanOrEqual.
+
+  data LoweredBooleanPrimitive = LoweredBooleanNot | LoweredBooleanAnd | LoweredBooleanOr.
+
+  data LoweredPrimitive = LoweredArithmeticPrimitive LoweredArithmeticPrimitive | LoweredComparisonPrimitive LoweredComparisonPrimitive | LoweredBooleanPrimitive LoweredBooleanPrimitive.
+
+  data LoweredOperation = LoweredPrimitiveOperation LoweredPrimitive [LoweredOperand] | LoweredConstructProduct LoweredLayoutId [LoweredOperand] | LoweredConstructVariant LoweredLayoutId Int [LoweredOperand] | LoweredConstructList LoweredLayoutId [LoweredOperand] | LoweredConstructText LoweredLayoutId Text | LoweredConstructClosure LoweredFunctionId LoweredOperand | LoweredProjectField LoweredLayoutId Int LoweredOperand | LoweredProjectVariantTag LoweredLayoutId LoweredOperand | LoweredProjectVariantField LoweredLayoutId Int Int LoweredOperand | LoweredDirectCall LoweredFunctionId [LoweredOperand] | LoweredClosureCall LoweredOperand [LoweredOperand] | LoweredRuntimeCall LoweredRuntimeServiceId [LoweredOperand].
+
+  data LoweredInstruction = LoweredInstruction LoweredTemporaryId LoweredRepresentation LoweredOperation.
+
+  data LoweredSwitchCase = LoweredSwitchCase Int LoweredBlockId [LoweredOperand].
+
+  data LoweredSwitchDefault = LoweredSwitchDefault LoweredBlockId [LoweredOperand].
+
+  data LoweredTerminator = LoweredReturn LoweredOperand | LoweredJump LoweredBlockId [LoweredOperand] | LoweredBranch LoweredOperand LoweredBlockId [LoweredOperand] LoweredBlockId [LoweredOperand] | LoweredSwitch LoweredOperand [LoweredSwitchCase] (Maybe(LoweredSwitchDefault)) | LoweredDirectTailCall LoweredFunctionId [LoweredOperand] | LoweredClosureTailCall LoweredOperand [LoweredOperand].
+
+  data LoweredBlock = LoweredBlock LoweredBlockId [LoweredParameter] [LoweredInstruction] (Maybe(LoweredTerminator)).
+
+  data LoweredFunction = LoweredFunction LoweredFunctionId (Maybe(LoweredParameter)) [LoweredParameter] LoweredRepresentation [LoweredBlock] LoweredBlockId.
+
+  data LoweredProgram = LoweredProgram LoweredIRVersion [LoweredLayout] [LoweredRuntimeService] [LoweredFunction] LoweredFunctionId.
+
+  data LoweredIRValidationPath = LoweredProgramPath | LoweredLayoutPath LoweredLayoutId | LoweredRuntimeServicePath LoweredRuntimeServiceId | LoweredFunctionPath LoweredFunctionId | LoweredBlockPath LoweredFunctionId LoweredBlockId | LoweredInstructionPath LoweredFunctionId LoweredBlockId Int | LoweredTerminatorPath LoweredFunctionId LoweredBlockId.
+
+  data LoweredIRValidationKind = LoweredDuplicateLayout | LoweredUnknownLayout | LoweredDuplicateVariantTag | LoweredDuplicateRuntimeService | LoweredUnknownRuntimeService | LoweredDuplicateFunction | LoweredMissingEntryFunction | LoweredDuplicateBlock | LoweredMissingEntryBlock | LoweredMissingTerminator | LoweredDuplicateTemporary | LoweredUseBeforeDefinition | LoweredCrossBlockTemporary | LoweredUnknownParameter | LoweredUnknownFunction | LoweredUnknownBlock | LoweredInstructionResultRepresentationMismatch | LoweredInvalidFieldProjection | LoweredInvalidTagProjection | LoweredClosureEnvironmentMismatch | LoweredEdgeArityMismatch | LoweredEdgeRepresentationMismatch | LoweredBranchConditionMismatch | LoweredDuplicateSwitchCaseTag | LoweredReturnRepresentationMismatch | LoweredDirectCallSignatureMismatch | LoweredClosureCallSignatureMismatch | LoweredRuntimeCallSignatureMismatch | LoweredDirectTailCallSignatureMismatch | LoweredClosureTailCallSignatureMismatch.
+
+  data LoweredIRValidationDetail = LoweredNoValidationDetail | LoweredIdentifierDetail Text | LoweredRepresentationDetail LoweredRepresentation LoweredRepresentation | LoweredArityDetail Int Int | LoweredIndexDetail Int | LoweredTagDetail Int.
+
+  data LoweredIRValidationFailure = LoweredIRValidationFailure LoweredIRValidationPath LoweredIRValidationKind LoweredIRValidationDetail.
+}

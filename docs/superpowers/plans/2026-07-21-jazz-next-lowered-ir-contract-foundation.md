@@ -18,6 +18,8 @@ target_paths:
   - docs/superpowers/plans/2026-07-21-jazz-next-lowered-ir-contract-foundation.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
+  - jazz-next/jazz/compiler/LoweredIRTypes.jz
+  - jazz-next/jazz/compiler/LoweredIRValidate.jz
   - jazz-next/src/JazzNext/Compiler/LoweredIR.hs
   - jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
@@ -226,18 +228,18 @@ manifest.
 **Produces:** Ordinary Jazz construction and validation with exact canonical
 parity to stage 0.
 
-- [ ] Register both checked-in Jazz modules and add hosted execution for all 41
+- [x] Register both checked-in Jazz modules and add hosted execution for all 41
   independently constructed Jazz fixtures.
-- [ ] Run the focused suite and confirm hosted cases fail because the Jazz
+- [x] Run the focused suite and confirm hosted cases fail because the Jazz
   modules do not exist while Haskell expectations remain green.
-- [ ] Implement the exact Jazz ADT mirror with matching constructor field order
+- [x] Implement the exact Jazz ADT mirror with matching constructor field order
   and no host-only values.
-- [ ] Implement the Jazz validator through deterministic list traversal and
+- [x] Implement the Jazz validator through deterministic list traversal and
   compiler-local association-list lookups; aggregate all findings in source
   order.
 - [ ] Decode hosted results through the checked adapter and reject any unknown
   constructor, arity, field type, or validation-detail shape.
-- [ ] Run all 41 fixtures twice and require exact Haskell/Jazz program and
+- [x] Run all 41 fixtures twice and require exact Haskell/Jazz program and
   failure-list parity with no compiler/runtime diagnostics.
 - [ ] Commit as `feat: validate lowered IR in Jazz`.
 

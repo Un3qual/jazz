@@ -436,6 +436,9 @@ test-suite jazz-lowered-ir-contract-spec
   other-modules:
       JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
       JazzNext.Compiler.Bootstrap.CanonicalValue
+      JazzNext.Repository.Root
+      JazzNext.Repository.SourceLayout
+      JazzNext.TestSource
 
 test-suite parser-core-spec
   import: test-common

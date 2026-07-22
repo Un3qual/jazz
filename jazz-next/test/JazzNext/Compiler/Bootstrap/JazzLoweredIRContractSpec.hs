@@ -3,19 +3,34 @@
 module Main (main) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
-    canonicalLoweredProgramsRuntimeValue
+    canonicalLoweredProgramsRuntimeValue,
+    canonicalLoweredValidationFailuresRuntimeValue
+  )
+import JazzNext.Compiler.Driver
+  ( RunResult (..),
+    runCompileErrors,
+    runModuleGraph,
+    runRuntimeErrors
   )
 import JazzNext.Compiler.LoweredIR
 import JazzNext.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import JazzNext.Compiler.Runtime (renderRuntimeValue)
+import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
+import JazzNext.Compiler.Name (identifierText)
+import JazzNext.Compiler.Runtime
+  ( RuntimeValue (..),
+    renderRuntimeValue
+  )
+import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     runTestSuite
   )
+import JazzNext.TestSource (readCheckedInJazzProjectModuleSource)
 
 main :: IO ()
 main = runTestSuite "JazzLoweredIRContract" tests
@@ -30,8 +45,129 @@ tests =
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
-    ("preserves complete program failure order", testCompleteFailureOrder)
+    ("preserves complete program failure order", testCompleteFailureOrder),
+    ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
+    ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity)
   ]
+
+testJazzValidationParity :: IO ()
+testJazzValidationParity = do
+  let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures
+      expected =
+        renderRuntimeValue
+          ( VList
+              [ VTuple
+                  [ canonicalLoweredProgramRuntimeValue programValue,
+                    canonicalLoweredValidationFailuresRuntimeValue (validateLoweredProgram programValue)
+                  ]
+                | programValue <- programs
+              ]
+              Nothing
+          )
+  first <- runJazzValidationBatch programs
+  second <- runJazzValidationBatch programs
+  assertJazzOutput "Jazz validation first run" expected first
+  assertJazzOutput "Jazz validation second run" expected second
+  assertEqual "Jazz validation deterministic output" (runOutput first) (runOutput second)
+
+testJazzMinimalValidation :: IO ()
+testJazzMinimalValidation = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "Jazz minimal compile errors" [] (runCompileErrors result)
+  assertEqual "Jazz minimal runtime errors" [] (runRuntimeErrors result)
+  assertEqual "Jazz minimal validation" (Just "[]") (runOutput result)
+  where
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just jazzMinimalProgramSource)
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+jazzMinimalProgramSource :: Text
+jazzMinimalProgramSource =
+  """
+  module App::Main {
+    import LoweredIRTypes.
+    import LoweredIRValidate (validateProgram).
+    import Maybe.
+    validateProgram
+      (LoweredProgram
+        (LoweredIRVersion 1)
+        []
+        []
+        [LoweredFunction
+          (LoweredFunctionId "main")
+          Nothing
+          []
+          LoweredUnitRepresentation
+          [LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            (Just (LoweredReturn (LoweredImmediateOperand LoweredUnitImmediate)))]
+          (LoweredBlockId "entry")]
+        (LoweredFunctionId "main")).
+  }
+
+  """
+
+resolverConfig :: ModuleResolutionConfig
+resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+
+runJazzValidationBatch :: [LoweredProgram] -> IO RunResult
+runJazzValidationBatch programs =
+  runModuleGraph
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just (jazzValidationBatchSource programs))
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+jazzValidationBatchSource :: [LoweredProgram] -> Text
+jazzValidationBatchSource programs =
+  Text.unlines
+    [ "module App::Main {",
+      "  import List (listMap).",
+      "  import LoweredIRTypes.",
+      "  import LoweredIRValidate (validateProgram).",
+      "  import Maybe.",
+      "  listMap",
+      "    (\\(program) -> (program, validateProgram program))",
+      "    [" <> Text.intercalate ", " (map (renderJazzRuntimeValue . canonicalLoweredProgramRuntimeValue) programs) <> "].",
+      "}",
+      ""
+    ]
+
+assertJazzOutput :: Text -> Text -> RunResult -> IO ()
+assertJazzOutput label expected result = do
+  assertEqual (label <> " compile errors") [] (runCompileErrors result)
+  assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+  assertEqual (label <> " output") (Just expected) (runOutput result)
+
+renderJazzRuntimeValue :: RuntimeValue -> Text
+renderJazzRuntimeValue value =
+  case value of
+    VInt integer _
+      | integer < 0 -> "(0 - " <> Text.pack (show (abs integer)) <> ")"
+      | otherwise -> renderRuntimeValue value
+    VBool {} -> renderRuntimeValue value
+    VChar {} -> renderRuntimeValue value
+    VText {} -> renderRuntimeValue value
+    VList elements _ -> "[" <> Text.intercalate ", " (map renderJazzRuntimeValue elements) <> "]"
+    VTuple elements -> "(" <> Text.intercalate ", " (map renderJazzRuntimeValue elements) <> ")"
+    VConstructor _ _ constructorName _ arguments ->
+      case arguments of
+        [] -> identifierText constructorName
+        _ -> "(" <> identifierText constructorName <> " " <> Text.intercalate " " (map renderJazzRuntimeValue arguments) <> ")"
+    _ -> error "unsupported runtime value in generated lowered-IR fixture"
 
 testValidPrograms :: IO ()
 testValidPrograms =
