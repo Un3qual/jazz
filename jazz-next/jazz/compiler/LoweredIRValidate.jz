@@ -139,6 +139,12 @@ module LoweredIRValidate (
     | [first | rest] -> if temporaryIdEqual candidate first then True else temporaryIdMember candidate rest
   }.
 
+  parameterIdMember :: LoweredParameterId -> [LoweredParameterId] -> Bool.
+  parameterIdMember = \(candidate, identifiers) -> case identifiers {
+    | [] -> False
+    | [first | rest] -> if parameterIdEqual candidate first then True else parameterIdMember candidate rest
+  }.
+
   intMember :: Int -> [Int] -> Bool.
   intMember = \(candidate, values) -> case values {
     | [] -> False
@@ -329,6 +335,18 @@ module LoweredIRValidate (
     }
   }.
 
+  duplicateParameterFailuresFrom :: LoweredIRValidationPath -> [LoweredParameter] -> [LoweredParameterId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
+  duplicateParameterFailuresFrom = \(path, parameters, seen, reversed) -> case parameters {
+    | [] -> listReverse reversed
+    | [LoweredParameter parameterId representation | rest] ->
+      if parameterIdMember parameterId seen then
+        duplicateParameterFailuresFrom path rest seen (listPrepend (failure path LoweredDuplicateParameter (identifierDetail (parameterIdText parameterId))) reversed)
+      else duplicateParameterFailuresFrom path rest (listPrepend parameterId seen) reversed
+  }.
+
+  duplicateParameterFailures :: LoweredIRValidationPath -> [LoweredParameter] -> [LoweredIRValidationFailure].
+  duplicateParameterFailures = \(path, parameters) -> duplicateParameterFailuresFrom path parameters [] [].
+
   parameterRepresentations :: [LoweredParameter] -> [LoweredRepresentation].
   parameterRepresentations = \(parameters) -> case parameters {
     | [] -> []
@@ -339,6 +357,28 @@ module LoweredIRValidate (
   functionSignature = \(function) -> case function {
     | LoweredFunction functionId environment parameters result blocks entry ->
       LoweredCallSignature (parameterRepresentations parameters) result
+  }.
+
+  validateClosureEnvironmentParameter :: ProgramContext -> LoweredIRValidationPath -> LoweredParameter -> [LoweredIRValidationFailure].
+  validateClosureEnvironmentParameter = \(context, path, parameter) -> case context {
+    | ProgramContext layouts services functions -> case parameter {
+      | LoweredParameter parameterId representation -> case representation {
+        | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
+          | Just shape -> case shape {
+            | LoweredClosureEnvironmentLayout fields -> []
+            | other -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
+          }
+          | Nothing -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
+        }
+        | other -> [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail]
+      }
+    }
+  }.
+
+  closureEnvironmentFailures :: ProgramContext -> LoweredIRValidationPath -> Maybe(LoweredParameter) -> [LoweredIRValidationFailure].
+  closureEnvironmentFailures = \(context, path, environment) -> case environment {
+    | Nothing -> []
+    | Just parameter -> validateClosureEnvironmentParameter context path parameter
   }.
 
   duplicateBlockFailuresFrom :: LoweredFunctionId -> [LoweredBlock] -> [LoweredBlockId] -> [LoweredIRValidationFailure] -> [LoweredIRValidationFailure].
@@ -480,6 +520,71 @@ module LoweredIRValidate (
     | LoweredCallSignature parameters result -> representationListFailures path kind parameters (operandRepresentations operands)
   }.
 
+  isNumericRepresentation :: LoweredRepresentation -> Bool.
+  isNumericRepresentation = \(representation) -> case representation {
+    | LoweredSignedIntegerRepresentation width -> True
+    | LoweredUnsignedIntegerRepresentation width -> True
+    | LoweredFloatRepresentation width -> True
+    | other -> False
+  }.
+
+  arithmeticRepresentationAllowed :: LoweredArithmeticPrimitive -> LoweredRepresentation -> Bool.
+  arithmeticRepresentationAllowed = \(operation, representation) -> case operation {
+    | other -> isNumericRepresentation representation
+  }.
+
+  comparisonRepresentationAllowed :: LoweredComparisonPrimitive -> LoweredRepresentation -> Bool.
+  comparisonRepresentationAllowed = \(operation, representation) -> case operation {
+    | LoweredEqual -> True
+    | LoweredNotEqual -> True
+    | other -> isNumericRepresentation representation
+  }.
+
+  homogeneousBinaryFailures :: LoweredIRValidationPath -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  homogeneousBinaryFailures = \(path, operands) -> case operands {
+    | [left, right] -> representationMismatchFailure path LoweredPrimitiveSignatureMismatch (operandRepresentation left) (operandRepresentation right)
+    | other -> [failure path LoweredPrimitiveSignatureMismatch (LoweredArityDetail 2 (listLength operands))]
+  }.
+
+  arithmeticPrimitiveFailures :: LoweredIRValidationPath -> LoweredArithmeticPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  arithmeticPrimitiveFailures = \(path, operation, operands) -> listAppend
+    (homogeneousBinaryFailures path operands)
+    (case operands {
+      | [first, second] ->
+        if arithmeticRepresentationAllowed operation (operandRepresentation first) then []
+        else [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+      | other -> []
+    }).
+
+  comparisonPrimitiveFailures :: LoweredIRValidationPath -> LoweredComparisonPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  comparisonPrimitiveFailures = \(path, operation, operands) -> listAppend
+    (homogeneousBinaryFailures path operands)
+    (case operands {
+      | [first, second] ->
+        if comparisonRepresentationAllowed operation (operandRepresentation first) then []
+        else [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+      | other -> []
+    }).
+
+  booleanPrimitiveRepresentations :: LoweredBooleanPrimitive -> [LoweredRepresentation].
+  booleanPrimitiveRepresentations = \(operation) -> case operation {
+    | LoweredBooleanNot -> [LoweredBoolRepresentation]
+    | LoweredBooleanAnd -> [LoweredBoolRepresentation, LoweredBoolRepresentation]
+    | LoweredBooleanOr -> [LoweredBoolRepresentation, LoweredBoolRepresentation]
+  }.
+
+  booleanPrimitiveFailures :: LoweredIRValidationPath -> LoweredBooleanPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  booleanPrimitiveFailures = \(path, operation, operands) ->
+    representationListFailures path LoweredPrimitiveSignatureMismatch (booleanPrimitiveRepresentations operation) (operandRepresentations operands).
+
+  directCallMismatchFailures :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredFunction -> [LoweredOperand] -> [LoweredIRValidationFailure].
+  directCallMismatchFailures = \(path, kind, function, operands) -> case function {
+    | LoweredFunction functionId environment parameters result blocks entry -> case environment {
+      | Just environmentParameter -> [failure path kind LoweredNoValidationDetail]
+      | Nothing -> callMismatchFailures path kind (functionSignature function) operands
+    }
+  }.
+
   projectFieldValidation :: FunctionContext -> LoweredBlock -> [LoweredTemporaryId] -> LoweredIRValidationPath -> LoweredLayoutId -> Int -> LoweredOperand -> [LoweredRepresentation] -> OperationValidation.
   projectFieldValidation = \(context, block, seen, path, layoutId, index, operand, fields) -> case listAt index fields {
     | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidFieldProjection (LoweredIndexDetail index)]) Nothing
@@ -494,11 +599,19 @@ module LoweredIRValidate (
       | ProgramContext layouts services functions -> case operation {
         | LoweredPrimitiveOperation primitive operands -> case primitive {
           | LoweredArithmeticPrimitive arithmetic -> case operands {
-            | [] -> OperationValidation (validateOperands context block seen path operands) Nothing
-            | [first | rest] -> OperationValidation (validateOperands context block seen path operands) (Just (operandRepresentation first))
+            | [] -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (arithmeticPrimitiveFailures path arithmetic operands))
+              Nothing
+            | [first | rest] -> OperationValidation
+              (listAppend (validateOperands context block seen path operands) (arithmeticPrimitiveFailures path arithmetic operands))
+              (Just (operandRepresentation first))
           }
-          | LoweredComparisonPrimitive comparison -> OperationValidation (validateOperands context block seen path operands) (Just LoweredBoolRepresentation)
-          | LoweredBooleanPrimitive boolean -> OperationValidation (validateOperands context block seen path operands) (Just LoweredBoolRepresentation)
+          | LoweredComparisonPrimitive comparison -> OperationValidation
+            (listAppend (validateOperands context block seen path operands) (comparisonPrimitiveFailures path comparison operands))
+            (Just LoweredBoolRepresentation)
+          | LoweredBooleanPrimitive boolean -> OperationValidation
+            (listAppend (validateOperands context block seen path operands) (booleanPrimitiveFailures path boolean operands))
+            (Just LoweredBoolRepresentation)
         }
         | LoweredConstructProduct layoutId operands -> case lookupLayout layoutId layouts {
           | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
@@ -541,9 +654,11 @@ module LoweredIRValidate (
                 (Just (LoweredClosureRepresentation (functionSignature targetFunction)))
               | Just environmentParameter -> case environmentParameter {
                 | LoweredParameter environmentId expectedEnvironment -> OperationValidation
-                  (listAppend
-                    (validateOperands context block seen path [environmentOperand])
-                    (representationMismatchFailure path LoweredClosureEnvironmentMismatch expectedEnvironment (operandRepresentation environmentOperand)))
+                  (listConcat
+                    [ validateOperands context block seen path [environmentOperand],
+                      validateClosureEnvironmentParameter programContext path environmentParameter,
+                      representationMismatchFailure path LoweredClosureEnvironmentMismatch expectedEnvironment (operandRepresentation environmentOperand)
+                    ])
                   (Just (LoweredClosureRepresentation (functionSignature targetFunction)))
               }
             }
@@ -580,7 +695,7 @@ module LoweredIRValidate (
           | Nothing -> OperationValidation (listAppend (validateOperands context block seen path operands) [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunctionId))]) Nothing
           | Just targetFunction -> case functionSignature targetFunction {
             | LoweredCallSignature parameters result -> OperationValidation
-              (listAppend (validateOperands context block seen path operands) (callMismatchFailures path LoweredDirectCallSignatureMismatch (functionSignature targetFunction) operands))
+              (listAppend (validateOperands context block seen path operands) (directCallMismatchFailures path LoweredDirectCallSignatureMismatch targetFunction operands))
               (Just result)
           }
         }
@@ -615,8 +730,14 @@ module LoweredIRValidate (
         | LoweredBlock blockId blockParameters instructions terminator -> case instruction {
           | LoweredInstruction temporaryId result operation -> case validateOperation context block seen (LoweredInstructionPath functionId blockId index) operation {
             | OperationValidation operationFailures maybeExpected -> case maybeExpected {
-              | Nothing -> operationFailures
-              | Just expected -> listAppend operationFailures (representationMismatchFailure (LoweredInstructionPath functionId blockId index) LoweredInstructionResultRepresentationMismatch expected result)
+              | Nothing -> listAppend
+                operationFailures
+                (validateRepresentation programContext (LoweredInstructionPath functionId blockId index) result)
+              | Just expected -> listConcat
+                [ operationFailures,
+                  validateRepresentation programContext (LoweredInstructionPath functionId blockId index) result,
+                  representationMismatchFailure (LoweredInstructionPath functionId blockId index) LoweredInstructionResultRepresentationMismatch expected result
+                ]
             }
           }
         }
@@ -687,6 +808,31 @@ module LoweredIRValidate (
     }
   }.
 
+  invalidSwitchTagFailures :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  invalidSwitchTagFailures = \(path, variants, cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> case lookupVariant tag variants {
+      | Nothing -> listPrepend (failure path LoweredInvalidTagProjection (LoweredTagDetail tag)) (invalidSwitchTagFailures path variants rest)
+      | Just fields -> invalidSwitchTagFailures path variants rest
+    }
+  }.
+
+  switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  switchShapeFailures = \(context, path, operand, cases) -> case context {
+    | FunctionContext programContext function -> case programContext {
+      | ProgramContext layouts services functions -> case operandRepresentation operand {
+        | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
+          | Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
+          | Just shape -> case shape {
+            | LoweredVariantLayouts variants -> invalidSwitchTagFailures path variants cases
+            | other -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+          }
+        }
+        | other -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+      }
+    }
+  }.
+
   validateDirectTailCall :: FunctionContext -> LoweredIRValidationPath -> LoweredRepresentation -> LoweredFunctionId -> [LoweredOperand] -> [LoweredIRValidationFailure].
   validateDirectTailCall = \(context, path, result, targetFunctionId, operands) -> case context {
     | FunctionContext programContext function -> case programContext {
@@ -694,7 +840,7 @@ module LoweredIRValidate (
         | Nothing -> [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunctionId))]
         | Just targetFunction -> case functionSignature targetFunction {
           | LoweredCallSignature parameters targetResult -> listAppend
-            (callMismatchFailures path LoweredDirectTailCallSignatureMismatch (functionSignature targetFunction) operands)
+            (directCallMismatchFailures path LoweredDirectTailCallSignatureMismatch targetFunction operands)
             (representationMismatchFailure path LoweredDirectTailCallSignatureMismatch result targetResult)
         }
       }
@@ -725,6 +871,7 @@ module LoweredIRValidate (
       ]
     | LoweredSwitch operand cases maybeDefault -> listConcat
       [ validateOperands context block seen path (listPrepend operand (listAppend (switchOperands cases) (defaultOperands maybeDefault))),
+        switchShapeFailures context path operand cases,
         duplicateSwitchTagFailures path cases,
         validateSwitchCases context path cases,
         validateSwitchDefault context path maybeDefault
@@ -770,7 +917,8 @@ module LoweredIRValidate (
     | FunctionContext programContext function -> case function {
       | LoweredFunction functionId environment functionParameters result blocks entry -> case block {
         | LoweredBlock blockId parameters instructions maybeTerminator -> listConcat
-          [ validateRepresentations programContext (LoweredBlockPath functionId blockId) (parameterRepresentations parameters),
+          [ duplicateParameterFailures (LoweredBlockPath functionId blockId) parameters,
+            validateRepresentations programContext (LoweredBlockPath functionId blockId) (parameterRepresentations parameters),
             duplicateTemporaryFailures functionId blockId instructions,
             validateInstructionsFrom context block instructions 0 [],
             missingTerminatorFailures functionId blockId maybeTerminator,
@@ -792,11 +940,25 @@ module LoweredIRValidate (
     | Just block -> []
   }.
 
+  entryBlockParameterFailures :: LoweredFunctionId -> LoweredBlockId -> [LoweredBlock] -> [LoweredIRValidationFailure].
+  entryBlockParameterFailures = \(functionId, entry, blocks) -> case lookupBlock entry blocks {
+    | Nothing -> []
+    | Just block -> case block {
+      | LoweredBlock blockId parameters instructions terminator -> case parameters {
+        | [] -> []
+        | other -> [failure (LoweredBlockPath functionId entry) LoweredEntryBlockParameters (LoweredArityDetail 0 (listLength parameters))]
+      }
+    }
+  }.
+
   validateFunction :: ProgramContext -> LoweredFunction -> [LoweredIRValidationFailure].
   validateFunction = \(programContext, function) -> case function {
     | LoweredFunction functionId environment parameters result blocks entry -> listConcat
       [ duplicateBlockFailures functionId blocks,
         missingEntryBlockFailures functionId entry blocks,
+        duplicateParameterFailures (LoweredFunctionPath functionId) (functionParameters function),
+        entryBlockParameterFailures functionId entry blocks,
+        closureEnvironmentFailures programContext (LoweredFunctionPath functionId) environment,
         validateRepresentations programContext (LoweredFunctionPath functionId) (listPrepend result (parameterRepresentations (functionParameters function))),
         validateBlocks (FunctionContext programContext function) blocks
       ]

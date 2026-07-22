@@ -111,6 +111,8 @@ decodeValidationKind value = do
       "LoweredMissingEntryFunction" -> Right LoweredMissingEntryFunction
       "LoweredDuplicateBlock" -> Right LoweredDuplicateBlock
       "LoweredMissingEntryBlock" -> Right LoweredMissingEntryBlock
+      "LoweredDuplicateParameter" -> Right LoweredDuplicateParameter
+      "LoweredEntryBlockParameters" -> Right LoweredEntryBlockParameters
       "LoweredMissingTerminator" -> Right LoweredMissingTerminator
       "LoweredDuplicateTemporary" -> Right LoweredDuplicateTemporary
       "LoweredUseBeforeDefinition" -> Right LoweredUseBeforeDefinition
@@ -118,6 +120,7 @@ decodeValidationKind value = do
       "LoweredUnknownParameter" -> Right LoweredUnknownParameter
       "LoweredUnknownFunction" -> Right LoweredUnknownFunction
       "LoweredUnknownBlock" -> Right LoweredUnknownBlock
+      "LoweredPrimitiveSignatureMismatch" -> Right LoweredPrimitiveSignatureMismatch
       "LoweredInstructionResultRepresentationMismatch" -> Right LoweredInstructionResultRepresentationMismatch
       "LoweredInvalidFieldProjection" -> Right LoweredInvalidFieldProjection
       "LoweredInvalidTagProjection" -> Right LoweredInvalidTagProjection
@@ -558,6 +561,8 @@ validationKindName kind =
     LoweredMissingEntryFunction -> "LoweredMissingEntryFunction"
     LoweredDuplicateBlock -> "LoweredDuplicateBlock"
     LoweredMissingEntryBlock -> "LoweredMissingEntryBlock"
+    LoweredDuplicateParameter -> "LoweredDuplicateParameter"
+    LoweredEntryBlockParameters -> "LoweredEntryBlockParameters"
     LoweredMissingTerminator -> "LoweredMissingTerminator"
     LoweredDuplicateTemporary -> "LoweredDuplicateTemporary"
     LoweredUseBeforeDefinition -> "LoweredUseBeforeDefinition"
@@ -565,6 +570,7 @@ validationKindName kind =
     LoweredUnknownParameter -> "LoweredUnknownParameter"
     LoweredUnknownFunction -> "LoweredUnknownFunction"
     LoweredUnknownBlock -> "LoweredUnknownBlock"
+    LoweredPrimitiveSignatureMismatch -> "LoweredPrimitiveSignatureMismatch"
     LoweredInstructionResultRepresentationMismatch -> "LoweredInstructionResultRepresentationMismatch"
     LoweredInvalidFieldProjection -> "LoweredInvalidFieldProjection"
     LoweredInvalidTagProjection -> "LoweredInvalidTagProjection"

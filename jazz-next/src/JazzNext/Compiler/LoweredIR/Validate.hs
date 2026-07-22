@@ -109,6 +109,9 @@ validateFunction :: ProgramContext -> LoweredFunction -> [LoweredIRValidationFai
 validateFunction programContext function@(LoweredFunction functionId maybeEnvironment parameters resultRepresentation blocks entryBlock) =
   duplicateBlockFailures
     <> missingEntryBlockFailure
+    <> duplicateParameterFailures (LoweredFunctionPath functionId) (maybeToList maybeEnvironment <> parameters)
+    <> entryBlockParameterFailures
+    <> maybe [] (validateClosureEnvironmentParameter programContext (LoweredFunctionPath functionId)) maybeEnvironment
     <> concatMap (validateRepresentation programContext (LoweredFunctionPath functionId)) functionRepresentations
     <> concatMap (validateBlock functionContext) blocks
   where
@@ -140,13 +143,24 @@ validateFunction programContext function@(LoweredFunction functionId maybeEnviro
     missingEntryBlockFailure
       | Map.member entryBlock blocksById = []
       | otherwise = [failure (LoweredFunctionPath functionId) LoweredMissingEntryBlock (identifierDetail (blockIdText entryBlock))]
+    entryBlockParameterFailures =
+      case Map.lookup entryBlock blocksById of
+        Just (LoweredBlock _ entryParameters _ _)
+          | not (null entryParameters) ->
+              [ failure
+                  (LoweredBlockPath functionId entryBlock)
+                  LoweredEntryBlockParameters
+                  (LoweredArityDetail 0 (length entryParameters))
+              ]
+        _ -> []
     functionRepresentations =
       resultRepresentation
         : [representation | LoweredParameter _ representation <- maybeToList maybeEnvironment <> parameters]
 
 validateBlock :: FunctionContext -> LoweredBlock -> [LoweredIRValidationFailure]
 validateBlock functionContext (LoweredBlock blockId parameters instructions maybeTerminator) =
-  concatMap (validateRepresentation programContext blockPath) blockParameterRepresentations
+  duplicateParameterFailures blockPath parameters
+    <> concatMap (validateRepresentation programContext blockPath) blockParameterRepresentations
     <> duplicateTemporaryFailures
     <> instructionFailures
     <> missingTerminatorFailure
@@ -203,21 +217,22 @@ validateInstruction functionContext blockId blockParameters (seenTemporaries, ac
     (operationFailures, maybeExpectedRepresentation) =
       validateOperation functionContext blockId blockParameters seenTemporaries path operation
     resultFailures =
-      case maybeExpectedRepresentation of
-        Just expectedRepresentation
-          | expectedRepresentation /= resultRepresentation ->
-              [ failure
-                  path
-                  LoweredInstructionResultRepresentationMismatch
-                  (LoweredRepresentationDetail expectedRepresentation resultRepresentation)
-              ]
-        _ -> []
+      validateRepresentation (functionContextProgram functionContext) path resultRepresentation
+        <> case maybeExpectedRepresentation of
+          Just expectedRepresentation
+            | expectedRepresentation /= resultRepresentation ->
+                [ failure
+                    path
+                    LoweredInstructionResultRepresentationMismatch
+                    (LoweredRepresentationDetail expectedRepresentation resultRepresentation)
+                ]
+          _ -> []
 
 validateOperation :: FunctionContext -> LoweredBlockId -> Map LoweredParameterId LoweredRepresentation -> Set LoweredTemporaryId -> LoweredIRValidationPath -> LoweredOperation -> ([LoweredIRValidationFailure], Maybe LoweredRepresentation)
 validateOperation functionContext blockId blockParameters seenTemporaries path operation =
   case operation of
     LoweredPrimitiveOperation primitive operands ->
-      (operandFailures operands <> primitiveFailures primitive operands, primitiveResult primitive operands)
+      (operandFailures operands <> primitiveFailures path primitive operands, primitiveResult primitive operands)
     LoweredConstructProduct layoutId operands ->
       case Map.lookup layoutId layouts of
         Just (LoweredProductLayout fields) -> constructResult layoutId fields operands
@@ -249,6 +264,7 @@ validateOperation functionContext blockId blockParameters seenTemporaries path o
           let environmentFailures = operandFailures [environment]
               expectedEnvironment = fmap parameterRepresentation maybeEnvironment
               actualEnvironment = loweredOperandRepresentation environment
+              environmentLayoutFailures = maybe [] (validateClosureEnvironmentParameter programContext path) maybeEnvironment
               closureFailures =
                 case expectedEnvironment of
                   Just expected
@@ -256,7 +272,7 @@ validateOperation functionContext blockId blockParameters seenTemporaries path o
                         [failure path LoweredClosureEnvironmentMismatch (LoweredRepresentationDetail expected actualEnvironment)]
                   Nothing -> [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail]
                   _ -> []
-           in (environmentFailures <> closureFailures, Just (LoweredClosureRepresentation (loweredFunctionCallSignature targetFunction)))
+           in (environmentFailures <> environmentLayoutFailures <> closureFailures, Just (LoweredClosureRepresentation (loweredFunctionCallSignature targetFunction)))
     LoweredProjectField layoutId fieldIndex operand ->
       case Map.lookup layoutId layouts of
         Just (LoweredProductLayout fields) -> projectField fields
@@ -286,8 +302,8 @@ validateOperation functionContext blockId blockParameters seenTemporaries path o
       case Map.lookup functionId functions of
         Nothing -> (operandFailures operands <> [failure path LoweredUnknownFunction (identifierDetail (functionIdText functionId))], Nothing)
         Just targetFunction ->
-          let signature@(LoweredCallSignature _ resultRepresentation) = loweredFunctionCallSignature targetFunction
-           in (operandFailures operands <> callMismatchFailure path LoweredDirectCallSignatureMismatch signature operands, Just resultRepresentation)
+          let LoweredCallSignature _ resultRepresentation = loweredFunctionCallSignature targetFunction
+           in (operandFailures operands <> directCallMismatchFailure path LoweredDirectCallSignatureMismatch targetFunction operands, Just resultRepresentation)
     LoweredClosureCall functionOperand operands ->
       case loweredOperandRepresentation functionOperand of
         LoweredClosureRepresentation signature@(LoweredCallSignature _ resultRepresentation) ->
@@ -366,6 +382,7 @@ validateTerminator functionContext blockId blockParameters seenTemporaries termi
         <> validateEdge functionContext path elseBlock elseOperands
     LoweredSwitch operand cases maybeDefault ->
       operandFailures (operand : concatMap switchCaseOperands cases <> maybe [] switchDefaultOperands maybeDefault)
+        <> switchShapeFailures functionContext path operand cases
         <> duplicateSwitchTagFailures path cases
         <> concatMap (validateSwitchCase functionContext path) cases
         <> maybe [] (validateSwitchDefault functionContext path) maybeDefault
@@ -408,8 +425,8 @@ validateDirectTailCall functionContext path resultRepresentation targetFunction 
   case Map.lookup targetFunction (contextFunctions (functionContextProgram functionContext)) of
     Nothing -> [failure path LoweredUnknownFunction (identifierDetail (functionIdText targetFunction))]
     Just function ->
-      let signature@(LoweredCallSignature _ targetResult) = loweredFunctionCallSignature function
-       in callMismatchFailure path LoweredDirectTailCallSignatureMismatch signature operands
+      let LoweredCallSignature _ targetResult = loweredFunctionCallSignature function
+       in directCallMismatchFailure path LoweredDirectTailCallSignatureMismatch function operands
             <> representationMismatchFailure path LoweredDirectTailCallSignatureMismatch resultRepresentation targetResult
 
 validateClosureTailCall :: LoweredIRValidationPath -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> [LoweredIRValidationFailure]
@@ -445,8 +462,108 @@ primitiveResult primitive operands =
     LoweredComparisonPrimitive _ -> Just LoweredBoolRepresentation
     LoweredBooleanPrimitive _ -> Just LoweredBoolRepresentation
 
-primitiveFailures :: LoweredPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure]
-primitiveFailures _ _ = []
+primitiveFailures :: LoweredIRValidationPath -> LoweredPrimitive -> [LoweredOperand] -> [LoweredIRValidationFailure]
+primitiveFailures path primitive operands =
+  case primitive of
+    LoweredArithmeticPrimitive operation ->
+      binaryHomogeneousFailures
+        <> case operands of
+          [operand, _]
+            | arithmeticRepresentationAllowed operation (loweredOperandRepresentation operand) -> []
+            | otherwise -> [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+          _ -> []
+    LoweredComparisonPrimitive operation ->
+      binaryHomogeneousFailures
+        <> case operands of
+          [operand, _]
+            | comparisonRepresentationAllowed operation (loweredOperandRepresentation operand) -> []
+            | otherwise -> [failure path LoweredPrimitiveSignatureMismatch LoweredNoValidationDetail]
+          _ -> []
+    LoweredBooleanPrimitive operation ->
+      representationListFailures
+        path
+        LoweredPrimitiveSignatureMismatch
+        (replicate (booleanPrimitiveArity operation) LoweredBoolRepresentation)
+        operandRepresentations
+  where
+    operandRepresentations = map loweredOperandRepresentation operands
+    binaryHomogeneousFailures =
+      case operands of
+        [left, right] ->
+          representationMismatchFailure
+            path
+            LoweredPrimitiveSignatureMismatch
+            (loweredOperandRepresentation left)
+            (loweredOperandRepresentation right)
+        _ -> [failure path LoweredPrimitiveSignatureMismatch (LoweredArityDetail 2 (length operands))]
+
+arithmeticRepresentationAllowed :: LoweredArithmeticPrimitive -> LoweredRepresentation -> Bool
+arithmeticRepresentationAllowed _ = isNumericRepresentation
+
+comparisonRepresentationAllowed :: LoweredComparisonPrimitive -> LoweredRepresentation -> Bool
+comparisonRepresentationAllowed operation representation =
+  case operation of
+    LoweredEqual -> True
+    LoweredNotEqual -> True
+    _ -> isNumericRepresentation representation
+
+booleanPrimitiveArity :: LoweredBooleanPrimitive -> Int
+booleanPrimitiveArity operation =
+  case operation of
+    LoweredBooleanNot -> 1
+    LoweredBooleanAnd -> 2
+    LoweredBooleanOr -> 2
+
+isIntegralRepresentation :: LoweredRepresentation -> Bool
+isIntegralRepresentation representation =
+  case representation of
+    LoweredSignedIntegerRepresentation _ -> True
+    LoweredUnsignedIntegerRepresentation _ -> True
+    _ -> False
+
+isNumericRepresentation :: LoweredRepresentation -> Bool
+isNumericRepresentation representation =
+  isIntegralRepresentation representation
+    || case representation of
+      LoweredFloatRepresentation _ -> True
+      _ -> False
+
+directCallMismatchFailure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredFunction -> [LoweredOperand] -> [LoweredIRValidationFailure]
+directCallMismatchFailure path kind function@(LoweredFunction _ maybeEnvironment _ _ _ _) operands =
+  case maybeEnvironment of
+    Just _ -> [failure path kind LoweredNoValidationDetail]
+    Nothing -> callMismatchFailure path kind (loweredFunctionCallSignature function) operands
+
+duplicateParameterFailures :: LoweredIRValidationPath -> [LoweredParameter] -> [LoweredIRValidationFailure]
+duplicateParameterFailures path =
+  duplicateFailures
+    (\(LoweredParameter parameterId _) -> parameterId)
+    (const path)
+    LoweredDuplicateParameter
+    parameterIdText
+
+validateClosureEnvironmentParameter :: ProgramContext -> LoweredIRValidationPath -> LoweredParameter -> [LoweredIRValidationFailure]
+validateClosureEnvironmentParameter programContext path (LoweredParameter _ representation) =
+  case representation of
+    LoweredManagedReferenceRepresentation layoutId ->
+      case Map.lookup layoutId (contextLayouts programContext) of
+        Just (LoweredClosureEnvironmentLayout _) -> []
+        _ -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
+    _ -> [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail]
+
+switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> [LoweredIRValidationFailure]
+switchShapeFailures functionContext path operand cases =
+  case loweredOperandRepresentation operand of
+    LoweredManagedReferenceRepresentation layoutId ->
+      case Map.lookup layoutId (contextLayouts (functionContextProgram functionContext)) of
+        Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
+        Just (LoweredVariantLayouts variants) ->
+          [ failure path LoweredInvalidTagProjection (LoweredTagDetail tag)
+            | LoweredSwitchCase tag _ _ <- cases,
+              lookupVariant tag variants == Nothing
+          ]
+        Just _ -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+    _ -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
 
 callMismatchFailure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredCallSignature -> [LoweredOperand] -> [LoweredIRValidationFailure]
 callMismatchFailure path kind (LoweredCallSignature expectedRepresentations _) operands =

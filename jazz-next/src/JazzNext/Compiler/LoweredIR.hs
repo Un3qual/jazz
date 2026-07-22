@@ -219,6 +219,8 @@ data LoweredIRValidationKind
   | LoweredMissingEntryFunction
   | LoweredDuplicateBlock
   | LoweredMissingEntryBlock
+  | LoweredDuplicateParameter
+  | LoweredEntryBlockParameters
   | LoweredMissingTerminator
   | LoweredDuplicateTemporary
   | LoweredUseBeforeDefinition
@@ -226,6 +228,7 @@ data LoweredIRValidationKind
   | LoweredUnknownParameter
   | LoweredUnknownFunction
   | LoweredUnknownBlock
+  | LoweredPrimitiveSignatureMismatch
   | LoweredInstructionResultRepresentationMismatch
   | LoweredInvalidFieldProjection
   | LoweredInvalidTagProjection

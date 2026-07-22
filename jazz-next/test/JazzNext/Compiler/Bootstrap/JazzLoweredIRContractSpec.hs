@@ -49,6 +49,7 @@ tests =
     ("accepts every fixed valid program", testValidPrograms),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
+    ("reports every validator hardening regression exactly", testHardeningPrograms),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
@@ -58,19 +59,22 @@ tests =
     ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
     ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
-    ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity)
+    ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity),
+    ("matches Haskell validation for every hardening regression twice", testJazzHardeningParity)
   ]
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
   mapM_
-    ( \fixture ->
+    ( \(name, failures) ->
         assertEqual
-          (invalidFixtureName fixture <> " checked validation round-trip")
-          (Right (invalidFixtureFailures fixture))
-          (decodeCanonicalLoweredValidationFailuresRuntimeValue (canonicalLoweredValidationFailuresRuntimeValue (invalidFixtureFailures fixture)))
+          (name <> " checked validation round-trip")
+          (Right failures)
+          (decodeCanonicalLoweredValidationFailuresRuntimeValue (canonicalLoweredValidationFailuresRuntimeValue failures))
     )
-    invalidFixtures
+    ( [(invalidFixtureName fixture, invalidFixtureFailures fixture) | fixture <- invalidFixtures]
+        <> [(hardeningFixtureName fixture, hardeningFixtureFailures fixture) | fixture <- hardeningFixtures]
+    )
 
 testCheckedValidationAdapterUnknownConstructor :: IO ()
 testCheckedValidationAdapterUnknownConstructor =
@@ -152,6 +156,26 @@ testJazzValidationParity = do
   assertJazzOutput "Jazz validation first run" expected first
   assertJazzOutput "Jazz validation second run" expected second
   assertEqual "Jazz validation deterministic output" (runOutput first) (runOutput second)
+
+testJazzHardeningParity :: IO ()
+testJazzHardeningParity = do
+  let programs = map hardeningFixtureProgram hardeningFixtures
+      expected =
+        renderRuntimeValue
+          ( VList
+              [ VTuple
+                  [ canonicalLoweredProgramRuntimeValue programValue,
+                    canonicalLoweredValidationFailuresRuntimeValue (validateLoweredProgram programValue)
+                  ]
+                | programValue <- programs
+              ]
+              Nothing
+          )
+  first <- runJazzValidationBatch programs
+  second <- runJazzValidationBatch programs
+  assertJazzOutput "Jazz hardening validation first run" expected first
+  assertJazzOutput "Jazz hardening validation second run" expected second
+  assertEqual "Jazz hardening validation deterministic output" (runOutput first) (runOutput second)
 
 testJazzMinimalValidation :: IO ()
 testJazzMinimalValidation = do
@@ -274,6 +298,17 @@ testInvalidPrograms =
           (validateLoweredProgram (invalidFixtureProgram fixture))
     )
     invalidFixtures
+
+testHardeningPrograms :: IO ()
+testHardeningPrograms =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          (hardeningFixtureName fixture <> " failures")
+          (hardeningFixtureFailures fixture)
+          (validateLoweredProgram (hardeningFixtureProgram fixture))
+    )
+    hardeningFixtures
 
 testBlockLocalTemporaryScope :: IO ()
 testBlockLocalTemporaryScope =
@@ -850,6 +885,285 @@ completeFailureOrderProgram =
     []
     [LoweredFunction (functionId "main") Nothing [] LoweredUnitRepresentation [LoweredBlock (blockId "entry") [] [] Nothing] (blockId "entry")]
     (functionId "missing")
+
+data HardeningFixture = HardeningFixture
+  { hardeningFixtureName :: Text,
+    hardeningFixtureProgram :: LoweredProgram,
+    hardeningFixtureFailures :: [LoweredIRValidationFailure]
+  }
+
+hardeningFixtures :: [HardeningFixture]
+hardeningFixtures =
+  [ HardeningFixture
+      "zero-operand arithmetic"
+      (primitiveInstructionProgram i64 (LoweredArithmeticPrimitive LoweredAdd) [])
+      [instructionFailure "main" "entry" 0 LoweredPrimitiveSignatureMismatch (LoweredArityDetail 2 0)],
+    HardeningFixture
+      "mixed-representation arithmetic"
+      (primitiveInstructionProgram i64 (LoweredArithmeticPrimitive LoweredAdd) [int64 1, immediate (LoweredBoolImmediate True)])
+      [instructionFailure "main" "entry" 0 LoweredPrimitiveSignatureMismatch (representationDetail i64 LoweredBoolRepresentation)],
+    HardeningFixture
+      "integer boolean operation"
+      (primitiveInstructionProgram LoweredBoolRepresentation (LoweredBooleanPrimitive LoweredBooleanAnd) [int64 1, int64 0])
+      [instructionFailure "main" "entry" 0 LoweredPrimitiveSignatureMismatch (representationDetail LoweredBoolRepresentation i64)],
+    HardeningFixture
+      "scalar switch"
+      scalarSwitchProgram
+      [terminatorFailure "main" "entry" LoweredInvalidTagProjection LoweredNoValidationDetail],
+    HardeningFixture
+      "non-variant managed switch"
+      productSwitchProgram
+      [terminatorFailure "main" "entry" LoweredInvalidTagProjection LoweredNoValidationDetail],
+    HardeningFixture
+      "unknown variant switch tag"
+      (switchProgram [LoweredSwitchCase 1 (blockId "target") []] (unitBlock "target"))
+      [terminatorFailure "main" "entry" LoweredInvalidTagProjection (LoweredTagDetail 1)],
+    HardeningFixture
+      "capturing direct call"
+      (capturingDirectCallProgram False)
+      [instructionFailure "main" "entry" 0 LoweredDirectCallSignatureMismatch LoweredNoValidationDetail],
+    HardeningFixture
+      "capturing direct tail call"
+      (capturingDirectCallProgram True)
+      [terminatorFailure "main" "entry" LoweredDirectTailCallSignatureMismatch LoweredNoValidationDetail],
+    HardeningFixture
+      "scalar closure environment"
+      (invalidClosureEnvironmentKindProgram False)
+      [ functionFailure "captured" LoweredClosureEnvironmentMismatch LoweredNoValidationDetail,
+        instructionFailure "main" "entry" 0 LoweredClosureEnvironmentMismatch LoweredNoValidationDetail
+      ],
+    HardeningFixture
+      "product closure environment"
+      (invalidClosureEnvironmentKindProgram True)
+      [ functionFailure "captured" LoweredClosureEnvironmentMismatch (identifierDetail "environment"),
+        instructionFailure "main" "entry" 1 LoweredClosureEnvironmentMismatch (identifierDetail "environment")
+      ],
+    HardeningFixture
+      "duplicate function parameter"
+      duplicateFunctionParameterProgram
+      [functionFailure "main" LoweredDuplicateParameter (identifierDetail "value")],
+    HardeningFixture
+      "duplicate block parameter"
+      duplicateBlockParameterProgram
+      [blockFailure "main" "join" LoweredDuplicateParameter (identifierDetail "value")],
+    HardeningFixture
+      "parameterized entry block"
+      parameterizedEntryBlockProgram
+      [blockFailure "main" "entry" LoweredEntryBlockParameters (LoweredArityDetail 0 1)],
+    HardeningFixture
+      "unknown managed result"
+      (unknownInstructionResultProgram (managed "missing"))
+      [ instructionFailure "main" "entry" 0 LoweredUnknownFunction (identifierDetail "missing"),
+        instructionFailure "main" "entry" 0 LoweredUnknownLayout (identifierDetail "missing")
+      ],
+    HardeningFixture
+      "unknown nested closure result"
+      (unknownInstructionResultProgram (LoweredClosureRepresentation (LoweredCallSignature [managed "missing"] LoweredUnitRepresentation)))
+      [ instructionFailure "main" "entry" 0 LoweredUnknownFunction (identifierDetail "missing"),
+        instructionFailure "main" "entry" 0 LoweredUnknownLayout (identifierDetail "missing")
+      ]
+  ]
+
+primitiveInstructionProgram :: LoweredRepresentation -> LoweredPrimitive -> [LoweredOperand] -> LoweredProgram
+primitiveInstructionProgram resultRepresentation primitive operands =
+  instructionUnitProgram
+    [instruction "value" resultRepresentation (LoweredPrimitiveOperation primitive operands)]
+
+scalarSwitchProgram :: LoweredProgram
+scalarSwitchProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            []
+            (LoweredSwitch (immediate (LoweredBoolImmediate True)) [LoweredSwitchCase 0 (blockId "target") []] Nothing),
+          unitBlock "target"
+        ]
+        "entry"
+    ]
+    "main"
+
+productSwitchProgram :: LoweredProgram
+productSwitchProgram =
+  program
+    [productLayout "product" []]
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            [instruction "product" (managed "product") (LoweredConstructProduct (layoutId "product") [])]
+            (LoweredSwitch (temporary "product" (managed "product")) [LoweredSwitchCase 0 (blockId "target") []] Nothing),
+          unitBlock "target"
+        ]
+        "entry"
+    ]
+    "main"
+
+capturingDirectCallProgram :: Bool -> LoweredProgram
+capturingDirectCallProgram useTailCall =
+  program
+    [LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [])]
+    []
+    [capturedUnitFunction, mainFunction]
+    "main"
+  where
+    capturedUnitFunction =
+      function
+        "captured"
+        (Just (parameter "environment" (managed "environment")))
+        []
+        LoweredUnitRepresentation
+        [unitBlock "entry"]
+        "entry"
+    mainFunction
+      | useTailCall =
+          function
+            "main"
+            Nothing
+            []
+            LoweredUnitRepresentation
+            [block "entry" [] [] (LoweredDirectTailCall (functionId "captured") [])]
+            "entry"
+      | otherwise =
+          function
+            "main"
+            Nothing
+            []
+            LoweredUnitRepresentation
+            [ block
+                "entry"
+                []
+                [instruction "result" LoweredUnitRepresentation (LoweredDirectCall (functionId "captured") [])]
+                (LoweredReturn (temporary "result" LoweredUnitRepresentation))
+            ]
+            "entry"
+
+invalidClosureEnvironmentKindProgram :: Bool -> LoweredProgram
+invalidClosureEnvironmentKindProgram useProductLayout =
+  program
+    layouts
+    []
+    [ capturedFunction,
+      function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [block "entry" [] setup (LoweredReturn (immediate LoweredUnitImmediate))]
+        "entry"
+    ]
+    "main"
+  where
+    environmentRepresentation
+      | useProductLayout = managed "environment"
+      | otherwise = i64
+    environmentOperand
+      | useProductLayout = temporary "environment" (managed "environment")
+      | otherwise = int64 0
+    layouts
+      | useProductLayout = [productLayout "environment" []]
+      | otherwise = []
+    capturedFunction =
+      function
+        "captured"
+        (Just (parameter "environment" environmentRepresentation))
+        []
+        LoweredUnitRepresentation
+        [unitBlock "entry"]
+        "entry"
+    setup =
+      ( if useProductLayout
+          then [instruction "environment" (managed "environment") (LoweredConstructProduct (layoutId "environment") [])]
+          else []
+      )
+        <> [ instruction
+               "closure"
+               (LoweredClosureRepresentation (LoweredCallSignature [] LoweredUnitRepresentation))
+               (LoweredConstructClosure (functionId "captured") environmentOperand)
+           ]
+
+duplicateFunctionParameterProgram :: LoweredProgram
+duplicateFunctionParameterProgram =
+  program
+    [LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [])]
+    []
+    [ function
+        "main"
+        (Just (parameter "value" (managed "environment")))
+        [parameter "value" i64]
+        LoweredUnitRepresentation
+        [unitBlock "entry"]
+        "entry"
+    ]
+    "main"
+
+duplicateBlockParameterProgram :: LoweredProgram
+duplicateBlockParameterProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block "entry" [] [] (LoweredJump (blockId "join") [int64 1, int64 2]),
+          block
+            "join"
+            [parameter "value" i64, parameter "value" i64]
+            []
+            (LoweredReturn (immediate LoweredUnitImmediate))
+        ]
+        "entry"
+    ]
+    "main"
+
+parameterizedEntryBlockProgram :: LoweredProgram
+parameterizedEntryBlockProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        i64
+        [block "entry" [parameter "value" i64] [] (LoweredReturn (blockParameter "value" i64))]
+        "entry"
+    ]
+    "main"
+
+unknownInstructionResultProgram :: LoweredRepresentation -> LoweredProgram
+unknownInstructionResultProgram resultRepresentation =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            [instruction "result" resultRepresentation (LoweredDirectCall (functionId "missing") [])]
+            (LoweredReturn (immediate LoweredUnitImmediate))
+        ]
+        "entry"
+    ]
+    "main"
 
 unitProgram :: [LoweredLayout] -> [LoweredRuntimeService] -> LoweredProgram
 unitProgram layouts services = program layouts services [unitMain] "main"

@@ -76,6 +76,7 @@ testComposedParity = do
 
 testUnsupportedBoundary :: IO ()
 testUnsupportedBoundary = do
+  assertEqual "unsupported fixture names" expectedUnsupportedFixtureNames (map fst unsupportedFixtures)
   assertEqual "unsupported fixture count" 12 (length unsupportedExpressions)
   first <- runJazzControlFlowPatternsBatch unsupportedExpressions
   second <- runJazzControlFlowPatternsBatch unsupportedExpressions
@@ -246,43 +247,82 @@ composedSources =
     "{ loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
   ]
 
-unsupportedExpressions :: [SurfaceExpr]
-unsupportedExpressions =
-  [ SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
-    SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0),
-    SECase
-      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
-      [SurfaceCaseArm SPWildcard Nothing (seInt 0)],
-    SECase
-      (SEVar "value")
-      [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 SurfaceTypeBool)) (seInt 0)],
-    SELambda
-      (SurfaceLambdaIdentifier "value" :| [])
-      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt),
-    SECase
-      (SEVar "value")
-      [SurfaceCaseArm SPWildcard Nothing (SEBinary "$" (SEVar "function") (seInt 1))],
-    SEIf
-      (SEVar "condition")
-      (SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)])
-      (seInt 0),
-    SECase
-      (SEVar "value")
-      [SurfaceCaseArm SPWildcard Nothing (SEBlock [SSData span1 "Thing" [] []])],
-    SELambda
-      (SurfaceLambdaIdentifier "value" :| [])
-      (SEBlock [SSClass span1 "Show" ["a"] []]),
-    SELambda
-      (SurfaceLambdaIdentifier "value" :| [])
-      (SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []]),
-    SEBlock
-      [SSLet "nested" span1 (SEBlock [SSLet "$operator:2B" span1 (SEVar "add")])],
-    SEBlock
-      [ SSModule span1 ["App", "Main"] Nothing,
-        SSImport span1 ["Core", "Text"] Nothing Nothing,
-        SSExpr span1 (seInt 0)
-      ]
+expectedUnsupportedFixtureNames :: [Text.Text]
+expectedUnsupportedFixtureNames =
+  [ "type-application-root",
+    "type-application-condition",
+    "type-application-case-scrutinee",
+    "type-application-case-guard",
+    "type-application-lambda-body",
+    "dollar-case-body",
+    "signature-if-block",
+    "data-case-block",
+    "class-lambda-block",
+    "impl-lambda-block",
+    "operator-storage-nested-block",
+    "module-import-nested-block"
   ]
+
+unsupportedFixtures :: [(Text.Text, SurfaceExpr)]
+unsupportedFixtures =
+  [ ("type-application-root", SETypeApplication (SEVar "identity") span1 SurfaceTypeInt),
+    ("type-application-condition", SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0)),
+    ( "type-application-case-scrutinee",
+      SECase
+      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+      [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
+    ),
+    ( "type-application-case-guard",
+      SECase
+        (SEVar "value")
+        [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 SurfaceTypeBool)) (seInt 0)]
+    ),
+    ( "type-application-lambda-body",
+      SELambda
+        (SurfaceLambdaIdentifier "value" :| [])
+        (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+    ),
+    ( "dollar-case-body",
+      SECase
+        (SEVar "value")
+        [SurfaceCaseArm SPWildcard Nothing (SEBinary "$" (SEVar "function") (seInt 1))]
+    ),
+    ( "signature-if-block",
+      SEIf
+        (SEVar "condition")
+        (SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)])
+        (seInt 0)
+    ),
+    ( "data-case-block",
+      SECase
+        (SEVar "value")
+        [SurfaceCaseArm SPWildcard Nothing (SEBlock [SSData span1 "Thing" [] []])]
+    ),
+    ( "class-lambda-block",
+      SELambda
+        (SurfaceLambdaIdentifier "value" :| [])
+        (SEBlock [SSClass span1 "Show" ["a"] []])
+    ),
+    ( "impl-lambda-block",
+      SELambda
+        (SurfaceLambdaIdentifier "value" :| [])
+        (SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []])
+    ),
+    ( "operator-storage-nested-block",
+      SEBlock
+        [SSLet "nested" span1 (SEBlock [SSLet "$operator:2B" span1 (SEVar "add")])]
+    ),
+    ( "module-import-nested-block",
+      SEBlock
+        [ SSModule span1 ["App", "Main"] Nothing,
+          SSImport span1 ["Core", "Text"] Nothing Nothing,
+          SSExpr span1 (seInt 0)
+        ]
+    )
+  ]
+
+unsupportedExpressions :: [SurfaceExpr]
+unsupportedExpressions = map snd unsupportedFixtures
 
 span1 :: SourceSpan
 span1 = SourceSpan 1 1

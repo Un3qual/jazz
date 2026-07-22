@@ -114,7 +114,7 @@ Nix-pinned development environment.
 | `CoreLower` existing wrappers | Preserve `lowerFoundationExpression`, `lowerControlFlowPatternsExpression`, and `lowerSignaturesDeclarationsOperatorsExpression`, each as `SurfaceExpr -> Maybe CoreExpr`. |
 | `CoreLower` complete expression | Add `lowerCanonicalExpression :: SurfaceExpr -> CoreExpr`. |
 | `CoreLower` module boundary | Add `lowerModule :: CanonicalSourcePath -> [Text] -> SurfaceExpr -> CoreModuleLoweringResult`. |
-| `CoreTypes` composed boundary | Add `CanonicalCoreSourceResult = CanonicalCoreSourceLexicalFailure CanonicalSourcePath CanonicalLexError | CanonicalCoreSourceParserFailure CanonicalSourcePath ParserFailure | CanonicalCoreSourceModuleResult CoreModuleLoweringResult`. |
+| `CoreTypes` composed boundary | Add `CanonicalCoreSourceResult = CanonicalCoreSourceLexicalFailure CanonicalSourcePath CanonicalLexError \| CanonicalCoreSourceParserFailure CanonicalSourcePath ParserFailure \| CanonicalCoreSourceModuleResult CoreModuleLoweringResult`. |
 | `Core` facade | Add `lowerCoreSource :: CanonicalSourcePath -> [Text] -> Text -> CanonicalCoreSourceResult`. |
 | Private lowering kernel | Produce a `CoreExpr` together with the maximum minimum-profile requirement of the root and all recursive children; wrapper admission compares that requirement with its requested profile. |
 | `JazzCoreParity` | Continue deriving expected values from `lowerSurfaceExpr` or `lowerSurfaceModuleDetailed` followed by the checked canonical adapter. |

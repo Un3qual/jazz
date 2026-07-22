@@ -143,8 +143,12 @@ A function declares:
 Closure conversion is explicit at this boundary. A capturing function receives
 one environment value whose layout request lists captured fields in stable
 order. Closure construction names a function symbol and supplies an environment
-operand. Non-capturing functions may be called directly without allocating an
-empty environment.
+operand. The environment parameter must be a managed reference to a
+`LoweredClosureEnvironmentLayout`; an arbitrary scalar or another managed
+layout kind is invalid. Non-capturing functions may be called directly without
+allocating an empty environment. Capturing functions are callable only through
+constructed closures, so direct calls and direct tail calls to them are
+invalid.
 
 The IR does not retain lexical scope, free-variable lookup, or nested function
 definitions. A later lowerer must lift nested lambdas and choose captured-field
@@ -157,6 +161,11 @@ instructions, and exactly one terminator. Block parameters carry value
 representations and act as explicit join values. This provides an SSA-shaped
 control-flow boundary without introducing LLVM phi nodes or requiring an
 optimization pipeline in the first milestone.
+
+The entry block has no block parameters because it has no incoming CFG edge;
+function parameters are the only values supplied on function entry. Parameter
+identifiers must be unique within the combined environment/ordinary function
+parameter namespace and within each block-parameter namespace.
 
 Each instruction may define at most one temporary. Every temporary identifier
 is defined once within its block and may be reused independently in another
@@ -229,6 +238,13 @@ The permanent instruction vocabulary covers:
 - calls through closure operands; and
 - calls to named runtime services.
 
+Primitive operations have fixed structural signatures before backend lowering:
+arithmetic is binary over one concrete numeric representation, ordering is
+binary over one concrete numeric representation, equality/inequality is binary
+over one concrete representation, boolean negation is unary `Bool`, and boolean
+conjunction/disjunction are binary `Bool`. Result representations are validated
+independently even when an unresolved operation prevents result inference.
+
 Direct and closure calls carry an explicit call signature. Argument count and
 representations must match that signature. Runtime-service calls refer to an
 ordered program declaration that pairs a stable semantic service identifier
@@ -250,6 +266,10 @@ Every block ends in exactly one of:
 - tagged-variant switch with explicit cases and an optional default; or
 - direct or closure tail call.
 
+A switch scrutinee must be a managed reference whose declared layout is a
+tagged variant, and every explicit case tag must occur in that layout. A
+default does not make impossible explicit tags or non-variant scrutinees valid.
+
 Jump, branch, and switch targets must exist in the same function. Target
 arguments must match block-parameter count and representations exactly. Return
 and tail-call results must match the enclosing function signature.
@@ -270,16 +290,20 @@ Validation returns ordinary structured data. A failure records:
 
 The first validator must detect at least:
 
-- duplicate or unresolved function, block, layout, and temporary identifiers;
+- duplicate or unresolved function, block, layout, parameter, and temporary
+  identifiers;
 - missing or foreign entry functions and entry blocks;
+- parameterized entry blocks;
 - missing terminators;
 - invalid use order or cross-function operands;
 - instruction result/operand representation mismatches;
 - invalid layout references, variant tags, and field projections;
 - jump, branch, and switch arity or representation mismatches;
-- direct, closure, runtime, and tail-call signature mismatches; and
+- direct, closure, runtime, and tail-call signature mismatches;
 - closure construction whose environment representation disagrees with the
-  target function.
+  target function or whose environment parameter is not backed by a closure
+  environment layout; and
+- direct calls or direct tail calls to capturing functions.
 
 Validation failure structures are the comparison contract. Human-readable
 diagnostics may render them later, but prose strings and diagnostic formatting
