@@ -18,6 +18,9 @@ target_paths:
   - docs/superpowers/plans/2026-07-21-jazz-next-lowered-ir-contract-foundation.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
+  - jazz-next/src/JazzNext/Compiler/LoweredIR.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-lowered-ir-contract-spec jazz-core-modules-corpus-closure-spec jazz-core-signatures-declarations-operators-spec jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -173,18 +176,18 @@ identifier, and validation-result contracts.
 **Produces:** Constructible complete Haskell IR values plus deterministic
 canonical structural rendering, without validation decisions.
 
-- [ ] Register `jazz-lowered-ir-contract-spec`, the production module, and the
+- [x] Register `jazz-lowered-ir-contract-spec`, the production module, and the
   shared test adapter; add manifest and canonical-value assertions for the 10
   valid fixtures.
-- [ ] Run the focused suite and confirm it fails because the new IR module does
+- [x] Run the focused suite and confirm it fails because the new IR module does
   not exist.
-- [ ] Implement distinct identifiers and the complete Haskell schema, including
+- [x] Implement distinct identifiers and the complete Haskell schema, including
   optional block terminators so malformed inputs remain representable.
-- [ ] Implement checked canonical conversion that preserves constructor fields
+- [x] Implement checked canonical conversion that preserves constructor fields
   and list order and contains no inferred defaults.
-- [ ] Run the focused suite twice; require exact stable valid-program values and
+- [x] Run the focused suite twice; require exact stable valid-program values and
   a green manifest audit.
-- [ ] Commit as `feat: define backend-neutral lowered IR`.
+- [x] Commit as `feat: define backend-neutral lowered IR`.
 
 ### Task 2: Validate the complete Haskell contract
 

@@ -74,6 +74,7 @@ library jazz-next-internal
       JazzNext.Compiler.Driver
       JazzNext.Compiler.Force
       JazzNext.Compiler.FractionalLiteral
+      JazzNext.Compiler.LoweredIR
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleExports
       JazzNext.Compiler.ModuleInterface
@@ -426,6 +427,14 @@ test-suite jazz-core-modules-corpus-closure-spec
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
+
+test-suite jazz-lowered-ir-contract-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLoweredIRComparison
+      JazzNext.Compiler.Bootstrap.CanonicalValue
 
 test-suite parser-core-spec
   import: test-common
