@@ -563,8 +563,16 @@ validationKindName kind =
     TypedMissingEvidence -> "TypedMissingEvidence"
     TypedDuplicateEvidence -> "TypedDuplicateEvidence"
     TypedAmbiguousEvidence -> "TypedAmbiguousEvidence"
+    TypedInvisibleName -> "TypedInvisibleName"
     TypedInvisibleImpl -> "TypedInvisibleImpl"
     TypedMethodSelectionMismatch -> "TypedMethodSelectionMismatch"
+    TypedBindingValueMismatch -> "TypedBindingValueMismatch"
+    TypedLambdaResultMismatch -> "TypedLambdaResultMismatch"
+    TypedLiteralTypeMismatch -> "TypedLiteralTypeMismatch"
+    TypedCollectionShapeMismatch -> "TypedCollectionShapeMismatch"
+    TypedDataTypeMismatch -> "TypedDataTypeMismatch"
+    TypedPatternShapeMismatch -> "TypedPatternShapeMismatch"
+    TypedModuleResultMismatch -> "TypedModuleResultMismatch"
     TypedDataRecipeMismatch -> "TypedDataRecipeMismatch"
     TypedCallableRecipeMismatch -> "TypedCallableRecipeMismatch"
     TypedModuleInterfaceMismatch -> "TypedModuleInterfaceMismatch"
@@ -674,8 +682,16 @@ decodeValidationKind value = do
       "TypedMissingEvidence" -> Right TypedMissingEvidence
       "TypedDuplicateEvidence" -> Right TypedDuplicateEvidence
       "TypedAmbiguousEvidence" -> Right TypedAmbiguousEvidence
+      "TypedInvisibleName" -> Right TypedInvisibleName
       "TypedInvisibleImpl" -> Right TypedInvisibleImpl
       "TypedMethodSelectionMismatch" -> Right TypedMethodSelectionMismatch
+      "TypedBindingValueMismatch" -> Right TypedBindingValueMismatch
+      "TypedLambdaResultMismatch" -> Right TypedLambdaResultMismatch
+      "TypedLiteralTypeMismatch" -> Right TypedLiteralTypeMismatch
+      "TypedCollectionShapeMismatch" -> Right TypedCollectionShapeMismatch
+      "TypedDataTypeMismatch" -> Right TypedDataTypeMismatch
+      "TypedPatternShapeMismatch" -> Right TypedPatternShapeMismatch
+      "TypedModuleResultMismatch" -> Right TypedModuleResultMismatch
       "TypedDataRecipeMismatch" -> Right TypedDataRecipeMismatch
       "TypedCallableRecipeMismatch" -> Right TypedCallableRecipeMismatch
       "TypedModuleInterfaceMismatch" -> Right TypedModuleInterfaceMismatch

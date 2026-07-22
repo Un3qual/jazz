@@ -20,18 +20,27 @@ import JazzNext.Compiler.TypedCore
 data ModuleContext = ModuleContext
   { moduleContextPath :: [Text],
     moduleContextVisibleModules :: Set [Text],
-    moduleContextSchemes :: Map TypedBinderId TypedScheme
+    moduleContextSchemes :: Map TypedBinderId TypedScheme,
+    moduleContextStatementIndices :: Map [Int] Int,
+    moduleContextVisibleNames :: Set ResolvedNameKey,
+    moduleContextVisibleImpls :: Set TypedImplId,
+    moduleContextDataArities :: Map ResolvedNameKey Int,
+    moduleContextTypeScope :: Set TypedTypeParameterId
   }
+
+data ResolvedNameKey = ResolvedNameKey [Text] TypedNameNamespace Text
+  deriving (Eq, Ord, Show)
 
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
   duplicateModuleFailures allModules
     <> unknownEntryFailure
-    <> maybe [] (validateModule allModulePaths True) prelude
-    <> concatMap (validateModule allModulePaths False) modules
+    <> maybe [] (validateModule moduleTable prelude True) prelude
+    <> concatMap (validateModule moduleTable prelude False) modules
   where
     allModules = maybeToList prelude <> modules
     allModulePaths = Set.fromList (map typedModulePath allModules)
+    moduleTable = Map.fromList [(typedModulePath moduleValue, moduleValue) | moduleValue <- allModules]
     unknownEntryFailure
       | Set.member entryModule allModulePaths = []
       | otherwise =
@@ -41,31 +50,87 @@ validateTypedProgram (TypedProgram prelude modules entryModule) =
               (TypedTextDetail (renderModulePath entryModule))
           ]
 
-validateModule :: Set [Text] -> Bool -> TypedModule -> [TypedCoreValidationFailure]
-validateModule allModulePaths isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
+validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedModule -> [TypedCoreValidationFailure]
+validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
   validateSourcePath modulePath sourcePath
     <> validateModuleInterface moduleValue
-    <> duplicateBinderFailures modulePath statements
-    <> concatMap (uncurry (validateStatement context)) (zip [0 ..] statements)
-    <> validateNodeInfo context moduleValidationPath Set.empty moduleInfo
+    <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
+    <> concatMap (uncurry (validateStatement context)) (zip (map pure [0 ..]) statements)
+    <> validateModuleInfo context moduleValidationPath statements moduleInfo
+    <> validateModuleResult modulePath statements moduleInfo
   where
     moduleValidationPath
       | isPrelude = TypedPreludePath
       | otherwise = TypedModulePath modulePath
     importedPaths = Set.fromList [path | TypedResolvedImport _ path _ _ <- imports]
-    visibleModules = Set.insert modulePath (Set.insert ["Prelude"] (Set.union importedPaths allModulePaths))
-    schemes =
+    visibleModules = Set.insert modulePath (Set.insert ["Prelude"] importedPaths)
+    importedModules =
+      [ (importPath, names, importedModule)
+      | TypedResolvedImport _ importPath _ names <- imports,
+        importedModule <- maybeToList (Map.lookup importPath moduleTable)
+      ]
+    preludeModules
+      | isPrelude = []
+      | otherwise = [(typedModulePath preludeModule, Nothing, preludeModule) | preludeModule <- maybeToList prelude]
+    visibleExternalModules = preludeModules <> importedModules
+    localSchemeEntries = concatMap statementSchemes statements
+    importedSchemeEntries = concatMap interfaceSchemeEntries visibleExternalModules
+    schemes = Map.fromList (importedSchemeEntries <> localSchemeEntries)
+    visibleNames =
+      Set.fromList
+        ( concatMap (statementDefinedNameKeys modulePath) statements
+            <> concatMap interfaceNameKeys visibleExternalModules
+        )
+    visibleImpls =
+      Set.fromList
+        ( [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
+            <> concatMap interfaceImplIds visibleExternalModules
+        )
+    dataArities =
       Map.fromList
-        [ (binderId, scheme)
-          | statement <- statements,
-            (binderId, scheme) <- statementSchemes statement
-        ]
+        ( concatMap (statementDataEntries modulePath) statements
+            <> concatMap interfaceDataEntries visibleExternalModules
+        )
+    statementIndices =
+      Map.fromList
+        ( zip
+            (topLevelStatementLocations statements <> concatMap (uncurry nestedStatementLocations) (zip (map pure [0 ..]) statements))
+            [0 ..]
+        )
     context =
       ModuleContext
         { moduleContextPath = modulePath,
           moduleContextVisibleModules = visibleModules,
-          moduleContextSchemes = schemes
+          moduleContextSchemes = schemes,
+          moduleContextStatementIndices = statementIndices,
+          moduleContextVisibleNames = visibleNames,
+          moduleContextVisibleImpls = visibleImpls,
+          moduleContextDataArities = dataArities,
+          moduleContextTypeScope = Set.empty
         }
+
+validateModuleResult :: [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateModuleResult modulePath statements moduleInfo =
+  case reverse statements of
+    TypedExpressionStatement _ terminal : _
+      | nodeInfoHasValidIntrinsicContract moduleInfo && nodeInfoHasValidIntrinsicContract (expressionInfo terminal) ->
+          nodeContractFailures
+            (TypedModulePath modulePath)
+            TypedModuleResultMismatch
+            moduleInfo
+            (expressionInfo terminal)
+    _ -> []
+
+validateModuleInfo :: ModuleContext -> TypedCoreValidationPath -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateModuleInfo context path statements moduleInfo =
+  case reverse statements of
+    TypedExpressionStatement _ terminal : _
+      | expressionInfo terminal == moduleInfo -> []
+    _ -> validateNodeInfo context path Set.empty moduleInfo
+
+nodeInfoHasValidIntrinsicContract :: TypedNodeInfo -> Bool
+nodeInfoHasValidIntrinsicContract (TypedNodeInfo typeValue recipe _ _) =
+  validRecipeWidth recipe && expectedRecipe typeValue == Just recipe
 
 validateSourcePath :: [Text] -> TypedSourcePath -> [TypedCoreValidationFailure]
 validateSourcePath modulePath (TypedSourcePath sourcePath)
@@ -108,20 +173,20 @@ duplicateModuleFailures = snd . foldl' step (Set.empty, [])
               )
             else (Set.insert modulePath seen, failures)
 
-duplicateBinderFailures :: [Text] -> [TypedStatement] -> [TypedCoreValidationFailure]
-duplicateBinderFailures modulePath statements = snd (foldl' step (Set.empty, []) indexedBinders)
+duplicateBinderFailures :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+duplicateBinderFailures context statements = snd (foldl' step (Set.empty, []) indexedBinders)
   where
     indexedBinders =
-      [ (statementIndex, binderId)
-        | (statementIndex, statement) <- zip [0 ..] statements,
-          binderId <- statementBinderDefinitions statement
+      [ (statementLocation, binderId)
+      | (statementLocation, statement) <- statements,
+        binderId <- statementBinderDefinitions statement
       ]
-    step (seen, failures) (statementIndex, binderId)
+    step (seen, failures) (statementLocation, binderId)
       | Set.member binderId seen =
           ( seen,
             failures
               <> [ failure
-                     (TypedStatementPath modulePath statementIndex)
+                     (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
                      TypedDuplicateBinder
                      (TypedBinderDetail binderId)
                  ]
@@ -150,31 +215,206 @@ statementSchemes statement =
       [(binderId, scheme) | TypedMethodSignature _ _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods]
     _ -> []
 
-validateStatement :: ModuleContext -> Int -> TypedStatement -> [TypedCoreValidationFailure]
-validateStatement context statementIndex statement =
+interfaceSchemeEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedBinderId, TypedScheme)]
+interfaceSchemeEntries (_, selectedNames, TypedModule _ _ _ _ (TypedModuleInterface values _ classes _) _ _) =
+  [ (binderId, scheme)
+  | TypedValueInterface name scheme@(TypedScheme binderId _ _ _ _ _) <- values,
+    importAllows selectedNames name
+  ]
+    <> [ (binderId, scheme)
+       | TypedClassInterface (TypedClassDeclaration _ _ _ methods) <- classes,
+         TypedMethodSignature name _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods,
+         importAllows selectedNames name
+       ]
+
+interfaceImplIds :: ([Text], Maybe [Text], TypedModule) -> [TypedImplId]
+interfaceImplIds (_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) _ _) =
+  [implId | TypedImplInterface implId <- impls]
+
+interfaceDataEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, Int)]
+interfaceDataEntries (modulePath, selectedNames, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _) =
+  [ (key, length parameters)
+  | TypedDataInterface (TypedDataDeclaration _ name parameters constructors) <- datas,
+    importAllows selectedNames name || any (importAllows selectedNames . constructorName) constructors,
+    key <- maybeToList (definitionNameKey modulePath name)
+  ]
+  where
+    constructorName (TypedConstructorDeclaration _ name _ _) = name
+
+interfaceNameKeys :: ([Text], Maybe [Text], TypedModule) -> [ResolvedNameKey]
+interfaceNameKeys (modulePath, selectedNames, TypedModule _ _ _ _ (TypedModuleInterface values datas classes _) _ _) =
+  concat
+    [ [ key
+      | TypedValueInterface name _ <- values,
+        importAllows selectedNames name,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ],
+      [ key
+      | TypedDataInterface (TypedDataDeclaration _ name _ _) <- datas,
+        importAllows selectedNames name,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ],
+      [ key
+      | TypedDataInterface (TypedDataDeclaration _ _ _ constructors) <- datas,
+        TypedConstructorDeclaration _ name _ _ <- constructors,
+        importAllows selectedNames name,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ],
+      [ key
+      | TypedClassInterface (TypedClassDeclaration _ name _ _) <- classes,
+        importAllows selectedNames name,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ],
+      [ key
+      | TypedClassInterface (TypedClassDeclaration _ _ _ methods) <- classes,
+        TypedMethodSignature name _ _ <- methods,
+        importAllows selectedNames name,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ]
+    ]
+
+statementDefinedNameKeys :: [Text] -> TypedStatement -> [ResolvedNameKey]
+statementDefinedNameKeys modulePath statement =
+  [ key
+  | name <- statementDefinedNames statement,
+    key <- maybeToList (resolvedNameKey modulePath name)
+  ]
+
+statementDefinedNames :: TypedStatement -> [TypedCoreName]
+statementDefinedNames statement =
+  case statement of
+    TypedLetStatement _ name _ _ _ -> [name]
+    TypedSignatureStatement _ name _ _ -> [name]
+    TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
+      name : [constructorName | TypedConstructorDeclaration _ constructorName _ _ <- constructors]
+    TypedClassStatement (TypedClassDeclaration _ name _ methods) ->
+      name : [methodName | TypedMethodSignature methodName _ _ <- methods]
+    TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+      [methodName | TypedMethodDefinition _ _ methodName _ _ <- methods]
+    TypedExpressionStatement {} -> []
+
+statementDataEntries :: [Text] -> TypedStatement -> [(ResolvedNameKey, Int)]
+statementDataEntries modulePath statement =
+  case statement of
+    TypedDataStatement (TypedDataDeclaration _ name parameters _) ->
+      [(key, length parameters) | key <- maybeToList (definitionNameKey modulePath name)]
+    _ -> []
+
+importAllows :: Maybe [Text] -> TypedCoreName -> Bool
+importAllows Nothing _ = True
+importAllows (Just selectedNames) name = maybe False (`elem` selectedNames) (coreNameIdentifier name)
+
+definitionNameKey :: [Text] -> TypedCoreName -> Maybe ResolvedNameKey
+definitionNameKey modulePath name =
+  case name of
+    TypedResolvedName _ namespace identifier -> Just (ResolvedNameKey modulePath namespace identifier)
+    _ -> Nothing
+
+resolvedNameKey :: [Text] -> TypedCoreName -> Maybe ResolvedNameKey
+resolvedNameKey currentModulePath name =
+  case name of
+    TypedResolvedName origin namespace identifier ->
+      Just (ResolvedNameKey (originModulePath origin) namespace identifier)
+    _ -> Nothing
+  where
+    originModulePath origin =
+      case origin of
+        TypedCurrentModule -> currentModulePath
+        TypedImportedModule modulePath -> modulePath
+        TypedAmbientPrelude -> ["Prelude"]
+
+withVisibleNames :: [TypedCoreName] -> ModuleContext -> ModuleContext
+withVisibleNames names context =
+  context
+    { moduleContextVisibleNames =
+        Set.union
+          (moduleContextVisibleNames context)
+          (Set.fromList [key | name <- names, key <- maybeToList (resolvedNameKey (moduleContextPath context) name)])
+    }
+
+withTypeScope :: [TypedTypeParameterId] -> ModuleContext -> ModuleContext
+withTypeScope typeParameters context =
+  context {moduleContextTypeScope = Set.fromList typeParameters}
+
+topLevelStatementLocations :: [TypedStatement] -> [[Int]]
+topLevelStatementLocations statements = map pure [0 .. length statements - 1]
+
+nestedStatementLocations :: [Int] -> TypedStatement -> [[Int]]
+nestedStatementLocations statementLocation statement =
+  case statement of
+    TypedLetStatement _ _ _ _ expression -> nestedExpressionLocations statementLocation [0] expression
+    TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+      concat
+        [ nestedExpressionLocations statementLocation [methodIndex] expression
+        | (methodIndex, TypedMethodDefinition _ _ _ _ expression) <- zip [0 ..] methods
+        ]
+    TypedExpressionStatement _ expression -> nestedExpressionLocations statementLocation [0] expression
+    _ -> []
+
+nestedExpressionLocations :: [Int] -> [Int] -> TypedExpr -> [[Int]]
+nestedExpressionLocations statementLocation expressionPath expression =
+  case expression of
+    TypedBlockExpr _ statements ->
+      concat
+        [ let location = nestedStatementLocation statementLocation expressionPath blockIndex
+           in location : nestedStatementLocations location statement
+        | (blockIndex, statement) <- zip [0 ..] statements
+        ]
+    _ ->
+      concat
+        [ nestedExpressionLocations statementLocation (expressionPath <> [childIndex]) child
+        | (childIndex, child) <- zip [0 ..] (expressionChildren expression)
+        ]
+
+nestedStatementLocation :: [Int] -> [Int] -> Int -> [Int]
+nestedStatementLocation statementLocation expressionPath blockIndex =
+  statementLocation <> [-1] <> expressionPath <> [-2, blockIndex]
+
+statementIndexFor :: ModuleContext -> [Int] -> Int
+statementIndexFor context statementLocation =
+  case Map.lookup statementLocation (moduleContextStatementIndices context) of
+    Just statementIndex -> statementIndex
+    Nothing -> error "typed-core validator encountered an unindexed statement location"
+
+validateStatement :: ModuleContext -> [Int] -> TypedStatement -> [TypedCoreValidationFailure]
+validateStatement context statementLocation statement =
   case statement of
     TypedLetStatement binderId name _ scheme expression ->
       validateCoreName statementPath name
         <> validateScheme context statementPath binderId scheme
-        <> validateExpression context statementIndex [0] expression
+        <> validateBindingValue statementPath scheme (expressionInfo expression)
+        <> validateExpression (withTypeScope (schemeTypeParameters scheme) context) statementLocation [0] expression
     TypedSignatureStatement binderId name _ scheme ->
       validateCoreName statementPath name
         <> validateScheme context statementPath binderId scheme
     TypedDataStatement declaration -> validateDataDeclaration context statementPath declaration
     TypedClassStatement declaration -> validateClassDeclaration context statementPath declaration
-    TypedImplStatement declaration -> validateImplDeclaration context statementIndex statementPath declaration
-    TypedExpressionStatement _ expression -> validateExpression context statementIndex [0] expression
+    TypedImplStatement declaration -> validateImplDeclaration context statementLocation statementPath declaration
+    TypedExpressionStatement _ expression -> validateExpression context statementLocation [0] expression
   where
+    statementIndex = statementIndexFor context statementLocation
     statementPath = TypedStatementPath (moduleContextPath context) statementIndex
 
+validateBindingValue :: TypedCoreValidationPath -> TypedScheme -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateBindingValue path (TypedScheme _ _ _ _ resultType resultRecipe) info =
+  valueFailures resultType resultRecipe
+  where
+    valueFailures expectedType expectedRecipeValue
+      | nodeType info /= expectedType =
+          [failure path TypedBindingValueMismatch (TypedTypeDetail expectedType (nodeType info))]
+      | nodeRecipe info /= expectedRecipeValue =
+          [failure path TypedBindingValueMismatch (TypedRecipeDetail expectedRecipeValue (nodeRecipe info))]
+      | otherwise = []
+
 validateScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
-validateScheme _ path owner (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
+validateScheme context path owner (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
   ownerFailures
     <> validateOrderedTypeParameters path typeParameters
     <> validateOrderedEvidenceParameters path evidenceParameters
     <> concatMap (validateEvidenceParameter path parameterScope) evidenceParameters
     <> concatMap (validatePrimitiveConstraint path parameterScope) primitiveConstraints
     <> validateType path parameterScope resultType
+    <> concatMap (validateDataTypeApplications context path) (resultType : evidenceTypes <> primitiveTypes)
     <> validateRecipe path parameterScope resultRecipe
     <> validateTypeRecipe path parameterScope resultType resultRecipe
   where
@@ -182,6 +422,17 @@ validateScheme _ path owner (TypedScheme schemeOwner typeParameters evidencePara
       | owner == schemeOwner = []
       | otherwise = [failure path TypedUnknownBinder (TypedBinderDetail schemeOwner)]
     parameterScope = Set.fromList typeParameters
+    evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidenceParameters]
+    primitiveTypes =
+      [ typeValue
+      | constraint <- primitiveConstraints,
+        typeValue <- case constraint of
+          TypedNumericPrimitiveConstraint _ value -> [value]
+          TypedStrictEqualityPrimitiveConstraint value -> [value]
+      ]
+
+schemeTypeParameters :: TypedScheme -> [TypedTypeParameterId]
+schemeTypeParameters (TypedScheme _ typeParameters _ _ _ _) = typeParameters
 
 validateOrderedTypeParameters :: TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedCoreValidationFailure]
 validateOrderedTypeParameters path parameters = duplicateFailures <> orderFailures
@@ -189,8 +440,8 @@ validateOrderedTypeParameters path parameters = duplicateFailures <> orderFailur
     duplicateFailures = duplicateParameterFailures path TypedDuplicateTypeParameter TypedTypeParameterDetail parameters
     orderFailures =
       [ failure path TypedInvalidTypeParameterOrder (TypedIndexDetail index)
-        | (index, TypedTypeParameterId actual) <- zip [0 ..] parameters,
-          actual /= index
+      | (index, TypedTypeParameterId actual) <- zip [0 ..] parameters,
+        actual /= index
       ]
 
 validateOrderedEvidenceParameters :: TypedCoreValidationPath -> [TypedEvidenceParameter] -> [TypedCoreValidationFailure]
@@ -200,11 +451,11 @@ validateOrderedEvidenceParameters path parameters = duplicateFailures <> orderFa
     duplicateFailures = duplicateParameterFailures path TypedDuplicateEvidenceParameter TypedEvidenceParameterDetail parameterIds
     orderFailures =
       [ failure path TypedInvalidEvidenceParameterOrder (TypedIndexDetail index)
-        | (index, TypedEvidenceParameter (TypedEvidenceParameterId actual) _) <- zip [0 ..] parameters,
-          actual /= index
+      | (index, TypedEvidenceParameter (TypedEvidenceParameterId actual) _) <- zip [0 ..] parameters,
+        actual /= index
       ]
 
-duplicateParameterFailures :: Ord identifier => TypedCoreValidationPath -> TypedCoreValidationKind -> (identifier -> TypedCoreValidationDetail) -> [identifier] -> [TypedCoreValidationFailure]
+duplicateParameterFailures :: (Ord identifier) => TypedCoreValidationPath -> TypedCoreValidationKind -> (identifier -> TypedCoreValidationDetail) -> [identifier] -> [TypedCoreValidationFailure]
 duplicateParameterFailures path kind detailOf = snd . foldl' step (Set.empty, [])
   where
     step (seen, failures) identifier
@@ -226,7 +477,7 @@ validateCapabilityConstraint :: TypedCoreValidationPath -> Set TypedTypeParamete
 validateCapabilityConstraint path scope (TypedCapabilityConstraint _ _ targetType) = validateType path scope targetType
 
 validateDataDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedDataDeclaration -> [TypedCoreValidationFailure]
-validateDataDeclaration _ path (TypedDataDeclaration _ name parameters constructors) =
+validateDataDeclaration context path (TypedDataDeclaration _ name parameters constructors) =
   validateCoreName path name
     <> validateOrderedTypeParameters path parameters
     <> concatMap validateConstructor constructors
@@ -235,6 +486,7 @@ validateDataDeclaration _ path (TypedDataDeclaration _ name parameters construct
     validateConstructor (TypedConstructorDeclaration _ constructorName fields recipes) =
       validateCoreName path constructorName
         <> concatMap (validateType path scope) fields
+        <> concatMap (validateDataTypeApplications context path) fields
         <> concatMap (validateRecipe path scope) recipes
         <> dataRecipeFailures fields recipes
     dataRecipeFailures fields recipes
@@ -257,41 +509,137 @@ validateClassDeclaration context path (TypedClassDeclaration _ name parameters m
     validateMethod (TypedMethodSignature methodName _ scheme@(TypedScheme binderId _ _ _ _ _)) =
       validateCoreName path methodName <> validateScheme context path binderId scheme
 
-validateImplDeclaration :: ModuleContext -> Int -> TypedCoreValidationPath -> TypedImplDeclaration -> [TypedCoreValidationFailure]
-validateImplDeclaration context statementIndex path (TypedImplDeclaration _ implId methods) =
+validateImplDeclaration :: ModuleContext -> [Int] -> TypedCoreValidationPath -> TypedImplDeclaration -> [TypedCoreValidationFailure]
+validateImplDeclaration context statementLocation path (TypedImplDeclaration _ implId methods) =
   validateImplId path Set.empty implId
-    <> concatMap validateMethod methods
+    <> concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
+    <> concatMap (uncurry validateMethod) (zip [0 ..] methods)
   where
-    validateMethod (TypedMethodDefinition methodId _ name _ expression) =
+    validateMethod methodIndex (TypedMethodDefinition methodId@(TypedMethodId methodImplId _) _ name _ expression) =
       validateMethodId path Set.empty methodId
+        <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
         <> validateCoreName path name
-        <> validateExpression context statementIndex [0] expression
+        <> validateExpression context statementLocation [methodIndex] expression
 
-validateExpression :: ModuleContext -> Int -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
-validateExpression context statementIndex expressionPath expression =
-  validateNodeInfo context path Set.empty (expressionInfo expression)
+validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
+validateExpression context statementLocation expressionPath expression =
+  validateNodeInfo context path (moduleContextTypeScope context) (expressionInfo expression)
     <> expressionOwnedFailures
-    <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildren expression))
+    <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
   where
+    statementIndex = statementIndexFor context statementLocation
     path = TypedExpressionPath (moduleContextPath context) statementIndex expressionPath
-    validateChild childIndex child = validateExpression context statementIndex (expressionPath <> [childIndex]) child
+    validateChild childIndex (childContext, child) = validateExpression childContext statementLocation (expressionPath <> [childIndex]) child
     expressionOwnedFailures =
       case expression of
-        TypedLiteralExpr _ _ -> []
-        TypedVariableExpr _ name -> validateCoreName path name
-        TypedLambdaExpr _ _ name _ -> validateCoreName path name
+        TypedLiteralExpr info literal -> validateLiteral path info literal
+        TypedVariableExpr _ name -> validateVisibleName context path name
+        TypedLambdaExpr info _ name body -> validateCoreName path name <> validateLambda path info body
         TypedOperatorValueExpr _ operator -> validateOperatorRef path operator
-        TypedListExpr {} -> []
-        TypedTupleExpr {} -> []
+        TypedListExpr info expressions -> validateListShape path info expressions
+        TypedTupleExpr info expressions -> validateTupleShape path info expressions
         TypedApplyExpr info function argument -> validateApplication path info function argument
-        TypedTypeApplicationExpr _ _ _ typeArgument -> validateType path Set.empty typeArgument
+        TypedTypeApplicationExpr _ _ _ typeArgument ->
+          validateType path (moduleContextTypeScope context) typeArgument
+            <> validateDataTypeApplications context path typeArgument
         TypedIfExpr info condition thenExpression elseExpression ->
           validateConditional path info condition thenExpression elseExpression
-        TypedPatternCaseExpr info scrutinee arms -> validateCase context statementIndex expressionPath path info scrutinee arms
+        TypedPatternCaseExpr info scrutinee arms -> validateCase context statementLocation expressionPath path info scrutinee arms
         TypedBinaryExpr _ operator _ _ -> validateOperatorRef path operator
         TypedLeftSectionExpr _ _ operator -> validateOperatorRef path operator
         TypedRightSectionExpr _ operator _ -> validateOperatorRef path operator
-        TypedBlockExpr _ statements -> concatMap (uncurry (validateStatement context)) (zip [statementIndex ..] statements)
+        TypedBlockExpr _ statements ->
+          let locatedStatements =
+                [ (nestedStatementLocation statementLocation expressionPath blockIndex, statement)
+                | (blockIndex, statement) <- zip [0 ..] statements
+                ]
+              blockContext = withVisibleNames (concatMap statementDefinedNames statements) context
+           in duplicateBinderFailures blockContext locatedStatements
+                <> concatMap (uncurry (validateStatement blockContext)) locatedStatements
+
+validateLambda :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> [TypedCoreValidationFailure]
+validateLambda path info body =
+  case nodeType info of
+    TypedFunctionType _ expectedResult
+      | expectedResult == nodeType (expressionInfo body) -> []
+      | otherwise -> [failure path TypedLambdaResultMismatch (TypedTypeDetail expectedResult (nodeType (expressionInfo body)))]
+    actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo body)) (nodeType (expressionInfo body))) actual)]
+
+validateLiteral :: TypedCoreValidationPath -> TypedNodeInfo -> TypedLiteral -> [TypedCoreValidationFailure]
+validateLiteral path info literal
+  | literalMatchesType literal (nodeType info) = []
+  | otherwise = [failure path TypedLiteralTypeMismatch (TypedTypeDetail (literalType literal) (nodeType info))]
+
+literalMatchesType :: TypedLiteral -> TypedType -> Bool
+literalMatchesType literal typeValue =
+  case (literal, typeValue) of
+    (TypedIntegerLiteral _, TypedIntType) -> True
+    (TypedIntegerLiteral _, TypedNumericType numericType) -> not (isFloatingNumericType numericType)
+    (TypedFractionalLiteral _ _ _, TypedFloatType) -> True
+    (TypedFractionalLiteral _ _ _, TypedNumericType numericType) -> isFloatingNumericType numericType
+    (TypedBooleanLiteral _, TypedBoolType) -> True
+    (TypedCharacterLiteral _, TypedCharType) -> True
+    (TypedTextLiteral _, TypedTextType) -> True
+    _ -> False
+
+literalType :: TypedLiteral -> TypedType
+literalType literal =
+  case literal of
+    TypedIntegerLiteral _ -> TypedIntType
+    TypedFractionalLiteral _ _ _ -> TypedFloatType
+    TypedBooleanLiteral _ -> TypedBoolType
+    TypedCharacterLiteral _ -> TypedCharType
+    TypedTextLiteral _ -> TypedTextType
+
+isFloatingNumericType :: TypedNumericType -> Bool
+isFloatingNumericType numericType = numericType `elem` [TypedFloat16Type, TypedFloat32Type, TypedFloat64Type]
+
+validateListShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> [TypedCoreValidationFailure]
+validateListShape path info expressions =
+  case nodeType info of
+    TypedListType elementType ->
+      [ failure path TypedCollectionShapeMismatch (TypedTypeDetail elementType actualType)
+      | expression <- expressions,
+        let actualType = nodeType (expressionInfo expression),
+        actualType /= elementType
+      ]
+    actual -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedListType actual) actual)]
+
+validateTupleShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> [TypedCoreValidationFailure]
+validateTupleShape path info expressions =
+  case nodeType info of
+    TypedTupleType expectedTypes
+      | length expectedTypes /= length expressions ->
+          [failure path TypedCollectionShapeMismatch (TypedArityDetail (length expectedTypes) (length expressions))]
+      | otherwise ->
+          [ failure path TypedCollectionShapeMismatch (TypedTypeDetail expectedType actualType)
+          | (expectedType, expression) <- zip expectedTypes expressions,
+            let actualType = nodeType (expressionInfo expression),
+            actualType /= expectedType
+          ]
+    actual -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedTupleType []) actual)]
+
+expressionChildrenWithContexts :: ModuleContext -> TypedExpr -> [(ModuleContext, TypedExpr)]
+expressionChildrenWithContexts context expression =
+  case expression of
+    TypedLambdaExpr _ _ name body -> [(withVisibleNames [name] context, body)]
+    TypedListExpr _ expressions -> [(context, child) | child <- expressions]
+    TypedTupleExpr _ expressions -> [(context, child) | child <- expressions]
+    TypedApplyExpr _ function argument -> [(context, function), (context, argument)]
+    TypedTypeApplicationExpr _ function _ _ -> [(context, function)]
+    TypedIfExpr _ condition thenExpression elseExpression ->
+      [(context, condition), (context, thenExpression), (context, elseExpression)]
+    TypedPatternCaseExpr _ scrutinee arms ->
+      (context, scrutinee)
+        : concat
+          [ let armContext = withVisibleNames (patternBoundNames patternValue) context
+             in [(armContext, child) | child <- maybeToList maybeGuard <> [result]]
+          | TypedCaseArm patternValue maybeGuard result <- arms
+          ]
+    TypedBinaryExpr _ _ left right -> [(context, left), (context, right)]
+    TypedLeftSectionExpr _ left _ -> [(context, left)]
+    TypedRightSectionExpr _ _ right -> [(context, right)]
+    _ -> []
 
 expressionChildren :: TypedExpr -> [TypedExpr]
 expressionChildren expression =
@@ -350,13 +698,13 @@ validateConditional path (TypedNodeInfo resultType _ _ _) condition thenExpressi
       | thenType /= elseType || resultType == thenType = []
       | otherwise = [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType resultType)]
 
-validateCase :: ModuleContext -> Int -> [Int] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> [TypedCaseArm] -> [TypedCoreValidationFailure]
-validateCase context statementIndex _ _ (TypedNodeInfo resultType _ _ _) scrutinee arms =
+validateCase :: ModuleContext -> [Int] -> [Int] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> [TypedCaseArm] -> [TypedCoreValidationFailure]
+validateCase context statementLocation _ _ (TypedNodeInfo resultType _ _ _) scrutinee arms =
   concatMap (uncurry validateArm) (zip [0 ..] arms)
   where
     scrutineeType = nodeType (expressionInfo scrutinee)
     validateArm armIndex (TypedCaseArm patternValue maybeGuard resultExpression) =
-      validatePattern context statementIndex [armIndex] scrutineeType patternValue
+      validatePattern context statementLocation [armIndex] scrutineeType patternValue
         <> guardFailures armIndex maybeGuard
         <> resultFailures armIndex resultExpression
     guardFailures _ Nothing = []
@@ -364,7 +712,7 @@ validateCase context statementIndex _ _ (TypedNodeInfo resultType _ _ _) scrutin
       | nodeType (expressionInfo guard) == TypedBoolType = []
       | otherwise =
           [ failure
-              (TypedPatternPath (moduleContextPath context) statementIndex [armIndex])
+              (TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) [armIndex])
               TypedPatternGuardMismatch
               (TypedTypeDetail TypedBoolType (nodeType (expressionInfo guard)))
           ]
@@ -372,19 +720,19 @@ validateCase context statementIndex _ _ (TypedNodeInfo resultType _ _ _) scrutin
       | nodeType (expressionInfo resultExpression) == resultType = []
       | otherwise =
           [ failure
-              (TypedPatternPath (moduleContextPath context) statementIndex [armIndex])
+              (TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) [armIndex])
               TypedPatternArmResultMismatch
               (TypedTypeDetail resultType (nodeType (expressionInfo resultExpression)))
           ]
 
-validatePattern :: ModuleContext -> Int -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure]
-validatePattern context statementIndex patternPath expectedType patternValue =
-  validateNodeInfo context path Set.empty (patternInfo patternValue)
+validatePattern :: ModuleContext -> [Int] -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure]
+validatePattern context statementLocation patternPath expectedType patternValue =
+  validateNodeInfo context path (moduleContextTypeScope context) (patternInfo patternValue)
     <> scrutineeFailures
     <> patternOwnedFailures
     <> concatMap validateChild (patternChildrenWithTypes patternValue)
   where
-    path = TypedPatternPath (moduleContextPath context) statementIndex patternPath
+    path = TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) patternPath
     actualType = nodeType (patternInfo patternValue)
     scrutineeFailures
       | actualType == expectedType = []
@@ -393,12 +741,21 @@ validatePattern context statementIndex patternPath expectedType patternValue =
       case patternValue of
         TypedVariablePattern _ _ name -> validateCoreName path name
         TypedLiteralPattern {} -> []
-        TypedConstructorPattern _ name _ -> validateCoreName path name
+        TypedConstructorPattern _ name _ -> validateVisibleName context path name
         TypedAsPattern _ _ name _ -> validateCoreName path name
         TypedOrPattern _ alternatives -> validateOrPattern path alternatives
+        TypedTuplePattern info patterns -> validateTuplePatternShape path info patterns
         _ -> []
     validateChild (childIndex, childType, childPattern) =
-      validatePattern context statementIndex (patternPath <> [childIndex]) childType childPattern
+      validatePattern context statementLocation (patternPath <> [childIndex]) childType childPattern
+
+validateTuplePatternShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedPattern] -> [TypedCoreValidationFailure]
+validateTuplePatternShape path info patterns =
+  case nodeType info of
+    TypedTupleType types
+      | length types == length patterns -> []
+      | otherwise -> [failure path TypedPatternShapeMismatch (TypedArityDetail (length types) (length patterns))]
+    _ -> []
 
 patternChildrenWithTypes :: TypedPattern -> [(Int, TypedType, TypedPattern)]
 patternChildrenWithTypes patternValue =
@@ -416,7 +773,7 @@ patternChildrenWithTypes patternValue =
       case nodeType info of
         TypedTupleType types ->
           [ (index, typeValue, pattern')
-            | (index, (typeValue, pattern')) <- zip [0 ..] (zip types patterns)
+          | (index, (typeValue, pattern')) <- zip [0 ..] (zip types patterns)
           ]
         _ -> indexedPatternTypes patterns
     TypedAsPattern info _ _ nested -> [(0, nodeType info, nested)]
@@ -451,6 +808,19 @@ patternBinderContract patternValue =
     TypedOrPattern _ (alternative : _) -> patternBinderContract alternative
     _ -> []
 
+patternBoundNames :: TypedPattern -> [TypedCoreName]
+patternBoundNames patternValue =
+  case patternValue of
+    TypedVariablePattern _ _ name -> [name]
+    TypedConstructorPattern _ _ patterns -> concatMap patternBoundNames patterns
+    TypedListPattern _ patterns -> concatMap patternBoundNames patterns
+    TypedConsListPattern _ headPattern tailPattern -> patternBoundNames headPattern <> patternBoundNames tailPattern
+    TypedTuplePattern _ patterns -> concatMap patternBoundNames patterns
+    TypedAsPattern _ _ name nested -> name : patternBoundNames nested
+    TypedOrPattern _ [] -> []
+    TypedOrPattern _ (alternative : _) -> patternBoundNames alternative
+    _ -> []
+
 firstMismatchedBinder :: [(TypedBinderId, TypedType, TypedRepresentationRecipe)] -> [(TypedBinderId, TypedType, TypedRepresentationRecipe)] -> Maybe TypedBinderId
 firstMismatchedBinder expected actual =
   case dropWhile (uncurry (==)) (zip expected actual) of
@@ -463,10 +833,44 @@ firstMismatchedBinder expected actual =
 validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateNodeInfo context path parameterScope (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
   validateType path parameterScope typeValue
+    <> validateDataTypeApplications context path typeValue
     <> validateRecipe path parameterScope recipe
     <> validateTypeRecipe path parameterScope typeValue recipe
     <> concatMap (validateInstantiation context path) instantiations
     <> validateEvidenceSelections context path typeValue evidenceSelections
+    <> concatMap (validateEvidenceSelectionDataTypes context path) evidenceSelections
+
+validateEvidenceSelectionDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceSelection -> [TypedCoreValidationFailure]
+validateEvidenceSelectionDataTypes context path selection =
+  case selection of
+    TypedSelectedEvidence (TypedEvidenceUse _ (TypedCapabilityConstraint _ _ targetType) implId maybeMethodId) ->
+      validateDataTypeApplications context path targetType
+        <> concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
+        <> maybe [] (concatMap (validateDataTypeApplications context path) . implTargetTypes . methodImplId) maybeMethodId
+    TypedEvidenceCandidates (TypedCapabilityConstraint _ _ targetType) candidates ->
+      validateDataTypeApplications context path targetType
+        <> concat
+          [ concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
+              <> maybe [] (concatMap (validateDataTypeApplications context path) . implTargetTypes . methodImplId) maybeMethodId
+          | TypedEvidenceCandidate implId maybeMethodId <- candidates
+          ]
+  where
+    methodImplId (TypedMethodId implId _) = implId
+
+validateDataTypeApplications :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure]
+validateDataTypeApplications context path typeValue =
+  case typeValue of
+    TypedListType elementType -> validateDataTypeApplications context path elementType
+    TypedTupleType elementTypes -> concatMap (validateDataTypeApplications context path) elementTypes
+    TypedDataType name arguments ->
+      concatMap (validateDataTypeApplications context path) arguments
+        <> case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextDataArities context) of
+          Nothing -> [failure path TypedDataTypeMismatch (TypedNameDetail name)]
+          Just expectedArity
+            | expectedArity /= length arguments -> [failure path TypedDataTypeMismatch (TypedArityDetail expectedArity (length arguments))]
+            | otherwise -> []
+    TypedFunctionType argument result -> validateDataTypeApplications context path argument <> validateDataTypeApplications context path result
+    _ -> []
 
 validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> TypedInstantiation -> [TypedCoreValidationFailure]
 validateInstantiation context path (TypedInstantiation owner arguments _) =
@@ -498,7 +902,7 @@ duplicateEvidenceUseFailures path selections = snd (foldl' step (Set.empty, []) 
   where
     parameterIds =
       [ parameterId
-        | TypedSelectedEvidence (TypedEvidenceUse (Just parameterId) _ _ _) <- selections
+      | TypedSelectedEvidence (TypedEvidenceUse (Just parameterId) _ _ _) <- selections
       ]
     step (seen, failures) parameterId
       | Set.member parameterId seen =
@@ -513,23 +917,45 @@ duplicateEvidenceUseFailures path selections = snd (foldl' step (Set.empty, []) 
       | otherwise = (Set.insert parameterId seen, failures)
 
 validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceUse -> [TypedCoreValidationFailure]
-validateEvidenceUse context path (TypedEvidenceUse _ constraint implId maybeMethodId) =
+validateEvidenceUse context path (TypedEvidenceUse _ constraint@(TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
   validateCapabilityConstraint path Set.empty constraint
     <> validateImplId path Set.empty implId
+    <> capabilityFailures
+    <> targetFailures
     <> visibilityFailures
     <> methodFailures
   where
+    capabilityFailures =
+      case implId of
+        TypedImplId _ capabilityName _
+          | coreNameIdentifier capabilityName == Just capability -> []
+          | otherwise -> [failure path TypedMethodSelectionMismatch (TypedTextDetail capability)]
+    targetFailures =
+      case implTargetTypes implId of
+        target : _
+          | target == targetType -> []
+          | otherwise -> [failure path TypedMethodSelectionMismatch (TypedTypeDetail targetType target)]
+        [] -> [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 0)]
     visibilityFailures
-      | Set.member (implModulePath implId) (moduleContextVisibleModules context) = []
+      | implModulePath implId == ["Prelude"] = []
+      | Set.member implId (moduleContextVisibleImpls context) = []
       | otherwise = [failure path TypedInvisibleImpl (TypedImplDetail implId)]
     methodFailures =
-      case maybeMethodId of
-        Just methodId@(TypedMethodId methodImplId _)
-          | methodImplId /= implId ->
-              validateMethodId path Set.empty methodId
-                <> [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)]
-        Just methodId -> validateMethodId path Set.empty methodId
-        Nothing -> []
+      case (constraintMethod, maybeMethodId) of
+        (Nothing, Nothing) -> []
+        (Nothing, Just methodId@(TypedMethodId methodImplId methodName)) ->
+          validateMethodId path Set.empty methodId
+            <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
+            <> [failure path TypedMethodSelectionMismatch (TypedTextDetail methodName)]
+        (Just expectedMethod, Nothing) ->
+          [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
+        (Just expectedMethod, Just methodId@(TypedMethodId methodImplId methodName)) ->
+          validateMethodId path Set.empty methodId
+            <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
+            <> (if methodKeyMatches expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)])
+
+methodKeyMatches :: Text -> Text -> Bool
+methodKeyMatches expected actual = expected == actual || Text.isSuffixOf ("." <> actual) expected
 
 validateEvidenceCandidate :: TypedCoreValidationPath -> TypedType -> TypedEvidenceCandidate -> [TypedCoreValidationFailure]
 validateEvidenceCandidate path targetType (TypedEvidenceCandidate implId maybeMethodId) =
@@ -605,6 +1031,7 @@ expectedRecipe typeValue =
     TypedCharType -> Just TypedCharRecipe
     TypedTextType -> Just TypedManagedTextRecipe
     TypedListType elementType -> TypedManagedListRecipe <$> expectedRecipe elementType
+    TypedTupleType [] -> Just TypedUnitRecipe
     TypedTupleType elementTypes -> TypedManagedProductRecipe <$> traverse expectedRecipe elementTypes
     TypedDataType name arguments -> Just (TypedManagedVariantRecipe name arguments)
     TypedFunctionType {} -> do
@@ -684,6 +1111,22 @@ validateCoreName path name =
     TypedUnresolvedQualifiedName _ _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     _ -> []
 
+nodeContractFailures :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedNodeInfo -> TypedNodeInfo -> [TypedCoreValidationFailure]
+nodeContractFailures path kind expected actual
+  | nodeType expected /= nodeType actual = [failure path kind (TypedTypeDetail (nodeType expected) (nodeType actual))]
+  | nodeRecipe expected /= nodeRecipe actual = [failure path kind (TypedRecipeDetail (nodeRecipe expected) (nodeRecipe actual))]
+  | otherwise = []
+
+validateVisibleName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
+validateVisibleName context path name =
+  validateCoreName path name
+    <> ( case resolvedNameKey (moduleContextPath context) name of
+           Just key
+             | Set.notMember key (moduleContextVisibleNames context) ->
+                 [failure path TypedInvisibleName (TypedNameDetail name)]
+           _ -> []
+       )
+
 validateOperatorRef :: TypedCoreValidationPath -> TypedOperatorRef -> [TypedCoreValidationFailure]
 validateOperatorRef path operator =
   case operator of
@@ -708,8 +1151,8 @@ validateModuleInterface (TypedModule modulePath _ _ exports (TypedModuleInterfac
     path = TypedInterfacePath modulePath
     declaredValues =
       [ (name, scheme)
-        | statement <- statements,
-          (name, scheme) <- statementValueDeclarations statement
+      | statement <- statements,
+        (name, scheme) <- statementValueDeclarations statement
       ]
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]

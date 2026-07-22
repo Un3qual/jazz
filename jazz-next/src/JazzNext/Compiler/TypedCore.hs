@@ -321,12 +321,20 @@ data TypedCoreValidationKind
   | TypedMissingEvidence
   | TypedDuplicateEvidence
   | TypedAmbiguousEvidence
+  | TypedInvisibleName
   | TypedInvisibleImpl
   | TypedMethodSelectionMismatch
+  | TypedBindingValueMismatch
+  | TypedLambdaResultMismatch
+  | TypedLiteralTypeMismatch
+  | TypedCollectionShapeMismatch
+  | TypedDataTypeMismatch
+  | TypedPatternShapeMismatch
+  | TypedModuleResultMismatch
   | TypedDataRecipeMismatch
   | TypedCallableRecipeMismatch
   | TypedModuleInterfaceMismatch
-  deriving (Eq, Ord, Show)
+  deriving (Bounded, Enum, Eq, Ord, Show)
 
 data TypedCoreValidationDetail
   = TypedNoValidationDetail
