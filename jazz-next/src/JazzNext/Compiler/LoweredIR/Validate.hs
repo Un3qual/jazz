@@ -3,6 +3,7 @@ module JazzNext.Compiler.LoweredIR.Validate
   ( validateLoweredProgram
   ) where
 
+import Data.Char (ord)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -96,9 +97,14 @@ duplicateFailures identifierOf pathOf kind renderIdentifier values = snd (foldl'
 validateLayout :: ProgramContext -> LoweredLayout -> [LoweredIRValidationFailure]
 validateLayout programContext (LoweredLayout layoutId shape) =
   concatMap (validateRepresentation programContext path) (layoutRepresentations shape)
+    <> variantTagRangeFailures
     <> duplicateVariantTagFailures
   where
     path = LoweredLayoutPath layoutId
+    variantTagRangeFailures =
+      case shape of
+        LoweredVariantLayouts variants -> concatMap (validateTag path . variantTag) variants
+        _ -> []
     duplicateVariantTagFailures =
       case shape of
         LoweredVariantLayouts variants -> snd (foldl' collectDuplicateTag (Set.empty, []) variants)
@@ -107,6 +113,7 @@ validateLayout programContext (LoweredLayout layoutId shape) =
       | Set.member tag seen =
           (seen, failures <> [failure path LoweredDuplicateVariantTag (LoweredTagDetail tag)])
       | otherwise = (Set.insert tag seen, failures)
+    variantTag (LoweredVariantLayout tag _) = tag
 
 layoutRepresentations :: LoweredLayoutShape -> [LoweredRepresentation]
 layoutRepresentations shape =
@@ -394,6 +401,13 @@ validateImmediate path immediate =
        in integerRangeFailures (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
     LoweredUnsignedIntegerImmediate width value ->
       integerRangeFailures (LoweredUnsignedIntegerRepresentation width) 0 (unsignedIntegerMaximum width) value
+    LoweredCharImmediate value
+      | not (unicodeScalar value) ->
+          [ failure
+              path
+              LoweredImmediateOutOfRange
+              (LoweredImmediateRangeDetail LoweredCharRepresentation)
+          ]
     _ -> []
   where
     integerRangeFailures representation minimumValue maximumValue actualValue
@@ -404,6 +418,11 @@ validateImmediate path immediate =
               (LoweredImmediateRangeDetail representation)
           ]
       | otherwise = []
+
+unicodeScalar :: Char -> Bool
+unicodeScalar value =
+  let scalar = ord value
+   in scalar < 0xD800 || scalar > 0xDFFF
 
 signedIntegerBounds :: LoweredIntegerWidth -> (Integer, Integer)
 signedIntegerBounds width =
@@ -439,7 +458,8 @@ validateTerminator functionContext blockId blockParameters seenTemporaries termi
         <> validateEdge functionContext path elseBlock elseOperands
     LoweredSwitch operand cases maybeDefault ->
       operandFailures (operand : concatMap switchCaseOperands cases <> maybe [] switchDefaultOperands maybeDefault)
-        <> switchShapeFailures functionContext path operand cases
+        <> concatMap (validateTag path . switchCaseTag) cases
+        <> switchShapeFailures functionContext path operand cases maybeDefault
         <> duplicateSwitchTagFailures path cases
         <> concatMap (validateSwitchCase functionContext path) cases
         <> maybe [] (validateSwitchDefault functionContext path) maybeDefault
@@ -452,6 +472,7 @@ validateTerminator functionContext blockId blockParameters seenTemporaries termi
     path = LoweredTerminatorPath functionId blockId
     LoweredFunction _ _ _ resultRepresentation _ _ = functionContextFunction functionContext
     operandFailures = concatMap (validateOperand functionContext blockId blockParameters seenTemporaries path)
+    switchCaseTag (LoweredSwitchCase tag _ _) = tag
 
 validateEdge :: FunctionContext -> LoweredIRValidationPath -> LoweredBlockId -> [LoweredOperand] -> [LoweredIRValidationFailure]
 validateEdge functionContext path targetBlock operands =
@@ -613,19 +634,45 @@ validateClosureEnvironmentParameter programContext path (LoweredParameter _ repr
         _ -> [failure path LoweredClosureEnvironmentMismatch (identifierDetail (layoutIdText layoutId))]
     _ -> [failure path LoweredClosureEnvironmentMismatch LoweredNoValidationDetail]
 
-switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> [LoweredIRValidationFailure]
-switchShapeFailures functionContext path operand cases =
+switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> Maybe LoweredSwitchDefault -> [LoweredIRValidationFailure]
+switchShapeFailures functionContext path operand cases maybeDefault =
   case loweredOperandRepresentation operand of
     LoweredManagedReferenceRepresentation layoutId ->
       case Map.lookup layoutId (contextLayouts (functionContextProgram functionContext)) of
         Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
         Just (LoweredVariantLayouts variants) ->
-          [ failure path LoweredInvalidTagProjection (LoweredTagDetail tag)
-            | LoweredSwitchCase tag _ _ <- cases,
-              lookupVariant tag variants == Nothing
-          ]
+          invalidSwitchTagFailures variants <> switchCoverageFailures variants
         Just _ -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
     _ -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
+  where
+    invalidSwitchTagFailures variants =
+      [ failure path LoweredInvalidTagProjection (LoweredTagDetail tag)
+        | LoweredSwitchCase tag _ _ <- cases,
+          tagWithinSharedCarrier tag,
+          lookupVariant tag variants == Nothing
+      ]
+    switchCoverageFailures variants =
+      case maybeDefault of
+        Just _ -> []
+        Nothing -> snd (foldl' collectMissingTag (Set.empty, []) variants)
+      where
+        caseTags = Set.fromList [tag | LoweredSwitchCase tag _ _ <- cases]
+        collectMissingTag (seen, failures) (LoweredVariantLayout tag _)
+          | Set.member tag seen = (seen, failures)
+          | not (tagWithinSharedCarrier tag) = (Set.insert tag seen, failures)
+          | Set.member tag caseTags = (Set.insert tag seen, failures)
+          | otherwise =
+              ( Set.insert tag seen,
+                failures <> [failure path LoweredMissingSwitchCaseTag (LoweredTagDetail tag)]
+              )
+
+validateTag :: LoweredIRValidationPath -> Integer -> [LoweredIRValidationFailure]
+validateTag path tag
+  | tagWithinSharedCarrier tag = []
+  | otherwise = [failure path LoweredTagOutOfRange (LoweredTagDetail tag)]
+
+tagWithinSharedCarrier :: Integer -> Bool
+tagWithinSharedCarrier tag = tag >= 0 && tag <= 9223372036854775807
 
 callMismatchFailure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredCallSignature -> [LoweredOperand] -> [LoweredIRValidationFailure]
 callMismatchFailure path kind (LoweredCallSignature expectedRepresentations _) operands =

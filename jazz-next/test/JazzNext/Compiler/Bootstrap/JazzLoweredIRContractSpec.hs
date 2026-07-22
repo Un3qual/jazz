@@ -51,6 +51,8 @@ tests =
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("reports every validator hardening regression exactly", testHardeningPrograms),
     ("rejects integer immediates outside the shared Haskell/Jazz carrier", testSharedImmediateCarrierRange),
+    ("rejects non-scalar character immediates", testUnicodeScalarImmediate),
+    ("rejects variant tags outside the shared Haskell/Jazz carrier", testSharedTagCarrierRange),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
@@ -319,6 +321,24 @@ testSharedImmediateCarrierRange =
     ( validateLoweredProgram
         (immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 9223372036854775808))
     )
+
+testUnicodeScalarImmediate :: IO ()
+testUnicodeScalarImmediate =
+  assertEqual
+    "surrogate character immediate"
+    [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail LoweredCharRepresentation)]
+    (validateLoweredProgram (immediateReturnProgram (LoweredCharImmediate '\xD800')))
+
+testSharedTagCarrierRange :: IO ()
+testSharedTagCarrierRange = do
+  assertEqual
+    "upper-half UInt64 variant layout tag"
+    [layoutFailure "option" LoweredTagOutOfRange (LoweredTagDetail 9223372036854775808)]
+    (validateLoweredProgram upperHalfVariantLayoutTagProgram)
+  assertEqual
+    "upper-half UInt64 switch case tag"
+    [terminatorFailure "main" "entry" LoweredTagOutOfRange (LoweredTagDetail 9223372036854775808)]
+    (validateLoweredProgram upperHalfSwitchCaseTagProgram)
 
 testBlockLocalTemporaryScope :: IO ()
 testBlockLocalTemporaryScope =
@@ -925,6 +945,14 @@ hardeningFixtures =
       (immediateReturnProgram (LoweredSignedIntegerImmediate LoweredIntegerWidth8 128))
       [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (signed LoweredIntegerWidth8))],
     HardeningFixture
+      "negative variant layout tag"
+      negativeVariantLayoutTagProgram
+      [layoutFailure "option" LoweredTagOutOfRange (LoweredTagDetail (-1))],
+    HardeningFixture
+      "negative switch case tag"
+      negativeSwitchCaseTagProgram
+      [terminatorFailure "main" "entry" LoweredTagOutOfRange (LoweredTagDetail (-1))],
+    HardeningFixture
       "missing variant field tag"
       missingVariantFieldTagProgram
       [instructionFailure "main" "entry" 1 LoweredInvalidTagProjection (LoweredTagDetail 1)],
@@ -951,7 +979,13 @@ hardeningFixtures =
     HardeningFixture
       "unknown variant switch tag"
       (switchProgram [LoweredSwitchCase 1 (blockId "target") []] (unitBlock "target"))
-      [terminatorFailure "main" "entry" LoweredInvalidTagProjection (LoweredTagDetail 1)],
+      [ terminatorFailure "main" "entry" LoweredInvalidTagProjection (LoweredTagDetail 1),
+        terminatorFailure "main" "entry" LoweredMissingSwitchCaseTag (LoweredTagDetail 0)
+      ],
+    HardeningFixture
+      "switch without default misses variant tag"
+      partialSwitchCoverageProgram
+      [terminatorFailure "main" "entry" LoweredMissingSwitchCaseTag (LoweredTagDetail 1)],
     HardeningFixture
       "capturing direct call"
       (capturingDirectCallProgram False)
@@ -1321,6 +1355,42 @@ immediateReturnProgram immediateValue =
         ]
         "main"
 
+negativeVariantLayoutTagProgram :: LoweredProgram
+negativeVariantLayoutTagProgram =
+  unitProgram
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout (-1) []])]
+    []
+
+upperHalfVariantLayoutTagProgram :: LoweredProgram
+upperHalfVariantLayoutTagProgram =
+  unitProgram
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 9223372036854775808 []])]
+    []
+
+negativeSwitchCaseTagProgram :: LoweredProgram
+negativeSwitchCaseTagProgram =
+  switchProgramWith
+    [LoweredVariantLayout 0 []]
+    [LoweredSwitchCase (-1) (blockId "target") []]
+    (Just (LoweredSwitchDefault (blockId "target") []))
+    (unitBlock "target")
+
+upperHalfSwitchCaseTagProgram :: LoweredProgram
+upperHalfSwitchCaseTagProgram =
+  switchProgramWith
+    [LoweredVariantLayout 0 []]
+    [LoweredSwitchCase 9223372036854775808 (blockId "target") []]
+    (Just (LoweredSwitchDefault (blockId "target") []))
+    (unitBlock "target")
+
+partialSwitchCoverageProgram :: LoweredProgram
+partialSwitchCoverageProgram =
+  switchProgramWith
+    [LoweredVariantLayout 0 [], LoweredVariantLayout 1 []]
+    [LoweredSwitchCase 0 (blockId "target") []]
+    Nothing
+    (unitBlock "target")
+
 missingVariantFieldTagProgram :: LoweredProgram
 missingVariantFieldTagProgram =
   program
@@ -1487,8 +1557,16 @@ branchProgram condition yesBlock noBlock =
 
 switchProgram :: [LoweredSwitchCase] -> LoweredBlock -> LoweredProgram
 switchProgram cases targetBlock =
+  switchProgramWith
+    [LoweredVariantLayout 0 []]
+    cases
+    Nothing
+    targetBlock
+
+switchProgramWith :: [LoweredVariantLayout] -> [LoweredSwitchCase] -> Maybe LoweredSwitchDefault -> LoweredBlock -> LoweredProgram
+switchProgramWith variants cases maybeDefault targetBlock =
   program
-    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 0 []])]
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts variants)]
     []
     [ function
         "main"
@@ -1499,7 +1577,7 @@ switchProgram cases targetBlock =
             "entry"
             []
             [instruction "option" (managed "option") (LoweredConstructVariant (layoutId "option") 0 [])]
-            (LoweredSwitch (temporary "option" (managed "option")) cases Nothing),
+            (LoweredSwitch (temporary "option" (managed "option")) cases maybeDefault),
           targetBlock
         ]
         "entry"

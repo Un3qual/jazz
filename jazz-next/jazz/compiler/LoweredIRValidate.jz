@@ -1,6 +1,7 @@
 module LoweredIRValidate (
   value validateProgram
 ) {
+  import Char (charToUInt32).
   import List (listAppend, listAt, listConcat, listLength, listPrepend, listReverse).
   import LoweredIRTypes.
   import Maybe.
@@ -264,6 +265,25 @@ module LoweredIRValidate (
     | other -> []
   }.
 
+  tagWithinSharedCarrier :: Int -> Bool.
+  tagWithinSharedCarrier = \(tag) -> tag >= 0.
+
+  validateTag :: LoweredIRValidationPath -> Int -> [LoweredIRValidationFailure].
+  validateTag = \(path, tag) -> if tagWithinSharedCarrier tag then [] else
+    [failure path LoweredTagOutOfRange (LoweredTagDetail tag)].
+
+  validateVariantTags :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredIRValidationFailure].
+  validateVariantTags = \(path, variants) -> case variants {
+    | [] -> []
+    | [LoweredVariantLayout tag fields | rest] -> listAppend (validateTag path tag) (validateVariantTags path rest)
+  }.
+
+  variantTagRangeFailures :: LoweredIRValidationPath -> LoweredLayoutShape -> [LoweredIRValidationFailure].
+  variantTagRangeFailures = \(path, shape) -> case shape {
+    | LoweredVariantLayouts variants -> validateVariantTags path variants
+    | other -> []
+  }.
+
   variantRepresentations :: [LoweredVariantLayout] -> [LoweredRepresentation].
   variantRepresentations = \(variants) -> case variants {
     | [] -> []
@@ -305,9 +325,11 @@ module LoweredIRValidate (
   validateLayout :: ProgramContext -> LoweredLayout -> [LoweredIRValidationFailure].
   validateLayout = \(context, layout) -> case layout {
     | LoweredLayout layoutId shape ->
-      listAppend
-        (validateRepresentations context (LoweredLayoutPath layoutId) (layoutRepresentations shape))
-        (duplicateVariantTagFailures (LoweredLayoutPath layoutId) shape)
+      listConcat
+        [ validateRepresentations context (LoweredLayoutPath layoutId) (layoutRepresentations shape),
+          variantTagRangeFailures (LoweredLayoutPath layoutId) shape,
+          duplicateVariantTagFailures (LoweredLayoutPath layoutId) shape
+        ]
   }.
 
   validateLayouts :: ProgramContext -> [LoweredLayout] -> [LoweredIRValidationFailure].
@@ -461,6 +483,8 @@ module LoweredIRValidate (
       | (minimumValue, maximumValue) -> integerRangeFailures path (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
     }
     | LoweredUnsignedIntegerImmediate width value -> validateUnsignedImmediate path width value
+    | LoweredCharImmediate value -> if charToUInt32 value < 55296 then [] else if charToUInt32 value > 57343 then [] else
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail LoweredCharRepresentation)]
     | other -> []
   }.
 
@@ -848,20 +872,55 @@ module LoweredIRValidate (
   invalidSwitchTagFailures :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
   invalidSwitchTagFailures = \(path, variants, cases) -> case cases {
     | [] -> []
-    | [LoweredSwitchCase tag target operands | rest] -> case lookupVariant tag variants {
-      | Nothing -> listPrepend (failure path LoweredInvalidTagProjection (LoweredTagDetail tag)) (invalidSwitchTagFailures path variants rest)
-      | Just fields -> invalidSwitchTagFailures path variants rest
-    }
+    | [LoweredSwitchCase tag target operands | rest] -> if tagWithinSharedCarrier tag then case lookupVariant tag variants {
+        | Nothing -> listPrepend (failure path LoweredInvalidTagProjection (LoweredTagDetail tag)) (invalidSwitchTagFailures path variants rest)
+        | Just fields -> invalidSwitchTagFailures path variants rest
+      }
+      else invalidSwitchTagFailures path variants rest
   }.
 
-  switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
-  switchShapeFailures = \(context, path, operand, cases) -> case context {
+  validateSwitchTags :: LoweredIRValidationPath -> [LoweredSwitchCase] -> [LoweredIRValidationFailure].
+  validateSwitchTags = \(path, cases) -> case cases {
+    | [] -> []
+    | [LoweredSwitchCase tag target operands | rest] -> listAppend (validateTag path tag) (validateSwitchTags path rest)
+  }.
+
+  switchCaseTagMember :: Int -> [LoweredSwitchCase] -> Bool.
+  switchCaseTagMember = \(candidate, cases) -> case cases {
+    | [] -> False
+    | [LoweredSwitchCase tag target operands | rest] -> if candidate == tag then True else switchCaseTagMember candidate rest
+  }.
+
+  missingSwitchTagFailuresFrom :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> [Int] -> [LoweredIRValidationFailure].
+  missingSwitchTagFailuresFrom = \(path, variants, cases, seen) -> case variants {
+    | [] -> []
+    | [LoweredVariantLayout tag fields | rest] -> if intMember tag seen then
+        missingSwitchTagFailuresFrom path rest cases seen
+      else if tagWithinSharedCarrier tag then
+        if switchCaseTagMember tag cases then
+          missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen)
+        else listPrepend
+          (failure path LoweredMissingSwitchCaseTag (LoweredTagDetail tag))
+          (missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen))
+      else missingSwitchTagFailuresFrom path rest cases (listPrepend tag seen)
+  }.
+
+  switchCoverageFailures :: LoweredIRValidationPath -> [LoweredVariantLayout] -> [LoweredSwitchCase] -> Maybe(LoweredSwitchDefault) -> [LoweredIRValidationFailure].
+  switchCoverageFailures = \(path, variants, cases, maybeDefault) -> case maybeDefault {
+    | Nothing -> missingSwitchTagFailuresFrom path variants cases []
+    | Just switchDefault -> []
+  }.
+
+  switchShapeFailures :: FunctionContext -> LoweredIRValidationPath -> LoweredOperand -> [LoweredSwitchCase] -> Maybe(LoweredSwitchDefault) -> [LoweredIRValidationFailure].
+  switchShapeFailures = \(context, path, operand, cases, maybeDefault) -> case context {
     | FunctionContext programContext function -> case programContext {
       | ProgramContext layouts services functions -> case operandRepresentation operand {
         | LoweredManagedReferenceRepresentation layoutId -> case lookupLayout layoutId layouts {
           | Nothing -> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]
           | Just shape -> case shape {
-            | LoweredVariantLayouts variants -> invalidSwitchTagFailures path variants cases
+            | LoweredVariantLayouts variants -> listAppend
+              (invalidSwitchTagFailures path variants cases)
+              (switchCoverageFailures path variants cases maybeDefault)
             | other -> [failure path LoweredInvalidTagProjection LoweredNoValidationDetail]
           }
         }
@@ -908,7 +967,8 @@ module LoweredIRValidate (
       ]
     | LoweredSwitch operand cases maybeDefault -> listConcat
       [ validateOperands context block seen path (listPrepend operand (listAppend (switchOperands cases) (defaultOperands maybeDefault))),
-        switchShapeFailures context path operand cases,
+        validateSwitchTags path cases,
+        switchShapeFailures context path operand cases maybeDefault,
         duplicateSwitchTagFailures path cases,
         validateSwitchCases context path cases,
         validateSwitchDefault context path maybeDefault

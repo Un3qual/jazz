@@ -147,7 +147,9 @@ Fixture names and ordering are fixed in the test manifest. Tests reject missing,
 duplicate, unknown, or reordered cases and assert exact `10`, `31`, and `41`
 counts. A separate parity-backed hardening corpus covers later validation gaps
 without changing that fixed manifest, including parameterized or capturing
-entry functions and jump, branch, or switch edges that target an entry block.
+entry functions, jump, branch, or switch edges that target an entry block,
+non-scalar character immediates, tag carrier bounds, and exhaustive
+no-default switches.
 
 ## Implementation Batch: Lowered IR Contract Foundation
 

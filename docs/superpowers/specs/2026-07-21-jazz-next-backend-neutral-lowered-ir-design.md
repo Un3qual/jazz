@@ -227,6 +227,11 @@ validator rejects unknown layout references, duplicate variant tags, and
 recursive layout references that do not pass through a managed-reference
 boundary.
 
+Variant tags are observed as `UInt64`, but the Haskell/Jazz contract carries
+them through the shared signed `Int` interchange. Version 1 therefore limits
+layout and switch-case tags to `0..Int64::max`; later widening requires a new
+versioned tag encoding.
+
 Layout requests describe semantic payload shape. They intentionally leave
 allocation strategy, headers, collector metadata, padding, and target ABI
 alignment to later contracts.
@@ -243,6 +248,10 @@ width and the shared signed `Int` carrier used by the Haskell/Jazz interchange.
 Consequently, `UInt64` immediate payloads are limited to `0..Int64::max` in
 this version; later widening requires a new versioned payload encoding rather
 than accepting values that only one validator can represent.
+
+Character immediates must be Unicode scalar values. In particular, a
+Haskell-side producer cannot use surrogate code points that Jazz source and
+the checked character constructors cannot produce.
 
 The permanent instruction vocabulary covers:
 
@@ -284,6 +293,8 @@ Every block ends in exactly one of:
 A switch scrutinee must be a managed reference whose declared layout is a
 tagged variant, and every explicit case tag must occur in that layout. A
 default does not make impossible explicit tags or non-variant scrutinees valid.
+When no default is present, the explicit cases must cover every distinct valid
+tag declared by the layout.
 
 Jump, branch, and switch targets must exist in the same function. Target
 arguments must match block-parameter count and representations exactly. Return
@@ -315,9 +326,12 @@ The first validator must detect at least:
 - missing terminators;
 - invalid use order or cross-function operands;
 - instruction result/operand representation mismatches;
-- integer immediates outside their supported representation range;
+- integer immediates outside their supported representation range and
+  non-scalar character immediates;
+- layout or switch-case tags outside the shared unsigned tag carrier;
 - invalid layout references, variant tags, and field projections, with absent
   variant tags reported separately from invalid payload-field indices;
+- no-default switches that do not cover every valid layout tag;
 - jump, branch, and switch arity or representation mismatches;
 - direct, closure, runtime, and tail-call signature mismatches;
 - closure construction whose environment representation disagrees with the

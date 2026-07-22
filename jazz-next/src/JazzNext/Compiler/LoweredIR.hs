@@ -236,6 +236,7 @@ data LoweredIRValidationKind
   | LoweredUnknownFunction
   | LoweredUnknownBlock
   | LoweredImmediateOutOfRange
+  | LoweredTagOutOfRange
   | LoweredPrimitiveSignatureMismatch
   | LoweredInstructionResultRepresentationMismatch
   | LoweredInvalidFieldProjection
@@ -245,6 +246,7 @@ data LoweredIRValidationKind
   | LoweredEdgeRepresentationMismatch
   | LoweredBranchConditionMismatch
   | LoweredDuplicateSwitchCaseTag
+  | LoweredMissingSwitchCaseTag
   | LoweredReturnRepresentationMismatch
   | LoweredDirectCallSignatureMismatch
   | LoweredClosureCallSignatureMismatch

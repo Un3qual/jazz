@@ -124,6 +124,7 @@ decodeValidationKind value = do
       "LoweredUnknownFunction" -> Right LoweredUnknownFunction
       "LoweredUnknownBlock" -> Right LoweredUnknownBlock
       "LoweredImmediateOutOfRange" -> Right LoweredImmediateOutOfRange
+      "LoweredTagOutOfRange" -> Right LoweredTagOutOfRange
       "LoweredPrimitiveSignatureMismatch" -> Right LoweredPrimitiveSignatureMismatch
       "LoweredInstructionResultRepresentationMismatch" -> Right LoweredInstructionResultRepresentationMismatch
       "LoweredInvalidFieldProjection" -> Right LoweredInvalidFieldProjection
@@ -133,6 +134,7 @@ decodeValidationKind value = do
       "LoweredEdgeRepresentationMismatch" -> Right LoweredEdgeRepresentationMismatch
       "LoweredBranchConditionMismatch" -> Right LoweredBranchConditionMismatch
       "LoweredDuplicateSwitchCaseTag" -> Right LoweredDuplicateSwitchCaseTag
+      "LoweredMissingSwitchCaseTag" -> Right LoweredMissingSwitchCaseTag
       "LoweredReturnRepresentationMismatch" -> Right LoweredReturnRepresentationMismatch
       "LoweredDirectCallSignatureMismatch" -> Right LoweredDirectCallSignatureMismatch
       "LoweredClosureCallSignatureMismatch" -> Right LoweredClosureCallSignatureMismatch
@@ -595,6 +597,7 @@ validationKindName kind =
     LoweredUnknownFunction -> "LoweredUnknownFunction"
     LoweredUnknownBlock -> "LoweredUnknownBlock"
     LoweredImmediateOutOfRange -> "LoweredImmediateOutOfRange"
+    LoweredTagOutOfRange -> "LoweredTagOutOfRange"
     LoweredPrimitiveSignatureMismatch -> "LoweredPrimitiveSignatureMismatch"
     LoweredInstructionResultRepresentationMismatch -> "LoweredInstructionResultRepresentationMismatch"
     LoweredInvalidFieldProjection -> "LoweredInvalidFieldProjection"
@@ -604,6 +607,7 @@ validationKindName kind =
     LoweredEdgeRepresentationMismatch -> "LoweredEdgeRepresentationMismatch"
     LoweredBranchConditionMismatch -> "LoweredBranchConditionMismatch"
     LoweredDuplicateSwitchCaseTag -> "LoweredDuplicateSwitchCaseTag"
+    LoweredMissingSwitchCaseTag -> "LoweredMissingSwitchCaseTag"
     LoweredReturnRepresentationMismatch -> "LoweredReturnRepresentationMismatch"
     LoweredDirectCallSignatureMismatch -> "LoweredDirectCallSignatureMismatch"
     LoweredClosureCallSignatureMismatch -> "LoweredClosureCallSignatureMismatch"
