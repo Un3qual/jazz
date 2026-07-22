@@ -140,22 +140,20 @@ Each blocked item should answer these questions:
   separate structurally aligned typed tree with final semantic types,
   representation recipes, instantiations, evidence, and resolved identities
   while preserving canonical core and the interpreter boundary.
-- Smallest unblocker: execute and close
-  `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`.
-- Decision needed: accepted on `2026-07-22`; the first child establishes the
-  mirrored contract and validators before inference production or lowering.
+- Smallest unblocker: design the first typed-core expression-production and
+  closed-scalar/direct-call lowering child against the landed contracts.
+- Decision needed: accept the exact producer/lowerer boundary, target paths,
+  fixture inventory, and verification contract before promotion.
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001` is active
-  in `Ready Now`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/TypedCore.hs`,
-  `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`,
-  `jazz-next/jazz/compiler/TypedCoreTypes.jz`,
-  `jazz-next/jazz/compiler/TypedCoreValidate.jz`, and focused bootstrap
-  comparison/spec support.
-- Verification: use the exact focused, warning-clean, routine bounded,
-  package, queue/docs, and whitespace commands in the reviewed child plan.
+- Candidate child: none. `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`
+  completed on `2026-07-22`; `Ready Now` and `Next Curation Target` are empty.
+- Target paths: must be fixed by the next reviewed producer/lowerer design; do
+  not infer them from the contract-foundation modules alone.
+- Verification: the completed foundation used exact focused parity,
+  warning-clean development build, routine bounded Cabal `all`, package,
+  queue/docs, and whitespace checks.
 - Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.

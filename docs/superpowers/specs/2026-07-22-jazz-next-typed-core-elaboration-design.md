@@ -4,10 +4,12 @@
 
 Approved in discussion and reviewed in written form on `2026-07-22`.
 Implementation status (`2026-07-22`):
-`JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001` is reviewed and active. It
-owns the matching Haskell/Jazz schemas, validators, checked comparison, and
-fixed bounded parity corpus. Inference production and all core-to-IR lowering
-remain unpromoted.
+`JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001` is complete.
+`JazzNext.Compiler.TypedCore` and `JazzNext.Compiler.TypedCore.Validate` own the
+stage-0 schema and validator; `TypedCoreTypes.jz` and `TypedCoreValidate.jz` own
+their ordinary Jazz mirrors. The checked adapter and fixed 16-valid / 28-invalid
+corpus establish exact complete ordered parity across all 44 fixtures twice.
+Inference does not yet produce typed core, and no typed-core lowerer exists.
 
 The hosted lexer, parser, canonical-core lowerer, and backend-neutral lowered-IR
 contract foundation are complete. The next compiler boundary must retain the
@@ -509,18 +511,10 @@ constructor declarations by string search, or implementation file layout.
 
 ## Queue Transition
 
-This proposed design does not change `Ready Now`, `Next Curation Target`, or
-the bootstrap blocker by itself.
-
-After written review accepts this design, its implementation plan must name the
-exact schemas, constructors, validators, fixed fixture inventory, commands,
-and queue/frontmatter values for
-`JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`. Only after that plan is
-reviewed may the child move into `Ready Now`.
-
-Closing the child must archive its exact evidence, return the queue to the next
-design gate, and avoid claims that inference produces typed core or that
-core-to-IR lowering exists.
+The reviewed contract-foundation child is complete and archived. `Ready Now`
+and `Next Curation Target` are empty. The bootstrap blocker now names
+typed-core expression production plus closed-scalar/direct-call lowering as
+the next design and implementation gate; no producer or lowerer is promoted.
 
 ## Non-Goals
 

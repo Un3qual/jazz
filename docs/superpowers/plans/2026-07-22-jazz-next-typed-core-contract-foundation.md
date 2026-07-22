@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001
 last_verified: 2026-07-22
+completed_on: 2026-07-22
 plan_section: "Implementation Batch: Typed-Core Contract Foundation"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -811,25 +812,25 @@ failures rather than constructible typed-core values.
 - Produces: archived contract-foundation closure and typed-core production plus
   direct-call lowering returned as the separate next gate.
 
-- [ ] **Step 1: Run focused verification**
+- [x] **Step 1: Run focused verification**
 
   Run the exact first verification command from frontmatter. Expected: every
   named component passes with failure details empty.
 
-- [ ] **Step 2: Run routine repository verification**
+- [x] **Step 2: Run routine repository verification**
 
   Run the warning-clean development build, routine Cabal `all`, and `cabal
   check` commands from frontmatter. Confirm only bounded
   `jazz-parser-scale-spec` runs; do not enable or invoke any
   `jazz-parser-scale-full-*` component.
 
-- [ ] **Step 3: Record exact contract status**
+- [x] **Step 3: Record exact contract status**
 
   Update the typed-core design, bootstrap profile, and `jazz-next/README.md`
   with exact modules, interfaces, fixture counts, validator behavior, and the
   statement that no inference producer or lowerer exists yet.
 
-- [ ] **Step 4: Close queue metadata**
+- [x] **Step 4: Close queue metadata**
 
   Mark this plan done, archive the child with concrete command evidence, empty
   `Ready Now`, and leave `Next Curation Target` empty unless a separately
@@ -837,7 +838,7 @@ failures rather than constructible typed-core values.
   parent blocker to name typed-core expression production plus direct-call
   lowering as the next design/implementation gate.
 
-- [ ] **Step 5: Run metadata gates**
+- [x] **Step 5: Run metadata gates**
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -847,7 +848,7 @@ failures rather than constructible typed-core values.
 
   Expected: all queue, regression, docs-status, and whitespace checks pass.
 
-- [ ] **Step 6: Commit closure**
+- [x] **Step 6: Commit closure**
 
   ```bash
   git add docs/execution/blocker-contracts.md docs/execution/done-archive.md docs/execution/queue.md docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md docs/superpowers/specs/2026-07-22-jazz-next-typed-core-elaboration-design.md docs/superpowers/plans/2026-07-22-jazz-next-typed-core-contract-foundation.md jazz-next/README.md
