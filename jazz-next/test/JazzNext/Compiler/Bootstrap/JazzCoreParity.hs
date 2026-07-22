@@ -3,6 +3,7 @@
 module JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedFoundationBatchRendering,
     expectedCanonicalExpressionBatchRendering,
+    expectedCoreCorpusRendering,
     expectedCoreSourceBatchRendering,
     expectedModuleBatchRendering,
     expectedControlFlowPatternsBatchRendering,
@@ -13,6 +14,7 @@ module JazzNext.Compiler.Bootstrap.JazzCoreParity
     expectedParserSourceBatchRendering,
     runJazzControlFlowPatternsBatch,
     runJazzCanonicalExpressionBatch,
+    runJazzCoreCorpus,
     runJazzCoreSourceBatch,
     runJazzModuleBatch,
     runJazzControlFlowPatternsSourceBatch,
@@ -107,6 +109,9 @@ expectedCoreSourceBatchRendering inputs =
         canonicalSourcePath
         (fmap (fmap (lowerSurfaceModuleDetailed sourcePath expectedPath)) (sourceResult source))
 
+expectedCoreCorpusRendering :: [(FilePath, [Text], Text)] -> Either Text Text
+expectedCoreCorpusRendering = expectedCoreSourceBatchRendering
+
 expectedControlFlowPatternsBatchRendering :: [SurfaceExpr] -> Either Text Text
 expectedControlFlowPatternsBatchRendering = expectedFoundationBatchRendering
 
@@ -172,6 +177,9 @@ runJazzCoreSourceBatch inputs =
     import LexerTypes (CanonicalSourcePath).
     """
     (map renderCoreSourceCall inputs)
+
+runJazzCoreCorpus :: [(FilePath, [Text], Text)] -> IO RunResult
+runJazzCoreCorpus = runJazzCoreSourceBatch
 
 runJazzControlFlowPatternsBatch :: [SurfaceExpr] -> IO RunResult
 runJazzControlFlowPatternsBatch = runJazzLoweringBatch "lowerControlFlowPatternsExpression"

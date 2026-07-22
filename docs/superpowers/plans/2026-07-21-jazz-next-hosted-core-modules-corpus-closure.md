@@ -239,22 +239,22 @@ fixtures, the complete facade, and stage-0 detailed module lowering.
 **Produces:** An explicit ordered 196-entry lowering manifest plus repeated
 end-to-end parity for every accepted parser fixture.
 
-- [ ] Add manifest validation tests for duplicate names, missing names, unknown
+- [x] Add manifest validation tests for duplicate names, missing names, unknown
   names, rejected inclusions, accepted omissions, order drift, and the exact
   196/169/365 counts. Run them before adding the complete manifest and observe
   the expected omissions.
-- [ ] Add every accepted fixture name and its reviewed expected module path in
+- [x] Add every accepted fixture name and its reviewed expected module path in
   parser-corpus order. Do not alter `FixtureCorpus.hs` or infer expected paths
   at comparison time.
-- [ ] Add shared expected/actual corpus runners that independently process
+- [x] Add shared expected/actual corpus runners that independently process
   stage 0 and hosted `Core.lowerCoreSource` results without reproducing parser
   or lowering decisions.
-- [ ] Execute the full 196-result list twice. Require exact complete parity,
+- [x] Execute the full 196-result list twice. Require exact complete parity,
   byte-identical repeated rendering, and no host callback or intrinsic.
-- [ ] Run the fixed `mixed-full-surface` bounded smoke assertion. Do not add or
+- [x] Run the fixed `mixed-full-surface` bounded smoke assertion. Do not add or
   invoke an exhaustive scale component.
-- [ ] Run the exact focused regression command from frontmatter.
-- [ ] Commit as `test: prove hosted core corpus closure`.
+- [x] Run the exact focused regression command from frontmatter.
+- [x] Commit as `test: prove hosted core corpus closure`.
 
 ### Task 5: Verify and close the hosted canonical-core milestone
 

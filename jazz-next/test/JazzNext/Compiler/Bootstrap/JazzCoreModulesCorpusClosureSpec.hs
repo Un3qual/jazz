@@ -6,9 +6,11 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.JazzCoreParity
   ( expectedCanonicalExpressionBatchRendering,
+    expectedCoreCorpusRendering,
     expectedCoreSourceBatchRendering,
     expectedModuleBatchRendering,
     runJazzCanonicalExpressionBatch,
+    runJazzCoreCorpus,
     runJazzCoreSourceBatch,
     runJazzModuleBatch,
     runJazzSignaturesDeclarationsOperatorsBatch,
@@ -30,6 +32,11 @@ import JazzNext.Compiler.Name
   ( NameNamespace (..),
   )
 import JazzNext.Compiler.Parser.AST
+import JazzNext.Compiler.Parser.FixtureCorpus
+  ( ParserFixture (..),
+    ParserFixtureExpectation (..),
+    parserFixtureCorpus,
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -46,7 +53,9 @@ tests =
   [ ("lowers module and import statements through the complete expression entry", testCompleteExpressionParity),
     ("preserves the child-3 module and import deferral boundary", testEarlierProfileBoundary),
     ("matches stage 0 for fixed module results twice", testDirectModuleParity),
-    ("composes parsing and module lowering for the fixed source family twice", testComposedSourceParity)
+    ("composes parsing and module lowering for the fixed source family twice", testComposedSourceParity),
+    ("audits the fixed accepted-corpus lowering manifest", testAcceptedCorpusManifest),
+    ("matches stage 0 for all 196 accepted parser fixtures twice", testAcceptedCorpusParity)
   ]
 
 testCompleteExpressionParity :: IO ()
@@ -110,11 +119,372 @@ testComposedSourceParity = do
   assertContains "facade path mismatch" "CoreModulePathMismatchFailure" expected
   assertContains "facade lexical failure" "CanonicalCoreSourceLexicalFailure" expected
   assertContains "facade parser failure" "CanonicalCoreSourceParserFailure" expected
+  assertContains "bounded mixed surface class" "CoreClassStatement" expected
+  assertContains "bounded mixed surface implementation" "CoreImplStatement" expected
+  assertContains "bounded mixed surface operator" "CoreBinaryExpression" expected
   first <- runJazzCoreSourceBatch composedSourceInputs
   second <- runJazzCoreSourceBatch composedSourceInputs
   assertSuccessfulOutput "composed source first run" expected first
   assertSuccessfulOutput "composed source second run" expected second
   assertEqual "composed source deterministic output" (runOutput first) (runOutput second)
+
+testAcceptedCorpusManifest :: IO ()
+testAcceptedCorpusManifest = do
+  let acceptedFixtures = filter ((== ParserAccepted) . parserFixtureExpectation) parserFixtureCorpus
+      rejectedFixtures = filter ((== ParserRejected) . parserFixtureExpectation) parserFixtureCorpus
+      syntheticCompleteManifest = map (\fixture -> CoreCorpusManifestEntry (parserFixtureName fixture) []) acceptedFixtures
+  assertEqual "fixed parser corpus count" 365 (length parserFixtureCorpus)
+  assertEqual "fixed accepted parser corpus count" 196 (length acceptedFixtures)
+  assertEqual "fixed rejected parser corpus count" 169 (length rejectedFixtures)
+  case (syntheticCompleteManifest, rejectedFixtures) of
+    (firstAccepted : secondAccepted : remainingAccepted, firstRejected : _) -> do
+      assertManifestViolation
+        "duplicate manifest names"
+        "DuplicateCoreCorpusManifestName"
+        (syntheticCompleteManifest <> [firstAccepted])
+      assertManifestViolation
+        "missing manifest name"
+        "MissingCoreCorpusManifestName"
+        (CoreCorpusManifestEntry "" [] : secondAccepted : remainingAccepted)
+      assertManifestViolation
+        "unknown manifest name"
+        "UnknownCoreCorpusManifestName"
+        (CoreCorpusManifestEntry "not-a-parser-fixture" [] : secondAccepted : remainingAccepted)
+      assertManifestViolation
+        "rejected fixture inclusion"
+        "RejectedCoreCorpusManifestFixture"
+        (CoreCorpusManifestEntry (parserFixtureName firstRejected) [] : secondAccepted : remainingAccepted)
+      assertManifestViolation
+        "accepted fixture omission"
+        "AcceptedCoreCorpusFixtureOmitted"
+        (secondAccepted : remainingAccepted)
+      assertManifestViolation
+        "manifest order drift"
+        "CoreCorpusManifestOrderDrift"
+        (secondAccepted : firstAccepted : remainingAccepted)
+    _ -> failTest "fixed corpus must contain at least two accepted and one rejected fixture"
+  assertEqual
+    "accepted corpus manifest"
+    []
+    (validateCoreCorpusManifest parserFixtureCorpus acceptedCoreCorpusManifest)
+
+testAcceptedCorpusParity :: IO ()
+testAcceptedCorpusParity = do
+  inputs <- expectRight "accepted corpus inputs" (resolveCoreCorpusInputs parserFixtureCorpus acceptedCoreCorpusManifest)
+  expected <- expectRight "accepted corpus expected values" (expectedCoreCorpusRendering inputs)
+  assertEqual "accepted corpus has no lexical failures" False ("CanonicalCoreSourceLexicalFailure" `Text.isInfixOf` expected)
+  assertEqual "accepted corpus has no parser failures" False ("CanonicalCoreSourceParserFailure" `Text.isInfixOf` expected)
+  assertEqual "accepted corpus has no module-lowering failures" False ("CoreModuleLoweringFailed" `Text.isInfixOf` expected)
+  first <- runJazzCoreCorpus inputs
+  second <- runJazzCoreCorpus inputs
+  assertSuccessfulOutput "accepted corpus first run" expected first
+  assertSuccessfulOutput "accepted corpus second run" expected second
+  assertEqual "accepted corpus deterministic output" (runOutput first) (runOutput second)
+
+data CoreCorpusManifestEntry = CoreCorpusManifestEntry
+  { coreCorpusFixtureName :: Text.Text,
+    coreCorpusExpectedModulePath :: [Text.Text]
+  }
+  deriving (Eq, Show)
+
+data CoreCorpusManifestViolation
+  = DuplicateCoreCorpusManifestName Text.Text
+  | MissingCoreCorpusManifestName
+  | UnknownCoreCorpusManifestName Text.Text
+  | RejectedCoreCorpusManifestFixture Text.Text
+  | AcceptedCoreCorpusFixtureOmitted Text.Text
+  | CoreCorpusManifestOrderDrift
+  | CoreCorpusFixtureCountsChanged Int Int Int
+  | CoreCorpusManifestCountChanged Int
+  deriving (Eq, Show)
+
+acceptedCoreCorpusManifest :: [CoreCorpusManifestEntry]
+acceptedCoreCorpusManifest =
+  [ corpusEntry "lexer-leading-zero-integer",
+    corpusEntry "lexer-crlf-spans",
+    corpusEntry "lexer-unicode-and-escape-values",
+    corpusEntry "lexer-arbitrary-precision-integer",
+    corpusEntry "lexer-comments-spaces-and-tabs",
+    corpusEntry "lexer-lf-spans",
+    corpusEntry "lexer-all-supported-escapes",
+    corpusEntry "parser-corpus-0001",
+    corpusEntry "parser-corpus-0009",
+    corpusEntry "parser-corpus-0017",
+    corpusEntry "parser-corpus-0024",
+    corpusEntry "parser-corpus-0025",
+    corpusEntry "parser-corpus-0028",
+    corpusEntry "parser-corpus-0029",
+    corpusEntry "parser-corpus-0031",
+    corpusEntry "parser-corpus-0033",
+    corpusEntry "parser-corpus-0038",
+    corpusEntry "parser-corpus-0039",
+    corpusEntry "parser-corpus-0040",
+    corpusEntry "parser-corpus-0042",
+    corpusEntry "parser-corpus-0045",
+    corpusEntry "parser-corpus-0046",
+    corpusEntry "parser-corpus-0047",
+    corpusEntry "parser-corpus-0048",
+    corpusEntry "parser-corpus-0049",
+    corpusEntry "parser-corpus-0050",
+    corpusEntry "parser-corpus-0051",
+    corpusEntry "parser-corpus-0054",
+    corpusEntry "parser-corpus-0058",
+    corpusEntry "parser-corpus-0059",
+    corpusEntry "parser-corpus-0063",
+    corpusEntry "parser-corpus-0067",
+    corpusEntry "parser-corpus-0070",
+    corpusEntry "parser-corpus-0071",
+    corpusEntry "parser-corpus-0073",
+    corpusEntry "parser-corpus-0074",
+    corpusEntry "parser-corpus-0075",
+    corpusEntry "parser-corpus-0076",
+    corpusEntry "parser-corpus-0077",
+    corpusEntry "parser-corpus-0078",
+    corpusEntry "parser-corpus-0079",
+    corpusEntry "parser-corpus-0080",
+    corpusEntry "parser-corpus-0081",
+    corpusEntry "parser-corpus-0082",
+    corpusEntry "parser-corpus-0083",
+    corpusEntry "parser-corpus-0084",
+    corpusEntry "parser-corpus-0085",
+    corpusEntry "parser-corpus-0087",
+    corpusEntry "parser-corpus-0090",
+    corpusEntry "parser-corpus-0091",
+    corpusEntry "parser-corpus-0092",
+    corpusEntry "parser-corpus-0093",
+    corpusEntry "parser-corpus-0094",
+    corpusEntry "parser-corpus-0096",
+    corpusEntry "parser-corpus-0099",
+    corpusEntry "parser-corpus-0100",
+    corpusEntry "parser-corpus-0102",
+    corpusEntry "parser-corpus-0103",
+    corpusEntry "parser-corpus-0106",
+    corpusEntry "parser-corpus-0110",
+    corpusEntry "parser-corpus-0114",
+    corpusEntry "parser-corpus-0115",
+    corpusEntry "parser-corpus-0117",
+    corpusEntry "parser-corpus-0118",
+    corpusEntry "parser-corpus-0119",
+    corpusEntry "parser-corpus-0120",
+    corpusEntry "parser-corpus-0121",
+    corpusEntry "parser-corpus-0122",
+    corpusEntry "parser-corpus-0125",
+    corpusEntry "parser-corpus-0128",
+    corpusEntry "parser-corpus-0131",
+    corpusEntry "parser-corpus-0133",
+    corpusModuleEntry "parser-corpus-0138" ["App", "Core"],
+    corpusModuleEntry "parser-corpus-0139" ["App", "Core"],
+    corpusModuleEntry "parser-corpus-0141" ["App", "Core"],
+    corpusModuleEntry "parser-corpus-0143" ["App", "Core"],
+    corpusModuleEntry "parser-corpus-0146" ["App", "Internal"],
+    corpusModuleEntry "parser-corpus-0147" ["App", "Main"],
+    corpusModuleEntry "parser-corpus-0148" ["App", "Main"],
+    corpusModuleEntry "parser-corpus-0149" ["Demo"],
+    corpusModuleEntry "parser-corpus-0150" ["Lib", "Box"],
+    corpusModuleEntry "parser-corpus-0151" ["Lib", "Box"],
+    corpusModuleEntry "parser-corpus-0153" ["Lib", "Keywords"],
+    corpusModuleEntry "parser-corpus-0154" ["Lib", "Maybe"],
+    corpusModuleEntry "parser-corpus-0156" ["Lib", "Value"],
+    corpusEntry "parser-corpus-0160",
+    corpusEntry "parser-corpus-0163",
+    corpusEntry "parser-corpus-0164",
+    corpusEntry "parser-corpus-0165",
+    corpusEntry "parser-corpus-0167",
+    corpusEntry "parser-corpus-0168",
+    corpusEntry "parser-corpus-0170",
+    corpusEntry "parser-corpus-0172",
+    corpusEntry "parser-corpus-0179",
+    corpusEntry "parser-corpus-0180",
+    corpusEntry "parser-corpus-0181",
+    corpusEntry "parser-corpus-0182",
+    corpusEntry "parser-corpus-0189",
+    corpusEntry "parser-corpus-0190",
+    corpusEntry "parser-corpus-0191",
+    corpusEntry "parser-corpus-0192",
+    corpusEntry "parser-corpus-0193",
+    corpusEntry "parser-corpus-0194",
+    corpusEntry "parser-corpus-0195",
+    corpusEntry "parser-corpus-0196",
+    corpusEntry "parser-corpus-0197",
+    corpusEntry "parser-corpus-0198",
+    corpusEntry "parser-corpus-0199",
+    corpusEntry "parser-corpus-0201",
+    corpusEntry "parser-corpus-0204",
+    corpusEntry "parser-corpus-0205",
+    corpusEntry "parser-corpus-0206",
+    corpusEntry "parser-corpus-0207",
+    corpusEntry "parser-corpus-0208",
+    corpusEntry "parser-corpus-0209",
+    corpusEntry "parser-corpus-0211",
+    corpusEntry "parser-corpus-0214",
+    corpusEntry "parser-corpus-0215",
+    corpusEntry "parser-corpus-0216",
+    corpusEntry "parser-corpus-0220",
+    corpusEntry "parser-corpus-0221",
+    corpusEntry "parser-corpus-0222",
+    corpusEntry "parser-corpus-0224",
+    corpusEntry "parser-corpus-0225",
+    corpusEntry "parser-corpus-0226",
+    corpusEntry "parser-corpus-0230",
+    corpusEntry "parser-corpus-0231",
+    corpusEntry "parser-corpus-0234",
+    corpusEntry "parser-corpus-0236",
+    corpusEntry "parser-corpus-0237",
+    corpusEntry "parser-corpus-0238",
+    corpusEntry "parser-corpus-0239",
+    corpusEntry "parser-corpus-0241",
+    corpusEntry "parser-corpus-0246",
+    corpusEntry "parser-corpus-0250",
+    corpusEntry "parser-corpus-0251",
+    corpusEntry "parser-corpus-0253",
+    corpusEntry "parser-corpus-0254",
+    corpusEntry "parser-corpus-0255",
+    corpusEntry "parser-corpus-0256",
+    corpusEntry "parser-corpus-0257",
+    corpusEntry "parser-corpus-0259",
+    corpusEntry "parser-corpus-0260",
+    corpusEntry "parser-corpus-0261",
+    corpusEntry "parser-corpus-0262",
+    corpusEntry "parser-corpus-0263",
+    corpusEntry "parser-corpus-0264",
+    corpusEntry "parser-corpus-0265",
+    corpusEntry "parser-corpus-0266",
+    corpusEntry "parser-corpus-0268",
+    corpusEntry "parser-corpus-0270",
+    corpusEntry "parser-corpus-0271",
+    corpusEntry "parser-corpus-0272",
+    corpusEntry "parser-corpus-0273",
+    corpusEntry "parser-corpus-0274",
+    corpusEntry "parser-corpus-0275",
+    corpusEntry "parser-corpus-0276",
+    corpusEntry "parser-corpus-0277",
+    corpusEntry "parser-corpus-0278",
+    corpusEntry "parser-corpus-0280",
+    corpusEntry "parser-corpus-0281",
+    corpusEntry "parser-corpus-0282",
+    corpusEntry "parser-corpus-0283",
+    corpusEntry "parser-corpus-0284",
+    corpusEntry "parser-corpus-0285",
+    corpusEntry "parser-corpus-0286",
+    corpusEntry "parser-corpus-0287",
+    corpusEntry "parser-corpus-0288",
+    corpusEntry "parser-corpus-0289",
+    corpusEntry "parser-corpus-0291",
+    corpusEntry "parser-corpus-0292",
+    corpusEntry "parser-corpus-0293",
+    corpusEntry "parser-corpus-0296",
+    corpusEntry "parser-corpus-0297",
+    corpusEntry "parser-corpus-0298",
+    corpusEntry "parser-corpus-0299",
+    corpusEntry "parser-corpus-0300",
+    corpusEntry "parser-corpus-0301",
+    corpusEntry "parser-corpus-0302",
+    corpusEntry "parser-corpus-0305",
+    corpusEntry "parser-corpus-0309",
+    corpusEntry "parser-corpus-0310",
+    corpusEntry "parser-corpus-0311",
+    corpusEntry "parser-corpus-0312",
+    corpusEntry "expression-foundation-empty-program",
+    corpusEntry "expression-foundation-empty-block",
+    corpusEntry "expression-foundation-grouped-name",
+    corpusEntry "expression-foundation-empty-list",
+    corpusEntry "expression-foundation-list-literals",
+    corpusEntry "expression-foundation-parenthesized-application",
+    corpusEntry "expression-foundation-max-float64",
+    corpusEntry "types-declarations-modules-unsupported-forall-signature",
+    corpusEntry "types-declarations-modules-foundational-impl-method",
+    corpusEntry "types-declarations-modules-applied-explicit-type-application",
+    corpusEntry "control-flow-patterns-guarded-or-pattern",
+    corpusEntry "control-flow-patterns-recursive-block"
+  ]
+
+corpusEntry :: Text.Text -> CoreCorpusManifestEntry
+corpusEntry name = CoreCorpusManifestEntry name []
+
+corpusModuleEntry :: Text.Text -> [Text.Text] -> CoreCorpusManifestEntry
+corpusModuleEntry = CoreCorpusManifestEntry
+
+resolveCoreCorpusInputs ::
+  [ParserFixture] ->
+  [CoreCorpusManifestEntry] ->
+  Either Text.Text [(FilePath, [Text.Text], Text.Text)]
+resolveCoreCorpusInputs fixtures = mapM resolveEntry
+  where
+    resolveEntry entry =
+      case lookupParserFixture (coreCorpusFixtureName entry) fixtures of
+        Nothing -> Left ("unknown accepted corpus fixture: " <> coreCorpusFixtureName entry)
+        Just fixture ->
+          Right
+            ( parserFixturePath fixture,
+              coreCorpusExpectedModulePath entry,
+              parserFixtureSource fixture
+            )
+
+lookupParserFixture :: Text.Text -> [ParserFixture] -> Maybe ParserFixture
+lookupParserFixture name fixtures =
+  case fixtures of
+    [] -> Nothing
+    fixture : remaining
+      | parserFixtureName fixture == name -> Just fixture
+      | otherwise -> lookupParserFixture name remaining
+
+validateCoreCorpusManifest :: [ParserFixture] -> [CoreCorpusManifestEntry] -> [CoreCorpusManifestViolation]
+validateCoreCorpusManifest fixtures manifest =
+  map DuplicateCoreCorpusManifestName (duplicateValues manifestNames)
+    <> [MissingCoreCorpusManifestName | "" `elem` manifestNames]
+    <> map UnknownCoreCorpusManifestName unknownNames
+    <> map RejectedCoreCorpusManifestFixture rejectedNames
+    <> map AcceptedCoreCorpusFixtureOmitted omittedAcceptedNames
+    <> [CoreCorpusManifestOrderDrift | completeNameSet && manifestNames /= acceptedNames]
+    <> [CoreCorpusFixtureCountsChanged fixtureCount acceptedCount rejectedCount | (fixtureCount, acceptedCount, rejectedCount) /= (365, 196, 169)]
+    <> [CoreCorpusManifestCountChanged (length manifest) | length manifest /= 196]
+  where
+    manifestNames = map coreCorpusFixtureName manifest
+    fixtureNames = map parserFixtureName fixtures
+    acceptedNames = map parserFixtureName (filter ((== ParserAccepted) . parserFixtureExpectation) fixtures)
+    rejectedFixtureNames = map parserFixtureName (filter ((== ParserRejected) . parserFixtureExpectation) fixtures)
+    unknownNames = uniqueValues (filter (not . (`elem` fixtureNames)) manifestNames)
+    rejectedNames = uniqueValues (filter (`elem` rejectedFixtureNames) manifestNames)
+    omittedAcceptedNames = filter (not . (`elem` manifestNames)) acceptedNames
+    completeNameSet =
+      null (duplicateValues manifestNames)
+        && null unknownNames
+        && null rejectedNames
+        && null omittedAcceptedNames
+        && length manifestNames == length acceptedNames
+    fixtureCount = length fixtures
+    acceptedCount = length acceptedNames
+    rejectedCount = length rejectedFixtureNames
+
+duplicateValues :: (Eq value) => [value] -> [value]
+duplicateValues = collectDuplicateValues [] []
+
+collectDuplicateValues :: (Eq value) => [value] -> [value] -> [value] -> [value]
+collectDuplicateValues seen duplicates values =
+  case values of
+    [] -> reverse duplicates
+    value : remaining
+      | value `elem` seen && value `notElem` duplicates ->
+          collectDuplicateValues seen (value : duplicates) remaining
+      | otherwise -> collectDuplicateValues (value : seen) duplicates remaining
+
+uniqueValues :: (Eq value) => [value] -> [value]
+uniqueValues = collectUniqueValues []
+
+collectUniqueValues :: (Eq value) => [value] -> [value] -> [value]
+collectUniqueValues seen values =
+  case values of
+    [] -> reverse seen
+    value : remaining
+      | value `elem` seen -> collectUniqueValues seen remaining
+      | otherwise -> collectUniqueValues (value : seen) remaining
+
+assertManifestViolation :: Text.Text -> Text.Text -> [CoreCorpusManifestEntry] -> IO ()
+assertManifestViolation label expectedViolation manifest =
+  assertContains
+    label
+    expectedViolation
+    (Text.pack (show (validateCoreCorpusManifest parserFixtureCorpus manifest)))
 
 completeExpressions :: [SurfaceExpr]
 completeExpressions =
