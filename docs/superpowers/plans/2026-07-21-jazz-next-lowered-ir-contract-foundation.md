@@ -145,7 +145,9 @@ The invalid family contains exactly these 31 fixtures:
 
 Fixture names and ordering are fixed in the test manifest. Tests reject missing,
 duplicate, unknown, or reordered cases and assert exact `10`, `31`, and `41`
-counts.
+counts. A separate parity-backed hardening corpus covers later validation gaps
+without changing that fixed manifest, including parameterized or capturing
+entry functions and jump, branch, or switch edges that target an entry block.
 
 ## Implementation Batch: Lowered IR Contract Foundation
 
@@ -260,6 +262,9 @@ regression evidence.
   failures rather than crashes or defaults.
 - [x] Add repeated batch assertions over all 41 fixtures and require
   byte-identical canonical rendering and exact failure ordering.
+- [x] Extend the parity-backed hardening corpus when review finds a real
+  contract gap; keep those regressions separate from the fixed 41-fixture
+  manifest.
 - [x] Run the focused regression command from frontmatter, including all four
   hosted canonical-core suites and repository audit.
 - [x] Confirm the new suite contains no synthetic scale generator and enables

@@ -31,6 +31,7 @@ validateLoweredProgram (LoweredProgram version layouts services functions entryF
     <> duplicateServiceFailures services
     <> duplicateFunctionFailures functions
     <> missingEntryFailure
+    <> entryFunctionParameterFailures
     <> concatMap (validateLayout programContext) layouts
     <> concatMap (validateRuntimeService programContext) services
     <> concatMap (validateFunction programContext) functions
@@ -44,6 +45,17 @@ validateLoweredProgram (LoweredProgram version layouts services functions entryF
     missingEntryFailure
       | Map.member entryFunction (contextFunctions programContext) = []
       | otherwise = [failure LoweredProgramPath LoweredMissingEntryFunction (identifierDetail (functionIdText entryFunction))]
+    entryFunctionParameterFailures =
+      case Map.lookup entryFunction (contextFunctions programContext) of
+        Just (LoweredFunction _ maybeEnvironment parameters _ _ _)
+          | let parameterCount = length (maybeToList maybeEnvironment <> parameters),
+            parameterCount > 0 ->
+              [ failure
+                  (LoweredFunctionPath entryFunction)
+                  LoweredEntryFunctionParameters
+                  (LoweredArityDetail 0 parameterCount)
+              ]
+        _ -> []
     versionFailures
       | version == supportedLoweredIRVersion = []
       | otherwise = [failure LoweredProgramPath LoweredUnsupportedVersion (LoweredVersionDetail supportedLoweredIRVersion version)]
@@ -445,12 +457,17 @@ validateEdge :: FunctionContext -> LoweredIRValidationPath -> LoweredBlockId -> 
 validateEdge functionContext path targetBlock operands =
   case Map.lookup targetBlock (functionContextBlocks functionContext) of
     Nothing -> [failure path LoweredUnknownBlock (identifierDetail (blockIdText targetBlock))]
+    Just _
+      | targetBlock == entryBlock ->
+          [failure path LoweredEntryBlockIncomingEdge (identifierDetail (blockIdText targetBlock))]
     Just (LoweredBlock _ parameters _ _) ->
       representationListFailures
         path
         LoweredEdgeRepresentationMismatch
         [representation | LoweredParameter _ representation <- parameters]
         (map loweredOperandRepresentation operands)
+  where
+    LoweredFunction _ _ _ _ _ entryBlock = functionContextFunction functionContext
 
 validateSwitchCase :: FunctionContext -> LoweredIRValidationPath -> LoweredSwitchCase -> [LoweredIRValidationFailure]
 validateSwitchCase functionContext path (LoweredSwitchCase _ targetBlock operands) = validateEdge functionContext path targetBlock operands

@@ -119,6 +119,11 @@ Version `1` is the only supported semantic contract in this child. Validators
 reject any other value before reporting the rest of the program failures, and
 the expected and actual versions remain structured validation data.
 
+The entry-function symbol names a non-capturing, zero-parameter function.
+`LoweredProgram` carries neither entry arguments nor an entry environment, so a
+parameterized or capturing entry function would otherwise introduce values no
+caller can supply.
+
 Ordering is observable in canonical comparison output. Lookup semantics use
 stable identifiers rather than list position, but renderers preserve source
 order so diagnostics and parity evidence remain deterministic.
@@ -166,10 +171,10 @@ representations and act as explicit join values. This provides an SSA-shaped
 control-flow boundary without introducing LLVM phi nodes or requiring an
 optimization pipeline in the first milestone.
 
-The entry block has no block parameters because it has no incoming CFG edge;
-function parameters are the only values supplied on function entry. Parameter
-identifiers must be unique within the combined environment/ordinary function
-parameter namespace and within each block-parameter namespace.
+The entry block has no block parameters and no jump, branch, or switch edge may
+target it. Function parameters are the only values supplied on function entry.
+Parameter identifiers must be unique within the combined environment/ordinary
+function parameter namespace and within each block-parameter namespace.
 
 Each instruction may define at most one temporary. Every temporary identifier
 is defined once within its block and may be reused independently in another
@@ -304,7 +309,9 @@ The first validator must detect at least:
   identifiers;
 - unsupported semantic IR versions;
 - missing or foreign entry functions and entry blocks;
+- parameterized or capturing entry functions;
 - parameterized entry blocks;
+- jump, branch, or switch edges targeting an entry block;
 - missing terminators;
 - invalid use order or cross-function operands;
 - instruction result/operand representation mismatches;

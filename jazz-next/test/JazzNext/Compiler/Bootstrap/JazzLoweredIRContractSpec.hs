@@ -975,7 +975,7 @@ hardeningFixtures =
     HardeningFixture
       "duplicate function parameter"
       duplicateFunctionParameterProgram
-      [functionFailure "main" LoweredDuplicateParameter (identifierDetail "value")],
+      [functionFailure "duplicate" LoweredDuplicateParameter (identifierDetail "value")],
     HardeningFixture
       "duplicate block parameter"
       duplicateBlockParameterProgram
@@ -984,6 +984,26 @@ hardeningFixtures =
       "parameterized entry block"
       parameterizedEntryBlockProgram
       [blockFailure "main" "entry" LoweredEntryBlockParameters (LoweredArityDetail 0 1)],
+    HardeningFixture
+      "parameterized entry function"
+      parameterizedEntryFunctionProgram
+      [functionFailure "main" LoweredEntryFunctionParameters (LoweredArityDetail 0 1)],
+    HardeningFixture
+      "capturing entry function"
+      capturingEntryFunctionProgram
+      [functionFailure "main" LoweredEntryFunctionParameters (LoweredArityDetail 0 1)],
+    HardeningFixture
+      "jump to entry block"
+      entryIncomingJumpProgram
+      [terminatorFailure "main" "loop" LoweredEntryBlockIncomingEdge (identifierDetail "entry")],
+    HardeningFixture
+      "branch to entry block"
+      entryIncomingBranchProgram
+      [terminatorFailure "main" "loop" LoweredEntryBlockIncomingEdge (identifierDetail "entry")],
+    HardeningFixture
+      "switch to entry block"
+      entryIncomingSwitchProgram
+      [terminatorFailure "main" "loop" LoweredEntryBlockIncomingEdge (identifierDetail "entry")],
     HardeningFixture
       "unknown managed result"
       (unknownInstructionResultProgram (managed "missing"))
@@ -1134,12 +1154,13 @@ duplicateFunctionParameterProgram =
     [LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [])]
     []
     [ function
-        "main"
+        "duplicate"
         (Just (parameter "value" (managed "environment")))
         [parameter "value" i64]
         LoweredUnitRepresentation
         [unitBlock "entry"]
-        "entry"
+        "entry",
+      unitMain
     ]
     "main"
 
@@ -1175,6 +1196,85 @@ parameterizedEntryBlockProgram =
         []
         i64
         [block "entry" [parameter "value" i64] [] (LoweredReturn (blockParameter "value" i64))]
+        "entry"
+    ]
+    "main"
+
+parameterizedEntryFunctionProgram :: LoweredProgram
+parameterizedEntryFunctionProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        [parameter "value" i64]
+        i64
+        [block "entry" [] [] (LoweredReturn (functionParameter "value" i64))]
+        "entry"
+    ]
+    "main"
+
+capturingEntryFunctionProgram :: LoweredProgram
+capturingEntryFunctionProgram =
+  program
+    [LoweredLayout (layoutId "environment") (LoweredClosureEnvironmentLayout [])]
+    []
+    [ function
+        "main"
+        (Just (parameter "environment" (managed "environment")))
+        []
+        LoweredUnitRepresentation
+        [unitBlock "entry"]
+        "entry"
+    ]
+    "main"
+
+entryIncomingJumpProgram :: LoweredProgram
+entryIncomingJumpProgram =
+  entryIncomingEdgeProgram
+    []
+    []
+    (LoweredJump (blockId "entry") [])
+
+entryIncomingBranchProgram :: LoweredProgram
+entryIncomingBranchProgram =
+  entryIncomingEdgeProgram
+    []
+    []
+    ( LoweredBranch
+        (immediate (LoweredBoolImmediate True))
+        (blockId "entry")
+        []
+        (blockId "exit")
+        []
+    )
+
+entryIncomingSwitchProgram :: LoweredProgram
+entryIncomingSwitchProgram =
+  entryIncomingEdgeProgram
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 0 []])]
+    [instruction "option" (managed "option") (LoweredConstructVariant (layoutId "option") 0 [])]
+    ( LoweredSwitch
+        (temporary "option" (managed "option"))
+        [LoweredSwitchCase 0 (blockId "entry") []]
+        (Just (LoweredSwitchDefault (blockId "exit") []))
+    )
+
+entryIncomingEdgeProgram :: [LoweredLayout] -> [LoweredInstruction] -> LoweredTerminator -> LoweredProgram
+entryIncomingEdgeProgram layouts loopInstructions loopTerminator =
+  program
+    layouts
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ unitBlock "entry",
+          block "loop" [] loopInstructions loopTerminator,
+          unitBlock "exit"
+        ]
         "entry"
     ]
     "main"

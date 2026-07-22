@@ -110,10 +110,12 @@ decodeValidationKind value = do
       "LoweredUnknownRuntimeService" -> Right LoweredUnknownRuntimeService
       "LoweredDuplicateFunction" -> Right LoweredDuplicateFunction
       "LoweredMissingEntryFunction" -> Right LoweredMissingEntryFunction
+      "LoweredEntryFunctionParameters" -> Right LoweredEntryFunctionParameters
       "LoweredDuplicateBlock" -> Right LoweredDuplicateBlock
       "LoweredMissingEntryBlock" -> Right LoweredMissingEntryBlock
       "LoweredDuplicateParameter" -> Right LoweredDuplicateParameter
       "LoweredEntryBlockParameters" -> Right LoweredEntryBlockParameters
+      "LoweredEntryBlockIncomingEdge" -> Right LoweredEntryBlockIncomingEdge
       "LoweredMissingTerminator" -> Right LoweredMissingTerminator
       "LoweredDuplicateTemporary" -> Right LoweredDuplicateTemporary
       "LoweredUseBeforeDefinition" -> Right LoweredUseBeforeDefinition
@@ -579,10 +581,12 @@ validationKindName kind =
     LoweredUnknownRuntimeService -> "LoweredUnknownRuntimeService"
     LoweredDuplicateFunction -> "LoweredDuplicateFunction"
     LoweredMissingEntryFunction -> "LoweredMissingEntryFunction"
+    LoweredEntryFunctionParameters -> "LoweredEntryFunctionParameters"
     LoweredDuplicateBlock -> "LoweredDuplicateBlock"
     LoweredMissingEntryBlock -> "LoweredMissingEntryBlock"
     LoweredDuplicateParameter -> "LoweredDuplicateParameter"
     LoweredEntryBlockParameters -> "LoweredEntryBlockParameters"
+    LoweredEntryBlockIncomingEdge -> "LoweredEntryBlockIncomingEdge"
     LoweredMissingTerminator -> "LoweredMissingTerminator"
     LoweredDuplicateTemporary -> "LoweredDuplicateTemporary"
     LoweredUseBeforeDefinition -> "LoweredUseBeforeDefinition"

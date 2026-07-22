@@ -798,7 +798,9 @@ module LoweredIRValidate (
         | Nothing -> [failure path LoweredUnknownBlock (identifierDetail (blockIdText targetBlockId))]
         | Just targetBlock -> case targetBlock {
           | LoweredBlock blockId targetParameters instructions terminator ->
-            representationListFailures path LoweredEdgeRepresentationMismatch (parameterRepresentations targetParameters) (operandRepresentations operands)
+            if blockIdEqual targetBlockId entry then
+              [failure path LoweredEntryBlockIncomingEdge (identifierDetail (blockIdText targetBlockId))]
+            else representationListFailures path LoweredEdgeRepresentationMismatch (parameterRepresentations targetParameters) (operandRepresentations operands)
         }
       }
     }
@@ -1023,6 +1025,15 @@ module LoweredIRValidate (
     | Just entry -> []
   }.
 
+  entryFunctionParameterFailures :: LoweredFunctionId -> [LoweredFunction] -> [LoweredIRValidationFailure].
+  entryFunctionParameterFailures = \(entryFunction, functions) -> case lookupFunction entryFunction functions {
+    | Nothing -> []
+    | Just entry -> case listLength (functionParameters entry) {
+      | 0 -> []
+      | parameterCount -> [failure (LoweredFunctionPath entryFunction) LoweredEntryFunctionParameters (LoweredArityDetail 0 parameterCount)]
+    }
+  }.
+
   validateProgram :: LoweredProgram -> [LoweredIRValidationFailure].
   validateProgram = \(program) -> case program {
     | LoweredProgram version layouts services functions entryFunction -> listConcat
@@ -1031,6 +1042,7 @@ module LoweredIRValidate (
         duplicateServiceFailures services,
         duplicateFunctionFailures functions,
         missingEntryFunctionFailures entryFunction functions,
+        entryFunctionParameterFailures entryFunction functions,
         validateLayouts (ProgramContext layouts services functions) layouts,
         validateServices (ProgramContext layouts services functions) services,
         validateFunctions (ProgramContext layouts services functions) functions

@@ -222,10 +222,12 @@ data LoweredIRValidationKind
   | LoweredUnknownRuntimeService
   | LoweredDuplicateFunction
   | LoweredMissingEntryFunction
+  | LoweredEntryFunctionParameters
   | LoweredDuplicateBlock
   | LoweredMissingEntryBlock
   | LoweredDuplicateParameter
   | LoweredEntryBlockParameters
+  | LoweredEntryBlockIncomingEdge
   | LoweredMissingTerminator
   | LoweredDuplicateTemporary
   | LoweredUseBeforeDefinition
