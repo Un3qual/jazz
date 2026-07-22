@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed in written form on `2026-07-22` and awaiting written-spec review.
-No implementation child is promoted by this document alone.
+Approved in discussion and reviewed in written form on `2026-07-22`.
+No implementation child is promoted by this document alone; the contract-
+foundation plan remains a separate review gate.
 
 The hosted lexer, parser, canonical-core lowerer, and backend-neutral lowered-IR
 contract foundation are complete. The next compiler boundary must retain the
