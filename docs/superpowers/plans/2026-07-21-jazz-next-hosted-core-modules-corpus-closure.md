@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001
 last_verified: 2026-07-21
+completed_on: 2026-07-21
 plan_section: "Implementation Batch: Hosted Core Modules and Corpus Closure"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -263,20 +264,20 @@ end-to-end parity for every accepted parser fixture.
 **Produces:** Complete routine evidence, durable child-4 closure, and no
 unpromoted canonical-core implementation child.
 
-- [ ] Run the exact focused verification command from frontmatter.
-- [ ] Run the warning-clean development build, routine non-exhaustive Cabal
+- [x] Run the exact focused verification command from frontmatter.
+- [x] Run the warning-clean development build, routine non-exhaustive Cabal
   `all`, and `cabal check`. Confirm only bounded `jazz-parser-scale-spec` runs;
   do not enable any `jazz-parser-scale-full-*` component.
-- [ ] Update the hosted canonical-core design, bootstrap profile, and
+- [x] Update the hosted canonical-core design, bootstrap profile, and
   `jazz-next/README.md` with final entry points, failure ownership, exact
   17/13/196 fixture evidence, and the continuing production-Haskell boundary.
-- [ ] Mark this plan and design done, archive the child with concrete evidence,
+- [x] Mark this plan and design done, archive the child with concrete evidence,
   empty `Ready Now`, and remove the completed child from `Next Curation Target`.
-- [ ] Update the parent blocker contract and live queue to state that hosted
+- [x] Update the parent blocker contract and live queue to state that hosted
   canonical core is complete and that backend-neutral lowered IR planning is
   the next approval gate, without promoting backend implementation.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close hosted canonical core`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close hosted canonical core`.
 
 ## Done Criteria
 

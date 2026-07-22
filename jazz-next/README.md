@@ -71,10 +71,11 @@ Shipped Jazz source lives under one package-owned root:
   operator signatures. Six fixed families assign all 365 parser fixtures
   exactly once and match the active Haskell stage-0 parser through both façades
   twice. `CoreTypes.jz` defines the complete hosted canonical-core comparison
-  schema, and `CoreLower.jz` now hosts expression lowering through signatures,
-  declarations, explicit type and `$` application, and operator bindings in
-  addition to the earlier expression, pattern, case, conditional, and lambda
-  families.
+  schema and composed result. `CoreLower.jz` owns all four private lowering
+  profiles, including total expression lowering, exact module/import metadata,
+  structured expected-path failures, and recursive source qualification.
+  `Core.jz` is the thin source facade that calls the hosted parser once and
+  forwards lexical/parser failures before module lowering.
 
 Compiler modules may import standard-library modules. Standard-library modules
 must not import compiler implementation modules; `repository-audit-spec`
@@ -116,6 +117,16 @@ hidden operator-storage names. Modules and imports remain all-or-nothing
 `Nothing` at any depth. None of these entry points is a supported public
 compiler API, and none replaces the production Haskell lowerer.
 
+`CoreLower.lowerCanonicalExpression :: SurfaceExpr -> CoreExpr` is the total
+fourth profile. `CoreLower.lowerModule :: CanonicalSourcePath -> [Text] -> SurfaceExpr -> CoreModuleLoweringResult`
+extracts only top-level module/import metadata, preserves nested executable
+forms, validates the expected module path with structured `E4005`/`E4006`
+counterparts, and qualifies every retained span. `Core.lowerCoreSource :: CanonicalSourcePath -> [Text] -> Text -> CanonicalCoreSourceResult`
+composes the hosted parser and module lowerer while keeping lexical, parser,
+and module outcomes structurally distinct. These remain private bootstrap and
+differential-testing boundaries; production compilation still uses the Haskell
+parser/lowerer.
+
 `canonical-core-comparison-spec` inventories the complete comparison contract.
 `jazz-core-expression-foundation-spec` compares the hosted lowerer with stage 0
 through direct surface values and through the hosted parser, runs both paths
@@ -128,6 +139,11 @@ runs twice and compares complete values or exact `Nothing` results.
 parser-composed positive fixtures plus 8 root or nested module/import rejection
 fixtures. Every family runs twice and compares complete values or exact
 `Nothing` results.
+`jazz-core-modules-corpus-closure-spec` adds 17 direct module fixtures, 13
+composed sources, and an audited ordered manifest of all 196 accepted fixtures
+from the fixed 365-case parser corpus. Every result runs twice and matches the
+complete stage-0 value; the fixed mixed-surface source is the only added bounded
+smoke case.
 
 ## Editor support
 
@@ -146,7 +162,8 @@ semantic editor features remain future work.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
   adapters plus hosted lexer/parser/core component coverage; the complete core
-  schema and expression-foundation direct/composed parity; exact 52-case
+  schema, all four private lowering profiles, source-to-core facade, and
+  17-direct / 13-composed / 196-accepted core closure; exact 52-case
   expression, 101-case declarations, 75-case control-flow/pattern, 55-case
   operator, 26-case mixed operator/control-flow, and 56-case corpus-closure
   families; complete repeated 365-case parity; and deterministic

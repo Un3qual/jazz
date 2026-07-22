@@ -2,9 +2,16 @@
 
 ## Status
 
-Approved in discussion on `2026-07-21` as the fourth and final child of the
-hosted canonical-core milestone. The implementation plan remains subject to a
-separate review before this child may be promoted into `Ready Now`.
+Approved and completed on `2026-07-21` as the fourth and final child of the
+hosted canonical-core milestone. The implementation preserves all three earlier
+profile boundaries while completing the private source-to-core path.
+
+Closure evidence: all 17 direct module fixtures and 13 composed sources match
+complete stage-0 results twice. The explicit ordered manifest contains all and
+only the 196 accepted fixtures from the fixed 365-case parser corpus, and every
+facade result matches stage 0 twice without lexical, parser, or module-lowering
+failure. The warning-clean build, focused regressions, routine non-exhaustive
+Cabal matrix, bounded parser scale, and package check pass.
 
 ## Goal
 

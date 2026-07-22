@@ -113,38 +113,36 @@ Each blocked item should answer these questions:
   hosted-parser-composed positive fixtures match complete stage-0 values
   twice, while all 8 root and nested module/import fixtures return only
   `Nothing` twice.
+  `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` completed the fourth and
+  final canonical-core profile with total expression lowering, exact
+  module/import metadata and source qualification, structured `E4005`/`E4006`
+  counterparts, and the single-call `Core.lowerCoreSource` facade. All 17
+  direct module fixtures and 13 composed sources match stage 0 twice, and an
+  audited ordered manifest covers all 196 accepted parser fixtures with exact
+  repeated module results.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
-  and orders four independently reviewable children before any backend work.
-- Smallest unblocker: execute the approved modules/corpus-closure child through
-  its fixed direct, composed, and accepted-corpus families.
-- Decision needed: resolved on `2026-07-21`; the reviewed implementation plan
-  is active as child 4 of the canonical-core milestone.
-- Recommended default: add module/import extraction, explicit export and import
-  metadata, expected-path validation, structured `E4005`/`E4006` failures,
-  complete span qualification, the composed source-to-core facade, and exact
-  closure over the accepted parser corpus.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` is the
-  sole active `Ready Now` row. No backend child is promoted.
-- Target paths: `jazz-next/jazz/compiler/CoreTypes.jz`,
-  `jazz-next/jazz/compiler/CoreLower.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzCoreParity.hs`,
-  and `jazz-next/jazz-next.cabal`.
-  `Core.jz` and the focused test path join active metadata when their creating
-  tasks add them.
-- Verification: focused modules/corpus closure plus all three earlier hosted
-  core profiles, canonical-core, canonical-parser, complete hosted-parser, and
-  repository-audit suites; warning-clean development build; routine Cabal
-  `all`; `cabal check`; queue/docs validators; and `git diff --check`.
-  Exhaustive parser scale components remain manual and are not part of this
-  child.
-- Not in scope: a public parser or lowerer API; production lowerer replacement;
-  type inference, name resolution, analysis, evaluation, host callbacks or
-  intrinsics, bytecode or a VM, lowered IR, LLVM emission, object generation,
-  linking, or native-runtime implementation.
+  and completed four independently reviewable children before backend work.
+- Smallest unblocker: review and approve a backend-neutral lowered-IR design
+  before creating any implementation child.
+- Decision needed: define the permanent IR ownership and exact contracts for
+  explicit control flow, closure conversion, calls, runtime representations,
+  data-layout requests, stage-0 comparison evidence, and the boundary consumed
+  later by LLVM lowering.
+- Recommended default: keep this as a design-and-plan gate first. Preserve
+  canonical core as the interpreter input and semantic oracle, keep the IR
+  independent of LLVM instruction objects, and do not add bytecode or a VM.
+- Candidate child: none currently. A lowered-IR implementation child may be
+  named only after its separate design and implementation plan are reviewed.
+- Target paths: not set until the lowered-IR design fixes its Jazz owners,
+  test-only stage-0 adapter, fixtures, and focused verification.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`; `git diff --check`.
+- Not in scope: implementing lowered IR before approval; LLVM emission;
+  object generation; linking; native-runtime or ABI implementation; a public
+  compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

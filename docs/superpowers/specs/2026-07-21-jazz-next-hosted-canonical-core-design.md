@@ -2,8 +2,8 @@
 
 ## Status
 
-Approved in discussion on `2026-07-21`. This design selects canonical-core
-lowering as the next hosted compiler milestone after the Jazz-authored parser
+Approved and completed on `2026-07-21`. This design selected canonical-core
+lowering as the hosted compiler milestone after the Jazz-authored parser
 reached complete stage-0 parity.
 
 The active Haskell implementation under `jazz-next/` remains stage 0 and the
@@ -11,7 +11,7 @@ semantic oracle. The hosted implementation will match the current
 `JazzNext.Compiler.Parser.Lower` boundary before any redesign of the core,
 type-inference port, or backend work begins.
 
-Implementation status (`2026-07-21`): children 1 through 3 are complete.
+Implementation status (`2026-07-21`): all four children are complete.
 `CoreTypes.jz` defines the full comparison schema, and the checked Haskell
 adapter rejects values outside the lowering boundary. One private profile-driven
 kernel preserves `CoreLower.lowerFoundationExpression` while
@@ -21,8 +21,11 @@ The third ordered profile adds signature types and constraints, unsupported
 tokens, explicit type application, `$` application, declaration payloads, and
 exact hidden operator-storage names. Its 20 direct and 16 parser-composed
 positive fixtures match complete stage-0 values twice; all 8 module/import
-deferrals return only `Nothing` twice. Only child 4, modules/corpus closure,
-remains.
+deferrals return only `Nothing` twice. The final profile makes expression
+lowering total, owns exact module/import metadata and structured path failures,
+and exposes the private `Core.lowerCoreSource` facade. All 17 direct module
+fixtures, 13 composed sources, and 196 accepted parser-corpus fixtures match
+complete stage-0 results twice.
 
 ## Goal
 
@@ -267,6 +270,14 @@ validation, structured `E4005`/`E4006` failures, complete span qualification,
 and the composed source-to-core facade. Close the manifest over every
 successfully parsed fixture in the accepted parser corpus.
 
+Completed on `2026-07-21`. `CoreLower.lowerCanonicalExpression` is total over
+the fixed surface schema; `CoreLower.lowerModule` preserves module/import
+metadata, validates expected paths, and recursively qualifies every retained
+span; and `Core.lowerCoreSource` calls the hosted parser once before forwarding
+lexical/parser failures or returning a structured module result. The audited
+196-entry accepted-corpus manifest and the fixed 17 direct / 13 composed
+families all match stage 0 twice.
+
 Only one child is promoted into `Ready Now` at a time. Each child plan must
 name concrete paths, a fixed fixture family, focused verification, and the
 constructors or transformations that remain outside that child.
@@ -307,9 +318,9 @@ The implementation plan will describe responsibilities, observable behavior,
 test cases, and integration points. It will not reproduce the code to be
 written.
 
-When a child closes, its evidence moves to `done-archive.md` and only its
-ordered successor may be curated. Children 1 through 3 are closed, so only
-child 4 may now be curated; it is not executable until its plan is reviewed.
+All four children are closed and their evidence is archived. No canonical-core
+successor is promoted. Backend-neutral lowered-IR design approval is the next
+separate gate before any backend implementation plan or queue row exists.
 
 ## Non-Goals
 

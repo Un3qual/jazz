@@ -12,8 +12,10 @@ deterministically and traverses large source/token inputs without host stack
 growth. The parser contract/kernel and its expression,
 types/declarations/modules, control-flow/patterns, and operators/full-parity
 grammar children completed by `2026-07-20`. The hosted parser matches all 365
-fixed stage-0 fixtures exactly. Canonical core, backend-neutral lowered IR,
-LLVM, object/link, and native-runtime stages remain separate milestones.
+fixed stage-0 fixtures exactly. Hosted canonical core completed on `2026-07-21`
+with exact repeated parity for every accepted parser fixture. Backend-neutral
+lowered IR, LLVM, object/link, and native-runtime stages remain separate
+milestones; lowered-IR design approval is the next gate.
 
 ## Goal
 
@@ -397,7 +399,11 @@ The design decomposes into independently reviewable children:
 16. every signature type, constraint, unsupported token, declaration payload,
     explicit type application, `$` application, and exact hidden
     operator-storage name with repeated direct/composed parity (complete on
-    `2026-07-21`).
+    `2026-07-21`); and
+17. total canonical expression lowering, exact module/import metadata,
+    structured module-path failures, recursive source qualification, the
+    single-call source facade, and audited repeated parity for all 196 accepted
+    parser fixtures (complete on `2026-07-21`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
@@ -431,7 +437,7 @@ profiles remain deterministic with zero host operations; the operator profile
 records 49,040,140 transitions / 5,914,883 applications / 186,465 list cells /
 depth 1,116.
 
-The first three post-parser children are complete. `CoreTypes.jz` defines the full
+All four post-parser canonical-core children are complete. `CoreTypes.jz` defines the full
 canonical comparison schema, a checked test-only Haskell adapter translates
 only already-lowered stage-0 values, and the shared harness compares ordinary
 Jazz results directly and after hosted parser composition. The internal
@@ -451,9 +457,17 @@ class, and impl payload, plus exact hidden operator-storage names. Its 20 direct
 and 16 parser-composed positive fixtures match complete stage-0 values twice;
 all 8 root and nested module/import fixtures return only `Nothing` twice.
 
-Modules/corpus closure is now the sole next curation target and final
-canonical-core child. Lowered IR, LLVM, object/link production, and the native
-runtime remain behind separate reviewed contracts and plans.
+The final profile adds total expression lowering, exact top-level module/import
+collection, optional exports, expected-path validation, structured `E4005` and
+`E4006` counterparts, and recursive source qualification. `Core.lowerCoreSource`
+calls the hosted parser once and retains distinct lexical, parser, and module
+result ownership. All 17 direct module fixtures and 13 composed sources match
+stage 0 twice; an audited ordered manifest covers all 196 accepted fixtures
+from the 365-case parser corpus, also twice.
+
+Hosted canonical core is complete. Backend-neutral lowered-IR design approval
+is the next gate. No lowered-IR, LLVM, object/link, or native-runtime
+implementation child is currently promoted.
 
 ## Non-Goals
 
