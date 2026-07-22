@@ -3,8 +3,11 @@
 ## Status
 
 Approved in discussion and reviewed in written form on `2026-07-22`.
-No implementation child is promoted by this document alone; the contract-
-foundation plan remains a separate review gate.
+Implementation status (`2026-07-22`):
+`JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001` is reviewed and active. It
+owns the matching Haskell/Jazz schemas, validators, checked comparison, and
+fixed bounded parity corpus. Inference production and all core-to-IR lowering
+remain unpromoted.
 
 The hosted lexer, parser, canonical-core lowerer, and backend-neutral lowered-IR
 contract foundation are complete. The next compiler boundary must retain the

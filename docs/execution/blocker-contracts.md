@@ -135,17 +135,27 @@ Each blocked item should answer these questions:
   mirrored Haskell/Jazz CFG contract with explicit closures, calls,
   representations, layout requests, structured validation, and canonical
   parity while preserving canonical core as interpreter input.
-- Smallest unblocker: none currently. A typed-core elaboration design must
-  define per-node resolved types, capability evidence, names, and
-  representation ownership before an implementation child can be promoted.
-- Decision needed: no typed-core elaboration design is accepted yet.
+- Accepted decision: the typed-core elaboration contract is
+  `2026-07-22-jazz-next-typed-core-elaboration-design.md`. It selects a
+  separate structurally aligned typed tree with final semantic types,
+  representation recipes, instantiations, evidence, and resolved identities
+  while preserving canonical core and the interpreter boundary.
+- Smallest unblocker: execute and close
+  `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`.
+- Decision needed: accepted on `2026-07-22`; the first child establishes the
+  mirrored contract and validators before inference production or lowering.
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
-- Candidate child: none. Do not infer a typed-core implementation batch from
-  the completed IR contract.
-- Target paths: none until a reviewed typed-core design names concrete owners.
-- Verification: not applicable until that design and child plan exist.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001` is active
+  in `Ready Now`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/TypedCore.hs`,
+  `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`,
+  `jazz-next/jazz/compiler/TypedCoreTypes.jz`,
+  `jazz-next/jazz/compiler/TypedCoreValidate.jz`, and focused bootstrap
+  comparison/spec support.
+- Verification: use the exact focused, warning-clean, routine bounded,
+  package, queue/docs, and whitespace commands in the reviewed child plan.
 - Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.

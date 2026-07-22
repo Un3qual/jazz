@@ -1,10 +1,10 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001
-status: proposed
+status: ready
 priority: P1
 size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001
 last_verified: 2026-07-22
@@ -18,12 +18,6 @@ target_paths:
   - docs/superpowers/plans/2026-07-22-jazz-next-typed-core-contract-foundation.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
-  - jazz-next/jazz/compiler/TypedCoreTypes.jz
-  - jazz-next/jazz/compiler/TypedCoreValidate.jz
-  - jazz-next/src/JazzNext/Compiler/TypedCore.hs
-  - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
-  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-core-modules-corpus-closure-spec jazz-core-signatures-declarations-operators-spec jazz-core-control-flow-patterns-spec jazz-core-expression-foundation-spec repository-audit-spec --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all
@@ -520,21 +514,21 @@ failures rather than constructible typed-core values.
 - Produces: one exact P1/L `Ready Now` row whose plan/frontmatter metadata
   match and whose parent blocker names only this child as active.
 
-- [ ] **Step 1: Change reviewed metadata to executable metadata**
+- [x] **Step 1: Change reviewed metadata to executable metadata**
 
   Set frontmatter `status: ready` and `autonomous_ready: yes`. Add the child to
   `Ready Now` with the exact dependency, plan section, target paths,
   deliverable, verification commands, and `2026-07-22` verification date from
   this plan.
 
-- [ ] **Step 2: Preserve the next gate**
+- [x] **Step 2: Preserve the next gate**
 
   Keep `Next Curation Target` empty. Update the bootstrap blocker and typed-core
   design to name only the contract foundation as active; keep inference
   elaboration, core-to-IR lowering, LLVM, object/link, and native runtime
   unpromoted.
 
-- [ ] **Step 3: Verify promotion metadata**
+- [x] **Step 3: Verify promotion metadata**
 
   Run:
 
@@ -548,7 +542,7 @@ failures rather than constructible typed-core values.
   checks pass. A tool-version guard may skip Prettier outside the Nix shell but
   must not skip queue or docs status validation.
 
-- [ ] **Step 4: Commit promotion**
+- [x] **Step 4: Commit promotion**
 
   ```bash
   git add docs/execution/queue.md docs/execution/blocker-contracts.md docs/superpowers/specs/2026-07-22-jazz-next-typed-core-elaboration-design.md docs/superpowers/plans/2026-07-22-jazz-next-typed-core-contract-foundation.md
