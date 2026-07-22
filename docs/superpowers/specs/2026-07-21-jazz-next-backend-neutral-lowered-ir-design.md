@@ -4,10 +4,12 @@
 
 Approved in discussion and reviewed in written form on `2026-07-21`.
 
-Implementation status (`2026-07-21`):
-`JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` is the active reviewed child.
-Typed-core elaboration, core-to-IR lowering, LLVM, object/link, and native
-runtime work remain unpromoted.
+Implementation status (`2026-07-21`): complete.
+`JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` established the matching
+Haskell/Jazz schemas, complete ordered validators, checked comparison adapter,
+and exact repeated parity over 10 valid and 31 invalid fixtures. Typed-core
+elaboration, core-to-IR lowering, LLVM, object/link, and native-runtime work
+remain unpromoted.
 
 Hosted lexing, parsing, and canonical-core lowering already match stage 0 over
 the complete fixed parser corpus. The next compiler milestone establishes the
@@ -156,11 +158,11 @@ representations and act as explicit join values. This provides an SSA-shaped
 control-flow boundary without introducing LLVM phi nodes or requiring an
 optimization pipeline in the first milestone.
 
-Each instruction may define at most one temporary. Every temporary is defined
-once within its function and may be used only by a later instruction or the
-terminator in the same block. Values that cross a block edge must be passed as
-block arguments. Cross-block and cross-function temporary references are
-invalid.
+Each instruction may define at most one temporary. Every temporary identifier
+is defined once within its block and may be reused independently in another
+block. A temporary may be used only by a later instruction or the terminator in
+its defining block. Values that cross a block edge must be passed as block
+arguments. Cross-block and cross-function temporary references are invalid.
 
 The first contract does not define mutable local slots. A later optimization
 pass may rewrite the graph while preserving the same validated semantics.
@@ -263,7 +265,8 @@ Validation returns ordinary structured data. A failure records:
 - a stable failure kind;
 - the function, block, and instruction position when applicable;
 - the referenced identifier or expected representation when applicable; and
-- child failures when one construct produces multiple independent findings.
+- structured details for identifiers, representations, arities, indices, or
+  tags when applicable.
 
 The first validator must detect at least:
 
@@ -293,8 +296,9 @@ ordinary constructor-shaped values using stable identifier and list ordering.
 It must not use Haskell `Show`, source-string inspection, absolute paths,
 pointer identities, or backend-specific names.
 
-The first fixture family constructs the same logical values independently in
-Haskell and Jazz, then compares:
+The fixed fixture family materializes complete ordinary Jazz values through
+hosted source and validates the same complete programs in Haskell, then
+compares:
 
 1. complete canonical program values;
 2. complete ordered validation results; and

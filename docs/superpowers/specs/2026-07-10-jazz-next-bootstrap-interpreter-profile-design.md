@@ -13,9 +13,11 @@ growth. The parser contract/kernel and its expression,
 types/declarations/modules, control-flow/patterns, and operators/full-parity
 grammar children completed by `2026-07-20`. The hosted parser matches all 365
 fixed stage-0 fixtures exactly. Hosted canonical core completed on `2026-07-21`
-with exact repeated parity for every accepted parser fixture. Backend-neutral
-lowered IR, LLVM, object/link, and native-runtime stages remain separate
-milestones; lowered-IR design approval is the next gate.
+with exact repeated parity for every accepted parser fixture. The
+backend-neutral lowered-IR contract foundation also completed on `2026-07-21`:
+matching Haskell/Jazz schemas and validators have exact repeated parity over 10
+valid and 31 invalid fixtures. Typed-core elaboration, core-to-IR lowering,
+LLVM, object/link, and native-runtime stages remain separate unpromoted gates.
 
 ## Goal
 
@@ -465,9 +467,14 @@ result ownership. All 17 direct module fixtures and 13 composed sources match
 stage 0 twice; an audited ordered manifest covers all 196 accepted fixtures
 from the 365-case parser corpus, also twice.
 
-Hosted canonical core is complete. Backend-neutral lowered-IR design approval
-is the next gate. No lowered-IR, LLVM, object/link, or native-runtime
-implementation child is currently promoted.
+Hosted canonical core and the backend-neutral lowered-IR contract foundation
+are complete. `JazzNext.Compiler.LoweredIR` and
+`JazzNext.Compiler.LoweredIR.Validate` own the stage-0 schema and validator;
+`LoweredIRTypes.jz` and `LoweredIRValidate.jz` own their ordinary Jazz mirrors.
+The bounded 10-valid / 31-invalid corpus matches complete ordered results twice,
+and the checked adapter rejects malformed result shapes. Typed-core elaboration
+is the next design gate. No core-to-IR lowering, LLVM, object/link, or
+native-runtime implementation child is currently promoted.
 
 ## Non-Goals
 

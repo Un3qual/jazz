@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001
 last_verified: 2026-07-21
+completed_on: 2026-07-21
 plan_section: "Implementation Batch: Lowered IR Contract Foundation"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -272,20 +273,20 @@ regression evidence.
 **Produces:** Complete routine evidence, archived contract-foundation closure,
 and typed-core elaboration returned to a separate design gate.
 
-- [ ] Run the exact focused verification command from frontmatter.
-- [ ] Run the warning-clean development build, routine non-exhaustive Cabal
+- [x] Run the exact focused verification command from frontmatter.
+- [x] Run the warning-clean development build, routine non-exhaustive Cabal
   `all`, and `cabal check`. Confirm only bounded `jazz-parser-scale-spec` runs;
   do not enable or invoke any `jazz-parser-scale-full-*` component.
-- [ ] Update the lowered-IR design, bootstrap profile, and `jazz-next/README.md`
+- [x] Update the lowered-IR design, bootstrap profile, and `jazz-next/README.md`
   with exact entry points, ownership, fixture counts, and failure behavior.
-- [ ] Mark this plan done, archive the child with concrete evidence, empty
+- [x] Mark this plan done, archive the child with concrete evidence, empty
   `Ready Now`, and leave `Next Curation Target` empty unless a separately
   reviewed typed-core elaboration candidate exists.
-- [ ] Update the parent blocker to state that the IR contract exists while
+- [x] Update the parent blocker to state that the IR contract exists while
   typed-core elaboration, core lowering, LLVM, object/link, and native runtime
   remain unpromoted.
-- [ ] Run queue/docs validators and `git diff --check`.
-- [ ] Commit as `docs: close lowered IR contract foundation`.
+- [x] Run queue/docs validators and `git diff --check`.
+- [x] Commit as `docs: close lowered IR contract foundation`.
 
 ## Done Criteria
 

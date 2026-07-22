@@ -145,6 +145,28 @@ from the fixed 365-case parser corpus. Every result runs twice and matches the
 complete stage-0 value; the fixed mixed-surface source is the only added bounded
 smoke case.
 
+### Backend-neutral lowered IR
+
+`JazzNext.Compiler.LoweredIR` owns the stage-0 backend-neutral CFG schema and
+stable identifiers. `JazzNext.Compiler.LoweredIR.Validate` validates complete
+untrusted programs into ordered structured failures. The ordinary Jazz mirrors
+are `LoweredIRTypes.jz` and `LoweredIRValidate.jz`; neither schema contains LLVM
+types, target layouts, object/link details, or native-runtime implementation
+names.
+
+`jazz-lowered-ir-contract-spec` audits exactly 10 valid and 31 invalid fixed
+fixtures. It executes all 41 programs through the Jazz validator twice and
+requires exact complete program/failure parity with the Haskell validator. Its
+checked comparison adapter rejects unknown constructors, wrong arity, wrong
+field categories, and malformed nested values instead of guessing defaults.
+Temporary identifiers are block-local; values crossing CFG edges use typed
+block arguments.
+
+This is a contract and validation boundary, not a source lowerer. Canonical
+core remains the reference-interpreter input. Typed-core elaboration,
+core-to-IR lowering, LLVM emission, object generation/linking, and a native
+runtime remain separate design gates.
+
 ## Editor support
 
 The dependency-free [`editors/vscode-jazz`](editors/vscode-jazz/README.md)

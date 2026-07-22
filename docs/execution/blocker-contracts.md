@@ -120,6 +120,11 @@ Each blocked item should answer these questions:
   direct module fixtures and 13 composed sources match stage 0 twice, and an
   audited ordered manifest covers all 196 accepted parser fixtures with exact
   repeated module results.
+  `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` then established matching
+  Haskell/Jazz backend-neutral CFG schemas, complete stable validators, and a
+  checked comparison adapter. Its exact 10-valid / 31-invalid manifest runs all
+  41 programs through Jazz twice with complete ordered parity and keeps
+  temporaries block-local.
 - Accepted decision: the hosted canonical-core contract is
   `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
@@ -130,22 +135,17 @@ Each blocked item should answer these questions:
   mirrored Haskell/Jazz CFG contract with explicit closures, calls,
   representations, layout requests, structured validation, and canonical
   parity while preserving canonical core as interpreter input.
-- Smallest unblocker: execute and close
-  `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001`.
-- Decision needed: accepted on `2026-07-21`; the first child establishes the
-  contract and validators before typed-core elaboration or source lowering.
+- Smallest unblocker: none currently. A typed-core elaboration design must
+  define per-node resolved types, capability evidence, names, and
+  representation ownership before an implementation child can be promoted.
+- Decision needed: no typed-core elaboration design is accepted yet.
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
-- Candidate child: `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` is active
-  in `Ready Now`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/LoweredIR.hs`,
-  `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`,
-  `jazz-next/jazz/compiler/LoweredIRTypes.jz`,
-  `jazz-next/jazz/compiler/LoweredIRValidate.jz`, and focused bootstrap
-  comparison/spec support.
-- Verification: use the exact focused, warning-clean, routine bounded,
-  package, queue/docs, and whitespace commands in the reviewed child plan.
+- Candidate child: none. Do not infer a typed-core implementation batch from
+  the completed IR contract.
+- Target paths: none until a reviewed typed-core design names concrete owners.
+- Verification: not applicable until that design and child plan exist.
 - Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
