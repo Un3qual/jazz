@@ -4,6 +4,11 @@
 
 Approved in discussion and reviewed in written form on `2026-07-21`.
 
+Implementation status (`2026-07-21`):
+`JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` is the active reviewed child.
+Typed-core elaboration, core-to-IR lowering, LLVM, object/link, and native
+runtime work remain unpromoted.
+
 Hosted lexing, parsing, and canonical-core lowering already match stage 0 over
 the complete fixed parser corpus. The next compiler milestone establishes the
 permanent boundary between typed frontend semantics and backend-specific code

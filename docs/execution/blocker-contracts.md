@@ -125,22 +125,28 @@ Each blocked item should answer these questions:
   active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
   lowering, compares canonical values through a structural test-only adapter,
   and completed four independently reviewable children before backend work.
-- Smallest unblocker: review and approve a backend-neutral lowered-IR design
-  before creating any implementation child.
-- Decision needed: define the permanent IR ownership and exact contracts for
-  explicit control flow, closure conversion, calls, runtime representations,
-  data-layout requests, stage-0 comparison evidence, and the boundary consumed
-  later by LLVM lowering.
-- Recommended default: keep this as a design-and-plan gate first. Preserve
-  canonical core as the interpreter input and semantic oracle, keep the IR
-  independent of LLVM instruction objects, and do not add bytecode or a VM.
-- Candidate child: none currently. A lowered-IR implementation child may be
-  named only after its separate design and implementation plan are reviewed.
-- Target paths: not set until the lowered-IR design fixes its Jazz owners,
-  test-only stage-0 adapter, fixtures, and focused verification.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; `git diff --check`.
-- Not in scope: implementing lowered IR before approval; LLVM emission;
+- Accepted decision: the backend-neutral lowered-IR contract is
+  `2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md`. It selects a
+  mirrored Haskell/Jazz CFG contract with explicit closures, calls,
+  representations, layout requests, structured validation, and canonical
+  parity while preserving canonical core as interpreter input.
+- Smallest unblocker: execute and close
+  `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001`.
+- Decision needed: accepted on `2026-07-21`; the first child establishes the
+  contract and validators before typed-core elaboration or source lowering.
+- Recommended default: keep the IR independent of LLVM instruction objects,
+  preserve block-local temporaries and typed block arguments, and do not add
+  bytecode or a VM.
+- Candidate child: `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` is active
+  in `Ready Now`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/LoweredIR.hs`,
+  `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`,
+  `jazz-next/jazz/compiler/LoweredIRTypes.jz`,
+  `jazz-next/jazz/compiler/LoweredIRValidate.jz`, and focused bootstrap
+  comparison/spec support.
+- Verification: use the exact focused, warning-clean, routine bounded,
+  package, queue/docs, and whitespace commands in the reviewed child plan.
+- Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
 
