@@ -4,16 +4,19 @@ module JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
   ( canonicalTypedProgramRuntimeValue,
     canonicalTypedCoreOutcomeRuntimeValue,
     canonicalTypedValidationFailuresRuntimeValue,
+    decodeCanonicalTypedValidationFailuresRuntimeValue,
   )
 where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
     canonicalNullaryConstructor,
     runtimeIntValue,
   )
 import JazzNext.Compiler.Runtime (RuntimeValue (..))
+import JazzNext.Compiler.Name (identifierText)
 import JazzNext.Compiler.TypedCore
 
 canonicalTypedProgramRuntimeValue :: TypedProgram -> RuntimeValue
@@ -36,6 +39,10 @@ canonicalTypedCoreOutcomeRuntimeValue outcome =
 
 canonicalTypedValidationFailuresRuntimeValue :: [TypedCoreValidationFailure] -> RuntimeValue
 canonicalTypedValidationFailuresRuntimeValue = listValue validationFailureValue
+
+decodeCanonicalTypedValidationFailuresRuntimeValue :: RuntimeValue -> Either Text [TypedCoreValidationFailure]
+decodeCanonicalTypedValidationFailuresRuntimeValue value =
+  decodeList "typed-core validation failures" decodeValidationFailure value
 
 moduleValue :: TypedModule -> RuntimeValue
 moduleValue (TypedModule path sourcePath imports exports interface statements info) =
@@ -581,6 +588,364 @@ validationDetailValue detail =
     TypedEvidenceParameterDetail parameterId ->
       constructor "TypedEvidenceParameterDetail" [evidenceParameterIdValue parameterId]
     TypedImplDetail implId -> constructor "TypedImplDetail" [implIdValue implId]
+
+decodeValidationFailure :: RuntimeValue -> Either Text TypedCoreValidationFailure
+decodeValidationFailure value = do
+  fields <- expectNamedConstructor "validation failure" "TypedCoreValidationFailure" 3 value
+  case fields of
+    [pathValue, kindValue, detailValue] ->
+      TypedCoreValidationFailure
+        <$> decodeValidationPath pathValue
+        <*> decodeValidationKind kindValue
+        <*> decodeValidationDetail detailValue
+    _ -> impossibleArity "TypedCoreValidationFailure"
+
+decodeValidationPath :: RuntimeValue -> Either Text TypedCoreValidationPath
+decodeValidationPath value = do
+  (name, arguments) <- expectConstructor "validation path" value
+  case name of
+    "TypedProgramPath" -> expectNullary name arguments TypedProgramPath
+    "TypedPreludePath" -> expectNullary name arguments TypedPreludePath
+    "TypedModulePath" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [modulePath] -> TypedModulePath <$> decodeTextList "module path" modulePath
+        _ -> impossibleArity name
+    "TypedInterfacePath" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [modulePath] -> TypedInterfacePath <$> decodeTextList "interface module path" modulePath
+        _ -> impossibleArity name
+    "TypedStatementPath" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [modulePath, statementIndex] ->
+          TypedStatementPath <$> decodeTextList "statement module path" modulePath <*> decodeInt "statement index" statementIndex
+        _ -> impossibleArity name
+    "TypedExpressionPath" -> do
+      fields <- expectArity name 3 arguments
+      case fields of
+        [modulePath, statementIndex, expressionPath] ->
+          TypedExpressionPath
+            <$> decodeTextList "expression module path" modulePath
+            <*> decodeInt "expression statement index" statementIndex
+            <*> decodeIntList "expression path" expressionPath
+        _ -> impossibleArity name
+    "TypedPatternPath" -> do
+      fields <- expectArity name 3 arguments
+      case fields of
+        [modulePath, statementIndex, patternPath] ->
+          TypedPatternPath
+            <$> decodeTextList "pattern module path" modulePath
+            <*> decodeInt "pattern statement index" statementIndex
+            <*> decodeIntList "pattern path" patternPath
+        _ -> impossibleArity name
+    _ -> Left ("unknown validation path constructor '" <> name <> "'")
+
+decodeValidationKind :: RuntimeValue -> Either Text TypedCoreValidationKind
+decodeValidationKind value = do
+  (name, arguments) <- expectConstructor "validation kind" value
+  kind <-
+    case name of
+      "TypedUnresolvedName" -> Right TypedUnresolvedName
+      "TypedInvalidSourcePath" -> Right TypedInvalidSourcePath
+      "TypedDuplicateModule" -> Right TypedDuplicateModule
+      "TypedUnknownEntryModule" -> Right TypedUnknownEntryModule
+      "TypedDuplicateBinder" -> Right TypedDuplicateBinder
+      "TypedUnknownBinder" -> Right TypedUnknownBinder
+      "TypedDuplicateTypeParameter" -> Right TypedDuplicateTypeParameter
+      "TypedInvalidTypeParameterOrder" -> Right TypedInvalidTypeParameterOrder
+      "TypedUnboundTypeParameter" -> Right TypedUnboundTypeParameter
+      "TypedUnboundRepresentationParameter" -> Right TypedUnboundRepresentationParameter
+      "TypedInvalidRepresentationWidth" -> Right TypedInvalidRepresentationWidth
+      "TypedTypeRepresentationMismatch" -> Right TypedTypeRepresentationMismatch
+      "TypedApplicationFunctionMismatch" -> Right TypedApplicationFunctionMismatch
+      "TypedApplicationArgumentMismatch" -> Right TypedApplicationArgumentMismatch
+      "TypedApplicationResultMismatch" -> Right TypedApplicationResultMismatch
+      "TypedConditionalConditionMismatch" -> Right TypedConditionalConditionMismatch
+      "TypedConditionalBranchMismatch" -> Right TypedConditionalBranchMismatch
+      "TypedPatternScrutineeMismatch" -> Right TypedPatternScrutineeMismatch
+      "TypedPatternGuardMismatch" -> Right TypedPatternGuardMismatch
+      "TypedPatternArmResultMismatch" -> Right TypedPatternArmResultMismatch
+      "TypedOrPatternBinderMismatch" -> Right TypedOrPatternBinderMismatch
+      "TypedDuplicateEvidenceParameter" -> Right TypedDuplicateEvidenceParameter
+      "TypedInvalidEvidenceParameterOrder" -> Right TypedInvalidEvidenceParameterOrder
+      "TypedInstantiationMismatch" -> Right TypedInstantiationMismatch
+      "TypedMissingEvidence" -> Right TypedMissingEvidence
+      "TypedDuplicateEvidence" -> Right TypedDuplicateEvidence
+      "TypedAmbiguousEvidence" -> Right TypedAmbiguousEvidence
+      "TypedInvisibleImpl" -> Right TypedInvisibleImpl
+      "TypedMethodSelectionMismatch" -> Right TypedMethodSelectionMismatch
+      "TypedDataRecipeMismatch" -> Right TypedDataRecipeMismatch
+      "TypedCallableRecipeMismatch" -> Right TypedCallableRecipeMismatch
+      "TypedModuleInterfaceMismatch" -> Right TypedModuleInterfaceMismatch
+      _ -> Left ("unknown validation kind constructor '" <> name <> "'")
+  expectNullary name arguments kind
+
+decodeValidationDetail :: RuntimeValue -> Either Text TypedCoreValidationDetail
+decodeValidationDetail value = do
+  (name, arguments) <- expectConstructor "validation detail" value
+  case name of
+    "TypedNoValidationDetail" -> expectNullary name arguments TypedNoValidationDetail
+    "TypedTextDetail" -> decodeDetail1 name TypedTextDetail (decodeText "validation text") arguments
+    "TypedIndexDetail" -> decodeDetail1 name TypedIndexDetail (decodeInt "validation index") arguments
+    "TypedArityDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> TypedArityDetail <$> decodeInt "expected arity" expected <*> decodeInt "actual arity" actual
+        _ -> impossibleArity name
+    "TypedNameDetail" -> decodeDetail1 name TypedNameDetail decodeCoreName arguments
+    "TypedBinderDetail" -> decodeDetail1 name TypedBinderDetail decodeBinderId arguments
+    "TypedTypeDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> TypedTypeDetail <$> decodeType expected <*> decodeType actual
+        _ -> impossibleArity name
+    "TypedRecipeDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> TypedRecipeDetail <$> decodeRecipe expected <*> decodeRecipe actual
+        _ -> impossibleArity name
+    "TypedTypeParameterDetail" -> decodeDetail1 name TypedTypeParameterDetail decodeTypeParameterId arguments
+    "TypedEvidenceParameterDetail" -> decodeDetail1 name TypedEvidenceParameterDetail decodeEvidenceParameterId arguments
+    "TypedImplDetail" -> decodeDetail1 name TypedImplDetail decodeImplId arguments
+    _ -> Left ("unknown validation detail constructor '" <> name <> "'")
+
+decodeDetail1 :: Text -> (value -> result) -> (RuntimeValue -> Either Text value) -> [RuntimeValue] -> Either Text result
+decodeDetail1 name build decodeValue arguments = do
+  fields <- expectArity name 1 arguments
+  case fields of
+    [field] -> build <$> decodeValue field
+    _ -> impossibleArity name
+
+decodeCoreName :: RuntimeValue -> Either Text TypedCoreName
+decodeCoreName value = do
+  (name, arguments) <- expectConstructor "typed-core name" value
+  case name of
+    "TypedUnresolvedSourceName" -> decodeDetail1 name TypedUnresolvedSourceName (decodeText "source name") arguments
+    "TypedUnresolvedQualifiedName" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [qualifier, member] -> TypedUnresolvedQualifiedName <$> decodeText "name qualifier" qualifier <*> decodeText "qualified member" member
+        _ -> impossibleArity name
+    "TypedResolvedName" -> do
+      fields <- expectArity name 3 arguments
+      case fields of
+        [origin, namespace, identifier] ->
+          TypedResolvedName <$> decodeNameOrigin origin <*> decodeNameNamespace namespace <*> decodeText "resolved identifier" identifier
+        _ -> impossibleArity name
+    "TypedBuiltinName" -> decodeDetail1 name TypedBuiltinName (decodeText "builtin name") arguments
+    "TypedGeneratedName" -> decodeDetail1 name TypedGeneratedName decodeGeneratedNameKind arguments
+    _ -> Left ("unknown typed-core name constructor '" <> name <> "'")
+
+decodeNameOrigin :: RuntimeValue -> Either Text TypedNameOrigin
+decodeNameOrigin value = do
+  (name, arguments) <- expectConstructor "name origin" value
+  case name of
+    "TypedCurrentModule" -> expectNullary name arguments TypedCurrentModule
+    "TypedImportedModule" -> decodeDetail1 name TypedImportedModule (decodeTextList "imported module path") arguments
+    "TypedAmbientPrelude" -> expectNullary name arguments TypedAmbientPrelude
+    _ -> Left ("unknown name origin constructor '" <> name <> "'")
+
+decodeNameNamespace :: RuntimeValue -> Either Text TypedNameNamespace
+decodeNameNamespace value = do
+  (name, arguments) <- expectConstructor "name namespace" value
+  namespace <-
+    case name of
+      "TypedValueNamespace" -> Right TypedValueNamespace
+      "TypedConstructorNamespace" -> Right TypedConstructorNamespace
+      "TypedTypeNamespace" -> Right TypedTypeNamespace
+      "TypedCapabilityNamespace" -> Right TypedCapabilityNamespace
+      _ -> Left ("unknown name namespace constructor '" <> name <> "'")
+  expectNullary name arguments namespace
+
+decodeGeneratedNameKind :: RuntimeValue -> Either Text TypedGeneratedNameKind
+decodeGeneratedNameKind value = do
+  (name, arguments) <- expectConstructor "generated name kind" value
+  case name of
+    "TypedLambdaPatternArgument" -> decodeDetail1 name TypedLambdaPatternArgument (decodeInt "lambda pattern argument index") arguments
+    "TypedOperatorBinding" -> decodeDetail1 name TypedOperatorBinding (decodeText "operator binding") arguments
+    "TypedOperatorSectionFunction" -> expectNullary name arguments TypedOperatorSectionFunction
+    "TypedOperatorSectionLeft" -> expectNullary name arguments TypedOperatorSectionLeft
+    "TypedOperatorSectionRight" -> expectNullary name arguments TypedOperatorSectionRight
+    _ -> Left ("unknown generated name kind constructor '" <> name <> "'")
+
+decodeBinderId :: RuntimeValue -> Either Text TypedBinderId
+decodeBinderId value = do
+  fields <- expectNamedConstructor "typed binder id" "TypedBinderId" 3 value
+  case fields of
+    [modulePath, lexicalPath, name] ->
+      TypedBinderId <$> ((,,) <$> decodeTextList "binder module path" modulePath <*> decodeIntList "binder lexical path" lexicalPath <*> decodeCoreName name)
+    _ -> impossibleArity "TypedBinderId"
+
+decodeTypeParameterId :: RuntimeValue -> Either Text TypedTypeParameterId
+decodeTypeParameterId value = do
+  fields <- expectNamedConstructor "type parameter id" "TypedTypeParameterId" 1 value
+  case fields of
+    [parameterId] -> TypedTypeParameterId <$> decodeInt "type parameter id" parameterId
+    _ -> impossibleArity "TypedTypeParameterId"
+
+decodeEvidenceParameterId :: RuntimeValue -> Either Text TypedEvidenceParameterId
+decodeEvidenceParameterId value = do
+  fields <- expectNamedConstructor "evidence parameter id" "TypedEvidenceParameterId" 1 value
+  case fields of
+    [parameterId] -> TypedEvidenceParameterId <$> decodeInt "evidence parameter id" parameterId
+    _ -> impossibleArity "TypedEvidenceParameterId"
+
+decodeType :: RuntimeValue -> Either Text TypedType
+decodeType value = do
+  (name, arguments) <- expectConstructor "typed type" value
+  case name of
+    "TypedIntType" -> expectNullary name arguments TypedIntType
+    "TypedFloatType" -> expectNullary name arguments TypedFloatType
+    "TypedNumericType" -> decodeDetail1 name TypedNumericType decodeNumericType arguments
+    "TypedBoolType" -> expectNullary name arguments TypedBoolType
+    "TypedCharType" -> expectNullary name arguments TypedCharType
+    "TypedTextType" -> expectNullary name arguments TypedTextType
+    "TypedListType" -> decodeDetail1 name TypedListType decodeType arguments
+    "TypedTupleType" -> decodeDetail1 name TypedTupleType (decodeList "tuple types" decodeType) arguments
+    "TypedDataType" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [dataName, typeArguments] -> TypedDataType <$> decodeCoreName dataName <*> decodeList "data type arguments" decodeType typeArguments
+        _ -> impossibleArity name
+    "TypedFunctionType" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [argument, result] -> TypedFunctionType <$> decodeType argument <*> decodeType result
+        _ -> impossibleArity name
+    "TypedTypeParameterType" -> decodeDetail1 name TypedTypeParameterType decodeTypeParameterId arguments
+    _ -> Left ("unknown typed type constructor '" <> name <> "'")
+
+decodeNumericType :: RuntimeValue -> Either Text TypedNumericType
+decodeNumericType value = do
+  (name, arguments) <- expectConstructor "numeric type" value
+  numericType <-
+    case name of
+      "TypedInt8Type" -> Right TypedInt8Type
+      "TypedInt16Type" -> Right TypedInt16Type
+      "TypedInt32Type" -> Right TypedInt32Type
+      "TypedInt64Type" -> Right TypedInt64Type
+      "TypedUInt8Type" -> Right TypedUInt8Type
+      "TypedUInt16Type" -> Right TypedUInt16Type
+      "TypedUInt32Type" -> Right TypedUInt32Type
+      "TypedUInt64Type" -> Right TypedUInt64Type
+      "TypedFloat16Type" -> Right TypedFloat16Type
+      "TypedFloat32Type" -> Right TypedFloat32Type
+      "TypedFloat64Type" -> Right TypedFloat64Type
+      _ -> Left ("unknown numeric type constructor '" <> name <> "'")
+  expectNullary name arguments numericType
+
+decodeRecipe :: RuntimeValue -> Either Text TypedRepresentationRecipe
+decodeRecipe value = do
+  (name, arguments) <- expectConstructor "representation recipe" value
+  case name of
+    "TypedUnitRecipe" -> expectNullary name arguments TypedUnitRecipe
+    "TypedBoolRecipe" -> expectNullary name arguments TypedBoolRecipe
+    "TypedSignedIntegerRecipe" -> decodeDetail1 name TypedSignedIntegerRecipe (decodeInt "signed integer width") arguments
+    "TypedUnsignedIntegerRecipe" -> decodeDetail1 name TypedUnsignedIntegerRecipe (decodeInt "unsigned integer width") arguments
+    "TypedFloatRecipe" -> decodeDetail1 name TypedFloatRecipe (decodeInt "float width") arguments
+    "TypedCharRecipe" -> expectNullary name arguments TypedCharRecipe
+    "TypedManagedTextRecipe" -> expectNullary name arguments TypedManagedTextRecipe
+    "TypedManagedListRecipe" -> decodeDetail1 name TypedManagedListRecipe decodeRecipe arguments
+    "TypedManagedProductRecipe" -> decodeDetail1 name TypedManagedProductRecipe (decodeList "product recipes" decodeRecipe) arguments
+    "TypedManagedVariantRecipe" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [variantName, typeArguments] -> TypedManagedVariantRecipe <$> decodeCoreName variantName <*> decodeList "variant type arguments" decodeType typeArguments
+        _ -> impossibleArity name
+    "TypedClosureRecipe" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [parameters, result] -> TypedClosureRecipe <$> decodeList "closure parameter recipes" decodeRecipe parameters <*> decodeRecipe result
+        _ -> impossibleArity name
+    "TypedRepresentationParameterRecipe" -> decodeDetail1 name TypedRepresentationParameterRecipe decodeTypeParameterId arguments
+    _ -> Left ("unknown representation recipe constructor '" <> name <> "'")
+
+decodeImplId :: RuntimeValue -> Either Text TypedImplId
+decodeImplId value = do
+  fields <- expectNamedConstructor "typed impl id" "TypedImplId" 3 value
+  case fields of
+    [modulePath, capability, targetTypes] ->
+      TypedImplId
+        <$> decodeTextList "impl module path" modulePath
+        <*> decodeCoreName capability
+        <*> decodeList "impl target types" decodeType targetTypes
+    _ -> impossibleArity "TypedImplId"
+
+decodeTextList :: Text -> RuntimeValue -> Either Text [Text]
+decodeTextList label = decodeList label (decodeText (label <> " element"))
+
+decodeIntList :: Text -> RuntimeValue -> Either Text [Int]
+decodeIntList label = decodeList label (decodeInt (label <> " element"))
+
+decodeList :: Text -> (RuntimeValue -> Either Text value) -> RuntimeValue -> Either Text [value]
+decodeList label decodeElement value =
+  case value of
+    VList elements _ -> traverse decodeElement elements
+    _ -> Left (label <> " expected a List, got " <> runtimeValueCategory value)
+
+decodeText :: Text -> RuntimeValue -> Either Text Text
+decodeText label value =
+  case value of
+    VText textValue -> Right textValue
+    _ -> Left (label <> " expected Text, got " <> runtimeValueCategory value)
+
+decodeInt :: Text -> RuntimeValue -> Either Text Int
+decodeInt label value =
+  case value of
+    VInt integer _
+      | integer < toInteger (minBound :: Int) || integer > toInteger (maxBound :: Int) ->
+          Left (label <> " is outside the host Int range: " <> Text.pack (show integer))
+      | otherwise -> Right (fromInteger integer)
+    _ -> Left (label <> " expected Int, got " <> runtimeValueCategory value)
+
+expectConstructor :: Text -> RuntimeValue -> Either Text (Text, [RuntimeValue])
+expectConstructor label value =
+  case value of
+    VConstructor _ _ constructorName _ arguments -> Right (identifierText constructorName, arguments)
+    _ -> Left (label <> " expected a constructor, got " <> runtimeValueCategory value)
+
+expectNamedConstructor :: Text -> Text -> Int -> RuntimeValue -> Either Text [RuntimeValue]
+expectNamedConstructor label expectedName expectedArity value = do
+  (actualName, arguments) <- expectConstructor label value
+  if actualName /= expectedName
+    then Left (label <> " expected constructor '" <> expectedName <> "', got '" <> actualName <> "'")
+    else expectArity expectedName expectedArity arguments
+
+expectArity :: Text -> Int -> [RuntimeValue] -> Either Text [RuntimeValue]
+expectArity name expected arguments
+  | length arguments == expected = Right arguments
+  | otherwise = Left (name <> " expected " <> Text.pack (show expected) <> " field(s), got " <> Text.pack (show (length arguments)))
+
+expectNullary :: Text -> [RuntimeValue] -> value -> Either Text value
+expectNullary name arguments value = do
+  _ <- expectArity name 0 arguments
+  Right value
+
+impossibleArity :: Text -> Either Text value
+impossibleArity name = Left ("internal checked-adapter arity mismatch for '" <> name <> "'")
+
+runtimeValueCategory :: RuntimeValue -> Text
+runtimeValueCategory value =
+  case value of
+    VInt {} -> "Int"
+    VFloat {} -> "Float"
+    VBool {} -> "Bool"
+    VChar {} -> "Char"
+    VText {} -> "Text"
+    VList {} -> "List"
+    VTuple {} -> "Tuple"
+    VConstructor {} -> "constructor"
+    VClosure {} -> "closure"
+    VBuiltin {} -> "builtin"
+    VOperator {} -> "operator"
+    VSectionLeft {} -> "left section"
+    VSectionRight {} -> "right section"
+    VQualifiedMethod {} -> "qualified method"
+    VTyped {} -> "typed value"
+    VExplicitTypeApplication {} -> "explicit type application"
+    _ -> "runtime value"
 
 constructor :: Text -> [RuntimeValue] -> RuntimeValue
 constructor = canonicalConstructor

@@ -18,6 +18,8 @@ target_paths:
   - docs/superpowers/plans/2026-07-22-jazz-next-typed-core-contract-foundation.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
+  - jazz-next/jazz/compiler/TypedCoreTypes.jz
+  - jazz-next/jazz/compiler/TypedCoreValidate.jz
   - jazz-next/src/JazzNext/Compiler/TypedCore.hs
   - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
@@ -708,45 +710,45 @@ failures rather than constructible typed-core values.
 - Produces: ordinary Jazz construction and `validateProgram` with exact
   canonical parity to stage 0.
 
-- [ ] **Step 1: Add failing hosted execution**
+- [x] **Step 1: Add failing hosted execution**
 
   Add hosted batch construction for all 44 fixtures through checked-in
   `TypedCoreTypes` and `TypedCoreValidate` modules. Compare a list of tuples
   containing each complete canonical program and complete validation result.
 
-- [ ] **Step 2: Prove Jazz modules are absent**
+- [x] **Step 2: Prove Jazz modules are absent**
 
   Run the focused suite. Expected: hosted compile failure for missing
   `TypedCoreTypes` or `TypedCoreValidate`; Haskell schema and validator
   assertions remain green.
 
-- [ ] **Step 3: Implement the exact Jazz schema**
+- [x] **Step 3: Implement the exact Jazz schema**
 
   Add every constructor and field from `Exact Contract Schema` and `Exact
   Validation Contract`, importing only ordinary shared modules such as
   `Maybe`. Preserve constructor and field order exactly and use two-space
   indentation.
 
-- [ ] **Step 4: Implement the Jazz validator**
+- [x] **Step 4: Implement the Jazz validator**
 
   Mirror every Haskell validation rule using deterministic list traversal and
   compiler-local association-list lookup. Accumulate all failures in structural
   order; do not depend on map iteration or Haskell host callbacks.
 
-- [ ] **Step 5: Decode hosted failure results strictly**
+- [x] **Step 5: Decode hosted failure results strictly**
 
   Implement `decodeCanonicalTypedValidationFailuresRuntimeValue` to accept
   only the exact constructor names, arities, nested field categories, and
   identities in the contract. Return descriptive `Left Text` on the first
   schema error without guessing a default.
 
-- [ ] **Step 6: Make all 44 parity cases green twice**
+- [x] **Step 6: Make all 44 parity cases green twice**
 
   Run the focused suite twice. Expected: no hosted compile/runtime diagnostics;
   complete Haskell and Jazz programs and ordered failure lists match exactly on
   both runs.
 
-- [ ] **Step 7: Commit Jazz parity**
+- [x] **Step 7: Commit Jazz parity**
 
   ```bash
   git add jazz-next/jazz-next.cabal jazz-next/jazz/compiler/TypedCoreTypes.jz jazz-next/jazz/compiler/TypedCoreValidate.jz jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs

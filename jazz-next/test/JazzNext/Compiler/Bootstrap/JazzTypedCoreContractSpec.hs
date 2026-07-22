@@ -3,18 +3,34 @@
 module Main (main) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
   ( canonicalTypedCoreOutcomeRuntimeValue,
     canonicalTypedProgramRuntimeValue,
+    canonicalTypedValidationFailuresRuntimeValue,
+    decodeCanonicalTypedValidationFailuresRuntimeValue,
   )
-import JazzNext.Compiler.Runtime (renderRuntimeValue)
+import JazzNext.Compiler.Driver
+  ( RunResult (..),
+    runCompileErrors,
+    runModuleGraph,
+    runRuntimeErrors,
+  )
+import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
+import JazzNext.Compiler.Name (identifierText)
+import JazzNext.Compiler.Runtime
+  ( RuntimeValue (..),
+    renderRuntimeValue,
+  )
 import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
+import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     runTestSuite,
   )
+import JazzNext.TestSource (readCheckedInJazzProjectModuleSource)
 
 main :: IO ()
 main = runTestSuite "JazzTypedCoreContract" tests
@@ -28,7 +44,9 @@ tests =
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("audits the combined fixed fixture count", testCombinedFixtureCount),
-    ("validates the complete fixture family deterministically", testValidationDeterminism)
+    ("validates the complete fixture family deterministically", testValidationDeterminism),
+    ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
+    ("matches Haskell validation for all 44 Jazz fixtures twice", testJazzValidationParity)
   ]
 
 testValidFixtureManifest :: IO ()
@@ -87,6 +105,91 @@ testValidationDeterminism = do
       first = map validateTypedProgram programs
       second = map validateTypedProgram programs
   assertEqual "complete validation output" first second
+
+testCheckedValidationAdapterRoundTrip :: IO ()
+testCheckedValidationAdapterRoundTrip =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          (invalidFixtureName fixture <> " checked validation round-trip")
+          (Right (invalidFixtureFailures fixture))
+          (decodeCanonicalTypedValidationFailuresRuntimeValue (canonicalTypedValidationFailuresRuntimeValue (invalidFixtureFailures fixture)))
+    )
+    invalidFixtures
+
+testJazzValidationParity :: IO ()
+testJazzValidationParity = do
+  let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures
+      expected =
+        renderRuntimeValue
+          ( VList
+              [ VTuple
+                  [ canonicalTypedProgramRuntimeValue program,
+                    canonicalTypedValidationFailuresRuntimeValue (validateTypedProgram program)
+                  ]
+                | program <- programs
+              ]
+              Nothing
+          )
+  first <- runJazzValidationBatch programs
+  second <- runJazzValidationBatch programs
+  assertJazzOutput "Jazz validation first run" expected first
+  assertJazzOutput "Jazz validation second run" expected second
+  assertEqual "Jazz validation deterministic output" (runOutput first) (runOutput second)
+
+resolverConfig :: ModuleResolutionConfig
+resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+
+runJazzValidationBatch :: [TypedProgram] -> IO RunResult
+runJazzValidationBatch programs =
+  runModuleGraph
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just (jazzValidationBatchSource programs))
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+jazzValidationBatchSource :: [TypedProgram] -> Text
+jazzValidationBatchSource programs =
+  Text.unlines
+    [ "module App::Main {",
+      "  import List (listMap).",
+      "  import Maybe.",
+      "  import TypedCoreTypes.",
+      "  import TypedCoreValidate (validateProgram).",
+      "  listMap",
+      "    (\\(program) -> (program, validateProgram program))",
+      "    [" <> Text.intercalate ", " (map (renderJazzRuntimeValue . canonicalTypedProgramRuntimeValue) programs) <> "].",
+      "}",
+      ""
+    ]
+
+assertJazzOutput :: Text -> Text -> RunResult -> IO ()
+assertJazzOutput label expected result = do
+  assertEqual (label <> " compile errors") [] (runCompileErrors result)
+  assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+  assertEqual (label <> " output") (Just expected) (runOutput result)
+
+renderJazzRuntimeValue :: RuntimeValue -> Text
+renderJazzRuntimeValue value =
+  case value of
+    VInt integer _
+      | integer < 0 -> "(0 - " <> Text.pack (show (abs integer)) <> ")"
+      | otherwise -> renderRuntimeValue value
+    VBool {} -> renderRuntimeValue value
+    VChar {} -> renderRuntimeValue value
+    VText {} -> renderRuntimeValue value
+    VList elements _ -> "[" <> Text.intercalate ", " (map renderJazzRuntimeValue elements) <> "]"
+    VTuple elements -> "(" <> Text.intercalate ", " (map renderJazzRuntimeValue elements) <> ")"
+    VConstructor _ _ constructorName _ arguments ->
+      case arguments of
+        [] -> identifierText constructorName
+        _ -> "(" <> identifierText constructorName <> " " <> Text.intercalate " " (map renderJazzRuntimeValue arguments) <> ")"
+    _ -> error "unsupported runtime value in generated typed-core fixture"
 
 data ValidFixture = ValidFixture
   { validFixtureName :: Text,
