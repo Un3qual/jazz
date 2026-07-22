@@ -330,6 +330,7 @@ data TypedCoreValidationKind
   | TypedCollectionShapeMismatch
   | TypedDataTypeMismatch
   | TypedPatternShapeMismatch
+  | TypedBlockResultMismatch
   | TypedModuleResultMismatch
   | TypedDataRecipeMismatch
   | TypedCallableRecipeMismatch

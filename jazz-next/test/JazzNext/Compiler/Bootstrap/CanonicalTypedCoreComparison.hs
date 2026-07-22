@@ -572,6 +572,7 @@ validationKindName kind =
     TypedCollectionShapeMismatch -> "TypedCollectionShapeMismatch"
     TypedDataTypeMismatch -> "TypedDataTypeMismatch"
     TypedPatternShapeMismatch -> "TypedPatternShapeMismatch"
+    TypedBlockResultMismatch -> "TypedBlockResultMismatch"
     TypedModuleResultMismatch -> "TypedModuleResultMismatch"
     TypedDataRecipeMismatch -> "TypedDataRecipeMismatch"
     TypedCallableRecipeMismatch -> "TypedCallableRecipeMismatch"
@@ -691,6 +692,7 @@ decodeValidationKind value = do
       "TypedCollectionShapeMismatch" -> Right TypedCollectionShapeMismatch
       "TypedDataTypeMismatch" -> Right TypedDataTypeMismatch
       "TypedPatternShapeMismatch" -> Right TypedPatternShapeMismatch
+      "TypedBlockResultMismatch" -> Right TypedBlockResultMismatch
       "TypedModuleResultMismatch" -> Right TypedModuleResultMismatch
       "TypedDataRecipeMismatch" -> Right TypedDataRecipeMismatch
       "TypedCallableRecipeMismatch" -> Right TypedCallableRecipeMismatch

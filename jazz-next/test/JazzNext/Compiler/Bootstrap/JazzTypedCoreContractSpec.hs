@@ -66,6 +66,7 @@ tests =
     ("enforces typed-core scope and visibility contracts", testScopeAndVisibilityRegressions),
     ("enforces typed-core value-shape contracts", testValueShapeRegressions),
     ("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions),
+    ("enforces latest typed-core review contracts", testLatestReviewRegressions),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -324,7 +325,18 @@ reviewRegressionPrograms =
     variableSchemeContractProgram,
     missingImportProgram,
     candidateConstraintProgram,
-    invalidVariableNamespaceProgram
+    invalidVariableNamespaceProgram,
+    binderNameContractProgram,
+    blockLocalGeneralizedSchemeProgram,
+    blockLocalMonomorphicSchemeProgram,
+    implMethodNameProgram,
+    blockResultProgram,
+    nestedCasePatternPathProgram,
+    operatorSchemeProgram,
+    selectiveImportProgram,
+    classParameterScopeProgram,
+    evidenceParameterContractProgram,
+    implCapabilityNamespaceProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -549,7 +561,7 @@ selectedEvidenceTargetProgram =
   where
     fixture = "review-selected-evidence-target"
     modulePath = ["Fixture", fixture]
-    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedCharType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder modulePath [1] valueName
@@ -576,7 +588,7 @@ selectedMethodContractProgram =
   where
     fixture = "review-selected-method-contract"
     modulePath = ["Fixture", fixture]
-    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "equal"
     valueBinder = binder modulePath [1] valueName
@@ -594,7 +606,7 @@ selectedMethodContractProgram =
 
 enclosingOtherImplId :: TypedImplId
 enclosingOtherImplId =
-  TypedImplId ["Fixture", "review-enclosing-impl-method"] (resolved TypedCurrentModule TypedCapabilityNamespace "Render") [TypedCharType]
+  TypedImplId ["Fixture", "review-enclosing-impl-method"] (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render") [TypedCharType]
 
 enclosingImplMethodProgram :: TypedProgram
 enclosingImplMethodProgram =
@@ -602,7 +614,7 @@ enclosingImplMethodProgram =
   where
     fixture = "review-enclosing-impl-method"
     modulePath = ["Fixture", fixture]
-    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodBinder = binder modulePath [0, 0] methodName
@@ -769,11 +781,11 @@ testReviewFollowupRegressions = do
   assertEqual
     "constructor patterns match declared field arity and types"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [0])
+        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [0, 0])
         TypedPatternShapeMismatch
         (TypedArityDetail 1 0),
       TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [1, 0])
+        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [0, 1, 0])
         TypedPatternScrutineeMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -815,6 +827,78 @@ testReviewFollowupRegressions = do
     "variable expressions reject non-value-producing namespaces"
     [expressionFailureAt "review-variable-namespace" 1 TypedInvisibleName (TypedNameDetail invalidVariableNamespaceName)]
     (validateTypedProgram invalidVariableNamespaceProgram)
+
+testLatestReviewRegressions :: IO ()
+testLatestReviewRegressions = do
+  assertEqual
+    "declaration binder ids match their published names"
+    [statementFailure "review-binder-name-contract" 0 TypedUnknownBinder (TypedBinderDetail binderNameContractBinder)]
+    (validateTypedProgram binderNameContractProgram)
+  assertEqual
+    "block-local generalized schemes support instantiation"
+    []
+    (validateTypedProgram blockLocalGeneralizedSchemeProgram)
+  assertEqual
+    "block-local monomorphic schemes constrain later uses"
+    [ expressionFailureAt
+        "review-block-local-monomorphic-scheme"
+        2
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType TypedTextType)
+    ]
+    (validateTypedProgram blockLocalMonomorphicSchemeProgram)
+  assertEqual
+    "impl method ids match their published method names"
+    [statementFailure "review-impl-method-name" 0 TypedMethodSelectionMismatch (TypedTextDetail "equal")]
+    (validateTypedProgram implMethodNameProgram)
+  assertEqual
+    "block results match terminal expression contracts"
+    [ expressionFailure
+        "review-block-result"
+        TypedBlockResultMismatch
+        (TypedTypeDetail TypedBoolType TypedTextType)
+    ]
+    (validateTypedProgram blockResultProgram)
+  assertEqual
+    "nested case patterns retain their containing expression paths"
+    [ TypedCoreValidationFailure
+        (TypedPatternPath ["Fixture", "review-nested-case-pattern-path"] 0 [0, 1, 0])
+        TypedLiteralTypeMismatch
+        (TypedTypeDetail TypedTextType TypedBoolType)
+    ]
+    (validateTypedProgram nestedCasePatternPathProgram)
+  assertEqual
+    "resolved operator uses match their published schemes"
+    operatorSchemeFailures
+    (validateTypedProgram operatorSchemeProgram)
+  assertEqual
+    "selective imports name exported interface entries"
+    [moduleFailure "review-selective-import" TypedModuleInterfaceMismatch (TypedTextDetail "missing")]
+    (validateTypedProgram selectiveImportProgram)
+  assertEqual
+    "class parameters remain in method scheme scope"
+    []
+    (validateTypedProgram classParameterScopeProgram)
+  assertEqual
+    "selected evidence matches instantiated scheme parameters"
+    [ expressionFailureAt
+        "review-evidence-parameter-contract"
+        1
+        TypedInstantiationMismatch
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 7)),
+      expressionFailureAt
+        "review-evidence-parameter-contract"
+        2
+        TypedInstantiationMismatch
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+    ]
+    (validateTypedProgram evidenceParameterContractProgram)
+  assertEqual
+    "impl capabilities use visible capability names"
+    [ statementFailure "review-impl-capability-namespace" 0 TypedInvisibleName (TypedNameDetail invalidImplCapabilityName),
+      statementFailure "review-impl-capability-namespace" 1 TypedInvisibleName (TypedNameDetail invisibleImplCapabilityName)
+    ]
+    (validateTypedProgram implCapabilityNamespaceProgram)
 
 missingInstantiationDataName :: TypedCoreName
 missingInstantiationDataName = resolved TypedCurrentModule TypedTypeNamespace "Missing"
@@ -1021,8 +1105,8 @@ candidateConstraintProgram =
   where
     fixture = "review-candidate-constraint"
     modulePath = ["Fixture", fixture]
-    renderName = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
-    equalName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    renderName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    equalName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     renderImpl = TypedImplId modulePath renderName [TypedBoolType]
     equalImpl = TypedImplId modulePath equalName [TypedBoolType]
     constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
@@ -1052,6 +1136,199 @@ invalidVariableNamespaceProgram =
     statements =
       [ TypedDataStatement declaration,
         expressionStatement 2 (TypedVariableExpr boolInfo invalidVariableNamespaceName)
+      ]
+
+binderNameContractBinder :: TypedBinderId
+binderNameContractBinder =
+  binder
+    ["Fixture", "review-binder-name-contract"]
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "embedded")
+
+binderNameContractProgram :: TypedProgram
+binderNameContractProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-binder-name-contract"
+    modulePath = ["Fixture", fixture]
+    publishedName = resolved TypedCurrentModule TypedValueNamespace "published"
+    scheme = monoScheme binderNameContractBinder
+    statement = TypedLetStatement binderNameContractBinder publishedName span1 scheme trueExpr
+
+blockLocalGeneralizedSchemeProgram :: TypedProgram
+blockLocalGeneralizedSchemeProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-block-local-generalized-scheme"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "local"
+    owner = binder modulePath [0, 0] valueName
+    parameterId = TypedTypeParameterId 0
+    scheme = TypedScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
+    use = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    block = TypedBlockExpr boolInfo [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 use]
+
+blockLocalMonomorphicSchemeProgram :: TypedProgram
+blockLocalMonomorphicSchemeProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface textInfo modulePath
+  where
+    fixture = "review-block-local-monomorphic-scheme"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "local"
+    owner = binder modulePath [0, 0] valueName
+    scheme = monoScheme owner
+    use = TypedVariableExpr textInfo valueName
+    block = TypedBlockExpr textInfo [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 use]
+
+implMethodNameProgram :: TypedProgram
+implMethodNameProgram =
+  singleModuleProgram fixture relativeSource [] [TypedImplStatement declaration] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-method-name"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    publishedName = resolved TypedCurrentModule TypedValueNamespace "render"
+    methodBinder = binder modulePath [0, 0] publishedName
+    method = TypedMethodDefinition (TypedMethodId implId "equal") methodBinder publishedName span1 trueExpr
+    declaration = TypedImplDeclaration span1 implId [method]
+
+blockResultProgram :: TypedProgram
+blockResultProgram =
+  expressionFixtureProgram
+    "review-block-result"
+    (TypedBlockExpr boolInfo [expressionStatement 2 (literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text"))])
+
+nestedCasePatternPathProgram :: TypedProgram
+nestedCasePatternPathProgram =
+  expressionFixtureProgram fixture (TypedIfExpr boolInfo trueExpr nestedCase falseExpr)
+  where
+    fixture = "review-nested-case-pattern-path"
+    nestedCase =
+      TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [TypedCaseArm (TypedLiteralPattern boolInfo (TypedTextLiteral "wrong")) Nothing falseExpr]
+
+operatorSchemeProgram :: TypedProgram
+operatorSchemeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface textToTextInfo modulePath
+  where
+    fixture = "review-operator-scheme"
+    modulePath = ["Fixture", fixture]
+    operatorName = resolved TypedCurrentModule TypedValueNamespace "plus"
+    owner = binder modulePath [0] operatorName
+    operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
+    operatorRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
+    scheme = TypedScheme owner [] [] [] operatorType operatorRecipe
+    operator = TypedResolvedOperator operatorName "+"
+    textExpr = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text")
+    textToTextInfo = info (TypedFunctionType TypedTextType TypedTextType) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
+    statements =
+      [ TypedSignatureStatement owner operatorName span1 scheme,
+        expressionStatement 2 (TypedBinaryExpr textInfo operator textExpr textExpr),
+        expressionStatement 3 (TypedLeftSectionExpr textToTextInfo textExpr operator),
+        expressionStatement 4 (TypedRightSectionExpr textToTextInfo operator textExpr)
+      ]
+
+operatorSchemeFailures :: [TypedCoreValidationFailure]
+operatorSchemeFailures =
+  [ operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
+    operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
+    operatorFailure 1 TypedApplicationResultMismatch (TypedTypeDetail TypedBoolType TypedTextType),
+    operatorFailure 2 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
+    operatorFailure 2 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType)),
+    operatorFailure 3 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
+    operatorFailure 3 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType))
+  ]
+  where
+    operatorFailure statementIndex =
+      TypedCoreValidationFailure (TypedExpressionPath ["Fixture", "review-operator-scheme"] statementIndex [0])
+
+selectiveImportProgram :: TypedProgram
+selectiveImportProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "Selective"]
+    entryPath = ["Fixture", "review-selective-import"]
+    localName = resolved TypedCurrentModule TypedValueNamespace "identity"
+    owner = binder libraryPath [0] localName
+    scheme = monoScheme owner
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/Selective.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "identity"]
+        (TypedModuleInterface [TypedValueInterface localName scheme] [] [] [])
+        [TypedSignatureStatement owner localName span1 scheme]
+        boolInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["missing"])]
+        []
+        emptyInterface
+        []
+        boolInfo
+
+classParameterScopeProgram :: TypedProgram
+classParameterScopeProgram =
+  singleModuleProgram fixture relativeSource [] [TypedClassStatement declaration] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-class-parameter-scope"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
+    methodBinder = binder modulePath [0, 0] methodName
+    parameterId = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameterId
+    parameterRecipe = TypedRepresentationParameterRecipe parameterId
+    methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
+    methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
+    methodScheme = TypedScheme methodBinder [] [] [] methodType methodRecipe
+    declaration = TypedClassDeclaration span1 capabilityName [parameterId] [TypedMethodSignature methodName span1 methodScheme]
+
+evidenceParameterContractProgram :: TypedProgram
+evidenceParameterContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-evidence-parameter-contract"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "same"
+    owner = binder modulePath [0] valueName
+    parameterId = TypedTypeParameterId 0
+    evidenceId = TypedEvidenceParameterId 0
+    generalizedConstraint = TypedCapabilityConstraint "Equal" Nothing (TypedTypeParameterType parameterId)
+    scheme = TypedScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] TypedBoolType TypedBoolRecipe
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    selected selectedId constraint targetType =
+      TypedSelectedEvidence
+        (TypedEvidenceUse (Just selectedId) constraint (TypedImplId ["Prelude"] capabilityName [targetType]) Nothing)
+    expression selection = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
+    statements =
+      [ TypedSignatureStatement owner valueName span1 scheme,
+        expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint "Equal" Nothing TypedBoolType) TypedBoolType)),
+        expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint "Equal" Nothing TypedCharType) TypedCharType))
+      ]
+
+invalidImplCapabilityName :: TypedCoreName
+invalidImplCapabilityName = resolved TypedAmbientPrelude TypedValueNamespace "Equal"
+
+invisibleImplCapabilityName :: TypedCoreName
+invisibleImplCapabilityName = resolved (TypedImportedModule ["Hidden", "Capabilities"]) TypedCapabilityNamespace "Render"
+
+implCapabilityNamespaceProgram :: TypedProgram
+implCapabilityNamespaceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-capability-namespace"
+    modulePath = ["Fixture", fixture]
+    statements =
+      [ TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invalidImplCapabilityName [TypedBoolType]) []),
+        TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invisibleImplCapabilityName [TypedBoolType]) [])
       ]
 
 expressionFixtureProgram :: Text -> TypedExpr -> TypedProgram
@@ -1457,7 +1734,7 @@ inferredCapabilityEvidenceProgram = evidenceProgram "inferred-capability-evidenc
 
 evidenceProgram :: Text -> Maybe TypedEvidenceParameterId -> TypedProgram
 evidenceProgram fixture parameterId =
-  programWith fixture [TypedSignatureStatement valueBinder valueName span1 (monoScheme valueBinder), expressionStatement 1 expression] emptyInterface boolInfo
+  programWith fixture [TypedSignatureStatement valueBinder valueName span1 scheme, expressionStatement 1 expression] emptyInterface boolInfo
   where
     capability = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
@@ -1465,9 +1742,17 @@ evidenceProgram fixture parameterId =
     evidenceUse = TypedEvidenceUse parameterId capability implId Nothing
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder ["Fixture", fixture] [0] valueName
+    scheme =
+      case parameterId of
+        Nothing -> monoScheme valueBinder
+        Just evidenceId -> TypedScheme valueBinder [] [TypedEvidenceParameter evidenceId capability] [] TypedBoolType TypedBoolRecipe
+    instantiations =
+      case parameterId of
+        Nothing -> []
+        Just _ -> [TypedInstantiation valueBinder [] Nothing]
     expression =
       TypedVariableExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe instantiations [TypedSelectedEvidence evidenceUse])
         valueName
 
 qualifiedMethodSelectionProgram :: TypedProgram
@@ -2028,7 +2313,9 @@ missingOrDuplicateEvidenceFixture =
     program = singleModuleProgram fixture relativeSource [] [expressionStatement 1 missingExpression, expressionStatement 2 duplicateExpression] emptyInterface boolInfo ["Fixture", fixture]
     failures =
       [ expressionFailureAt fixture 0 TypedMissingEvidence (TypedTextDetail "Equal"),
-        expressionFailureAt fixture 1 TypedDuplicateEvidence (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+        expressionFailureAt fixture 1 TypedDuplicateEvidence (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+        expressionFailureAt fixture 1 TypedInstantiationMismatch (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+        expressionFailureAt fixture 1 TypedInstantiationMismatch (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
       ]
 
 ambiguousOrInvisibleEvidenceFixture :: InvalidFixture
@@ -2153,4 +2440,4 @@ expressionFailureAt fixture statementIndex =
 
 patternFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 patternFailure fixture =
-  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] 0 [0])
+  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] 0 [0, 0])
