@@ -15,8 +15,8 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
     canonicalNullaryConstructor,
     runtimeIntValue,
   )
-import JazzNext.Compiler.Runtime (RuntimeValue (..))
 import JazzNext.Compiler.Name (identifierText)
+import JazzNext.Compiler.Runtime (RuntimeValue (..))
 import JazzNext.Compiler.TypedCore
 
 canonicalTypedProgramRuntimeValue :: TypedProgram -> RuntimeValue

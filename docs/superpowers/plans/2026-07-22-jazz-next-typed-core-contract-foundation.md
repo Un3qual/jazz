@@ -768,7 +768,7 @@ failures rather than constructible typed-core values.
 - Produces: adapter rejection evidence, batch determinism, and focused
   canonical-core/lowered-IR regression evidence.
 
-- [ ] **Step 1: Add checked-adapter negative tests**
+- [x] **Step 1: Add checked-adapter negative tests**
 
   Assert exact `Left Text` fragments for unknown validation constructor, wrong
   top-level arity, wrong field category, malformed nested binder/impl identity,
@@ -776,25 +776,25 @@ failures rather than constructible typed-core values.
   absolute source path that bypasses typed construction through a malformed
   canonical value.
 
-- [ ] **Step 2: Add complete repeated batch assertions**
+- [x] **Step 2: Add complete repeated batch assertions**
 
   Execute the full 44-program hosted batch twice in one test process and compare
   byte-identical rendered canonical output plus exact failure order. Audit that
   fixtures contain no duplicate names and cover every validation kind at least
   once.
 
-- [ ] **Step 3: Run focused regressions**
+- [x] **Step 3: Run focused regressions**
 
   Run the first verification command from frontmatter. Expected: typed-core,
   lowered-IR, all four hosted canonical-core suites, and repository audit pass.
 
-- [ ] **Step 4: Confirm bounded test topology**
+- [x] **Step 4: Confirm bounded test topology**
 
   Confirm the new suite defines no synthetic scale generator, enables no
   `full-parser-scale` flag, and imports no inference, runtime-semantics,
   `LoweredIR.Lower`, LLVM, or backend module.
 
-- [ ] **Step 5: Commit hardening evidence**
+- [x] **Step 5: Commit hardening evidence**
 
   ```bash
   git add jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs

@@ -2,8 +2,13 @@
 
 module Main (main) where
 
+import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.Bootstrap.CanonicalValue
+  ( canonicalConstructor,
+    canonicalNullaryConstructor,
+  )
 import JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
   ( canonicalTypedCoreOutcomeRuntimeValue,
     canonicalTypedProgramRuntimeValue,
@@ -27,7 +32,9 @@ import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
+    failTest,
     runTestSuite,
   )
 import JazzNext.TestSource (readCheckedInJazzProjectModuleSource)
@@ -46,6 +53,15 @@ tests =
     ("audits the combined fixed fixture count", testCombinedFixtureCount),
     ("validates the complete fixture family deterministically", testValidationDeterminism),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
+    ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
+    ("rejects wrong validation constructor arity", testCheckedValidationAdapterWrongArity),
+    ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
+    ("rejects malformed nested binder identities", testCheckedValidationAdapterMalformedBinder),
+    ("rejects malformed nested impl identities", testCheckedValidationAdapterMalformedImpl),
+    ("rejects host-specific name identities", testCheckedValidationAdapterHostName),
+    ("rejects runtime values in structural fields", testCheckedValidationAdapterRuntimeValue),
+    ("rejects absolute source-path constructors in structural fields", testCheckedValidationAdapterAbsoluteSourcePath),
+    ("audits fixture uniqueness and complete validation-kind coverage", testFixtureCoverage),
     ("matches Haskell validation for all 44 Jazz fixtures twice", testJazzValidationParity)
   ]
 
@@ -116,6 +132,156 @@ testCheckedValidationAdapterRoundTrip =
           (decodeCanonicalTypedValidationFailuresRuntimeValue (canonicalTypedValidationFailuresRuntimeValue (invalidFixtureFailures fixture)))
     )
     invalidFixtures
+
+testCheckedValidationAdapterUnknownConstructor :: IO ()
+testCheckedValidationAdapterUnknownConstructor =
+  assertTextLeftContains
+    "unknown validation constructor"
+    "validation failure expected constructor 'TypedCoreValidationFailure', got 'UnexpectedFailure'"
+    (decodeCanonicalTypedValidationFailuresRuntimeValue (VList [canonicalNullaryConstructor "UnexpectedFailure"] Nothing))
+
+testCheckedValidationAdapterWrongArity :: IO ()
+testCheckedValidationAdapterWrongArity =
+  assertTextLeftContains
+    "wrong validation failure arity"
+    "TypedCoreValidationFailure expected 3 field(s), got 2"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( VList
+            [ canonicalConstructor
+                "TypedCoreValidationFailure"
+                [canonicalNullaryConstructor "TypedProgramPath", canonicalNullaryConstructor "TypedUnknownEntryModule"]
+            ]
+            Nothing
+        )
+    )
+
+testCheckedValidationAdapterWrongFieldCategory :: IO ()
+testCheckedValidationAdapterWrongFieldCategory =
+  assertTextLeftContains
+    "wrong validation path category"
+    "validation path expected a constructor, got Text"
+    (decodeCanonicalTypedValidationFailuresRuntimeValue (singleCanonicalFailure (VText "not-a-path") (canonicalNullaryConstructor "TypedUnknownEntryModule") (canonicalNullaryConstructor "TypedNoValidationDetail")))
+
+testCheckedValidationAdapterMalformedBinder :: IO ()
+testCheckedValidationAdapterMalformedBinder =
+  assertTextLeftContains
+    "malformed binder identity"
+    "TypedBinderId expected 3 field(s), got 0"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( singleCanonicalFailure
+            (canonicalNullaryConstructor "TypedProgramPath")
+            (canonicalNullaryConstructor "TypedDuplicateBinder")
+            (canonicalConstructor "TypedBinderDetail" [canonicalNullaryConstructor "TypedBinderId"])
+        )
+    )
+
+testCheckedValidationAdapterMalformedImpl :: IO ()
+testCheckedValidationAdapterMalformedImpl =
+  assertTextLeftContains
+    "malformed impl identity"
+    "typed-core name expected a constructor, got Text"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( singleCanonicalFailure
+            (canonicalNullaryConstructor "TypedProgramPath")
+            (canonicalNullaryConstructor "TypedInvisibleImpl")
+            ( canonicalConstructor
+                "TypedImplDetail"
+                [canonicalConstructor "TypedImplId" [VList [VText "Prelude"] Nothing, VText "host-capability", VList [] Nothing]]
+            )
+        )
+    )
+
+testCheckedValidationAdapterHostName :: IO ()
+testCheckedValidationAdapterHostName =
+  assertTextLeftContains
+    "host-specific name identity"
+    "typed-core name expected a constructor, got operator"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( singleCanonicalFailure
+            (canonicalNullaryConstructor "TypedProgramPath")
+            (canonicalNullaryConstructor "TypedUnresolvedName")
+            (canonicalConstructor "TypedNameDetail" [VOperator "host-name" []])
+        )
+    )
+
+testCheckedValidationAdapterRuntimeValue :: IO ()
+testCheckedValidationAdapterRuntimeValue =
+  assertTextLeftContains
+    "runtime value structural field"
+    "representation recipe expected a constructor, got left section"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( singleCanonicalFailure
+            (canonicalNullaryConstructor "TypedProgramPath")
+            (canonicalNullaryConstructor "TypedTypeRepresentationMismatch")
+            (canonicalConstructor "TypedRecipeDetail" [canonicalNullaryConstructor "TypedBoolRecipe", VSectionLeft "+" (VBool True)])
+        )
+    )
+
+testCheckedValidationAdapterAbsoluteSourcePath :: IO ()
+testCheckedValidationAdapterAbsoluteSourcePath =
+  assertTextLeftContains
+    "absolute source path structural field"
+    "unknown typed-core name constructor 'TypedSourcePath'"
+    ( decodeCanonicalTypedValidationFailuresRuntimeValue
+        ( singleCanonicalFailure
+            (canonicalNullaryConstructor "TypedProgramPath")
+            (canonicalNullaryConstructor "TypedUnresolvedName")
+            (canonicalConstructor "TypedNameDetail" [canonicalConstructor "TypedSourcePath" [VText "/private/host/Main.jz"]])
+        )
+    )
+
+singleCanonicalFailure :: RuntimeValue -> RuntimeValue -> RuntimeValue -> RuntimeValue
+singleCanonicalFailure path kind detail =
+  VList [canonicalConstructor "TypedCoreValidationFailure" [path, kind, detail]] Nothing
+
+assertTextLeftContains :: Show value => Text -> Text -> Either Text value -> IO ()
+assertTextLeftContains label expected result =
+  case result of
+    Left actual -> assertContains label expected actual
+    Right value -> failTest (label <> ": expected Left, got Right " <> Text.pack (show value))
+
+testFixtureCoverage :: IO ()
+testFixtureCoverage = do
+  let names = map validFixtureName validFixtures <> map invalidFixtureName invalidFixtures
+      observedKinds = [kind | fixture <- invalidFixtures, TypedCoreValidationFailure _ kind _ <- invalidFixtureFailures fixture]
+  assertEqual "fixture names are unique" (length names) (length (nub names))
+  assertEqual "all validation kinds covered" True (all (`elem` observedKinds) allValidationKinds)
+
+allValidationKinds :: [TypedCoreValidationKind]
+allValidationKinds =
+  [ TypedUnresolvedName,
+    TypedInvalidSourcePath,
+    TypedDuplicateModule,
+    TypedUnknownEntryModule,
+    TypedDuplicateBinder,
+    TypedUnknownBinder,
+    TypedDuplicateTypeParameter,
+    TypedInvalidTypeParameterOrder,
+    TypedUnboundTypeParameter,
+    TypedUnboundRepresentationParameter,
+    TypedInvalidRepresentationWidth,
+    TypedTypeRepresentationMismatch,
+    TypedApplicationFunctionMismatch,
+    TypedApplicationArgumentMismatch,
+    TypedApplicationResultMismatch,
+    TypedConditionalConditionMismatch,
+    TypedConditionalBranchMismatch,
+    TypedPatternScrutineeMismatch,
+    TypedPatternGuardMismatch,
+    TypedPatternArmResultMismatch,
+    TypedOrPatternBinderMismatch,
+    TypedDuplicateEvidenceParameter,
+    TypedInvalidEvidenceParameterOrder,
+    TypedInstantiationMismatch,
+    TypedMissingEvidence,
+    TypedDuplicateEvidence,
+    TypedAmbiguousEvidence,
+    TypedInvisibleImpl,
+    TypedMethodSelectionMismatch,
+    TypedDataRecipeMismatch,
+    TypedCallableRecipeMismatch,
+    TypedModuleInterfaceMismatch
+  ]
 
 testJazzValidationParity :: IO ()
 testJazzValidationParity = do
