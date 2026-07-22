@@ -9,6 +9,7 @@ import JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
   )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.TypedCore
+import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -22,7 +23,12 @@ tests :: [NamedTest]
 tests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
     ("renders the complete valid contract deterministically", testValidContractRendering),
-    ("renders every typed-core outcome deterministically", testOutcomeRendering)
+    ("renders every typed-core outcome deterministically", testOutcomeRendering),
+    ("accepts every fixed valid program", testValidPrograms),
+    ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
+    ("reports every fixed invalid program exactly", testInvalidPrograms),
+    ("audits the combined fixed fixture count", testCombinedFixtureCount),
+    ("validates the complete fixture family deterministically", testValidationDeterminism)
   ]
 
 testValidFixtureManifest :: IO ()
@@ -48,6 +54,39 @@ testOutcomeRendering = do
       second = map (renderRuntimeValue . canonicalTypedCoreOutcomeRuntimeValue) outcomes
   assertEqual "typed-core outcome constructor count" 3 (length outcomes)
   assertEqual "typed-core outcome rendering" first second
+
+testValidPrograms :: IO ()
+testValidPrograms =
+  mapM_
+    (\fixture -> assertEqual (validFixtureName fixture <> " valid failures") [] (validateTypedProgram (validFixtureProgram fixture)))
+    validFixtures
+
+testInvalidFixtureManifest :: IO ()
+testInvalidFixtureManifest = do
+  assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
+  assertEqual "invalid fixture count" 28 (length invalidFixtures)
+
+testInvalidPrograms :: IO ()
+testInvalidPrograms =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          (invalidFixtureName fixture <> " invalid failures")
+          (invalidFixtureFailures fixture)
+          (validateTypedProgram (invalidFixtureProgram fixture))
+    )
+    invalidFixtures
+
+testCombinedFixtureCount :: IO ()
+testCombinedFixtureCount =
+  assertEqual "combined fixture count" 44 (length validFixtures + length invalidFixtures)
+
+testValidationDeterminism :: IO ()
+testValidationDeterminism = do
+  let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures
+      first = map validateTypedProgram programs
+      second = map validateTypedProgram programs
+  assertEqual "complete validation output" first second
 
 data ValidFixture = ValidFixture
   { validFixtureName :: Text,
@@ -244,7 +283,7 @@ generalizedBindingProgram =
     fixture
     [TypedSignatureStatement valueBinder valueName span1 scheme]
     (TypedModuleInterface [TypedValueInterface valueName scheme] [] [] [])
-    polymorphicInfo
+    boolInfo
   where
     fixture = "generalized-binding"
     valueName = resolved TypedCurrentModule TypedValueNamespace "choose"
@@ -261,7 +300,6 @@ generalizedBindingProgram =
           TypedRepresentationParameterRecipe parameter1
         ]
         (TypedRepresentationParameterRecipe parameter0)
-    polymorphicInfo = info polymorphicType polymorphicRecipe
     scheme =
       TypedScheme
         valueBinder
@@ -284,7 +322,7 @@ explicitInstantiationProgram = instantiationProgram "explicit-instantiation" (Ju
 
 instantiationProgram :: Text -> Maybe TypedSpan -> TypedProgram
 instantiationProgram fixture explicitSpan =
-  programWith fixture [expressionStatement 1 expression] emptyInterface boolInfo
+  programWith fixture [TypedSignatureStatement owner name span1 scheme, expressionStatement 2 expression] emptyInterface boolInfo
   where
     name = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder ["Fixture", fixture] [0] name
@@ -293,6 +331,15 @@ instantiationProgram fixture explicitSpan =
         owner
         [TypedTypeArgument (TypedTypeParameterId 0) TypedBoolType]
         explicitSpan
+    parameterId = TypedTypeParameterId 0
+    scheme =
+      TypedScheme
+        owner
+        [parameterId]
+        []
+        []
+        (TypedFunctionType (TypedTypeParameterType parameterId) (TypedTypeParameterType parameterId))
+        (TypedClosureRecipe [TypedRepresentationParameterRecipe parameterId] (TypedRepresentationParameterRecipe parameterId))
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) name
 
 explicitCapabilityEvidenceProgram :: TypedProgram
@@ -344,7 +391,7 @@ partialMethodCandidatesProgram =
       ]
     expression =
       TypedVariableExpr
-        (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [TypedEvidenceCandidates constraint candidates])
+        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint candidates])
         (resolved TypedCurrentModule TypedValueNamespace "render")
 
 patternsBindersProgram :: TypedProgram
@@ -500,3 +547,483 @@ resolved = TypedResolvedName
 
 binder :: [Text] -> [Int] -> TypedCoreName -> TypedBinderId
 binder modulePath lexicalPath name = TypedBinderId (modulePath, lexicalPath, name)
+
+data InvalidFixture = InvalidFixture
+  { invalidFixtureName :: Text,
+    invalidFixtureProgram :: TypedProgram,
+    invalidFixtureFailures :: [TypedCoreValidationFailure]
+  }
+
+expectedInvalidFixtureNames :: [Text]
+expectedInvalidFixtureNames =
+  [ "unresolved-source-name",
+    "unresolved-qualified-name",
+    "absolute-source-path",
+    "duplicate-module-path",
+    "unknown-entry-module",
+    "duplicate-binder",
+    "unknown-binder",
+    "duplicate-or-noncanonical-type-parameter",
+    "free-type-parameter",
+    "free-representation-parameter",
+    "invalid-integer-width",
+    "type-representation-mismatch",
+    "data-recipe-declaration",
+    "callable-recipe-signature",
+    "application-function-shape",
+    "application-argument-type",
+    "application-result-type",
+    "if-condition-type",
+    "if-branch-type",
+    "pattern-scrutinee-type",
+    "pattern-guard-type",
+    "pattern-arm-result-type",
+    "or-pattern-binder-contract",
+    "duplicate-or-noncanonical-evidence-parameter",
+    "instantiation-contract",
+    "missing-or-duplicate-evidence",
+    "ambiguous-or-invisible-evidence",
+    "method-or-interface-identity"
+  ]
+
+invalidFixtures :: [InvalidFixture]
+invalidFixtures =
+  [ unresolvedSourceNameFixture,
+    unresolvedQualifiedNameFixture,
+    absoluteSourcePathFixture,
+    duplicateModulePathFixture,
+    unknownEntryModuleFixture,
+    duplicateBinderFixture,
+    unknownBinderFixture,
+    duplicateTypeParameterFixture,
+    freeTypeParameterFixture,
+    freeRepresentationParameterFixture,
+    invalidIntegerWidthFixture,
+    typeRepresentationMismatchFixture,
+    dataRecipeDeclarationFixture,
+    callableRecipeSignatureFixture,
+    applicationFunctionShapeFixture,
+    applicationArgumentTypeFixture,
+    applicationResultTypeFixture,
+    ifConditionTypeFixture,
+    ifBranchTypeFixture,
+    patternScrutineeTypeFixture,
+    patternGuardTypeFixture,
+    patternArmResultTypeFixture,
+    orPatternBinderContractFixture,
+    duplicateEvidenceParameterFixture,
+    instantiationContractFixture,
+    missingOrDuplicateEvidenceFixture,
+    ambiguousOrInvisibleEvidenceFixture,
+    methodOrInterfaceIdentityFixture
+  ]
+
+unresolvedSourceNameFixture :: InvalidFixture
+unresolvedSourceNameFixture =
+  expressionFixture
+    "unresolved-source-name"
+    (TypedVariableExpr boolInfo unresolvedName)
+    [expressionFailure "unresolved-source-name" TypedUnresolvedName (TypedNameDetail unresolvedName)]
+  where
+    unresolvedName = TypedUnresolvedSourceName "missing"
+
+unresolvedQualifiedNameFixture :: InvalidFixture
+unresolvedQualifiedNameFixture =
+  expressionFixture
+    "unresolved-qualified-name"
+    (TypedVariableExpr boolInfo unresolvedName)
+    [expressionFailure "unresolved-qualified-name" TypedUnresolvedName (TypedNameDetail unresolvedName)]
+  where
+    unresolvedName = TypedUnresolvedQualifiedName "Missing" "value"
+
+absoluteSourcePathFixture :: InvalidFixture
+absoluteSourcePathFixture =
+  InvalidFixture
+    fixture
+    (singleModuleProgram fixture (TypedSourcePath "/absolute/Main.jz") [] [] emptyInterface boolInfo ["Fixture", fixture])
+    [moduleFailure fixture TypedInvalidSourcePath (TypedTextDetail "/absolute/Main.jz")]
+  where
+    fixture = "absolute-source-path"
+
+duplicateModulePathFixture :: InvalidFixture
+duplicateModulePathFixture =
+  InvalidFixture
+    fixture
+    (TypedProgram Nothing [moduleValue, moduleValue] modulePath)
+    [TypedCoreValidationFailure (TypedModulePath modulePath) TypedDuplicateModule (TypedTextDetail "Fixture::duplicate-module-path")]
+  where
+    fixture = "duplicate-module-path"
+    modulePath = ["Fixture", fixture]
+    moduleValue = typedModule modulePath (TypedSourcePath "src/Fixture/duplicate-module-path.jz") [] [] emptyInterface [] boolInfo
+
+unknownEntryModuleFixture :: InvalidFixture
+unknownEntryModuleFixture =
+  InvalidFixture
+    fixture
+    (singleModuleProgram fixture relativeSource [] [] emptyInterface boolInfo ["Missing", "Entry"])
+    [TypedCoreValidationFailure TypedProgramPath TypedUnknownEntryModule (TypedTextDetail "Missing::Entry")]
+  where
+    fixture = "unknown-entry-module"
+
+duplicateBinderFixture :: InvalidFixture
+duplicateBinderFixture =
+  InvalidFixture fixture program [statementFailure fixture 1 TypedDuplicateBinder (TypedBinderDetail valueBinder)]
+  where
+    fixture = "duplicate-binder"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = monoScheme valueBinder
+    statement = TypedLetStatement valueBinder valueName span1 scheme trueExpr
+    program = singleModuleProgram fixture relativeSource [] [statement, statement] emptyInterface boolInfo ["Fixture", fixture]
+
+unknownBinderFixture :: InvalidFixture
+unknownBinderFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedUnknownBinder (TypedBinderDetail schemeBinder)]
+  where
+    fixture = "unknown-binder"
+    valueName = fixtureValueName "value"
+    statementBinder = fixtureBinder fixture 0 valueName
+    schemeBinder = fixtureBinder fixture 1 valueName
+    statement = TypedLetStatement statementBinder valueName span1 (monoScheme schemeBinder) trueExpr
+    program = singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo ["Fixture", fixture]
+
+duplicateTypeParameterFixture :: InvalidFixture
+duplicateTypeParameterFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "duplicate-or-noncanonical-type-parameter"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    parameters = [TypedTypeParameterId 0, TypedTypeParameterId 0, TypedTypeParameterId 3]
+    scheme = TypedScheme valueBinder parameters [] [] TypedBoolType TypedBoolRecipe
+    program = signatureProgram fixture valueBinder valueName scheme
+    failures =
+      [ statementFailure fixture 0 TypedDuplicateTypeParameter (TypedTypeParameterDetail (TypedTypeParameterId 0)),
+        statementFailure fixture 0 TypedInvalidTypeParameterOrder (TypedIndexDetail 1),
+        statementFailure fixture 0 TypedInvalidTypeParameterOrder (TypedIndexDetail 2)
+      ]
+
+freeTypeParameterFixture :: InvalidFixture
+freeTypeParameterFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedUnboundTypeParameter (TypedTypeParameterDetail parameterId)]
+  where
+    fixture = "free-type-parameter"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    parameterId = TypedTypeParameterId 0
+    scheme = TypedScheme valueBinder [] [] [] (TypedTypeParameterType parameterId) TypedBoolRecipe
+    program = signatureProgram fixture valueBinder valueName scheme
+
+freeRepresentationParameterFixture :: InvalidFixture
+freeRepresentationParameterFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedUnboundRepresentationParameter (TypedTypeParameterDetail parameterId)]
+  where
+    fixture = "free-representation-parameter"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    parameterId = TypedTypeParameterId 0
+    scheme = TypedScheme valueBinder [] [] [] TypedBoolType (TypedRepresentationParameterRecipe parameterId)
+    program = signatureProgram fixture valueBinder valueName scheme
+
+invalidIntegerWidthFixture :: InvalidFixture
+invalidIntegerWidthFixture =
+  expressionFixture
+    fixture
+    (literalExpr TypedIntType recipe (TypedIntegerLiteral "1"))
+    [expressionFailure fixture TypedInvalidRepresentationWidth (TypedIndexDetail 7)]
+  where
+    fixture = "invalid-integer-width"
+    recipe = TypedSignedIntegerRecipe 7
+
+typeRepresentationMismatchFixture :: InvalidFixture
+typeRepresentationMismatchFixture =
+  expressionFixture
+    fixture
+    (literalExpr TypedBoolType (TypedSignedIntegerRecipe 64) (TypedBooleanLiteral True))
+    [expressionFailure fixture TypedTypeRepresentationMismatch (TypedRecipeDetail TypedBoolRecipe (TypedSignedIntegerRecipe 64))]
+  where
+    fixture = "type-representation-mismatch"
+
+dataRecipeDeclarationFixture :: InvalidFixture
+dataRecipeDeclarationFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedDataRecipeMismatch (TypedRecipeDetail TypedBoolRecipe (TypedSignedIntegerRecipe 64))]
+  where
+    fixture = "data-recipe-declaration"
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Flag"
+    constructorBinder = fixtureBinder fixture 0 constructorName
+    declaration =
+      TypedDataDeclaration span1 dataName [] [TypedConstructorDeclaration constructorBinder constructorName [TypedBoolType] [TypedSignedIntegerRecipe 64]]
+    program = singleModuleProgram fixture relativeSource [] [TypedDataStatement declaration] emptyInterface boolInfo ["Fixture", fixture]
+
+callableRecipeSignatureFixture :: InvalidFixture
+callableRecipeSignatureFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedCallableRecipeMismatch (TypedRecipeDetail expectedRecipe actualRecipe)]
+  where
+    fixture = "callable-recipe-signature"
+    valueName = fixtureValueName "callable"
+    valueBinder = fixtureBinder fixture 0 valueName
+    expectedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
+    actualRecipe = TypedClosureRecipe [TypedCharRecipe] TypedBoolRecipe
+    scheme = TypedScheme valueBinder [] [] [] (TypedFunctionType TypedBoolType TypedBoolType) actualRecipe
+    program = signatureProgram fixture valueBinder valueName scheme
+
+applicationFunctionShapeFixture :: InvalidFixture
+applicationFunctionShapeFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType TypedBoolType TypedBoolType) TypedBoolType)]
+  where
+    fixture = "application-function-shape"
+    expression = TypedApplyExpr boolInfo trueExpr falseExpr
+
+applicationArgumentTypeFixture :: InvalidFixture
+applicationArgumentTypeFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+  where
+    fixture = "application-argument-type"
+    functionExpr = TypedVariableExpr boolToBoolInfo (fixtureValueName "function")
+    argumentExpr = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedApplyExpr boolInfo functionExpr argumentExpr
+
+applicationResultTypeFixture :: InvalidFixture
+applicationResultTypeFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedApplicationResultMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
+  where
+    fixture = "application-result-type"
+    functionExpr = TypedVariableExpr boolToBoolInfo (fixtureValueName "function")
+    expression = TypedApplyExpr textInfo functionExpr trueExpr
+
+ifConditionTypeFixture :: InvalidFixture
+ifConditionTypeFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedConditionalConditionMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+  where
+    fixture = "if-condition-type"
+    condition = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedIfExpr boolInfo condition trueExpr falseExpr
+
+ifBranchTypeFixture :: InvalidFixture
+ifBranchTypeFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedConditionalBranchMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+  where
+    fixture = "if-branch-type"
+    elseExpression = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedIfExpr boolInfo trueExpr trueExpr elseExpression
+
+patternScrutineeTypeFixture :: InvalidFixture
+patternScrutineeTypeFixture =
+  expressionFixture fixture expression [patternFailure fixture TypedPatternScrutineeMismatch (TypedTypeDetail TypedCharType TypedBoolType)]
+  where
+    fixture = "pattern-scrutinee-type"
+    patternValue = TypedWildcardPattern boolInfo
+    scrutinee = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
+
+patternGuardTypeFixture :: InvalidFixture
+patternGuardTypeFixture =
+  expressionFixture fixture expression [patternFailure fixture TypedPatternGuardMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+  where
+    fixture = "pattern-guard-type"
+    guard = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedPatternCaseExpr boolInfo trueExpr [TypedCaseArm (TypedWildcardPattern boolInfo) (Just guard) trueExpr]
+
+patternArmResultTypeFixture :: InvalidFixture
+patternArmResultTypeFixture =
+  expressionFixture fixture expression [patternFailure fixture TypedPatternArmResultMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+  where
+    fixture = "pattern-arm-result-type"
+    result = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
+    expression = TypedPatternCaseExpr boolInfo trueExpr [TypedCaseArm (TypedWildcardPattern boolInfo) Nothing result]
+
+orPatternBinderContractFixture :: InvalidFixture
+orPatternBinderContractFixture =
+  expressionFixture fixture expression [patternFailure fixture TypedOrPatternBinderMismatch (TypedBinderDetail secondBinder)]
+  where
+    fixture = "or-pattern-binder-contract"
+    firstName = fixtureValueName "first"
+    secondName = fixtureValueName "second"
+    firstBinder = fixtureBinder fixture 0 firstName
+    secondBinder = fixtureBinder fixture 1 secondName
+    patternValue =
+      TypedOrPattern
+        boolInfo
+        [ TypedVariablePattern boolInfo firstBinder firstName,
+          TypedVariablePattern boolInfo secondBinder secondName
+        ]
+    expression = TypedPatternCaseExpr boolInfo trueExpr [TypedCaseArm patternValue Nothing trueExpr]
+
+duplicateEvidenceParameterFixture :: InvalidFixture
+duplicateEvidenceParameterFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "duplicate-or-noncanonical-evidence-parameter"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    evidence =
+      [ TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
+        TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
+        TypedEvidenceParameter (TypedEvidenceParameterId 3) constraint
+      ]
+    scheme = TypedScheme valueBinder [] evidence [] TypedBoolType TypedBoolRecipe
+    program = signatureProgram fixture valueBinder valueName scheme
+    failures =
+      [ statementFailure fixture 0 TypedDuplicateEvidenceParameter (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+        statementFailure fixture 0 TypedInvalidEvidenceParameterOrder (TypedIndexDetail 1),
+        statementFailure fixture 0 TypedInvalidEvidenceParameterOrder (TypedIndexDetail 2)
+      ]
+
+instantiationContractFixture :: InvalidFixture
+instantiationContractFixture =
+  expressionFixture fixture expression [expressionFailure fixture TypedInstantiationMismatch (TypedBinderDetail unknownOwner)]
+  where
+    fixture = "instantiation-contract"
+    unknownName = fixtureValueName "unknown"
+    unknownOwner = fixtureBinder fixture 9 unknownName
+    instantiation = TypedInstantiation unknownOwner [] Nothing
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) unknownName
+
+missingOrDuplicateEvidenceFixture :: InvalidFixture
+missingOrDuplicateEvidenceFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "missing-or-duplicate-evidence"
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    use = TypedEvidenceUse (Just (TypedEvidenceParameterId 0)) constraint implId Nothing
+    missingExpression =
+      TypedVariableExpr
+        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint []])
+        (fixtureValueName "missing")
+    duplicateExpression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
+        (fixtureValueName "duplicate")
+    program = singleModuleProgram fixture relativeSource [] [expressionStatement 1 missingExpression, expressionStatement 2 duplicateExpression] emptyInterface boolInfo ["Fixture", fixture]
+    failures =
+      [ expressionFailureAt fixture 0 TypedMissingEvidence (TypedTextDetail "Equal"),
+        expressionFailureAt fixture 1 TypedDuplicateEvidence (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+      ]
+
+ambiguousOrInvisibleEvidenceFixture :: InvalidFixture
+ambiguousOrInvisibleEvidenceFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "ambiguous-or-invisible-evidence"
+    constraint = TypedCapabilityConstraint "Render" Nothing TypedTextType
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    secondImpl = TypedImplId ["Library", "Render"] capabilityName [TypedTextType]
+    invisibleImpl = TypedImplId ["Hidden", "Render"] capabilityName [TypedTextType]
+    ambiguousExpression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [TypedEvidenceCandidates constraint [TypedEvidenceCandidate firstImpl Nothing, TypedEvidenceCandidate secondImpl Nothing]])
+        (fixtureValueName "ambiguous")
+    invisibleUse = TypedEvidenceUse Nothing constraint invisibleImpl Nothing
+    invisibleExpression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [TypedSelectedEvidence invisibleUse])
+        (fixtureValueName "invisible")
+    program = singleModuleProgram fixture relativeSource [] [expressionStatement 1 ambiguousExpression, expressionStatement 2 invisibleExpression] emptyInterface textInfo ["Fixture", fixture]
+    failures =
+      [ expressionFailureAt fixture 0 TypedAmbiguousEvidence (TypedArityDetail 1 2),
+        expressionFailureAt fixture 1 TypedInvisibleImpl (TypedImplDetail invisibleImpl)
+      ]
+
+methodOrInterfaceIdentityFixture :: InvalidFixture
+methodOrInterfaceIdentityFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "method-or-interface-identity"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    otherImpl = TypedImplId ["Prelude"] capabilityName [TypedCharType]
+    mismatchedMethod = TypedMethodId otherImpl "equal"
+    evidenceUse = TypedEvidenceUse Nothing constraint implId (Just mismatchedMethod)
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (fixtureValueName "equal")
+    valueName = fixtureValueName "published"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = monoScheme valueBinder
+    statement = TypedLetStatement valueBinder valueName span1 scheme trueExpr
+    program =
+      singleModuleProgram
+        fixture
+        relativeSource
+        [TypedModuleExport TypedValueNamespace "published"]
+        [expressionStatement 1 expression, statement]
+        emptyInterface
+        boolInfo
+        ["Fixture", fixture]
+    failures =
+      [ TypedCoreValidationFailure (TypedInterfacePath ["Fixture", fixture]) TypedModuleInterfaceMismatch (TypedNameDetail valueName),
+        expressionFailureAt fixture 0 TypedMethodSelectionMismatch (TypedImplDetail otherImpl)
+      ]
+
+expressionFixture :: Text -> TypedExpr -> [TypedCoreValidationFailure] -> InvalidFixture
+expressionFixture fixture expression failures =
+  InvalidFixture
+    fixture
+    (singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface boolInfo ["Fixture", fixture])
+    failures
+
+signatureProgram :: Text -> TypedBinderId -> TypedCoreName -> TypedScheme -> TypedProgram
+signatureProgram fixture valueBinder valueName scheme =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [TypedSignatureStatement valueBinder valueName span1 scheme]
+    emptyInterface
+    boolInfo
+    ["Fixture", fixture]
+
+singleModuleProgram :: Text -> TypedSourcePath -> [TypedModuleExport] -> [TypedStatement] -> TypedModuleInterface -> TypedNodeInfo -> [Text] -> TypedProgram
+singleModuleProgram fixture sourcePath exports statements interface moduleInfo entryModule =
+  TypedProgram
+    Nothing
+    [typedModule ["Fixture", fixture] sourcePath [] exports interface statements moduleInfo]
+    entryModule
+
+typedModule :: [Text] -> TypedSourcePath -> [TypedResolvedImport] -> [TypedModuleExport] -> TypedModuleInterface -> [TypedStatement] -> TypedNodeInfo -> TypedModule
+typedModule = TypedModule
+
+relativeSource :: TypedSourcePath
+relativeSource = TypedSourcePath "src/Fixture/Main.jz"
+
+fixtureValueName :: Text -> TypedCoreName
+fixtureValueName = resolved TypedCurrentModule TypedValueNamespace
+
+fixtureBinder :: Text -> Int -> TypedCoreName -> TypedBinderId
+fixtureBinder fixture lexicalIndex = binder ["Fixture", fixture] [lexicalIndex]
+
+monoScheme :: TypedBinderId -> TypedScheme
+monoScheme valueBinder = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
+
+boolToBoolType :: TypedType
+boolToBoolType = TypedFunctionType TypedBoolType TypedBoolType
+
+boolToBoolRecipe :: TypedRepresentationRecipe
+boolToBoolRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
+
+boolToBoolInfo :: TypedNodeInfo
+boolToBoolInfo = info boolToBoolType boolToBoolRecipe
+
+moduleFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+moduleFailure fixture = TypedCoreValidationFailure (TypedModulePath ["Fixture", fixture])
+
+statementFailure :: Text -> Int -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+statementFailure fixture statementIndex = TypedCoreValidationFailure (TypedStatementPath ["Fixture", fixture] statementIndex)
+
+expressionFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+expressionFailure fixture = expressionFailureAt fixture 0
+
+expressionFailureAt :: Text -> Int -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+expressionFailureAt fixture statementIndex =
+  TypedCoreValidationFailure (TypedExpressionPath ["Fixture", fixture] statementIndex [0])
+
+patternFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+patternFailure fixture =
+  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] 0 [0])

@@ -19,6 +19,7 @@ target_paths:
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
   - jazz-next/src/JazzNext/Compiler/TypedCore.hs
+  - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
@@ -632,13 +633,13 @@ failures rather than constructible typed-core values.
 - Produces: `validateTypedProgram :: TypedProgram ->
   [TypedCoreValidationFailure]` with exact paths, kinds, details, and order.
 
-- [ ] **Step 1: Add complete failing invalid expectations**
+- [x] **Step 1: Add complete failing invalid expectations**
 
   Materialize all 28 invalid programs and full expected failure lists. Assert
   the exact manifest order, exact count `28`, combined count `44`, and complete
   multiple-failure order for the two combined evidence fixtures.
 
-- [ ] **Step 2: Prove the validator is absent**
+- [x] **Step 2: Prove the validator is absent**
 
   Register `JazzNext.Compiler.TypedCore.Validate`, import
   `validateTypedProgram`, and run the focused suite.
@@ -646,7 +647,7 @@ failures rather than constructible typed-core values.
   Expected: build failure naming the absent module or function while all Task 1
   canonical rendering assertions remain unchanged.
 
-- [ ] **Step 3: Implement declaration and scope validation**
+- [x] **Step 3: Implement declaration and scope validation**
 
   Validate relative `TypedSourcePath`, unique module paths, existing entry
   module, unique binder ids, binder references, scheme-owned type parameters,
@@ -655,7 +656,7 @@ failures rather than constructible typed-core values.
   order. Emit failures at the first structural path that owns the invalid value
   while continuing traversal.
 
-- [ ] **Step 4: Implement type and representation validation**
+- [x] **Step 4: Implement type and representation validation**
 
   Enforce the exact semantic mapping: `Int -> signed 64`, `Float -> float 64`,
   concrete numeric widths to matching recipes, `Bool`, `Char`, `Text`, list,
@@ -663,7 +664,7 @@ failures rather than constructible typed-core values.
   malformed numeric widths and disagreement between declarations and managed
   variant recipes.
 
-- [ ] **Step 5: Implement expression and pattern validation**
+- [x] **Step 5: Implement expression and pattern validation**
 
   Check function/argument/result application types, boolean conditions, equal
   branches, pattern/scrutinee types, boolean guards, equal arm results, and
@@ -671,20 +672,20 @@ failures rather than constructible typed-core values.
   callable recipe parameter/result flattening against right-associated
   function types.
 
-- [ ] **Step 6: Implement instantiation, evidence, method, and interface validation**
+- [x] **Step 6: Implement instantiation, evidence, method, and interface validation**
 
   Check owning binder, complete ordered type-argument mappings, evidence
   parameter/use cardinality, selected versus candidate evidence, visible impl
   identities, selected method identity, and interface equality with exported
   declarations. Preserve explicit-before-inferred evidence order.
 
-- [ ] **Step 7: Make Haskell validation green twice**
+- [x] **Step 7: Make Haskell validation green twice**
 
   Run the focused suite twice. Expected: all 16 valid programs return `[]`; all
   28 invalid programs return their complete expected ordered lists; repeated
   output is identical.
 
-- [ ] **Step 8: Commit Haskell validation**
+- [x] **Step 8: Commit Haskell validation**
 
   ```bash
   git add jazz-next/jazz-next.cabal jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs

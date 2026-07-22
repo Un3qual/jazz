@@ -77,6 +77,7 @@ library jazz-next-internal
       JazzNext.Compiler.LoweredIR
       JazzNext.Compiler.LoweredIR.Validate
       JazzNext.Compiler.TypedCore
+      JazzNext.Compiler.TypedCore.Validate
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleExports
       JazzNext.Compiler.ModuleInterface
