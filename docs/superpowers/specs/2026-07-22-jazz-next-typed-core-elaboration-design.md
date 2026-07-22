@@ -166,7 +166,8 @@ A typed module contains:
 
 - its resolved module path;
 - the resolved imports already accepted by the module resolver;
-- its public export inventory and inferred module interface;
+- its public export inventory and a stable typed projection of the public
+  module interface;
 - ordered typed declarations and executable statements; and
 - the final type and representation recipe of its terminal expression.
 
@@ -174,6 +175,12 @@ Typed modules preserve enough declaration metadata to derive data layouts,
 function symbols, evidence parameters, and module-visible definitions. They do
 not preserve parser tokens, unsupported surface syntax, or module declarations
 that the resolver has already converted to module metadata.
+
+The typed module interface contains exported value schemes, data declarations,
+class declarations, concrete impl identities, and evidence identities using
+only typed-core contract types. The current `ModuleInterface` may supply those
+facts during finalization, but its `TypeBinding`, `ExpressionType`, and other
+inference-internal values are not embedded in typed core.
 
 Prelude ownership stays explicit. A prelude binding uses the existing ambient
 origin rather than pretending to belong to the entry module. Imported names
