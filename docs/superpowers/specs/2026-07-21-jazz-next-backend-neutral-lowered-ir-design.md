@@ -115,6 +115,10 @@ One lowered program contains:
 - ordered function definitions; and
 - one entry-function symbol.
 
+Version `1` is the only supported semantic contract in this child. Validators
+reject any other value before reporting the rest of the program failures, and
+the expected and actual versions remain structured validation data.
+
 Ordering is observable in canonical comparison output. Lookup semantics use
 stable identifiers rather than list position, but renderers preserve source
 order so diagnostics and parity evidence remain deterministic.
@@ -229,6 +233,12 @@ temporaries, function symbols, or immediate scalar values. Managed aggregate
 values are constructed through instructions rather than embedded as immediate
 host objects.
 
+Signed and unsigned integer immediate payloads must fit both their declared
+width and the shared signed `Int` carrier used by the Haskell/Jazz interchange.
+Consequently, `UInt64` immediate payloads are limited to `0..Int64::max` in
+this version; later widening requires a new versioned payload encoding rather
+than accepting values that only one validator can represent.
+
 The permanent instruction vocabulary covers:
 
 - scalar primitive operations;
@@ -285,19 +295,22 @@ Validation returns ordinary structured data. A failure records:
 - a stable failure kind;
 - the function, block, and instruction position when applicable;
 - the referenced identifier or expected representation when applicable; and
-- structured details for identifiers, representations, arities, indices, or
-  tags when applicable.
+- structured details for versions, identifiers, representations, immediate
+  ranges, arities, indices, or tags when applicable.
 
 The first validator must detect at least:
 
 - duplicate or unresolved function, block, layout, parameter, and temporary
   identifiers;
+- unsupported semantic IR versions;
 - missing or foreign entry functions and entry blocks;
 - parameterized entry blocks;
 - missing terminators;
 - invalid use order or cross-function operands;
 - instruction result/operand representation mismatches;
-- invalid layout references, variant tags, and field projections;
+- integer immediates outside their supported representation range;
+- invalid layout references, variant tags, and field projections, with absent
+  variant tags reported separately from invalid payload-field indices;
 - jump, branch, and switch arity or representation mismatches;
 - direct, closure, runtime, and tail-call signature mismatches;
 - closure construction whose environment representation disagrees with the

@@ -37,6 +37,7 @@ module JazzNext.Compiler.LoweredIR
     LoweredIRValidationKind (..),
     LoweredIRValidationDetail (..),
     LoweredIRValidationFailure (..),
+    supportedLoweredIRVersion,
     loweredFunctionCallSignature,
     loweredImmediateRepresentation,
     loweredOperandRepresentation
@@ -46,6 +47,9 @@ import Data.Text (Text)
 
 newtype LoweredIRVersion = LoweredIRVersion Integer
   deriving (Eq, Ord, Show)
+
+supportedLoweredIRVersion :: LoweredIRVersion
+supportedLoweredIRVersion = LoweredIRVersion 1
 
 newtype LoweredFunctionId = LoweredFunctionId Text
   deriving (Eq, Ord, Show)
@@ -210,7 +214,8 @@ data LoweredIRValidationPath
   deriving (Eq, Show)
 
 data LoweredIRValidationKind
-  = LoweredDuplicateLayout
+  = LoweredUnsupportedVersion
+  | LoweredDuplicateLayout
   | LoweredUnknownLayout
   | LoweredDuplicateVariantTag
   | LoweredDuplicateRuntimeService
@@ -228,6 +233,7 @@ data LoweredIRValidationKind
   | LoweredUnknownParameter
   | LoweredUnknownFunction
   | LoweredUnknownBlock
+  | LoweredImmediateOutOfRange
   | LoweredPrimitiveSignatureMismatch
   | LoweredInstructionResultRepresentationMismatch
   | LoweredInvalidFieldProjection
@@ -248,7 +254,9 @@ data LoweredIRValidationKind
 data LoweredIRValidationDetail
   = LoweredNoValidationDetail
   | LoweredIdentifierDetail Text
+  | LoweredVersionDetail LoweredIRVersion LoweredIRVersion
   | LoweredRepresentationDetail LoweredRepresentation LoweredRepresentation
+  | LoweredImmediateRangeDetail LoweredRepresentation
   | LoweredArityDetail Int Int
   | LoweredIndexDetail Int
   | LoweredTagDetail Integer

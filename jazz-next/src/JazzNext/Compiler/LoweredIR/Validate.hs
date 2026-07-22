@@ -25,8 +25,9 @@ data FunctionContext = FunctionContext
   }
 
 validateLoweredProgram :: LoweredProgram -> [LoweredIRValidationFailure]
-validateLoweredProgram (LoweredProgram _ layouts services functions entryFunction) =
-  duplicateLayoutFailures layouts
+validateLoweredProgram (LoweredProgram version layouts services functions entryFunction) =
+  versionFailures
+    <> duplicateLayoutFailures layouts
     <> duplicateServiceFailures services
     <> duplicateFunctionFailures functions
     <> missingEntryFailure
@@ -43,6 +44,9 @@ validateLoweredProgram (LoweredProgram _ layouts services functions entryFunctio
     missingEntryFailure
       | Map.member entryFunction (contextFunctions programContext) = []
       | otherwise = [failure LoweredProgramPath LoweredMissingEntryFunction (identifierDetail (functionIdText entryFunction))]
+    versionFailures
+      | version == supportedLoweredIRVersion = []
+      | otherwise = [failure LoweredProgramPath LoweredUnsupportedVersion (LoweredVersionDetail supportedLoweredIRVersion version)]
 
 duplicateLayoutFailures :: [LoweredLayout] -> [LoweredIRValidationFailure]
 duplicateLayoutFailures =
@@ -293,9 +297,12 @@ validateOperation functionContext blockId blockParameters seenTemporaries path o
     LoweredProjectVariantField layoutId tag fieldIndex operand ->
       case Map.lookup layoutId layouts of
         Just (LoweredVariantLayouts variants) ->
-          case lookupVariant tag variants >>= (`indexMaybe` fieldIndex) of
-            Just representation -> (operandFailures [operand] <> managedOperandFailures layoutId operand, Just representation)
-            Nothing -> (operandFailures [operand] <> [failure path LoweredInvalidFieldProjection (LoweredIndexDetail fieldIndex)], Nothing)
+          case lookupVariant tag variants of
+            Nothing -> (operandFailures [operand] <> [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)], Nothing)
+            Just fields ->
+              case indexMaybe fields fieldIndex of
+                Just representation -> (operandFailures [operand] <> managedOperandFailures layoutId operand, Just representation)
+                Nothing -> (operandFailures [operand] <> [failure path LoweredInvalidFieldProjection (LoweredIndexDetail fieldIndex)], Nothing)
         Just _ -> (operandFailures [operand] <> [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)], Nothing)
         Nothing -> (operandFailures [operand] <> [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))], Nothing)
     LoweredDirectCall functionId operands ->
@@ -353,7 +360,7 @@ validateOperand functionContext blockId blockParameters seenTemporaries path ope
           | Set.member blockId ownerBlocks -> validateTemporaryRepresentation temporaryId representation
           | otherwise -> [failure path LoweredCrossBlockTemporary (identifierDetail (temporaryIdText temporaryId))]
         Nothing -> [failure path LoweredUseBeforeDefinition (identifierDetail (temporaryIdText temporaryId))]
-    LoweredImmediateOperand _ -> []
+    LoweredImmediateOperand immediate -> validateImmediate path immediate
   where
     validateParameterReference available parameterId representation =
       case Map.lookup parameterId available of
@@ -366,6 +373,44 @@ validateOperand functionContext blockId blockParameters seenTemporaries path ope
         Just expected
           | expected /= representation -> [failure path LoweredInstructionResultRepresentationMismatch (LoweredRepresentationDetail expected representation)]
         _ -> []
+
+validateImmediate :: LoweredIRValidationPath -> LoweredImmediate -> [LoweredIRValidationFailure]
+validateImmediate path immediate =
+  case immediate of
+    LoweredSignedIntegerImmediate width value ->
+      let (minimumValue, maximumValue) = signedIntegerBounds width
+       in integerRangeFailures (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
+    LoweredUnsignedIntegerImmediate width value ->
+      integerRangeFailures (LoweredUnsignedIntegerRepresentation width) 0 (unsignedIntegerMaximum width) value
+    _ -> []
+  where
+    integerRangeFailures representation minimumValue maximumValue actualValue
+      | actualValue < minimumValue || actualValue > maximumValue =
+          [ failure
+              path
+              LoweredImmediateOutOfRange
+              (LoweredImmediateRangeDetail representation)
+          ]
+      | otherwise = []
+
+signedIntegerBounds :: LoweredIntegerWidth -> (Integer, Integer)
+signedIntegerBounds width =
+  let magnitude = 2 ^ (integerWidthBits width - 1)
+   in (negate magnitude, magnitude - 1)
+
+unsignedIntegerMaximum :: LoweredIntegerWidth -> Integer
+unsignedIntegerMaximum width =
+  case width of
+    LoweredIntegerWidth64 -> 9223372036854775807
+    _ -> 2 ^ integerWidthBits width - 1
+
+integerWidthBits :: LoweredIntegerWidth -> Int
+integerWidthBits width =
+  case width of
+    LoweredIntegerWidth8 -> 8
+    LoweredIntegerWidth16 -> 16
+    LoweredIntegerWidth32 -> 32
+    LoweredIntegerWidth64 -> 64
 
 validateTerminator :: FunctionContext -> LoweredBlockId -> Map LoweredParameterId LoweredRepresentation -> Set LoweredTemporaryId -> LoweredTerminator -> [LoweredIRValidationFailure]
 validateTerminator functionContext blockId blockParameters seenTemporaries terminator =

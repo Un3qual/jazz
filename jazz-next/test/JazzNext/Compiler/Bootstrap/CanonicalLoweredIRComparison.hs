@@ -102,6 +102,7 @@ decodeValidationKind value = do
   (name, arguments) <- expectConstructor "validation kind" value
   kind <-
     case name of
+      "LoweredUnsupportedVersion" -> Right LoweredUnsupportedVersion
       "LoweredDuplicateLayout" -> Right LoweredDuplicateLayout
       "LoweredUnknownLayout" -> Right LoweredUnknownLayout
       "LoweredDuplicateVariantTag" -> Right LoweredDuplicateVariantTag
@@ -120,6 +121,7 @@ decodeValidationKind value = do
       "LoweredUnknownParameter" -> Right LoweredUnknownParameter
       "LoweredUnknownFunction" -> Right LoweredUnknownFunction
       "LoweredUnknownBlock" -> Right LoweredUnknownBlock
+      "LoweredImmediateOutOfRange" -> Right LoweredImmediateOutOfRange
       "LoweredPrimitiveSignatureMismatch" -> Right LoweredPrimitiveSignatureMismatch
       "LoweredInstructionResultRepresentationMismatch" -> Right LoweredInstructionResultRepresentationMismatch
       "LoweredInvalidFieldProjection" -> Right LoweredInvalidFieldProjection
@@ -148,10 +150,20 @@ decodeValidationDetail value = do
       case fields of
         [identifier] -> LoweredIdentifierDetail <$> decodeText "validation identifier" identifier
         _ -> impossibleArity name
+    "LoweredVersionDetail" -> do
+      fields <- expectArity name 2 arguments
+      case fields of
+        [expected, actual] -> LoweredVersionDetail <$> decodeVersion expected <*> decodeVersion actual
+        _ -> impossibleArity name
     "LoweredRepresentationDetail" -> do
       fields <- expectArity name 2 arguments
       case fields of
         [expected, actual] -> LoweredRepresentationDetail <$> decodeRepresentation expected <*> decodeRepresentation actual
+        _ -> impossibleArity name
+    "LoweredImmediateRangeDetail" -> do
+      fields <- expectArity name 1 arguments
+      case fields of
+        [representation] -> LoweredImmediateRangeDetail <$> decodeRepresentation representation
         _ -> impossibleArity name
     "LoweredArityDetail" -> do
       fields <- expectArity name 2 arguments
@@ -203,6 +215,13 @@ decodeRepresentation value = do
         [signature] -> LoweredClosureRepresentation <$> decodeCallSignature signature
         _ -> impossibleArity name
     _ -> Left ("unknown representation constructor '" <> name <> "'")
+
+decodeVersion :: RuntimeValue -> Either Text LoweredIRVersion
+decodeVersion value = do
+  fields <- expectNamedConstructor "lowered IR version" "LoweredIRVersion" 1 value
+  case fields of
+    [version] -> LoweredIRVersion <$> decodeInteger "lowered IR version" version
+    _ -> impossibleArity "LoweredIRVersion"
 
 decodeCallSignature :: RuntimeValue -> Either Text LoweredCallSignature
 decodeCallSignature value = do
@@ -552,6 +571,7 @@ validationKindValue kind = nullary (validationKindName kind)
 validationKindName :: LoweredIRValidationKind -> Text
 validationKindName kind =
   case kind of
+    LoweredUnsupportedVersion -> "LoweredUnsupportedVersion"
     LoweredDuplicateLayout -> "LoweredDuplicateLayout"
     LoweredUnknownLayout -> "LoweredUnknownLayout"
     LoweredDuplicateVariantTag -> "LoweredDuplicateVariantTag"
@@ -570,6 +590,7 @@ validationKindName kind =
     LoweredUnknownParameter -> "LoweredUnknownParameter"
     LoweredUnknownFunction -> "LoweredUnknownFunction"
     LoweredUnknownBlock -> "LoweredUnknownBlock"
+    LoweredImmediateOutOfRange -> "LoweredImmediateOutOfRange"
     LoweredPrimitiveSignatureMismatch -> "LoweredPrimitiveSignatureMismatch"
     LoweredInstructionResultRepresentationMismatch -> "LoweredInstructionResultRepresentationMismatch"
     LoweredInvalidFieldProjection -> "LoweredInvalidFieldProjection"
@@ -591,7 +612,9 @@ validationDetailValue detail =
   case detail of
     LoweredNoValidationDetail -> nullary "LoweredNoValidationDetail"
     LoweredIdentifierDetail identifier -> constructor "LoweredIdentifierDetail" [VText identifier]
+    LoweredVersionDetail expected actual -> constructor "LoweredVersionDetail" [versionValue expected, versionValue actual]
     LoweredRepresentationDetail expected actual -> constructor "LoweredRepresentationDetail" [representationValue expected, representationValue actual]
+    LoweredImmediateRangeDetail representation -> constructor "LoweredImmediateRangeDetail" [representationValue representation]
     LoweredArityDetail expected actual -> constructor "LoweredArityDetail" [runtimeIntValue expected, runtimeIntValue actual]
     LoweredIndexDetail index -> constructor "LoweredIndexDetail" [runtimeIntValue index]
     LoweredTagDetail tag -> constructor "LoweredTagDetail" [integerValue tag]

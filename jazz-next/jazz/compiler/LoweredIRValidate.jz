@@ -429,6 +429,41 @@ module LoweredIRValidate (
     | LoweredCharImmediate value -> LoweredCharRepresentation
   }.
 
+  integerRangeFailures :: LoweredIRValidationPath -> LoweredRepresentation -> Int -> Int -> Int -> [LoweredIRValidationFailure].
+  integerRangeFailures = \(path, representation, minimumValue, maximumValue, actualValue) ->
+    if actualValue < minimumValue then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail representation)]
+    else if actualValue > maximumValue then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail representation)]
+    else [].
+
+  signedIntegerBounds :: LoweredIntegerWidth -> (Int, Int).
+  signedIntegerBounds = \(width) -> case width {
+    | LoweredIntegerWidth8 -> ((0 - 128), 127)
+    | LoweredIntegerWidth16 -> ((0 - 32768), 32767)
+    | LoweredIntegerWidth32 -> ((0 - 2147483648), 2147483647)
+    | LoweredIntegerWidth64 -> ((0 - 9223372036854775808), 9223372036854775807)
+  }.
+
+  validateUnsignedImmediate :: LoweredIRValidationPath -> LoweredIntegerWidth -> Int -> [LoweredIRValidationFailure].
+  validateUnsignedImmediate = \(path, width, value) -> case width {
+    | LoweredIntegerWidth8 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 255 value
+    | LoweredIntegerWidth16 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 65535 value
+    | LoweredIntegerWidth32 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 4294967295 value
+    | LoweredIntegerWidth64 -> if value < 0 then
+      [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (LoweredUnsignedIntegerRepresentation width))]
+      else []
+  }.
+
+  validateImmediate :: LoweredIRValidationPath -> LoweredImmediate -> [LoweredIRValidationFailure].
+  validateImmediate = \(path, immediate) -> case immediate {
+    | LoweredSignedIntegerImmediate width value -> case signedIntegerBounds width {
+      | (minimumValue, maximumValue) -> integerRangeFailures path (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
+    }
+    | LoweredUnsignedIntegerImmediate width value -> validateUnsignedImmediate path width value
+    | other -> []
+  }.
+
   operandRepresentation :: LoweredOperand -> LoweredRepresentation.
   operandRepresentation = \(operand) -> case operand {
     | LoweredFunctionParameterOperand parameterId representation -> representation
@@ -460,7 +495,7 @@ module LoweredIRValidate (
               } else [failure path LoweredUseBeforeDefinition (identifierDetail (temporaryIdText temporaryId))]
             else if blocksContainTemporary temporaryId blocks then [failure path LoweredCrossBlockTemporary (identifierDetail (temporaryIdText temporaryId))]
             else [failure path LoweredUseBeforeDefinition (identifierDetail (temporaryIdText temporaryId))]
-          | LoweredImmediateOperand immediate -> []
+          | LoweredImmediateOperand immediate -> validateImmediate path immediate
         }
       }
     }
@@ -685,7 +720,7 @@ module LoweredIRValidate (
           | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredUnknownLayout (identifierDetail (layoutIdText layoutId))]) Nothing
           | Just shape -> case shape {
             | LoweredVariantLayouts variants -> case lookupVariant tag variants {
-              | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidFieldProjection (LoweredIndexDetail index)]) Nothing
+              | Nothing -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)]) Nothing
               | Just fields -> projectFieldValidation context block seen path layoutId index operand fields
             }
             | other -> OperationValidation (listAppend (validateOperands context block seen path [operand]) [failure path LoweredInvalidTagProjection (LoweredTagDetail tag)]) Nothing
@@ -970,26 +1005,35 @@ module LoweredIRValidate (
     | [first | rest] -> listAppend (validateFunction context first) (validateFunctions context rest)
   }.
 
+  versionEqual :: LoweredIRVersion -> LoweredIRVersion -> Bool.
+  versionEqual = \(left, right) -> case (left, right) {
+    | (LoweredIRVersion leftValue, LoweredIRVersion rightValue) -> leftValue == rightValue
+  }.
+
+  supportedVersion :: LoweredIRVersion.
+  supportedVersion = LoweredIRVersion 1.
+
+  versionFailures :: LoweredIRVersion -> [LoweredIRValidationFailure].
+  versionFailures = \(version) -> if versionEqual version supportedVersion then [] else
+    [failure LoweredProgramPath LoweredUnsupportedVersion (LoweredVersionDetail supportedVersion version)].
+
+  missingEntryFunctionFailures :: LoweredFunctionId -> [LoweredFunction] -> [LoweredIRValidationFailure].
+  missingEntryFunctionFailures = \(entryFunction, functions) -> case lookupFunction entryFunction functions {
+    | Nothing -> [failure LoweredProgramPath LoweredMissingEntryFunction (identifierDetail (functionIdText entryFunction))]
+    | Just entry -> []
+  }.
+
   validateProgram :: LoweredProgram -> [LoweredIRValidationFailure].
   validateProgram = \(program) -> case program {
-    | LoweredProgram version layouts services functions entryFunction -> case lookupFunction entryFunction functions {
-      | Nothing -> listConcat
-        [ duplicateLayoutFailures layouts,
-          duplicateServiceFailures services,
-          duplicateFunctionFailures functions,
-          [failure LoweredProgramPath LoweredMissingEntryFunction (identifierDetail (functionIdText entryFunction))],
-          validateLayouts (ProgramContext layouts services functions) layouts,
-          validateServices (ProgramContext layouts services functions) services,
-          validateFunctions (ProgramContext layouts services functions) functions
-        ]
-      | Just entry -> listConcat
-        [ duplicateLayoutFailures layouts,
-          duplicateServiceFailures services,
-          duplicateFunctionFailures functions,
-          validateLayouts (ProgramContext layouts services functions) layouts,
-          validateServices (ProgramContext layouts services functions) services,
-          validateFunctions (ProgramContext layouts services functions) functions
-        ]
-    }
+    | LoweredProgram version layouts services functions entryFunction -> listConcat
+      [ versionFailures version,
+        duplicateLayoutFailures layouts,
+        duplicateServiceFailures services,
+        duplicateFunctionFailures functions,
+        missingEntryFunctionFailures entryFunction functions,
+        validateLayouts (ProgramContext layouts services functions) layouts,
+        validateServices (ProgramContext layouts services functions) services,
+        validateFunctions (ProgramContext layouts services functions) functions
+      ]
   }.
 }

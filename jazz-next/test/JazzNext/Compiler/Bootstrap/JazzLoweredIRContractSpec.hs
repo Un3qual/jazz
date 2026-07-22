@@ -50,6 +50,7 @@ tests =
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("reports every validator hardening regression exactly", testHardeningPrograms),
+    ("rejects integer immediates outside the shared Haskell/Jazz carrier", testSharedImmediateCarrierRange),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
@@ -309,6 +310,15 @@ testHardeningPrograms =
           (validateLoweredProgram (hardeningFixtureProgram fixture))
     )
     hardeningFixtures
+
+testSharedImmediateCarrierRange :: IO ()
+testSharedImmediateCarrierRange =
+  assertEqual
+    "upper-half UInt64 immediate"
+    [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
+    ( validateLoweredProgram
+        (immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 9223372036854775808))
+    )
 
 testBlockLocalTemporaryScope :: IO ()
 testBlockLocalTemporaryScope =
@@ -895,6 +905,30 @@ data HardeningFixture = HardeningFixture
 hardeningFixtures :: [HardeningFixture]
 hardeningFixtures =
   [ HardeningFixture
+      "unsupported lowered IR version"
+      unsupportedVersionProgram
+      [programFailure LoweredUnsupportedVersion (LoweredVersionDetail supportedLoweredIRVersion (LoweredIRVersion 2))],
+    HardeningFixture
+      "negative unsigned 8-bit immediate"
+      (immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth8 (-1)))
+      [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth8))],
+    HardeningFixture
+      "overflowing unsigned 8-bit immediate"
+      (immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth8 256))
+      [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth8))],
+    HardeningFixture
+      "underflowing signed 8-bit immediate"
+      (immediateReturnProgram (LoweredSignedIntegerImmediate LoweredIntegerWidth8 (-129)))
+      [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (signed LoweredIntegerWidth8))],
+    HardeningFixture
+      "overflowing signed 8-bit immediate"
+      (immediateReturnProgram (LoweredSignedIntegerImmediate LoweredIntegerWidth8 128))
+      [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (signed LoweredIntegerWidth8))],
+    HardeningFixture
+      "missing variant field tag"
+      missingVariantFieldTagProgram
+      [instructionFailure "main" "entry" 1 LoweredInvalidTagProjection (LoweredTagDetail 1)],
+    HardeningFixture
       "zero-operand arithmetic"
       (primitiveInstructionProgram i64 (LoweredArithmeticPrimitive LoweredAdd) [])
       [instructionFailure "main" "entry" 0 LoweredPrimitiveSignatureMismatch (LoweredArityDetail 2 0)],
@@ -1159,6 +1193,53 @@ unknownInstructionResultProgram resultRepresentation =
             "entry"
             []
             [instruction "result" resultRepresentation (LoweredDirectCall (functionId "missing") [])]
+            (LoweredReturn (immediate LoweredUnitImmediate))
+        ]
+        "entry"
+    ]
+    "main"
+
+unsupportedVersionProgram :: LoweredProgram
+unsupportedVersionProgram =
+  case minimalScalarProgram of
+    LoweredProgram _ layouts services functions entryFunction ->
+      LoweredProgram (LoweredIRVersion 2) layouts services functions entryFunction
+
+immediateReturnProgram :: LoweredImmediate -> LoweredProgram
+immediateReturnProgram immediateValue =
+  let resultRepresentation = loweredImmediateRepresentation immediateValue
+   in program
+        []
+        []
+        [ function
+            "main"
+            Nothing
+            []
+            resultRepresentation
+            [block "entry" [] [] (LoweredReturn (immediate immediateValue))]
+            "entry"
+        ]
+        "main"
+
+missingVariantFieldTagProgram :: LoweredProgram
+missingVariantFieldTagProgram =
+  program
+    [LoweredLayout (layoutId "option") (LoweredVariantLayouts [LoweredVariantLayout 0 []])]
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredUnitRepresentation
+        [ block
+            "entry"
+            []
+            [ instruction "option" (managed "option") (LoweredConstructVariant (layoutId "option") 0 []),
+              instruction
+                "payload"
+                i64
+                (LoweredProjectVariantField (layoutId "option") 1 0 (temporary "option" (managed "option")))
+            ]
             (LoweredReturn (immediate LoweredUnitImmediate))
         ]
         "entry"

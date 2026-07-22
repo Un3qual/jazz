@@ -111,7 +111,7 @@ values, Cabal test components, and the Nix-pinned development environment.
 | Haskell validator | `validateLoweredProgram :: LoweredProgram -> [LoweredIRValidationFailure]`. |
 | Jazz validator | `validateProgram :: LoweredProgram -> [LoweredIRValidationFailure]`. |
 | Validation path | Identify program, layout, runtime-service, function, block, instruction index, or terminator position without source-file paths. |
-| Validation detail | Carry the relevant identifier, expected/actual representation, or expected/actual arity structurally. |
+| Validation detail | Carry the relevant version, identifier, immediate representation, expected/actual representation, or expected/actual arity structurally. |
 | Comparison adapter | Convert complete Haskell programs and failure lists to canonical `RuntimeValue`; decode only the top-level hosted validation result needed to reject schema drift. |
 | Test contract | Compare complete canonical program values and ordered failure lists twice; never compare Haskell `Show` or implementation text. |
 
