@@ -68,6 +68,15 @@ tests =
     ("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions),
     ("enforces latest typed-core review contracts", testLatestReviewRegressions),
     ("enforces newest typed-core review contracts", testNewestReviewRegressions),
+    ("retains data metadata for selectively imported values", testSelectedValueDataMetadata),
+    ("filters private impls from selective imports", testSelectiveImportImplLeak),
+    ("requires selected evidence methods to exist", testSelectedEvidenceMethodExistence),
+    ("rejects duplicate impl methods", testDuplicateImplMethods),
+    ("retains outer type scope in nested bindings", testNestedOuterTypeScope),
+    ("keeps impl methods out of ordinary value scope", testImplMethodValueVisibility),
+    ("validates builtin operator contracts", testBuiltinOperatorContracts),
+    ("limits candidate deferral to qualified methods", testOrdinaryFunctionCandidateAmbiguity),
+    ("validates numeric primitive constraint targets", testNumericPrimitiveConstraintTargets),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -349,7 +358,16 @@ reviewRegressionPrograms =
     duplicateDeclarationProgram,
     importedImplQualificationProgram,
     implTargetArityProgram,
-    localDeclarationOriginProgram
+    localDeclarationOriginProgram,
+    selectedValueDataMetadataProgram,
+    selectiveImportImplLeakProgram,
+    selectedEvidenceMethodExistenceProgram,
+    duplicateImplMethodProgram,
+    nestedOuterTypeScopeProgram,
+    implMethodValueVisibilityProgram,
+    builtinOperatorContractProgram,
+    ordinaryFunctionCandidateAmbiguityProgram,
+    invalidNumericPrimitiveConstraintProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -462,7 +480,8 @@ testScopeAndVisibilityRegressions = do
   assertEqual
     "selected methods match the capability method contract"
     [ expressionFailureAt "review-selected-method-contract" 2 TypedMethodSelectionMismatch (TypedTextDetail "Equal.equal"),
-      expressionFailureAt "review-selected-method-contract" 3 TypedMethodSelectionMismatch (TypedTextDetail "Equal.equal")
+      expressionFailureAt "review-selected-method-contract" 3 TypedMethodSelectionMismatch (TypedTextDetail "Equal.equal"),
+      expressionFailureAt "review-selected-method-contract" 3 TypedMethodSelectionMismatch (TypedTextDetail "other")
     ]
     (validateTypedProgram selectedMethodContractProgram)
   assertEqual
@@ -1045,6 +1064,326 @@ testNewestReviewRegressions = do
     ]
     (validateTypedProgram localDeclarationOriginProgram)
 
+testSelectedValueDataMetadata :: IO ()
+testSelectedValueDataMetadata =
+  assertEqual
+    "selective value imports retain referenced data metadata"
+    []
+    (validateTypedProgram selectedValueDataMetadataProgram)
+
+testSelectiveImportImplLeak :: IO ()
+testSelectiveImportImplLeak =
+  assertEqual
+    "selective imports do not expose private impl interfaces"
+    [ expressionFailureAt
+        "review-selective-import-impl-leak"
+        0
+        TypedInvisibleImpl
+        (TypedImplDetail selectiveImportLeakedImpl)
+    ]
+    (validateTypedProgram selectiveImportImplLeakProgram)
+
+testSelectedEvidenceMethodExistence :: IO ()
+testSelectedEvidenceMethodExistence =
+  assertEqual
+    "selected method evidence requires capability and impl method contracts"
+    [ expressionFailureAt
+        "review-selected-evidence-method-existence"
+        2
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "equal"),
+      expressionFailureAt
+        "review-selected-evidence-method-existence"
+        2
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "equal")
+    ]
+    (validateTypedProgram selectedEvidenceMethodExistenceProgram)
+
+testDuplicateImplMethods :: IO ()
+testDuplicateImplMethods =
+  assertEqual
+    "impl declarations reject duplicate method definitions"
+    [ statementFailure
+        "review-duplicate-impl-method"
+        0
+        TypedDuplicateDeclaration
+        (TypedNameDetail duplicateImplMethodName)
+    ]
+    (validateTypedProgram duplicateImplMethodProgram)
+
+testNestedOuterTypeScope :: IO ()
+testNestedOuterTypeScope =
+  assertEqual
+    "nested local schemes retain enclosing type parameters"
+    []
+    (validateTypedProgram nestedOuterTypeScopeProgram)
+
+testImplMethodValueVisibility :: IO ()
+testImplMethodValueVisibility =
+  assertEqual
+    "impl method names are not ordinary visible values"
+    [ expressionFailureAt
+        "review-impl-method-value-visibility"
+        1
+        TypedInvisibleName
+        (TypedNameDetail implMethodVisibleName)
+    ]
+    (validateTypedProgram implMethodValueVisibilityProgram)
+
+testBuiltinOperatorContracts :: IO ()
+testBuiltinOperatorContracts =
+  assertEqual
+    "builtin operators match the supported typed catalog"
+    [ expressionFailureAt
+        "review-builtin-operator-contract"
+        0
+        TypedBindingValueMismatch
+        (TypedTextDetail "%%"),
+      expressionFailureAt
+        "review-builtin-operator-contract"
+        1
+        TypedApplicationResultMismatch
+        (TypedTypeDetail TypedIntType TypedBoolType)
+    ]
+    (validateTypedProgram builtinOperatorContractProgram)
+
+testOrdinaryFunctionCandidateAmbiguity :: IO ()
+testOrdinaryFunctionCandidateAmbiguity =
+  assertEqual
+    "candidate ambiguity is deferred only for qualified methods"
+    [ expressionFailureAt
+        "review-ordinary-function-candidate-ambiguity"
+        0
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 2)
+    ]
+    (validateTypedProgram ordinaryFunctionCandidateAmbiguityProgram)
+
+testNumericPrimitiveConstraintTargets :: IO ()
+testNumericPrimitiveConstraintTargets =
+  assertEqual
+    "numeric primitive constraints reject nonnumeric targets"
+    [ statementFailure
+        "review-invalid-numeric-primitive-constraint"
+        0
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType TypedTextType)
+    ]
+    (validateTypedProgram invalidNumericPrimitiveConstraintProgram)
+
+selectedValueDataMetadataProgram :: TypedProgram
+selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "SelectedValueData"]
+    entryPath = ["Fixture", "review-selected-value-data-metadata"]
+    localDataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    importedDataName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Box"
+    localValueName = resolved TypedCurrentModule TypedValueNamespace "boxed"
+    importedValueName = resolved (TypedImportedModule libraryPath) TypedValueNamespace "boxed"
+    valueBinder = binder libraryPath [0] localValueName
+    dataType = TypedDataType localDataName []
+    dataRecipe = TypedManagedVariantRecipe localDataName []
+    importedType = TypedDataType importedDataName []
+    importedRecipe = TypedManagedVariantRecipe importedDataName []
+    valueScheme = TypedScheme valueBinder [] [] [] dataType dataRecipe
+    dataDeclaration = TypedDataDeclaration span1 localDataName [] []
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/SelectedValueData.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "boxed"]
+        (TypedModuleInterface [TypedValueInterface localValueName valueScheme] [TypedDataInterface dataDeclaration] [] [])
+        [ TypedSignatureStatement valueBinder localValueName span1 valueScheme,
+          TypedDataStatement dataDeclaration
+        ]
+        boolInfo
+    entryInfo = info importedType importedRecipe
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["boxed"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        entryInfo
+
+selectiveImportLeakedImpl :: TypedImplId
+selectiveImportLeakedImpl =
+  TypedImplId
+    ["Library", "PrivateImpl"]
+    (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
+    [TypedBoolType]
+
+selectiveImportImplLeakProgram :: TypedProgram
+selectiveImportImplLeakProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "PrivateImpl"]
+    entryPath = ["Fixture", "review-selective-import-impl-leak"]
+    localValueName = resolved TypedCurrentModule TypedValueNamespace "published"
+    valueBinder = binder libraryPath [0] localValueName
+    valueScheme = monoScheme valueBinder
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/PrivateImpl.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "published"]
+        (TypedModuleInterface [TypedValueInterface localValueName valueScheme] [] [] [TypedImplInterface selectiveImportLeakedImpl])
+        [ TypedSignatureStatement valueBinder localValueName span1 valueScheme,
+          TypedImplStatement (TypedImplDeclaration span1 selectiveImportLeakedImpl [])
+        ]
+        boolInfo
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint selectiveImportLeakedImpl Nothing)
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBuiltinName "evidence")
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["published"])]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        boolInfo
+
+selectedEvidenceMethodExistenceProgram :: TypedProgram
+selectedEvidenceMethodExistenceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-selected-evidence-method-existence"
+    modulePath = ["Fixture", fixture]
+    parameter = TypedTypeParameterId 0
+    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    capability = TypedClassDeclaration span1 capabilityName [parameter] []
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    methodId = TypedMethodId implId "equal"
+    evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId (Just methodId))
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBuiltinName "equal")
+    statements =
+      [ TypedClassStatement capability,
+        TypedImplStatement (TypedImplDeclaration span1 implId []),
+        expressionStatement 1 expression
+      ]
+
+duplicateImplMethodName :: TypedCoreName
+duplicateImplMethodName = resolved TypedCurrentModule TypedValueNamespace "equal"
+
+duplicateImplMethodProgram :: TypedProgram
+duplicateImplMethodProgram =
+  singleModuleProgram fixture relativeSource [] [TypedImplStatement declaration] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-duplicate-impl-method"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    methodId = TypedMethodId implId "equal"
+    method lexicalIndex =
+      TypedMethodDefinition
+        methodId
+        (binder modulePath [lexicalIndex] duplicateImplMethodName)
+        duplicateImplMethodName
+        span1
+        trueExpr
+    declaration = TypedImplDeclaration span1 implId [method 0, method 1]
+
+nestedOuterTypeScopeProgram :: TypedProgram
+nestedOuterTypeScopeProgram =
+  singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nested-outer-type-scope"
+    modulePath = ["Fixture", fixture]
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    parameterInfo = info parameterType parameterRecipe
+    outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
+    outerBinder = binder modulePath [0] outerName
+    localName = resolved TypedCurrentModule TypedValueNamespace "local"
+    localBinder = binder modulePath [1] localName
+    localScheme = TypedScheme localBinder [] [] [] parameterType parameterRecipe
+    localBinding =
+      TypedLetStatement
+        localBinder
+        localName
+        span1
+        localScheme
+        (TypedVariableExpr parameterInfo (TypedBuiltinName "outer-value"))
+    localUse = expressionStatement 2 (TypedVariableExpr parameterInfo localName)
+    block = TypedBlockExpr parameterInfo [localBinding, localUse]
+    outerScheme = TypedScheme outerBinder [parameter] [] [] parameterType parameterRecipe
+    topLevelBinding = TypedLetStatement outerBinder outerName span1 outerScheme block
+
+implMethodVisibleName :: TypedCoreName
+implMethodVisibleName = resolved TypedCurrentModule TypedValueNamespace "equal"
+
+implMethodValueVisibilityProgram :: TypedProgram
+implMethodValueVisibilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-method-value-visibility"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    method =
+      TypedMethodDefinition
+        (TypedMethodId implId "equal")
+        (binder modulePath [0] implMethodVisibleName)
+        implMethodVisibleName
+        span1
+        trueExpr
+    statements =
+      [ TypedImplStatement (TypedImplDeclaration span1 implId [method]),
+        expressionStatement 2 (TypedVariableExpr boolInfo implMethodVisibleName)
+      ]
+
+builtinOperatorContractProgram :: TypedProgram
+builtinOperatorContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface intInfo modulePath
+  where
+    fixture = "review-builtin-operator-contract"
+    modulePath = ["Fixture", fixture]
+    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    one = TypedLiteralExpr intInfo (TypedIntegerLiteral "1")
+    invalidUnknown = TypedOperatorValueExpr boolToBoolInfo (TypedBuiltinOperator "%%")
+    invalidResult = TypedBinaryExpr boolInfo (TypedBuiltinOperator "+") one one
+    validResult = TypedBinaryExpr intInfo (TypedBuiltinOperator "+") one one
+    statements = [expressionStatement 1 invalidUnknown, expressionStatement 2 invalidResult, expressionStatement 3 validResult]
+
+ordinaryFunctionCandidateAmbiguityProgram :: TypedProgram
+ordinaryFunctionCandidateAmbiguityProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface boolToBoolInfo modulePath
+  where
+    fixture = "review-ordinary-function-candidate-ambiguity"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    constraint = TypedCapabilityConstraint "Render" (Just "Render.render") TypedTextType
+    candidate = TypedEvidenceCandidate implId (Just (TypedMethodId implId "render"))
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint [candidate, candidate]])
+        (TypedBuiltinName "ordinary")
+
+invalidNumericPrimitiveConstraintProgram :: TypedProgram
+invalidNumericPrimitiveConstraintProgram =
+  signatureProgram fixture valueBinder valueName scheme
+  where
+    fixture = "review-invalid-numeric-primitive-constraint"
+    valueName = fixtureValueName "value"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme =
+      TypedScheme
+        valueBinder
+        []
+        []
+        [TypedNumericPrimitiveConstraint TypedAnyNumericConstraint TypedTextType]
+        TypedBoolType
+        TypedBoolRecipe
+
 missingInstantiationDataName :: TypedCoreName
 missingInstantiationDataName = resolved TypedCurrentModule TypedTypeNamespace "Missing"
 
@@ -1261,9 +1600,17 @@ candidateConstraintProgram =
       TypedVariableExpr
         (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
         (TypedBuiltinName "candidate")
+    method implId methodKey lexicalIndex =
+      let methodName = resolved TypedCurrentModule TypedValueNamespace methodKey
+       in TypedMethodDefinition
+            (TypedMethodId implId methodKey)
+            (binder modulePath [lexicalIndex] methodName)
+            methodName
+            span1
+            (TypedVariableExpr boolToBoolInfo (TypedBuiltinName (methodKey <> "-body")))
     statements =
-      [ TypedImplStatement (TypedImplDeclaration span1 renderImpl []),
-        TypedImplStatement (TypedImplDeclaration span1 equalImpl []),
+      [ TypedImplStatement (TypedImplDeclaration span1 renderImpl [method renderImpl "render" 0]),
+        TypedImplStatement (TypedImplDeclaration span1 equalImpl [method equalImpl "other" 1]),
         expressionStatement 3 (candidateExpression renderCandidate),
         expressionStatement 4 (candidateExpression wrongMethodCandidate)
       ]
@@ -2217,7 +2564,7 @@ partialMethodCandidatesProgram :: TypedProgram
 partialMethodCandidatesProgram =
   programWith
     fixture
-    [ TypedImplStatement (TypedImplDeclaration span1 secondImpl []),
+    [ TypedImplStatement (TypedImplDeclaration span1 secondImpl [method]),
       expressionStatement 1 expression
     ]
     emptyInterface
@@ -2232,6 +2579,14 @@ partialMethodCandidatesProgram =
       [ TypedEvidenceCandidate firstImpl (Just (TypedMethodId firstImpl "render")),
         TypedEvidenceCandidate secondImpl (Just (TypedMethodId secondImpl "render"))
       ]
+    methodName = resolved TypedCurrentModule TypedValueNamespace "render"
+    method =
+      TypedMethodDefinition
+        (TypedMethodId secondImpl "render")
+        (binder ["Fixture", fixture] [0] methodName)
+        methodName
+        span1
+        (TypedVariableExpr boolToBoolInfo (TypedBuiltinName "render-body"))
     expression =
       TypedVariableExpr
         (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint candidates])
