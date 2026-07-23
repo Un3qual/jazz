@@ -9,7 +9,7 @@ module JazzNext.Compiler.TypedCore.Validate
   )
 where
 
-import Data.List (find, nub, sortOn)
+import Data.List (find, nub, sort, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Ratio ((%))
@@ -622,7 +622,7 @@ interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ ex
       ],
       [ key
       | TypedClassInterface (TypedClassDeclaration _ name _ methods) <- classes,
-        interfaceCapabilityIncluded visibleModule name methods,
+        interfaceCapabilityNameIncluded visibleModule name methods,
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
@@ -718,12 +718,16 @@ interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
   ]
 
 interfaceCapabilityIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
-interfaceCapabilityIncluded visibleModule@(_, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
+interfaceCapabilityIncluded visibleModule name methods =
+  interfaceCapabilityNameIncluded visibleModule name methods
+    || maybe False (`Set.member` requiredCapabilityIdentifiers visibleModule) (coreNameIdentifier name)
+
+interfaceCapabilityNameIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
+interfaceCapabilityNameIncluded (_, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
   ( importAllows selectedNames name
       && (moduleExportsName TypedCapabilityNamespace name exports || moduleExportsName TypedTypeNamespace name exports)
   )
     || any methodImported methods
-    || maybe False (`Set.member` requiredCapabilityIdentifiers visibleModule) (coreNameIdentifier name)
   where
     methodImported (TypedMethodSignature methodName _ _) =
       importAllows selectedNames methodName && moduleExportsName TypedValueNamespace methodName exports
@@ -1261,13 +1265,18 @@ numericConstraintAcceptsType numericConstraint typeValue =
         _ -> False
 
 integralLiteralConstraintAcceptsType :: Text -> Text -> TypedType -> Bool
-integralLiteralConstraintAcceptsType _ _ (TypedTypeParameterType _) = True
 integralLiteralConstraintAcceptsType lowerText upperText typeValue =
-  case (parseDecimalBound lowerText, parseDecimalBound upperText, integralTypeBounds typeValue) of
-    (Just lower, Just upper, Just (minimumValue, maximumValue)) ->
-      lower <= upper
-        && minimumValue <= lower
-        && upper <= maximumValue
+  case (parseDecimalBound lowerText, parseDecimalBound upperText) of
+    (Just lower, Just upper)
+      | lower <= upper ->
+          case typeValue of
+            TypedTypeParameterType _ -> True
+            _ ->
+              case integralTypeBounds typeValue of
+                Just (minimumValue, maximumValue) ->
+                  minimumValue <= lower
+                    && upper <= maximumValue
+                Nothing -> False
     _ -> False
 
 parseDecimalBound :: Text -> Maybe Integer
@@ -1348,8 +1357,9 @@ validateCapabilityConstraint context path scope (TypedCapabilityConstraint capab
   where
     matchingContracts =
       [ contract
-      | (ResolvedNameKey _ TypedCapabilityNamespace identifier, contract) <-
+      | (key@(ResolvedNameKey _ TypedCapabilityNamespace identifier), contract) <-
           Map.toList (moduleContextCapabilityContracts context),
+        Set.member key (moduleContextVisibleNames context),
         identifier == capability
       ]
     capabilityHasMethod method (CapabilityContract _ methods) =
@@ -1407,7 +1417,7 @@ visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> Typ
 visibleClassCollisionFailures context path name =
   case localCapabilityIdentifier of
     Just identifier
-      | any (externalCapabilityMatches identifier) (Map.keys (moduleContextCapabilityContracts context)) ->
+      | any (externalCapabilityMatches identifier) (Set.toList (moduleContextVisibleNames context)) ->
           [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
     _ -> []
   where
@@ -2478,9 +2488,10 @@ validateEvidenceSelections context path qualifiedMethodKey selections =
 
 validateEvidenceParameterBindings :: ModuleContext -> TypedCoreValidationPath -> [TypedInstantiation] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
 validateEvidenceParameterBindings context path instantiations selections =
-  missingBindingFailures <> concatMap validateSelection selections
+  missingBindingFailures <> orderedBindingFailures <> concatMap validateSelection selections
   where
     expectedBindings = concatMap expectedBindingsFor instantiations
+    orderedExpectedBindings = nub expectedBindings
     suppliedBindings =
       [ (parameterRef, constraint)
       | TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) constraint _ _) <- selections
@@ -2490,6 +2501,17 @@ validateEvidenceParameterBindings context path instantiations selections =
       | (parameterRef, constraint) <- nub expectedBindings,
         (parameterRef, constraint) `notElem` suppliedBindings
       ]
+    orderedBindingFailures
+      | sort orderedExpectedBindings == sort suppliedBindings =
+          [ failure
+              path
+              TypedInstantiationMismatch
+              (TypedEvidenceParameterDetail (evidenceParameterRefId actualParameterRef))
+          | (expectedBinding, actualBinding@(actualParameterRef, _)) <-
+              zip orderedExpectedBindings suppliedBindings,
+            expectedBinding /= actualBinding
+          ]
+      | otherwise = []
     validateSelection selection =
       case selection of
         TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) constraint _ _)

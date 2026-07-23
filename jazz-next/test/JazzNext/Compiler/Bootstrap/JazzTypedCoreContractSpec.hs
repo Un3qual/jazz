@@ -102,6 +102,10 @@ tests =
     ("rejects colliding imported class identifiers", testImportedClassCollision),
     ("preserves block statement scope order", testForwardBlockReference),
     ("preserves proven recursive block peers", testRecursiveBlockPeers),
+    ("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds),
+    ("preserves instantiated evidence order", testEvidenceSelectionOrder),
+    ("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility),
+    ("matches module-qualified method keys at the final separator", testModuleQualifiedMethodKey),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -452,7 +456,11 @@ reviewRegressionPrograms =
     generalizedClassMethodImportProgram,
     importedClassCollisionProgram,
     forwardBlockReferenceProgram,
-    recursiveBlockPeerProgram
+    recursiveBlockPeerProgram,
+    malformedLiteralConstraintBoundsProgram,
+    evidenceSelectionOrderProgram,
+    privateCapabilityMetadataVisibilityProgram,
+    moduleQualifiedMethodKeyProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1922,6 +1930,54 @@ testRecursiveBlockPeers =
     []
     (validateTypedProgram recursiveBlockPeerProgram)
 
+testMalformedLiteralConstraintBounds :: IO ()
+testMalformedLiteralConstraintBounds =
+  assertEqual
+    "generalized literal constraints validate decimal syntax and bound order"
+    [ statementFailure
+        "review-malformed-literal-constraint-bounds"
+        0
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0))),
+      statementFailure
+        "review-malformed-literal-constraint-bounds"
+        1
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0)))
+    ]
+    (validateTypedProgram malformedLiteralConstraintBoundsProgram)
+
+testEvidenceSelectionOrder :: IO ()
+testEvidenceSelectionOrder =
+  assertEqual
+    "selected evidence follows the generalized scheme obligation order"
+    [ expressionFailureAt
+        "review-evidence-selection-order"
+        1
+        TypedInstantiationMismatch
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 1)),
+      expressionFailureAt
+        "review-evidence-selection-order"
+        1
+        TypedInstantiationMismatch
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+    ]
+    (validateTypedProgram evidenceSelectionOrderProgram)
+
+testPrivateCapabilityMetadataVisibility :: IO ()
+testPrivateCapabilityMetadataVisibility =
+  assertEqual
+    "dependency-only capability metadata does not collide with a local class"
+    []
+    (validateTypedProgram privateCapabilityMetadataVisibilityProgram)
+
+testModuleQualifiedMethodKey :: IO ()
+testModuleQualifiedMethodKey =
+  assertEqual
+    "module-qualified capability names use the final method separator"
+    []
+    (validateTypedProgram moduleQualifiedMethodKeyProgram)
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -2190,6 +2246,205 @@ recursiveBlockPeerProgram =
           rightStatement,
           expressionStatement 3 (TypedVariableExpr boolToBoolInfo leftName)
         ]
+
+malformedLiteralConstraintBoundsProgram :: TypedProgram
+malformedLiteralConstraintBoundsProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-malformed-literal-constraint-bounds"
+    modulePath = ["Fixture", fixture]
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    signature statementIndex suffix lower upper =
+      let valueName = resolved TypedCurrentModule TypedValueNamespace suffix
+          owner = binder modulePath [statementIndex] valueName
+          scheme =
+            TypedScheme
+              owner
+              [parameter]
+              []
+              [TypedNumericPrimitiveConstraint (TypedIntegralLiteralNumericConstraint lower upper) parameterType]
+              TypedBoolType
+              TypedBoolRecipe
+       in TypedSignatureStatement owner valueName span1 scheme
+    statements =
+      [ signature 0 "reversed" "10" "2",
+        signature 1 "nonDecimal" "zero" "10"
+      ]
+
+evidenceSelectionOrderProgram :: TypedProgram
+evidenceSelectionOrderProgram =
+  withFixturePrelude
+    (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
+  where
+    fixture = "review-evidence-selection-order"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
+    owner = binder modulePath [0] valueName
+    firstParameter = TypedEvidenceParameterId 0
+    secondParameter = TypedEvidenceParameterId 1
+    firstConstraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    secondConstraint = TypedCapabilityConstraint "Equal" Nothing TypedCharType
+    scheme =
+      TypedScheme
+        owner
+        []
+        [ TypedEvidenceParameter firstParameter firstConstraint,
+          TypedEvidenceParameter secondParameter secondConstraint
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    selection parameter constraint target =
+      TypedSelectedEvidence
+        ( TypedEvidenceUse
+            (Just (TypedEvidenceParameterRef owner parameter))
+            constraint
+            (TypedImplId ["Prelude"] capabilityName [target])
+            Nothing
+        )
+    expression =
+      TypedVariableExpr
+        ( TypedNodeInfo
+            TypedBoolType
+            TypedBoolRecipe
+            [TypedInstantiation owner [] Nothing]
+            [ selection secondParameter secondConstraint TypedCharType,
+              selection firstParameter firstConstraint TypedBoolType
+            ]
+        )
+        valueName
+    statements =
+      [ TypedSignatureStatement owner valueName span1 scheme,
+        expressionStatement 1 expression
+      ]
+
+privateCapabilityMetadataVisibilityProgram :: TypedProgram
+privateCapabilityMetadataVisibilityProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "PrivateCapabilityMetadata"]
+    entryPath = ["Fixture", "review-private-capability-metadata-visibility"]
+    parameter = TypedTypeParameterId 0
+    libraryCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "PrivateEq"
+    libraryClass =
+      TypedClassDeclaration span1 libraryCapabilityName [parameter] []
+    valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
+    valueOwner = binder libraryPath [1] valueName
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint "PrivateEq" Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/PrivateCapabilityMetadata.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "constrained"]
+        ( TypedModuleInterface
+            [TypedValueInterface valueName valueScheme]
+            []
+            [TypedClassInterface libraryClass]
+            []
+        )
+        [ TypedClassStatement libraryClass,
+          TypedSignatureStatement valueOwner valueName span1 valueScheme
+        ]
+        unitInfo
+    localCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "PrivateEq"
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["constrained"])]
+        []
+        emptyInterface
+        [ TypedClassStatement
+            (TypedClassDeclaration span1 localCapabilityName [parameter] []),
+          expressionStatement 1 trueExpr
+        ]
+        boolInfo
+
+moduleQualifiedMethodKeyProgram :: TypedProgram
+moduleQualifiedMethodKeyProgram =
+  TypedProgram (Just preludeModule) [entryModule] entryPath
+  where
+    preludePath = ["Prelude"]
+    entryPath = ["Fixture", "review-module-qualified-method-key"]
+    capabilityIdentifier = "Lib::Api::Make"
+    qualifiedMethod = "Lib::Api::Make::make"
+    parameter = TypedTypeParameterId 0
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace capabilityIdentifier
+    methodName = resolved TypedCurrentModule TypedValueNamespace "make"
+    methodOwner = binder preludePath [0, 0] methodName
+    methodScheme = monoScheme methodOwner
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    implId = TypedImplId preludePath capabilityName [TypedBoolType]
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "make")
+        (binder preludePath [1, 0] methodName)
+        methodName
+        span1
+        trueExpr
+    preludeModule =
+      typedModule
+        preludePath
+        (TypedSourcePath "src/Prelude.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace capabilityIdentifier]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface implId]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement (TypedImplDeclaration span1 implId [methodDefinition])
+        ]
+        unitInfo
+    importedCapabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace capabilityIdentifier
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        (TypedCapabilityConstraint capabilityIdentifier (Just qualifiedMethod) TypedBoolType)
+        (TypedImplId preludePath importedCapabilityName [TypedBoolType])
+        ( Just
+            ( TypedMethodId
+                (TypedImplId preludePath importedCapabilityName [TypedBoolType])
+                "make"
+            )
+        )
+    expression =
+      TypedLiteralExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBooleanLiteral True)
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [expressionStatement 0 expression]
+        boolInfo
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =

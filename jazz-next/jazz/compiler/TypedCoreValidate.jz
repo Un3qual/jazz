@@ -748,15 +748,24 @@ module TypedCoreValidate (
     | TypedCapabilityConstraint capability method targetType -> validateType path scope targetType
   }.
 
+  qualifiedMethodKeyParts :: [Text] -> [Text] -> Maybe((Maybe(Text), Text)).
+  qualifiedMethodKeyParts = \(parts, reversedQualifier) -> case parts {
+    | [] -> Nothing
+    | [methodName] -> {
+      qualifier = textJoin "::" (listReverse reversedQualifier).
+      if textIsEmpty qualifier then Nothing else if textIsEmpty methodName then Nothing else Just (Just qualifier, methodName).
+    }
+    | [first | rest] -> if textIsEmpty first then Nothing else qualifiedMethodKeyParts rest (listPrepend first reversedQualifier)
+  }.
+
   methodKeyParts :: Text -> Maybe((Maybe(Text), Text)).
   methodKeyParts = \(methodKey) -> if textIsEmpty methodKey then Nothing else case textSplit "::" methodKey {
-    | [qualifier, methodName] -> if textIsEmpty qualifier then Nothing else if textIsEmpty methodName then Nothing else Just (Just qualifier, methodName)
     | [unqualified] -> case textSplit "." unqualified {
       | [qualifier, methodName] -> if textIsEmpty qualifier then Nothing else if textIsEmpty methodName then Nothing else Just (Just qualifier, methodName)
       | [methodName] -> if textIsEmpty methodName then Nothing else Just (Nothing, methodName)
       | other -> Nothing
     }
-    | other -> Nothing
+    | qualifiedParts -> qualifiedMethodKeyParts qualifiedParts []
   }.
 
   methodKeyMatches :: Text -> Text -> Text -> Bool.
@@ -770,27 +779,35 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  capabilityIdentifierCount :: Text -> [DataEntry] -> Int.
-  capabilityIdentifierCount = \(capability, entries) -> case entries {
+  visibleCapabilityIdentifierCount :: Text -> [NameEntry] -> Int.
+  visibleCapabilityIdentifierCount = \(capability, entries) -> case entries {
     | [] -> 0
     | [first | rest] -> case first {
-      | CapabilityEntry modulePath identifier parameters methods ->
-        if identifier == capability then 1 + capabilityIdentifierCount capability rest else capabilityIdentifierCount capability rest
-      | other -> capabilityIdentifierCount capability rest
+      | NameEntry modulePath TypedCapabilityNamespace identifier ->
+        if identifier == capability then 1 + visibleCapabilityIdentifierCount capability rest else visibleCapabilityIdentifierCount capability rest
+      | other -> visibleCapabilityIdentifierCount capability rest
     }
   }.
 
-  capabilityMethodPresent :: Text -> Text -> [DataEntry] -> Bool.
-  capabilityMethodPresent = \(capability, method, entries) -> case entries {
+  methodContractMatches :: Text -> Text -> [MethodContract] -> Bool.
+  methodContractMatches = \(capability, method, methods) -> case methods {
+    | [] -> False
+    | [MethodContract methodName scheme | rest] ->
+      if methodKeyMatches capability method methodName then True else methodContractMatches capability method rest
+  }.
+
+  visibleCapabilityMethodPresent :: Text -> Text -> [NameEntry] -> [DataEntry] -> Bool.
+  visibleCapabilityMethodPresent = \(capability, method, names, entries) -> case names {
     | [] -> False
     | [first | rest] -> case first {
-      | CapabilityEntry modulePath identifier parameters methods ->
-        if identifier == capability then
-          if listAll (\(contract) -> case contract {
-            | MethodContract methodName scheme -> if methodKeyMatches capability method methodName then False else True
-          }) methods then capabilityMethodPresent capability method rest else True
-        else capabilityMethodPresent capability method rest
-      | other -> capabilityMethodPresent capability method rest
+      | NameEntry modulePath TypedCapabilityNamespace identifier ->
+        if identifier == capability then case lookupCapabilityContract modulePath identifier entries {
+          | Just contract -> case contract {
+            | CapabilityContract parameters methods -> if methodContractMatches capability method methods then True else visibleCapabilityMethodPresent capability method rest entries
+          }
+          | Nothing -> visibleCapabilityMethodPresent capability method rest entries
+        } else visibleCapabilityMethodPresent capability method rest entries
+      | other -> visibleCapabilityMethodPresent capability method rest entries
     }
   }.
 
@@ -799,10 +816,10 @@ module TypedCoreValidate (
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) ->
       listAppend
         (validateType path scope targetType)
-        (if capabilityIdentifierCount capability dataEntries == 0 then [failure path TypedInvisibleName (TypedTextDetail capability)] else
-          if capabilityIdentifierCount capability dataEntries > 1 then [failure path TypedDuplicateDeclaration (TypedTextDetail capability)] else case maybeMethod {
+        (if visibleCapabilityIdentifierCount capability visibleNames == 0 then [failure path TypedInvisibleName (TypedTextDetail capability)] else
+          if visibleCapabilityIdentifierCount capability visibleNames > 1 then [failure path TypedDuplicateDeclaration (TypedTextDetail capability)] else case maybeMethod {
             | Nothing -> []
-            | Just method -> if capabilityMethodPresent capability method dataEntries then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
+            | Just method -> if visibleCapabilityMethodPresent capability method visibleNames dataEntries then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
           })
   }.
 
@@ -954,12 +971,10 @@ module TypedCoreValidate (
 
   numericConstraintAcceptsType :: TypedNumericConstraint -> TypedType -> Bool.
   numericConstraintAcceptsType = \(constraint, typeValue) -> case constraint {
-    | TypedIntegralLiteralNumericConstraint lowerText upperText -> case typeValue {
+    | TypedIntegralLiteralNumericConstraint lowerText upperText -> if decimalValueAtMost lowerText upperText then case typeValue {
       | TypedTypeParameterType parameter -> True
-      | other -> if decimalValueAtMost lowerText upperText then
-        if integralLiteralTextFitsType lowerText typeValue then integralLiteralTextFitsType upperText typeValue else False
-      else False
-    }
+      | other -> if integralLiteralTextFitsType lowerText typeValue then integralLiteralTextFitsType upperText typeValue else False
+    } else False
     | otherConstraint -> case typeValue {
       | TypedTypeParameterType parameter -> True
       | TypedIntType -> True
@@ -1589,6 +1604,43 @@ module TypedCoreValidate (
     }
   }.
 
+  selectedEvidenceBindings :: [TypedEvidenceSelection] -> [EvidenceBinding].
+  selectedEvidenceBindings = \(selections) -> case selections {
+    | [] -> []
+    | [first | rest] -> case first {
+      | TypedSelectedEvidence evidenceUse -> case evidenceUse {
+        | TypedEvidenceUse maybeSelectedRef constraint implId maybeMethod -> case maybeSelectedRef {
+          | Just selectedRef -> listPrepend (EvidenceBinding selectedRef constraint) (selectedEvidenceBindings rest)
+          | Nothing -> selectedEvidenceBindings rest
+        }
+      }
+      | other -> selectedEvidenceBindings rest
+    }
+  }.
+
+  evidenceBindingsIncluded :: [EvidenceBinding] -> [EvidenceBinding] -> Bool.
+  evidenceBindingsIncluded = \(candidates, bindings) -> case candidates {
+    | [] -> True
+    | [first | rest] -> if evidenceBindingEntryMember first bindings then evidenceBindingsIncluded rest bindings else False
+  }.
+
+  sameEvidenceBindings :: [EvidenceBinding] -> [EvidenceBinding] -> Bool.
+  sameEvidenceBindings = \(expected, actual) ->
+    if listLength expected == listLength actual then
+      if evidenceBindingsIncluded expected actual then evidenceBindingsIncluded actual expected else False
+    else False.
+
+  evidenceBindingOrderFailures :: TypedCoreValidationPath -> [EvidenceBinding] -> [EvidenceBinding] -> [TypedCoreValidationFailure].
+  evidenceBindingOrderFailures = \(path, expected, actual) -> case (expected, actual) {
+    | ([], []) -> []
+    | ([expectedFirst | expectedRest], [actualFirst | actualRest]) -> case actualFirst {
+      | EvidenceBinding actualRef actualConstraint -> listAppend
+        (if evidenceBindingEqual expectedFirst actualFirst then [] else [failure path TypedInstantiationMismatch (TypedEvidenceParameterDetail (evidenceParameterRefId actualRef))])
+        (evidenceBindingOrderFailures path expectedRest actualRest)
+    }
+    | other -> []
+  }.
+
   missingEvidenceBindingFailures :: TypedCoreValidationPath -> [EvidenceBinding] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
   missingEvidenceBindingFailures = \(path, bindings, selections) -> case bindings {
     | [] -> []
@@ -1620,9 +1672,12 @@ module TypedCoreValidate (
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope ->
       {
         bindings = uniqueEvidenceBindings (expectedEvidenceBindings modulePath schemes instantiations) [].
-        listAppend
-          (missingEvidenceBindingFailures path bindings selections)
-          (validateEvidenceParameterBindingsFrom path bindings selections).
+        suppliedBindings = selectedEvidenceBindings selections.
+        listConcat
+          [ missingEvidenceBindingFailures path bindings selections,
+            if sameEvidenceBindings bindings suppliedBindings then evidenceBindingOrderFailures path bindings suppliedBindings else [],
+            validateEvidenceParameterBindingsFrom path bindings selections
+          ].
       }
   }.
 
@@ -4002,25 +4057,25 @@ module TypedCoreValidate (
     }
   }.
 
-  externalCapabilityIdentifierPresent :: [Text] -> Text -> [DataEntry] -> Bool.
-  externalCapabilityIdentifierPresent = \(currentModulePath, expectedIdentifier, entries) -> case entries {
+  externalVisibleCapabilityIdentifierPresent :: [Text] -> Text -> [NameEntry] -> Bool.
+  externalVisibleCapabilityIdentifierPresent = \(currentModulePath, expectedIdentifier, entries) -> case entries {
     | [] -> False
     | [first | rest] -> case first {
-      | CapabilityEntry candidatePath candidateIdentifier parameters methods ->
-        if textListEqual candidatePath currentModulePath then externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+      | NameEntry candidatePath TypedCapabilityNamespace candidateIdentifier ->
+        if textListEqual candidatePath currentModulePath then externalVisibleCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
         else if candidateIdentifier == expectedIdentifier then True
-        else externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
-      | other -> externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+        else externalVisibleCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+      | other -> externalVisibleCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
     }
   }.
 
   visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   visibleClassCollisionFailures = \(context, path, name) -> case (context, name) {
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedCurrentModule TypedCapabilityNamespace identifier) ->
-      if externalCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+      if externalVisibleCapabilityIdentifierPresent modulePath identifier visibleNames then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace identifier) ->
       if textListEqual modulePath ["Prelude"] then
-        if externalCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+        if externalVisibleCapabilityIdentifierPresent modulePath identifier visibleNames then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
       else []
     | other -> []
   }.
@@ -4704,14 +4759,19 @@ module TypedCoreValidate (
     }
   }.
 
+  interfaceCapabilityNameIncluded :: Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
+  interfaceCapabilityNameIncluded = \(selectedNames, exports, name, methods) -> {
+    directlyImported = if selectedNameAllowed selectedNames name then if moduleExportsName TypedCapabilityNamespace name exports then True else moduleExportsName TypedTypeNamespace name exports else False.
+    if directlyImported then True else methodInterfaceImported selectedNames exports methods.
+  }.
+
   interfaceCapabilityIncluded :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
   interfaceCapabilityIncluded = \(selectedNames, exports, requiredCapabilities, name, methods) -> {
-    directlyImported = if selectedNameAllowed selectedNames name then if moduleExportsName TypedCapabilityNamespace name exports then True else moduleExportsName TypedTypeNamespace name exports else False.
     required = case coreNameIdentifier name {
       | Nothing -> False
       | Just identifier -> listContains identifier requiredCapabilities
     }.
-    if directlyImported then True else if methodInterfaceImported selectedNames exports methods then True else required.
+    if interfaceCapabilityNameIncluded selectedNames exports name methods then True else required.
   }.
 
   includedCapabilitySchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [SchemeEntry].
@@ -4730,7 +4790,7 @@ module TypedCoreValidate (
     | [] -> entries
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods -> classInterfaceNameEntries modulePath selectedNames exports requiredCapabilities rest
-        (methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityIncluded selectedNames exports requiredCapabilities name methods then appendDefinitionNameEntry modulePath name entries else entries))
+        (methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityNameIncluded selectedNames exports name methods then appendDefinitionNameEntry modulePath name entries else entries))
     }
   }.
 
