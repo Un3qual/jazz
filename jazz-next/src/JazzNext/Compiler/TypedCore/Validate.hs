@@ -90,7 +90,7 @@ validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedMo
 validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
   validateSourcePath modulePath sourcePath
     <> validateResolvedImports moduleTable modulePath imports
-    <> validateModuleInterface moduleValue
+    <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
     <> concatMap (uncurry (validateStatement context)) (zip (map pure [0 ..]) statements)
@@ -126,12 +126,24 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     dataArities =
       Map.fromList
         ( concatMap (statementDataEntries modulePath) statements
-            <> concatMap interfaceDataEntries visibleExternalModules
+            <> [ (key, length parameters)
+               | (key, (_, TypedDataDeclaration _ _ parameters _)) <-
+                   Map.toList externalDataMetadata
+               ]
         )
     dataContracts =
       Map.fromList
         ( concatMap (statementDataContractEntries modulePath) statements
-            <> concatMap interfaceDataContractEntries visibleExternalModules
+            <> [ ( key,
+                   DataContract
+                     parameters
+                     [ map (qualifyExternalType declarationModulePath) fields
+                     | TypedConstructorDeclaration _ _ fields _ <- constructors
+                     ]
+                 )
+               | (key, (declarationModulePath, TypedDataDeclaration _ _ parameters constructors)) <-
+                   Map.toList externalDataMetadata
+               ]
         )
     constructorContracts =
       Map.fromList
@@ -143,6 +155,8 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
         ( concatMap (statementCapabilityEntries modulePath) statements
             <> concatMap interfaceCapabilityEntries visibleExternalModules
         )
+    externalDataMetadata =
+      interfaceDataMetadataDeclarations moduleTable visibleExternalModules
     statementIndices =
       Map.fromList
         ( zip
@@ -540,33 +554,77 @@ implImportAllowed visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface
   where
     capabilityIncluded (TypedClassInterface (TypedClassDeclaration _ name _ methods)) =
       coreNameIdentifier name == coreNameIdentifier capability
-        && interfaceCapabilityIncluded visibleModule name methods
+        && interfaceCapabilityNameIncluded visibleModule name methods
 
-interfaceDataEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, Int)]
-interfaceDataEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _) =
-  [ (key, length parameters)
-  | TypedDataInterface (TypedDataDeclaration _ name parameters constructors) <- datas,
-    interfaceDataDeclarationIncluded visibleModule name constructors,
-    key <- maybeToList (definitionNameKey modulePath name)
-  ]
-
-interfaceDataDeclarationIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedConstructorDeclaration] -> Bool
-interfaceDataDeclarationIncluded visibleModule@(_, selectedNames, TypedModule _ _ _ exports _ _ _) name constructors =
-  (importAllows selectedNames name && moduleExportsName TypedTypeNamespace name exports)
-    || any (\constructor -> importAllows selectedNames (constructorName constructor) && moduleExportsName TypedConstructorNamespace (constructorName constructor) exports) constructors
-    || maybe False (`Set.member` requiredDataIdentifiers visibleModule) (coreNameIdentifier name)
+interfaceDataMetadataDeclarations ::
+  Map [Text] TypedModule ->
+  [([Text], Maybe [Text], TypedModule)] ->
+  Map ResolvedNameKey ([Text], TypedDataDeclaration)
+interfaceDataMetadataDeclarations moduleTable visibleModules =
+  Map.restrictKeys catalog (closeDataMetadataKeys catalog rootKeys)
   where
-    constructorName (TypedConstructorDeclaration _ candidateName _ _) = candidateName
+    catalog =
+      Map.fromList
+        [ (key, (modulePath, declaration))
+        | (modulePath, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _) <-
+            Map.toList moduleTable,
+          TypedDataInterface declaration@(TypedDataDeclaration _ name _ _) <- datas,
+          key <- maybeToList (definitionNameKey modulePath name)
+        ]
+    rootKeys =
+      Set.fromList
+        ( concatMap sourceVisibleDataKeys visibleModules
+            <> concatMap selectedSchemeDataKeys visibleModules
+        )
+    sourceVisibleDataKeys (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _) =
+      [ key
+      | TypedDataInterface (TypedDataDeclaration _ name _ constructors) <- datas,
+        sourceVisibleDataIncluded selectedNames exports name constructors,
+        key <- maybeToList (definitionNameKey modulePath name)
+      ]
+    selectedSchemeDataKeys visibleModule@(modulePath, _, _) =
+      concatMap (schemeDataTypeKeys modulePath) selectedSchemes
+      where
+        selectedSchemes =
+          map snd (interfaceSchemeEntries visibleModule)
+            <> interfaceCapabilitySchemes visibleModule
 
-requiredDataIdentifiers :: ([Text], Maybe [Text], TypedModule) -> Set Text
-requiredDataIdentifiers visibleModule =
-  Set.fromList
-    [ identifier
-    | scheme <-
-        map snd (interfaceSchemeEntries visibleModule)
-          <> interfaceCapabilitySchemes visibleModule,
-      identifier <- schemeDataTypeIdentifiers scheme
-    ]
+sourceVisibleDataIncluded ::
+  Maybe [Text] ->
+  [TypedModuleExport] ->
+  TypedCoreName ->
+  [TypedConstructorDeclaration] ->
+  Bool
+sourceVisibleDataIncluded selectedNames exports name constructors =
+  (importAllows selectedNames name && moduleExportsName TypedTypeNamespace name exports)
+    || any constructorIncluded constructors
+  where
+    constructorIncluded (TypedConstructorDeclaration _ constructorName _ _) =
+      importAllows selectedNames constructorName
+        && moduleExportsName TypedConstructorNamespace constructorName exports
+
+closeDataMetadataKeys ::
+  Map ResolvedNameKey ([Text], TypedDataDeclaration) ->
+  Set ResolvedNameKey ->
+  Set ResolvedNameKey
+closeDataMetadataKeys catalog roots = go roots roots
+  where
+    go seen pending =
+      case Set.minView pending of
+        Nothing -> seen
+        Just (key, rest) ->
+          let dependencies =
+                case Map.lookup key catalog of
+                  Nothing -> Set.empty
+                  Just (modulePath, TypedDataDeclaration _ _ _ constructors) ->
+                    Set.fromList
+                      [ dependencyKey
+                      | TypedConstructorDeclaration _ _ fields _ <- constructors,
+                        field <- fields,
+                        dependencyKey <- typeDataKeys modulePath field
+                      ]
+              unseen = Set.difference dependencies seen
+           in go (Set.union seen unseen) (Set.union rest unseen)
 
 interfaceCapabilitySchemes :: ([Text], Maybe [Text], TypedModule) -> [TypedScheme]
 interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
@@ -576,9 +634,9 @@ interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModule
     TypedMethodSignature _ _ scheme <- methods
   ]
 
-schemeDataTypeIdentifiers :: TypedScheme -> [Text]
-schemeDataTypeIdentifiers (TypedScheme _ _ evidence primitive resultType _) =
-  concatMap typeDataIdentifiers (resultType : evidenceTypes <> primitiveTypes)
+schemeDataTypeKeys :: [Text] -> TypedScheme -> [ResolvedNameKey]
+schemeDataTypeKeys modulePath (TypedScheme _ _ evidence primitive resultType _) =
+  concatMap (typeDataKeys modulePath) (resultType : evidenceTypes <> primitiveTypes)
   where
     evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidence]
     primitiveTypes =
@@ -589,13 +647,16 @@ schemeDataTypeIdentifiers (TypedScheme _ _ evidence primitive resultType _) =
           TypedStrictEqualityPrimitiveConstraint value -> [value]
       ]
 
-typeDataIdentifiers :: TypedType -> [Text]
-typeDataIdentifiers typeValue =
+typeDataKeys :: [Text] -> TypedType -> [ResolvedNameKey]
+typeDataKeys modulePath typeValue =
   case typeValue of
-    TypedListType elementType -> typeDataIdentifiers elementType
-    TypedTupleType elementTypes -> concatMap typeDataIdentifiers elementTypes
-    TypedDataType name arguments -> maybeToList (coreNameIdentifier name) <> concatMap typeDataIdentifiers arguments
-    TypedFunctionType argument result -> typeDataIdentifiers argument <> typeDataIdentifiers result
+    TypedListType elementType -> typeDataKeys modulePath elementType
+    TypedTupleType elementTypes -> concatMap (typeDataKeys modulePath) elementTypes
+    TypedDataType name arguments ->
+      maybeToList (resolvedNameKey modulePath name)
+        <> concatMap (typeDataKeys modulePath) arguments
+    TypedFunctionType argument result ->
+      typeDataKeys modulePath argument <> typeDataKeys modulePath result
     _ -> []
 
 interfaceNameKeys :: ([Text], Maybe [Text], TypedModule) -> [ResolvedNameKey]
@@ -668,18 +729,6 @@ statementDataContractEntries modulePath statement =
       | key <- maybeToList (definitionNameKey modulePath name)
       ]
     _ -> []
-
-interfaceDataContractEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, DataContract)]
-interfaceDataContractEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _) =
-  [ ( key,
-      DataContract
-        parameters
-        [map (qualifyExternalType modulePath) fields | TypedConstructorDeclaration _ _ fields _ <- constructors]
-    )
-  | TypedDataInterface (TypedDataDeclaration _ name parameters constructors) <- datas,
-    interfaceDataDeclarationIncluded visibleModule name constructors,
-    key <- maybeToList (definitionNameKey modulePath name)
-  ]
 
 statementConstructorEntries :: [Text] -> TypedStatement -> [(ResolvedNameKey, ConstructorContract)]
 statementConstructorEntries modulePath statement =
@@ -3108,8 +3157,8 @@ validateCapabilityName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreN
 validateCapabilityName context path name =
   validateVisibleNameInNamespaces [TypedCapabilityNamespace] context path name
 
-validateModuleInterface :: TypedModule -> [TypedCoreValidationFailure]
-validateModuleInterface (TypedModule modulePath _ _ exports (TypedModuleInterface values datas classes impls) statements _) =
+validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
+validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
   concatMap validateValueInterface values
     <> concatMap validateDataInterface datas
     <> concatMap validateClassInterface classes
@@ -3125,6 +3174,26 @@ validateModuleInterface (TypedModule modulePath _ _ exports (TypedModuleInterfac
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
+    externalCapabilityIdentifiers =
+      Set.fromList
+        [ identifier
+        | visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ visibleClasses _) _ _) <-
+            preludeModules <> importedModules,
+          TypedClassInterface (TypedClassDeclaration _ name _ methods) <- visibleClasses,
+          interfaceCapabilityNameIncluded visibleModule name methods,
+          identifier <- maybeToList (coreNameIdentifier name)
+        ]
+    importedModules =
+      [ (importPath, selectedNames, importedModule)
+      | TypedResolvedImport _ importPath _ selectedNames <- imports,
+        importedModule <- maybeToList (Map.lookup importPath moduleTable)
+      ]
+    preludeModules
+      | modulePath == ["Prelude"] = []
+      | otherwise =
+          [ (["Prelude"], Nothing, preludeModule)
+          | preludeModule <- maybeToList (Map.lookup ["Prelude"] moduleTable)
+          ]
     validateValueInterface (TypedValueInterface name scheme)
       | (name, scheme) `elem` declaredValues && moduleExportsName TypedValueNamespace name exports =
           validateValueInterfaceDependencies scheme
@@ -3158,6 +3227,16 @@ validateModuleInterface (TypedModule modulePath _ _ exports (TypedModuleInterfac
                )
            | capability <- nub (schemeLocalCapabilityDependencies declaredClasses scheme),
              not (any (classInterfaceMatches capability) classes)
+           ]
+        <> [ failure
+               path
+               TypedModuleInterfaceMismatch
+               ( TypedNameDetail
+                   (TypedResolvedName TypedCurrentModule TypedCapabilityNamespace capability)
+               )
+           | capability <- nub (schemeCapabilityDependencies scheme),
+             not (any (classDeclarationMatches capability) declaredClasses),
+             Set.member capability externalCapabilityIdentifiers
            ]
     constructorDependencies (TypedConstructorDeclaration _ _ fields _) =
       concatMap localDataDependencies fields
@@ -3204,6 +3283,12 @@ schemeLocalCapabilityDependencies declaredClasses (TypedScheme _ _ evidence _ _ 
   [ capability
   | TypedEvidenceParameter _ (TypedCapabilityConstraint capability _ _) <- evidence,
     any (classDeclarationMatches capability) declaredClasses
+  ]
+
+schemeCapabilityDependencies :: TypedScheme -> [Text]
+schemeCapabilityDependencies (TypedScheme _ _ evidence _ _ _) =
+  [ capability
+  | TypedEvidenceParameter _ (TypedCapabilityConstraint capability _ _) <- evidence
   ]
 
 dataInterfaceMatches :: TypedCoreName -> TypedDataInterface -> Bool

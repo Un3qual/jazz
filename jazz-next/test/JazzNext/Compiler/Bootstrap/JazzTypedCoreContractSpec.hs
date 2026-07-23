@@ -106,6 +106,10 @@ tests =
     ("preserves instantiated evidence order", testEvidenceSelectionOrder),
     ("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility),
     ("matches module-qualified method keys at the final separator", testModuleQualifiedMethodKey),
+    ("retains imported data dependencies through exported schemes", testImportedDataDependencyMetadata),
+    ("closes selected data contracts over field metadata", testTransitiveDataContractDependency),
+    ("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency),
+    ("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -460,7 +464,11 @@ reviewRegressionPrograms =
     malformedLiteralConstraintBoundsProgram,
     evidenceSelectionOrderProgram,
     privateCapabilityMetadataVisibilityProgram,
-    moduleQualifiedMethodKeyProgram
+    moduleQualifiedMethodKeyProgram,
+    importedDataDependencyProgram,
+    transitiveDataContractDependencyProgram,
+    importedCapabilityDependencyProgram,
+    metadataOnlyImplVisibilityProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1978,6 +1986,48 @@ testModuleQualifiedMethodKey =
     []
     (validateTypedProgram moduleQualifiedMethodKeyProgram)
 
+testImportedDataDependencyMetadata :: IO ()
+testImportedDataDependencyMetadata =
+  assertEqual
+    "exported schemes retain imported data metadata"
+    []
+    (validateTypedProgram importedDataDependencyProgram)
+
+testTransitiveDataContractDependency :: IO ()
+testTransitiveDataContractDependency =
+  assertEqual
+    "selected data contracts retain transitive field metadata"
+    []
+    (validateTypedProgram transitiveDataContractDependencyProgram)
+
+testImportedCapabilityDependency :: IO ()
+testImportedCapabilityDependency =
+  assertEqual
+    "interfaces reject constraints whose imported capability identity cannot be retained"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath importedCapabilityFacadePath)
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail (resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"))
+    ]
+    (validateTypedProgram importedCapabilityDependencyProgram)
+
+testMetadataOnlyImplVisibility :: IO ()
+testMetadataOnlyImplVisibility =
+  assertEqual
+    "dependency-only capability metadata does not expose impl evidence"
+    [ expressionFailureAt
+        "review-metadata-only-impl-visibility"
+        0
+        TypedInvisibleName
+        (TypedNameDetail metadataOnlyImportedCapabilityName),
+      expressionFailureAt
+        "review-metadata-only-impl-visibility"
+        0
+        TypedInvisibleImpl
+        (TypedImplDetail metadataOnlyImportedImpl)
+    ]
+    (validateTypedProgram metadataOnlyImplVisibilityProgram)
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -2444,6 +2494,250 @@ moduleQualifiedMethodKeyProgram =
         []
         emptyInterface
         [expressionStatement 0 expression]
+        boolInfo
+
+importedDataDependencyProgram :: TypedProgram
+importedDataDependencyProgram =
+  TypedProgram Nothing [providerModule, facadeModule, entryModule] entryPath
+  where
+    providerPath = ["Library", "ImportedDataProvider"]
+    facadePath = ["Library", "ImportedDataFacade"]
+    entryPath = ["Fixture", "review-imported-data-dependency"]
+    providerBoxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    importedBoxName =
+      resolved (TypedImportedModule providerPath) TypedTypeNamespace "Box"
+    boxDeclaration =
+      dataDeclarationWithNullaryConstructor
+        providerPath
+        [0, 0]
+        providerBoxName
+        []
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/ImportedDataProvider.jz")
+        []
+        [TypedModuleExport TypedTypeNamespace "Box"]
+        (TypedModuleInterface [] [TypedDataInterface boxDeclaration] [] [])
+        [TypedDataStatement boxDeclaration]
+        unitInfo
+    valueName = resolved TypedCurrentModule TypedValueNamespace "published"
+    importedValueName =
+      resolved (TypedImportedModule facadePath) TypedValueNamespace "published"
+    valueOwner = binder facadePath [0] valueName
+    boxType = TypedDataType importedBoxName []
+    boxRecipe = TypedManagedVariantRecipe importedBoxName []
+    valueScheme =
+      TypedScheme valueOwner [] [] [] boxType boxRecipe
+    facadeModule =
+      typedModule
+        facadePath
+        (TypedSourcePath "src/Library/ImportedDataFacade.jz")
+        [TypedResolvedImport span1 providerPath Nothing (Just ["Box"])]
+        [TypedModuleExport TypedValueNamespace "published"]
+        (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
+        [TypedSignatureStatement valueOwner valueName span1 valueScheme]
+        unitInfo
+    entryInfo = info boxType boxRecipe
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 facadePath Nothing (Just ["published"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        entryInfo
+
+transitiveDataContractDependencyProgram :: TypedProgram
+transitiveDataContractDependencyProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "TransitiveDataContract"]
+    entryPath = ["Fixture", "review-transitive-data-contract-dependency"]
+    hiddenName = resolved TypedCurrentModule TypedTypeNamespace "Hidden"
+    boxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    boxConstructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Box"
+    hiddenType = TypedDataType hiddenName []
+    boxType = TypedDataType boxName []
+    hiddenDeclaration =
+      dataDeclarationWithNullaryConstructor libraryPath [0, 0] hiddenName []
+    boxDeclaration =
+      TypedDataDeclaration
+        span1
+        boxName
+        []
+        [ TypedConstructorDeclaration
+            (binder libraryPath [1, 0] boxConstructorName)
+            boxConstructorName
+            [hiddenType]
+            [TypedManagedVariantRecipe hiddenName []]
+        ]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "published"
+    importedValueName =
+      resolved (TypedImportedModule libraryPath) TypedValueNamespace "published"
+    valueOwner = binder libraryPath [2] valueName
+    parameter = TypedTypeParameterId 0
+    valueScheme =
+      TypedScheme
+        valueOwner
+        [parameter]
+        []
+        [TypedStrictEqualityPrimitiveConstraint boxType]
+        TypedBoolType
+        TypedBoolRecipe
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/TransitiveDataContract.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "published"]
+        ( TypedModuleInterface
+            [TypedValueInterface valueName valueScheme]
+            [ TypedDataInterface hiddenDeclaration,
+              TypedDataInterface boxDeclaration
+            ]
+            []
+            []
+        )
+        [ TypedDataStatement hiddenDeclaration,
+          TypedDataStatement boxDeclaration,
+          TypedSignatureStatement valueOwner valueName span1 valueScheme
+        ]
+        unitInfo
+    instantiation =
+      TypedInstantiation
+        valueOwner
+        [TypedTypeArgument parameter TypedBoolType]
+        Nothing
+    entryInfo =
+      TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["published"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        entryInfo
+
+importedCapabilityFacadePath :: [Text]
+importedCapabilityFacadePath = ["Library", "ImportedCapabilityFacade"]
+
+importedCapabilityDependencyProgram :: TypedProgram
+importedCapabilityDependencyProgram =
+  TypedProgram Nothing [providerModule, facadeModule] importedCapabilityFacadePath
+  where
+    providerPath = ["Library", "ImportedCapabilityProvider"]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"
+    parameter = TypedTypeParameterId 0
+    capability =
+      TypedClassDeclaration span1 capabilityName [parameter] []
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/ImportedCapabilityProvider.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "ForeignEq"]
+        (TypedModuleInterface [] [] [TypedClassInterface capability] [])
+        [TypedClassStatement capability]
+        unitInfo
+    valueName = resolved TypedCurrentModule TypedValueNamespace "published"
+    valueOwner = binder importedCapabilityFacadePath [0] valueName
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint "ForeignEq" Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    facadeModule =
+      typedModule
+        importedCapabilityFacadePath
+        (TypedSourcePath "src/Library/ImportedCapabilityFacade.jz")
+        [TypedResolvedImport span1 providerPath Nothing (Just ["ForeignEq"])]
+        [TypedModuleExport TypedValueNamespace "published"]
+        (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
+        [TypedSignatureStatement valueOwner valueName span1 valueScheme]
+        unitInfo
+
+metadataOnlyImportedCapabilityName :: TypedCoreName
+metadataOnlyImportedCapabilityName =
+  resolved
+    (TypedImportedModule ["Library", "MetadataOnlyImpl"])
+    TypedCapabilityNamespace
+    "PrivateEq"
+
+metadataOnlyImportedImpl :: TypedImplId
+metadataOnlyImportedImpl =
+  TypedImplId
+    ["Library", "MetadataOnlyImpl"]
+    metadataOnlyImportedCapabilityName
+    [TypedBoolType]
+
+metadataOnlyImplVisibilityProgram :: TypedProgram
+metadataOnlyImplVisibilityProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "MetadataOnlyImpl"]
+    entryPath = ["Fixture", "review-metadata-only-impl-visibility"]
+    parameter = TypedTypeParameterId 0
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "PrivateEq"
+    capability =
+      TypedClassDeclaration span1 capabilityName [parameter] []
+    localImpl =
+      TypedImplId libraryPath capabilityName [TypedBoolType]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
+    valueOwner = binder libraryPath [2] valueName
+    constraint =
+      TypedCapabilityConstraint "PrivateEq" Nothing TypedBoolType
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/MetadataOnlyImpl.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "constrained"]
+        ( TypedModuleInterface
+            [TypedValueInterface valueName valueScheme]
+            []
+            [TypedClassInterface capability]
+            [TypedImplInterface localImpl]
+        )
+        [ TypedClassStatement capability,
+          TypedImplStatement (TypedImplDeclaration span1 localImpl []),
+          TypedSignatureStatement valueOwner valueName span1 valueScheme
+        ]
+        unitInfo
+    evidenceUse =
+      TypedEvidenceUse Nothing constraint metadataOnlyImportedImpl Nothing
+    expression =
+      TypedLiteralExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBooleanLiteral True)
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["constrained"])]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
         boolInfo
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
