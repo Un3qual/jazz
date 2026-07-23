@@ -93,7 +93,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
-    <> concatMap (uncurry (validateStatement context)) (zip (map pure [0 ..]) statements)
+    <> validateStatementsInOrder baseContext (zip (map pure [0 ..]) statements)
     <> validateModuleInfo context moduleValidationPath statements moduleInfo
     <> validateModuleResult modulePath statements moduleInfo
   where
@@ -111,50 +111,35 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
       | isPrelude = []
       | otherwise = [(typedModulePath preludeModule, Nothing, preludeModule) | preludeModule <- maybeToList prelude]
     visibleExternalModules = preludeModules <> importedModules
-    localSchemeEntries = concatMap statementSchemes statements
     importedSchemeEntries = concatMap interfaceSchemeEntries visibleExternalModules
-    schemes = Map.fromList (importedSchemeEntries <> localSchemeEntries)
+    schemes = Map.fromList importedSchemeEntries
     visibleNames =
-      Set.fromList
-        ( concatMap (statementDefinedNameKeys modulePath) statements
-            <> concatMap interfaceNameKeys visibleExternalModules
-        )
-    localImplEntries = concatMap statementImplEntries statements
+      Set.fromList (concatMap interfaceNameKeys visibleExternalModules)
     externalImplEntries = concatMap interfaceImplEntries visibleExternalModules
-    visibleImpls = Set.fromList (map fst (localImplEntries <> externalImplEntries))
-    implMethods = Map.fromListWith Set.union (localImplEntries <> externalImplEntries)
+    visibleImpls = Set.fromList (map fst externalImplEntries)
+    implMethods = Map.fromListWith Set.union externalImplEntries
     dataArities =
       Map.fromList
-        ( concatMap (statementDataEntries modulePath) statements
-            <> [ (key, length parameters)
-               | (key, (_, TypedDataDeclaration _ _ parameters _)) <-
-                   Map.toList externalDataMetadata
-               ]
-        )
+        [ (key, length parameters)
+        | (key, (_, TypedDataDeclaration _ _ parameters _)) <-
+            Map.toList externalDataMetadata
+        ]
     dataContracts =
       Map.fromList
-        ( concatMap (statementDataContractEntries modulePath) statements
-            <> [ ( key,
-                   DataContract
-                     parameters
-                     [ map (qualifyExternalType declarationModulePath) fields
-                     | TypedConstructorDeclaration _ _ fields _ <- constructors
-                     ]
-                 )
-               | (key, (declarationModulePath, TypedDataDeclaration _ _ parameters constructors)) <-
-                   Map.toList externalDataMetadata
-               ]
-        )
+        [ ( key,
+            DataContract
+              parameters
+              [ map (qualifyExternalType declarationModulePath) fields
+              | TypedConstructorDeclaration _ _ fields _ <- constructors
+              ]
+          )
+        | (key, (declarationModulePath, TypedDataDeclaration _ _ parameters constructors)) <-
+            Map.toList externalDataMetadata
+        ]
     constructorContracts =
-      Map.fromList
-        ( concatMap (statementConstructorEntries modulePath) statements
-            <> concatMap interfaceConstructorEntries visibleExternalModules
-        )
+      Map.fromList (concatMap interfaceConstructorEntries visibleExternalModules)
     capabilityContracts =
-      Map.fromList
-        ( concatMap (statementCapabilityEntries modulePath) statements
-            <> concatMap interfaceCapabilityEntries visibleExternalModules
-        )
+      Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
     externalDataMetadata =
       interfaceDataMetadataDeclarations moduleTable visibleExternalModules
     statementIndices =
@@ -163,7 +148,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
             (topLevelStatementLocations statements <> concatMap (uncurry nestedStatementLocations) (zip (map pure [0 ..]) statements))
             [0 ..]
         )
-    context =
+    externalContext =
       ModuleContext
         { moduleContextPath = modulePath,
           moduleContextVisibleModules = visibleModules,
@@ -180,6 +165,17 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
           moduleContextTypeScope = Set.empty,
           moduleContextPrimitiveConstraints = []
         }
+    moduleMetadataStatements =
+      [ statement
+      | statement <- statements,
+        case statement of
+          TypedDataStatement {} -> True
+          TypedClassStatement {} -> True
+          TypedImplStatement {} -> True
+          _ -> False
+      ]
+    baseContext = withBlockDeclarations moduleMetadataStatements externalContext
+    context = withBlockDeclarations statements externalContext
 
 validateResolvedImports :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 validateResolvedImports moduleTable modulePath imports =
@@ -352,7 +348,7 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
 duplicateCheckedDeclarations :: TypedStatement -> [(TypedCoreName, Maybe TypedBinderId)]
 duplicateCheckedDeclarations statement =
   case statement of
-    TypedLetStatement binderId name _ _ _ -> [(name, Just binderId)]
+    TypedLetStatement {} -> []
     TypedSignatureStatement binderId name _ _ -> [(name, Just binderId)]
     TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
       (name, Nothing)
@@ -924,13 +920,13 @@ withBlockDeclarations statements context =
     localConstructors = Map.fromList (concatMap (statementConstructorEntries modulePath) statements)
     localCapabilities = Map.fromList (concatMap (statementCapabilityEntries modulePath) statements)
 
-validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateBlockStatementsInOrder initialContext locatedStatements =
+validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrder initialContext locatedStatements =
   fst (foldl' validateNext ([], initialContext) (zip [0 ..] locatedStatements))
   where
     statements = map snd locatedStatements
     validateNext (failures, visibleContext) (blockIndex, (statementLocation, statement)) =
-      let recursiveGroup = blockRecursiveGroupStatements initialContext statements blockIndex
+      let recursiveGroup = recursiveGroupStatements initialContext statements blockIndex
           statementContext =
             case statement of
               TypedLetStatement {}
@@ -940,8 +936,8 @@ validateBlockStatementsInOrder initialContext locatedStatements =
           nextContext = withBlockDeclarations [statement] visibleContext
        in (failures <> validateStatement statementContext statementLocation statement, nextContext)
 
-blockRecursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement]
-blockRecursiveGroupStatements outerContext statements statementIndex =
+recursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement]
+recursiveGroupStatements outerContext statements statementIndex =
   case Map.lookup statementIndex dependencies of
     Nothing -> []
     Just directDependencies
@@ -1276,22 +1272,21 @@ strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.e
         TypedTypeParameterType _ -> typeParameterSupported typeValue
         TypedFunctionType {} -> False
         TypedDataType name arguments ->
-          all (supported seen) arguments
-            && case resolvedNameKey (moduleContextPath context) name of
-              Nothing -> False
-              Just dataKey
-                | Set.member dataKey seen -> True
-                | otherwise ->
-                    case Map.lookup dataKey (moduleContextDataContracts context) of
-                      Nothing -> False
-                      Just (DataContract parameters constructorFields)
-                        | length parameters /= length arguments -> False
-                        | otherwise ->
-                            let substitutions = Map.fromList (zip parameters arguments)
-                                nextSeen = Set.insert dataKey seen
-                             in all
-                                  (all (supported nextSeen . substituteTypeParameters substitutions))
-                                  constructorFields
+          case resolvedNameKey (moduleContextPath context) name of
+            Nothing -> False
+            Just dataKey
+              | Set.member (dataKey, arguments) seen -> True
+              | otherwise ->
+                  case Map.lookup dataKey (moduleContextDataContracts context) of
+                    Nothing -> False
+                    Just (DataContract parameters constructorFields)
+                      | length parameters /= length arguments -> False
+                      | otherwise ->
+                          let substitutions = Map.fromList (zip parameters arguments)
+                              nextSeen = Set.insert (dataKey, arguments) seen
+                           in all
+                                (all (supported nextSeen . substituteTypeParameters substitutions))
+                                constructorFields
 
 validateNumericConstraintTarget :: TypedCoreValidationPath -> TypedNumericConstraint -> TypedType -> [TypedCoreValidationFailure]
 validateNumericConstraintTarget path numericConstraint typeValue
@@ -1603,7 +1598,7 @@ validateExpression context statementLocation expressionPath expression =
                 blockContext = withBlockDeclarations statements context
              in validateBlockResult path info statements
                   <> duplicateDeclarationFailures blockContext locatedStatements
-                  <> validateBlockStatementsInOrder context locatedStatements
+                  <> validateStatementsInOrder context locatedStatements
 
 validateBlockResult :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedStatement] -> [TypedCoreValidationFailure]
 validateBlockResult path blockInfo statements =
@@ -2213,6 +2208,7 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
 validatePattern :: ModuleContext -> [Int] -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure]
 validatePattern context statementLocation patternPath expectedType patternValue =
   validateNodeInfo context path (moduleContextTypeScope context) Nothing (patternInfo patternValue)
+    <> validatePatternMetadata path (patternInfo patternValue)
     <> scrutineeFailures
     <> patternOwnedFailures
     <> concatMap validateChild (patternChildrenWithTypes context patternValue)
@@ -2237,6 +2233,11 @@ validatePattern context statementLocation patternPath expectedType patternValue 
         _ -> []
     validateChild (childIndex, childType, childPattern) =
       validatePattern context statementLocation (patternPath <> [childIndex]) childType childPattern
+
+validatePatternMetadata :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validatePatternMetadata path (TypedNodeInfo _ _ instantiations evidenceSelections)
+  | null instantiations && null evidenceSelections = []
+  | otherwise = [failure path TypedPatternShapeMismatch TypedNoValidationDetail]
 
 validateTuplePatternShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedPattern] -> [TypedCoreValidationFailure]
 validateTuplePatternShape path info patterns =

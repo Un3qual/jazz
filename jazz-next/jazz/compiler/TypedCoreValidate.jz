@@ -38,6 +38,8 @@ module TypedCoreValidate (
 
   data EvidenceBinding = EvidenceBinding TypedEvidenceParameterRef TypedCapabilityConstraint.
 
+  data EqualityDataKey = EqualityDataKey [Text] Text [TypedType].
+
   failure :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure.
   failure = TypedCoreValidationFailure.
 
@@ -191,6 +193,17 @@ module TypedCoreValidate (
     | (TypedFunctionType leftArgument leftResult, TypedFunctionType rightArgument rightResult) -> if typeEqual leftArgument rightArgument then typeEqual leftResult rightResult else False
     | (TypedTypeParameterType leftId, TypedTypeParameterType rightId) -> typeParameterIdEqual leftId rightId
     | other -> False
+  }.
+
+  equalityDataKeyMember :: EqualityDataKey -> [EqualityDataKey] -> Bool.
+  equalityDataKeyMember = \(candidate, keys) -> case (candidate, keys) {
+    | (other, []) -> False
+    | (EqualityDataKey candidatePath candidateName candidateArguments, [EqualityDataKey firstPath firstName firstArguments | rest]) ->
+      if textListEqual candidatePath firstPath then
+        if candidateName == firstName then
+          if typeListEqual candidateArguments firstArguments then True else equalityDataKeyMember candidate rest
+        else equalityDataKeyMember candidate rest
+      else equalityDataKeyMember candidate rest
   }.
 
   recipeListEqual :: [TypedRepresentationRecipe] -> [TypedRepresentationRecipe] -> Bool.
@@ -1016,7 +1029,7 @@ module TypedCoreValidate (
     | other -> other
   }.
 
-  strictEqualityTypeSupportedWithSeen :: ModuleContext -> [Text] -> TypedType -> Bool.
+  strictEqualityTypeSupportedWithSeen :: ModuleContext -> [EqualityDataKey] -> TypedType -> Bool.
   strictEqualityTypeSupportedWithSeen = \(context, seen, typeValue) -> case typeValue {
     | TypedIntType -> True
     | TypedFloatType -> True
@@ -1028,12 +1041,12 @@ module TypedCoreValidate (
     | TypedTupleType elementTypes -> listAll (\(elementType) -> strictEqualityTypeSupportedWithSeen context seen elementType) elementTypes
     | TypedTypeParameterType parameterId -> True
     | TypedFunctionType argument result -> False
-    | TypedDataType name arguments -> if listAll (\(argument) -> strictEqualityTypeSupportedWithSeen context seen argument) arguments then {
+    | TypedDataType name arguments -> {
       result = case (context, name, dataContractForName context name) {
         | (ModuleContext currentPath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
           | DataContract parameters constructors -> {
-            dataKey = textJoin "::" (listAppend (originModulePath currentPath origin) [identifier]).
-            if listLength parameters == listLength arguments then if listContains dataKey seen then True else {
+            dataKey = EqualityDataKey (originModulePath currentPath origin) identifier arguments.
+            if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then True else {
               substitutions = listZip parameters arguments.
               nextSeen = listPrepend dataKey seen.
               listAll
@@ -1045,7 +1058,7 @@ module TypedCoreValidate (
         | other -> False
       }.
       result.
-    } else False
+    }
   }.
 
   strictEqualityTypeSupported :: ModuleContext -> TypedType -> Bool.
@@ -1061,7 +1074,7 @@ module TypedCoreValidate (
       (activePrimitiveConstraints context)
       == False.
 
-  strictEqualityOperandSupportedWithSeen :: ModuleContext -> [Text] -> TypedType -> Bool.
+  strictEqualityOperandSupportedWithSeen :: ModuleContext -> [EqualityDataKey] -> TypedType -> Bool.
   strictEqualityOperandSupportedWithSeen = \(context, seen, typeValue) -> case typeValue {
       | TypedIntType -> True
       | TypedFloatType -> True
@@ -1073,12 +1086,12 @@ module TypedCoreValidate (
       | TypedTupleType elementTypes -> listAll (\(elementType) -> strictEqualityOperandSupportedWithSeen context seen elementType) elementTypes
       | TypedTypeParameterType parameterId -> activeStrictEqualityConstraint context typeValue
       | TypedFunctionType argument result -> False
-      | TypedDataType name arguments -> if listAll (\(argument) -> strictEqualityOperandSupportedWithSeen context seen argument) arguments then {
+      | TypedDataType name arguments -> {
         result = case (context, name, dataContractForName context name) {
           | (ModuleContext currentPath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
             | DataContract parameters constructors -> {
-              dataKey = textJoin "::" (listAppend (originModulePath currentPath origin) [identifier]).
-              if listLength parameters == listLength arguments then if listContains dataKey seen then True else {
+              dataKey = EqualityDataKey (originModulePath currentPath origin) identifier arguments.
+              if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then True else {
                 substitutions = listZip parameters arguments.
                 nextSeen = listPrepend dataKey seen.
                 listAll
@@ -1090,7 +1103,7 @@ module TypedCoreValidate (
           | other -> False
         }.
         result.
-      } else False
+      }
     }.
 
   strictEqualityOperandSupported :: ModuleContext -> TypedType -> Bool.
@@ -2194,6 +2207,14 @@ module TypedCoreValidate (
     | other -> []
   }.
 
+  patternMetadataFailures :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedCoreValidationFailure].
+  patternMetadataFailures = \(path, info) -> case info {
+    | TypedNodeInfo typeValue recipe instantiations evidence ->
+      if listLength instantiations == 0 then
+        if listLength evidence == 0 then [] else [failure path TypedPatternShapeMismatch TypedNoValidationDetail]
+      else [failure path TypedPatternShapeMismatch TypedNoValidationDetail]
+  }.
+
   validatePattern :: ModuleContext -> Int -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure].
   validatePattern = \(context, statementIndex, patternPath, expectedType, pattern) -> case context {
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> {
@@ -2201,6 +2222,7 @@ module TypedCoreValidate (
       info = patternInfo pattern.
       listConcat
         [ validateNodeInfo context path [] Nothing info,
+          patternMetadataFailures path info,
           if typeEqual (nodeType info) expectedType then [] else [failure path TypedPatternScrutineeMismatch (TypedTypeDetail expectedType (nodeType info))],
           case pattern {
             | TypedVariablePattern valueInfo binder name -> listAppend (validateLocalDefinitionName context [TypedValueNamespace] path name) (validateBinderDefinition context path binder name)
@@ -3580,7 +3602,7 @@ module TypedCoreValidate (
 
   statementDeclarationEntries :: [Text] -> TypedStatement -> [DeclarationEntry].
   statementDeclarationEntries = \(modulePath, statement) -> case statement {
-    | TypedLetStatement binder name span scheme expression -> declarationEntryForName modulePath name (Just binder)
+    | TypedLetStatement binder name span scheme expression -> []
     | TypedSignatureStatement binder name span scheme -> declarationEntryForName modulePath name (Just binder)
     | TypedDataStatement declaration -> case declaration {
       | TypedDataDeclaration span name parameters constructors -> listAppend
@@ -4259,11 +4281,34 @@ module TypedCoreValidate (
     }
   }.
 
-  validateStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateStatements = \(context, statements, statementIndex) -> case statements {
-    | [] -> []
-    | [first | rest] -> listAppend (validateStatement context statementIndex first) (validateStatements context rest (statementIndex + 1))
+  isModuleMetadataStatement :: TypedStatement -> Bool.
+  isModuleMetadataStatement = \(statement) -> case statement {
+    | TypedDataStatement declaration -> True
+    | TypedClassStatement declaration -> True
+    | TypedImplStatement declaration -> True
+    | other -> False
   }.
+
+  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, allStatements, remainingStatements, statementIndex) -> case remainingStatements {
+    | [] -> []
+    | [statement | rest] -> {
+      recursiveGroup = blockRecursiveGroupStatements initialContext allStatements statementIndex.
+      statementContext = case statement {
+        | TypedLetStatement binder name span scheme expression ->
+          if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
+        | other -> if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext
+      }.
+      nextContext = if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext.
+      listAppend
+        (validateStatement statementContext statementIndex statement)
+        (validateModuleStatementsInOrderFrom initialContext nextContext allStatements rest (statementIndex + 1)).
+    }
+  }.
+
+  validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrder = \(context, statements) ->
+    validateModuleStatementsInOrderFrom context context statements statements 0.
 
   declaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
   declaredValueMatches = \(name, scheme, statements) -> case statements {
@@ -5225,17 +5270,26 @@ module TypedCoreValidate (
     else [] else []
   }.
 
+  moduleMetadataStatements :: [TypedStatement] -> [TypedStatement].
+  moduleMetadataStatements = \(statements) -> case statements {
+    | [] -> []
+    | [first | rest] ->
+      if isModuleMetadataStatement first then listPrepend first (moduleMetadataStatements rest) else moduleMetadataStatements rest
+  }.
+
   validateModule :: [TypedModule] -> Maybe(TypedModule) -> Bool -> TypedModule -> [TypedCoreValidationFailure].
   validateModule = \(completeModules, prelude, isPrelude, moduleValue) -> case moduleValue {
     | TypedModule modulePath sourcePath imports exports interface statements moduleInfo -> {
       externalModules = visibleModulesFor isPrelude prelude imports completeModules.
       visibleModules = listAppend [modulePath, ["Prelude"]] (resolvedImportPaths imports).
-      schemes = listAppend (moduleSchemeEntries statements) (visibleModuleSchemeEntries externalModules).
+      schemes = visibleModuleSchemeEntries externalModules.
       externalNames = visibleModuleNameEntries externalModules.
-      visibleNames = listAppend (localNameEntries modulePath statements) externalNames.
-      visibleImpls = listAppend (localImplIds statements) (visibleModuleImplIds externalModules).
-      dataEntries = listAppend (localDataEntries modulePath statements) (visibleModuleDataEntries completeModules externalModules).
-      context = ModuleContext modulePath visibleModules schemes (statementIndexEntries statements) visibleNames visibleImpls dataEntries [].
+      visibleNames = externalNames.
+      visibleImpls = visibleModuleImplIds externalModules.
+      dataEntries = visibleModuleDataEntries completeModules externalModules.
+      externalContext = ModuleContext modulePath visibleModules schemes (statementIndexEntries statements) visibleNames visibleImpls dataEntries [].
+      baseContext = withBlockDeclarations (moduleMetadataStatements statements) externalContext.
+      context = withBlockDeclarations statements externalContext.
       moduleValidationPath = if isPrelude then TypedPreludePath else TypedModulePath modulePath.
       listConcat
         [ validateSourcePath modulePath sourcePath,
@@ -5243,7 +5297,7 @@ module TypedCoreValidate (
           validateModuleInterface modulePath externalNames interface statements exports,
           duplicateModuleDeclarationFailures context statements,
           duplicateModuleBinderFailures context statements,
-          validateStatements context statements 0,
+          validateModuleStatementsInOrder baseContext statements,
           validateModuleInfo context moduleValidationPath statements moduleInfo,
           validateModuleResult modulePath statements moduleInfo
         ].

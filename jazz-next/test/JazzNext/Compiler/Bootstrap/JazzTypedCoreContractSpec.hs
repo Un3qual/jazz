@@ -110,6 +110,10 @@ tests =
     ("closes selected data contracts over field metadata", testTransitiveDataContractDependency),
     ("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency),
     ("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility),
+    ("rejects expression-only metadata on patterns", testPatternExpressionMetadata),
+    ("allows phantom data arguments in strict equality", testPhantomDataEquality),
+    ("preserves same-scope value rebinding", testSameScopeValueRebinding),
+    ("preserves top-level statement scope order", testForwardModuleReference),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -468,7 +472,11 @@ reviewRegressionPrograms =
     importedDataDependencyProgram,
     transitiveDataContractDependencyProgram,
     importedCapabilityDependencyProgram,
-    metadataOnlyImplVisibilityProgram
+    metadataOnlyImplVisibilityProgram,
+    patternExpressionMetadataProgram,
+    phantomDataEqualityProgram,
+    sameScopeValueRebindingProgram,
+    forwardModuleReferenceProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2028,6 +2036,43 @@ testMetadataOnlyImplVisibility =
     ]
     (validateTypedProgram metadataOnlyImplVisibilityProgram)
 
+testPatternExpressionMetadata :: IO ()
+testPatternExpressionMetadata =
+  assertEqual
+    "patterns reject expression-only instantiation and evidence metadata"
+    [ TypedCoreValidationFailure
+        (TypedPatternPath ["Fixture", "review-pattern-expression-metadata"] 3 [0, 0])
+        TypedPatternShapeMismatch
+        TypedNoValidationDetail
+    ]
+    (validateTypedProgram patternExpressionMetadataProgram)
+
+testPhantomDataEquality :: IO ()
+testPhantomDataEquality =
+  assertEqual
+    "phantom data arguments do not determine structural equality support"
+    []
+    (validateTypedProgram phantomDataEqualityProgram)
+
+testSameScopeValueRebinding :: IO ()
+testSameScopeValueRebinding =
+  assertEqual
+    "ordinary value rebinding remains valid and last-wins"
+    []
+    (validateTypedProgram sameScopeValueRebindingProgram)
+
+testForwardModuleReference :: IO ()
+testForwardModuleReference =
+  assertEqual
+    "non-recursive module bindings cannot reference later declarations"
+    [ expressionFailureAt
+        "review-forward-module-reference"
+        0
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "later"))
+    ]
+    (validateTypedProgram forwardModuleReferenceProgram)
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -2739,6 +2784,124 @@ metadataOnlyImplVisibilityProgram =
         emptyInterface
         [expressionStatement 1 expression]
         boolInfo
+
+patternExpressionMetadataProgram :: TypedProgram
+patternExpressionMetadataProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-pattern-expression-metadata"
+    modulePath = ["Fixture", fixture]
+    genericName = fixtureValueName "generic"
+    genericOwner = binder modulePath [0] genericName
+    parameter = TypedTypeParameterId 0
+    genericScheme =
+      TypedScheme genericOwner [parameter] [] [] TypedBoolType TypedBoolRecipe
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "PatternMarker"
+    capability =
+      TypedClassDeclaration span1 capabilityName [parameter] []
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    constraint =
+      TypedCapabilityConstraint "PatternMarker" Nothing TypedBoolType
+    patternInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation genericOwner [TypedTypeArgument parameter TypedBoolType] Nothing]
+        [TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)]
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [TypedCaseArm (TypedWildcardPattern patternInfo) Nothing trueExpr]
+    statements =
+      [ TypedSignatureStatement genericOwner genericName span1 genericScheme,
+        TypedClassStatement capability,
+        TypedImplStatement (TypedImplDeclaration span1 implId []),
+        expressionStatement 4 expression
+      ]
+
+phantomDataEqualityProgram :: TypedProgram
+phantomDataEqualityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-phantom-data-equality"
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Phantom"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Phantom"
+    parameter = TypedTypeParameterId 0
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameter]
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            []
+            []
+        ]
+    valueName = fixtureValueName "phantomEquality"
+    valueOwner = binder modulePath [1] valueName
+    phantomFunctionType = TypedDataType dataName [boolToBoolType]
+    scheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint phantomFunctionType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      [ TypedDataStatement declaration,
+        TypedSignatureStatement valueOwner valueName span1 scheme
+      ]
+
+sameScopeValueRebindingProgram :: TypedProgram
+sameScopeValueRebindingProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
+  where
+    fixture = "review-same-scope-value-rebinding"
+    modulePath = ["Fixture", fixture]
+    valueName = fixtureValueName "value"
+    firstOwner = binder modulePath [0] valueName
+    secondOwner = binder modulePath [1] valueName
+    firstScheme =
+      TypedScheme firstOwner [] [] [] TypedBoolType TypedBoolRecipe
+    secondScheme =
+      TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+    statements =
+      [ TypedLetStatement firstOwner valueName span1 firstScheme trueExpr,
+        TypedLetStatement
+          secondOwner
+          valueName
+          span1
+          secondScheme
+          (TypedLiteralExpr textInfo (TypedTextLiteral "latest")),
+        expressionStatement 3 (TypedVariableExpr textInfo valueName)
+      ]
+
+forwardModuleReferenceProgram :: TypedProgram
+forwardModuleReferenceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-forward-module-reference"
+    modulePath = ["Fixture", fixture]
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstOwner = binder modulePath [0] firstName
+    laterOwner = binder modulePath [1] laterName
+    statements =
+      [ TypedLetStatement
+          firstOwner
+          firstName
+          span1
+          (monoScheme firstOwner)
+          (TypedVariableExpr boolInfo laterName),
+        TypedLetStatement laterOwner laterName span1 (monoScheme laterOwner) trueExpr,
+        expressionStatement 3 (TypedVariableExpr boolInfo firstName)
+      ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =
