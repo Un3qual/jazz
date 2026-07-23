@@ -95,6 +95,13 @@ tests =
     ("checks fractional literals against their selected floating widths", testFractionalLiteralBounds),
     ("rejects local classes that collide with visible classes", testVisibleClassCollisions),
     ("retains method data metadata for selective class imports", testSelectedClassDataDependency),
+    ("resolves shadowed schemes through lexical scope", testLexicalSchemeShadowing),
+    ("rejects method candidates after full application", testFullyAppliedMethodCandidates),
+    ("rejects duplicate unbound selected evidence", testDuplicateUnboundEvidence),
+    ("generalizes imported class methods as values", testGeneralizedClassMethodImport),
+    ("rejects colliding imported class identifiers", testImportedClassCollision),
+    ("preserves block statement scope order", testForwardBlockReference),
+    ("preserves proven recursive block peers", testRecursiveBlockPeers),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -438,7 +445,14 @@ reviewRegressionPrograms =
     duplicateInstantiationProgram,
     fractionalLiteralBoundsProgram,
     visibleClassCollisionProgram,
-    selectedClassDataDependencyProgram
+    selectedClassDataDependencyProgram,
+    lexicalSchemeShadowingProgram,
+    fullyAppliedMethodCandidatesProgram,
+    duplicateUnboundEvidenceProgram,
+    generalizedClassMethodImportProgram,
+    importedClassCollisionProgram,
+    forwardBlockReferenceProgram,
+    recursiveBlockPeerProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1840,6 +1854,342 @@ testSelectedClassDataDependency =
     "selective class imports retain data metadata used by method contracts"
     []
     (validateTypedProgram selectedClassDataDependencyProgram)
+
+testLexicalSchemeShadowing :: IO ()
+testLexicalSchemeShadowing =
+  assertEqual
+    "nearest block schemes shadow outer schemes by lexical name"
+    []
+    (validateTypedProgram lexicalSchemeShadowingProgram)
+
+testFullyAppliedMethodCandidates :: IO ()
+testFullyAppliedMethodCandidates =
+  assertEqual
+    "fully applied qualified methods require a unique selected body"
+    [ expressionFailureAt
+        "review-fully-applied-method-candidates"
+        1
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 2)
+    ]
+    (validateTypedProgram fullyAppliedMethodCandidatesProgram)
+
+testDuplicateUnboundEvidence :: IO ()
+testDuplicateUnboundEvidence =
+  assertEqual
+    "unbound selected evidence is unique per resolved constraint"
+    [ expressionFailure
+        "review-duplicate-unbound-evidence"
+        TypedDuplicateEvidence
+        (TypedTextDetail "Equal")
+    ]
+    (validateTypedProgram duplicateUnboundEvidenceProgram)
+
+testGeneralizedClassMethodImport :: IO ()
+testGeneralizedClassMethodImport =
+  assertEqual
+    "imported class methods quantify their class parameters as values"
+    []
+    (validateTypedProgram generalizedClassMethodImportProgram)
+
+testImportedClassCollision :: IO ()
+testImportedClassCollision =
+  assertEqual
+    "constraints reject colliding imported class identifiers"
+    [ statementFailure
+        "review-imported-class-collision"
+        0
+        TypedDuplicateDeclaration
+        (TypedTextDetail "Clash")
+    ]
+    (validateTypedProgram importedClassCollisionProgram)
+
+testForwardBlockReference :: IO ()
+testForwardBlockReference =
+  assertEqual
+    "block expressions cannot see later non-recursive declarations"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath ["Fixture", "review-forward-block-reference"] 1 [0])
+        TypedInvisibleName
+        (TypedNameDetail forwardBlockReferenceName)
+    ]
+    (validateTypedProgram forwardBlockReferenceProgram)
+
+testRecursiveBlockPeers :: IO ()
+testRecursiveBlockPeers =
+  assertEqual
+    "ordered block scope preserves proven recursive peers"
+    []
+    (validateTypedProgram recursiveBlockPeerProgram)
+
+lexicalSchemeShadowingProgram :: TypedProgram
+lexicalSchemeShadowingProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
+  where
+    fixture = "review-lexical-scheme-shadowing"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    outerOwner = binder modulePath [0] valueName
+    innerOwner = binder modulePath [1, 0] valueName
+    innerUse = TypedVariableExpr textInfo valueName
+    block =
+      TypedBlockExpr
+        textInfo
+        [ TypedSignatureStatement innerOwner valueName span1 (TypedScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe),
+          expressionStatement 2 innerUse
+        ]
+    statements =
+      [ TypedSignatureStatement outerOwner valueName span1 (monoScheme outerOwner),
+        expressionStatement 1 block
+      ]
+
+fullyAppliedMethodCandidatesProgram :: TypedProgram
+fullyAppliedMethodCandidatesProgram =
+  withFixturePrelude
+    ( singleModuleProgram
+        fixture
+        relativeSource
+        []
+        [ TypedImplStatement
+            ( TypedImplDeclaration
+                span1
+                secondImpl
+                [ fixtureImplMethod modulePath [0, 0] secondImpl "render",
+                  fixtureImplMethod modulePath [0, 1] secondImpl "map"
+                ]
+            ),
+          expressionStatement 1 expression
+        ]
+        emptyInterface
+        listTextInfo
+        modulePath
+    )
+  where
+    fixture = "review-fully-applied-method-candidates"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    secondImpl = TypedImplId modulePath capabilityName [TypedTextType]
+    constraint = TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    candidates =
+      [ TypedEvidenceCandidate firstImpl (Just (TypedMethodId firstImpl "map")),
+        TypedEvidenceCandidate secondImpl (Just (TypedMethodId secondImpl "map"))
+      ]
+    boolToTextType = TypedFunctionType TypedBoolType TypedTextType
+    boolToTextRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe
+    mapperName = resolved TypedCurrentModule TypedValueNamespace "mapperArgument"
+    mapper =
+      TypedLambdaExpr
+        (info boolToTextType boolToTextRecipe)
+        (binder modulePath [1, 0] mapperName)
+        mapperName
+        (TypedLiteralExpr textInfo (TypedTextLiteral "mapped"))
+    intermediateType =
+      TypedFunctionType
+        (TypedListType TypedBoolType)
+        (TypedListType TypedTextType)
+    intermediateRecipe =
+      TypedClosureRecipe
+        [TypedManagedListRecipe TypedBoolRecipe]
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+    intermediate =
+      TypedApplyExpr
+        (info intermediateType intermediateRecipe)
+        (TypedVariableExpr builtinMapInfo (TypedBuiltinName "map"))
+        mapper
+    argument =
+      TypedListExpr
+        (info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe))
+        [trueExpr]
+    listTextInfo =
+      TypedNodeInfo
+        (TypedListType TypedTextType)
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+        []
+        [TypedEvidenceCandidates constraint candidates]
+    expression = TypedApplyExpr listTextInfo intermediate argument
+
+duplicateUnboundEvidenceProgram :: TypedProgram
+duplicateUnboundEvidenceProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-duplicate-unbound-evidence"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    use = TypedEvidenceUse Nothing constraint implId Nothing
+    expression =
+      TypedLiteralExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
+        (TypedBooleanLiteral True)
+
+generalizedClassMethodImportProgram :: TypedProgram
+generalizedClassMethodImportProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "GeneralizedClassMethod"]
+    entryPath = ["Fixture", "review-generalized-class-method-import"]
+    parameter = TypedTypeParameterId 0
+    className = resolved TypedCurrentModule TypedCapabilityNamespace "Display"
+    methodName = resolved TypedCurrentModule TypedValueNamespace "display"
+    methodOwner = binder libraryPath [0, 0] methodName
+    methodType =
+      TypedFunctionType
+        (TypedTypeParameterType parameter)
+        TypedTextType
+    methodRecipe =
+      TypedClosureRecipe
+        [TypedRepresentationParameterRecipe parameter]
+        TypedManagedTextRecipe
+    methodScheme =
+      TypedScheme methodOwner [] [] [] methodType methodRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        className
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/GeneralizedClassMethod.jz")
+        []
+        [ TypedModuleExport TypedCapabilityNamespace "Display",
+          TypedModuleExport TypedValueNamespace "display"
+        ]
+        (TypedModuleInterface [] [] [TypedClassInterface classDeclaration] [])
+        [TypedClassStatement classDeclaration]
+        unitInfo
+    importedMethodName =
+      resolved (TypedImportedModule libraryPath) TypedValueNamespace "display"
+    instantiatedInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType TypedTextType)
+        (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+        [ TypedInstantiation
+            methodOwner
+            [TypedTypeArgument parameter TypedBoolType]
+            Nothing
+        ]
+        []
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["display"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr instantiatedInfo importedMethodName)]
+        instantiatedInfo
+
+importedClassCollisionProgram :: TypedProgram
+importedClassCollisionProgram =
+  TypedProgram Nothing [firstLibrary, secondLibrary, entryModule] entryPath
+  where
+    firstPath = ["Library", "FirstClash"]
+    secondPath = ["Library", "SecondClash"]
+    entryPath = ["Fixture", "review-imported-class-collision"]
+    parameter = TypedTypeParameterId 0
+    libraryModule libraryPath =
+      let className = resolved TypedCurrentModule TypedCapabilityNamespace "Clash"
+          declaration = TypedClassDeclaration span1 className [parameter] []
+       in typedModule
+            libraryPath
+            (TypedSourcePath ("src/" <> Text.intercalate "/" libraryPath <> ".jz"))
+            []
+            [TypedModuleExport TypedCapabilityNamespace "Clash"]
+            (TypedModuleInterface [] [] [TypedClassInterface declaration] [])
+            [TypedClassStatement declaration]
+            unitInfo
+    firstLibrary = libraryModule firstPath
+    secondLibrary = libraryModule secondPath
+    valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
+    valueOwner = binder entryPath [0] valueName
+    constraint = TypedCapabilityConstraint "Clash" Nothing TypedBoolType
+    scheme =
+      TypedScheme
+        valueOwner
+        []
+        [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport span1 firstPath Nothing (Just ["Clash"]),
+          TypedResolvedImport span1 secondPath Nothing (Just ["Clash"])
+        ]
+        []
+        emptyInterface
+        [ TypedSignatureStatement valueOwner valueName span1 scheme,
+          expressionStatement 1 trueExpr
+        ]
+        boolInfo
+
+forwardBlockReferenceName :: TypedCoreName
+forwardBlockReferenceName =
+  resolved TypedCurrentModule TypedValueNamespace "later"
+
+forwardBlockReferenceProgram :: TypedProgram
+forwardBlockReferenceProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-forward-block-reference"
+    modulePath = ["Fixture", fixture]
+    owner = binder modulePath [0, 1] forwardBlockReferenceName
+    block =
+      TypedBlockExpr
+        boolInfo
+        [ expressionStatement 2 (TypedVariableExpr boolInfo forwardBlockReferenceName),
+          TypedSignatureStatement owner forwardBlockReferenceName span1 (monoScheme owner),
+          expressionStatement 3 trueExpr
+        ]
+
+recursiveBlockPeerProgram :: TypedProgram
+recursiveBlockPeerProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolToBoolInfo modulePath
+  where
+    fixture = "review-recursive-block-peers"
+    modulePath = ["Fixture", fixture]
+    leftName = resolved TypedCurrentModule TypedValueNamespace "left"
+    rightName = resolved TypedCurrentModule TypedValueNamespace "right"
+    leftOwner = binder modulePath [0, 0] leftName
+    rightOwner = binder modulePath [0, 1] rightName
+    recursiveLambda ownerPath argumentName peerName =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath ownerPath argumentName)
+        argumentName
+        ( TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo peerName)
+            (TypedVariableExpr boolInfo argumentName)
+        )
+    leftArgument = resolved TypedCurrentModule TypedValueNamespace "leftArgument"
+    rightArgument = resolved TypedCurrentModule TypedValueNamespace "rightArgument"
+    leftStatement =
+      TypedLetStatement
+        leftOwner
+        leftName
+        span1
+        (TypedScheme leftOwner [] [] [] boolToBoolType boolToBoolRecipe)
+        (recursiveLambda [0, 0, 0] leftArgument rightName)
+    rightStatement =
+      TypedLetStatement
+        rightOwner
+        rightName
+        span1
+        (TypedScheme rightOwner [] [] [] boolToBoolType boolToBoolRecipe)
+        (recursiveLambda [0, 1, 0] rightArgument leftName)
+    block =
+      TypedBlockExpr
+        boolToBoolInfo
+        [ leftStatement,
+          rightStatement,
+          expressionStatement 3 (TypedVariableExpr boolToBoolInfo leftName)
+        ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =

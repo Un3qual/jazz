@@ -442,8 +442,10 @@ statementSchemes statement =
   case statement of
     TypedLetStatement binderId _ _ scheme _ -> [(binderId, scheme)]
     TypedSignatureStatement binderId _ _ scheme -> [(binderId, scheme)]
-    TypedClassStatement (TypedClassDeclaration _ _ _ methods) ->
-      [(binderId, scheme) | TypedMethodSignature _ _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods]
+    TypedClassStatement (TypedClassDeclaration _ _ classParameters methods) ->
+      [ (binderId, generalizeClassMethodScheme classParameters scheme)
+      | TypedMethodSignature _ _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods
+      ]
     _ -> []
 
 interfaceSchemeEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedBinderId, TypedScheme)]
@@ -453,12 +455,66 @@ interfaceSchemeEntries (_, selectedNames, TypedModule _ _ _ exports (TypedModule
     importAllows selectedNames name,
     moduleExportsName TypedValueNamespace name exports
   ]
-    <> [ (binderId, scheme)
-       | TypedClassInterface (TypedClassDeclaration _ _ _ methods) <- classes,
+    <> [ (binderId, generalizeClassMethodScheme classParameters scheme)
+       | TypedClassInterface (TypedClassDeclaration _ _ classParameters methods) <- classes,
          TypedMethodSignature name _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods,
          importAllows selectedNames name,
          moduleExportsName TypedValueNamespace name exports
        ]
+
+generalizeClassMethodScheme :: [TypedTypeParameterId] -> TypedScheme -> TypedScheme
+generalizeClassMethodScheme classParameters (TypedScheme owner methodParameters evidence primitive resultType resultRecipe) =
+  TypedScheme owner (usedClassParameters <> methodParameters) evidence primitive resultType resultRecipe
+  where
+    usedClassParameters =
+      [ parameter
+      | parameter <- classParameters,
+        parameter `notElem` methodParameters,
+        schemeMentionsTypeParameter parameter evidence primitive resultType resultRecipe
+      ]
+
+schemeMentionsTypeParameter ::
+  TypedTypeParameterId ->
+  [TypedEvidenceParameter] ->
+  [TypedPrimitiveConstraint] ->
+  TypedType ->
+  TypedRepresentationRecipe ->
+  Bool
+schemeMentionsTypeParameter parameter evidence primitive resultType resultRecipe =
+  any
+    (typeMentionsParameter parameter)
+    ( resultType
+        : [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidence]
+          <> [ targetType
+             | constraint <- primitive,
+               targetType <-
+                 case constraint of
+                   TypedNumericPrimitiveConstraint _ value -> [value]
+                   TypedStrictEqualityPrimitiveConstraint value -> [value]
+             ]
+    )
+    || recipeMentionsParameter parameter resultRecipe
+
+typeMentionsParameter :: TypedTypeParameterId -> TypedType -> Bool
+typeMentionsParameter parameter typeValue =
+  case typeValue of
+    TypedListType elementType -> typeMentionsParameter parameter elementType
+    TypedTupleType elementTypes -> any (typeMentionsParameter parameter) elementTypes
+    TypedDataType _ arguments -> any (typeMentionsParameter parameter) arguments
+    TypedFunctionType argument result ->
+      typeMentionsParameter parameter argument || typeMentionsParameter parameter result
+    TypedTypeParameterType candidate -> candidate == parameter
+    _ -> False
+
+recipeMentionsParameter :: TypedTypeParameterId -> TypedRepresentationRecipe -> Bool
+recipeMentionsParameter parameter recipe =
+  case recipe of
+    TypedManagedListRecipe elementRecipe -> recipeMentionsParameter parameter elementRecipe
+    TypedManagedProductRecipe elementRecipes -> any (recipeMentionsParameter parameter) elementRecipes
+    TypedClosureRecipe parameters result ->
+      any (recipeMentionsParameter parameter) parameters || recipeMentionsParameter parameter result
+    TypedRepresentationParameterRecipe candidate -> candidate == parameter
+    _ -> False
 
 statementImplEntries :: TypedStatement -> [(TypedImplId, Set Text)]
 statementImplEntries statement =
@@ -815,6 +871,166 @@ withBlockDeclarations statements context =
     localConstructors = Map.fromList (concatMap (statementConstructorEntries modulePath) statements)
     localCapabilities = Map.fromList (concatMap (statementCapabilityEntries modulePath) statements)
 
+validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateBlockStatementsInOrder initialContext locatedStatements =
+  fst (foldl' validateNext ([], initialContext) (zip [0 ..] locatedStatements))
+  where
+    statements = map snd locatedStatements
+    validateNext (failures, visibleContext) (blockIndex, (statementLocation, statement)) =
+      let recursiveGroup = blockRecursiveGroupStatements initialContext statements blockIndex
+          statementContext =
+            case statement of
+              TypedLetStatement {}
+                | null recursiveGroup -> visibleContext
+                | otherwise -> withBlockDeclarations recursiveGroup visibleContext
+              _ -> withBlockDeclarations [statement] visibleContext
+          nextContext = withBlockDeclarations [statement] visibleContext
+       in (failures <> validateStatement statementContext statementLocation statement, nextContext)
+
+blockRecursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement]
+blockRecursiveGroupStatements outerContext statements statementIndex =
+  case Map.lookup statementIndex dependencies of
+    Nothing -> []
+    Just directDependencies
+      | length members > 1 || Set.member statementIndex directDependencies ->
+          [statement | (index, statement) <- zip [0 ..] statements, index `elem` members]
+      | otherwise -> []
+  where
+    declarations =
+      [ (index, nameKey, expression)
+      | (index, TypedLetStatement _ name _ _ expression) <- zip [0 ..] statements,
+        nameKey <- maybeToList (resolvedNameKey (moduleContextPath outerContext) name)
+      ]
+    declarationIndicesByName =
+      Map.fromListWith (flip (<>))
+        [ (nameKey, [index])
+        | (index, nameKey, _) <- declarations
+        ]
+    dependencies =
+      Map.fromList
+        [ ( index,
+            Set.fromList
+              [ dependency
+              | referencedName <- Set.toList (freeExpressionValueNames outerContext Set.empty expression),
+                dependency <- maybeToList (resolveDependency index nameKey expression referencedName)
+              ]
+          )
+        | (index, nameKey, expression) <- declarations
+        ]
+    resolveDependency index ownName expression referencedName =
+      case Map.lookup referencedName declarationIndicesByName of
+        Nothing -> Nothing
+        Just declarationIndices ->
+          case reverse (filter (< index) declarationIndices) of
+            prior : _ -> Just prior
+            []
+              | Set.member referencedName (moduleContextVisibleNames outerContext) -> Nothing
+              | referencedName == ownName ->
+                  if expressionCanBeRecursive expression then Just index else Nothing
+              | otherwise ->
+                  case filter (> index) declarationIndices of
+                    future : _ -> Just future
+                    [] -> Nothing
+    members =
+      [ candidate
+      | candidate <- Map.keys dependencies,
+        dependencyReachable dependencies statementIndex candidate,
+        dependencyReachable dependencies candidate statementIndex
+      ]
+
+dependencyReachable :: Map Int (Set Int) -> Int -> Int -> Bool
+dependencyReachable dependencies source target = go Set.empty [source]
+  where
+    go _ [] = False
+    go seen (current : rest)
+      | current == target = True
+      | Set.member current seen = go seen rest
+      | otherwise =
+          go
+            (Set.insert current seen)
+            (Set.toList (Map.findWithDefault Set.empty current dependencies) <> rest)
+
+expressionCanBeRecursive :: TypedExpr -> Bool
+expressionCanBeRecursive expression =
+  case nodeType (expressionInfo expression) of
+    TypedFunctionType {} -> True
+    _ -> False
+
+freeExpressionValueNames :: ModuleContext -> Set ResolvedNameKey -> TypedExpr -> Set ResolvedNameKey
+freeExpressionValueNames context boundNames expression =
+  case expression of
+    TypedVariableExpr _ name -> freeName name
+    TypedLambdaExpr _ _ name body ->
+      freeExpressionValueNames context (Set.union boundNames (nameKeys [name])) body
+    TypedOperatorValueExpr _ operator -> freeOperator operator
+    TypedPatternCaseExpr _ scrutinee arms ->
+      freeExpressionValueNames context boundNames scrutinee
+        <> Set.unions
+          [ let armBoundNames =
+                  Set.union
+                    boundNames
+                    (nameKeys [name | (name, _) <- patternBoundContracts patternValue])
+             in Set.unions
+                  ( map
+                      (freeExpressionValueNames context armBoundNames)
+                      (maybeToList maybeGuard <> [result])
+                  )
+          | TypedCaseArm patternValue maybeGuard result <- arms
+          ]
+    TypedBinaryExpr _ operator left right ->
+      freeOperator operator
+        <> freeExpressionValueNames context boundNames left
+        <> freeExpressionValueNames context boundNames right
+    TypedLeftSectionExpr _ left operator ->
+      freeExpressionValueNames context boundNames left <> freeOperator operator
+    TypedRightSectionExpr _ operator right ->
+      freeOperator operator <> freeExpressionValueNames context boundNames right
+    TypedBlockExpr _ statements ->
+      let localNames =
+            nameKeys
+              [ name
+              | statement <- statements,
+                name <- statementDefinedNames statement
+              ]
+          nestedBoundNames = Set.union boundNames localNames
+       in Set.unions
+            [ freeExpressionValueNames context nestedBoundNames nestedExpression
+            | statement <- statements,
+              nestedExpression <- statementExpressions statement
+            ]
+    _ ->
+      Set.unions
+        [ freeExpressionValueNames context boundNames child
+        | child <- expressionChildren expression
+        ]
+  where
+    nameKeys names =
+      Set.fromList
+        [ key
+        | name <- names,
+          key <- maybeToList (resolvedNameKey (moduleContextPath context) name)
+        ]
+    freeName name =
+      case resolvedNameKey (moduleContextPath context) name of
+        Just key@(ResolvedNameKey _ TypedValueNamespace _)
+          | Set.notMember key boundNames -> Set.singleton key
+        Just key@(GeneratedNameKey _)
+          | Set.notMember key boundNames -> Set.singleton key
+        _ -> Set.empty
+    freeOperator operator =
+      case operator of
+        TypedBuiltinOperator _ -> Set.empty
+        TypedResolvedOperator name _ -> freeName name
+
+statementExpressions :: TypedStatement -> [TypedExpr]
+statementExpressions statement =
+  case statement of
+    TypedLetStatement _ _ _ _ expression -> [expression]
+    TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+      [expression | TypedMethodDefinition _ _ _ _ expression <- methods]
+    TypedExpressionStatement _ expression -> [expression]
+    _ -> []
+
 withTypeScope :: [TypedTypeParameterId] -> ModuleContext -> ModuleContext
 withTypeScope typeParameters context =
   context {moduleContextTypeScope = Set.union (Set.fromList typeParameters) (moduleContextTypeScope context)}
@@ -1122,12 +1338,13 @@ validateCapabilityConstraint context path scope (TypedCapabilityConstraint capab
   validateCapabilityConstraintTarget path scope targetType
     <> case matchingContracts of
       [] -> [failure path TypedInvisibleName (TypedTextDetail capability)]
-      contracts ->
+      [_] ->
         case maybeMethod of
           Nothing -> []
           Just method
-            | any (capabilityHasMethod method) contracts -> []
+            | any (capabilityHasMethod method) matchingContracts -> []
             | otherwise -> [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
+      _ -> [failure path TypedDuplicateDeclaration (TypedTextDetail capability)]
   where
     matchingContracts =
       [ contract
@@ -1292,7 +1509,7 @@ lookupImplMethodScheme context (TypedImplId _ capability _) methodKey =
 
 validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
 validateExpression context statementLocation expressionPath expression =
-  validateNodeInfo context path (moduleContextTypeScope context) (qualifiedMethodExpressionKey expression) (expressionInfo expression)
+  validateNodeInfo context path (moduleContextTypeScope context) (qualifiedMethodCandidateKey expression) (expressionInfo expression)
     <> expressionOwnedFailures
     <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
   where
@@ -1327,7 +1544,7 @@ validateExpression context statementLocation expressionPath expression =
                 blockContext = withBlockDeclarations statements context
              in validateBlockResult path info statements
                   <> duplicateDeclarationFailures blockContext locatedStatements
-                  <> concatMap (uncurry (validateStatement blockContext)) locatedStatements
+                  <> validateBlockStatementsInOrder context locatedStatements
 
 validateBlockResult :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedStatement] -> [TypedCoreValidationFailure]
 validateBlockResult path blockInfo statements =
@@ -1522,10 +1739,17 @@ validateExpressionInstantiationOwners context path expression =
 lookupSchemeByName :: ModuleContext -> TypedCoreName -> Maybe TypedScheme
 lookupSchemeByName context name = do
   expectedKey <- resolvedNameKey (moduleContextPath context) name
-  snd
-    <$> find
-      (\(owner, _) -> binderDefinitionKey owner == Just expectedKey)
-      (Map.toList (moduleContextSchemes context))
+  let matchingSchemes =
+        [ (owner, scheme)
+        | (owner, scheme) <- Map.toList (moduleContextSchemes context),
+          binderDefinitionKey owner == Just expectedKey
+        ]
+  case reverse (sortOn (binderScopeRank . fst) matchingSchemes) of
+    (_, scheme) : _ -> Just scheme
+    [] -> Nothing
+
+binderScopeRank :: TypedBinderId -> (Int, [Int])
+binderScopeRank (TypedBinderId (_, lexicalPath, _)) = (length lexicalPath, lexicalPath)
 
 binderDefinitionKey :: TypedBinderId -> Maybe ResolvedNameKey
 binderDefinitionKey (TypedBinderId (modulePath, _, name)) = definitionNameKey modulePath name
@@ -2221,6 +2445,12 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
           | ownerPath == moduleContextPath context = typeValue
           | otherwise = qualifyExternalType ownerPath typeValue
 
+qualifiedMethodCandidateKey :: TypedExpr -> Maybe Text
+qualifiedMethodCandidateKey expression =
+  case nodeType (expressionInfo expression) of
+    TypedFunctionType {} -> qualifiedMethodExpressionKey expression
+    _ -> Nothing
+
 qualifiedMethodExpressionKey :: TypedExpr -> Maybe Text
 qualifiedMethodExpressionKey expression =
   case expression of
@@ -2296,13 +2526,19 @@ evidenceParameterRefId :: TypedEvidenceParameterRef -> TypedEvidenceParameterId
 evidenceParameterRefId (TypedEvidenceParameterRef _ parameterId) = parameterId
 
 duplicateEvidenceUseFailures :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
-duplicateEvidenceUseFailures path selections = snd (foldl' step (Set.empty, []) parameterIds)
+duplicateEvidenceUseFailures path selections =
+  snd (foldl' parameterStep (Set.empty, []) parameterRefs)
+    <> snd (foldl' constraintStep (Set.empty, []) unboundConstraints)
   where
-    parameterIds =
+    parameterRefs =
       [ parameterRef
       | TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) _ _ _) <- selections
       ]
-    step (seen, failures) parameterRef
+    unboundConstraints =
+      [ constraint
+      | TypedSelectedEvidence (TypedEvidenceUse Nothing constraint _ _) <- selections
+      ]
+    parameterStep (seen, failures) parameterRef
       | Set.member parameterRef seen =
           ( seen,
             failures
@@ -2313,6 +2549,23 @@ duplicateEvidenceUseFailures path selections = snd (foldl' step (Set.empty, []) 
                  ]
           )
       | otherwise = (Set.insert parameterRef seen, failures)
+    constraintStep (seen, failures) constraint
+      | Set.member constraint seen =
+          ( seen,
+            failures
+              <> [ failure
+                     path
+                     TypedDuplicateEvidence
+                     (TypedTextDetail (capabilityConstraintLabel constraint))
+                 ]
+          )
+      | otherwise = (Set.insert constraint seen, failures)
+
+capabilityConstraintLabel :: TypedCapabilityConstraint -> Text
+capabilityConstraintLabel (TypedCapabilityConstraint capability maybeMethod _) =
+  case maybeMethod of
+    Just method -> method
+    Nothing -> capability
 
 validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceUse -> [TypedCoreValidationFailure]
 validateEvidenceUse context path (TypedEvidenceUse _ (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
