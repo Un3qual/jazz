@@ -12,6 +12,7 @@ where
 import Data.List (find, nub, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Ratio ((%))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -26,6 +27,7 @@ import JazzNext.Compiler.BuiltinCatalog
     isKernelBuiltinSymbolName,
     lookupBuiltinSymbol,
     lookupKernelBuiltinSymbol,
+    numericTypeFloatMax,
   )
 import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.Name (operatorBindingIdentifierText)
@@ -504,9 +506,19 @@ requiredDataIdentifiers :: ([Text], Maybe [Text], TypedModule) -> Set Text
 requiredDataIdentifiers visibleModule =
   Set.fromList
     [ identifier
-    | (_, scheme) <- interfaceSchemeEntries visibleModule,
+    | scheme <-
+        map snd (interfaceSchemeEntries visibleModule)
+          <> interfaceCapabilitySchemes visibleModule,
       identifier <- schemeDataTypeIdentifiers scheme
     ]
+
+interfaceCapabilitySchemes :: ([Text], Maybe [Text], TypedModule) -> [TypedScheme]
+interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
+  [ scheme
+  | TypedClassInterface (TypedClassDeclaration _ name _ methods) <- classes,
+    interfaceCapabilityIncluded visibleModule name methods,
+    TypedMethodSignature _ _ scheme <- methods
+  ]
 
 schemeDataTypeIdentifiers :: TypedScheme -> [Text]
 schemeDataTypeIdentifiers (TypedScheme _ _ evidence primitive resultType _) =
@@ -1045,12 +1057,14 @@ integralLiteralConstraintAcceptsType lowerText upperText typeValue =
 parseDecimalBound :: Text -> Maybe Integer
 parseDecimalBound value =
   case Text.uncons value of
-    Just ('-', digits) -> negate <$> parseMagnitude digits
-    _ -> parseMagnitude value
+    Just ('-', digits) -> negate <$> parseDecimalMagnitude digits
+    _ -> parseDecimalMagnitude value
+
+parseDecimalMagnitude :: Text -> Maybe Integer
+parseDecimalMagnitude digits
+  | Text.null digits || Text.any (not . asciiDigit) digits = Nothing
+  | otherwise = Just (Text.foldl' accumulate 0 digits)
   where
-    parseMagnitude digits
-      | Text.null digits || Text.any (not . asciiDigit) digits = Nothing
-      | otherwise = Just (Text.foldl' accumulate 0 digits)
     asciiDigit character = character >= '0' && character <= '9'
     accumulate result character =
       result * 10 + toInteger (fromEnum character - fromEnum '0')
@@ -1156,6 +1170,7 @@ validateDataDeclaration context path (TypedDataDeclaration _ name parameters con
 validateClassDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedClassDeclaration -> [TypedCoreValidationFailure]
 validateClassDeclaration context path (TypedClassDeclaration _ name parameters methods) =
   validateLocalDefinitionName context [TypedCapabilityNamespace] path name
+    <> visibleClassCollisionFailures context path name
     <> (if length parameters == 1 then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 (length parameters))])
     <> validateOrderedTypeParameters path parameters
     <> concatMap validateMethod methods
@@ -1170,6 +1185,26 @@ validateClassDeclaration context path (TypedClassDeclaration _ name parameters m
        in if obligationCount == 0
             then []
             else [failure path TypedBindingValueMismatch (TypedArityDetail 0 obligationCount)]
+
+visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
+visibleClassCollisionFailures context path name =
+  case localCapabilityIdentifier of
+    Just identifier
+      | any (externalCapabilityMatches identifier) (Map.keys (moduleContextCapabilityContracts context)) ->
+          [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
+    _ -> []
+  where
+    localCapabilityIdentifier =
+      case name of
+        TypedResolvedName TypedCurrentModule TypedCapabilityNamespace identifier -> Just identifier
+        TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace identifier
+          | moduleContextPath context == ["Prelude"] -> Just identifier
+        _ -> Nothing
+    externalCapabilityMatches identifier key =
+      case key of
+        ResolvedNameKey modulePath TypedCapabilityNamespace candidate ->
+          modulePath /= moduleContextPath context && candidate == identifier
+        _ -> False
 
 validateImplDeclaration :: ModuleContext -> [Int] -> TypedCoreValidationPath -> TypedImplDeclaration -> [TypedCoreValidationFailure]
 validateImplDeclaration context statementLocation path (TypedImplDeclaration _ implId methods) =
@@ -1323,10 +1358,15 @@ literalMatchesType literal typeValue =
     (TypedIntegerLiteral value, TypedNumericType numericType) ->
       not (isFloatingNumericType numericType)
         && integerLiteralFitsType value typeValue
-    (TypedFractionalLiteral _ _ Nothing, TypedFloatType) -> True
-    (TypedFractionalLiteral _ _ Nothing, TypedNumericType numericType) -> isFloatingNumericType numericType
-    (TypedFractionalLiteral _ _ (Just expectedType), TypedNumericType actualType) ->
-      expectedType == actualType && isFloatingNumericType actualType
+    (TypedFractionalLiteral whole fractional Nothing, TypedFloatType) ->
+      fractionalLiteralFitsNumericType whole fractional NumericFloat64
+    (TypedFractionalLiteral whole fractional Nothing, TypedNumericType numericType) ->
+      isFloatingNumericType numericType
+        && fractionalLiteralFitsNumericType whole fractional (numericTypeFromTyped numericType)
+    (TypedFractionalLiteral whole fractional (Just expectedType), TypedNumericType actualType) ->
+      expectedType == actualType
+        && isFloatingNumericType actualType
+        && fractionalLiteralFitsNumericType whole fractional (numericTypeFromTyped actualType)
     (TypedBooleanLiteral _, TypedBoolType) -> True
     (TypedCharacterLiteral _, TypedCharType) -> True
     (TypedTextLiteral _, TypedTextType) -> True
@@ -1338,6 +1378,30 @@ integerLiteralFitsType value typeValue =
     (Just parsedValue, Just (minimumValue, maximumValue)) ->
       minimumValue <= parsedValue && parsedValue <= maximumValue
     _ -> False
+
+fractionalLiteralFitsNumericType :: Text -> Text -> NumericType -> Bool
+fractionalLiteralFitsNumericType whole fractional numericType =
+  case (parseDecimalBound whole, parseDecimalMagnitude fractional, numericTypeFloatMax numericType) of
+    (Just wholeValue, Just fractionalValue, Just maximumMagnitude) ->
+      let scale = 10 ^ Text.length fractional
+          magnitude = ((abs wholeValue * scale) + fractionalValue) % scale
+       in magnitude <= toRational maximumMagnitude
+    _ -> False
+
+numericTypeFromTyped :: TypedNumericType -> NumericType
+numericTypeFromTyped numericType =
+  case numericType of
+    TypedInt8Type -> NumericInt8
+    TypedInt16Type -> NumericInt16
+    TypedInt32Type -> NumericInt32
+    TypedInt64Type -> NumericInt64
+    TypedUInt8Type -> NumericUInt8
+    TypedUInt16Type -> NumericUInt16
+    TypedUInt32Type -> NumericUInt32
+    TypedUInt64Type -> NumericUInt64
+    TypedFloat16Type -> NumericFloat16
+    TypedFloat32Type -> NumericFloat32
+    TypedFloat64Type -> NumericFloat64
 
 literalType :: TypedLiteral -> TypedType
 literalType literal =

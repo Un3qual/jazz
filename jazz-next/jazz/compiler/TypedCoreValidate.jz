@@ -910,6 +910,27 @@ module TypedCoreValidate (
   decimalValueWithin = \(minimumValue, value, maximumValue) ->
     if decimalValueAtMost minimumValue value then decimalValueAtMost value maximumValue else False.
 
+  floatingNumericMaximumWholeDigits :: TypedNumericType -> Maybe([Char]).
+  floatingNumericMaximumWholeDigits = \(numericType) -> case numericType {
+    | TypedFloat16Type -> Just (textToChars "65504")
+    | TypedFloat32Type -> Just (textToChars "340282346638528859811704183484516925440")
+    | TypedFloat64Type -> Just (textToChars "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368")
+    | other -> Nothing
+  }.
+
+  fractionalLiteralFitsNumericType :: Text -> Text -> TypedNumericType -> Bool.
+  fractionalLiteralFitsNumericType = \(whole, fractional, numericType) -> case (decimalValueParts whole, floatingNumericMaximumWholeDigits numericType) {
+    | (Just (_, wholeMagnitude), Just maximumMagnitude) -> {
+      fractionalDigits = textToChars fractional.
+      if decimalDigitsValid fractionalDigits then
+        if decimalMagnitudeAtMost wholeMagnitude maximumMagnitude then
+          if decimalMagnitudeAtMost maximumMagnitude wholeMagnitude then decimalDigitsZero fractionalDigits else True
+        else False
+      else False.
+    }
+    | other -> False
+  }.
+
   integralLiteralTextFitsType :: Text -> TypedType -> Bool.
   integralLiteralTextFitsType = \(value, typeValue) -> case typeValue {
     | TypedIntType -> decimalValueWithin "-9223372036854775808" value "9223372036854775807"
@@ -1852,10 +1873,13 @@ module TypedCoreValidate (
   literalMatchesType = \(literal, typeValue) -> case (literal, typeValue) {
     | (TypedIntegerLiteral value, TypedIntType) -> integerLiteralFitsType value typeValue
     | (TypedIntegerLiteral value, TypedNumericType numericType) -> if numericTypeIsFloat numericType then False else integerLiteralFitsType value typeValue
-    | (TypedFractionalLiteral whole fractional suffix, TypedFloatType) -> case suffix { | Nothing -> True | Just expectedType -> False }
+    | (TypedFractionalLiteral whole fractional suffix, TypedFloatType) -> case suffix {
+      | Nothing -> fractionalLiteralFitsNumericType whole fractional TypedFloat64Type
+      | Just expectedType -> False
+    }
     | (TypedFractionalLiteral whole fractional suffix, TypedNumericType actualType) -> case suffix {
-      | Nothing -> numericTypeIsFloat actualType
-      | Just expectedType -> if numericTypeEqual expectedType actualType then numericTypeIsFloat actualType else False
+      | Nothing -> if numericTypeIsFloat actualType then fractionalLiteralFitsNumericType whole fractional actualType else False
+      | Just expectedType -> if numericTypeEqual expectedType actualType then if numericTypeIsFloat actualType then fractionalLiteralFitsNumericType whole fractional actualType else False else False
     }
     | (TypedBooleanLiteral value, TypedBoolType) -> True
     | (TypedCharacterLiteral value, TypedCharType) -> True
@@ -3632,10 +3656,34 @@ module TypedCoreValidate (
     }
   }.
 
+  externalCapabilityIdentifierPresent :: [Text] -> Text -> [DataEntry] -> Bool.
+  externalCapabilityIdentifierPresent = \(currentModulePath, expectedIdentifier, entries) -> case entries {
+    | [] -> False
+    | [first | rest] -> case first {
+      | CapabilityEntry candidatePath candidateIdentifier parameters methods ->
+        if textListEqual candidatePath currentModulePath then externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+        else if candidateIdentifier == expectedIdentifier then True
+        else externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+      | other -> externalCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
+    }
+  }.
+
+  visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
+  visibleClassCollisionFailures = \(context, path, name) -> case (context, name) {
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedCurrentModule TypedCapabilityNamespace identifier) ->
+      if externalCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace identifier) ->
+      if textListEqual modulePath ["Prelude"] then
+        if externalCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+      else []
+    | other -> []
+  }.
+
   validateClassDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedClassDeclaration -> [TypedCoreValidationFailure].
   validateClassDeclaration = \(context, path, declaration) -> case declaration {
     | TypedClassDeclaration span name parameters methods -> listConcat
       [ validateLocalDefinitionName context [TypedCapabilityNamespace] path name,
+        visibleClassCollisionFailures context path name,
         if listLength parameters == 1 then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 (listLength parameters))],
         validateOrderedTypeParameters path parameters,
         validateMethodSignatures context path parameters methods
@@ -4320,6 +4368,17 @@ module TypedCoreValidate (
     if directlyImported then True else if methodInterfaceImported selectedNames exports methods then True else required.
   }.
 
+  includedCapabilitySchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [SchemeEntry].
+  includedCapabilitySchemeEntries = \(selectedNames, exports, requiredCapabilities, classes) -> case classes {
+    | [] -> []
+    | [TypedClassInterface declaration | rest] -> case declaration {
+      | TypedClassDeclaration span name parameters methods ->
+        if interfaceCapabilityIncluded selectedNames exports requiredCapabilities name methods then
+          listAppend (methodSchemeEntries methods) (includedCapabilitySchemeEntries selectedNames exports requiredCapabilities rest)
+        else includedCapabilitySchemeEntries selectedNames exports requiredCapabilities rest
+    }
+  }.
+
   classInterfaceNameEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [NameEntry] -> [NameEntry].
   classInterfaceNameEntries = \(modulePath, selectedNames, exports, requiredCapabilities, classes, entries) -> case classes {
     | [] -> entries
@@ -4519,8 +4578,10 @@ module TypedCoreValidate (
     | VisibleModule selectedNames moduleValue -> case moduleValue {
       | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
-          requiredDataIdentifiers = schemeEntryDataTypeIdentifiers (interfaceSchemeEntries visibleModule).
-          requiredCapabilities = schemeEntryCapabilityIdentifiers (interfaceSchemeEntries visibleModule).
+          selectedSchemeEntries = interfaceSchemeEntries visibleModule.
+          requiredCapabilities = schemeEntryCapabilityIdentifiers selectedSchemeEntries.
+          capabilitySchemeEntries = includedCapabilitySchemeEntries selectedNames exports requiredCapabilities classes.
+          requiredDataIdentifiers = schemeEntryDataTypeIdentifiers (listAppend selectedSchemeEntries capabilitySchemeEntries).
           listConcat
             [ interfaceDataEntriesFrom modulePath selectedNames exports requiredDataIdentifiers datas,
               interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities classes,

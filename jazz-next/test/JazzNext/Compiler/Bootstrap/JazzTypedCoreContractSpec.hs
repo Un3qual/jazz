@@ -92,6 +92,9 @@ tests =
     ("enforces latest bot-reviewed typed-core contracts", testLatestBotReviewRegressions),
     ("enforces newest bot-reviewed typed-core contracts", testNewestBotReviewRegressions),
     ("enforces post-newest bot-reviewed typed-core contracts", testPostNewestBotReviewRegressions),
+    ("checks fractional literals against their selected floating widths", testFractionalLiteralBounds),
+    ("rejects local classes that collide with visible classes", testVisibleClassCollisions),
+    ("retains method data metadata for selective class imports", testSelectedClassDataDependency),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -432,7 +435,10 @@ reviewRegressionPrograms =
     laterOrPatternBinderCollisionProgram,
     concreteIntegerBoundsProgram,
     incompleteImplProgram,
-    duplicateInstantiationProgram
+    duplicateInstantiationProgram,
+    fractionalLiteralBoundsProgram,
+    visibleClassCollisionProgram,
+    selectedClassDataDependencyProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1783,6 +1789,57 @@ testPostNewestBotReviewRegressions = do
         (TypedBinderDetail duplicateInstantiationOwner)
     ]
     (validateTypedProgram duplicateInstantiationProgram)
+
+testFractionalLiteralBounds :: IO ()
+testFractionalLiteralBounds =
+  assertEqual
+    "fractional literals fit their selected floating widths"
+    [ expressionFailureAt
+        "review-fractional-literal-bounds"
+        1
+        TypedLiteralTypeMismatch
+        (TypedTypeDetail (TypedNumericType TypedFloat16Type) (TypedNumericType TypedFloat16Type)),
+      expressionFailureAt
+        "review-fractional-literal-bounds"
+        2
+        TypedLiteralTypeMismatch
+        (TypedTypeDetail (TypedNumericType TypedFloat16Type) (TypedNumericType TypedFloat16Type)),
+      expressionFailureAt
+        "review-fractional-literal-bounds"
+        4
+        TypedLiteralTypeMismatch
+        (TypedTypeDetail (TypedNumericType TypedFloat32Type) (TypedNumericType TypedFloat32Type)),
+      expressionFailureAt
+        "review-fractional-literal-bounds"
+        6
+        TypedLiteralTypeMismatch
+        (TypedTypeDetail (TypedNumericType TypedFloat64Type) (TypedNumericType TypedFloat64Type))
+    ]
+    (validateTypedProgram fractionalLiteralBoundsProgram)
+
+testVisibleClassCollisions :: IO ()
+testVisibleClassCollisions =
+  assertEqual
+    "local classes do not collide with visible Prelude or imported classes"
+    [ statementFailure
+        "review-visible-class-collision"
+        0
+        TypedDuplicateDeclaration
+        (TypedNameDetail visibleClassCollisionPreludeName),
+      statementFailure
+        "review-visible-class-collision"
+        1
+        TypedDuplicateDeclaration
+        (TypedNameDetail visibleClassCollisionImportedName)
+    ]
+    (validateTypedProgram visibleClassCollisionProgram)
+
+testSelectedClassDataDependency :: IO ()
+testSelectedClassDataDependency =
+  assertEqual
+    "selective class imports retain data metadata used by method contracts"
+    []
+    (validateTypedProgram selectedClassDataDependencyProgram)
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =
@@ -3275,6 +3332,201 @@ duplicateInstantiationProgram =
           scheme,
         expressionStatement 2 expression
       ]
+
+fractionalLiteralBoundsProgram :: TypedProgram
+fractionalLiteralBoundsProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [ expressionStatement 1 (fractionalExpression TypedFloat16Type 16 "65504" "0"),
+      expressionStatement 2 (fractionalExpression TypedFloat16Type 16 "65504" "1"),
+      expressionStatement 3 (fractionalExpression TypedFloat16Type 16 "-65504" "1"),
+      expressionStatement 4 (fractionalExpression TypedFloat32Type 32 float32Maximum "0"),
+      expressionStatement 5 (fractionalExpression TypedFloat32Type 32 float32Maximum "1"),
+      expressionStatement 6 (fractionalExpression TypedFloat64Type 64 float64Maximum "0"),
+      expressionStatement 7 (fractionalExpression TypedFloat64Type 64 float64Maximum "1")
+    ]
+    emptyInterface
+    (floatInfo TypedFloat64Type 64)
+    ["Fixture", fixture]
+  where
+    fixture = "review-fractional-literal-bounds"
+    float32Maximum =
+      "340282346638528859811704183484516925440"
+    float64Maximum =
+      "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"
+    floatInfo numericType width =
+      info
+        (TypedNumericType numericType)
+        (TypedFloatRecipe width)
+    fractionalExpression numericType width whole fractional =
+      TypedLiteralExpr
+        (floatInfo numericType width)
+        (TypedFractionalLiteral whole fractional (Just numericType))
+
+visibleClassCollisionPreludeName :: TypedCoreName
+visibleClassCollisionPreludeName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+
+visibleClassCollisionImportedName :: TypedCoreName
+visibleClassCollisionImportedName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+
+visibleClassCollisionProgram :: TypedProgram
+visibleClassCollisionProgram =
+  TypedProgram (Just fixturePrelude) [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "VisibleClass"]
+    entryPath = ["Fixture", "review-visible-class-collision"]
+    parameter = TypedTypeParameterId 0
+    libraryClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+    libraryDeclaration =
+      TypedClassDeclaration span1 libraryClassName [parameter] []
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/VisibleClass.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Visible"]
+        (TypedModuleInterface [] [] [TypedClassInterface libraryDeclaration] [])
+        [TypedClassStatement libraryDeclaration]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["Visible"])]
+        []
+        emptyInterface
+        [ TypedClassStatement
+            ( TypedClassDeclaration
+                span1
+                visibleClassCollisionPreludeName
+                [parameter]
+                []
+            ),
+          TypedClassStatement
+            ( TypedClassDeclaration
+                span1
+                visibleClassCollisionImportedName
+                [parameter]
+                []
+            ),
+          expressionStatement 3 trueExpr
+        ]
+        boolInfo
+
+selectedClassDataDependencyProgram :: TypedProgram
+selectedClassDataDependencyProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "SelectedClassData"]
+    entryPath = ["Fixture", "review-selected-class-data-dependency"]
+    dataName =
+      resolved TypedCurrentModule TypedTypeNamespace "Box"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Box"
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder libraryPath [0, 0] constructorName)
+            constructorName
+            []
+            []
+        ]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "RoundTrip"
+    methodName =
+      resolved TypedCurrentModule TypedValueNamespace "roundTrip"
+    classParameter = TypedTypeParameterId 0
+    localBoxType = TypedDataType dataName []
+    localBoxRecipe = TypedManagedVariantRecipe dataName []
+    methodOwner = binder libraryPath [1, 0] methodName
+    methodScheme =
+      TypedScheme
+        methodOwner
+        []
+        []
+        []
+        (TypedFunctionType localBoxType localBoxType)
+        (TypedClosureRecipe [localBoxRecipe] localBoxRecipe)
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [classParameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/SelectedClassData.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "RoundTrip"]
+        ( TypedModuleInterface
+            []
+            [TypedDataInterface dataDeclaration]
+            [TypedClassInterface classDeclaration]
+            []
+        )
+        [ TypedDataStatement dataDeclaration,
+          TypedClassStatement classDeclaration
+        ]
+        unitInfo
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule libraryPath)
+        TypedCapabilityNamespace
+        "RoundTrip"
+    importedDataName =
+      resolved
+        (TypedImportedModule libraryPath)
+        TypedTypeNamespace
+        "Box"
+    importedBoxType = TypedDataType importedDataName []
+    importedBoxRecipe = TypedManagedVariantRecipe importedDataName []
+    methodType = TypedFunctionType importedBoxType importedBoxType
+    methodRecipe = TypedClosureRecipe [importedBoxRecipe] importedBoxRecipe
+    methodInfo = info methodType methodRecipe
+    implId = TypedImplId entryPath importedCapabilityName [TypedBoolType]
+    localMethodName =
+      resolved TypedCurrentModule TypedValueNamespace "roundTrip"
+    methodBinder = binder entryPath [0, 0] localMethodName
+    parameterName =
+      resolved TypedCurrentModule TypedValueNamespace "value"
+    parameterBinder = binder entryPath [0, 0, 0] parameterName
+    body =
+      TypedVariableExpr
+        (info importedBoxType importedBoxRecipe)
+        parameterName
+    methodBody =
+      TypedLambdaExpr
+        methodInfo
+        parameterBinder
+        parameterName
+        body
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "roundTrip")
+        methodBinder
+        localMethodName
+        span1
+        methodBody
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["RoundTrip"])]
+        []
+        emptyInterface
+        [ TypedImplStatement
+            (TypedImplDeclaration span1 implId [methodDefinition])
+        ]
+        unitInfo
 
 selectedValueDataMetadataProgram :: TypedProgram
 selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
