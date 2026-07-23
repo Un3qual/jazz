@@ -508,6 +508,8 @@ module TypedCoreValidate (
   validateCoreName = \(path, name) -> case name {
     | TypedUnresolvedSourceName source -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     | TypedUnresolvedQualifiedName qualifier member -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+    | TypedResolvedName origin namespace identifier ->
+      if textIsEmpty identifier then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
     | other -> []
   }.
 
@@ -1416,9 +1418,8 @@ module TypedCoreValidate (
     | TypedSelectedEvidence evidenceUse -> validateEvidenceUse context path evidenceUse
     | TypedEvidenceCandidates constraint candidates -> case constraint {
       | TypedCapabilityConstraint capability method targetType -> if listLength candidates == 0 then [failure path TypedMissingEvidence (TypedTextDetail capability)] else
-        if listLength candidates > 1 then if qualifiedMethodCandidates capability method qualifiedMethodKey then validateEvidenceCandidates context path constraint candidates else
+        if qualifiedMethodCandidates capability method qualifiedMethodKey then validateEvidenceCandidates context path constraint candidates else
           [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength candidates))]
-        else validateEvidenceCandidates context path constraint candidates
     }
   }.
 
@@ -2955,24 +2956,33 @@ module TypedCoreValidate (
     | other -> []
   }.
 
-  validateInstantiationOwnersFrom :: ModuleContext -> TypedCoreValidationPath -> [TypedBinderId] -> [TypedInstantiation] -> [TypedCoreValidationFailure].
-  validateInstantiationOwnersFrom = \(context, path, allowedOwners, instantiations) -> case (context, instantiations) {
+  validateInstantiationOwnersFrom :: ModuleContext -> TypedCoreValidationPath -> Bool -> Maybe(TypedSpan) -> [TypedBinderId] -> [TypedInstantiation] -> [TypedCoreValidationFailure].
+  validateInstantiationOwnersFrom = \(context, path, allowAnyExplicitSpan, parentExplicitSpan, allowedOwners, instantiations) -> case (context, instantiations) {
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, []) -> []
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, [TypedInstantiation owner arguments maybeSpan | rest]) -> listAppend
       (case lookupInstantiationContract owner schemes dataEntries {
         | Nothing -> []
-        | Just contract -> if binderIdMember owner allowedOwners then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+        | Just contract ->
+          if binderIdMember owner allowedOwners then
+            if allowAnyExplicitSpan then [] else case maybeSpan {
+              | Nothing -> []
+              | Just explicitSpan -> case parentExplicitSpan {
+                | Just expectedSpan -> if spanEqual expectedSpan explicitSpan then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+                | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+              }
+            }
+          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       })
-      (validateInstantiationOwnersFrom context path allowedOwners rest)
+      (validateInstantiationOwnersFrom context path allowAnyExplicitSpan parentExplicitSpan allowedOwners rest)
   }.
 
-  validateExpressionInstantiationOwners :: ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure].
-  validateExpressionInstantiationOwners = \(context, path, expression) -> case expression {
+  validateExpressionInstantiationOwners :: Maybe(TypedSpan) -> ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure].
+  validateExpressionInstantiationOwners = \(parentExplicitSpan, context, path, expression) -> case expression {
     | TypedTypeApplicationExpr info function span typeArgument -> case bindingExpressionInstantiationOwners context function {
       | [] -> []
-      | owners -> validateInstantiationOwnersFrom context path owners (nodeInstantiations info)
+      | owners -> validateInstantiationOwnersFrom context path True Nothing owners (nodeInstantiations info)
     }
-    | other -> validateInstantiationOwnersFrom context path (expressionInstantiationOwners context expression) (nodeInstantiations (expressionInfo expression))
+    | other -> validateInstantiationOwnersFrom context path False parentExplicitSpan (expressionInstantiationOwners context expression) (nodeInstantiations (expressionInfo expression))
   }.
 
   validateTypeApplicationResultContract :: [Text] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedScheme -> [TypedCoreValidationFailure].
@@ -3721,34 +3731,38 @@ module TypedCoreValidate (
   }.
 
   validateExpression :: ModuleContext -> Int -> [Int] -> TypedExpr -> [TypedCoreValidationFailure].
-  validateExpression = \(context, statementIndex, expressionPath, expression) -> case context {
+  validateExpression = \(context, statementIndex, expressionPath, expression) ->
+    validateExpressionWithParentSpan context statementIndex expressionPath Nothing expression.
+
+  validateExpressionWithParentSpan :: ModuleContext -> Int -> [Int] -> Maybe(TypedSpan) -> TypedExpr -> [TypedCoreValidationFailure].
+  validateExpressionWithParentSpan = \(context, statementIndex, expressionPath, parentExplicitSpan, expression) -> case context {
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> {
       path = TypedExpressionPath modulePath statementIndex expressionPath.
       childFailures = case expression {
-        | TypedLambdaExpr info binder name body -> validateExpression (withLambdaContract info name context) statementIndex (listAppend expressionPath [0]) body
+        | TypedLambdaExpr info binder name body -> validateExpressionWithParentSpan (withLambdaContract info name context) statementIndex (listAppend expressionPath [0]) Nothing body
         | TypedListExpr info expressions -> listConcat (listMap (\(indexed) -> case indexed {
-          | (index, child) -> validateExpression context statementIndex (listAppend expressionPath [index]) child
+          | (index, child) -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [index]) Nothing child
         }) (listIndexed expressions))
         | TypedTupleExpr info expressions -> listConcat (listMap (\(indexed) -> case indexed {
-          | (index, child) -> validateExpression context statementIndex (listAppend expressionPath [index]) child
+          | (index, child) -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [index]) Nothing child
         }) (listIndexed expressions))
         | TypedApplyExpr info function argument -> listAppend
-          (validateExpression context statementIndex (listAppend expressionPath [0]) function)
-          (validateExpression context statementIndex (listAppend expressionPath [1]) argument)
-        | TypedTypeApplicationExpr info function span typeArgument -> validateExpression context statementIndex (listAppend expressionPath [0]) function
+          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) parentExplicitSpan function)
+          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [1]) Nothing argument)
+        | TypedTypeApplicationExpr info function span typeArgument -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) (Just span) function
         | TypedIfExpr info condition thenExpression elseExpression -> listConcat
-          [ validateExpression context statementIndex (listAppend expressionPath [0]) condition,
-            validateExpression context statementIndex (listAppend expressionPath [1]) thenExpression,
-            validateExpression context statementIndex (listAppend expressionPath [2]) elseExpression
+          [ validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) Nothing condition,
+            validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [1]) Nothing thenExpression,
+            validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [2]) Nothing elseExpression
           ]
         | TypedPatternCaseExpr info scrutinee arms -> listAppend
-          (validateExpression context statementIndex (listAppend expressionPath [0]) scrutinee)
+          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) Nothing scrutinee)
           (validateCaseChildExpressions context statementIndex expressionPath arms 1)
         | TypedBinaryExpr info operator left right -> listAppend
-          (validateExpression context statementIndex (listAppend expressionPath [0]) left)
-          (validateExpression context statementIndex (listAppend expressionPath [1]) right)
-        | TypedLeftSectionExpr info left operator -> validateExpression context statementIndex (listAppend expressionPath [0]) left
-        | TypedRightSectionExpr info operator right -> validateExpression context statementIndex (listAppend expressionPath [0]) right
+          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) Nothing left)
+          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [1]) Nothing right)
+        | TypedLeftSectionExpr info left operator -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) Nothing left
+        | TypedRightSectionExpr info operator right -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) Nothing right
         | TypedBlockExpr info statements ->
           listAppend
             (duplicateBlockDeclarationFailures (withBlockDeclarations statements context) statementIndex expressionPath statements)
@@ -3757,7 +3771,7 @@ module TypedCoreValidate (
       }.
       listConcat
         [ validateNodeInfo context path typeScope (qualifiedMethodCandidateKey expression) (expressionInfo expression),
-          validateExpressionInstantiationOwners context path expression,
+          validateExpressionInstantiationOwners parentExplicitSpan context path expression,
           validateExpressionOwned context statementIndex expressionPath path expression,
           childFailures
         ].
@@ -4782,6 +4796,36 @@ module TypedCoreValidate (
   importCycleFailures = \(completeModules) ->
     importCycleFailuresFrom completeModules completeModules.
 
+  moduleOrderFailuresForImports :: [TypedModule] -> [[Text]] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
+  moduleOrderFailuresForImports = \(completeModules, precedingPaths, modulePath, imports, seenImports) -> case imports {
+    | [] -> []
+    | [TypedResolvedImport span importPath alias names | rest] ->
+      if modulePathMember importPath seenImports then
+        moduleOrderFailuresForImports completeModules precedingPaths modulePath rest seenImports
+      else
+        listAppend
+          (case findModule importPath completeModules {
+            | Nothing -> []
+            | Just importedModule ->
+              if modulePathMember importPath precedingPaths then [] else
+                if modulePathReachable completeModules [] importPath modulePath then [] else
+                  [failure (TypedModulePath modulePath) TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
+          })
+          (moduleOrderFailuresForImports completeModules precedingPaths modulePath rest (listPrepend importPath seenImports))
+  }.
+
+  moduleOrderFailuresFrom :: [TypedModule] -> [[Text]] -> [TypedModule] -> [TypedCoreValidationFailure].
+  moduleOrderFailuresFrom = \(completeModules, precedingPaths, remainingModules) -> case remainingModules {
+    | [] -> []
+    | [first | rest] -> listAppend
+      (moduleOrderFailuresForImports completeModules precedingPaths (typedModulePath first) (typedModuleImports first) [])
+      (moduleOrderFailuresFrom completeModules (listPrepend (typedModulePath first) precedingPaths) rest)
+  }.
+
+  moduleOrderFailures :: [TypedModule] -> [TypedCoreValidationFailure].
+  moduleOrderFailures = \(completeModules) ->
+    moduleOrderFailuresFrom completeModules [] completeModules.
+
   selectedImportNamePresentInExports :: Text -> TypedModuleInterface -> [TypedModuleExport] -> Bool.
   selectedImportNamePresentInExports = \(selectedName, interface, exports) -> case exports {
     | [] -> False
@@ -5424,6 +5468,7 @@ module TypedCoreValidate (
       listConcat
         [ duplicateModuleFailuresFrom completeModules [] [],
           importCycleFailures completeModules,
+          moduleOrderFailures completeModules,
           if modulePathMember entryModule paths then [] else [failure TypedProgramPath TypedUnknownEntryModule (TypedTextDetail (modulePathText entryModule))],
           validatePrelude completeModules prelude,
           validateModules completeModules prelude modules

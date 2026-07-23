@@ -73,6 +73,7 @@ validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
   duplicateModuleFailures allModules
     <> importCycleFailures moduleTable allModules
+    <> moduleOrderFailures moduleTable allModules
     <> unknownEntryFailure
     <> maybe [] (validateModule moduleTable prelude True) prelude
     <> concatMap (validateModule moduleTable prelude False) modules
@@ -111,6 +112,22 @@ modulePathReachable moduleTable seen currentPath targetPath
           any
             (\(TypedResolvedImport _ nextPath _ _) -> modulePathReachable moduleTable (Set.insert currentPath seen) nextPath targetPath)
             imports
+
+moduleOrderFailures :: Map [Text] TypedModule -> [TypedModule] -> [TypedCoreValidationFailure]
+moduleOrderFailures moduleTable = go Set.empty
+  where
+    go _ [] = []
+    go precedingPaths (TypedModule modulePath _ imports _ _ _ _ : remainingModules) =
+      [ failure
+          (TypedModulePath modulePath)
+          TypedModuleInterfaceMismatch
+          (TypedTextDetail (renderModulePath importPath))
+      | importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
+        Map.member importPath moduleTable,
+        Set.notMember importPath precedingPaths,
+        not (modulePathReachable moduleTable Set.empty importPath modulePath)
+      ]
+        <> go (Set.insert modulePath precedingPaths) remainingModules
 
 validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedModule -> [TypedCoreValidationFailure]
 validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
@@ -1588,16 +1605,33 @@ lookupImplMethodScheme context (TypedImplId _ capability _) methodKey =
       Right (fmap (\scheme -> (parameters, scheme)) (Map.lookup methodKey methods))
 
 validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
-validateExpression context statementLocation expressionPath expression =
+validateExpression context statementLocation expressionPath =
+  validateExpressionWithParentSpan context statementLocation expressionPath Nothing
+
+validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Maybe TypedSpan -> TypedExpr -> [TypedCoreValidationFailure]
+validateExpressionWithParentSpan context statementLocation expressionPath parentExplicitSpan expression =
   validateNodeInfo context path (moduleContextTypeScope context) (qualifiedMethodCandidateKey expression) (expressionInfo expression)
     <> expressionOwnedFailures
     <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
   where
     statementIndex = statementIndexFor context statementLocation
     path = TypedExpressionPath (moduleContextPath context) statementIndex expressionPath
-    validateChild childIndex (childContext, child) = validateExpression childContext statementLocation (expressionPath <> [childIndex]) child
+    validateChild childIndex (childContext, child) =
+      validateExpressionWithParentSpan
+        childContext
+        statementLocation
+        (expressionPath <> [childIndex])
+        (childExplicitSpan childIndex)
+        child
+    childExplicitSpan childIndex =
+      case expression of
+        TypedTypeApplicationExpr _ _ explicitSpan _
+          | childIndex == 0 -> Just explicitSpan
+        TypedApplyExpr {}
+          | childIndex == 0 -> parentExplicitSpan
+        _ -> Nothing
     expressionOwnedFailures =
-      validateExpressionInstantiationOwners context path expression
+      validateExpressionInstantiationOwners parentExplicitSpan context path expression
         <> case expression of
           TypedLiteralExpr info literal -> validateLiteral path info literal
           TypedVariableExpr info name -> validateVariableExpression context path info name
@@ -1805,22 +1839,28 @@ bindingExpressionInstantiationOwners context expression =
     TypedOperatorValueExpr _ operator -> operatorSchemeOwners context operator
     _ -> Set.empty
 
-validateExpressionInstantiationOwners :: ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure]
-validateExpressionInstantiationOwners context path expression =
+validateExpressionInstantiationOwners :: Maybe TypedSpan -> ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure]
+validateExpressionInstantiationOwners parentExplicitSpan context path expression =
   case expression of
-    TypedTypeApplicationExpr _ function _ _
-      | Set.null (bindingExpressionInstantiationOwners context function) -> []
+    TypedTypeApplicationExpr _ function _ _ ->
+      let allowedOwners = bindingExpressionInstantiationOwners context function
+       in if Set.null allowedOwners
+            then []
+            else
+              [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
+              | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
+                _ <- maybeToList (lookupInstantiationContract context owner),
+                Set.notMember owner allowedOwners
+              ]
     _ ->
       [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
-      | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
+      | TypedInstantiation owner _ maybeSpan <- nodeInfoInstantiations (expressionInfo expression),
         _ <- maybeToList (lookupInstantiationContract context owner),
-        Set.notMember owner allowedOwners
+        Set.notMember owner (expressionInstantiationOwners context expression)
+          || case maybeSpan of
+            Just explicitSpan -> parentExplicitSpan /= Just explicitSpan
+            Nothing -> False
       ]
-  where
-    allowedOwners =
-      case expression of
-        TypedTypeApplicationExpr _ function _ _ -> bindingExpressionInstantiationOwners context function
-        _ -> expressionInstantiationOwners context expression
 
 lookupSchemeByName :: ModuleContext -> TypedCoreName -> Maybe TypedScheme
 lookupSchemeByName context name = do
@@ -2577,7 +2617,7 @@ validateEvidenceSelections context path qualifiedMethodKey selections =
         TypedSelectedEvidence evidenceUse -> validateEvidenceUse context path evidenceUse
         TypedEvidenceCandidates constraint@(TypedCapabilityConstraint capability constraintMethod _) candidates
           | null candidates -> [failure path TypedMissingEvidence (TypedTextDetail capability)]
-          | length candidates > 1 && not (qualifiedMethodCandidates capability constraintMethod qualifiedMethodKey) ->
+          | not (qualifiedMethodCandidates capability constraintMethod qualifiedMethodKey) ->
               [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length candidates))]
           | otherwise -> concatMap (validateEvidenceCandidate context path constraint) candidates
     qualifiedMethodCandidates capability constraintMethod expressionMethod =
@@ -2904,6 +2944,8 @@ validateCoreName path name =
   case name of
     TypedUnresolvedSourceName _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedUnresolvedQualifiedName _ _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+    TypedResolvedName _ _ identifier
+      | Text.null identifier -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     _ -> []
 
 validateLocalDefinitionName :: ModuleContext -> [TypedNameNamespace] -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]

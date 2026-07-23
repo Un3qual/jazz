@@ -118,6 +118,10 @@ tests =
     ("keeps bare signatures out of executable value scope", testBareSignatureVisibility),
     ("exports only the active rebinding scheme", testActiveRebindingExport),
     ("accepts constructor-owned instantiations", testConstructorInstantiation),
+    ("requires dependency-first resolved module ordering", testResolvedModuleOrder),
+    ("rejects empty resolved identifiers", testEmptyResolvedIdentifier),
+    ("forbids explicit spans on implicit instantiations", testExplicitSpanOnVariable),
+    ("limits single evidence candidates to method deferral", testSingleEvidenceCandidate),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -484,7 +488,11 @@ reviewRegressionPrograms =
     cyclicImportProgram,
     bareSignatureVisibilityProgram,
     activeRebindingExportProgram,
-    constructorInstantiationProgram
+    constructorInstantiationProgram,
+    resolvedModuleOrderProgram,
+    emptyResolvedIdentifierProgram,
+    explicitSpanOnVariableProgram,
+    singleEvidenceCandidateProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1007,9 +1015,10 @@ testReviewFollowupRegressions = do
     (validateTypedProgram missingImportProgram)
   assertEqual
     "candidate evidence matches capability and method constraints"
-    [ expressionFailureAt "review-candidate-constraint" 2 TypedMethodSelectionMismatch (TypedTextDetail "Equal"),
-      expressionFailureAt "review-candidate-constraint" 2 TypedMethodSelectionMismatch (TypedTextDetail "Equal.equal"),
-      expressionFailureAt "review-candidate-constraint" 3 TypedMethodSelectionMismatch (TypedTextDetail "Equal.equal")
+    [ expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTextDetail "Render"),
+      expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTypeDetail TypedTextType TypedBoolType),
+      expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTextDetail "Render.map"),
+      expressionFailureAt "review-candidate-constraint" 1 TypedMethodSelectionMismatch (TypedTextDetail "Render.map")
     ]
     (validateTypedProgram candidateConstraintProgram)
   assertEqual
@@ -2126,6 +2135,57 @@ testConstructorInstantiation =
     []
     (validateTypedProgram constructorInstantiationProgram)
 
+testResolvedModuleOrder :: IO ()
+testResolvedModuleOrder =
+  assertEqual
+    "resolved dependencies precede their importers"
+    [ TypedCoreValidationFailure
+        (TypedModulePath resolvedModuleOrderImporterPath)
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Dependency::Library")
+    ]
+    (validateTypedProgram resolvedModuleOrderProgram)
+
+testEmptyResolvedIdentifier :: IO ()
+testEmptyResolvedIdentifier =
+  assertEqual
+    "resolved identifier payloads are nonempty"
+    [ statementFailure
+        "review-empty-resolved-identifier"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail emptyResolvedIdentifierName),
+      expressionFailureAt
+        "review-empty-resolved-identifier"
+        1
+        TypedUnresolvedName
+        (TypedNameDetail emptyResolvedIdentifierName)
+    ]
+    (validateTypedProgram emptyResolvedIdentifierProgram)
+
+testExplicitSpanOnVariable :: IO ()
+testExplicitSpanOnVariable =
+  assertEqual
+    "explicit instantiation spans belong only to type-application nodes"
+    [ expressionFailureAt
+        "review-explicit-span-on-variable"
+        1
+        TypedInstantiationMismatch
+        (TypedBinderDetail explicitSpanOnVariableOwner)
+    ]
+    (validateTypedProgram explicitSpanOnVariableProgram)
+
+testSingleEvidenceCandidate :: IO ()
+testSingleEvidenceCandidate =
+  assertEqual
+    "candidate evidence remains legal only while a qualified method is deferred"
+    [ expressionFailure
+        "review-single-evidence-candidate"
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 1)
+    ]
+    (validateTypedProgram singleEvidenceCandidateProgram)
+
 cyclicImportFirstPath :: [Text]
 cyclicImportFirstPath = ["Cycle", "First"]
 
@@ -2235,6 +2295,115 @@ constructorInstantiationProgram =
       [ TypedDataStatement declaration,
         expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
       ]
+
+resolvedModuleOrderImporterPath :: [Text]
+resolvedModuleOrderImporterPath =
+  ["Fixture", "review-resolved-module-order"]
+
+resolvedModuleOrderProgram :: TypedProgram
+resolvedModuleOrderProgram =
+  TypedProgram
+    Nothing
+    [ typedModule
+        resolvedModuleOrderImporterPath
+        relativeSource
+        [TypedResolvedImport span1 dependencyPath Nothing Nothing]
+        []
+        emptyInterface
+        []
+        unitInfo,
+      typedModule
+        dependencyPath
+        (TypedSourcePath "src/Dependency/Library.jz")
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    ]
+    resolvedModuleOrderImporterPath
+  where
+    dependencyPath = ["Dependency", "Library"]
+
+emptyResolvedIdentifierName :: TypedCoreName
+emptyResolvedIdentifierName =
+  resolved TypedCurrentModule TypedValueNamespace ""
+
+emptyResolvedIdentifierProgram :: TypedProgram
+emptyResolvedIdentifierProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-empty-resolved-identifier"
+    modulePath = ["Fixture", fixture]
+    owner = binder modulePath [0] emptyResolvedIdentifierName
+    statements =
+      [ TypedLetStatement owner emptyResolvedIdentifierName span1 (monoScheme owner) trueExpr,
+        expressionStatement 1 (TypedVariableExpr boolInfo emptyResolvedIdentifierName)
+      ]
+
+explicitSpanOnVariableOwner :: TypedBinderId
+explicitSpanOnVariableOwner =
+  binder
+    ["Fixture", "review-explicit-span-on-variable"]
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "identity")
+
+explicitSpanOnVariableProgram :: TypedProgram
+explicitSpanOnVariableProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface instantiatedInfo modulePath
+  where
+    fixture = "review-explicit-span-on-variable"
+    modulePath = ["Fixture", fixture]
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
+    scheme =
+      TypedScheme
+        explicitSpanOnVariableOwner
+        [parameter]
+        []
+        []
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    instantiation =
+      TypedInstantiation
+        explicitSpanOnVariableOwner
+        [TypedTypeArgument parameter TypedBoolType]
+        (Just span1)
+    instantiatedInfo =
+      TypedNodeInfo
+        boolToBoolType
+        boolToBoolRecipe
+        [instantiation]
+        []
+    statements =
+      [ TypedLetStatement
+          explicitSpanOnVariableOwner
+          valueName
+          span1
+          scheme
+          (polymorphicIdentityExpression modulePath [0] parameter),
+        expressionStatement 1 (TypedVariableExpr instantiatedInfo valueName)
+      ]
+
+singleEvidenceCandidateProgram :: TypedProgram
+singleEvidenceCandidateProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-single-evidence-candidate"
+    capabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    constraint =
+      TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    implId =
+      TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    candidate =
+      TypedEvidenceCandidate implId Nothing
+    expression =
+      TypedLiteralExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
+        (TypedBooleanLiteral True)
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
@@ -5234,48 +5403,24 @@ missingImportProgram =
 
 candidateConstraintProgram :: TypedProgram
 candidateConstraintProgram =
-  withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath)
+  withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapInfo modulePath)
   where
     fixture = "review-candidate-constraint"
     modulePath = ["Fixture", fixture]
     renderName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     equalName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    renderImpl = TypedImplId modulePath renderName [TypedBoolType]
-    equalImpl = TypedImplId modulePath equalName [TypedBoolType]
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
-    renderCandidate = TypedEvidenceCandidate renderImpl (Just (TypedMethodId renderImpl "render"))
-    wrongMethodCandidate = TypedEvidenceCandidate equalImpl (Just (TypedMethodId equalImpl "other"))
-    candidateExpression lexicalIndex candidate =
-      TypedLambdaExpr
-        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
-        (binder modulePath [lexicalIndex] candidateArgumentName)
-        candidateArgumentName
-        trueExpr
-    candidateArgumentName = resolved TypedCurrentModule TypedValueNamespace "candidateArgument"
-    method implId methodKey lexicalIndex =
-      let methodName = resolved TypedCurrentModule TypedValueNamespace methodKey
-          argumentName = resolved TypedCurrentModule TypedValueNamespace (methodKey <> "Argument")
-       in TypedMethodDefinition
-            (TypedMethodId implId methodKey)
-            (binder modulePath [lexicalIndex] methodName)
-            methodName
-            span1
-            (TypedLambdaExpr boolToBoolInfo (binder modulePath [lexicalIndex, 0] argumentName) argumentName trueExpr)
+    renderImpl = TypedImplId ["Prelude"] renderName [TypedTextType]
+    equalImpl = TypedImplId ["Prelude"] equalName [TypedBoolType]
+    constraint = TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    equalCandidate = TypedEvidenceCandidate equalImpl (Just (TypedMethodId equalImpl "equal"))
+    wrongMethodCandidate = TypedEvidenceCandidate renderImpl (Just (TypedMethodId renderImpl "render"))
+    candidateExpression candidate =
+      TypedVariableExpr
+        (TypedNodeInfo builtinMapType builtinMapRecipe [] [TypedEvidenceCandidates constraint [candidate]])
+        (TypedBuiltinName "map")
     statements =
-      [ TypedImplStatement
-          ( TypedImplDeclaration
-              span1
-              renderImpl
-              [method renderImpl "render" 0, fixtureImplMethod modulePath [0, 1] renderImpl "map"]
-          ),
-        TypedImplStatement
-          ( TypedImplDeclaration
-              span1
-              equalImpl
-              [method equalImpl "other" 1, fixtureImplMethod modulePath [1, 1] equalImpl "equal"]
-          ),
-        expressionStatement 3 (candidateExpression 2 renderCandidate),
-        expressionStatement 4 (candidateExpression 3 wrongMethodCandidate)
+      [ expressionStatement 1 (candidateExpression equalCandidate),
+        expressionStatement 2 (candidateExpression wrongMethodCandidate)
       ]
 
 invalidVariableNamespaceName :: TypedCoreName
