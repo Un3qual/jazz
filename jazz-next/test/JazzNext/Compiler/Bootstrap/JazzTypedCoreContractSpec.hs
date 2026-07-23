@@ -122,6 +122,10 @@ tests =
     ("rejects empty resolved identifiers", testEmptyResolvedIdentifier),
     ("forbids explicit spans on implicit instantiations", testExplicitSpanOnVariable),
     ("limits single evidence candidates to method deferral", testSingleEvidenceCandidate),
+    ("rejects structurally empty module paths", testEmptyModulePath),
+    ("requires the ambient prelude slot to identify Prelude", testAmbientPreludePath),
+    ("checks adjacent signatures against their bindings", testSignatureBindingContract),
+    ("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -492,7 +496,11 @@ reviewRegressionPrograms =
     resolvedModuleOrderProgram,
     emptyResolvedIdentifierProgram,
     explicitSpanOnVariableProgram,
-    singleEvidenceCandidateProgram
+    singleEvidenceCandidateProgram,
+    emptyModulePathProgram,
+    wrongPreludeSlotProgram,
+    signatureBindingMismatchProgram,
+    qualifiedMethodTypeApplicationProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2186,6 +2194,47 @@ testSingleEvidenceCandidate =
     ]
     (validateTypedProgram singleEvidenceCandidateProgram)
 
+testEmptyModulePath :: IO ()
+testEmptyModulePath =
+  assertEqual
+    "module identities contain at least one nonempty path segment"
+    [ TypedCoreValidationFailure
+        (TypedModulePath [])
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "")
+    ]
+    (validateTypedProgram emptyModulePathProgram)
+
+testAmbientPreludePath :: IO ()
+testAmbientPreludePath =
+  assertEqual
+    "the ambient prelude slot has the canonical Prelude identity"
+    [ TypedCoreValidationFailure
+        TypedPreludePath
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Library::WrongPrelude")
+    ]
+    (validateTypedProgram wrongPreludeSlotProgram)
+
+testSignatureBindingContract :: IO ()
+testSignatureBindingContract =
+  assertEqual
+    "an attached signature and binding publish one scheme contract"
+    [ statementFailure
+        "review-signature-binding-mismatch"
+        0
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType TypedTextType)
+    ]
+    (validateTypedProgram signatureBindingMismatchProgram)
+
+testQualifiedMethodTypeApplication :: IO ()
+testQualifiedMethodTypeApplication =
+  assertEqual
+    "qualified method type applications resolve through selected method evidence"
+    []
+    (validateTypedProgram qualifiedMethodTypeApplicationProgram)
+
 cyclicImportFirstPath :: [Text]
 cyclicImportFirstPath = ["Cycle", "First"]
 
@@ -2404,6 +2453,154 @@ singleEvidenceCandidateProgram =
       TypedLiteralExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
         (TypedBooleanLiteral True)
+
+emptyModulePathProgram :: TypedProgram
+emptyModulePathProgram =
+  TypedProgram
+    Nothing
+    [ typedModule
+        []
+        relativeSource
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    ]
+    []
+
+wrongPreludeSlotProgram :: TypedProgram
+wrongPreludeSlotProgram =
+  TypedProgram
+    ( Just
+        ( typedModule
+            ["Library", "WrongPrelude"]
+            (TypedSourcePath "src/Library/WrongPrelude.jz")
+            []
+            []
+            emptyInterface
+            []
+            unitInfo
+        )
+    )
+    [ typedModule
+        entryPath
+        relativeSource
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    ]
+    entryPath
+  where
+    entryPath = ["Fixture", "review-wrong-prelude-slot"]
+
+signatureBindingMismatchProgram :: TypedProgram
+signatureBindingMismatchProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-signature-binding-mismatch"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "annotated"
+    signatureOwner = binder modulePath [0] valueName
+    bindingOwner = binder modulePath [1] valueName
+    signatureScheme = monoScheme signatureOwner
+    bindingScheme =
+      TypedScheme bindingOwner [] [] [] TypedTextType TypedManagedTextRecipe
+    statements =
+      [ TypedSignatureStatement signatureOwner valueName span1 signatureScheme,
+        TypedLetStatement
+          bindingOwner
+          valueName
+          span1
+          bindingScheme
+          (TypedLiteralExpr textInfo (TypedTextLiteral "value"))
+      ]
+
+qualifiedMethodTypeApplicationProgram :: TypedProgram
+qualifiedMethodTypeApplicationProgram =
+  TypedProgram (Just preludeModule) [entryModule] entryPath
+  where
+    preludePath = ["Prelude"]
+    entryPath = ["Fixture", "review-qualified-method-type-application"]
+    parameter = TypedTypeParameterId 0
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Printable"
+    methodName =
+      resolved TypedCurrentModule TypedValueNamespace "print!"
+    methodOwner = binder preludePath [0, 0] methodName
+    methodScheme =
+      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    implId = TypedImplId preludePath capabilityName [TypedBoolType]
+    methodArgument =
+      resolved TypedCurrentModule TypedValueNamespace "printArgument"
+    methodExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder preludePath [1, 0, 0] methodArgument)
+        methodArgument
+        trueExpr
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "print!")
+        (binder preludePath [1, 0] methodName)
+        methodName
+        span1
+        methodExpression
+    preludeModule =
+      typedModule
+        preludePath
+        (TypedSourcePath "src/Prelude.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Printable"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface implId]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement (TypedImplDeclaration span1 implId [methodDefinition])
+        ]
+        unitInfo
+    importedCapabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace "Printable"
+    importedImplId =
+      TypedImplId preludePath importedCapabilityName [TypedBoolType]
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        (TypedCapabilityConstraint "Printable" (Just "Printable::print!") TypedBoolType)
+        importedImplId
+        (Just (TypedMethodId importedImplId "print!"))
+    methodInfo =
+      TypedNodeInfo
+        boolToBoolType
+        boolToBoolRecipe
+        []
+        [TypedSelectedEvidence evidenceUse]
+    expression =
+      TypedTypeApplicationExpr
+        methodInfo
+        (TypedVariableExpr methodInfo (TypedBuiltinName "Printable::print!"))
+        span1
+        TypedBoolType
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        methodInfo
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
