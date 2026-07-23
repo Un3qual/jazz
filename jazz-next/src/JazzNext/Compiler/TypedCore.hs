@@ -299,6 +299,7 @@ data TypedCoreValidationKind
   | TypedDuplicateModule
   | TypedUnknownEntryModule
   | TypedDuplicateBinder
+  | TypedDuplicateDeclaration
   | TypedUnknownBinder
   | TypedDuplicateTypeParameter
   | TypedInvalidTypeParameterOrder

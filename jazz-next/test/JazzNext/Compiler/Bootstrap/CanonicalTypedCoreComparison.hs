@@ -541,6 +541,7 @@ validationKindName kind =
     TypedDuplicateModule -> "TypedDuplicateModule"
     TypedUnknownEntryModule -> "TypedUnknownEntryModule"
     TypedDuplicateBinder -> "TypedDuplicateBinder"
+    TypedDuplicateDeclaration -> "TypedDuplicateDeclaration"
     TypedUnknownBinder -> "TypedUnknownBinder"
     TypedDuplicateTypeParameter -> "TypedDuplicateTypeParameter"
     TypedInvalidTypeParameterOrder -> "TypedInvalidTypeParameterOrder"
@@ -661,6 +662,7 @@ decodeValidationKind value = do
       "TypedDuplicateModule" -> Right TypedDuplicateModule
       "TypedUnknownEntryModule" -> Right TypedUnknownEntryModule
       "TypedDuplicateBinder" -> Right TypedDuplicateBinder
+      "TypedDuplicateDeclaration" -> Right TypedDuplicateDeclaration
       "TypedUnknownBinder" -> Right TypedUnknownBinder
       "TypedDuplicateTypeParameter" -> Right TypedDuplicateTypeParameter
       "TypedInvalidTypeParameterOrder" -> Right TypedInvalidTypeParameterOrder

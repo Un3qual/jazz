@@ -67,6 +67,7 @@ tests =
     ("enforces typed-core value-shape contracts", testValueShapeRegressions),
     ("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions),
     ("enforces latest typed-core review contracts", testLatestReviewRegressions),
+    ("enforces newest typed-core review contracts", testNewestReviewRegressions),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -336,7 +337,19 @@ reviewRegressionPrograms =
     selectiveImportProgram,
     classParameterScopeProgram,
     evidenceParameterContractProgram,
-    implCapabilityNamespaceProgram
+    implCapabilityNamespaceProgram,
+    missingInstantiatedEvidenceProgram,
+    constructorExpressionContractProgram,
+    unrelatedTypeApplicationProgram,
+    lexicalBinderContractProgram,
+    generalizedVariableContractProgram,
+    enclosingInstantiationScopeProgram,
+    implMethodContractProgram,
+    dataDeclarationNamespaceProgram,
+    duplicateDeclarationProgram,
+    importedImplQualificationProgram,
+    implTargetArityProgram,
+    localDeclarationOriginProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -508,7 +521,10 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
         [TypedSignatureStatement owner localName span1 scheme]
         boolInfo
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) importedName
+    instantiatedType = TypedFunctionType TypedBoolType TypedBoolType
+    instantiatedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
+    instantiatedInfo = TypedNodeInfo instantiatedType instantiatedRecipe [instantiation] []
+    expression = TypedVariableExpr instantiatedInfo importedName
     entryModule =
       typedModule
         entryPath
@@ -517,7 +533,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
         []
         emptyInterface
         [expressionStatement 1 expression]
-        boolInfo
+        instantiatedInfo
 
 invisibleSiblingImplId :: TypedImplId
 invisibleSiblingImplId =
@@ -884,8 +900,18 @@ testLatestReviewRegressions = do
     [ expressionFailureAt
         "review-evidence-parameter-contract"
         1
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+      expressionFailureAt
+        "review-evidence-parameter-contract"
+        1
         TypedInstantiationMismatch
         (TypedEvidenceParameterDetail (TypedEvidenceParameterId 7)),
+      expressionFailureAt
+        "review-evidence-parameter-contract"
+        2
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
       expressionFailureAt
         "review-evidence-parameter-contract"
         2
@@ -899,6 +925,125 @@ testLatestReviewRegressions = do
       statementFailure "review-impl-capability-namespace" 1 TypedInvisibleName (TypedNameDetail invisibleImplCapabilityName)
     ]
     (validateTypedProgram implCapabilityNamespaceProgram)
+
+testNewestReviewRegressions :: IO ()
+testNewestReviewRegressions = do
+  assertEqual
+    "instantiated evidence obligations must all be selected"
+    [ expressionFailureAt
+        "review-missing-instantiated-evidence"
+        1
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+      expressionFailureAt
+        "review-missing-instantiated-evidence"
+        1
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 1))
+    ]
+    (validateTypedProgram missingInstantiatedEvidenceProgram)
+  assertEqual
+    "constructor expressions match their declaration contracts"
+    [ expressionFailureAt
+        "review-constructor-expression-contract"
+        1
+        TypedBindingValueMismatch
+        ( TypedTypeDetail
+            (TypedFunctionType TypedBoolType constructorExpressionResultType)
+            TypedBoolType
+        )
+    ]
+    (validateTypedProgram constructorExpressionContractProgram)
+  assertEqual
+    "explicit type applications are owned by their callee"
+    [ expressionFailureAt
+        "review-unrelated-type-application"
+        1
+        TypedInstantiationMismatch
+        TypedNoValidationDetail
+    ]
+    (validateTypedProgram unrelatedTypeApplicationProgram)
+  assertEqual
+    "lexical variable uses match their binder contracts"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath ["Fixture", "review-lexical-binder-contract"] 0 [0, 0])
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType TypedTextType)
+    ]
+    (validateTypedProgram lexicalBinderContractProgram)
+  assertEqual
+    "generalized variable uses match substituted scheme results"
+    [ expressionFailureAt
+        "review-generalized-variable-contract"
+        1
+        TypedBindingValueMismatch
+        ( TypedTypeDetail
+            (TypedFunctionType TypedBoolType TypedBoolType)
+            TypedBoolType
+        )
+    ]
+    (validateTypedProgram generalizedVariableContractProgram)
+  assertEqual
+    "instantiation arguments retain the enclosing type scope"
+    []
+    (validateTypedProgram enclosingInstantiationScopeProgram)
+  assertEqual
+    "impl method bodies match instantiated class signatures"
+    [ statementFailure
+        "review-impl-method-contract"
+        1
+        TypedBindingValueMismatch
+        ( TypedTypeDetail
+            (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
+            TypedTextType
+        )
+    ]
+    (validateTypedProgram implMethodContractProgram)
+  assertEqual
+    "data declarations use the type namespace"
+    [ statementFailure
+        "review-data-declaration-namespace"
+        0
+        TypedInvisibleName
+        (TypedNameDetail invalidDataDeclarationName)
+    ]
+    (validateTypedProgram dataDeclarationNamespaceProgram)
+  assertEqual
+    "duplicate resolved declarations are rejected before context construction"
+    [ statementFailure
+        "review-duplicate-declaration"
+        1
+        TypedDuplicateDeclaration
+        (TypedNameDetail duplicateDeclarationName)
+    ]
+    (validateTypedProgram duplicateDeclarationProgram)
+  assertEqual
+    "imported impl identities are qualified into the importing module"
+    []
+    (validateTypedProgram importedImplQualificationProgram)
+  assertEqual
+    "impl target lists match capability arity"
+    [ statementFailure
+        "review-impl-target-arity"
+        0
+        TypedMethodSelectionMismatch
+        (TypedArityDetail 1 2),
+      expressionFailureAt
+        "review-impl-target-arity"
+        1
+        TypedMethodSelectionMismatch
+        (TypedArityDetail 1 2)
+    ]
+    (validateTypedProgram implTargetArityProgram)
+  assertEqual
+    "local declarations cannot claim imported name origins"
+    [ statementFailure
+        "review-local-declaration-origin"
+        0
+        TypedInvisibleName
+        (TypedNameDetail localDeclarationOriginName)
+    ]
+    (validateTypedProgram localDeclarationOriginProgram)
 
 missingInstantiationDataName :: TypedCoreName
 missingInstantiationDataName = resolved TypedCurrentModule TypedTypeNamespace "Missing"
@@ -1032,7 +1177,7 @@ constructorPatternContractProgram =
             [TypedRepresentationParameterRecipe parameterId]
         ]
     optionInfo = info (TypedDataType optionName [TypedBoolType]) (TypedManagedVariantRecipe optionName [TypedBoolType])
-    scrutinee = TypedVariableExpr optionInfo someName
+    scrutinee = TypedVariableExpr optionInfo (TypedBuiltinName "option-value")
     expression =
       TypedPatternCaseExpr
         boolInfo
@@ -1331,6 +1476,292 @@ implCapabilityNamespaceProgram =
         TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invisibleImplCapabilityName [TypedBoolType]) [])
       ]
 
+missingInstantiatedEvidenceProgram :: TypedProgram
+missingInstantiatedEvidenceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-missing-instantiated-evidence"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "same"
+    owner = binder modulePath [0] valueName
+    evidenceId = TypedEvidenceParameterId 0
+    laterEvidenceId = TypedEvidenceParameterId 1
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId constraint] [] TypedBoolType TypedBoolRecipe
+    instantiation = TypedInstantiation owner [] Nothing
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+
+constructorExpressionDataName :: TypedCoreName
+constructorExpressionDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
+
+constructorExpressionResultType :: TypedType
+constructorExpressionResultType = TypedDataType constructorExpressionDataName []
+
+constructorExpressionContractProgram :: TypedProgram
+constructorExpressionContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-constructor-expression-contract"
+    modulePath = ["Fixture", fixture]
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Flag"
+    declaration =
+      TypedDataDeclaration
+        span1
+        constructorExpressionDataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            [TypedBoolType]
+            [TypedBoolRecipe]
+        ]
+    statements = [TypedDataStatement declaration, expressionStatement 2 (TypedVariableExpr boolInfo constructorName)]
+
+unrelatedTypeApplicationProgram :: TypedProgram
+unrelatedTypeApplicationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface applicationInfo modulePath
+  where
+    fixture = "review-unrelated-type-application"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "unrelated"
+    owner = binder modulePath [0] valueName
+    parameterId = TypedTypeParameterId 0
+    scheme =
+      TypedScheme
+        owner
+        [parameterId]
+        []
+        []
+        (TypedTypeParameterType parameterId)
+        (TypedRepresentationParameterRecipe parameterId)
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] (Just span1)
+    applicationInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+    expression = TypedTypeApplicationExpr applicationInfo trueExpr span1 TypedBoolType
+    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+
+lexicalBinderContractProgram :: TypedProgram
+lexicalBinderContractProgram = expressionFixtureProgram fixture expression
+  where
+    fixture = "review-lexical-binder-contract"
+    modulePath = ["Fixture", fixture]
+    argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    argumentBinder = binder modulePath [0] argumentName
+    lambdaInfo =
+      info
+        (TypedFunctionType TypedBoolType TypedTextType)
+        (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+    expression = TypedLambdaExpr lambdaInfo argumentBinder argumentName (TypedVariableExpr textInfo argumentName)
+
+generalizedVariableContractProgram :: TypedProgram
+generalizedVariableContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface badUseInfo modulePath
+  where
+    fixture = "review-generalized-variable-contract"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
+    owner = binder modulePath [0] valueName
+    parameterId = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameterId
+    parameterRecipe = TypedRepresentationParameterRecipe parameterId
+    scheme =
+      TypedScheme
+        owner
+        [parameterId]
+        []
+        []
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
+    badUseInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+    expression = TypedVariableExpr badUseInfo valueName
+    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+
+enclosingInstantiationScopeProgram :: TypedProgram
+enclosingInstantiationScopeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-enclosing-instantiation-scope"
+    modulePath = ["Fixture", fixture]
+    identityName = resolved TypedCurrentModule TypedValueNamespace "identity"
+    identityOwner = binder modulePath [0] identityName
+    identityParameter = TypedTypeParameterId 0
+    identityParameterType = TypedTypeParameterType identityParameter
+    identityParameterRecipe = TypedRepresentationParameterRecipe identityParameter
+    identityScheme =
+      TypedScheme
+        identityOwner
+        [identityParameter]
+        []
+        []
+        (TypedFunctionType identityParameterType identityParameterType)
+        (TypedClosureRecipe [identityParameterRecipe] identityParameterRecipe)
+    wrapperName = resolved TypedCurrentModule TypedValueNamespace "wrapper"
+    wrapperOwner = binder modulePath [1] wrapperName
+    wrapperParameter = TypedTypeParameterId 0
+    wrapperParameterType = TypedTypeParameterType wrapperParameter
+    wrapperParameterRecipe = TypedRepresentationParameterRecipe wrapperParameter
+    wrapperType = TypedFunctionType wrapperParameterType wrapperParameterType
+    wrapperRecipe = TypedClosureRecipe [wrapperParameterRecipe] wrapperParameterRecipe
+    wrapperScheme = TypedScheme wrapperOwner [wrapperParameter] [] [] wrapperType wrapperRecipe
+    instantiation = TypedInstantiation identityOwner [TypedTypeArgument identityParameter wrapperParameterType] Nothing
+    expression = TypedVariableExpr (TypedNodeInfo wrapperType wrapperRecipe [instantiation] []) identityName
+    statements =
+      [ TypedSignatureStatement identityOwner identityName span1 identityScheme,
+        TypedLetStatement wrapperOwner wrapperName span1 wrapperScheme expression
+      ]
+
+implMethodContractProgram :: TypedProgram
+implMethodContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-method-contract"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    parameterId = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameterId
+    parameterRecipe = TypedRepresentationParameterRecipe parameterId
+    methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
+    methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
+    methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
+    methodOwner = binder modulePath [0, 0] methodName
+    methodScheme = TypedScheme methodOwner [] [] [] methodType methodRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [parameterId]
+        [TypedMethodSignature methodName span1 methodScheme]
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implMethod =
+      TypedMethodDefinition
+        (TypedMethodId implId "equal")
+        (binder modulePath [1, 0] methodName)
+        methodName
+        span1
+        (TypedLiteralExpr textInfo (TypedTextLiteral "wrong"))
+    statements =
+      [ TypedClassStatement classDeclaration,
+        TypedImplStatement (TypedImplDeclaration span1 implId [implMethod])
+      ]
+
+invalidDataDeclarationName :: TypedCoreName
+invalidDataDeclarationName = resolved TypedCurrentModule TypedValueNamespace "Flag"
+
+dataDeclarationNamespaceProgram :: TypedProgram
+dataDeclarationNamespaceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-data-declaration-namespace"
+    modulePath = ["Fixture", fixture]
+    statements = [TypedDataStatement (TypedDataDeclaration span1 invalidDataDeclarationName [] [])]
+
+duplicateDeclarationName :: TypedCoreName
+duplicateDeclarationName = resolved TypedCurrentModule TypedValueNamespace "duplicate"
+
+duplicateDeclarationProgram :: TypedProgram
+duplicateDeclarationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-duplicate-declaration"
+    modulePath = ["Fixture", fixture]
+    firstOwner = binder modulePath [0] duplicateDeclarationName
+    secondOwner = binder modulePath [1] duplicateDeclarationName
+    statements =
+      [ TypedSignatureStatement firstOwner duplicateDeclarationName span1 (monoScheme firstOwner),
+        TypedSignatureStatement secondOwner duplicateDeclarationName span1 (monoScheme secondOwner)
+      ]
+
+importedImplQualificationProgram :: TypedProgram
+importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", "QualifiedImpl"]
+    entryPath = ["Fixture", "review-imported-impl-qualification"]
+    localDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
+    localCapabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Mark"
+    parameterId = TypedTypeParameterId 0
+    dataDeclaration = TypedDataDeclaration span1 localDataName [] []
+    classDeclaration = TypedClassDeclaration span1 localCapabilityName [parameterId] []
+    localImplId = TypedImplId libraryPath localCapabilityName [TypedDataType localDataName []]
+    libraryInterface =
+      TypedModuleInterface
+        []
+        [TypedDataInterface dataDeclaration]
+        [TypedClassInterface classDeclaration]
+        [TypedImplInterface localImplId]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/QualifiedImpl.jz")
+        []
+        [ TypedModuleExport TypedTypeNamespace "Flag",
+          TypedModuleExport TypedCapabilityNamespace "Mark"
+        ]
+        libraryInterface
+        [ TypedDataStatement dataDeclaration,
+          TypedClassStatement classDeclaration,
+          TypedImplStatement (TypedImplDeclaration span1 localImplId [])
+        ]
+        boolInfo
+    importedDataName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Flag"
+    importedCapabilityName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Mark"
+    importedTargetType = TypedDataType importedDataName []
+    importedImplId = TypedImplId libraryPath importedCapabilityName [importedTargetType]
+    constraint = TypedCapabilityConstraint "Mark" Nothing importedTargetType
+    evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint importedImplId Nothing)
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBuiltinName "marked")
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing Nothing]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        boolInfo
+
+implTargetArityProgram :: TypedProgram
+implTargetArityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-target-arity"
+    modulePath = ["Fixture", fixture]
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId modulePath capabilityName [TypedBoolType, TypedCharType]
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)
+    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBuiltinName "same")
+    statements =
+      [ TypedImplStatement (TypedImplDeclaration span1 implId []),
+        expressionStatement 2 expression
+      ]
+
+localDeclarationOriginBinder :: TypedBinderId
+localDeclarationOriginBinder =
+  binder
+    ["Fixture", "review-local-declaration-origin"]
+    [0]
+    localDeclarationOriginName
+
+localDeclarationOriginName :: TypedCoreName
+localDeclarationOriginName = resolved (TypedImportedModule ["Other", "Module"]) TypedValueNamespace "foreign"
+
+localDeclarationOriginProgram :: TypedProgram
+localDeclarationOriginProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-local-declaration-origin"
+    modulePath = ["Fixture", fixture]
+    scheme = monoScheme localDeclarationOriginBinder
+    statements =
+      [ TypedLetStatement
+          localDeclarationOriginBinder
+          localDeclarationOriginName
+          span1
+          scheme
+          trueExpr
+      ]
+
 expressionFixtureProgram :: Text -> TypedExpr -> TypedProgram
 expressionFixtureProgram fixture expression =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) ["Fixture", fixture]
@@ -1518,6 +1949,7 @@ resolvedNameOriginsProgram =
     localBinder = binder entryPath [0] localValue
     localScheme = TypedScheme localBinder [] [] [] TypedTextType TypedManagedTextRecipe
     importedSome = resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "Some"
+    importedLibraryType = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Option"
     localSome = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     libraryType = resolved TypedCurrentModule TypedTypeNamespace "Option"
     someBinder = binder libraryPath [0, 0] localSome
@@ -1543,7 +1975,11 @@ resolvedNameOriginsProgram =
         (TypedModuleInterface [] [TypedDataInterface preludeData] [] [])
         [TypedDataStatement preludeData]
         textInfo
-    names = [importedSome, localValue]
+    importedSomeResultType = TypedDataType importedLibraryType []
+    importedSomeInfo =
+      info
+        (TypedFunctionType TypedTextType importedSomeResultType)
+        (TypedClosureRecipe [TypedManagedTextRecipe] (TypedManagedVariantRecipe importedLibraryType []))
     entryModule =
       typedModule
         entryPath
@@ -1554,7 +1990,9 @@ resolvedNameOriginsProgram =
         ( [ TypedSignatureStatement localBinder localValue span1 localScheme,
             TypedClassStatement (TypedClassDeclaration span1 printable [] [])
           ]
-            <> zipWith expressionStatement [1 ..] (map (TypedVariableExpr textInfo) names)
+            <> [ expressionStatement 1 (TypedVariableExpr importedSomeInfo importedSome),
+                 expressionStatement 2 (TypedVariableExpr textInfo localValue)
+               ]
         )
         textInfo
 
@@ -1583,10 +2021,10 @@ listTupleDataRecipesProgram =
       expressionStatement 1 (TypedTupleExpr unitInfo []),
       expressionStatement 2 (TypedTupleExpr pairInfo [trueExpr, falseExpr]),
       expressionStatement 3 (TypedListExpr boolListInfo [trueExpr, falseExpr]),
-      expressionStatement 4 (TypedVariableExpr optionInfo optionConstructor)
+      expressionStatement 4 (TypedVariableExpr optionConstructorInfo optionConstructor)
     ]
     emptyInterface
-    optionInfo
+    optionConstructorInfo
   where
     optionName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     optionConstructor = resolved TypedCurrentModule TypedConstructorNamespace "Some"
@@ -1602,10 +2040,10 @@ listTupleDataRecipesProgram =
             [TypedTypeParameterType optionParameter]
             [TypedRepresentationParameterRecipe optionParameter]
         ]
-    optionInfo =
+    optionConstructorInfo =
       info
-        (TypedDataType optionName [TypedBoolType])
-        (TypedManagedVariantRecipe optionName [TypedBoolType])
+        (TypedFunctionType TypedBoolType (TypedDataType optionName [TypedBoolType]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
 
 callableRecipesProgram :: TypedProgram
 callableRecipesProgram =
@@ -1697,7 +2135,7 @@ explicitInstantiationProgram = instantiationProgram "explicit-instantiation" (Ju
 
 instantiationProgram :: Text -> Maybe TypedSpan -> TypedProgram
 instantiationProgram fixture explicitSpan =
-  programWith fixture [TypedSignatureStatement owner name span1 scheme, expressionStatement 2 expression] emptyInterface boolInfo
+  programWith fixture [TypedSignatureStatement owner name span1 scheme, expressionStatement 2 expression] emptyInterface instantiatedInfo
   where
     name = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder ["Fixture", fixture] [0] name
@@ -1715,7 +2153,12 @@ instantiationProgram fixture explicitSpan =
         []
         (TypedFunctionType (TypedTypeParameterType parameterId) (TypedTypeParameterType parameterId))
         (TypedClosureRecipe [TypedRepresentationParameterRecipe parameterId] (TypedRepresentationParameterRecipe parameterId))
-    instantiatedInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+    instantiatedInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType TypedBoolType)
+        (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
+        [instantiation]
+        []
     expression =
       case explicitSpan of
         Nothing -> TypedVariableExpr instantiatedInfo name
@@ -1843,7 +2286,7 @@ patternsBindersProgram =
             boolCase (TypedLiteralPattern boolInfo (TypedBooleanLiteral True)),
             TypedPatternCaseExpr
               boolInfo
-              (TypedVariableExpr optionInfo someName)
+              (TypedVariableExpr optionInfo (TypedBuiltinName "option-value"))
               [TypedCaseArm (TypedConstructorPattern optionInfo someName [variablePattern 2]) Nothing trueExpr],
             listCase (TypedListPattern boolListPatternInfo [variablePattern 3]),
             listCase (TypedConsListPattern boolListPatternInfo (variablePattern 4) (TypedListPattern boolListPatternInfo [])),
