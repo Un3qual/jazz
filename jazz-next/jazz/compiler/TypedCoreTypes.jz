@@ -7,6 +7,8 @@ module TypedCoreTypes {
 
   data TypedBinderId = TypedBinderId [Text] [Int] TypedCoreName.
 
+  data TypedEvidenceParameterRef = TypedEvidenceParameterRef TypedBinderId TypedEvidenceParameterId.
+
   data TypedSourcePath = TypedSourcePath Text.
 
   data TypedNameOrigin = TypedCurrentModule | TypedImportedModule [Text] | TypedAmbientPrelude.
@@ -45,7 +47,7 @@ module TypedCoreTypes {
 
   data TypedMethodId = TypedMethodId TypedImplId Text.
 
-  data TypedEvidenceUse = TypedEvidenceUse (Maybe TypedEvidenceParameterId) TypedCapabilityConstraint TypedImplId (Maybe TypedMethodId).
+  data TypedEvidenceUse = TypedEvidenceUse (Maybe TypedEvidenceParameterRef) TypedCapabilityConstraint TypedImplId (Maybe TypedMethodId).
 
   data TypedEvidenceCandidate = TypedEvidenceCandidate TypedImplId (Maybe TypedMethodId).
 

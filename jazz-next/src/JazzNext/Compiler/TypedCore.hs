@@ -16,6 +16,9 @@ newtype TypedEvidenceParameterId = TypedEvidenceParameterId Int
 newtype TypedBinderId = TypedBinderId ([Text], [Int], TypedCoreName)
   deriving (Eq, Ord, Show)
 
+data TypedEvidenceParameterRef = TypedEvidenceParameterRef TypedBinderId TypedEvidenceParameterId
+  deriving (Eq, Ord, Show)
+
 newtype TypedSourcePath = TypedSourcePath Text
   deriving (Eq, Ord, Show)
 
@@ -140,7 +143,7 @@ data TypedMethodId = TypedMethodId TypedImplId Text
   deriving (Eq, Ord, Show)
 
 data TypedEvidenceUse = TypedEvidenceUse
-  (Maybe TypedEvidenceParameterId)
+  (Maybe TypedEvidenceParameterRef)
   TypedCapabilityConstraint
   TypedImplId
   (Maybe TypedMethodId)

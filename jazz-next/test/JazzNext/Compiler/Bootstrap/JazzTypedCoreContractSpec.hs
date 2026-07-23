@@ -88,6 +88,7 @@ tests =
     ("checks local impl module ownership", testForeignOwnedLocalImpl),
     ("imports type-exported capability metadata", testImportedTypeCapabilityMetadata),
     ("rejects callable builtin equality", testCallableBuiltinEquality),
+    ("enforces current typed-core review contracts", testCurrentReviewRegressions),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -389,7 +390,20 @@ reviewRegressionPrograms =
     wrongConstructorPatternTypeProgram,
     foreignOwnedLocalImplProgram,
     importedTypeCapabilityMetadataProgram,
-    callableBuiltinEqualityProgram
+    callableBuiltinEqualityProgram,
+    moduleInfoStructuralEqualityProgram,
+    typeApplicationResultContractProgram,
+    capabilityConstraintVisibilityProgram,
+    unconstrainedNumericParameterProgram,
+    unconstrainedEqualityParameterProgram,
+    duplicatePatternNameProgram,
+    nonTuplePatternProgram,
+    ownerAmbiguousEvidenceProgram,
+    reorderedOrPatternProgram,
+    emptyPatternCaseProgram,
+    typeVisibleImplImportProgram,
+    methodVisibleImplImportProgram,
+    integralLiteralRangeProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1329,6 +1343,110 @@ testCallableBuiltinEquality =
     ]
     (validateTypedProgram callableBuiltinEqualityProgram)
 
+testCurrentReviewRegressions :: IO ()
+testCurrentReviewRegressions = do
+  assertEqual
+    "module info uses complete structural equality before skipping validation"
+    [ moduleFailure
+        "review-module-info-structural-equality"
+        TypedInstantiationMismatch
+        (TypedBinderDetail moduleInfoStructuralEqualityUnknownOwner)
+    ]
+    (validateTypedProgram moduleInfoStructuralEqualityProgram)
+  assertEqual
+    "explicit type application nodes match the instantiated callee contract"
+    [ expressionFailureAt
+        "review-type-application-result-contract"
+        1
+        TypedApplicationResultMismatch
+        (TypedTypeDetail boolToBoolType TypedTextType)
+    ]
+    (validateTypedProgram typeApplicationResultContractProgram)
+  assertEqual
+    "capability constraints resolve visible classes and methods"
+    [ statementFailure
+        "review-capability-constraint-visibility"
+        0
+        TypedInvisibleName
+        (TypedTextDetail "Missing"),
+      statementFailure
+        "review-capability-constraint-visibility"
+        0
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "Equal.missing")
+    ]
+    (validateTypedProgram capabilityConstraintVisibilityProgram)
+  assertEqual
+    "numeric operators over type parameters require a published primitive constraint"
+    [ expressionFailure
+        "review-unconstrained-numeric-parameter"
+        TypedBindingValueMismatch
+        (TypedTextDetail "+")
+    ]
+    (validateTypedProgram unconstrainedNumericParameterProgram)
+  assertEqual
+    "equality over type parameters requires a published primitive constraint"
+    [ expressionFailure
+        "review-unconstrained-equality-parameter"
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
+    ]
+    (validateTypedProgram unconstrainedEqualityParameterProgram)
+  assertEqual
+    "one pattern cannot bind the same resolved name twice"
+    [ patternFailure
+        "review-duplicate-pattern-name"
+        TypedDuplicateBinder
+        (TypedBinderDetail duplicatePatternNameSecondBinder)
+    ]
+    (validateTypedProgram duplicatePatternNameProgram)
+  assertEqual
+    "tuple patterns require tuple-typed nodes"
+    [ patternFailure
+        "review-non-tuple-pattern"
+        TypedPatternShapeMismatch
+        (TypedTypeDetail (TypedTupleType []) TypedBoolType)
+    ]
+    (validateTypedProgram nonTuplePatternProgram)
+  assertEqual
+    "evidence selections are owned by one generalized callee"
+    [ expressionFailureAt
+        "review-owner-ambiguous-evidence"
+        2
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+    ]
+    (validateTypedProgram ownerAmbiguousEvidenceProgram)
+  assertEqual
+    "or-pattern contracts compare binder names independently of traversal order"
+    []
+    (validateTypedProgram reorderedOrPatternProgram)
+  assertEqual
+    "pattern cases require at least one arm"
+    [ expressionFailure
+        "review-empty-pattern-case"
+        TypedPatternShapeMismatch
+        (TypedArityDetail 1 0)
+    ]
+    (validateTypedProgram emptyPatternCaseProgram)
+  assertEqual
+    "type-visible classes import their public impls"
+    []
+    (validateTypedProgram typeVisibleImplImportProgram)
+  assertEqual
+    "method-visible classes import their public impls"
+    []
+    (validateTypedProgram methodVisibleImplImportProgram)
+  assertEqual
+    "integral literal constraints fit the selected numeric width"
+    [ statementFailure
+        "review-integral-literal-range"
+        0
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType (TypedNumericType TypedUInt8Type))
+    ]
+    (validateTypedProgram integralLiteralRangeProgram)
+
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =
   fixtureBinder
@@ -1646,6 +1764,303 @@ callableBuiltinEqualityProgram =
       let name = argumentName index
        in TypedLambdaExpr boolToBoolInfo (binder modulePath [index] name) name trueExpr
     expression = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") (function 0) (function 1)
+
+moduleInfoStructuralEqualityUnknownOwner :: TypedBinderId
+moduleInfoStructuralEqualityUnknownOwner =
+  fixtureBinder
+    "review-module-info-structural-equality"
+    9
+    (fixtureValueName "unknown")
+
+moduleInfoStructuralEqualityProgram :: TypedProgram
+moduleInfoStructuralEqualityProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 trueExpr] emptyInterface moduleInfo modulePath
+  where
+    fixture = "review-module-info-structural-equality"
+    modulePath = ["Fixture", fixture]
+    moduleInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation moduleInfoStructuralEqualityUnknownOwner [] Nothing]
+        []
+
+typeApplicationResultContractProgram :: TypedProgram
+typeApplicationResultContractProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface applicationInfo modulePath
+  where
+    fixture = "review-type-application-result-contract"
+    modulePath = ["Fixture", fixture]
+    valueName = fixtureValueName "identity"
+    owner = fixtureBinder fixture 0 valueName
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    scheme =
+      TypedScheme
+        owner
+        [parameter]
+        []
+        []
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] (Just span1)
+    calleeInfo = TypedNodeInfo boolToBoolType boolToBoolRecipe [instantiation] []
+    applicationInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [instantiation] []
+    expression =
+      TypedTypeApplicationExpr
+        applicationInfo
+        (TypedVariableExpr calleeInfo valueName)
+        span1
+        TypedBoolType
+    statements =
+      [ TypedSignatureStatement owner valueName span1 scheme,
+        expressionStatement 1 expression
+      ]
+
+capabilityConstraintVisibilityProgram :: TypedProgram
+capabilityConstraintVisibilityProgram =
+  withFixturePrelude (signatureProgram fixture owner valueName scheme)
+  where
+    fixture = "review-capability-constraint-visibility"
+    valueName = fixtureValueName "constrained"
+    owner = fixtureBinder fixture 0 valueName
+    evidence =
+      [ TypedEvidenceParameter
+          (TypedEvidenceParameterId 0)
+          (TypedCapabilityConstraint "Missing" (Just "Missing.m") TypedBoolType),
+        TypedEvidenceParameter
+          (TypedEvidenceParameterId 1)
+          (TypedCapabilityConstraint "Equal" (Just "Equal.missing") TypedBoolType)
+      ]
+    scheme = TypedScheme owner [] evidence [] TypedBoolType TypedBoolRecipe
+
+unconstrainedNumericParameterProgram :: TypedProgram
+unconstrainedNumericParameterProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-unconstrained-numeric-parameter"
+    modulePath = ["Fixture", fixture]
+    valueName = fixtureValueName "numeric"
+    owner = fixtureBinder fixture 0 valueName
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    parameterInfo = info parameterType parameterRecipe
+    operand = TypedBlockExpr parameterInfo []
+    expression = TypedBinaryExpr parameterInfo (TypedBuiltinOperator "+") operand operand
+    scheme = TypedScheme owner [parameter] [] [] parameterType parameterRecipe
+    statement = TypedLetStatement owner valueName span1 scheme expression
+
+unconstrainedEqualityParameterProgram :: TypedProgram
+unconstrainedEqualityParameterProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-unconstrained-equality-parameter"
+    modulePath = ["Fixture", fixture]
+    valueName = fixtureValueName "equal"
+    owner = fixtureBinder fixture 0 valueName
+    parameter = TypedTypeParameterId 0
+    parameterInfo =
+      info
+        (TypedTypeParameterType parameter)
+        (TypedRepresentationParameterRecipe parameter)
+    operand = TypedBlockExpr parameterInfo []
+    expression = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") operand operand
+    scheme = TypedScheme owner [parameter] [] [] TypedBoolType TypedBoolRecipe
+    statement = TypedLetStatement owner valueName span1 scheme expression
+
+duplicatePatternNameSecondBinder :: TypedBinderId
+duplicatePatternNameSecondBinder =
+  binder
+    ["Fixture", "review-duplicate-pattern-name"]
+    [0, 1]
+    (fixtureValueName "duplicate")
+
+duplicatePatternNameProgram :: TypedProgram
+duplicatePatternNameProgram =
+  expressionFixtureProgram fixture expression
+  where
+    fixture = "review-duplicate-pattern-name"
+    modulePath = ["Fixture", fixture]
+    duplicateName = fixtureValueName "duplicate"
+    firstBinder = binder modulePath [0, 0] duplicateName
+    patternValue =
+      TypedTuplePattern
+        pairInfo
+        [ TypedVariablePattern boolInfo firstBinder duplicateName,
+          TypedVariablePattern boolInfo duplicatePatternNameSecondBinder duplicateName
+        ]
+    scrutinee = TypedTupleExpr pairInfo [trueExpr, falseExpr]
+    expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
+
+nonTuplePatternProgram :: TypedProgram
+nonTuplePatternProgram =
+  expressionFixtureProgram
+    "review-non-tuple-pattern"
+    (TypedPatternCaseExpr boolInfo trueExpr [TypedCaseArm (TypedTuplePattern boolInfo []) Nothing trueExpr])
+
+ownerAmbiguousEvidenceProgram :: TypedProgram
+ownerAmbiguousEvidenceProgram =
+  withFixturePrelude
+    (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
+  where
+    fixture = "review-owner-ambiguous-evidence"
+    modulePath = ["Fixture", fixture]
+    firstName = fixtureValueName "first"
+    secondName = fixtureValueName "second"
+    firstOwner = fixtureBinder fixture 0 firstName
+    secondOwner = fixtureBinder fixture 1 secondName
+    parameter = TypedTypeParameterId 0
+    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    scheme owner =
+      TypedScheme
+        owner
+        [parameter]
+        [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    instantiate owner =
+      TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] Nothing
+    implId =
+      TypedImplId
+        ["Prelude"]
+        (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
+        [TypedBoolType]
+    evidenceUse =
+      TypedEvidenceUse
+        (Just (TypedEvidenceParameterRef firstOwner (TypedEvidenceParameterId 0)))
+        constraint
+        implId
+        Nothing
+    expressionInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [instantiate firstOwner, instantiate secondOwner]
+        [TypedSelectedEvidence evidenceUse]
+    expression = TypedLiteralExpr expressionInfo (TypedBooleanLiteral True)
+    statements =
+      [ TypedSignatureStatement firstOwner firstName span1 (scheme firstOwner),
+        TypedSignatureStatement secondOwner secondName span1 (scheme secondOwner),
+        expressionStatement 2 expression
+      ]
+
+reorderedOrPatternProgram :: TypedProgram
+reorderedOrPatternProgram =
+  expressionFixtureProgram fixture expression
+  where
+    fixture = "review-reordered-or-pattern"
+    modulePath = ["Fixture", fixture]
+    leftName = fixtureValueName "left"
+    rightName = fixtureValueName "right"
+    variable lexicalPath name =
+      TypedVariablePattern boolInfo (binder modulePath lexicalPath name) name
+    firstAlternative =
+      TypedTuplePattern
+        pairInfo
+        [variable [0, 0] leftName, variable [0, 1] rightName]
+    secondAlternative =
+      TypedTuplePattern
+        pairInfo
+        [variable [1, 0] rightName, variable [1, 1] leftName]
+    patternValue = TypedOrPattern pairInfo [firstAlternative, secondAlternative]
+    scrutinee = TypedTupleExpr pairInfo [trueExpr, falseExpr]
+    expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
+
+emptyPatternCaseProgram :: TypedProgram
+emptyPatternCaseProgram =
+  expressionFixtureProgram
+    "review-empty-pattern-case"
+    (TypedPatternCaseExpr boolInfo trueExpr [])
+
+typeVisibleImplImportProgram :: TypedProgram
+typeVisibleImplImportProgram =
+  visibleClassImplImportProgram
+    "review-type-visible-impl-import"
+    [TypedModuleExport TypedTypeNamespace "Render"]
+    ["Render"]
+
+methodVisibleImplImportProgram :: TypedProgram
+methodVisibleImplImportProgram =
+  visibleClassImplImportProgram
+    "review-method-visible-impl-import"
+    [TypedModuleExport TypedValueNamespace "render"]
+    ["render"]
+
+visibleClassImplImportProgram :: Text -> [TypedModuleExport] -> [Text] -> TypedProgram
+visibleClassImplImportProgram fixture exports selectedNames =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = ["Library", fixture]
+    entryPath = ["Fixture", fixture]
+    localClassName = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+    importedClassName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Render"
+    methodName = resolved TypedCurrentModule TypedValueNamespace "render"
+    methodOwner = binder libraryPath [0, 0] methodName
+    parameter = TypedTypeParameterId 0
+    methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        localClassName
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    localImplId = TypedImplId libraryPath localClassName [TypedBoolType]
+    importedImplId = TypedImplId libraryPath importedClassName [TypedBoolType]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/VisibleClassImpl.jz")
+        []
+        exports
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface localImplId]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement (TypedImplDeclaration span1 localImplId [])
+        ]
+        boolInfo
+    constraint = TypedCapabilityConstraint "Render" Nothing TypedBoolType
+    evidence =
+      TypedSelectedEvidence
+        (TypedEvidenceUse Nothing constraint importedImplId Nothing)
+    expression =
+      TypedLiteralExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence])
+        (TypedBooleanLiteral True)
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just selectedNames)]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        boolInfo
+
+integralLiteralRangeProgram :: TypedProgram
+integralLiteralRangeProgram =
+  signatureProgram fixture owner valueName scheme
+  where
+    fixture = "review-integral-literal-range"
+    valueName = fixtureValueName "bounded"
+    owner = fixtureBinder fixture 0 valueName
+    scheme =
+      TypedScheme
+        owner
+        []
+        []
+        [ TypedNumericPrimitiveConstraint
+            (TypedIntegralLiteralNumericConstraint "0" "300")
+            (TypedNumericType TypedUInt8Type)
+        ]
+        TypedBoolType
+        TypedBoolRecipe
 
 selectedValueDataMetadataProgram :: TypedProgram
 selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
@@ -2280,7 +2695,12 @@ evidenceParameterContractProgram =
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     selected selectedId constraint targetType =
       TypedSelectedEvidence
-        (TypedEvidenceUse (Just selectedId) constraint (TypedImplId ["Prelude"] capabilityName [targetType]) Nothing)
+        ( TypedEvidenceUse
+            (Just (TypedEvidenceParameterRef owner selectedId))
+            constraint
+            (TypedImplId ["Prelude"] capabilityName [targetType])
+            Nothing
+        )
     expression selection = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
     statements =
       [ TypedSignatureStatement owner valueName span1 scheme,
@@ -2307,7 +2727,8 @@ implCapabilityNamespaceProgram =
 
 missingInstantiatedEvidenceProgram :: TypedProgram
 missingInstantiatedEvidenceProgram =
-  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  withFixturePrelude
+    (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-missing-instantiated-evidence"
     modulePath = ["Fixture", fixture]
@@ -3025,9 +3446,14 @@ evidenceProgram fixture parameterId =
     capability = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
-    evidenceUse = TypedEvidenceUse parameterId capability implId Nothing
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder ["Fixture", fixture] [0] valueName
+    evidenceUse =
+      TypedEvidenceUse
+        (TypedEvidenceParameterRef valueBinder <$> parameterId)
+        capability
+        implId
+        Nothing
     scheme =
       case parameterId of
         Nothing -> monoScheme valueBinder
@@ -3573,7 +3999,7 @@ duplicateEvidenceParameterFixture =
         TypedEvidenceParameter (TypedEvidenceParameterId 3) constraint
       ]
     scheme = TypedScheme valueBinder [] evidence [] TypedBoolType TypedBoolRecipe
-    program = signatureProgram fixture valueBinder valueName scheme
+    program = withFixturePrelude (signatureProgram fixture valueBinder valueName scheme)
     failures =
       [ statementFailure fixture 0 TypedDuplicateEvidenceParameter (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
         statementFailure fixture 0 TypedInvalidEvidenceParameterOrder (TypedIndexDetail 1),
@@ -3598,7 +4024,13 @@ missingOrDuplicateEvidenceFixture =
     constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
-    use = TypedEvidenceUse (Just (TypedEvidenceParameterId 0)) constraint implId Nothing
+    duplicateOwner = fixtureBinder fixture 9 (fixtureValueName "duplicateEvidence")
+    use =
+      TypedEvidenceUse
+        (Just (TypedEvidenceParameterRef duplicateOwner (TypedEvidenceParameterId 0)))
+        constraint
+        implId
+        Nothing
     missingExpression =
       TypedLambdaExpr
         (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedEvidenceCandidates constraint []])

@@ -358,11 +358,17 @@ evidenceUseValue :: TypedEvidenceUse -> RuntimeValue
 evidenceUseValue (TypedEvidenceUse parameterId constraint implId methodId) =
   constructor
     "TypedEvidenceUse"
-    [ maybeValue evidenceParameterIdValue parameterId,
+    [ maybeValue evidenceParameterRefValue parameterId,
       capabilityConstraintValue constraint,
       implIdValue implId,
       maybeValue methodIdValue methodId
     ]
+
+evidenceParameterRefValue :: TypedEvidenceParameterRef -> RuntimeValue
+evidenceParameterRefValue (TypedEvidenceParameterRef owner parameterId) =
+  constructor
+    "TypedEvidenceParameterRef"
+    [binderIdValue owner, evidenceParameterIdValue parameterId]
 
 evidenceCandidateValue :: TypedEvidenceCandidate -> RuntimeValue
 evidenceCandidateValue (TypedEvidenceCandidate implId methodId) =
