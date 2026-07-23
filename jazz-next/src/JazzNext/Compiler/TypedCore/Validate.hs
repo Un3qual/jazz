@@ -67,9 +67,12 @@ data DataContract = DataContract [TypedTypeParameterId] [[TypedType]]
 
 data CapabilityContract = CapabilityContract [TypedTypeParameterId] (Map Text TypedScheme)
 
+data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedPrimitiveConstraint]
+
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
   duplicateModuleFailures allModules
+    <> importCycleFailures moduleTable allModules
     <> unknownEntryFailure
     <> maybe [] (validateModule moduleTable prelude True) prelude
     <> concatMap (validateModule moduleTable prelude False) modules
@@ -85,6 +88,29 @@ validateTypedProgram (TypedProgram prelude modules entryModule) =
               TypedUnknownEntryModule
               (TypedTextDetail (renderModulePath entryModule))
           ]
+
+importCycleFailures :: Map [Text] TypedModule -> [TypedModule] -> [TypedCoreValidationFailure]
+importCycleFailures moduleTable modules =
+  [ failure
+      (TypedModulePath modulePath)
+      TypedModuleInterfaceMismatch
+      (TypedTextDetail (renderModulePath importPath))
+  | TypedModule modulePath _ imports _ _ _ _ <- modules,
+    importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
+    modulePathReachable moduleTable Set.empty importPath modulePath
+  ]
+
+modulePathReachable :: Map [Text] TypedModule -> Set [Text] -> [Text] -> [Text] -> Bool
+modulePathReachable moduleTable seen currentPath targetPath
+  | currentPath == targetPath = True
+  | Set.member currentPath seen = False
+  | otherwise =
+      case Map.lookup currentPath moduleTable of
+        Nothing -> False
+        Just (TypedModule _ _ imports _ _ _ _) ->
+          any
+            (\(TypedResolvedImport _ nextPath _ _) -> modulePathReachable moduleTable (Set.insert currentPath seen) nextPath targetPath)
+            imports
 
 validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedModule -> [TypedCoreValidationFailure]
 validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
@@ -451,7 +477,7 @@ statementSchemes :: TypedStatement -> [(TypedBinderId, TypedScheme)]
 statementSchemes statement =
   case statement of
     TypedLetStatement binderId _ _ scheme _ -> [(binderId, scheme)]
-    TypedSignatureStatement binderId _ _ scheme -> [(binderId, scheme)]
+    TypedSignatureStatement {} -> []
     TypedClassStatement (TypedClassDeclaration _ _ classParameters methods) ->
       [ (binderId, generalizeClassMethodScheme classParameters scheme)
       | TypedMethodSignature _ _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods
@@ -702,7 +728,7 @@ statementDefinedNames :: TypedStatement -> [TypedCoreName]
 statementDefinedNames statement =
   case statement of
     TypedLetStatement _ name _ _ _ -> [name]
-    TypedSignatureStatement _ name _ _ -> [name]
+    TypedSignatureStatement {} -> []
     TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
       name : [constructorName | TypedConstructorDeclaration _ constructorName _ _ <- constructors]
     TypedClassStatement (TypedClassDeclaration _ name _ methods) ->
@@ -1745,14 +1771,17 @@ validateExplicitTypeApplication context path info function explicitSpan typeArgu
           | otherwise -> []
         Nothing -> []
 
-expressionSchemeOwners :: ModuleContext -> TypedExpr -> Set TypedBinderId
-expressionSchemeOwners context expression =
+expressionInstantiationOwners :: ModuleContext -> TypedExpr -> Set TypedBinderId
+expressionInstantiationOwners context expression =
   case expression of
     TypedVariableExpr _ name ->
-      Set.fromList [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
+      Set.fromList
+        ( [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
+            <> [owner | ConstructorContract owner _ _ _ <- maybeToList (lookupConstructorContract context name)]
+        )
     TypedOperatorValueExpr _ operator -> operatorSchemeOwners context operator
-    TypedApplyExpr _ function _ -> expressionSchemeOwners context function
-    TypedTypeApplicationExpr _ function _ _ -> expressionSchemeOwners context function
+    TypedApplyExpr _ function _ -> expressionInstantiationOwners context function
+    TypedTypeApplicationExpr _ function _ _ -> expressionInstantiationOwners context function
     TypedBinaryExpr _ operator _ _ -> operatorSchemeOwners context operator
     TypedLeftSectionExpr _ _ operator -> operatorSchemeOwners context operator
     TypedRightSectionExpr _ operator _ -> operatorSchemeOwners context operator
@@ -1765,11 +1794,14 @@ operatorSchemeOwners context operator =
     TypedResolvedOperator name _ ->
       Set.fromList [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
 
-bindingExpressionSchemeOwners :: ModuleContext -> TypedExpr -> Set TypedBinderId
-bindingExpressionSchemeOwners context expression =
+bindingExpressionInstantiationOwners :: ModuleContext -> TypedExpr -> Set TypedBinderId
+bindingExpressionInstantiationOwners context expression =
   case expression of
     TypedVariableExpr _ name ->
-      Set.fromList [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
+      Set.fromList
+        ( [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
+            <> [owner | ConstructorContract owner _ _ _ <- maybeToList (lookupConstructorContract context name)]
+        )
     TypedOperatorValueExpr _ operator -> operatorSchemeOwners context operator
     _ -> Set.empty
 
@@ -1777,18 +1809,18 @@ validateExpressionInstantiationOwners :: ModuleContext -> TypedCoreValidationPat
 validateExpressionInstantiationOwners context path expression =
   case expression of
     TypedTypeApplicationExpr _ function _ _
-      | Set.null (bindingExpressionSchemeOwners context function) -> []
+      | Set.null (bindingExpressionInstantiationOwners context function) -> []
     _ ->
       [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
       | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
-        Map.member owner (moduleContextSchemes context),
+        _ <- maybeToList (lookupInstantiationContract context owner),
         Set.notMember owner allowedOwners
       ]
   where
     allowedOwners =
       case expression of
-        TypedTypeApplicationExpr _ function _ _ -> bindingExpressionSchemeOwners context function
-        _ -> expressionSchemeOwners context expression
+        TypedTypeApplicationExpr _ function _ _ -> bindingExpressionInstantiationOwners context function
+        _ -> expressionInstantiationOwners context expression
 
 lookupSchemeByName :: ModuleContext -> TypedCoreName -> Maybe TypedScheme
 lookupSchemeByName context name = do
@@ -2471,16 +2503,16 @@ validateDataTypeApplications context path typeValue =
 
 validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedInstantiation -> [TypedCoreValidationFailure]
 validateInstantiation context path parameterScope (TypedInstantiation owner arguments _) =
-  case Map.lookup owner (moduleContextSchemes context) of
+  case lookupInstantiationContract context owner of
     Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-    Just (TypedScheme schemeOwner parameters _ primitiveConstraints _ _) ->
+    Just (InstantiationContract contractOwner parameters primitiveConstraints) ->
       if map typeArgumentParameter arguments == parameters
         then
           concatMap
             (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
             arguments
             <> concatMap
-              (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint schemeOwner substitutions)
+              (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
               primitiveConstraints
         else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
   where
@@ -2504,6 +2536,23 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
         qualifiedType
           | ownerPath == moduleContextPath context = typeValue
           | otherwise = qualifyExternalType ownerPath typeValue
+
+lookupInstantiationContract :: ModuleContext -> TypedBinderId -> Maybe InstantiationContract
+lookupInstantiationContract context owner =
+  case Map.lookup owner (moduleContextSchemes context) of
+    Just (TypedScheme schemeOwner parameters _ primitiveConstraints _ _) ->
+      Just (InstantiationContract schemeOwner parameters primitiveConstraints)
+    Nothing ->
+      case lookupConstructorContractByOwner context owner of
+        Just (ConstructorContract constructorOwner _ parameters _) ->
+          Just (InstantiationContract constructorOwner parameters [])
+        Nothing -> Nothing
+
+lookupConstructorContractByOwner :: ModuleContext -> TypedBinderId -> Maybe ConstructorContract
+lookupConstructorContractByOwner context owner =
+  find matchesOwner (Map.elems (moduleContextConstructorContracts context))
+  where
+    matchesOwner (ConstructorContract candidateOwner _ _ _) = candidateOwner == owner
 
 qualifiedMethodCandidateKey :: TypedExpr -> Maybe Text
 qualifiedMethodCandidateKey expression =
@@ -3167,11 +3216,11 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     <> concatMap validateExport exports
   where
     path = TypedInterfacePath modulePath
-    declaredValues =
-      [ (name, scheme)
-      | statement <- statements,
-        (name, scheme) <- statementValueDeclarations statement
-      ]
+    activeDeclaredValues =
+      Map.fromList
+        [ (name, scheme)
+        | TypedLetStatement _ name _ scheme _ <- statements
+        ]
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
@@ -3196,7 +3245,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           | preludeModule <- maybeToList (Map.lookup ["Prelude"] moduleTable)
           ]
     validateValueInterface (TypedValueInterface name scheme)
-      | (name, scheme) `elem` declaredValues && moduleExportsName TypedValueNamespace name exports =
+      | Map.lookup name activeDeclaredValues == Just scheme && moduleExportsName TypedValueNamespace name exports =
           validateValueInterfaceDependencies scheme
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateDataInterface (TypedDataInterface declaration@(TypedDataDeclaration _ name _ constructors))
@@ -3303,13 +3352,6 @@ classInterfaceMatches expected (TypedClassInterface (TypedClassDeclaration _ nam
 classDeclarationMatches :: Text -> TypedClassDeclaration -> Bool
 classDeclarationMatches expected (TypedClassDeclaration _ name _ _) =
   coreNameIdentifier name == Just expected
-
-statementValueDeclarations :: TypedStatement -> [(TypedCoreName, TypedScheme)]
-statementValueDeclarations statement =
-  case statement of
-    TypedLetStatement _ name _ scheme _ -> [(name, scheme)]
-    TypedSignatureStatement _ name _ scheme -> [(name, scheme)]
-    _ -> []
 
 interfaceNameMatches :: Text -> TypedValueInterface -> Bool
 interfaceNameMatches expected (TypedValueInterface name _) = coreNameIdentifier name == Just expected

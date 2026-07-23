@@ -24,6 +24,8 @@ module TypedCoreValidate (
 
   data CapabilityContract = CapabilityContract [TypedTypeParameterId] [MethodContract].
 
+  data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedPrimitiveConstraint].
+
   data ValueContract = ValueContract TypedType TypedRepresentationRecipe.
 
   data DeclarationEntry = DeclarationEntry NameEntry TypedCoreName (Maybe(TypedBinderId)) | ImplDeclarationEntry TypedImplId.
@@ -370,6 +372,19 @@ module TypedCoreValidate (
       | ConstructorEntry candidatePath candidateIdentifier binder dataIdentifier parameters fields ->
         if textListEqual modulePath candidatePath then if identifier == candidateIdentifier then Just (ConstructorContract binder candidatePath dataIdentifier parameters fields) else lookupConstructorContract modulePath identifier rest else lookupConstructorContract modulePath identifier rest
       | other -> lookupConstructorContract modulePath identifier rest
+    }
+  }.
+
+  lookupConstructorContractByOwner :: TypedBinderId -> [DataEntry] -> Maybe(ConstructorContract).
+  lookupConstructorContractByOwner = \(owner, entries) -> case entries {
+    | [] -> Nothing
+    | [first | rest] -> case first {
+      | ConstructorEntry candidatePath candidateIdentifier binder dataIdentifier parameters fields ->
+        if binderIdEqual owner binder then
+          Just (ConstructorContract binder candidatePath dataIdentifier parameters fields)
+        else
+          lookupConstructorContractByOwner owner rest
+      | other -> lookupConstructorContractByOwner owner rest
     }
   }.
 
@@ -1711,15 +1726,31 @@ module TypedCoreValidate (
     | TypedScheme owner typeParameters evidence primitive resultType resultRecipe -> typeParameters
   }.
 
+  lookupInstantiationContract :: TypedBinderId -> [SchemeEntry] -> [DataEntry] -> Maybe(InstantiationContract).
+  lookupInstantiationContract = \(owner, schemes, dataEntries) -> case lookupScheme owner schemes {
+    | Just scheme -> case scheme {
+      | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe ->
+        Just (InstantiationContract schemeOwner parameters primitive)
+    }
+    | Nothing -> case lookupConstructorContractByOwner owner dataEntries {
+      | Just constructorContract -> case constructorContract {
+        | ConstructorContract constructorOwner dataPath dataIdentifier parameters fields ->
+          Just (InstantiationContract constructorOwner parameters [])
+      }
+      | Nothing -> Nothing
+    }
+  }.
+
   validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedInstantiation -> [TypedCoreValidationFailure].
   validateInstantiation = \(context, path, scope, instantiation) -> case (context, instantiation) {
-    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedInstantiation owner arguments explicitSpan) -> case lookupScheme owner schemes {
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedInstantiation owner arguments explicitSpan) -> case lookupInstantiationContract owner schemes dataEntries {
       | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-      | Just scheme -> if typeParameterIdListEqual (typeArgumentIds arguments) (schemeTypeParameters scheme) then case scheme {
-        | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe -> listAppend
+      | Just contract -> case contract {
+        | InstantiationContract contractOwner parameters primitive -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then listAppend
           (validateTypeArguments context path scope arguments)
-          (validateInstantiatedPrimitiveConstraints context path scope modulePath schemeOwner (typeArgumentSubstitutions arguments) primitive)
-      } else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          (validateInstantiatedPrimitiveConstraints context path scope modulePath contractOwner (typeArgumentSubstitutions arguments) primitive)
+        else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+      }
     }
   }.
 
@@ -2886,16 +2917,29 @@ module TypedCoreValidate (
     }
   }.
 
-  expressionSchemeOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
-  expressionSchemeOwners = \(context, expression) -> case context {
+  constructorContractOwner :: ConstructorContract -> TypedBinderId.
+  constructorContractOwner = \(contract) -> case contract {
+    | ConstructorContract owner dataPath dataIdentifier parameters fields -> owner
+  }.
+
+  variableInstantiationOwners :: [Text] -> TypedCoreName -> [SchemeEntry] -> [DataEntry] -> [TypedBinderId].
+  variableInstantiationOwners = \(modulePath, name, schemes, dataEntries) -> listAppend
+    (case lookupSchemeByName modulePath name schemes {
+      | Nothing -> []
+      | Just scheme -> [schemeOwner scheme]
+    })
+    (case lookupConstructorContractForName modulePath name dataEntries {
+      | Nothing -> []
+      | Just contract -> [constructorContractOwner contract]
+    }).
+
+  expressionInstantiationOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
+  expressionInstantiationOwners = \(context, expression) -> case context {
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> case expression {
-      | TypedVariableExpr info name -> case lookupSchemeByName modulePath name schemes {
-        | Nothing -> []
-        | Just scheme -> [schemeOwner scheme]
-      }
+      | TypedVariableExpr info name -> variableInstantiationOwners modulePath name schemes dataEntries
       | TypedOperatorValueExpr info operator -> operatorSchemeOwners context operator
-      | TypedApplyExpr info function argument -> expressionSchemeOwners context function
-      | TypedTypeApplicationExpr info function span typeArgument -> expressionSchemeOwners context function
+      | TypedApplyExpr info function argument -> expressionInstantiationOwners context function
+      | TypedTypeApplicationExpr info function span typeArgument -> expressionInstantiationOwners context function
       | TypedBinaryExpr info operator left right -> operatorSchemeOwners context operator
       | TypedLeftSectionExpr info left operator -> operatorSchemeOwners context operator
       | TypedRightSectionExpr info operator right -> operatorSchemeOwners context operator
@@ -2903,12 +2947,10 @@ module TypedCoreValidate (
     }
   }.
 
-  bindingExpressionSchemeOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
-  bindingExpressionSchemeOwners = \(context, expression) -> case (context, expression) {
-    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedVariableExpr info name) -> case lookupSchemeByName modulePath name schemes {
-      | Nothing -> []
-      | Just scheme -> [schemeOwner scheme]
-    }
+  bindingExpressionInstantiationOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
+  bindingExpressionInstantiationOwners = \(context, expression) -> case (context, expression) {
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedVariableExpr info name) ->
+      variableInstantiationOwners modulePath name schemes dataEntries
     | (contextValue, TypedOperatorValueExpr info operator) -> operatorSchemeOwners contextValue operator
     | other -> []
   }.
@@ -2917,20 +2959,20 @@ module TypedCoreValidate (
   validateInstantiationOwnersFrom = \(context, path, allowedOwners, instantiations) -> case (context, instantiations) {
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, []) -> []
     | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, [TypedInstantiation owner arguments maybeSpan | rest]) -> listAppend
-      (case lookupScheme owner schemes {
+      (case lookupInstantiationContract owner schemes dataEntries {
         | Nothing -> []
-        | Just scheme -> if binderIdMember owner allowedOwners then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+        | Just contract -> if binderIdMember owner allowedOwners then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       })
       (validateInstantiationOwnersFrom context path allowedOwners rest)
   }.
 
   validateExpressionInstantiationOwners :: ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure].
   validateExpressionInstantiationOwners = \(context, path, expression) -> case expression {
-    | TypedTypeApplicationExpr info function span typeArgument -> case bindingExpressionSchemeOwners context function {
+    | TypedTypeApplicationExpr info function span typeArgument -> case bindingExpressionInstantiationOwners context function {
       | [] -> []
       | owners -> validateInstantiationOwnersFrom context path owners (nodeInstantiations info)
     }
-    | other -> validateInstantiationOwnersFrom context path (expressionSchemeOwners context expression) (nodeInstantiations (expressionInfo expression))
+    | other -> validateInstantiationOwnersFrom context path (expressionInstantiationOwners context expression) (nodeInstantiations (expressionInfo expression))
   }.
 
   validateTypeApplicationResultContract :: [Text] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedScheme -> [TypedCoreValidationFailure].
@@ -3054,7 +3096,7 @@ module TypedCoreValidate (
   statementDefinedNames :: TypedStatement -> [TypedCoreName].
   statementDefinedNames = \(statement) -> case statement {
     | TypedLetStatement binder name span scheme expression -> [name]
-    | TypedSignatureStatement binder name span scheme -> [name]
+    | TypedSignatureStatement binder name span scheme -> []
     | TypedDataStatement declaration -> case declaration {
       | TypedDataDeclaration span name parameters constructors -> listPrepend name (constructorNames constructors)
     }
@@ -3168,7 +3210,7 @@ module TypedCoreValidate (
   statementSchemeEntries :: TypedStatement -> [SchemeEntry].
   statementSchemeEntries = \(statement) -> case statement {
     | TypedLetStatement binder name span scheme expression -> [SchemeEntry binder scheme]
-    | TypedSignatureStatement binder name span scheme -> [SchemeEntry binder scheme]
+    | TypedSignatureStatement binder name span scheme -> []
     | TypedClassStatement declaration -> case declaration {
       | TypedClassDeclaration span name parameters methods -> methodSchemeEntries parameters methods
     }
@@ -4310,15 +4352,19 @@ module TypedCoreValidate (
   validateModuleStatementsInOrder = \(context, statements) ->
     validateModuleStatementsInOrderFrom context context statements statements 0.
 
-  declaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
-  declaredValueMatches = \(name, scheme, statements) -> case statements {
+  activeDeclaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
+  activeDeclaredValueMatches = \(name, scheme, statements) -> case statements {
     | [] -> False
     | [first | rest] -> case first {
-      | TypedLetStatement binder candidateName span candidateScheme expression -> if coreNameEqual name candidateName then schemeEqual scheme candidateScheme else declaredValueMatches name scheme rest
-      | TypedSignatureStatement binder candidateName span candidateScheme -> if coreNameEqual name candidateName then schemeEqual scheme candidateScheme else declaredValueMatches name scheme rest
-      | other -> declaredValueMatches name scheme rest
+      | TypedLetStatement binder candidateName span candidateScheme expression ->
+        if coreNameEqual name candidateName then schemeEqual scheme candidateScheme else activeDeclaredValueMatches name scheme rest
+      | other -> activeDeclaredValueMatches name scheme rest
     }
   }.
+
+  declaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
+  declaredValueMatches = \(name, scheme, statements) ->
+    activeDeclaredValueMatches name scheme (listReverse statements).
 
   declaredDataMatches :: TypedDataDeclaration -> [TypedStatement] -> Bool.
   declaredDataMatches = \(declaration, statements) -> case statements {
@@ -4681,6 +4727,60 @@ module TypedCoreValidate (
     | [] -> Nothing
     | [first | rest] -> if textListEqual modulePath (typedModulePath first) then Just first else findModule modulePath rest
   }.
+
+  typedModuleImports :: TypedModule -> [TypedResolvedImport].
+  typedModuleImports = \(moduleValue) -> case moduleValue {
+    | TypedModule modulePath sourcePath imports exports interface statements info -> imports
+  }.
+
+  anyImportPathReaches :: [TypedModule] -> [[Text]] -> [TypedResolvedImport] -> [Text] -> Bool.
+  anyImportPathReaches = \(completeModules, seen, imports, targetPath) -> case imports {
+    | [] -> False
+    | [TypedResolvedImport span importPath alias names | rest] ->
+      if modulePathReachable completeModules seen importPath targetPath then
+        True
+      else
+        anyImportPathReaches completeModules seen rest targetPath
+  }.
+
+  modulePathReachable :: [TypedModule] -> [[Text]] -> [Text] -> [Text] -> Bool.
+  modulePathReachable = \(completeModules, seen, currentPath, targetPath) ->
+    if textListEqual currentPath targetPath then
+      True
+    else if modulePathMember currentPath seen then
+      False
+    else case findModule currentPath completeModules {
+      | Nothing -> False
+      | Just moduleValue ->
+        anyImportPathReaches completeModules (listPrepend currentPath seen) (typedModuleImports moduleValue) targetPath
+    }.
+
+  importCycleFailuresForImports :: [TypedModule] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
+  importCycleFailuresForImports = \(completeModules, modulePath, imports, seenImports) -> case imports {
+    | [] -> []
+    | [TypedResolvedImport span importPath alias names | rest] ->
+      if modulePathMember importPath seenImports then
+        importCycleFailuresForImports completeModules modulePath rest seenImports
+      else
+        listAppend
+          (if modulePathReachable completeModules [] importPath modulePath then
+            [failure (TypedModulePath modulePath) TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
+          else
+            [])
+          (importCycleFailuresForImports completeModules modulePath rest (listPrepend importPath seenImports))
+  }.
+
+  importCycleFailuresFrom :: [TypedModule] -> [TypedModule] -> [TypedCoreValidationFailure].
+  importCycleFailuresFrom = \(completeModules, remainingModules) -> case remainingModules {
+    | [] -> []
+    | [first | rest] -> listAppend
+      (importCycleFailuresForImports completeModules (typedModulePath first) (typedModuleImports first) [])
+      (importCycleFailuresFrom completeModules rest)
+  }.
+
+  importCycleFailures :: [TypedModule] -> [TypedCoreValidationFailure].
+  importCycleFailures = \(completeModules) ->
+    importCycleFailuresFrom completeModules completeModules.
 
   selectedImportNamePresentInExports :: Text -> TypedModuleInterface -> [TypedModuleExport] -> Bool.
   selectedImportNamePresentInExports = \(selectedName, interface, exports) -> case exports {
@@ -5323,6 +5423,7 @@ module TypedCoreValidate (
       paths = modulePaths completeModules.
       listConcat
         [ duplicateModuleFailuresFrom completeModules [] [],
+          importCycleFailures completeModules,
           if modulePathMember entryModule paths then [] else [failure TypedProgramPath TypedUnknownEntryModule (TypedTextDetail (modulePathText entryModule))],
           validatePrelude completeModules prelude,
           validateModules completeModules prelude modules

@@ -114,6 +114,10 @@ tests =
     ("allows phantom data arguments in strict equality", testPhantomDataEquality),
     ("preserves same-scope value rebinding", testSameScopeValueRebinding),
     ("preserves top-level statement scope order", testForwardModuleReference),
+    ("rejects cyclic resolved imports", testCyclicResolvedImports),
+    ("keeps bare signatures out of executable value scope", testBareSignatureVisibility),
+    ("exports only the active rebinding scheme", testActiveRebindingExport),
+    ("accepts constructor-owned instantiations", testConstructorInstantiation),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -476,7 +480,11 @@ reviewRegressionPrograms =
     patternExpressionMetadataProgram,
     phantomDataEqualityProgram,
     sameScopeValueRebindingProgram,
-    forwardModuleReferenceProgram
+    forwardModuleReferenceProgram,
+    cyclicImportProgram,
+    bareSignatureVisibilityProgram,
+    activeRebindingExportProgram,
+    constructorInstantiationProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -650,7 +658,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
         []
         [TypedModuleExport TypedValueNamespace "identity"]
         (TypedModuleInterface [TypedValueInterface localName scheme] [] [] [])
-        [TypedSignatureStatement owner localName span1 scheme]
+        [TypedLetStatement owner localName span1 scheme (polymorphicIdentityExpression libraryPath [0] parameterId)]
         boolInfo
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     instantiatedType = TypedFunctionType TypedBoolType TypedBoolType
@@ -706,7 +714,7 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
         []
         []
         emptyInterface
-        [TypedSignatureStatement valueBinder valueName span1 scheme, expressionStatement 1 expression]
+        [TypedLetStatement valueBinder valueName span1 scheme trueExpr, expressionStatement 1 expression]
         boolInfo
 
 selectedEvidenceTargetProgram :: TypedProgram
@@ -732,7 +740,7 @@ selectedEvidenceTargetProgram =
                 fixtureImplMethod modulePath [0, 1] implId "other"
               ]
           ),
-        TypedSignatureStatement valueBinder valueName span1 scheme,
+        TypedLetStatement valueBinder valueName span1 scheme trueExpr,
         expressionStatement 1 expression
       ]
 
@@ -767,7 +775,7 @@ selectedMethodContractProgram =
                 fixtureImplMethod modulePath [0, 1] implId "other"
               ]
           ),
-        TypedSignatureStatement valueBinder valueName span1 scheme,
+        TypedLetStatement valueBinder valueName span1 scheme trueExpr,
         expressionStatement 1 (selected withoutMethod),
         expressionStatement 2 (selected wrongMethod)
       ]
@@ -2073,6 +2081,161 @@ testForwardModuleReference =
     ]
     (validateTypedProgram forwardModuleReferenceProgram)
 
+testCyclicResolvedImports :: IO ()
+testCyclicResolvedImports =
+  assertEqual
+    "resolved module graphs are acyclic"
+    [ TypedCoreValidationFailure
+        (TypedModulePath cyclicImportFirstPath)
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Cycle::Second"),
+      TypedCoreValidationFailure
+        (TypedModulePath cyclicImportSecondPath)
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Cycle::First")
+    ]
+    (validateTypedProgram cyclicImportProgram)
+
+testBareSignatureVisibility :: IO ()
+testBareSignatureVisibility =
+  assertEqual
+    "a signature without a value body is not an executable binding"
+    [ expressionFailureAt
+        "review-bare-signature-visibility"
+        1
+        TypedInvisibleName
+        (TypedNameDetail bareSignatureValueName)
+    ]
+    (validateTypedProgram bareSignatureVisibilityProgram)
+
+testActiveRebindingExport :: IO ()
+testActiveRebindingExport =
+  assertEqual
+    "an interface cannot publish a shadowed rebinding contract"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath ["Fixture", "review-active-rebinding-export"])
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail activeRebindingExportName)
+    ]
+    (validateTypedProgram activeRebindingExportProgram)
+
+testConstructorInstantiation :: IO ()
+testConstructorInstantiation =
+  assertEqual
+    "generic constructors own their instantiation metadata"
+    []
+    (validateTypedProgram constructorInstantiationProgram)
+
+cyclicImportFirstPath :: [Text]
+cyclicImportFirstPath = ["Cycle", "First"]
+
+cyclicImportSecondPath :: [Text]
+cyclicImportSecondPath = ["Cycle", "Second"]
+
+cyclicImportProgram :: TypedProgram
+cyclicImportProgram =
+  TypedProgram
+    Nothing
+    [ moduleWithImport cyclicImportFirstPath cyclicImportSecondPath,
+      moduleWithImport cyclicImportSecondPath cyclicImportFirstPath
+    ]
+    cyclicImportFirstPath
+  where
+    moduleWithImport modulePath importPath =
+      typedModule
+        modulePath
+        (TypedSourcePath ("src/" <> Text.intercalate "/" modulePath <> ".jz"))
+        [TypedResolvedImport span1 importPath Nothing Nothing]
+        []
+        emptyInterface
+        []
+        unitInfo
+
+bareSignatureValueName :: TypedCoreName
+bareSignatureValueName =
+  resolved TypedCurrentModule TypedValueNamespace "declaredOnly"
+
+bareSignatureVisibilityProgram :: TypedProgram
+bareSignatureVisibilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-bare-signature-visibility"
+    modulePath = ["Fixture", fixture]
+    owner = binder modulePath [0] bareSignatureValueName
+    statements =
+      [ TypedSignatureStatement owner bareSignatureValueName span1 (monoScheme owner),
+        expressionStatement 1 (TypedVariableExpr boolInfo bareSignatureValueName)
+      ]
+
+activeRebindingExportName :: TypedCoreName
+activeRebindingExportName =
+  resolved TypedCurrentModule TypedValueNamespace "value"
+
+activeRebindingExportProgram :: TypedProgram
+activeRebindingExportProgram =
+  singleModuleProgram fixture relativeSource exports statements interface unitInfo modulePath
+  where
+    fixture = "review-active-rebinding-export"
+    modulePath = ["Fixture", fixture]
+    firstOwner = binder modulePath [0] activeRebindingExportName
+    secondOwner = binder modulePath [1] activeRebindingExportName
+    firstScheme = monoScheme firstOwner
+    secondScheme =
+      TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+    exports = [TypedModuleExport TypedValueNamespace "value"]
+    statements =
+      [ TypedLetStatement firstOwner activeRebindingExportName span1 firstScheme trueExpr,
+        TypedLetStatement
+          secondOwner
+          activeRebindingExportName
+          span1
+          secondScheme
+          (TypedLiteralExpr textInfo (TypedTextLiteral "latest"))
+      ]
+    interface =
+      TypedModuleInterface
+        [TypedValueInterface activeRebindingExportName firstScheme]
+        []
+        []
+        []
+
+constructorInstantiationProgram :: TypedProgram
+constructorInstantiationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface constructorInfo modulePath
+  where
+    fixture = "review-constructor-instantiation"
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Option"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
+    parameterId = TypedTypeParameterId 0
+    constructorOwner = binder modulePath [0, 0] constructorName
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameterId]
+        [ TypedConstructorDeclaration
+            constructorOwner
+            constructorName
+            [TypedTypeParameterType parameterId]
+            [TypedRepresentationParameterRecipe parameterId]
+        ]
+    instantiation =
+      TypedInstantiation
+        constructorOwner
+        [TypedTypeArgument parameterId TypedBoolType]
+        Nothing
+    constructorInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (TypedDataType dataName [TypedBoolType]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [TypedBoolType]))
+        [instantiation]
+        []
+    statements =
+      [ TypedDataStatement declaration,
+        expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
+      ]
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -2086,11 +2249,16 @@ lexicalSchemeShadowingProgram =
     block =
       TypedBlockExpr
         textInfo
-        [ TypedSignatureStatement innerOwner valueName span1 (TypedScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe),
+        [ TypedLetStatement
+            innerOwner
+            valueName
+            span1
+            (TypedScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe)
+            (TypedLiteralExpr textInfo (TypedTextLiteral "inner")),
           expressionStatement 2 innerUse
         ]
     statements =
-      [ TypedSignatureStatement outerOwner valueName span1 (monoScheme outerOwner),
+      [ TypedLetStatement outerOwner valueName span1 (monoScheme outerOwner) trueExpr,
         expressionStatement 1 block
       ]
 
@@ -2294,7 +2462,7 @@ forwardBlockReferenceProgram =
       TypedBlockExpr
         boolInfo
         [ expressionStatement 2 (TypedVariableExpr boolInfo forwardBlockReferenceName),
-          TypedSignatureStatement owner forwardBlockReferenceName span1 (monoScheme owner),
+          TypedLetStatement owner forwardBlockReferenceName span1 (monoScheme owner) trueExpr,
           expressionStatement 3 trueExpr
         ]
 
@@ -2411,7 +2579,7 @@ evidenceSelectionOrderProgram =
         )
         valueName
     statements =
-      [ TypedSignatureStatement owner valueName span1 scheme,
+      [ TypedLetStatement owner valueName span1 scheme trueExpr,
         expressionStatement 1 expression
       ]
 
@@ -2452,7 +2620,7 @@ privateCapabilityMetadataVisibilityProgram =
             []
         )
         [ TypedClassStatement libraryClass,
-          TypedSignatureStatement valueOwner valueName span1 valueScheme
+          TypedLetStatement valueOwner valueName span1 valueScheme trueExpr
         ]
         unitInfo
     localCapabilityName =
@@ -2551,6 +2719,8 @@ importedDataDependencyProgram =
     providerBoxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     importedBoxName =
       resolved (TypedImportedModule providerPath) TypedTypeNamespace "Box"
+    importedBoxConstructor =
+      resolved (TypedImportedModule providerPath) TypedConstructorNamespace "Box"
     boxDeclaration =
       dataDeclarationWithNullaryConstructor
         providerPath
@@ -2562,7 +2732,9 @@ importedDataDependencyProgram =
         providerPath
         (TypedSourcePath "src/Library/ImportedDataProvider.jz")
         []
-        [TypedModuleExport TypedTypeNamespace "Box"]
+        [ TypedModuleExport TypedTypeNamespace "Box",
+          TypedModuleExport TypedConstructorNamespace "Box"
+        ]
         (TypedModuleInterface [] [TypedDataInterface boxDeclaration] [] [])
         [TypedDataStatement boxDeclaration]
         unitInfo
@@ -2581,7 +2753,13 @@ importedDataDependencyProgram =
         [TypedResolvedImport span1 providerPath Nothing (Just ["Box"])]
         [TypedModuleExport TypedValueNamespace "published"]
         (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
-        [TypedSignatureStatement valueOwner valueName span1 valueScheme]
+        [ TypedLetStatement
+            valueOwner
+            valueName
+            span1
+            valueScheme
+            (TypedVariableExpr (info boxType boxRecipe) importedBoxConstructor)
+        ]
         unitInfo
     entryInfo = info boxType boxRecipe
     entryModule =
@@ -2648,7 +2826,7 @@ transitiveDataContractDependencyProgram =
         )
         [ TypedDataStatement hiddenDeclaration,
           TypedDataStatement boxDeclaration,
-          TypedSignatureStatement valueOwner valueName span1 valueScheme
+          TypedLetStatement valueOwner valueName span1 valueScheme trueExpr
         ]
         unitInfo
     instantiation =
@@ -2710,7 +2888,7 @@ importedCapabilityDependencyProgram =
         [TypedResolvedImport span1 providerPath Nothing (Just ["ForeignEq"])]
         [TypedModuleExport TypedValueNamespace "published"]
         (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
-        [TypedSignatureStatement valueOwner valueName span1 valueScheme]
+        [TypedLetStatement valueOwner valueName span1 valueScheme trueExpr]
         unitInfo
 
 metadataOnlyImportedCapabilityName :: TypedCoreName
@@ -2766,7 +2944,7 @@ metadataOnlyImplVisibilityProgram =
         )
         [ TypedClassStatement capability,
           TypedImplStatement (TypedImplDeclaration span1 localImpl []),
-          TypedSignatureStatement valueOwner valueName span1 valueScheme
+          TypedLetStatement valueOwner valueName span1 valueScheme trueExpr
         ]
         unitInfo
     evidenceUse =
@@ -2815,7 +2993,7 @@ patternExpressionMetadataProgram =
         trueExpr
         [TypedCaseArm (TypedWildcardPattern patternInfo) Nothing trueExpr]
     statements =
-      [ TypedSignatureStatement genericOwner genericName span1 genericScheme,
+      [ TypedLetStatement genericOwner genericName span1 genericScheme trueExpr,
         TypedClassStatement capability,
         TypedImplStatement (TypedImplDeclaration span1 implId []),
         expressionStatement 4 expression
@@ -2929,7 +3107,12 @@ missingPolymorphicInstantiationProgram =
         (TypedFunctionType parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     statements =
-      [ TypedSignatureStatement missingPolymorphicInstantiationOwner valueName span1 scheme,
+      [ TypedLetStatement
+          missingPolymorphicInstantiationOwner
+          valueName
+          span1
+          scheme
+          (polymorphicIdentityExpression modulePath [0] parameter),
         expressionStatement 1 (TypedVariableExpr boolToBoolInfo valueName)
       ]
 
@@ -3297,7 +3480,7 @@ typeApplicationResultContractProgram =
         span1
         TypedBoolType
     statements =
-      [ TypedSignatureStatement owner valueName span1 scheme,
+      [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameter),
         expressionStatement 1 expression
       ]
 
@@ -3446,8 +3629,8 @@ ownerAmbiguousEvidenceProgram =
         [TypedSelectedEvidence evidenceUse]
     expression = TypedVariableExpr expressionInfo firstName
     statements =
-      [ TypedSignatureStatement firstOwner firstName span1 (scheme firstOwner),
-        TypedSignatureStatement secondOwner secondName span1 (scheme secondOwner),
+      [ TypedLetStatement firstOwner firstName span1 (scheme firstOwner) trueExpr,
+        TypedLetStatement secondOwner secondName span1 (scheme secondOwner) trueExpr,
         expressionStatement 2 expression
       ]
 
@@ -3661,6 +3844,7 @@ missingInterfaceMetadataProgram =
     valueBinder = binder libraryPath [0] valueName
     dataType = TypedDataType missingInterfaceMetadataDataName []
     dataRecipe = TypedManagedVariantRecipe missingInterfaceMetadataDataName []
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Box"
     valueScheme = TypedScheme valueBinder [] [] [] dataType dataRecipe
     dataDeclaration =
       dataDeclarationWithNullaryConstructor
@@ -3675,7 +3859,12 @@ missingInterfaceMetadataProgram =
         []
         [TypedModuleExport TypedValueNamespace "boxed"]
         (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
-        [ TypedSignatureStatement valueBinder valueName span1 valueScheme,
+        [ TypedLetStatement
+            valueBinder
+            valueName
+            span1
+            valueScheme
+            (TypedVariableExpr (info dataType dataRecipe) constructorName),
           TypedDataStatement dataDeclaration
         ]
         boolInfo
@@ -3712,7 +3901,7 @@ constrainedMonomorphicUseProgram =
         TypedBoolRecipe
     expression = TypedVariableExpr boolInfo valueName
     statements =
-      [ TypedSignatureStatement constrainedMonomorphicOwner valueName span1 scheme,
+      [ TypedLetStatement constrainedMonomorphicOwner valueName span1 scheme trueExpr,
         expressionStatement 1 expression
       ]
 
@@ -3736,7 +3925,7 @@ unrelatedKnownInstantiationProgram =
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [])
         (TypedBooleanLiteral True)
     statements =
-      [ TypedSignatureStatement unrelatedKnownInstantiationOwner valueName span1 (monoScheme unrelatedKnownInstantiationOwner),
+      [ TypedLetStatement unrelatedKnownInstantiationOwner valueName span1 (monoScheme unrelatedKnownInstantiationOwner) trueExpr,
         expressionStatement 1 expression
       ]
 
@@ -3749,21 +3938,25 @@ explicitHeadParameterOwner =
 
 explicitHeadParameterProgram :: TypedProgram
 explicitHeadParameterProgram =
-  singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
+  singleModuleProgram fixture relativeSource [] statements emptyInterface instantiatedInfo modulePath
   where
     fixture = "review-explicit-head-parameter"
     modulePath = ["Fixture", fixture]
     valueName = fixtureValueName "choose"
     firstParameter = TypedTypeParameterId 0
     secondParameter = TypedTypeParameterId 1
+    parameterType = TypedTypeParameterType firstParameter
+    parameterRecipe = TypedRepresentationParameterRecipe firstParameter
+    functionType = TypedFunctionType parameterType parameterType
+    functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
       TypedScheme
         explicitHeadParameterOwner
         [firstParameter, secondParameter]
         []
         []
-        (TypedTypeParameterType firstParameter)
-        (TypedRepresentationParameterRecipe firstParameter)
+        functionType
+        functionRecipe
     instantiation =
       TypedInstantiation
         explicitHeadParameterOwner
@@ -3773,8 +3966,8 @@ explicitHeadParameterProgram =
         (Just span1)
     instantiatedInfo =
       TypedNodeInfo
-        TypedTextType
-        TypedManagedTextRecipe
+        (TypedFunctionType TypedTextType TypedTextType)
+        (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
         [instantiation]
         []
     expression =
@@ -3784,7 +3977,12 @@ explicitHeadParameterProgram =
         span1
         TypedBoolType
     statements =
-      [ TypedSignatureStatement explicitHeadParameterOwner valueName span1 scheme,
+      [ TypedLetStatement
+          explicitHeadParameterOwner
+          valueName
+          span1
+          scheme
+          (polymorphicIdentityExpression modulePath [0] firstParameter),
         expressionStatement 1 expression
       ]
 
@@ -3948,7 +4146,7 @@ nonBindingTypeApplicationProgram =
         span1
         TypedBoolType
     statements =
-      [ TypedSignatureStatement owner valueName span1 scheme,
+      [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameter),
         expressionStatement 1 expression
       ]
 
@@ -3984,7 +4182,7 @@ mismatchedResolvedOperatorProgram =
         operatorInfo
         (TypedResolvedOperator operatorName "-")
     statements =
-      [ TypedSignatureStatement owner operatorName span1 scheme,
+      [ TypedLetStatement owner operatorName span1 scheme (boolBinaryFunctionExpression modulePath [0]),
         expressionStatement 1 expression
       ]
 
@@ -4117,16 +4315,18 @@ instantiatedPrimitiveConstraintProgram =
         )
         name
     statements =
-      [ TypedSignatureStatement
+      [ TypedLetStatement
           numericOwner
           numericName
           span1
-          (constrainedScheme numericOwner (TypedNumericPrimitiveConstraint TypedIntegralNumericConstraint parameterType)),
-        TypedSignatureStatement
+          (constrainedScheme numericOwner (TypedNumericPrimitiveConstraint TypedIntegralNumericConstraint parameterType))
+          trueExpr,
+        TypedLetStatement
           equalityOwner
           equalityName
           span1
-          (constrainedScheme equalityOwner (TypedStrictEqualityPrimitiveConstraint parameterType)),
+          (constrainedScheme equalityOwner (TypedStrictEqualityPrimitiveConstraint parameterType))
+          trueExpr,
         expressionStatement 2 (instantiatedUse numericOwner numericName TypedBoolType),
         expressionStatement 3 (instantiatedUse equalityOwner equalityName boolToBoolType)
       ]
@@ -4169,8 +4369,8 @@ typeApplicationExtraOwnerProgram =
         span1
         TypedBoolType
     statements =
-      [ TypedSignatureStatement functionOwner functionName span1 (scheme functionOwner),
-        TypedSignatureStatement typeApplicationExtraOwner otherName span1 (scheme typeApplicationExtraOwner),
+      [ TypedLetStatement functionOwner functionName span1 (scheme functionOwner) trueExpr,
+        TypedLetStatement typeApplicationExtraOwner otherName span1 (scheme typeApplicationExtraOwner) trueExpr,
         expressionStatement 2 expression
       ]
 
@@ -4215,11 +4415,12 @@ constrainedResolvedOperatorProgram =
         operatorInfo
         (TypedResolvedOperator constrainedResolvedOperatorName "+")
     statements =
-      [ TypedSignatureStatement
+      [ TypedLetStatement
           constrainedResolvedOperatorOwner
           constrainedResolvedOperatorName
           span1
-          scheme,
+          scheme
+          (boolBinaryFunctionExpression modulePath [0]),
         expressionStatement 2 expression
       ]
 
@@ -4387,11 +4588,12 @@ duplicateInstantiationProgram =
         )
         valueName
     statements =
-      [ TypedSignatureStatement
+      [ TypedLetStatement
           duplicateInstantiationOwner
           valueName
           span1
-          scheme,
+          scheme
+          trueExpr,
         expressionStatement 2 expression
       ]
 
@@ -4599,6 +4801,7 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
     importedDataName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Box"
     localValueName = resolved TypedCurrentModule TypedValueNamespace "boxed"
     importedValueName = resolved (TypedImportedModule libraryPath) TypedValueNamespace "boxed"
+    localConstructorName = resolved TypedCurrentModule TypedConstructorNamespace "Box"
     valueBinder = binder libraryPath [0] localValueName
     dataType = TypedDataType localDataName []
     dataRecipe = TypedManagedVariantRecipe localDataName []
@@ -4618,7 +4821,12 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
         []
         [TypedModuleExport TypedValueNamespace "boxed"]
         (TypedModuleInterface [TypedValueInterface localValueName valueScheme] [TypedDataInterface dataDeclaration] [] [])
-        [ TypedSignatureStatement valueBinder localValueName span1 valueScheme,
+        [ TypedLetStatement
+            valueBinder
+            localValueName
+            span1
+            valueScheme
+            (TypedVariableExpr (info dataType dataRecipe) localConstructorName),
           TypedDataStatement dataDeclaration
         ]
         boolInfo
@@ -4655,7 +4863,7 @@ selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModu
         []
         [TypedModuleExport TypedValueNamespace "published"]
         (TypedModuleInterface [TypedValueInterface localValueName valueScheme] [] [] [TypedImplInterface selectiveImportLeakedImpl])
-        [ TypedSignatureStatement valueBinder localValueName span1 valueScheme,
+        [ TypedLetStatement valueBinder localValueName span1 valueScheme trueExpr,
           TypedImplStatement
             ( TypedImplDeclaration
                 span1
@@ -4855,7 +5063,7 @@ instantiationDataTypeProgram =
     scheme = TypedScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId (TypedDataType missingInstantiationDataName [])] Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
-    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+    statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 literalPatternProgram :: TypedProgram
 literalPatternProgram =
@@ -4894,7 +5102,7 @@ expressionDuplicateBinderProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     scheme = monoScheme expressionDuplicateBinder
     lambda = TypedLambdaExpr boolToBoolInfo expressionDuplicateBinder valueName (TypedVariableExpr boolInfo valueName)
-    statements = [TypedSignatureStatement expressionDuplicateBinder valueName span1 scheme, expressionStatement 2 lambda]
+    statements = [TypedLetStatement expressionDuplicateBinder valueName span1 scheme trueExpr, expressionStatement 2 lambda]
 
 privateInterfaceLibraryPath :: [Text]
 privateInterfaceLibraryPath = ["Private", "Library"]
@@ -4920,7 +5128,7 @@ privateInterfaceLeakProgram = TypedProgram Nothing [libraryModule, entryModule] 
         []
         []
         (TypedModuleInterface [TypedValueInterface privateInterfaceLocalName scheme] [] [] [])
-        [TypedSignatureStatement owner privateInterfaceLocalName span1 scheme]
+        [TypedLetStatement owner privateInterfaceLocalName span1 scheme trueExpr]
         boolInfo
     entryModule =
       typedModule
@@ -4989,7 +5197,7 @@ explicitTypeApplicationContractProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     scheme = monoScheme explicitTypeApplicationOwner
     expression = TypedTypeApplicationExpr boolInfo (TypedVariableExpr boolInfo valueName) span1 TypedBoolType
-    statements = [TypedSignatureStatement explicitTypeApplicationOwner valueName span1 scheme, expressionStatement 2 expression]
+    statements = [TypedLetStatement explicitTypeApplicationOwner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 variableSchemeContractProgram :: TypedProgram
 variableSchemeContractProgram =
@@ -5000,7 +5208,7 @@ variableSchemeContractProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     valueBinder = binder modulePath [0] valueName
     statements =
-      [ TypedSignatureStatement valueBinder valueName span1 (monoScheme valueBinder),
+      [ TypedLetStatement valueBinder valueName span1 (monoScheme valueBinder) trueExpr,
         expressionStatement 2 (TypedVariableExpr textInfo valueName)
       ]
 
@@ -5119,7 +5327,7 @@ blockLocalGeneralizedSchemeProgram =
     scheme = TypedScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     use = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
-    block = TypedBlockExpr boolInfo [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 use]
+    block = TypedBlockExpr boolInfo [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 use]
 
 blockLocalMonomorphicSchemeProgram :: TypedProgram
 blockLocalMonomorphicSchemeProgram =
@@ -5131,7 +5339,7 @@ blockLocalMonomorphicSchemeProgram =
     owner = binder modulePath [0, 0] valueName
     scheme = monoScheme owner
     use = TypedVariableExpr textInfo valueName
-    block = TypedBlockExpr textInfo [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 use]
+    block = TypedBlockExpr textInfo [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 use]
 
 implMethodNameProgram :: TypedProgram
 implMethodNameProgram =
@@ -5182,7 +5390,7 @@ operatorSchemeProgram =
     textExpr = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text")
     textToTextInfo = info (TypedFunctionType TypedTextType TypedTextType) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
     statements =
-      [ TypedSignatureStatement owner operatorName span1 scheme,
+      [ TypedLetStatement owner operatorName span1 scheme (boolBinaryFunctionExpression modulePath [0]),
         expressionStatement 2 (TypedBinaryExpr textInfo operator textExpr textExpr),
         expressionStatement 3 (TypedLeftSectionExpr textToTextInfo textExpr operator),
         expressionStatement 4 (TypedRightSectionExpr textToTextInfo operator textExpr)
@@ -5217,7 +5425,7 @@ selectiveImportProgram = TypedProgram Nothing [libraryModule, entryModule] entry
         []
         [TypedModuleExport TypedValueNamespace "identity"]
         (TypedModuleInterface [TypedValueInterface localName scheme] [] [] [])
-        [TypedSignatureStatement owner localName span1 scheme]
+        [TypedLetStatement owner localName span1 scheme trueExpr]
         boolInfo
     entryModule =
       typedModule
@@ -5270,7 +5478,7 @@ evidenceParameterContractProgram =
         )
     expression selection = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
     statements =
-      [ TypedSignatureStatement owner valueName span1 scheme,
+      [ TypedLetStatement owner valueName span1 scheme trueExpr,
         expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint "Equal" Nothing TypedBoolType) TypedBoolType)),
         expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint "Equal" Nothing TypedCharType) TypedCharType))
       ]
@@ -5307,7 +5515,7 @@ missingInstantiatedEvidenceProgram =
     scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId constraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [] Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
-    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+    statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 constructorExpressionDataName :: TypedCoreName
 constructorExpressionDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
@@ -5344,18 +5552,25 @@ unrelatedTypeApplicationProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "unrelated"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameterId
+    parameterRecipe = TypedRepresentationParameterRecipe parameterId
+    functionType = TypedFunctionType parameterType parameterType
+    functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
       TypedScheme
         owner
         [parameterId]
         []
         []
-        (TypedTypeParameterType parameterId)
-        (TypedRepresentationParameterRecipe parameterId)
+        functionType
+        functionRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] (Just span1)
     applicationInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
     expression = TypedTypeApplicationExpr applicationInfo trueExpr span1 TypedBoolType
-    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+    statements =
+      [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameterId),
+        expressionStatement 2 expression
+      ]
 
 lexicalBinderContractProgram :: TypedProgram
 lexicalBinderContractProgram = expressionFixtureProgram fixture expression
@@ -5392,7 +5607,10 @@ generalizedVariableContractProgram =
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     badUseInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
     expression = TypedVariableExpr badUseInfo valueName
-    statements = [TypedSignatureStatement owner valueName span1 scheme, expressionStatement 2 expression]
+    statements =
+      [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameterId),
+        expressionStatement 2 expression
+      ]
 
 enclosingInstantiationScopeProgram :: TypedProgram
 enclosingInstantiationScopeProgram =
@@ -5424,7 +5642,12 @@ enclosingInstantiationScopeProgram =
     instantiation = TypedInstantiation identityOwner [TypedTypeArgument identityParameter wrapperParameterType] Nothing
     expression = TypedVariableExpr (TypedNodeInfo wrapperType wrapperRecipe [instantiation] []) identityName
     statements =
-      [ TypedSignatureStatement identityOwner identityName span1 identityScheme,
+      [ TypedLetStatement
+          identityOwner
+          identityName
+          span1
+          identityScheme
+          (polymorphicIdentityExpression modulePath [0] identityParameter),
         TypedLetStatement wrapperOwner wrapperName span1 wrapperScheme expression
       ]
 
@@ -5822,7 +6045,12 @@ resolvedNameOriginsProgram =
         [TypedResolvedImport span1 libraryPath Nothing (Just ["Some"])]
         []
         emptyInterface
-        ( [ TypedSignatureStatement localBinder localValue span1 localScheme,
+        ( [ TypedLetStatement
+              localBinder
+              localValue
+              span1
+              localScheme
+              (TypedLiteralExpr textInfo (TypedTextLiteral "local")),
             TypedClassStatement (TypedClassDeclaration span1 printable [TypedTypeParameterId 0] [])
           ]
             <> [ expressionStatement 1 (TypedVariableExpr importedSomeInfo importedSome),
@@ -5942,7 +6170,7 @@ generalizedBindingProgram =
     fixture
     relativeSource
     [TypedModuleExport TypedValueNamespace "choose"]
-    [TypedSignatureStatement valueBinder valueName span1 scheme]
+    [TypedLetStatement valueBinder valueName span1 scheme valueExpression]
     (TypedModuleInterface [TypedValueInterface valueName scheme] [] [] [])
     boolInfo
     ["Fixture", fixture]
@@ -5962,6 +6190,30 @@ generalizedBindingProgram =
           TypedRepresentationParameterRecipe parameter1
         ]
         (TypedRepresentationParameterRecipe parameter0)
+    firstArgumentName = fixtureValueName "first"
+    secondArgumentName = fixtureValueName "second"
+    innerType =
+      TypedFunctionType
+        (TypedTypeParameterType parameter1)
+        (TypedTypeParameterType parameter0)
+    innerRecipe =
+      TypedClosureRecipe
+        [TypedRepresentationParameterRecipe parameter1]
+        (TypedRepresentationParameterRecipe parameter0)
+    valueExpression =
+      TypedLambdaExpr
+        (info polymorphicType polymorphicRecipe)
+        (binder ["Fixture", fixture] [0, 0] firstArgumentName)
+        firstArgumentName
+        ( TypedLambdaExpr
+            (info innerType innerRecipe)
+            (binder ["Fixture", fixture] [0, 0, 0] secondArgumentName)
+            secondArgumentName
+            ( TypedVariableExpr
+                (info (TypedTypeParameterType parameter0) (TypedRepresentationParameterRecipe parameter0))
+                firstArgumentName
+            )
+        )
     scheme =
       TypedScheme
         valueBinder
@@ -5984,7 +6236,18 @@ explicitInstantiationProgram = instantiationProgram "explicit-instantiation" (Ju
 
 instantiationProgram :: Text -> Maybe TypedSpan -> TypedProgram
 instantiationProgram fixture explicitSpan =
-  programWith fixture [TypedSignatureStatement owner name span1 scheme, expressionStatement 2 expression] emptyInterface instantiatedInfo
+  programWith
+    fixture
+    [ TypedLetStatement
+        owner
+        name
+        span1
+        scheme
+        (polymorphicIdentityExpression ["Fixture", fixture] [0] parameterId),
+      expressionStatement 2 expression
+    ]
+    emptyInterface
+    instantiatedInfo
   where
     name = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder ["Fixture", fixture] [0] name
@@ -6026,7 +6289,7 @@ inferredCapabilityEvidenceProgram = evidenceProgram "inferred-capability-evidenc
 
 evidenceProgram :: Text -> Maybe TypedEvidenceParameterId -> TypedProgram
 evidenceProgram fixture parameterId =
-  withFixturePrelude (programWith fixture [TypedSignatureStatement valueBinder valueName span1 scheme, expressionStatement 1 expression] emptyInterface boolInfo)
+  withFixturePrelude (programWith fixture [TypedLetStatement valueBinder valueName span1 scheme trueExpr, expressionStatement 1 expression] emptyInterface boolInfo)
   where
     capability = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
@@ -6772,6 +7035,43 @@ hasTerminalExpression statements =
   case reverse statements of
     TypedExpressionStatement {} : _ -> True
     _ -> False
+
+polymorphicIdentityExpression :: [Text] -> [Int] -> TypedTypeParameterId -> TypedExpr
+polymorphicIdentityExpression modulePath lexicalPath parameterId =
+  TypedLambdaExpr
+    functionInfo
+    (binder modulePath (lexicalPath <> [0]) argumentName)
+    argumentName
+    (TypedVariableExpr parameterInfo argumentName)
+  where
+    argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    parameterType = TypedTypeParameterType parameterId
+    parameterRecipe = TypedRepresentationParameterRecipe parameterId
+    parameterInfo = info parameterType parameterRecipe
+    functionInfo =
+      info
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+
+boolBinaryFunctionExpression :: [Text] -> [Int] -> TypedExpr
+boolBinaryFunctionExpression modulePath lexicalPath =
+  TypedLambdaExpr
+    binaryInfo
+    (binder modulePath (lexicalPath <> [0]) leftName)
+    leftName
+    ( TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath (lexicalPath <> [0, 0]) rightName)
+        rightName
+        trueExpr
+    )
+  where
+    leftName = resolved TypedCurrentModule TypedValueNamespace "left"
+    rightName = resolved TypedCurrentModule TypedValueNamespace "right"
+    binaryInfo =
+      info
+        (TypedFunctionType TypedBoolType boolToBoolType)
+        (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
 
 relativeSource :: TypedSourcePath
 relativeSource = TypedSourcePath "src/Fixture/Main.jz"
