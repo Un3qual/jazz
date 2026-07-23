@@ -211,7 +211,22 @@ validateModuleResult modulePath statements moduleInfo =
             TypedModuleResultMismatch
             moduleInfo
             (expressionInfo terminal)
-    _ -> []
+    TypedExpressionStatement {} : _ -> []
+    _
+      | moduleInfoIsNoResultContract moduleInfo -> []
+      | otherwise ->
+          [ failure
+              (TypedModulePath modulePath)
+              TypedModuleResultMismatch
+              TypedNoValidationDetail
+          ]
+
+moduleInfoIsNoResultContract :: TypedNodeInfo -> Bool
+moduleInfoIsNoResultContract (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
+  typeValue == TypedTupleType []
+    && recipe == TypedUnitRecipe
+    && null instantiations
+    && null evidenceSelections
 
 validateModuleInfo :: ModuleContext -> TypedCoreValidationPath -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateModuleInfo context path statements moduleInfo =
@@ -412,8 +427,7 @@ patternBinderOccurrences modulePath statementIndex patternPath patternValue =
         TypedConsListPattern _ headPattern tailPattern -> indexedChildren [headPattern, tailPattern]
         TypedTuplePattern _ patterns -> indexedChildren patterns
         TypedAsPattern _ _ _ nested -> patternBinderOccurrences modulePath statementIndex (patternPath <> [0]) nested
-        TypedOrPattern _ [] -> []
-        TypedOrPattern _ (firstAlternative : _) -> patternBinderOccurrences modulePath statementIndex (patternPath <> [0]) firstAlternative
+        TypedOrPattern _ alternatives -> indexedChildren alternatives
         _ -> []
     indexedChildren patterns =
       concat
@@ -1117,6 +1131,7 @@ validateDataDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedData
 validateDataDeclaration context path (TypedDataDeclaration _ name parameters constructors) =
   validateLocalDefinitionName context [TypedTypeNamespace] path name
     <> validateOrderedTypeParameters path parameters
+    <> (if null constructors then [failure path TypedDataRecipeMismatch (TypedArityDetail 1 0)] else [])
     <> concatMap validateConstructor constructors
   where
     scope = Set.fromList parameters
@@ -1162,6 +1177,7 @@ validateImplDeclaration context statementLocation path (TypedImplDeclaration _ i
     <> validateImplId context path Set.empty implId
     <> concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
     <> duplicateImplMethodFailures path methods
+    <> missingImplMethodFailures context path implId methods
     <> concatMap (uncurry validateMethod) (zip [0 ..] methods)
   where
     implOwnerFailures
@@ -1183,6 +1199,24 @@ duplicateImplMethodFailures path methods = snd (foldl' step (Set.empty, []) meth
       | Set.member methodKey seen =
           (seen, failures <> [failure path TypedDuplicateDeclaration (TypedNameDetail name)])
       | otherwise = (Set.insert methodKey seen, failures)
+
+missingImplMethodFailures :: ModuleContext -> TypedCoreValidationPath -> TypedImplId -> [TypedMethodDefinition] -> [TypedCoreValidationFailure]
+missingImplMethodFailures context path (TypedImplId _ capability targets) methods =
+  case resolvedNameKey (moduleContextPath context) capability >>= (`Map.lookup` moduleContextCapabilityContracts context) of
+    Nothing -> []
+    Just (CapabilityContract parameters methodSchemes)
+      | length targets /= length parameters -> []
+      | otherwise ->
+          [ failure path TypedMethodSelectionMismatch (TypedTextDetail methodKey)
+          | methodKey <- Map.keys methodSchemes,
+            Set.notMember methodKey providedMethodKeys
+          ]
+  where
+    providedMethodKeys =
+      Set.fromList
+        [ methodKey
+        | TypedMethodDefinition (TypedMethodId _ methodKey) _ _ _ _ <- methods
+        ]
 
 validateImplMethodContract :: ModuleContext -> TypedCoreValidationPath -> TypedImplId -> Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateImplMethodContract context path implId methodKey info =
@@ -1285,8 +1319,10 @@ validateLiteral path info literal
 literalMatchesType :: TypedLiteral -> TypedType -> Bool
 literalMatchesType literal typeValue =
   case (literal, typeValue) of
-    (TypedIntegerLiteral _, TypedIntType) -> True
-    (TypedIntegerLiteral _, TypedNumericType numericType) -> not (isFloatingNumericType numericType)
+    (TypedIntegerLiteral value, TypedIntType) -> integerLiteralFitsType value typeValue
+    (TypedIntegerLiteral value, TypedNumericType numericType) ->
+      not (isFloatingNumericType numericType)
+        && integerLiteralFitsType value typeValue
     (TypedFractionalLiteral _ _ Nothing, TypedFloatType) -> True
     (TypedFractionalLiteral _ _ Nothing, TypedNumericType numericType) -> isFloatingNumericType numericType
     (TypedFractionalLiteral _ _ (Just expectedType), TypedNumericType actualType) ->
@@ -1294,6 +1330,13 @@ literalMatchesType literal typeValue =
     (TypedBooleanLiteral _, TypedBoolType) -> True
     (TypedCharacterLiteral _, TypedCharType) -> True
     (TypedTextLiteral _, TypedTextType) -> True
+    _ -> False
+
+integerLiteralFitsType :: Text -> TypedType -> Bool
+integerLiteralFitsType value typeValue =
+  case (parseDecimalBound value, integralTypeBounds typeValue) of
+    (Just parsedValue, Just (minimumValue, maximumValue)) ->
+      minimumValue <= parsedValue && parsedValue <= maximumValue
     _ -> False
 
 literalType :: TypedLiteral -> TypedType
@@ -1387,10 +1430,19 @@ operatorSchemeOwners context operator =
     TypedResolvedOperator name _ ->
       Set.fromList [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
 
+bindingExpressionSchemeOwners :: ModuleContext -> TypedExpr -> Set TypedBinderId
+bindingExpressionSchemeOwners context expression =
+  case expression of
+    TypedVariableExpr _ name ->
+      Set.fromList [owner | TypedScheme owner _ _ _ _ _ <- maybeToList (lookupSchemeByName context name)]
+    TypedOperatorValueExpr _ operator -> operatorSchemeOwners context operator
+    _ -> Set.empty
+
 validateExpressionInstantiationOwners :: ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure]
 validateExpressionInstantiationOwners context path expression =
   case expression of
-    TypedTypeApplicationExpr {} -> []
+    TypedTypeApplicationExpr _ function _ _
+      | Set.null (bindingExpressionSchemeOwners context function) -> []
     _ ->
       [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
       | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
@@ -1398,7 +1450,10 @@ validateExpressionInstantiationOwners context path expression =
         Set.notMember owner allowedOwners
       ]
   where
-    allowedOwners = expressionSchemeOwners context expression
+    allowedOwners =
+      case expression of
+        TypedTypeApplicationExpr _ function _ _ -> bindingExpressionSchemeOwners context function
+        _ -> expressionSchemeOwners context expression
 
 lookupSchemeByName :: ModuleContext -> TypedCoreName -> Maybe TypedScheme
 lookupSchemeByName context name = do
@@ -2021,9 +2076,18 @@ validateNodeInfo context path parameterScope qualifiedMethodKey (TypedNodeInfo t
     <> validateRecipe path parameterScope recipe
     <> validateTypeRecipe path parameterScope typeValue recipe
     <> concatMap (validateInstantiation context path parameterScope) instantiations
+    <> duplicateInstantiationFailures path instantiations
     <> validateEvidenceSelections context path qualifiedMethodKey evidenceSelections
     <> validateEvidenceParameterBindings context path instantiations evidenceSelections
     <> concatMap (validateEvidenceSelectionDataTypes context path) evidenceSelections
+
+duplicateInstantiationFailures :: TypedCoreValidationPath -> [TypedInstantiation] -> [TypedCoreValidationFailure]
+duplicateInstantiationFailures path instantiations = snd (foldl' step (Set.empty, []) instantiations)
+  where
+    step (seen, failures) (TypedInstantiation owner _ _)
+      | Set.member owner seen =
+          (seen, failures <> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)])
+      | otherwise = (Set.insert owner seen, failures)
 
 validateEvidenceSelectionDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceSelection -> [TypedCoreValidationFailure]
 validateEvidenceSelectionDataTypes context path selection =
@@ -2061,16 +2125,37 @@ validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> Set TypedTy
 validateInstantiation context path parameterScope (TypedInstantiation owner arguments _) =
   case Map.lookup owner (moduleContextSchemes context) of
     Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-    Just (TypedScheme _ parameters _ _ _ _) ->
+    Just (TypedScheme schemeOwner parameters _ primitiveConstraints _ _) ->
       if map typeArgumentParameter arguments == parameters
         then
           concatMap
             (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
             arguments
+            <> concatMap
+              (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint schemeOwner substitutions)
+              primitiveConstraints
         else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
   where
+    substitutions =
+      Map.fromList
+        [ (parameterId, typeValue)
+        | TypedTypeArgument parameterId typeValue <- arguments
+        ]
     typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
     typeArgumentType (TypedTypeArgument _ typeValue) = typeValue
+    instantiatePrimitiveConstraint schemeOwner typeSubstitutions primitiveConstraint =
+      case primitiveConstraint of
+        TypedNumericPrimitiveConstraint numericConstraint typeValue ->
+          TypedNumericPrimitiveConstraint numericConstraint (instantiateType schemeOwner typeSubstitutions typeValue)
+        TypedStrictEqualityPrimitiveConstraint typeValue ->
+          TypedStrictEqualityPrimitiveConstraint (instantiateType schemeOwner typeSubstitutions typeValue)
+    instantiateType schemeOwner typeSubstitutions typeValue =
+      substituteTypeParameters typeSubstitutions qualifiedType
+      where
+        ownerPath = binderModulePath schemeOwner
+        qualifiedType
+          | ownerPath == moduleContextPath context = typeValue
+          | otherwise = qualifyExternalType ownerPath typeValue
 
 qualifiedMethodExpressionKey :: TypedExpr -> Maybe Text
 qualifiedMethodExpressionKey expression =
@@ -2626,21 +2711,36 @@ operatorContractType _ _ _ (TypedBuiltinOperator _) = ([], Nothing)
 operatorContractType context path info (TypedResolvedOperator name _) =
   case lookupSchemeByName context name of
     Nothing -> ([], Nothing)
-    Just (TypedScheme owner parameters _ _ resultType _) ->
+    Just (TypedScheme owner parameters evidenceParameters _ resultType _) ->
       let ownerPath = binderModulePath owner
           qualifiedType
             | ownerPath == moduleContextPath context = resultType
             | otherwise = qualifyExternalType ownerPath resultType
+          matchingOwnerInstantiation =
+            find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
+          instantiationFailures
+            | not (null parameters && null evidenceParameters),
+              matchingOwnerInstantiation == Nothing =
+                [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+            | otherwise = []
+          missingEvidenceFailures
+            | null parameters,
+              not (null evidenceParameters),
+              matchingOwnerInstantiation == Nothing =
+                [ failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
+                | TypedEvidenceParameter parameterId _ <- evidenceParameters
+                ]
+            | otherwise = []
+          requirementFailures = instantiationFailures <> missingEvidenceFailures
        in if null parameters
-            then ([], Just qualifiedType)
-            else case find (instantiates owner) (nodeInfoInstantiations info) of
-              Nothing -> ([failure path TypedInstantiationMismatch (TypedBinderDetail owner)], Nothing)
+            then (requirementFailures, Just qualifiedType)
+            else case matchingOwnerInstantiation of
+              Nothing -> (requirementFailures, Nothing)
               Just (TypedInstantiation _ arguments _)
                 | map typeArgumentParameter arguments == parameters ->
-                    ([], Just (substituteTypeParameters (Map.fromList [(parameterId, typeValue) | TypedTypeArgument parameterId typeValue <- arguments]) qualifiedType))
-                | otherwise -> ([], Nothing)
+                    (requirementFailures, Just (substituteTypeParameters (Map.fromList [(parameterId, typeValue) | TypedTypeArgument parameterId typeValue <- arguments]) qualifiedType))
+                | otherwise -> (requirementFailures, Nothing)
   where
-    instantiates expectedOwner (TypedInstantiation actualOwner _ _) = expectedOwner == actualOwner
     typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
 
 validateImplId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedImplId -> [TypedCoreValidationFailure]
