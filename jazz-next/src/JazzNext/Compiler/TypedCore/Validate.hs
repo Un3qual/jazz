@@ -1053,26 +1053,51 @@ withBlockDeclarations statements context =
     localCapabilities = Map.fromList (concatMap (statementCapabilityEntries modulePath) statements)
 
 validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrder initialContext locatedStatements =
+validateStatementsInOrder = validateStatementsInOrderWith (\_ _ _ -> Nothing)
+
+validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateBlockStatementsInOrder = validateStatementsInOrderWith blockStatementScopeFailure
+
+validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrderWith rejectedStatement initialContext locatedStatements =
   fst (foldl' validateNext ([], initialContext) (zip [0 ..] locatedStatements))
   where
     statements = map snd locatedStatements
     validateNext (failures, visibleContext) (blockIndex, (statementLocation, statement)) =
-      let recursiveGroup = recursiveGroupStatements initialContext statements blockIndex
-          statementContext =
-            case statement of
-              TypedLetStatement {}
-                | null recursiveGroup -> visibleContext
-                | otherwise -> withBlockDeclarations recursiveGroup visibleContext
-              _ -> withBlockDeclarations [statement] visibleContext
-          nextContext = withBlockDeclarations [statement] visibleContext
-          nextStatement =
-            case drop (blockIndex + 1) locatedStatements of
-              (_, candidate) : _ -> Just candidate
-              [] -> Nothing
-          attachedSignatureFailures =
-            validateAttachedSignature initialContext statementLocation statement nextStatement
-       in (failures <> attachedSignatureFailures <> validateStatement statementContext statementLocation statement, nextContext)
+      case rejectedStatement initialContext statementLocation statement of
+        Just scopeFailure -> (failures <> [scopeFailure], visibleContext)
+        Nothing ->
+          let recursiveGroup = recursiveGroupStatements initialContext statements blockIndex
+              statementContext =
+                case statement of
+                  TypedLetStatement {}
+                    | null recursiveGroup -> visibleContext
+                    | otherwise -> withBlockDeclarations recursiveGroup visibleContext
+                  _ -> withBlockDeclarations [statement] visibleContext
+              nextContext = withBlockDeclarations [statement] visibleContext
+              nextStatement =
+                case drop (blockIndex + 1) locatedStatements of
+                  (_, candidate) : _ -> Just candidate
+                  [] -> Nothing
+              attachedSignatureFailures =
+                validateAttachedSignature initialContext statementLocation statement nextStatement
+           in (failures <> attachedSignatureFailures <> validateStatement statementContext statementLocation statement, nextContext)
+
+blockStatementScopeFailure :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure
+blockStatementScopeFailure context statementLocation statement =
+  case statement of
+    TypedDataStatement {} -> scopeFailure "data declaration"
+    TypedClassStatement {} -> scopeFailure "class declaration"
+    TypedImplStatement {} -> scopeFailure "impl declaration"
+    _ -> Nothing
+  where
+    scopeFailure declarationKind =
+      Just
+        ( failure
+            (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
+            TypedBlockResultMismatch
+            (TypedTextDetail declarationKind)
+        )
 
 recursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement]
 recursiveGroupStatements outerContext statements statementIndex =
@@ -1514,7 +1539,7 @@ validateSchemeWithOuterScope :: ModuleContext -> TypedCoreValidationPath -> Type
 validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
   ownerFailures
     <> parameterShadowingFailures
-    <> validateOrderedTypeParameters path typeParameters
+    <> parameterOrderFailures
     <> validateOrderedEvidenceParameters path evidenceParameters
     <> concatMap (validateEvidenceParameter context path parameterScope) evidenceParameters
     <> concatMap (validatePrimitiveConstraint context path parameterScope) primitiveConstraints
@@ -1531,6 +1556,10 @@ validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOw
       | parameter <- typeParameters,
         Set.member parameter outerScope
       ]
+    parameterOrderFailures
+      | null parameterShadowingFailures =
+          validateOrderedTypeParametersFrom path (nextTypeParameterOrdinal outerScope) typeParameters
+      | otherwise = []
     parameterScope = Set.union outerScope (Set.fromList typeParameters)
     evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidenceParameters]
     primitiveTypes =
@@ -1542,14 +1571,24 @@ validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOw
       ]
 
 validateOrderedTypeParameters :: TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedCoreValidationFailure]
-validateOrderedTypeParameters path parameters = duplicateFailures <> orderFailures
+validateOrderedTypeParameters path = validateOrderedTypeParametersFrom path 0
+
+validateOrderedTypeParametersFrom :: TypedCoreValidationPath -> Int -> [TypedTypeParameterId] -> [TypedCoreValidationFailure]
+validateOrderedTypeParametersFrom path firstOrdinal parameters = duplicateFailures <> orderFailures
   where
     duplicateFailures = duplicateParameterFailures path TypedDuplicateTypeParameter TypedTypeParameterDetail parameters
     orderFailures =
-      [ failure path TypedInvalidTypeParameterOrder (TypedIndexDetail index)
-      | (index, TypedTypeParameterId actual) <- zip [0 ..] parameters,
-        actual /= index
+      [ failure path TypedInvalidTypeParameterOrder (TypedIndexDetail expected)
+      | (expected, TypedTypeParameterId actual) <- zip [firstOrdinal ..] parameters,
+        actual /= expected
       ]
+
+nextTypeParameterOrdinal :: Set TypedTypeParameterId -> Int
+nextTypeParameterOrdinal =
+  foldl'
+    (\next (TypedTypeParameterId actual) -> max next (actual + 1))
+    0
+    . Set.toList
 
 validateOrderedEvidenceParameters :: TypedCoreValidationPath -> [TypedEvidenceParameter] -> [TypedCoreValidationFailure]
 validateOrderedEvidenceParameters path parameters = duplicateFailures <> orderFailures
@@ -1971,7 +2010,7 @@ validateExpressionWithParentSpan context statementLocation expressionPath parent
                 blockContext = withBlockDeclarations statements context
              in validateBlockResult path info statements
                   <> duplicateDeclarationFailures blockContext locatedStatements
-                  <> validateStatementsInOrder context locatedStatements
+                  <> validateBlockStatementsInOrder context locatedStatements
 
 validateBlockResult :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedStatement] -> [TypedCoreValidationFailure]
 validateBlockResult path blockInfo statements =
@@ -2003,6 +2042,16 @@ isUnicodeScalar character =
   codePoint < 0xD800 || codePoint > 0xDFFF
   where
     codePoint = ord character
+
+concreteImplTargetType :: TypedType -> Bool
+concreteImplTargetType typeValue =
+  case typeValue of
+    TypedListType elementType -> concreteImplTargetType elementType
+    TypedTupleType elementTypes -> all concreteImplTargetType elementTypes
+    TypedDataType _ arguments -> all concreteImplTargetType arguments
+    TypedFunctionType {} -> False
+    TypedTypeParameterType {} -> False
+    _ -> True
 
 literalMatchesType :: TypedLiteral -> TypedType -> Bool
 literalMatchesType literal typeValue =
@@ -3731,9 +3780,10 @@ operatorContractType context path info (TypedResolvedOperator name _) =
     typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
 
 validateImplId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedImplId -> [TypedCoreValidationFailure]
-validateImplId context path scope (TypedImplId _ capability arguments) =
+validateImplId context path scope implId@(TypedImplId _ capability arguments) =
   validateCapabilityName context path capability
     <> targetArityFailures
+    <> concreteTargetFailures
     <> concatMap (validateType path scope) arguments
   where
     targetArityFailures =
@@ -3742,6 +3792,9 @@ validateImplId context path scope (TypedImplId _ capability arguments) =
           | expectedArity /= length arguments ->
               [failure path TypedMethodSelectionMismatch (TypedArityDetail expectedArity (length arguments))]
         _ -> []
+    concreteTargetFailures
+      | all concreteImplTargetType arguments = []
+      | otherwise = [failure path TypedMethodSelectionMismatch (TypedImplDetail implId)]
 
 capabilityArity :: ModuleContext -> TypedCoreName -> Maybe Int
 capabilityArity context capability =

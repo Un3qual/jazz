@@ -1165,10 +1165,25 @@ module TypedCoreValidate (
       (typeParameterOrderFailuresFrom path rest (index + 1))
   }.
 
-  validateOrderedTypeParameters :: TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedCoreValidationFailure].
-  validateOrderedTypeParameters = \(path, parameters) -> listAppend
+  validateOrderedTypeParametersFrom :: TypedCoreValidationPath -> Int -> [TypedTypeParameterId] -> [TypedCoreValidationFailure].
+  validateOrderedTypeParametersFrom = \(path, firstOrdinal, parameters) -> listAppend
     (duplicateTypeParameterFailuresFrom path parameters [] [])
-    (typeParameterOrderFailuresFrom path parameters 0).
+    (typeParameterOrderFailuresFrom path parameters firstOrdinal).
+
+  validateOrderedTypeParameters :: TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedCoreValidationFailure].
+  validateOrderedTypeParameters = \(path, parameters) -> validateOrderedTypeParametersFrom path 0 parameters.
+
+  nextTypeParameterOrdinalFrom :: [TypedTypeParameterId] -> Int -> Int.
+  nextTypeParameterOrdinalFrom = \(parameters, nextOrdinal) -> case parameters {
+    | [] -> nextOrdinal
+    | [first | rest] -> {
+      candidate = typeParameterIdValue first + 1.
+      nextTypeParameterOrdinalFrom rest (if candidate > nextOrdinal then candidate else nextOrdinal).
+    }
+  }.
+
+  nextTypeParameterOrdinal :: [TypedTypeParameterId] -> Int.
+  nextTypeParameterOrdinal = \(parameters) -> nextTypeParameterOrdinalFrom parameters 0.
 
   evidenceParameterIds :: [TypedEvidenceParameter] -> [TypedEvidenceParameterId].
   evidenceParameterIds = \(parameters) -> case parameters {
@@ -1215,17 +1230,21 @@ module TypedCoreValidate (
 
   validateSchemeWithOuterScope :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> [TypedTypeParameterId] -> TypedScheme -> [TypedCoreValidationFailure].
   validateSchemeWithOuterScope = \(context, path, owner, outerScope, scheme) -> case scheme {
-    | TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe -> listConcat
-      [ if binderIdEqual owner schemeOwner then [] else [failure path TypedUnknownBinder (TypedBinderDetail schemeOwner)],
-        shadowedTypeParameterFailures path typeParameters outerScope,
-        validateOrderedTypeParameters path typeParameters,
-        validateOrderedEvidenceParameters path evidenceParameters,
-        validateEvidenceParameters context path (listAppend outerScope typeParameters) evidenceParameters,
-        validatePrimitiveConstraints context path (listAppend outerScope typeParameters) primitiveConstraints,
-        validateType path (listAppend outerScope typeParameters) resultType,
-        validateRecipe path (listAppend outerScope typeParameters) resultRecipe,
-        validateTypeRecipe path (listAppend outerScope typeParameters) resultType resultRecipe
-      ]
+    | TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe -> {
+      shadowingFailures = shadowedTypeParameterFailures path typeParameters outerScope.
+      parameterOrderFailures = if listLength shadowingFailures == 0 then validateOrderedTypeParametersFrom path (nextTypeParameterOrdinal outerScope) typeParameters else [].
+      listConcat
+        [ if binderIdEqual owner schemeOwner then [] else [failure path TypedUnknownBinder (TypedBinderDetail schemeOwner)],
+          shadowingFailures,
+          parameterOrderFailures,
+          validateOrderedEvidenceParameters path evidenceParameters,
+          validateEvidenceParameters context path (listAppend outerScope typeParameters) evidenceParameters,
+          validatePrimitiveConstraints context path (listAppend outerScope typeParameters) primitiveConstraints,
+          validateType path (listAppend outerScope typeParameters) resultType,
+          validateRecipe path (listAppend outerScope typeParameters) resultRecipe,
+          validateTypeRecipe path (listAppend outerScope typeParameters) resultType resultRecipe
+        ].
+    }
   }.
 
   validateScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure].
@@ -1239,6 +1258,16 @@ module TypedCoreValidate (
   implTargetTypes :: TypedImplId -> [TypedType].
   implTargetTypes = \(implId) -> case implId {
     | TypedImplId modulePath capability arguments -> arguments
+  }.
+
+  concreteImplTargetType :: TypedType -> Bool.
+  concreteImplTargetType = \(typeValue) -> case typeValue {
+    | TypedListType elementType -> concreteImplTargetType elementType
+    | TypedTupleType elementTypes -> listAll (\(elementType) -> concreteImplTargetType elementType) elementTypes
+    | TypedDataType name arguments -> listAll (\(argument) -> concreteImplTargetType argument) arguments
+    | TypedFunctionType argument result -> False
+    | TypedTypeParameterType parameter -> False
+    | other -> True
   }.
 
   validateCapabilityName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
@@ -1267,6 +1296,7 @@ module TypedCoreValidate (
           | Nothing -> []
           | Just expectedArity -> if expectedArity == listLength arguments then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail expectedArity (listLength arguments))]
         },
+        if listAll (\(targetType) -> concreteImplTargetType targetType) arguments then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail implId)],
         validateTypes path scope arguments
       ]
   }.
@@ -4049,21 +4079,36 @@ module TypedCoreValidate (
     }
   }.
 
+  blockStatementScopeDetail :: TypedStatement -> Maybe(Text).
+  blockStatementScopeDetail = \(statement) -> case statement {
+    | TypedDataStatement declaration -> Just "data declaration"
+    | TypedClassStatement declaration -> Just "class declaration"
+    | TypedImplStatement declaration -> Just "impl declaration"
+    | other -> Nothing
+  }.
+
   validateBlockStatementsInOrderFrom :: ModuleContext -> ModuleContext -> Int -> [Int] -> [Int] -> [TypedStatement] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
   validateBlockStatementsInOrderFrom = \(initialContext, visibleContext, statementIndex, statementLocation, expressionPath, allStatements, remainingStatements, blockIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
-      recursiveGroup = blockRecursiveGroupStatements initialContext allStatements blockIndex.
-      statementContext = case statement {
-        | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
-        | other -> withBlockDeclarations [statement] visibleContext
-      }.
       nestedStatementIndex = statementIndexFor (nestedStatementLocation statementLocation expressionPath blockIndex) (contextStatementIndices initialContext).
-      listConcat
-        [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) nestedStatementIndex) statement rest,
-          validateStatement statementContext nestedStatementIndex statement,
-          validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementIndex statementLocation expressionPath allStatements rest (blockIndex + 1)
-        ].
+      case blockStatementScopeDetail statement {
+        | Just detail -> listAppend
+          [failure (TypedStatementPath (contextModulePath initialContext) nestedStatementIndex) TypedBlockResultMismatch (TypedTextDetail detail)]
+          (validateBlockStatementsInOrderFrom initialContext visibleContext statementIndex statementLocation expressionPath allStatements rest (blockIndex + 1))
+        | Nothing -> {
+          recursiveGroup = blockRecursiveGroupStatements initialContext allStatements blockIndex.
+          statementContext = case statement {
+            | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
+            | other -> withBlockDeclarations [statement] visibleContext
+          }.
+          listConcat
+            [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) nestedStatementIndex) statement rest,
+              validateStatement statementContext nestedStatementIndex statement,
+              validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementIndex statementLocation expressionPath allStatements rest (blockIndex + 1)
+            ].
+        }
+      }.
     }
   }.
 

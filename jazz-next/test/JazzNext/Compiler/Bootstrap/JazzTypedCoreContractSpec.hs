@@ -133,6 +133,9 @@ tests =
     ("rejects nested type-parameter ordinal shadowing", testNestedTypeParameterShadowing),
     ("rejects type-only explicit import selectors", testTypeOnlyImportSelector),
     ("rejects unbound selected evidence on ordinary nodes", testOrdinaryUnboundEvidence),
+    ("preserves nested local generalization under generics", testNestedLocalGeneralization),
+    ("rejects non-concrete impl targets", testNonConcreteImplTarget),
+    ("rejects module-scope declarations inside blocks", testBlockDeclarationScope),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -350,7 +353,7 @@ testNestedBlockValidationRegressions = do
     nestedPathFailures
     (validateTypedProgram nestedPathProgram)
   assertEqual
-    "block declarations receive complete validation"
+    "block declarations fail at the statement-scope boundary"
     nestedDeclarationFailures
     (validateTypedProgram nestedDeclarationProgram)
   assertEqual
@@ -521,7 +524,10 @@ reviewRegressionPrograms =
     capabilityImportCollisionProgram,
     nestedTypeParameterShadowingProgram,
     typeOnlyImportSelectorProgram,
-    ordinaryUnboundEvidenceProgram
+    ordinaryUnboundEvidenceProgram,
+    nestedLocalGeneralizationProgram,
+    nonConcreteImplTargetProgram,
+    blockDeclarationScopeProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -573,8 +579,8 @@ nestedDeclarationFailures =
       TypedNoValidationDetail,
     TypedCoreValidationFailure
       (TypedStatementPath ["Fixture", "review-nested-declaration"] 1)
-      TypedDataRecipeMismatch
-      (TypedRecipeDetail TypedBoolRecipe (TypedSignedIntegerRecipe 64))
+      TypedBlockResultMismatch
+      (TypedTextDetail "data declaration")
   ]
 
 nestedDuplicateBinderProgram :: TypedProgram
@@ -2430,6 +2436,47 @@ testOrdinaryUnboundEvidence =
     ]
     (validateTypedProgram ordinaryUnboundEvidenceProgram)
 
+testNestedLocalGeneralization :: IO ()
+testNestedLocalGeneralization =
+  assertEqual
+    "nested schemes allocate ordinals after enclosing type parameters"
+    []
+    (validateTypedProgram nestedLocalGeneralizationProgram)
+
+testNonConcreteImplTarget :: IO ()
+testNonConcreteImplTarget =
+  assertEqual
+    "impl declarations require recursively concrete target types"
+    [ statementFailure
+        "review-non-concrete-impl-target"
+        1
+        TypedMethodSelectionMismatch
+        (TypedImplDetail nonConcreteImplTargetId)
+    ]
+    (validateTypedProgram nonConcreteImplTargetProgram)
+
+testBlockDeclarationScope :: IO ()
+testBlockDeclarationScope =
+  assertEqual
+    "blocks reject declarations that the source grammar reserves for module scope"
+    [ statementFailure
+        "review-block-declaration-scope"
+        1
+        TypedBlockResultMismatch
+        (TypedTextDetail "data declaration"),
+      statementFailure
+        "review-block-declaration-scope"
+        2
+        TypedBlockResultMismatch
+        (TypedTextDetail "class declaration"),
+      statementFailure
+        "review-block-declaration-scope"
+        3
+        TypedBlockResultMismatch
+        (TypedTextDetail "impl declaration")
+    ]
+    (validateTypedProgram blockDeclarationScopeProgram)
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
@@ -3381,6 +3428,173 @@ ordinaryUnboundEvidenceProgram =
             [TypedSelectedEvidence evidenceUse]
         )
         (TypedBooleanLiteral True)
+
+nestedLocalGeneralizationProgram :: TypedProgram
+nestedLocalGeneralizationProgram =
+  singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nested-local-generalization"
+    modulePath = ["Fixture", fixture]
+    outerParameter = TypedTypeParameterId 0
+    innerParameter = TypedTypeParameterId 1
+    outerParameterType = TypedTypeParameterType outerParameter
+    outerParameterRecipe = TypedRepresentationParameterRecipe outerParameter
+    outerParameterInfo = info outerParameterType outerParameterRecipe
+    innerParameterType = TypedTypeParameterType innerParameter
+    innerParameterRecipe = TypedRepresentationParameterRecipe innerParameter
+    innerParameterInfo = info innerParameterType innerParameterRecipe
+    outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
+    outerOwner = binder modulePath [0] outerName
+    argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    argumentOwner = binder modulePath [0, 0] argumentName
+    localName = resolved TypedCurrentModule TypedValueNamespace "local"
+    localOwner = binder modulePath [0, 0, 0] localName
+    localArgumentName =
+      resolved TypedCurrentModule TypedValueNamespace "localArgument"
+    localArgumentOwner = binder modulePath [0, 0, 0, 0] localArgumentName
+    localFunctionType =
+      TypedFunctionType innerParameterType innerParameterType
+    localFunctionRecipe =
+      TypedClosureRecipe [innerParameterRecipe] innerParameterRecipe
+    localScheme =
+      TypedScheme
+        localOwner
+        [innerParameter]
+        []
+        []
+        localFunctionType
+        localFunctionRecipe
+    localExpression =
+      TypedLambdaExpr
+        (info localFunctionType localFunctionRecipe)
+        localArgumentOwner
+        localArgumentName
+        (TypedVariableExpr innerParameterInfo localArgumentName)
+    localBinding =
+      TypedLetStatement
+        localOwner
+        localName
+        span1
+        localScheme
+        localExpression
+    instantiatedLocalType =
+      TypedFunctionType outerParameterType outerParameterType
+    instantiatedLocalRecipe =
+      TypedClosureRecipe [outerParameterRecipe] outerParameterRecipe
+    localUseInfo =
+      TypedNodeInfo
+        instantiatedLocalType
+        instantiatedLocalRecipe
+        [ TypedInstantiation
+            localOwner
+            [TypedTypeArgument innerParameter outerParameterType]
+            Nothing
+        ]
+        []
+    localUse = TypedVariableExpr localUseInfo localName
+    localApplication =
+      TypedApplyExpr
+        outerParameterInfo
+        localUse
+        (TypedVariableExpr outerParameterInfo argumentName)
+    block =
+      TypedBlockExpr
+        outerParameterInfo
+        [ localBinding,
+          expressionStatement 2 localApplication
+        ]
+    functionType =
+      TypedFunctionType outerParameterType outerParameterType
+    functionRecipe =
+      TypedClosureRecipe [outerParameterRecipe] outerParameterRecipe
+    outerExpression =
+      TypedLambdaExpr
+        (info functionType functionRecipe)
+        argumentOwner
+        argumentName
+        block
+    outerScheme =
+      TypedScheme
+        outerOwner
+        [outerParameter]
+        []
+        []
+        functionType
+        functionRecipe
+    topLevelBinding =
+      TypedLetStatement
+        outerOwner
+        outerName
+        span1
+        outerScheme
+        outerExpression
+
+nonConcreteImplTargetId :: TypedImplId
+nonConcreteImplTargetId =
+  TypedImplId
+    ["Fixture", "review-non-concrete-impl-target"]
+    (resolved TypedCurrentModule TypedCapabilityNamespace "Concrete")
+    [TypedFunctionType TypedBoolType TypedBoolType]
+
+nonConcreteImplTargetProgram :: TypedProgram
+nonConcreteImplTargetProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-non-concrete-impl-target"
+    modulePath = ["Fixture", fixture]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Concrete"
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    statements =
+      [ TypedClassStatement capabilityDeclaration,
+        TypedImplStatement
+          (TypedImplDeclaration span1 nonConcreteImplTargetId []),
+        expressionStatement 3 trueExpr
+      ]
+
+blockDeclarationScopeProgram :: TypedProgram
+blockDeclarationScopeProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-block-declaration-scope"
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Nested"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Nested"
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            []
+            []
+        ]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "NestedClass"
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    block =
+      TypedBlockExpr
+        boolInfo
+        [ TypedDataStatement dataDeclaration,
+          TypedClassStatement capabilityDeclaration,
+          TypedImplStatement
+            (TypedImplDeclaration span1 implId []),
+          expressionStatement 4 trueExpr
+        ]
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
