@@ -1205,10 +1205,19 @@ module TypedCoreValidate (
     (duplicateEvidenceParameterFailuresFrom path (evidenceParameterIds parameters) [] [])
     (evidenceParameterOrderFailuresFrom path parameters 0).
 
+  shadowedTypeParameterFailures :: TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedTypeParameterId] -> [TypedCoreValidationFailure].
+  shadowedTypeParameterFailures = \(path, parameters, outerScope) -> case parameters {
+    | [] -> []
+    | [first | rest] -> listAppend
+      (if typeParameterIdMember first outerScope then [failure path TypedDuplicateTypeParameter (TypedTypeParameterDetail first)] else [])
+      (shadowedTypeParameterFailures path rest outerScope)
+  }.
+
   validateSchemeWithOuterScope :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> [TypedTypeParameterId] -> TypedScheme -> [TypedCoreValidationFailure].
   validateSchemeWithOuterScope = \(context, path, owner, outerScope, scheme) -> case scheme {
     | TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe -> listConcat
       [ if binderIdEqual owner schemeOwner then [] else [failure path TypedUnknownBinder (TypedBinderDetail schemeOwner)],
+        shadowedTypeParameterFailures path typeParameters outerScope,
         validateOrderedTypeParameters path typeParameters,
         validateOrderedEvidenceParameters path evidenceParameters,
         validateEvidenceParameters context path (listAppend outerScope typeParameters) evidenceParameters,
@@ -1441,25 +1450,38 @@ module TypedCoreValidate (
     }
   }.
 
-  validateEvidenceSelection :: ModuleContext -> TypedCoreValidationPath -> Maybe(Text) -> TypedEvidenceSelection -> [TypedCoreValidationFailure].
-  validateEvidenceSelection = \(context, path, qualifiedMethodKey, selection) -> case selection {
-    | TypedSelectedEvidence evidenceUse -> validateEvidenceUse context path evidenceUse
+  validateEvidenceSelection :: ModuleContext -> TypedCoreValidationPath -> Bool -> Maybe(Text) -> Maybe(Text) -> TypedEvidenceSelection -> [TypedCoreValidationFailure].
+  validateEvidenceSelection = \(context, path, requireSelectedConsumer, selectedMethodKey, candidateMethodKey, selection) -> case selection {
+    | TypedSelectedEvidence evidenceUse -> case evidenceUse {
+      | TypedEvidenceUse maybeParameter constraint implId maybeMethod -> {
+        evidenceUseFailures = validateEvidenceUse context path evidenceUse.
+        case maybeParameter {
+          | Just parameterRef -> evidenceUseFailures
+          | Nothing -> if listLength evidenceUseFailures > 0 then evidenceUseFailures else
+            if requireSelectedConsumer then case constraint {
+              | TypedCapabilityConstraint capability method targetType ->
+                if qualifiedMethodCandidates capability method selectedMethodKey then [] else
+                  [failure path TypedMethodSelectionMismatch (TypedTextDetail (capabilityConstraintLabel constraint))]
+            } else []
+        }.
+      }
+    }
     | TypedEvidenceCandidates constraint candidates -> case constraint {
       | TypedCapabilityConstraint capability method targetType -> if listLength candidates == 0 then [failure path TypedMissingEvidence (TypedTextDetail capability)] else
-        if qualifiedMethodCandidates capability method qualifiedMethodKey then listAppend (duplicateEvidenceCandidateFailuresFrom path candidates []) (validateEvidenceCandidates context path constraint candidates) else
+        if qualifiedMethodCandidates capability method candidateMethodKey then listAppend (duplicateEvidenceCandidateFailuresFrom path candidates []) (validateEvidenceCandidates context path constraint candidates) else
           [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength candidates))]
     }
   }.
 
-  validateEvidenceSelectionsOnly :: ModuleContext -> TypedCoreValidationPath -> Maybe(Text) -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
-  validateEvidenceSelectionsOnly = \(context, path, qualifiedMethodKey, selections) -> case selections {
+  validateEvidenceSelectionsOnly :: ModuleContext -> TypedCoreValidationPath -> Bool -> Maybe(Text) -> Maybe(Text) -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
+  validateEvidenceSelectionsOnly = \(context, path, requireSelectedConsumer, selectedMethodKey, candidateMethodKey, selections) -> case selections {
     | [] -> []
-    | [first | rest] -> listAppend (validateEvidenceSelection context path qualifiedMethodKey first) (validateEvidenceSelectionsOnly context path qualifiedMethodKey rest)
+    | [first | rest] -> listAppend (validateEvidenceSelection context path requireSelectedConsumer selectedMethodKey candidateMethodKey first) (validateEvidenceSelectionsOnly context path requireSelectedConsumer selectedMethodKey candidateMethodKey rest)
   }.
 
-  validateEvidenceSelections :: ModuleContext -> TypedCoreValidationPath -> Maybe(Text) -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
-  validateEvidenceSelections = \(context, path, qualifiedMethodKey, selections) -> listConcat
-    [ validateEvidenceSelectionsOnly context path qualifiedMethodKey selections,
+  validateEvidenceSelections :: ModuleContext -> TypedCoreValidationPath -> Bool -> Maybe(Text) -> Maybe(Text) -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
+  validateEvidenceSelections = \(context, path, requireSelectedConsumer, selectedMethodKey, candidateMethodKey, selections) -> listConcat
+    [ validateEvidenceSelectionsOnly context path requireSelectedConsumer selectedMethodKey candidateMethodKey selections,
       duplicateEvidenceUseFailuresFrom path (selectedEvidenceParameterRefs selections) [] [],
       duplicateUnboundEvidenceFailuresFrom path (selectedUnboundEvidenceConstraints selections) [] []
     ].
@@ -1878,8 +1900,8 @@ module TypedCoreValidate (
     | other -> Nothing
   }.
 
-  validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> Maybe(Text) -> TypedNodeInfo -> [TypedCoreValidationFailure].
-  validateNodeInfo = \(context, path, scope, qualifiedMethodKey, info) -> case info {
+  validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> Bool -> Maybe(Text) -> Maybe(Text) -> TypedNodeInfo -> [TypedCoreValidationFailure].
+  validateNodeInfo = \(context, path, scope, requireSelectedConsumer, selectedMethodKey, candidateMethodKey, info) -> case info {
     | TypedNodeInfo typeValue recipe instantiations evidence -> listConcat
       [ validateType path scope typeValue,
         validateDataTypeApplications context path typeValue,
@@ -1887,7 +1909,7 @@ module TypedCoreValidate (
         validateTypeRecipe path scope typeValue recipe,
         validateInstantiations context path scope instantiations,
         duplicateInstantiationFailures path instantiations,
-        validateEvidenceSelections context path qualifiedMethodKey evidence,
+        validateEvidenceSelections context path requireSelectedConsumer selectedMethodKey candidateMethodKey evidence,
         validateEvidenceParameterBindings context path instantiations evidence,
         listConcat (listMap (\(selection) -> validateEvidenceSelectionDataTypes context path selection) evidence)
       ]
@@ -2317,7 +2339,7 @@ module TypedCoreValidate (
       path = TypedPatternPath modulePath statementIndex patternPath.
       info = patternInfo pattern.
       listConcat
-        [ validateNodeInfo context path [] Nothing info,
+        [ validateNodeInfo context path [] False Nothing Nothing info,
           patternMetadataFailures path info,
           if typeEqual (nodeType info) expectedType then [] else [failure path TypedPatternScrutineeMismatch (TypedTypeDetail expectedType (nodeType info))],
           case pattern {
@@ -4258,7 +4280,7 @@ module TypedCoreValidate (
         | other -> []
       }.
       listConcat
-        [ validateNodeInfo context path typeScope (qualifiedMethodCandidateKey expression) (expressionInfo expression),
+        [ validateNodeInfo context path typeScope True (qualifiedMethodExpressionKey expression) (qualifiedMethodCandidateKey expression) (expressionInfo expression),
           validateExpressionInstantiationOwners parentExplicitSpan context path expression,
           validateExpressionOwned context statementIndex expressionPath path expression,
           childFailures
@@ -5310,7 +5332,13 @@ module TypedCoreValidate (
   selectedImportNamePresentInExports = \(selectedName, interface, exports) -> case exports {
     | [] -> False
     | [first | rest] -> case first {
-      | TypedModuleExport namespace exportedName -> if selectedName == exportedName then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else selectedImportNamePresentInExports selectedName interface rest
+      | TypedModuleExport namespace exportedName ->
+        if selectedName == exportedName then
+          if nameNamespaceEqual namespace TypedValueNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
+          if nameNamespaceEqual namespace TypedConstructorNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
+          if nameNamespaceEqual namespace TypedCapabilityNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
+          selectedImportNamePresentInExports selectedName interface rest
+        else selectedImportNamePresentInExports selectedName interface rest
     }
   }.
 
@@ -5449,9 +5477,15 @@ module TypedCoreValidate (
     }
   }.
 
+  interfaceCapabilityNameDirectlyIncluded :: Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> Bool.
+  interfaceCapabilityNameDirectlyIncluded = \(selectedNames, exports, name) ->
+    if selectedNameAllowed selectedNames name then
+      if moduleExportsName TypedCapabilityNamespace name exports then True else moduleExportsName TypedTypeNamespace name exports
+    else False.
+
   interfaceCapabilityNameIncluded :: Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
   interfaceCapabilityNameIncluded = \(selectedNames, exports, name, methods) -> {
-    directlyImported = if selectedNameAllowed selectedNames name then if moduleExportsName TypedCapabilityNamespace name exports then True else moduleExportsName TypedTypeNamespace name exports else False.
+    directlyImported = interfaceCapabilityNameDirectlyIncluded selectedNames exports name.
     if directlyImported then True else methodInterfaceImported selectedNames exports methods.
   }.
 
@@ -5480,7 +5514,7 @@ module TypedCoreValidate (
     | [] -> entries
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods -> classInterfaceNameEntries modulePath selectedNames exports requiredCapabilities rest
-        (methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityNameIncluded selectedNames exports name methods then appendDefinitionNameEntry modulePath name entries else entries))
+        (methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityNameDirectlyIncluded selectedNames exports name then appendDefinitionNameEntry modulePath name entries else entries))
     }
   }.
 
@@ -5513,7 +5547,8 @@ module TypedCoreValidate (
         if nameNamespaceEqual namespace TypedTypeNamespace then Just identifier else Nothing
       else
         if nameNamespaceEqual namespace TypedValueNamespace then Just identifier else
-          if nameNamespaceEqual namespace TypedConstructorNamespace then Just identifier else Nothing
+          if nameNamespaceEqual namespace TypedConstructorNamespace then Just identifier else
+            if nameNamespaceEqual namespace TypedCapabilityNamespace then Just identifier else Nothing
     | GeneratedNameEntry kind -> Nothing
   }.
 
@@ -5935,8 +5970,8 @@ module TypedCoreValidate (
 
   validateModuleInfo :: ModuleContext -> TypedCoreValidationPath -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure].
   validateModuleInfo = \(context, path, statements, moduleInfo) -> case terminalExpressionInfo statements {
-    | Just terminalInfo -> if nodeInfoEqual moduleInfo terminalInfo then [] else validateNodeInfo context path [] Nothing moduleInfo
-    | Nothing -> validateNodeInfo context path [] Nothing moduleInfo
+    | Just terminalInfo -> if nodeInfoEqual moduleInfo terminalInfo then [] else validateNodeInfo context path [] False Nothing Nothing moduleInfo
+    | Nothing -> validateNodeInfo context path [] False Nothing Nothing moduleInfo
   }.
 
   moduleInfoNoResultContract :: TypedNodeInfo -> Bool.

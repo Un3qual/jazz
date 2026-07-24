@@ -128,6 +128,11 @@ tests =
     ("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication),
     ("enforces final typed-core review contracts", testFinalReviewRegressions),
     ("enforces post-final typed-core review contracts", testPostFinalReviewRegressions),
+    ("keeps method-only imports from exposing class names", testMethodOnlyCapabilityVisibility),
+    ("includes capabilities in import collision checks", testCapabilityImportCollision),
+    ("rejects nested type-parameter ordinal shadowing", testNestedTypeParameterShadowing),
+    ("rejects type-only explicit import selectors", testTypeOnlyImportSelector),
+    ("rejects unbound selected evidence on ordinary nodes", testOrdinaryUnboundEvidence),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -511,7 +516,12 @@ reviewRegressionPrograms =
     syntheticBinderShadowingProgram,
     implFreeClassParameterProgram,
     duplicateQualifiedMethodCandidateProgram,
-    metadataOnlySourceTypeProgram
+    metadataOnlySourceTypeProgram,
+    methodOnlyCapabilityVisibilityProgram,
+    capabilityImportCollisionProgram,
+    nestedTypeParameterShadowingProgram,
+    typeOnlyImportSelectorProgram,
+    ordinaryUnboundEvidenceProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1467,8 +1477,12 @@ testForeignOwnedLocalImpl =
 testImportedTypeCapabilityMetadata :: IO ()
 testImportedTypeCapabilityMetadata =
   assertEqual
-    "type-exported classes retain capability metadata when imported"
-    [ statementFailure
+    "type-exported classes retain metadata after their selector is rejected"
+    [ moduleFailure
+        "review-imported-type-capability-metadata"
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Render"),
+      statementFailure
         "review-imported-type-capability-metadata"
         0
         TypedMethodSelectionMismatch
@@ -1579,12 +1593,30 @@ testCurrentReviewRegressions = do
     ]
     (validateTypedProgram emptyPatternCaseProgram)
   assertEqual
-    "type-visible classes import their public impls"
-    []
+    "type-only class selectors are rejected before ordinary evidence use"
+    [ moduleFailure
+        "review-type-visible-impl-import"
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Render"),
+      expressionFailure
+        "review-type-visible-impl-import"
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "Render")
+    ]
     (validateTypedProgram typeVisibleImplImportProgram)
   assertEqual
-    "method-visible classes import their public impls"
-    []
+    "method-only imports do not turn ordinary nodes into evidence consumers"
+    [ expressionFailure
+        "review-method-visible-impl-import"
+        TypedInvisibleName
+        ( TypedNameDetail
+            ( resolved
+                (TypedImportedModule ["Library", "review-method-visible-impl-import"])
+                TypedCapabilityNamespace
+                "Render"
+            )
+        )
+    ]
     (validateTypedProgram methodVisibleImplImportProgram)
   assertEqual
     "integral literal constraints fit the selected numeric width"
@@ -1698,6 +1730,11 @@ testNewestBotReviewRegressions = do
         0
         TypedBindingValueMismatch
         (TypedArityDetail 0 1),
+      statementFailure
+        "review-class-method-scheme-shape"
+        0
+        TypedDuplicateTypeParameter
+        (TypedTypeParameterDetail (TypedTypeParameterId 0)),
       statementFailure
         "review-class-method-scheme-shape"
         0
@@ -1941,7 +1978,7 @@ testDuplicateUnboundEvidence =
     [ expressionFailure
         "review-duplicate-unbound-evidence"
         TypedDuplicateEvidence
-        (TypedTextDetail "Equal")
+        (TypedTextDetail "Equal.equal")
     ]
     (validateTypedProgram duplicateUnboundEvidenceProgram)
 
@@ -1956,7 +1993,11 @@ testImportedClassCollision :: IO ()
 testImportedClassCollision =
   assertEqual
     "constraints reject colliding imported class identifiers"
-    [ statementFailure
+    [ moduleFailure
+        "review-imported-class-collision"
+        TypedDuplicateDeclaration
+        (TypedTextDetail "Clash"),
+      statementFailure
         "review-imported-class-collision"
         0
         TypedDuplicateDeclaration
@@ -2336,6 +2377,58 @@ testPostFinalReviewRegressions = do
         (TypedTextDetail "non-scalar character")
     ]
     (validateTypedProgram nonScalarCharacterProgram)
+
+testMethodOnlyCapabilityVisibility :: IO ()
+testMethodOnlyCapabilityVisibility =
+  assertEqual
+    "method-only imports retain class metadata without exposing the class name"
+    [ statementFailure
+        "review-method-only-capability-visibility"
+        0
+        TypedInvisibleName
+        (TypedTextDetail "Render")
+    ]
+    (validateTypedProgram methodOnlyCapabilityVisibilityProgram)
+
+testCapabilityImportCollision :: IO ()
+testCapabilityImportCollision =
+  assertEqual
+    "capability imports share the source symbol collision domain"
+    [ moduleFailure
+        "review-capability-import-collision"
+        TypedDuplicateDeclaration
+        (TypedTextDetail "Shared")
+    ]
+    (validateTypedProgram capabilityImportCollisionProgram)
+
+testNestedTypeParameterShadowing :: IO ()
+testNestedTypeParameterShadowing =
+  assertEqual
+    "nested schemes cannot reuse enclosing type-parameter ordinals"
+    [TypedDuplicateTypeParameter]
+    (validationKinds nestedTypeParameterShadowingProgram)
+
+testTypeOnlyImportSelector :: IO ()
+testTypeOnlyImportSelector =
+  assertEqual
+    "explicit imports reject type-only selectors"
+    [ moduleFailure
+        "review-type-only-import-selector"
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Box")
+    ]
+    (validateTypedProgram typeOnlyImportSelectorProgram)
+
+testOrdinaryUnboundEvidence :: IO ()
+testOrdinaryUnboundEvidence =
+  assertEqual
+    "ordinary nodes reject selected evidence with no consuming obligation"
+    [ expressionFailure
+        "review-ordinary-unbound-evidence"
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "Equal.equal")
+    ]
+    (validateTypedProgram ordinaryUnboundEvidenceProgram)
 
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
@@ -3051,6 +3144,244 @@ nonScalarCharacterProgram =
         expressionStatement 2 patternExpression
       ]
 
+methodOnlyCapabilityVisibilityProgram :: TypedProgram
+methodOnlyCapabilityVisibilityProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    fixture = "review-method-only-capability-visibility"
+    libraryPath = ["Library", "MethodOnlyCapability"]
+    entryPath = ["Fixture", fixture]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+    methodName =
+      resolved TypedCurrentModule TypedValueNamespace "render"
+    methodOwner = binder libraryPath [0, 0] methodName
+    methodScheme =
+      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature methodName span1 methodScheme]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/MethodOnlyCapability.jz")
+        []
+        [ TypedModuleExport TypedCapabilityNamespace "Render",
+          TypedModuleExport TypedValueNamespace "render"
+        ]
+        (TypedModuleInterface [] [] [TypedClassInterface classDeclaration] [])
+        [TypedClassStatement classDeclaration]
+        unitInfo
+    localName = resolved TypedCurrentModule TypedValueNamespace "local"
+    localOwner = binder entryPath [0] localName
+    localScheme =
+      TypedScheme
+        localOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint "Render" Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["render"])]
+        []
+        emptyInterface
+        [TypedLetStatement localOwner localName span1 localScheme trueExpr]
+        boolInfo
+
+capabilityImportCollisionProgram :: TypedProgram
+capabilityImportCollisionProgram =
+  TypedProgram Nothing [valueModule, capabilityModule, entryModule] entryPath
+  where
+    fixture = "review-capability-import-collision"
+    valuePath = ["Library", "SharedValue"]
+    capabilityPath = ["Library", "SharedCapability"]
+    entryPath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "Shared"
+    valueOwner = binder valuePath [0] valueName
+    valueScheme = monoScheme valueOwner
+    valueModule =
+      typedModule
+        valuePath
+        (TypedSourcePath "src/Library/SharedValue.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "Shared"]
+        (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
+        [TypedLetStatement valueOwner valueName span1 valueScheme trueExpr]
+        boolInfo
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    capabilityModule =
+      typedModule
+        capabilityPath
+        (TypedSourcePath "src/Library/SharedCapability.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Shared"]
+        (TypedModuleInterface [] [] [TypedClassInterface capabilityDeclaration] [])
+        [TypedClassStatement capabilityDeclaration]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport span1 valuePath Nothing Nothing,
+          TypedResolvedImport span1 capabilityPath Nothing Nothing
+        ]
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+
+nestedTypeParameterShadowingProgram :: TypedProgram
+nestedTypeParameterShadowingProgram =
+  singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nested-type-parameter-shadowing"
+    modulePath = ["Fixture", fixture]
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    parameterInfo = info parameterType parameterRecipe
+    outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
+    outerOwner = binder modulePath [0] outerName
+    argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    argumentOwner = binder modulePath [0, 0] argumentName
+    localName = resolved TypedCurrentModule TypedValueNamespace "local"
+    localOwner = binder modulePath [0, 0, 0] localName
+    localScheme =
+      TypedScheme
+        localOwner
+        [parameter]
+        []
+        []
+        parameterType
+        parameterRecipe
+    localBinding =
+      TypedLetStatement
+        localOwner
+        localName
+        span1
+        localScheme
+        (TypedVariableExpr parameterInfo argumentName)
+    localUseInfo =
+      TypedNodeInfo
+        parameterType
+        parameterRecipe
+        [ TypedInstantiation
+            localOwner
+            [TypedTypeArgument parameter parameterType]
+            Nothing
+        ]
+        []
+    block =
+      TypedBlockExpr
+        parameterInfo
+        [ localBinding,
+          expressionStatement 2 (TypedVariableExpr localUseInfo localName)
+        ]
+    functionType = TypedFunctionType parameterType parameterType
+    functionRecipe =
+      TypedClosureRecipe [parameterRecipe] parameterRecipe
+    outerExpression =
+      TypedLambdaExpr
+        (info functionType functionRecipe)
+        argumentOwner
+        argumentName
+        block
+    outerScheme =
+      TypedScheme
+        outerOwner
+        [parameter]
+        []
+        []
+        functionType
+        functionRecipe
+    topLevelBinding =
+      TypedLetStatement
+        outerOwner
+        outerName
+        span1
+        outerScheme
+        outerExpression
+
+typeOnlyImportSelectorProgram :: TypedProgram
+typeOnlyImportSelectorProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    fixture = "review-type-only-import-selector"
+    libraryPath = ["Library", "TypeOnlySelector"]
+    entryPath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "BoxValue"
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder libraryPath [0, 0] constructorName)
+            constructorName
+            []
+            []
+        ]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/TypeOnlySelector.jz")
+        []
+        [TypedModuleExport TypedTypeNamespace "Box"]
+        (TypedModuleInterface [] [TypedDataInterface dataDeclaration] [] [])
+        [TypedDataStatement dataDeclaration]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["Box"])]
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+
+ordinaryUnboundEvidenceProgram :: TypedProgram
+ordinaryUnboundEvidenceProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-ordinary-unbound-evidence"
+    capabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    constraint =
+      TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    methodId = TypedMethodId implId "equal"
+    evidenceUse =
+      TypedEvidenceUse Nothing constraint implId (Just methodId)
+    expression =
+      TypedLiteralExpr
+        ( TypedNodeInfo
+            TypedBoolType
+            TypedBoolRecipe
+            []
+            [TypedSelectedEvidence evidenceUse]
+        )
+        (TypedBooleanLiteral True)
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -3149,13 +3480,18 @@ duplicateUnboundEvidenceProgram =
   where
     fixture = "review-duplicate-unbound-evidence"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
-    use = TypedEvidenceUse Nothing constraint implId Nothing
+    use =
+      TypedEvidenceUse
+        Nothing
+        constraint
+        implId
+        (Just (TypedMethodId implId "equal"))
     expression =
-      TypedLiteralExpr
+      TypedVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
-        (TypedBooleanLiteral True)
+        (TypedBuiltinName "Equal::equal")
 
 generalizedClassMethodImportProgram :: TypedProgram
 generalizedClassMethodImportProgram =
@@ -3511,9 +3847,9 @@ moduleQualifiedMethodKeyProgram =
             )
         )
     expression =
-      TypedLiteralExpr
+      TypedVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
-        (TypedBooleanLiteral True)
+        (TypedBuiltinName qualifiedMethod)
     entryModule =
       typedModule
         entryPath
@@ -4628,10 +4964,15 @@ qualifiedMethodKeyProgram fixture methodKey =
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
-    expression =
-      TypedLiteralExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
-        (TypedBooleanLiteral True)
+    expression
+      | methodKey == "Equal::equal" =
+          TypedVariableExpr
+            (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+            (TypedBuiltinName "Equal::equal")
+      | otherwise =
+          TypedLiteralExpr
+            (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+            (TypedBooleanLiteral True)
 
 canonicalQualifiedMethodKeyProgram :: TypedProgram
 canonicalQualifiedMethodKeyProgram =
@@ -6553,8 +6894,30 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
     importedTargetType = TypedDataType importedDataName []
     importedImplId = TypedImplId libraryPath importedCapabilityName [importedTargetType]
     constraint = TypedCapabilityConstraint "Mark" Nothing importedTargetType
-    evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint importedImplId Nothing)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    valueName = resolved TypedCurrentModule TypedValueNamespace "usesMark"
+    valueOwner = binder entryPath [0] valueName
+    evidenceParameter = TypedEvidenceParameterId 0
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        [TypedEvidenceParameter evidenceParameter constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    instantiation = TypedInstantiation valueOwner [] Nothing
+    evidence =
+      TypedSelectedEvidence
+        ( TypedEvidenceUse
+            (Just (TypedEvidenceParameterRef valueOwner evidenceParameter))
+            constraint
+            importedImplId
+            Nothing
+        )
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [evidence])
+        valueName
     entryModule =
       typedModule
         entryPath
@@ -6562,7 +6925,9 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         [TypedResolvedImport span1 libraryPath Nothing Nothing]
         []
         emptyInterface
-        [expressionStatement 1 expression]
+        [ TypedLetStatement valueOwner valueName span1 valueScheme trueExpr,
+          expressionStatement 1 expression
+        ]
         boolInfo
 
 implTargetArityProgram :: TypedProgram
@@ -7083,7 +7448,11 @@ evidenceProgram :: Text -> Maybe TypedEvidenceParameterId -> TypedProgram
 evidenceProgram fixture parameterId =
   withFixturePrelude (programWith fixture [TypedLetStatement valueBinder valueName span1 scheme trueExpr, expressionStatement 1 expression] emptyInterface boolInfo)
   where
-    capability = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    capability =
+      TypedCapabilityConstraint
+        "Equal"
+        (case parameterId of Nothing -> Just "Equal.equal"; Just _ -> Nothing)
+        TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
@@ -7093,7 +7462,7 @@ evidenceProgram fixture parameterId =
         (TypedEvidenceParameterRef valueBinder <$> parameterId)
         capability
         implId
-        Nothing
+        (case parameterId of Nothing -> Just (TypedMethodId implId "equal"); Just _ -> Nothing)
     scheme =
       case parameterId of
         Nothing -> monoScheme valueBinder
@@ -7105,7 +7474,7 @@ evidenceProgram fixture parameterId =
     expression =
       TypedVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe instantiations [TypedSelectedEvidence evidenceUse])
-        valueName
+        (case parameterId of Nothing -> TypedBuiltinName "Equal::equal"; Just _ -> valueName)
 
 qualifiedMethodSelectionProgram :: TypedProgram
 qualifiedMethodSelectionProgram =
@@ -7117,7 +7486,10 @@ qualifiedMethodSelectionProgram =
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse]) (TypedBooleanLiteral True)
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBuiltinName "Equal::equal")
 
 partialMethodCandidatesProgram :: TypedProgram
 partialMethodCandidatesProgram =

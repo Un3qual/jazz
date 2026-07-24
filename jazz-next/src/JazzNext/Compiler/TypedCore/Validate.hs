@@ -271,7 +271,7 @@ validateResolvedImports moduleTable modulePath imports =
               TypedModuleInterfaceMismatch
               (TypedTextDetail selectedName)
           | selectedName <- maybe [] id selectedNames,
-            not (moduleExportsInterfaceName selectedName importedModule)
+            not (moduleExportsImportSelectorName selectedName importedModule)
           ]
 
 importBindingCollisionFailures :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
@@ -308,18 +308,25 @@ importBindingCollisionFailures moduleTable modulePath imports =
       case key of
         ResolvedNameKey _ TypedValueNamespace identifier -> Just identifier
         ResolvedNameKey _ TypedConstructorNamespace identifier -> Just identifier
+        ResolvedNameKey _ TypedCapabilityNamespace identifier -> Just identifier
         _ -> Nothing
     typeBindingIdentifier key =
       case key of
         ResolvedNameKey _ TypedTypeNamespace identifier -> Just identifier
         _ -> Nothing
 
-moduleExportsInterfaceName :: Text -> TypedModule -> Bool
-moduleExportsInterfaceName expected (TypedModule _ _ _ exports interface _ _) =
+moduleExportsImportSelectorName :: Text -> TypedModule -> Bool
+moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ _) =
   any matchesExport exports
   where
-    matchesExport export@(TypedModuleExport _ exportedName) =
-      exportedName == expected && interfaceContainsExport export interface
+    matchesExport export@(TypedModuleExport namespace exportedName) =
+      exportedName == expected
+        && namespace
+          `elem` [ TypedValueNamespace,
+                   TypedConstructorNamespace,
+                   TypedCapabilityNamespace
+                 ]
+        && interfaceContainsExport export interface
 
 interfaceContainsExport :: TypedModuleExport -> TypedModuleInterface -> Bool
 interfaceContainsExport (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
@@ -361,7 +368,7 @@ validateModuleInfo context path statements moduleInfo =
   case reverse statements of
     TypedExpressionStatement _ terminal : _
       | expressionInfo terminal == moduleInfo -> []
-    _ -> validateNodeInfo context path Set.empty Nothing moduleInfo
+    _ -> validateNodeInfo context path Set.empty False Nothing Nothing moduleInfo
 
 nodeInfoHasValidIntrinsicContract :: TypedNodeInfo -> Bool
 nodeInfoHasValidIntrinsicContract (TypedNodeInfo typeValue recipe _ _) =
@@ -794,8 +801,8 @@ interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ ex
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
-      | TypedClassInterface (TypedClassDeclaration _ name _ methods) <- classes,
-        interfaceCapabilityNameIncluded visibleModule name methods,
+      | TypedClassInterface (TypedClassDeclaration _ name _ _) <- classes,
+        interfaceCapabilityNameDirectlyIncluded visibleModule name,
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
@@ -883,14 +890,16 @@ interfaceCapabilityIncluded visibleModule name methods =
     || maybe False (`Set.member` requiredCapabilityIdentifiers visibleModule) (coreNameIdentifier name)
 
 interfaceCapabilityNameIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
-interfaceCapabilityNameIncluded (_, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
-  ( importAllows selectedNames name
-      && (moduleExportsName TypedCapabilityNamespace name exports || moduleExportsName TypedTypeNamespace name exports)
-  )
-    || any methodImported methods
+interfaceCapabilityNameIncluded visibleModule@(_, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
+  interfaceCapabilityNameDirectlyIncluded visibleModule name || any methodImported methods
   where
     methodImported (TypedMethodSignature methodName _ _) =
       importAllows selectedNames methodName && moduleExportsName TypedValueNamespace methodName exports
+
+interfaceCapabilityNameDirectlyIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> Bool
+interfaceCapabilityNameDirectlyIncluded (_, selectedNames, TypedModule _ _ _ exports _ _ _) name =
+  importAllows selectedNames name
+    && (moduleExportsName TypedCapabilityNamespace name exports || moduleExportsName TypedTypeNamespace name exports)
 
 requiredCapabilityIdentifiers :: ([Text], Maybe [Text], TypedModule) -> Set Text
 requiredCapabilityIdentifiers visibleModule =
@@ -1504,6 +1513,7 @@ validateScheme context path owner = validateSchemeWithOuterScope context path ow
 validateSchemeWithOuterScope :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> Set TypedTypeParameterId -> TypedScheme -> [TypedCoreValidationFailure]
 validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
   ownerFailures
+    <> parameterShadowingFailures
     <> validateOrderedTypeParameters path typeParameters
     <> validateOrderedEvidenceParameters path evidenceParameters
     <> concatMap (validateEvidenceParameter context path parameterScope) evidenceParameters
@@ -1516,6 +1526,11 @@ validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOw
     ownerFailures
       | owner == schemeOwner = []
       | otherwise = [failure path TypedUnknownBinder (TypedBinderDetail schemeOwner)]
+    parameterShadowingFailures =
+      [ failure path TypedDuplicateTypeParameter (TypedTypeParameterDetail parameter)
+      | parameter <- typeParameters,
+        Set.member parameter outerScope
+      ]
     parameterScope = Set.union outerScope (Set.fromList typeParameters)
     evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidenceParameters]
     primitiveTypes =
@@ -1900,7 +1915,14 @@ validateExpression context statementLocation expressionPath =
 
 validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Maybe TypedSpan -> TypedExpr -> [TypedCoreValidationFailure]
 validateExpressionWithParentSpan context statementLocation expressionPath parentExplicitSpan expression =
-  validateNodeInfo context path (moduleContextTypeScope context) (qualifiedMethodCandidateKey expression) (expressionInfo expression)
+  validateNodeInfo
+    context
+    path
+    (moduleContextTypeScope context)
+    True
+    (qualifiedMethodExpressionKey expression)
+    (qualifiedMethodCandidateKey expression)
+    (expressionInfo expression)
     <> expressionOwnedFailures
     <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
   where
@@ -2704,7 +2726,7 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
 
 validatePattern :: ModuleContext -> [Int] -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure]
 validatePattern context statementLocation patternPath expectedType patternValue =
-  validateNodeInfo context path (moduleContextTypeScope context) Nothing (patternInfo patternValue)
+  validateNodeInfo context path (moduleContextTypeScope context) False Nothing Nothing (patternInfo patternValue)
     <> validatePatternMetadata path (patternInfo patternValue)
     <> scrutineeFailures
     <> patternOwnedFailures
@@ -2914,15 +2936,15 @@ firstMismatchedBinder expected actual =
           && expectedType == actualType
           && expectedRecipeValue == actualRecipeValue
 
-validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> Maybe Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
-validateNodeInfo context path parameterScope qualifiedMethodKey (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
+validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> Bool -> Maybe Text -> Maybe Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateNodeInfo context path parameterScope requireSelectedConsumer selectedMethodKey candidateMethodKey (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
   validateType path parameterScope typeValue
     <> validateDataTypeApplications context path typeValue
     <> validateRecipe path parameterScope recipe
     <> validateTypeRecipe path parameterScope typeValue recipe
     <> concatMap (validateInstantiation context path parameterScope) instantiations
     <> duplicateInstantiationFailures path instantiations
-    <> validateEvidenceSelections context path qualifiedMethodKey evidenceSelections
+    <> validateEvidenceSelections context path requireSelectedConsumer selectedMethodKey candidateMethodKey evidenceSelections
     <> validateEvidenceParameterBindings context path instantiations evidenceSelections
     <> concatMap (validateEvidenceSelectionDataTypes context path) evidenceSelections
 
@@ -3066,20 +3088,37 @@ qualifiedMethodExpressionKey expression =
     TypedTypeApplicationExpr _ function _ _ -> qualifiedMethodExpressionKey function
     _ -> Nothing
 
-validateEvidenceSelections :: ModuleContext -> TypedCoreValidationPath -> Maybe Text -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
-validateEvidenceSelections context path qualifiedMethodKey selections =
+validateEvidenceSelections :: ModuleContext -> TypedCoreValidationPath -> Bool -> Maybe Text -> Maybe Text -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
+validateEvidenceSelections context path requireSelectedConsumer selectedMethodKey candidateMethodKey selections =
   concatMap validateSelection selections <> duplicateEvidenceUseFailures path selections
   where
     validateSelection selection =
       case selection of
-        TypedSelectedEvidence evidenceUse -> validateEvidenceUse context path evidenceUse
+        TypedSelectedEvidence evidenceUse@(TypedEvidenceUse maybeParameter constraint _ _) ->
+          case maybeParameter of
+            Just _ -> evidenceUseFailures
+            Nothing
+              | null evidenceUseFailures,
+                requireSelectedConsumer ->
+                  selectedMethodFailures constraint
+              | otherwise -> evidenceUseFailures
+          where
+            evidenceUseFailures = validateEvidenceUse context path evidenceUse
         TypedEvidenceCandidates constraint@(TypedCapabilityConstraint capability constraintMethod _) candidates
           | null candidates -> [failure path TypedMissingEvidence (TypedTextDetail capability)]
-          | not (qualifiedMethodCandidates capability constraintMethod qualifiedMethodKey) ->
+          | not (qualifiedMethodCandidates capability constraintMethod candidateMethodKey) ->
               [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length candidates))]
           | otherwise ->
               duplicateEvidenceCandidateFailures path candidates
                 <> concatMap (validateEvidenceCandidate context path constraint) candidates
+    selectedMethodFailures constraint@(TypedCapabilityConstraint capability constraintMethod _)
+      | qualifiedMethodCandidates capability constraintMethod selectedMethodKey = []
+      | otherwise =
+          [ failure
+              path
+              TypedMethodSelectionMismatch
+              (TypedTextDetail (capabilityConstraintLabel constraint))
+          ]
     qualifiedMethodCandidates capability constraintMethod expressionMethod =
       case (constraintMethod, expressionMethod) of
         (Just expectedMethod, Just actualMethod) -> methodKeyMatches capability expectedMethod actualMethod
