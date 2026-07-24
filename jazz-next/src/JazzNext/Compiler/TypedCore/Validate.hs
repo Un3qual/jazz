@@ -1046,7 +1046,7 @@ recursiveGroupStatements outerContext statements statementIndex =
             []
               | Set.member referencedName (moduleContextVisibleNames outerContext) -> Nothing
               | referencedName == ownName ->
-                  if expressionCanBeRecursive expression then Just index else Nothing
+                  if expressionCanBeRecursive outerContext ownName expression then Just index else Nothing
               | otherwise ->
                   case filter (> index) declarationIndices of
                     future : _ -> Just future
@@ -1070,11 +1070,184 @@ dependencyReachable dependencies source target = go Set.empty [source]
             (Set.insert current seen)
             (Set.toList (Map.findWithDefault Set.empty current dependencies) <> rest)
 
-expressionCanBeRecursive :: TypedExpr -> Bool
-expressionCanBeRecursive expression =
-  case nodeType (expressionInfo expression) of
-    TypedFunctionType {} -> True
-    _ -> False
+expressionCanBeRecursive :: ModuleContext -> ResolvedNameKey -> TypedExpr -> Bool
+expressionCanBeRecursive context bindingName expression =
+  expressionHasFunctionContract expression
+    || selfAliasLikeReference context bindingName expression
+  where
+    expressionHasFunctionContract candidate =
+      case nodeType (expressionInfo candidate) of
+        TypedFunctionType {} -> True
+        _ -> False
+
+selfAliasLikeReference :: ModuleContext -> ResolvedNameKey -> TypedExpr -> Bool
+selfAliasLikeReference context bindingName expression =
+  case aliasSummary Set.empty Map.empty Set.empty expression of
+    (hasAliasPath, hasNonAliasPath) -> hasAliasPath && not hasNonAliasPath
+  where
+    noSummary = (False, False)
+
+    combineSummaries (leftAliasPath, leftNonAliasPath) (rightAliasPath, rightNonAliasPath) =
+      ( leftAliasPath || rightAliasPath,
+        leftNonAliasPath || rightNonAliasPath
+      )
+
+    combineAll = foldl' combineSummaries noSummary
+
+    nameKey name =
+      resolvedNameKey (moduleContextPath context) name
+
+    boundPatternNames patternValue =
+      Set.fromList
+        [ key
+        | (name, _) <- patternBoundContracts patternValue,
+          key <- maybeToList (nameKey name)
+        ]
+
+    variableSummary summarizeTarget boundNames scopeBindings visitedBindings name =
+      case nameKey name of
+        Nothing -> noSummary
+        Just key
+          | Set.member key boundNames -> noSummary
+          | Just bindingExpression <- Map.lookup key scopeBindings,
+            Set.notMember key visitedBindings ->
+              summarizeTarget
+                boundNames
+                scopeBindings
+                (Set.insert key visitedBindings)
+                bindingExpression
+          | key == bindingName -> (False, True)
+          | otherwise -> noSummary
+
+    aliasVariableSummary boundNames scopeBindings visitedBindings name =
+      case nameKey name of
+        Nothing -> noSummary
+        Just key
+          | Set.member key boundNames -> noSummary
+          | Just bindingExpression <- Map.lookup key scopeBindings,
+            Set.notMember key visitedBindings ->
+              aliasSummary
+                boundNames
+                scopeBindings
+                (Set.insert key visitedBindings)
+                bindingExpression
+          | key == bindingName -> (True, False)
+          | otherwise -> noSummary
+
+    aliasOperatorSummary boundNames operator =
+      case operator of
+        TypedBuiltinOperator _ -> noSummary
+        TypedResolvedOperator name _
+          | maybe False (`Set.notMember` boundNames) (nameKey name),
+            nameKey name == Just bindingName ->
+              (True, False)
+        _ -> noSummary
+
+    localScopeBindings statements =
+      Map.fromList
+        [ (key, bindingExpression)
+        | TypedLetStatement _ name _ _ bindingExpression <- statements,
+          key <- maybeToList (nameKey name)
+        ]
+
+    blockStatementNonAliasSummary boundNames scopeBindings statement =
+      case statement of
+        TypedLetStatement _ _ _ _ bindingExpression ->
+          nonAliasSummary boundNames scopeBindings Set.empty bindingExpression
+        TypedExpressionStatement _ statementExpression ->
+          nonAliasSummary boundNames scopeBindings Set.empty statementExpression
+        _ -> noSummary
+
+    caseArmAliasSummary boundNames scopeBindings visitedBindings (TypedCaseArm patternValue maybeGuard result) =
+      let armBoundNames = Set.union boundNames (boundPatternNames patternValue)
+       in combineSummaries
+            (maybe noSummary (nonAliasSummary armBoundNames scopeBindings visitedBindings) maybeGuard)
+            (aliasSummary armBoundNames scopeBindings visitedBindings result)
+
+    caseArmNonAliasSummary boundNames scopeBindings visitedBindings (TypedCaseArm patternValue maybeGuard result) =
+      let armBoundNames = Set.union boundNames (boundPatternNames patternValue)
+       in combineSummaries
+            (maybe noSummary (nonAliasSummary armBoundNames scopeBindings visitedBindings) maybeGuard)
+            (nonAliasSummary armBoundNames scopeBindings visitedBindings result)
+
+    aliasSummary boundNames scopeBindings visitedBindings candidate =
+      case candidate of
+        TypedVariableExpr _ name ->
+          aliasVariableSummary boundNames scopeBindings visitedBindings name
+        TypedOperatorValueExpr _ operator ->
+          aliasOperatorSummary boundNames operator
+        TypedTypeApplicationExpr _ function _ _ ->
+          aliasSummary boundNames scopeBindings visitedBindings function
+        TypedIfExpr _ condition thenExpression elseExpression ->
+          combineAll
+            [ nonAliasSummary boundNames scopeBindings visitedBindings condition,
+              aliasSummary boundNames scopeBindings visitedBindings thenExpression,
+              aliasSummary boundNames scopeBindings visitedBindings elseExpression
+            ]
+        TypedPatternCaseExpr _ scrutinee arms ->
+          combineAll
+            ( nonAliasSummary boundNames scopeBindings visitedBindings scrutinee
+                : map (caseArmAliasSummary boundNames scopeBindings visitedBindings) arms
+            )
+        TypedBlockExpr _ statements ->
+          let blockScopeBindings =
+                Map.union (localScopeBindings statements) scopeBindings
+              (eagerStatements, terminalSummary) =
+                case reverse statements of
+                  TypedExpressionStatement _ terminalExpression : reversedLeadingStatements ->
+                    ( reverse reversedLeadingStatements,
+                      aliasSummary boundNames blockScopeBindings visitedBindings terminalExpression
+                    )
+                  _ -> (statements, noSummary)
+              eagerSummary =
+                combineAll
+                  (map (blockStatementNonAliasSummary boundNames blockScopeBindings) eagerStatements)
+           in combineSummaries terminalSummary eagerSummary
+        _ -> nonAliasSummary boundNames scopeBindings visitedBindings candidate
+
+    nonAliasSummary boundNames scopeBindings visitedBindings candidate =
+      case candidate of
+        TypedLiteralExpr {} -> noSummary
+        TypedVariableExpr _ name ->
+          variableSummary nonAliasSummary boundNames scopeBindings visitedBindings name
+        TypedLambdaExpr {} -> noSummary
+        TypedOperatorValueExpr {} -> noSummary
+        TypedListExpr _ elements ->
+          combineAll (map (nonAliasSummary boundNames scopeBindings visitedBindings) elements)
+        TypedTupleExpr _ elements ->
+          combineAll (map (nonAliasSummary boundNames scopeBindings visitedBindings) elements)
+        TypedApplyExpr _ function argument ->
+          combineAll
+            [ nonAliasSummary boundNames scopeBindings visitedBindings function,
+              nonAliasSummary boundNames scopeBindings visitedBindings argument
+            ]
+        TypedTypeApplicationExpr _ function _ _ ->
+          nonAliasSummary boundNames scopeBindings visitedBindings function
+        TypedIfExpr _ condition thenExpression elseExpression ->
+          combineAll
+            [ nonAliasSummary boundNames scopeBindings visitedBindings condition,
+              nonAliasSummary boundNames scopeBindings visitedBindings thenExpression,
+              nonAliasSummary boundNames scopeBindings visitedBindings elseExpression
+            ]
+        TypedPatternCaseExpr _ scrutinee arms ->
+          combineAll
+            ( nonAliasSummary boundNames scopeBindings visitedBindings scrutinee
+                : map (caseArmNonAliasSummary boundNames scopeBindings visitedBindings) arms
+            )
+        TypedBinaryExpr _ _ left right ->
+          combineAll
+            [ nonAliasSummary boundNames scopeBindings visitedBindings left,
+              nonAliasSummary boundNames scopeBindings visitedBindings right
+            ]
+        TypedLeftSectionExpr _ left _ ->
+          nonAliasSummary boundNames scopeBindings visitedBindings left
+        TypedRightSectionExpr _ _ right ->
+          nonAliasSummary boundNames scopeBindings visitedBindings right
+        TypedBlockExpr _ statements ->
+          let blockScopeBindings =
+                Map.union (localScopeBindings statements) scopeBindings
+           in combineAll
+                (map (blockStatementNonAliasSummary boundNames blockScopeBindings) statements)
 
 freeExpressionValueNames :: ModuleContext -> Set ResolvedNameKey -> TypedExpr -> Set ResolvedNameKey
 freeExpressionValueNames context boundNames expression =
@@ -2013,12 +2186,66 @@ qualifiedMethodEvidenceTarget context methodKey (TypedNodeInfo _ _ _ evidenceSel
             && any (\contractMethod -> methodKeyMatches capability contractMethod methodKey) (Map.keys methods)
         _ -> False
 
+qualifiedMethodValueContract :: ModuleContext -> Text -> TypedNodeInfo -> Maybe ValueContract
+qualifiedMethodValueContract context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
+  firstContract evidenceSelections
+  where
+    firstContract [] = Nothing
+    firstContract (selection : remainingSelections) =
+      case qualifiedMethodConstraintContract context methodKey (selectionConstraint selection) of
+        Just contract -> Just contract
+        Nothing -> firstContract remainingSelections
+    selectionConstraint selection =
+      case selection of
+        TypedSelectedEvidence (TypedEvidenceUse _ constraint _ _) -> constraint
+        TypedEvidenceCandidates constraint _ -> constraint
+
+qualifiedMethodConstraintContract :: ModuleContext -> Text -> TypedCapabilityConstraint -> Maybe ValueContract
+qualifiedMethodConstraintContract context methodKey constraint =
+  case matchingMethodContracts of
+    [(classParameter, TypedScheme owner _ _ _ resultType resultRecipe)] ->
+      let substitutions = Map.singleton classParameter targetType
+          ownerPath = binderModulePath owner
+          (qualifiedType, qualifiedRecipe)
+            | ownerPath == moduleContextPath context = (resultType, resultRecipe)
+            | otherwise = (qualifyExternalType ownerPath resultType, qualifyExternalRecipe ownerPath resultRecipe)
+       in Just
+            ( ValueContract
+                (substituteTypeParameters substitutions qualifiedType)
+                (substituteRepresentationParameters substitutions qualifiedRecipe)
+            )
+    _ -> Nothing
+  where
+    (capability, constraintMethod, targetType) =
+      case constraint of
+        TypedCapabilityConstraint constraintCapability (Just method) constraintTarget ->
+          (constraintCapability, Just method, constraintTarget)
+        TypedCapabilityConstraint constraintCapability Nothing constraintTarget ->
+          (constraintCapability, Nothing, constraintTarget)
+    matchingMethodContracts =
+      [ (classParameter, scheme)
+      | Just method <- [constraintMethod],
+        methodKeyMatches capability method methodKey,
+        (key, CapabilityContract [classParameter] methods) <-
+          Map.toList (moduleContextCapabilityContracts context),
+        key
+          `Set.member` moduleContextVisibleNames context,
+        ResolvedNameKey _ TypedCapabilityNamespace identifier <- [key],
+        identifier == capability,
+        (contractMethod, scheme) <- Map.toList methods,
+        methodKeyMatches capability contractMethod methodKey
+      ]
+
 validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedCoreValidationFailure]
 validateVariableExpression context path info name =
   visibilityFailures
     <> case name of
       TypedBuiltinName identifier
-        | qualifiedMethodTarget -> []
+        | qualifiedMethodTarget ->
+            maybe
+              []
+              (validateValueContract path info)
+              (qualifiedMethodValueContract context identifier info)
         | otherwise -> validateBuiltinValueContract context path info identifier
       _ ->
         case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextLexicalContracts context) of

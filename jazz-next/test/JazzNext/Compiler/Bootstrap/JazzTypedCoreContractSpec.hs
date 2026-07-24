@@ -126,6 +126,7 @@ tests =
     ("requires the ambient prelude slot to identify Prelude", testAmbientPreludePath),
     ("checks adjacent signatures against their bindings", testSignatureBindingContract),
     ("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication),
+    ("enforces final typed-core review contracts", testFinalReviewRegressions),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -500,7 +501,10 @@ reviewRegressionPrograms =
     emptyModulePathProgram,
     wrongPreludeSlotProgram,
     signatureBindingMismatchProgram,
-    qualifiedMethodTypeApplicationProgram
+    qualifiedMethodTypeApplicationProgram,
+    qualifiedMethodValueContractProgram,
+    aliasShapedSelfRecursionProgram,
+    eagerSelfReferenceProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2235,6 +2239,29 @@ testQualifiedMethodTypeApplication =
     []
     (validateTypedProgram qualifiedMethodTypeApplicationProgram)
 
+testFinalReviewRegressions :: IO ()
+testFinalReviewRegressions = do
+  assertEqual
+    "alias-shaped self references are visible in their own binding"
+    []
+    (validateTypedProgram aliasShapedSelfRecursionProgram)
+  assertEqual
+    "qualified method values match their selected class method contract"
+    [ expressionFailure
+        "review-qualified-method-value-contract"
+        TypedBindingValueMismatch
+        (TypedTypeDetail builtinMapType boolToBoolType)
+    ]
+    (validateTypedProgram qualifiedMethodValueContractProgram)
+  assertEqual
+    "eager self references remain outside recursive binding scope"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath ["Fixture", "review-eager-self-reference"] 0 [0, 0])
+        TypedInvisibleName
+        (TypedNameDetail eagerSelfReferenceName)
+    ]
+    (validateTypedProgram eagerSelfReferenceProgram)
+
 cyclicImportFirstPath :: [Text]
 cyclicImportFirstPath = ["Cycle", "First"]
 
@@ -2601,6 +2628,66 @@ qualifiedMethodTypeApplicationProgram =
         emptyInterface
         [expressionStatement 1 expression]
         methodInfo
+
+qualifiedMethodValueContractProgram :: TypedProgram
+qualifiedMethodValueContractProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-qualified-method-value-contract"
+    capabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    implId =
+      TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        (TypedCapabilityConstraint "Render" (Just "Render::map") TypedTextType)
+        implId
+        (Just (TypedMethodId implId "map"))
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBuiltinName "Render::map")
+
+aliasShapedSelfRecursionProgram :: TypedProgram
+aliasShapedSelfRecursionProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-alias-shaped-self-recursion"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    owner = binder modulePath [0] valueName
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [ TypedCaseArm
+            (TypedWildcardPattern boolInfo)
+            Nothing
+            (TypedVariableExpr boolInfo valueName)
+        ]
+    statement =
+      TypedLetStatement owner valueName span1 (monoScheme owner) expression
+
+eagerSelfReferenceName :: TypedCoreName
+eagerSelfReferenceName =
+  resolved TypedCurrentModule TypedValueNamespace "value"
+
+eagerSelfReferenceProgram :: TypedProgram
+eagerSelfReferenceProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-eager-self-reference"
+    modulePath = ["Fixture", fixture]
+    owner = binder modulePath [0] eagerSelfReferenceName
+    expression =
+      TypedIfExpr
+        boolInfo
+        (TypedVariableExpr boolInfo eagerSelfReferenceName)
+        trueExpr
+        falseExpr
+    statement =
+      TypedLetStatement owner eagerSelfReferenceName span1 (monoScheme owner) expression
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
@@ -3622,7 +3709,7 @@ fixturePrelude =
         renderClassName
         [parameter]
         [ TypedMethodSignature renderName span1 (TypedScheme renderOwner [] [] [] boolToBoolType boolToBoolRecipe),
-          TypedMethodSignature mapName span1 (TypedScheme mapOwner [] [] [] boolToBoolType boolToBoolRecipe)
+          TypedMethodSignature mapName span1 (TypedScheme mapOwner [] [] [] builtinMapType builtinMapRecipe)
         ]
     boolImpl = TypedImplId ["Prelude"] equalClassName [TypedBoolType]
     charImpl = TypedImplId ["Prelude"] equalClassName [TypedCharType]
@@ -3638,8 +3725,7 @@ fixturePrelude =
     renderArgument = resolved TypedCurrentModule TypedValueNamespace "renderArgument"
     renderExpression = TypedLambdaExpr boolToBoolInfo (binder ["Prelude"] [4, 0, 0] renderArgument) renderArgument trueExpr
     renderImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "render") (binder ["Prelude"] [4, 0] renderName) renderName span1 renderExpression
-    mapArgument = resolved TypedCurrentModule TypedValueNamespace "mapArgument"
-    mapExpression = TypedLambdaExpr boolToBoolInfo (binder ["Prelude"] [4, 1, 0] mapArgument) mapArgument trueExpr
+    mapExpression = TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
     mapImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "map") (binder ["Prelude"] [4, 1] mapName) mapName span1 mapExpression
 
 fixtureImplMethod :: [Text] -> [Int] -> TypedImplId -> Text -> TypedMethodDefinition
@@ -3655,6 +3741,8 @@ fixtureImplMethod modulePath methodPath implId methodKey =
     argumentName = resolved TypedCurrentModule TypedValueNamespace (methodKey <> "Argument")
     methodExpression
       | methodKey == "equal" = trueExpr
+      | methodKey == "map" =
+          TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
       | otherwise =
           TypedLambdaExpr
             boolToBoolInfo
@@ -6703,8 +6791,7 @@ partialMethodCandidatesProgram =
         methodName
         span1
         methodExpression
-    methodArgument = resolved TypedCurrentModule TypedValueNamespace "methodArgument"
-    methodExpression = TypedLambdaExpr boolToBoolInfo (binder ["Fixture", fixture] [0, 0] methodArgument) methodArgument trueExpr
+    methodExpression = TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
     expression =
       TypedVariableExpr
         (TypedNodeInfo builtinMapType builtinMapRecipe [] [TypedEvidenceCandidates constraint candidates])

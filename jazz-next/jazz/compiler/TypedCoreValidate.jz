@@ -38,6 +38,10 @@ module TypedCoreValidate (
 
   data BinderOccurrence = BinderOccurrence TypedCoreValidationPath TypedBinderId.
 
+  data AliasSummary = AliasSummary Bool Bool.
+
+  data AliasBinding = AliasBinding NameEntry TypedExpr.
+
   data EvidenceBinding = EvidenceBinding TypedEvidenceParameterRef TypedCapabilityConstraint.
 
   data EqualityDataKey = EqualityDataKey [Text] Text [TypedType].
@@ -1853,6 +1857,11 @@ module TypedCoreValidate (
     | TypedNodeInfo typeValue recipe instantiations evidence -> recipe
   }.
 
+  nodeEvidenceSelections :: TypedNodeInfo -> [TypedEvidenceSelection].
+  nodeEvidenceSelections = \(info) -> case info {
+    | TypedNodeInfo typeValue recipe instantiations evidence -> evidence
+  }.
+
   expressionInfo :: TypedExpr -> TypedNodeInfo.
   expressionInfo = \(expression) -> case expression {
     | TypedLiteralExpr info literal -> info
@@ -2885,6 +2894,68 @@ module TypedCoreValidate (
       qualifiedMethodSelectionsMatch methodKey visibleNames dataEntries evidenceSelections
   }.
 
+  qualifiedMethodContractForKey :: Text -> Text -> [MethodContract] -> Maybe(TypedScheme).
+  qualifiedMethodContractForKey = \(capability, methodKey, methods) -> case methods {
+    | [] -> Nothing
+    | [MethodContract candidateMethod scheme | rest] ->
+      if methodKeyMatches capability candidateMethod methodKey then Just scheme else qualifiedMethodContractForKey capability methodKey rest
+  }.
+
+  visibleCapabilityContract :: Text -> [NameEntry] -> [DataEntry] -> Maybe(CapabilityContract).
+  visibleCapabilityContract = \(capability, names, entries) -> case names {
+    | [] -> Nothing
+    | [first | rest] -> case first {
+      | NameEntry modulePath TypedCapabilityNamespace identifier ->
+        if identifier == capability then lookupCapabilityContract modulePath identifier entries else visibleCapabilityContract capability rest entries
+      | other -> visibleCapabilityContract capability rest entries
+    }
+  }.
+
+  qualifiedMethodConstraintValueContract :: ModuleContext -> Text -> TypedCapabilityConstraint -> Maybe(ValueContract).
+  qualifiedMethodConstraintValueContract = \(context, methodKey, constraint) -> case (context, constraint) {
+    | (ModuleContext currentModulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> case maybeMethod {
+      | Nothing -> Nothing
+      | Just constraintMethod ->
+        if methodKeyMatches capability constraintMethod methodKey then
+          if visibleCapabilityIdentifierCount capability visibleNames == 1 then case visibleCapabilityContract capability visibleNames dataEntries {
+            | Just contract -> case contract {
+              | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capability methodKey methods {
+                | Just scheme -> case scheme {
+                  | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+                    ownerPath = binderModulePathValue owner.
+                    qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
+                    qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
+                    substitutions = [(classParameter, targetType)].
+                    Just (ValueContract (substituteTypeParameters substitutions qualifiedType) (substituteRepresentationParameters substitutions qualifiedRecipe)).
+                  }
+                }
+                | Nothing -> Nothing
+              }
+              | other -> Nothing
+            }
+            | Nothing -> Nothing
+          } else Nothing
+        else Nothing
+    }
+  }.
+
+  qualifiedMethodValueContractFrom :: ModuleContext -> Text -> [TypedEvidenceSelection] -> Maybe(ValueContract).
+  qualifiedMethodValueContractFrom = \(context, methodKey, selections) -> case selections {
+    | [] -> Nothing
+    | [selection | rest] -> {
+      constraint = case selection {
+        | TypedSelectedEvidence evidenceUse -> case evidenceUse {
+          | TypedEvidenceUse parameterRef selectedConstraint implId maybeMethod -> selectedConstraint
+        }
+        | TypedEvidenceCandidates candidateConstraint candidates -> candidateConstraint
+      }.
+      case qualifiedMethodConstraintValueContract context methodKey constraint {
+        | Just contract -> Just contract
+        | Nothing -> qualifiedMethodValueContractFrom context methodKey rest
+      }.
+    }
+  }.
+
   validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedCoreValidationFailure].
   validateVariableExpression = \(context, path, info, name) -> case context {
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> {
@@ -2896,7 +2967,10 @@ module TypedCoreValidate (
       contractFailures = case lookupLexicalContract modulePath name dataEntries {
         | Just contract -> validateValueContract path info contract
         | Nothing -> case name {
-          | TypedBuiltinName identifier -> if qualifiedMethodTarget then [] else validateBuiltinValueContract context path info identifier
+          | TypedBuiltinName identifier -> if qualifiedMethodTarget then case qualifiedMethodValueContractFrom context identifier (nodeEvidenceSelections info) {
+            | Nothing -> []
+            | Just contract -> validateValueContract path info contract
+          } else validateBuiltinValueContract context path info identifier
           | TypedResolvedName origin TypedValueNamespace identifier -> case lookupSchemeByName modulePath name schemes {
             | Just scheme -> validateVariableSchemeContract modulePath path info scheme
             | Nothing -> []
@@ -3043,13 +3117,6 @@ module TypedCoreValidate (
           if anyExplicitInstantiationMatches owner firstParameter explicitSpan typeArgument (nodeInstantiations info) then validateTypeApplicationResultContract modulePath path info scheme else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       }
     }
-  }.
-
-  qualifiedMethodContractForKey :: Text -> Text -> [MethodContract] -> Maybe(TypedScheme).
-  qualifiedMethodContractForKey = \(capability, methodKey, methods) -> case methods {
-    | [] -> Nothing
-    | [MethodContract candidateMethod scheme | rest] ->
-      if methodKeyMatches capability candidateMethod methodKey then Just scheme else qualifiedMethodContractForKey capability methodKey rest
   }.
 
   qualifiedMethodEvidenceContract :: ModuleContext -> Text -> TypedType -> TypedEvidenceUse -> Maybe(ValueContract).
@@ -3530,11 +3597,170 @@ module TypedCoreValidate (
     }
   }.
 
-  expressionCanBeRecursive :: TypedExpr -> Bool.
-  expressionCanBeRecursive = \(expression) -> case nodeType (expressionInfo expression) {
-    | TypedFunctionType argument result -> True
-    | other -> False
+  emptyAliasSummary :: AliasSummary.
+  emptyAliasSummary = AliasSummary False False.
+
+  combineAliasSummaries :: AliasSummary -> AliasSummary -> AliasSummary.
+  combineAliasSummaries = \(left, right) -> case (left, right) {
+    | (AliasSummary leftAlias leftNonAlias, AliasSummary rightAlias rightNonAlias) ->
+      AliasSummary (if leftAlias then True else rightAlias) (if leftNonAlias then True else rightNonAlias)
   }.
+
+  aliasSummaryIsAliasOnly :: AliasSummary -> Bool.
+  aliasSummaryIsAliasOnly = \(summary) -> case summary {
+    | AliasSummary hasAlias hasNonAlias -> if hasAlias then if hasNonAlias then False else True else False
+  }.
+
+  lookupAliasBinding :: NameEntry -> [AliasBinding] -> Maybe(TypedExpr).
+  lookupAliasBinding = \(target, bindings) -> case bindings {
+    | [] -> Nothing
+    | [AliasBinding candidate expression | rest] ->
+      if nameEntryEqual target candidate then Just expression else lookupAliasBinding target rest
+  }.
+
+  collectAliasBindingsFrom :: [Text] -> [TypedStatement] -> [AliasBinding] -> [AliasBinding].
+  collectAliasBindingsFrom = \(modulePath, statements, bindings) -> case statements {
+    | [] -> bindings
+    | [first | rest] -> case first {
+      | TypedLetStatement binder name span scheme expression -> case resolvedNameEntry modulePath name {
+        | Nothing -> collectAliasBindingsFrom modulePath rest bindings
+        | Just entry -> collectAliasBindingsFrom modulePath rest (listPrepend (AliasBinding entry expression) bindings)
+      }
+      | other -> collectAliasBindingsFrom modulePath rest bindings
+    }
+  }.
+
+  variableAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> TypedCoreName -> AliasSummary.
+  variableAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, name) -> case context {
+    | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> case resolvedNameEntry modulePath name {
+      | Nothing -> emptyAliasSummary
+      | Just entry ->
+        if nameEntryMember entry boundNames then emptyAliasSummary else case lookupAliasBinding entry scopeBindings {
+          | Just bindingExpression ->
+            if nameEntryMember entry visitedBindings then emptyAliasSummary else
+              expressionAliasSummary aliasPosition context target boundNames scopeBindings (listPrepend entry visitedBindings) bindingExpression
+          | Nothing ->
+            if nameEntryEqual target entry then
+              if aliasPosition then AliasSummary True False else AliasSummary False True
+            else emptyAliasSummary
+        }
+    }
+  }.
+
+  operatorAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> TypedOperatorRef -> AliasSummary.
+  operatorAliasSummary = \(aliasPosition, context, target, boundNames, operator) ->
+    if aliasPosition then case operator {
+      | TypedBuiltinOperator symbol -> emptyAliasSummary
+      | TypedResolvedOperator name symbol -> case context {
+        | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> case resolvedNameEntry modulePath name {
+          | Nothing -> emptyAliasSummary
+          | Just entry ->
+            if nameEntryMember entry boundNames then emptyAliasSummary else
+              if nameEntryEqual target entry then AliasSummary True False else emptyAliasSummary
+        }
+      }
+    } else emptyAliasSummary.
+
+  expressionListAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> [TypedExpr] -> AliasSummary.
+  expressionListAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, expressions) -> case expressions {
+    | [] -> emptyAliasSummary
+    | [first | rest] ->
+      combineAliasSummaries
+        (expressionAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings first)
+        (expressionListAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings rest)
+  }.
+
+  maybeExpressionAliasSummary :: ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> Maybe(TypedExpr) -> AliasSummary.
+  maybeExpressionAliasSummary = \(context, target, boundNames, scopeBindings, visitedBindings, expression) -> case expression {
+    | Nothing -> emptyAliasSummary
+    | Just value -> expressionAliasSummary False context target boundNames scopeBindings visitedBindings value
+  }.
+
+  caseArmsAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> [TypedCaseArm] -> AliasSummary.
+  caseArmsAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, arms) -> case (context, arms) {
+    | (otherContext, []) -> emptyAliasSummary
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, [TypedCaseArm pattern maybeGuard result | rest]) -> {
+      armBoundNames = appendResolvedNameEntries modulePath (patternBoundNames pattern) boundNames.
+      currentSummary = combineAliasSummaries
+        (maybeExpressionAliasSummary context target armBoundNames scopeBindings visitedBindings maybeGuard)
+        (expressionAliasSummary aliasPosition context target armBoundNames scopeBindings visitedBindings result).
+      combineAliasSummaries currentSummary (caseArmsAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings rest).
+    }
+  }.
+
+  statementNonAliasSummary :: ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> TypedStatement -> AliasSummary.
+  statementNonAliasSummary = \(context, target, boundNames, scopeBindings, statement) -> case statement {
+    | TypedLetStatement binder name span scheme expression ->
+      expressionAliasSummary False context target boundNames scopeBindings [] expression
+    | TypedExpressionStatement span expression ->
+      expressionAliasSummary False context target boundNames scopeBindings [] expression
+    | other -> emptyAliasSummary
+  }.
+
+  statementsNonAliasSummary :: ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [TypedStatement] -> AliasSummary.
+  statementsNonAliasSummary = \(context, target, boundNames, scopeBindings, statements) -> case statements {
+    | [] -> emptyAliasSummary
+    | [first | rest] ->
+      combineAliasSummaries
+        (statementNonAliasSummary context target boundNames scopeBindings first)
+        (statementsNonAliasSummary context target boundNames scopeBindings rest)
+  }.
+
+  blockAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> [TypedStatement] -> AliasSummary.
+  blockAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, statements) -> case context {
+    | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> {
+      localBindings = collectAliasBindingsFrom modulePath statements [].
+      blockScopeBindings = listAppend localBindings scopeBindings.
+      if aliasPosition then case listReverse statements {
+        | [TypedExpressionStatement span terminal | reversedLeadingStatements] ->
+          combineAliasSummaries
+            (expressionAliasSummary True context target boundNames blockScopeBindings visitedBindings terminal)
+            (statementsNonAliasSummary context target boundNames blockScopeBindings reversedLeadingStatements)
+        | other -> statementsNonAliasSummary context target boundNames blockScopeBindings statements
+      } else statementsNonAliasSummary context target boundNames blockScopeBindings statements.
+    }
+  }.
+
+  expressionAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> TypedExpr -> AliasSummary.
+  expressionAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, expression) -> case expression {
+    | TypedLiteralExpr info literal -> emptyAliasSummary
+    | TypedVariableExpr info name ->
+      variableAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings name
+    | TypedLambdaExpr info binder name body -> emptyAliasSummary
+    | TypedOperatorValueExpr info operator ->
+      operatorAliasSummary aliasPosition context target boundNames operator
+    | TypedListExpr info expressions ->
+      expressionListAliasSummary False context target boundNames scopeBindings visitedBindings expressions
+    | TypedTupleExpr info expressions ->
+      expressionListAliasSummary False context target boundNames scopeBindings visitedBindings expressions
+    | TypedApplyExpr info function argument ->
+      expressionListAliasSummary False context target boundNames scopeBindings visitedBindings [function, argument]
+    | TypedTypeApplicationExpr info function span typeArgument ->
+      expressionAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings function
+    | TypedIfExpr info condition thenExpression elseExpression ->
+      combineAliasSummaries
+        (expressionAliasSummary False context target boundNames scopeBindings visitedBindings condition)
+        (combineAliasSummaries
+          (expressionAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings thenExpression)
+          (expressionAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings elseExpression))
+    | TypedPatternCaseExpr info scrutinee arms ->
+      combineAliasSummaries
+        (expressionAliasSummary False context target boundNames scopeBindings visitedBindings scrutinee)
+        (caseArmsAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings arms)
+    | TypedBinaryExpr info operator left right ->
+      expressionListAliasSummary False context target boundNames scopeBindings visitedBindings [left, right]
+    | TypedLeftSectionExpr info left operator ->
+      expressionAliasSummary False context target boundNames scopeBindings visitedBindings left
+    | TypedRightSectionExpr info operator right ->
+      expressionAliasSummary False context target boundNames scopeBindings visitedBindings right
+    | TypedBlockExpr info statements ->
+      blockAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings statements
+  }.
+
+  expressionCanBeRecursive :: ModuleContext -> NameEntry -> TypedExpr -> Bool.
+  expressionCanBeRecursive = \(context, bindingName, expression) ->
+    if isFunctionType (nodeType (expressionInfo expression)) then True else
+      aliasSummaryIsAliasOnly (expressionAliasSummary True context bindingName [] [] [] expression).
 
   letStatementName :: TypedStatement -> Maybe(TypedCoreName).
   letStatementName = \(statement) -> case statement {
@@ -3583,7 +3809,7 @@ module TypedCoreValidate (
       | Just targetEntry -> if expressionReferencesName context targetEntry [] expression then case nearestPriorDeclarationIndexFrom targetName statementIndex (listIndexed statements) Nothing {
         | Just priorIndex -> Just priorIndex
         | Nothing -> if nameVisibleInContext context targetName then Nothing else
-          if coreNameEqual targetName ownName then if expressionCanBeRecursive expression then Just statementIndex else Nothing else
+          if coreNameEqual targetName ownName then if expressionCanBeRecursive context targetEntry expression then Just statementIndex else Nothing else
             firstFutureDeclarationIndexFrom targetName statementIndex (listIndexed statements)
       } else Nothing
     }
