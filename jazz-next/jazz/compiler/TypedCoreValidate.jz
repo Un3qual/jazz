@@ -3193,10 +3193,8 @@ module TypedCoreValidate (
 
   validateExpressionInstantiationOwners :: Maybe(TypedSpan) -> ModuleContext -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure].
   validateExpressionInstantiationOwners = \(parentExplicitSpan, context, path, expression) -> case expression {
-    | TypedTypeApplicationExpr info function span typeArgument -> case bindingExpressionInstantiationOwners context function {
-      | [] -> []
-      | owners -> validateInstantiationOwnersFrom context path True Nothing owners (nodeInstantiations info)
-    }
+    | TypedTypeApplicationExpr info function span typeArgument ->
+      validateInstantiationOwnersFrom context path True Nothing (bindingExpressionInstantiationOwners context function) (nodeInstantiations info)
     | other -> validateInstantiationOwnersFrom context path False parentExplicitSpan (expressionInstantiationOwners context expression) (nodeInstantiations (expressionInfo expression))
   }.
 
@@ -3517,9 +3515,6 @@ module TypedCoreValidate (
   statementSchemeEntries = \(statement) -> case statement {
     | TypedLetStatement binder name span scheme expression -> [SchemeEntry binder scheme]
     | TypedSignatureStatement binder name span scheme -> []
-    | TypedClassStatement declaration -> case declaration {
-      | TypedClassDeclaration span name parameters methods -> methodSchemeEntries parameters methods
-    }
     | other -> []
   }.
 
@@ -5251,7 +5246,9 @@ module TypedCoreValidate (
   validModulePathSegments :: [Text] -> Bool.
   validModulePathSegments = \(segments) -> case segments {
     | [] -> True
-    | [first | rest] -> if textIsEmpty first then False else validModulePathSegments rest
+    | [first | rest] ->
+      if textIsEmpty first then False else
+        if textContains "::" first then False else validModulePathSegments rest
   }.
 
   validateModulePath :: [Text] -> [TypedCoreValidationFailure].
@@ -6029,13 +6026,16 @@ module TypedCoreValidate (
       else False
   }.
 
-  validateModuleResult :: [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure].
-  validateModuleResult = \(modulePath, statements, moduleInfo) -> case terminalExpressionInfo statements {
+  validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure].
+  validateModuleResult = \(compareMetadata, modulePath, statements, moduleInfo) -> case terminalExpressionInfo statements {
     | Nothing -> if moduleInfoNoResultContract moduleInfo then [] else [failure (TypedModulePath modulePath) TypedModuleResultMismatch TypedNoValidationDetail]
     | Just terminalInfo -> if nodeInfoIntrinsicValid moduleInfo then if nodeInfoIntrinsicValid terminalInfo then
-      if typeEqual (nodeType moduleInfo) (nodeType terminalInfo) then
-        if recipeEqual (nodeRecipe moduleInfo) (nodeRecipe terminalInfo) then [] else [failure (TypedModulePath modulePath) TypedModuleResultMismatch (TypedRecipeDetail (nodeRecipe moduleInfo) (nodeRecipe terminalInfo))]
-      else [failure (TypedModulePath modulePath) TypedModuleResultMismatch (TypedTypeDetail (nodeType moduleInfo) (nodeType terminalInfo))]
+      if nodeInfoEqual moduleInfo terminalInfo then [] else
+        if typeEqual (nodeType moduleInfo) (nodeType terminalInfo) then
+          if recipeEqual (nodeRecipe moduleInfo) (nodeRecipe terminalInfo) then
+            if compareMetadata then [failure (TypedModulePath modulePath) TypedModuleResultMismatch TypedNoValidationDetail] else []
+          else [failure (TypedModulePath modulePath) TypedModuleResultMismatch (TypedRecipeDetail (nodeRecipe moduleInfo) (nodeRecipe terminalInfo))]
+        else [failure (TypedModulePath modulePath) TypedModuleResultMismatch (TypedTypeDetail (nodeType moduleInfo) (nodeType terminalInfo))]
     else [] else []
   }.
 
@@ -6060,6 +6060,8 @@ module TypedCoreValidate (
       baseContext = withBlockDeclarations (moduleMetadataStatements statements) externalContext.
       context = withBlockDeclarations statements externalContext.
       moduleValidationPath = if isPrelude then TypedPreludePath else TypedModulePath modulePath.
+      statementFailures = validateModuleStatementsInOrder baseContext statements.
+      moduleInfoFailures = validateModuleInfo context moduleValidationPath statements moduleInfo.
       listConcat
         [ validateModulePath modulePath,
           validateSourcePath modulePath sourcePath,
@@ -6068,9 +6070,9 @@ module TypedCoreValidate (
           validateModuleInterface modulePath externalNames interface statements exports,
           duplicateModuleDeclarationFailures context statements,
           duplicateModuleBinderFailures context statements,
-          validateModuleStatementsInOrder baseContext statements,
-          validateModuleInfo context moduleValidationPath statements moduleInfo,
-          validateModuleResult modulePath statements moduleInfo
+          statementFailures,
+          moduleInfoFailures,
+          validateModuleResult (if listLength statementFailures == 0 then listLength moduleInfoFailures == 0 else False) modulePath statements moduleInfo
         ].
     }
   }.

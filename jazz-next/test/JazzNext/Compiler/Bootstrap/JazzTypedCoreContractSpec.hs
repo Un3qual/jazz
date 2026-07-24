@@ -136,6 +136,10 @@ tests =
     ("preserves nested local generalization under generics", testNestedLocalGeneralization),
     ("rejects non-concrete impl targets", testNonConcreteImplTarget),
     ("rejects module-scope declarations inside blocks", testBlockDeclarationScope),
+    ("rejects delimiter-bearing module path segments", testModulePathIdentifierSegments),
+    ("requires module metadata to equal the terminal node", testModuleMetadataIdentity),
+    ("rejects stray qualified type-application instantiations", testQualifiedTypeApplicationInstantiation),
+    ("keeps local class methods out of active scheme lookup", testLocalClassMethodSchemeIsolation),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -527,7 +531,12 @@ reviewRegressionPrograms =
     ordinaryUnboundEvidenceProgram,
     nestedLocalGeneralizationProgram,
     nonConcreteImplTargetProgram,
-    blockDeclarationScopeProgram
+    blockDeclarationScopeProgram,
+    delimiterModulePathProgram,
+    moduleMetadataIdentityProgram,
+    qualifiedTypeApplicationInstantiationProgram,
+    localClassMethodAfterValueProgram,
+    localClassMethodBeforeValueProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1177,6 +1186,17 @@ testNewestReviewRegressions = do
         "review-unrelated-type-application"
         1
         TypedInstantiationMismatch
+        ( TypedBinderDetail
+            ( fixtureBinder
+                "review-unrelated-type-application"
+                0
+                (fixtureValueName "unrelated")
+            )
+        ),
+      expressionFailureAt
+        "review-unrelated-type-application"
+        1
+        TypedInstantiationMismatch
         TypedNoValidationDetail
     ]
     (validateTypedProgram unrelatedTypeApplicationProgram)
@@ -1773,6 +1793,17 @@ testNewestBotReviewRegressions = do
   assertEqual
     "explicit type applications reject ordinary application results"
     [ expressionFailureAt
+        "review-non-binding-type-application"
+        1
+        TypedInstantiationMismatch
+        ( TypedBinderDetail
+            ( fixtureBinder
+                "review-non-binding-type-application"
+                0
+                (fixtureValueName "identity")
+            )
+        ),
+      expressionFailureAt
         "review-non-binding-type-application"
         1
         TypedInstantiationMismatch
@@ -2476,6 +2507,46 @@ testBlockDeclarationScope =
         (TypedTextDetail "impl declaration")
     ]
     (validateTypedProgram blockDeclarationScopeProgram)
+
+testModulePathIdentifierSegments :: IO ()
+testModulePathIdentifierSegments =
+  assertEqual
+    "module path rendering remains injective across structural segments"
+    [ TypedCoreValidationFailure
+        (TypedModulePath ["A::B"])
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "A::B")
+    ]
+    (validateTypedProgram delimiterModulePathProgram)
+
+testModuleMetadataIdentity :: IO ()
+testModuleMetadataIdentity =
+  assertEqual
+    "module metadata exactly matches the terminal expression metadata"
+    [ moduleFailure
+        "review-module-metadata-identity"
+        TypedModuleResultMismatch
+        TypedNoValidationDetail
+    ]
+    (validateTypedProgram moduleMetadataIdentityProgram)
+
+testQualifiedTypeApplicationInstantiation :: IO ()
+testQualifiedTypeApplicationInstantiation =
+  assertEqual
+    "qualified type applications cannot retain unrelated ordinary instantiations"
+    [ expressionFailureAt
+        "review-qualified-type-application-instantiation"
+        1
+        TypedInstantiationMismatch
+        (TypedBinderDetail qualifiedTypeApplicationInstantiationOwner)
+    ]
+    (validateTypedProgram qualifiedTypeApplicationInstantiationProgram)
+
+testLocalClassMethodSchemeIsolation :: IO ()
+testLocalClassMethodSchemeIsolation =
+  mapM_
+    (\program -> assertEqual "local class methods never replace active value schemes" [] (validateTypedProgram program))
+    [localClassMethodAfterValueProgram, localClassMethodBeforeValueProgram]
 
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
@@ -3596,6 +3667,128 @@ blockDeclarationScopeProgram =
           expressionStatement 4 trueExpr
         ]
 
+delimiterModulePathProgram :: TypedProgram
+delimiterModulePathProgram =
+  TypedProgram
+    Nothing
+    [ typedModule
+        ["A::B"]
+        relativeSource
+        []
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+    ]
+    ["A::B"]
+
+moduleMetadataIdentityProgram :: TypedProgram
+moduleMetadataIdentityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface moduleInfo modulePath
+  where
+    fixture = "review-module-metadata-identity"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    owner = binder modulePath [0] valueName
+    scheme = monoScheme owner
+    moduleInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation owner [] Nothing]
+        []
+    statements =
+      [ TypedLetStatement owner valueName span1 scheme trueExpr,
+        expressionStatement 2 trueExpr
+      ]
+
+qualifiedTypeApplicationInstantiationOwner :: TypedBinderId
+qualifiedTypeApplicationInstantiationOwner =
+  binder
+    ["Fixture", "review-qualified-type-application-instantiation"]
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "ordinary")
+
+qualifiedTypeApplicationInstantiationProgram :: TypedProgram
+qualifiedTypeApplicationInstantiationProgram =
+  case qualifiedMethodTypeApplicationProgram of
+    TypedProgram
+      prelude
+      [TypedModule _ sourcePath imports exports interface [TypedExpressionStatement expressionSpan originalExpression] _]
+      _ ->
+        case originalExpression of
+          TypedTypeApplicationExpr (TypedNodeInfo resultType resultRecipe [] evidence) function explicitSpan typeArgument ->
+            let applicationInfo =
+                  TypedNodeInfo
+                    resultType
+                    resultRecipe
+                    [TypedInstantiation qualifiedTypeApplicationInstantiationOwner [] Nothing]
+                    evidence
+                expression =
+                  TypedTypeApplicationExpr applicationInfo function explicitSpan typeArgument
+                ordinaryName =
+                  resolved TypedCurrentModule TypedValueNamespace "ordinary"
+                ordinaryScheme =
+                  monoScheme qualifiedTypeApplicationInstantiationOwner
+                entryPath =
+                  ["Fixture", "review-qualified-type-application-instantiation"]
+                entryModule =
+                  TypedModule
+                    entryPath
+                    sourcePath
+                    imports
+                    exports
+                    interface
+                    [ TypedLetStatement
+                        qualifiedTypeApplicationInstantiationOwner
+                        ordinaryName
+                        span1
+                        ordinaryScheme
+                        trueExpr,
+                      TypedExpressionStatement expressionSpan expression
+                    ]
+                    applicationInfo
+             in TypedProgram prelude [entryModule] entryPath
+          _ -> error "qualified method type-application fixture changed shape"
+    _ -> error "qualified method type-application program changed shape"
+
+localClassMethodAfterValueProgram :: TypedProgram
+localClassMethodAfterValueProgram =
+  localClassMethodSchemeProgram "review-local-class-method-after-value" False
+
+localClassMethodBeforeValueProgram :: TypedProgram
+localClassMethodBeforeValueProgram =
+  localClassMethodSchemeProgram "review-local-class-method-before-value" True
+
+localClassMethodSchemeProgram :: Text -> Bool -> TypedProgram
+localClassMethodSchemeProgram fixture classFirst =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "shared"
+    valueOwner = binder modulePath [0] valueName
+    valueStatement =
+      TypedLetStatement valueOwner valueName span1 (monoScheme valueOwner) trueExpr
+    className =
+      resolved TypedCurrentModule TypedCapabilityNamespace "SharedClass"
+    methodOwner = binder modulePath [1, 0] valueName
+    methodScheme =
+      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    classStatement =
+      TypedClassStatement
+        ( TypedClassDeclaration
+            span1
+            className
+            [TypedTypeParameterId 0]
+            [TypedMethodSignature valueName span1 methodScheme]
+        )
+    declarations
+      | classFirst = [classStatement, valueStatement]
+      | otherwise = [valueStatement, classStatement]
+    statements =
+      declarations
+        <> [expressionStatement 3 (TypedVariableExpr boolInfo valueName)]
+
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
@@ -4072,7 +4265,7 @@ moduleQualifiedMethodKeyProgram =
         []
         emptyInterface
         [expressionStatement 0 expression]
-        boolInfo
+        (expressionInfoForFixture expression)
 
 importedDataDependencyProgram :: TypedProgram
 importedDataDependencyProgram =
@@ -7142,7 +7335,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         [ TypedLetStatement valueOwner valueName span1 valueScheme trueExpr,
           expressionStatement 1 expression
         ]
-        boolInfo
+        (expressionInfoForFixture expression)
 
 implTargetArityProgram :: TypedProgram
 implTargetArityProgram =
@@ -7660,7 +7853,15 @@ inferredCapabilityEvidenceProgram = evidenceProgram "inferred-capability-evidenc
 
 evidenceProgram :: Text -> Maybe TypedEvidenceParameterId -> TypedProgram
 evidenceProgram fixture parameterId =
-  withFixturePrelude (programWith fixture [TypedLetStatement valueBinder valueName span1 scheme trueExpr, expressionStatement 1 expression] emptyInterface boolInfo)
+  withFixturePrelude
+    ( programWith
+        fixture
+        [ TypedLetStatement valueBinder valueName span1 scheme trueExpr,
+          expressionStatement 1 expression
+        ]
+        emptyInterface
+        (expressionInfoForFixture expression)
+    )
   where
     capability =
       TypedCapabilityConstraint
@@ -7692,7 +7893,13 @@ evidenceProgram fixture parameterId =
 
 qualifiedMethodSelectionProgram :: TypedProgram
 qualifiedMethodSelectionProgram =
-  withFixturePrelude (programWith fixture [expressionStatement 1 expression] emptyInterface boolInfo)
+  withFixturePrelude
+    ( programWith
+        fixture
+        [expressionStatement 1 expression]
+        emptyInterface
+        (expressionInfoForFixture expression)
+    )
   where
     fixture = "qualified-method-selection"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
@@ -7719,7 +7926,7 @@ partialMethodCandidatesProgram =
           expressionStatement 1 expression
         ]
         emptyInterface
-        builtinMapInfo
+        (expressionInfoForFixture expression)
     )
   where
     fixture = "partial-method-candidates"

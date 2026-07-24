@@ -152,9 +152,9 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
-    <> validateStatementsInOrder baseContext (zip (map pure [0 ..]) statements)
-    <> validateModuleInfo context moduleValidationPath statements moduleInfo
-    <> validateModuleResult modulePath statements moduleInfo
+    <> statementFailures
+    <> moduleInfoFailures
+    <> validateModuleResult (null statementFailures && null moduleInfoFailures) modulePath statements moduleInfo
   where
     moduleValidationPath
       | isPrelude = TypedPreludePath
@@ -242,16 +242,24 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
       ]
     baseContext = withBlockDeclarations moduleMetadataStatements externalContext
     context = withBlockDeclarations statements externalContext
+    statementFailures =
+      validateStatementsInOrder baseContext (zip (map pure [0 ..]) statements)
+    moduleInfoFailures =
+      validateModuleInfo context moduleValidationPath statements moduleInfo
 
 validateModulePath :: [Text] -> [TypedCoreValidationFailure]
 validateModulePath modulePath
-  | not (null modulePath) && all (not . Text.null) modulePath = []
+  | not (null modulePath) && all validModulePathSegment modulePath = []
   | otherwise =
       [ failure
           (TypedModulePath modulePath)
           TypedModuleInterfaceMismatch
           (TypedTextDetail (renderModulePath modulePath))
       ]
+
+validModulePathSegment :: Text -> Bool
+validModulePathSegment segment =
+  not (Text.null segment) && not (Text.isInfixOf "::" segment)
 
 validateResolvedImports :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 validateResolvedImports moduleTable modulePath imports =
@@ -336,16 +344,24 @@ interfaceContainsExport (TypedModuleExport namespace expected) (TypedModuleInter
     TypedConstructorNamespace -> any (dataInterfaceConstructorMatches expected) datas
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
 
-validateModuleResult :: [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
-validateModuleResult modulePath statements moduleInfo =
+validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateModuleResult compareMetadata modulePath statements moduleInfo =
   case reverse statements of
     TypedExpressionStatement _ terminal : _
       | nodeInfoHasValidIntrinsicContract moduleInfo && nodeInfoHasValidIntrinsicContract (expressionInfo terminal) ->
-          nodeContractFailures
+          case nodeContractFailures
             (TypedModulePath modulePath)
             TypedModuleResultMismatch
             moduleInfo
-            (expressionInfo terminal)
+            (expressionInfo terminal) of
+            []
+              | compareMetadata && moduleInfo /= expressionInfo terminal ->
+                  [ failure
+                      (TypedModulePath modulePath)
+                      TypedModuleResultMismatch
+                      TypedNoValidationDetail
+                  ]
+            failures -> failures
     TypedExpressionStatement {} : _ -> []
     _
       | moduleInfoIsNoResultContract moduleInfo -> []
@@ -575,10 +591,6 @@ statementSchemes statement =
   case statement of
     TypedLetStatement binderId _ _ scheme _ -> [(binderId, scheme)]
     TypedSignatureStatement {} -> []
-    TypedClassStatement (TypedClassDeclaration _ _ classParameters methods) ->
-      [ (binderId, generalizeClassMethodScheme classParameters scheme)
-      | TypedMethodSignature _ _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods
-      ]
     _ -> []
 
 interfaceSchemeEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedBinderId, TypedScheme)]
@@ -2264,14 +2276,11 @@ validateExpressionInstantiationOwners parentExplicitSpan context path expression
   case expression of
     TypedTypeApplicationExpr _ function _ _ ->
       let allowedOwners = bindingExpressionInstantiationOwners context function
-       in if Set.null allowedOwners
-            then []
-            else
-              [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
-              | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
-                _ <- maybeToList (lookupInstantiationContract context owner),
-                Set.notMember owner allowedOwners
-              ]
+       in [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
+          | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
+            _ <- maybeToList (lookupInstantiationContract context owner),
+            Set.notMember owner allowedOwners
+          ]
     _ ->
       [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
       | TypedInstantiation owner _ maybeSpan <- nodeInfoInstantiations (expressionInfo expression),
