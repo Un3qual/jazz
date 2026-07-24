@@ -127,6 +127,7 @@ tests =
     ("checks adjacent signatures against their bindings", testSignatureBindingContract),
     ("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication),
     ("enforces final typed-core review contracts", testFinalReviewRegressions),
+    ("enforces post-final typed-core review contracts", testPostFinalReviewRegressions),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -504,7 +505,13 @@ reviewRegressionPrograms =
     qualifiedMethodTypeApplicationProgram,
     qualifiedMethodValueContractProgram,
     aliasShapedSelfRecursionProgram,
-    eagerSelfReferenceProgram
+    eagerSelfReferenceProgram,
+    importNameCollisionProgram,
+    localClassMethodVisibilityProgram,
+    syntheticBinderShadowingProgram,
+    implFreeClassParameterProgram,
+    duplicateQualifiedMethodCandidateProgram,
+    metadataOnlySourceTypeProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2262,6 +2269,78 @@ testFinalReviewRegressions = do
     ]
     (validateTypedProgram eagerSelfReferenceProgram)
 
+testPostFinalReviewRegressions :: IO ()
+testPostFinalReviewRegressions = do
+  assertEqual
+    "resolved imports reject source-visible value and type collisions"
+    [ moduleFailure
+        "review-import-name-collision"
+        TypedDuplicateDeclaration
+        (TypedTextDetail "shared"),
+      moduleFailure
+        "review-import-name-collision"
+        TypedDuplicateDeclaration
+        (TypedTextDetail "Box")
+    ]
+    (validateTypedProgram importNameCollisionProgram)
+  assertEqual
+    "local class methods remain outside ordinary value scope"
+    [ expressionFailureAt
+        "review-local-class-method-visibility"
+        1
+        TypedInvisibleName
+        (TypedNameDetail localClassMethodName)
+    ]
+    (validateTypedProgram localClassMethodVisibilityProgram)
+  assertEqual
+    "same-scope rebinding follows declaration order rather than binder payloads"
+    []
+    (validateTypedProgram syntheticBinderShadowingProgram)
+  assertEqual
+    "concrete impl bodies cannot retain substituted class parameters"
+    [ TypedUnboundTypeParameter,
+      TypedUnboundTypeParameter,
+      TypedUnboundRepresentationParameter,
+      TypedUnboundRepresentationParameter,
+      TypedUnboundTypeParameter,
+      TypedUnboundRepresentationParameter
+    ]
+    (validationKinds implFreeClassParameterProgram)
+  assertEqual
+    "qualified method candidate sets reject duplicate impl-method identities"
+    [ expressionFailure
+        "review-duplicate-qualified-method-candidate"
+        TypedDuplicateEvidence
+        (TypedImplDetail duplicateQualifiedMethodCandidateImpl)
+    ]
+    (validateTypedProgram duplicateQualifiedMethodCandidateProgram)
+  assertEqual
+    "metadata-only imported data types remain unavailable to source declarations"
+    [ statementFailure
+        "review-metadata-only-source-type"
+        0
+        TypedInvisibleName
+        (TypedNameDetail metadataOnlyImportedTypeName)
+    ]
+    (validateTypedProgram metadataOnlySourceTypeProgram)
+  assertEqual
+    "character literals and literal patterns require Unicode scalar values"
+    [ expressionFailureAt
+        "review-non-scalar-character"
+        0
+        TypedLiteralTypeMismatch
+        (TypedTextDetail "non-scalar character"),
+      TypedCoreValidationFailure
+        (TypedPatternPath ["Fixture", "review-non-scalar-character"] 1 [0, 0])
+        TypedLiteralTypeMismatch
+        (TypedTextDetail "non-scalar character")
+    ]
+    (validateTypedProgram nonScalarCharacterProgram)
+
+validationKinds :: TypedProgram -> [TypedCoreValidationKind]
+validationKinds program =
+  [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
+
 cyclicImportFirstPath :: [Text]
 cyclicImportFirstPath = ["Cycle", "First"]
 
@@ -2688,6 +2767,289 @@ eagerSelfReferenceProgram =
         falseExpr
     statement =
       TypedLetStatement owner eagerSelfReferenceName span1 (monoScheme owner) expression
+
+importNameCollisionProgram :: TypedProgram
+importNameCollisionProgram =
+  TypedProgram Nothing [firstLibrary, secondLibrary, entryModule] entryPath
+  where
+    fixture = "review-import-name-collision"
+    firstPath = ["Library", "FirstCollision"]
+    secondPath = ["Library", "SecondCollision"]
+    entryPath = ["Fixture", fixture]
+    collisionLibrary libraryPath constructorIdentifier =
+      let dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+          constructorName = resolved TypedCurrentModule TypedConstructorNamespace constructorIdentifier
+          constructorOwner = binder libraryPath [0, 0] constructorName
+          declaration =
+            TypedDataDeclaration
+              span1
+              dataName
+              []
+              [TypedConstructorDeclaration constructorOwner constructorName [] []]
+          valueName = resolved TypedCurrentModule TypedValueNamespace "shared"
+          valueOwner = binder libraryPath [1] valueName
+          valueScheme = monoScheme valueOwner
+       in typedModule
+            libraryPath
+            (TypedSourcePath ("src/" <> Text.intercalate "/" libraryPath <> ".jz"))
+            []
+            [ TypedModuleExport TypedValueNamespace "shared",
+              TypedModuleExport TypedTypeNamespace "Box"
+            ]
+            ( TypedModuleInterface
+                [TypedValueInterface valueName valueScheme]
+                [TypedDataInterface declaration]
+                []
+                []
+            )
+            [ TypedDataStatement declaration,
+              TypedLetStatement valueOwner valueName span1 valueScheme trueExpr
+            ]
+            unitInfo
+    firstLibrary = collisionLibrary firstPath "FirstBox"
+    secondLibrary = collisionLibrary secondPath "SecondBox"
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport span1 firstPath Nothing Nothing,
+          TypedResolvedImport span1 secondPath Nothing Nothing
+        ]
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+
+localClassMethodName :: TypedCoreName
+localClassMethodName =
+  resolved TypedCurrentModule TypedValueNamespace "render"
+
+localClassMethodVisibilityProgram :: TypedProgram
+localClassMethodVisibilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath
+  where
+    fixture = "review-local-class-method-visibility"
+    modulePath = ["Fixture", fixture]
+    className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+    methodOwner = binder modulePath [0, 0] localClassMethodName
+    methodScheme =
+      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        className
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature localClassMethodName span1 methodScheme]
+    statements =
+      [ TypedClassStatement classDeclaration,
+        expressionStatement 1 (TypedVariableExpr boolToBoolInfo localClassMethodName)
+      ]
+
+syntheticBinderShadowingProgram :: TypedProgram
+syntheticBinderShadowingProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
+  where
+    fixture = "review-synthetic-binder-shadowing"
+    modulePath = ["Fixture", fixture]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    earlierOwner = binder modulePath [99] valueName
+    laterOwner = binder modulePath [0] valueName
+    earlierScheme = monoScheme earlierOwner
+    laterScheme =
+      TypedScheme laterOwner [] [] [] TypedTextType TypedManagedTextRecipe
+    statements =
+      [ TypedLetStatement earlierOwner valueName span1 earlierScheme trueExpr,
+        TypedLetStatement
+          laterOwner
+          valueName
+          span1
+          laterScheme
+          (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
+        expressionStatement 1 (TypedVariableExpr textInfo valueName)
+      ]
+
+implFreeClassParameterProgram :: TypedProgram
+implFreeClassParameterProgram =
+  withFixturePrelude
+    (singleModuleProgram fixture relativeSource [] [statement] emptyInterface unitInfo modulePath)
+  where
+    fixture = "review-impl-free-class-parameter"
+    modulePath = ["Fixture", fixture]
+    capabilityName =
+      resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
+    methodOwner = binder modulePath [0, 0] methodName
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    identityArgumentName =
+      resolved TypedCurrentModule TypedValueNamespace "identityArgument"
+    identityArgumentOwner =
+      binder modulePath [0, 0, 0] identityArgumentName
+    identityInfo =
+      info
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    identityExpression =
+      TypedLambdaExpr
+        identityInfo
+        identityArgumentOwner
+        identityArgumentName
+        ( TypedVariableExpr
+            (info parameterType parameterRecipe)
+            identityArgumentName
+        )
+    methodExpression =
+      TypedBlockExpr
+        boolInfo
+        [ expressionStatement 1 identityExpression,
+          expressionStatement 2 trueExpr
+        ]
+    method =
+      TypedMethodDefinition
+        (TypedMethodId implId "equal")
+        methodOwner
+        methodName
+        span1
+        methodExpression
+    statement =
+      TypedImplStatement
+        ( TypedImplDeclaration
+            span1
+            implId
+            [method, fixtureImplMethod modulePath [0, 1] implId "other"]
+        )
+
+duplicateQualifiedMethodCandidateImpl :: TypedImplId
+duplicateQualifiedMethodCandidateImpl =
+  TypedImplId
+    ["Prelude"]
+    (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render")
+    [TypedTextType]
+
+duplicateQualifiedMethodCandidateProgram :: TypedProgram
+duplicateQualifiedMethodCandidateProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-duplicate-qualified-method-candidate"
+    constraint =
+      TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    candidate =
+      TypedEvidenceCandidate
+        duplicateQualifiedMethodCandidateImpl
+        (Just (TypedMethodId duplicateQualifiedMethodCandidateImpl "map"))
+    expression =
+      TypedVariableExpr
+        ( TypedNodeInfo
+            builtinMapType
+            builtinMapRecipe
+            []
+            [TypedEvidenceCandidates constraint [candidate, candidate]]
+        )
+        (TypedBuiltinName "map")
+
+metadataOnlyImportedTypeName :: TypedCoreName
+metadataOnlyImportedTypeName =
+  resolved
+    (TypedImportedModule ["Library", "MetadataProvider"])
+    TypedTypeNamespace
+    "Box"
+
+metadataOnlySourceTypeProgram :: TypedProgram
+metadataOnlySourceTypeProgram =
+  TypedProgram Nothing [providerModule, entryModule] entryPath
+  where
+    fixture = "review-metadata-only-source-type"
+    providerPath = ["Library", "MetadataProvider"]
+    entryPath = ["Fixture", fixture]
+    localDataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    localConstructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Box"
+    constructorOwner = binder providerPath [0, 0] localConstructorName
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        localDataName
+        []
+        [TypedConstructorDeclaration constructorOwner localConstructorName [] []]
+    localDataType = TypedDataType localDataName []
+    localDataRecipe = TypedManagedVariantRecipe localDataName []
+    localDataInfo = info localDataType localDataRecipe
+    providerValueName =
+      resolved TypedCurrentModule TypedValueNamespace "make"
+    providerValueOwner = binder providerPath [1] providerValueName
+    providerValueScheme =
+      TypedScheme
+        providerValueOwner
+        []
+        []
+        []
+        localDataType
+        localDataRecipe
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/MetadataProvider.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "make"]
+        ( TypedModuleInterface
+            [TypedValueInterface providerValueName providerValueScheme]
+            [TypedDataInterface dataDeclaration]
+            []
+            []
+        )
+        [ TypedDataStatement dataDeclaration,
+          TypedLetStatement
+            providerValueOwner
+            providerValueName
+            span1
+            providerValueScheme
+            (TypedVariableExpr localDataInfo localConstructorName)
+        ]
+        unitInfo
+    leakedValueName =
+      resolved TypedCurrentModule TypedValueNamespace "leaked"
+    leakedValueOwner = binder entryPath [0] leakedValueName
+    leakedScheme =
+      TypedScheme
+        leakedValueOwner
+        []
+        []
+        []
+        (TypedDataType metadataOnlyImportedTypeName [])
+        (TypedManagedVariantRecipe metadataOnlyImportedTypeName [])
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 providerPath Nothing (Just ["make"])]
+        []
+        emptyInterface
+        [TypedSignatureStatement leakedValueOwner leakedValueName span1 leakedScheme]
+        unitInfo
+
+nonScalarCharacterProgram :: TypedProgram
+nonScalarCharacterProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-non-scalar-character"
+    modulePath = ["Fixture", fixture]
+    charInfo = info TypedCharType TypedCharRecipe
+    nonScalar = '\xD800'
+    invalidLiteral =
+      TypedLiteralExpr charInfo (TypedCharacterLiteral nonScalar)
+    invalidPattern =
+      TypedLiteralPattern charInfo (TypedCharacterLiteral nonScalar)
+    patternExpression =
+      TypedPatternCaseExpr
+        boolInfo
+        (TypedLiteralExpr charInfo (TypedCharacterLiteral 'x'))
+        [TypedCaseArm invalidPattern Nothing trueExpr]
+    statements =
+      [ expressionStatement 1 invalidLiteral,
+        expressionStatement 2 patternExpression
+      ]
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =

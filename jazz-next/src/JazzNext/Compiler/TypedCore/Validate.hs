@@ -9,9 +9,11 @@ module JazzNext.Compiler.TypedCore.Validate
   )
 where
 
+import Data.Char (ord)
 import Data.List (find, nub, sort, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import Data.Ratio ((%))
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -37,6 +39,7 @@ data ModuleContext = ModuleContext
   { moduleContextPath :: [Text],
     moduleContextVisibleModules :: Set [Text],
     moduleContextSchemes :: Map TypedBinderId TypedScheme,
+    moduleContextActiveSchemes :: Map ResolvedNameKey TypedScheme,
     moduleContextStatementIndices :: Map [Int] Int,
     moduleContextVisibleNames :: Set ResolvedNameKey,
     moduleContextVisibleImpls :: Set TypedImplId,
@@ -145,6 +148,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
   validateModulePath modulePath
     <> validateSourcePath modulePath sourcePath
     <> validateResolvedImports moduleTable modulePath imports
+    <> importBindingCollisionFailures moduleTable modulePath imports
     <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
@@ -168,6 +172,12 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     visibleExternalModules = preludeModules <> importedModules
     importedSchemeEntries = concatMap interfaceSchemeEntries visibleExternalModules
     schemes = Map.fromList importedSchemeEntries
+    activeSchemes =
+      Map.fromList
+        [ (key, scheme)
+        | (owner, scheme) <- importedSchemeEntries,
+          key <- maybeToList (binderDefinitionKey owner)
+        ]
     visibleNames =
       Set.fromList (concatMap interfaceNameKeys visibleExternalModules)
     externalImplEntries = concatMap interfaceImplEntries visibleExternalModules
@@ -208,6 +218,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
         { moduleContextPath = modulePath,
           moduleContextVisibleModules = visibleModules,
           moduleContextSchemes = schemes,
+          moduleContextActiveSchemes = activeSchemes,
           moduleContextStatementIndices = statementIndices,
           moduleContextVisibleNames = visibleNames,
           moduleContextVisibleImpls = visibleImpls,
@@ -262,6 +273,46 @@ validateResolvedImports moduleTable modulePath imports =
           | selectedName <- maybe [] id selectedNames,
             not (moduleExportsInterfaceName selectedName importedModule)
           ]
+
+importBindingCollisionFailures :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
+importBindingCollisionFailures moduleTable modulePath imports =
+  collisionFailures valueBindingIdentifier <> collisionFailures typeBindingIdentifier
+  where
+    collisionFailures identifierFor =
+      snd (foldl' (checkImport identifierFor) (Map.empty, []) imports)
+    checkImport identifierFor (origins, failures) (TypedResolvedImport _ importPath alias selectedNames)
+      | Just _ <- alias = (origins, failures)
+      | otherwise =
+          case Map.lookup importPath moduleTable of
+            Nothing -> (origins, failures)
+            Just importedModule ->
+              foldl'
+                (checkIdentifier importPath)
+                (origins, failures)
+                (nub (mapMaybe identifierFor (interfaceNameKeys (importPath, selectedNames, importedModule))))
+    checkIdentifier importPath (origins, failures) identifier =
+      case Map.lookup identifier origins of
+        Nothing -> (Map.insert identifier importPath origins, failures)
+        Just originalPath
+          | originalPath == importPath -> (origins, failures)
+          | otherwise ->
+              ( origins,
+                failures
+                  <> [ failure
+                         (TypedModulePath modulePath)
+                         TypedDuplicateDeclaration
+                         (TypedTextDetail identifier)
+                     ]
+              )
+    valueBindingIdentifier key =
+      case key of
+        ResolvedNameKey _ TypedValueNamespace identifier -> Just identifier
+        ResolvedNameKey _ TypedConstructorNamespace identifier -> Just identifier
+        _ -> Nothing
+    typeBindingIdentifier key =
+      case key of
+        ResolvedNameKey _ TypedTypeNamespace identifier -> Just identifier
+        _ -> Nothing
 
 moduleExportsInterfaceName :: Text -> TypedModule -> Bool
 moduleExportsInterfaceName expected (TypedModule _ _ _ exports interface _ _) =
@@ -770,8 +821,7 @@ statementDefinedNames statement =
     TypedSignatureStatement {} -> []
     TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
       name : [constructorName | TypedConstructorDeclaration _ constructorName _ _ <- constructors]
-    TypedClassStatement (TypedClassDeclaration _ name _ methods) ->
-      name : [methodName | TypedMethodSignature methodName _ _ <- methods]
+    TypedClassStatement (TypedClassDeclaration _ name _ _) -> [name]
     TypedImplStatement {} -> []
     TypedExpressionStatement {} -> []
 
@@ -965,6 +1015,7 @@ withBlockDeclarations :: [TypedStatement] -> ModuleContext -> ModuleContext
 withBlockDeclarations statements context =
   context
     { moduleContextSchemes = Map.union localSchemes (moduleContextSchemes context),
+      moduleContextActiveSchemes = Map.union localActiveSchemes (moduleContextActiveSchemes context),
       moduleContextVisibleNames = Set.union localNames (moduleContextVisibleNames context),
       moduleContextVisibleImpls = Set.union localImpls (moduleContextVisibleImpls context),
       moduleContextImplMethods = Map.unionWith Set.union localImplMethods (moduleContextImplMethods context),
@@ -975,7 +1026,14 @@ withBlockDeclarations statements context =
     }
   where
     modulePath = moduleContextPath context
-    localSchemes = Map.fromList (concatMap statementSchemes statements)
+    localSchemeEntries = concatMap statementSchemes statements
+    localSchemes = Map.fromList localSchemeEntries
+    localActiveSchemes =
+      Map.fromList
+        [ (key, scheme)
+        | (owner, scheme) <- localSchemeEntries,
+          key <- maybeToList (binderDefinitionKey owner)
+        ]
     localNames = Set.fromList (concatMap (statementDefinedNameKeys modulePath) statements)
     localImplEntries = concatMap statementImplEntries statements
     localImpls = Set.fromList (map fst localImplEntries)
@@ -1324,10 +1382,6 @@ statementExpressions statement =
     TypedExpressionStatement _ expression -> [expression]
     _ -> []
 
-withTypeScope :: [TypedTypeParameterId] -> ModuleContext -> ModuleContext
-withTypeScope typeParameters context =
-  context {moduleContextTypeScope = Set.union (Set.fromList typeParameters) (moduleContextTypeScope context)}
-
 withSchemeScope :: TypedScheme -> ModuleContext -> ModuleContext
 withSchemeScope (TypedScheme _ typeParameters _ primitiveConstraints _ _) context =
   context
@@ -1388,6 +1442,7 @@ validateStatement context statementLocation statement =
       validateLocalDefinitionName context [TypedValueNamespace] statementPath name
         <> validateBinderDefinition context statementPath binderId name
         <> validateScheme context statementPath binderId scheme
+        <> validateSourceSchemeDataTypes context statementPath scheme
     TypedDataStatement declaration -> validateDataDeclaration context statementPath declaration
     TypedClassStatement declaration -> validateClassDeclaration context statementPath declaration
     TypedImplStatement declaration -> validateImplDeclaration context statementLocation statementPath declaration
@@ -1700,6 +1755,7 @@ validateDataDeclaration context path (TypedDataDeclaration _ name parameters con
         <> validateBinderDefinition context path binderId constructorName
         <> concatMap (validateType path scope) fields
         <> concatMap (validateDataTypeApplications context path) fields
+        <> concatMap (validateSourceDataTypeApplications context path) fields
         <> concatMap (validateRecipe path scope) recipes
         <> dataRecipeFailures fields recipes
     dataRecipeFailures fields recipes
@@ -1726,6 +1782,7 @@ validateClassDeclaration context path (TypedClassDeclaration _ name parameters m
         <> validateBinderDefinition context path binderId methodName
         <> classMethodSchemeShapeFailures methodParameters evidenceParameters primitiveConstraints
         <> validateSchemeWithOuterScope context path binderId (Set.fromList parameters) scheme
+        <> validateSourceSchemeDataTypes context path scheme
     classMethodSchemeShapeFailures methodParameters evidenceParameters primitiveConstraints =
       let obligationCount = length methodParameters + length evidenceParameters + length primitiveConstraints
        in if obligationCount == 0
@@ -1757,6 +1814,7 @@ validateImplDeclaration context statementLocation path (TypedImplDeclaration _ i
   implOwnerFailures
     <> validateImplId context path Set.empty implId
     <> concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
+    <> concatMap (validateSourceDataTypeApplications context path) (implTargetTypes implId)
     <> duplicateImplMethodFailures path methods
     <> missingImplMethodFailures context path implId methods
     <> concatMap (uncurry validateMethod) (zip [0 ..] methods)
@@ -1825,8 +1883,8 @@ validateImplMethodContract context path implId methodKey info =
 implMethodContext :: ModuleContext -> TypedImplId -> Text -> ModuleContext
 implMethodContext context implId methodKey =
   case lookupImplMethodScheme context implId methodKey of
-    Right (Just (classParameters, scheme)) ->
-      withTypeScope classParameters (withSchemeScope scheme context)
+    Right (Just (_, scheme)) ->
+      withSchemeScope scheme context
     _ -> context
 
 lookupImplMethodScheme :: ModuleContext -> TypedImplId -> Text -> Either () (Maybe ([TypedTypeParameterId], TypedScheme))
@@ -1875,6 +1933,7 @@ validateExpressionWithParentSpan context statementLocation expressionPath parent
           TypedTypeApplicationExpr info function explicitSpan typeArgument ->
             validateType path (moduleContextTypeScope context) typeArgument
               <> validateDataTypeApplications context path typeArgument
+              <> validateSourceDataTypeApplications context path typeArgument
               <> validateExplicitTypeApplication context path info function explicitSpan typeArgument
           TypedIfExpr info condition thenExpression elseExpression ->
             validateConditional path info condition thenExpression elseExpression
@@ -1911,8 +1970,17 @@ validateLambda path info body =
 
 validateLiteral :: TypedCoreValidationPath -> TypedNodeInfo -> TypedLiteral -> [TypedCoreValidationFailure]
 validateLiteral path info literal
+  | TypedCharacterLiteral character <- literal,
+    not (isUnicodeScalar character) =
+      [failure path TypedLiteralTypeMismatch (TypedTextDetail "non-scalar character")]
   | literalMatchesType literal (nodeType info) = []
   | otherwise = [failure path TypedLiteralTypeMismatch (TypedTypeDetail (literalType literal) (nodeType info))]
+
+isUnicodeScalar :: Char -> Bool
+isUnicodeScalar character =
+  codePoint < 0xD800 || codePoint > 0xDFFF
+  where
+    codePoint = ord character
 
 literalMatchesType :: TypedLiteral -> TypedType -> Bool
 literalMatchesType literal typeValue =
@@ -2146,17 +2214,7 @@ validateExpressionInstantiationOwners parentExplicitSpan context path expression
 lookupSchemeByName :: ModuleContext -> TypedCoreName -> Maybe TypedScheme
 lookupSchemeByName context name = do
   expectedKey <- resolvedNameKey (moduleContextPath context) name
-  let matchingSchemes =
-        [ (owner, scheme)
-        | (owner, scheme) <- Map.toList (moduleContextSchemes context),
-          binderDefinitionKey owner == Just expectedKey
-        ]
-  case reverse (sortOn (binderScopeRank . fst) matchingSchemes) of
-    (_, scheme) : _ -> Just scheme
-    [] -> Nothing
-
-binderScopeRank :: TypedBinderId -> (Int, [Int])
-binderScopeRank (TypedBinderId (_, lexicalPath, _)) = (length lexicalPath, lexicalPath)
+  Map.lookup expectedKey (moduleContextActiveSchemes context)
 
 binderDefinitionKey :: TypedBinderId -> Maybe ResolvedNameKey
 binderDefinitionKey (TypedBinderId (modulePath, _, name)) = definitionNameKey modulePath name
@@ -2908,6 +2966,39 @@ validateDataTypeApplications context path typeValue =
     TypedFunctionType argument result -> validateDataTypeApplications context path argument <> validateDataTypeApplications context path result
     _ -> []
 
+validateSourceSchemeDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedScheme -> [TypedCoreValidationFailure]
+validateSourceSchemeDataTypes context path (TypedScheme _ _ evidenceParameters primitiveConstraints resultType _) =
+  concatMap (validateSourceDataTypeApplications context path) sourceTypes
+  where
+    sourceTypes =
+      resultType
+        : [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidenceParameters]
+          <> [ targetType
+             | primitiveConstraint <- primitiveConstraints,
+               targetType <-
+                 case primitiveConstraint of
+                   TypedNumericPrimitiveConstraint _ typeValue -> [typeValue]
+                   TypedStrictEqualityPrimitiveConstraint typeValue -> [typeValue]
+             ]
+
+validateSourceDataTypeApplications :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure]
+validateSourceDataTypeApplications context path typeValue =
+  case typeValue of
+    TypedListType elementType -> validateSourceDataTypeApplications context path elementType
+    TypedTupleType elementTypes -> concatMap (validateSourceDataTypeApplications context path) elementTypes
+    TypedDataType name arguments ->
+      concatMap (validateSourceDataTypeApplications context path) arguments
+        <> case resolvedNameKey (moduleContextPath context) name of
+          Just key
+            | Map.member key (moduleContextDataArities context),
+              Set.notMember key (moduleContextVisibleNames context) ->
+                [failure path TypedInvisibleName (TypedNameDetail name)]
+          _ -> []
+    TypedFunctionType argument result ->
+      validateSourceDataTypeApplications context path argument
+        <> validateSourceDataTypeApplications context path result
+    _ -> []
+
 validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedInstantiation -> [TypedCoreValidationFailure]
 validateInstantiation context path parameterScope (TypedInstantiation owner arguments _) =
   case lookupInstantiationContract context owner of
@@ -2986,11 +3077,21 @@ validateEvidenceSelections context path qualifiedMethodKey selections =
           | null candidates -> [failure path TypedMissingEvidence (TypedTextDetail capability)]
           | not (qualifiedMethodCandidates capability constraintMethod qualifiedMethodKey) ->
               [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length candidates))]
-          | otherwise -> concatMap (validateEvidenceCandidate context path constraint) candidates
+          | otherwise ->
+              duplicateEvidenceCandidateFailures path candidates
+                <> concatMap (validateEvidenceCandidate context path constraint) candidates
     qualifiedMethodCandidates capability constraintMethod expressionMethod =
       case (constraintMethod, expressionMethod) of
         (Just expectedMethod, Just actualMethod) -> methodKeyMatches capability expectedMethod actualMethod
         _ -> False
+
+duplicateEvidenceCandidateFailures :: TypedCoreValidationPath -> [TypedEvidenceCandidate] -> [TypedCoreValidationFailure]
+duplicateEvidenceCandidateFailures path candidates = snd (foldl' step ([], []) candidates)
+  where
+    step (seen, failures) candidate@(TypedEvidenceCandidate implId _)
+      | candidate `elem` seen =
+          (seen, failures <> [failure path TypedDuplicateEvidence (TypedImplDetail implId)])
+      | otherwise = (candidate : seen, failures)
 
 validateEvidenceParameterBindings :: ModuleContext -> TypedCoreValidationPath -> [TypedInstantiation] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
 validateEvidenceParameterBindings context path instantiations selections =
