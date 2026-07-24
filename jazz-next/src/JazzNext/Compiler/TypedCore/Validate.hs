@@ -69,6 +69,7 @@ data ConstructorContract = ConstructorContract TypedBinderId ResolvedNameKey [Ty
 data DataContract = DataContract [TypedTypeParameterId] [[TypedType]]
 
 data CapabilityContract = CapabilityContract [TypedTypeParameterId] (Map Text TypedScheme)
+  deriving (Eq)
 
 data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedPrimitiveConstraint]
 
@@ -180,9 +181,10 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
         ]
     visibleNames =
       Set.fromList (concatMap interfaceNameKeys visibleExternalModules)
-    externalImplEntries = concatMap interfaceImplEntries visibleExternalModules
-    visibleImpls = Set.fromList (map fst externalImplEntries)
-    implMethods = Map.fromListWith Set.union externalImplEntries
+    visibleImpls =
+      Set.fromList (concatMap interfaceVisibleImplIds visibleExternalModules)
+    implMethods =
+      Map.fromListWith Set.union (concatMap interfaceImplMethodEntries visibleExternalModules)
     dataArities =
       Map.fromList
         [ (key, length parameters)
@@ -668,8 +670,15 @@ statementImplEntries statement =
       [(implId, Set.fromList [methodKey | TypedMethodDefinition (TypedMethodId _ methodKey) _ _ _ _ <- methods])]
     _ -> []
 
-interfaceImplEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedImplId, Set Text)]
-interfaceImplEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) statements _) =
+interfaceVisibleImplIds :: ([Text], Maybe [Text], TypedModule) -> [TypedImplId]
+interfaceVisibleImplIds visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) _ _) =
+  [ qualifyExternalImplId modulePath implId
+  | TypedImplInterface implId <- impls,
+    implImportAllowed visibleModule implId
+  ]
+
+interfaceImplMethodEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedImplId, Set Text)]
+interfaceImplMethodEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) statements _) =
   [ ( qualifyExternalImplId modulePath implId,
       Set.fromList [methodKey | TypedMethodDefinition (TypedMethodId _ methodKey) _ _ _ _ <- methods]
     )
@@ -685,7 +694,7 @@ implImportAllowed visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface
   where
     capabilityIncluded (TypedClassInterface (TypedClassDeclaration _ name _ methods)) =
       coreNameIdentifier name == coreNameIdentifier capability
-        && interfaceCapabilityNameIncluded visibleModule name methods
+        && interfaceCapabilityIncluded visibleModule name methods
 
 interfaceDataMetadataDeclarations ::
   Map [Text] TypedModule ->
@@ -923,7 +932,7 @@ requiredCapabilityIdentifiers visibleModule =
 
 capabilityEntry :: [Text] -> TypedClassDeclaration -> Maybe (ResolvedNameKey, CapabilityContract)
 capabilityEntry modulePath (TypedClassDeclaration _ name parameters methods) = do
-  key <- definitionNameKey modulePath name
+  key <- resolvedNameKey modulePath name
   pure
     ( key,
       CapabilityContract
@@ -1671,7 +1680,7 @@ strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.e
           case resolvedNameKey (moduleContextPath context) name of
             Nothing -> False
             Just dataKey
-              | Set.member (dataKey, arguments) seen -> True
+              | Set.member dataKey seen -> True
               | otherwise ->
                   case Map.lookup dataKey (moduleContextDataContracts context) of
                     Nothing -> False
@@ -1679,7 +1688,7 @@ strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.e
                       | length parameters /= length arguments -> False
                       | otherwise ->
                           let substitutions = Map.fromList (zip parameters arguments)
-                              nextSeen = Set.insert (dataKey, arguments) seen
+                              nextSeen = Set.insert dataKey seen
                            in all
                                 (all (supported nextSeen . substituteTypeParameters substitutions))
                                 constructorFields
@@ -2608,12 +2617,18 @@ lookupConstructorContract context name = do
 
 validateConstructorExpressionContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> ConstructorContract -> [TypedCoreValidationFailure]
 validateConstructorExpressionContract context path info (ConstructorContract owner dataKey parameters fieldTypes) =
-  validateValueContract path info (ValueContract expectedType expectedRecipeValue)
+  missingInstantiationFailures
+    <> validateValueContract path info (ValueContract expectedType expectedRecipeValue)
   where
     genericResult = TypedDataType (resolvedNameFromKey context dataKey) (map TypedTypeParameterType parameters)
     genericType = foldr TypedFunctionType genericResult fieldTypes
+    ownerInstantiation =
+      find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
+    missingInstantiationFailures
+      | null parameters || ownerInstantiation /= Nothing = []
+      | otherwise = [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
     substitutions =
-      case find (matchingInstantiation owner parameters) (nodeInfoInstantiations info) of
+      case ownerInstantiation of
         Just (TypedInstantiation _ arguments _) ->
           Map.fromList [(parameterId, typeValue) | TypedTypeArgument parameterId typeValue <- arguments]
         Nothing -> inferConstructorSubstitutions context dataKey parameters (length fieldTypes) (nodeType info)
@@ -3294,9 +3309,9 @@ capabilityConstraintLabel (TypedCapabilityConstraint capability maybeMethod _) =
     Nothing -> capability
 
 validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceUse -> [TypedCoreValidationFailure]
-validateEvidenceUse context path (TypedEvidenceUse _ (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
+validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
   validateCapabilityConstraintTarget path scope targetType
-    <> validateImplId context path scope implId
+    <> validateEvidenceImpl implId
     <> capabilityFailures
     <> targetFailures
     <> visibilityFailures
@@ -3321,17 +3336,23 @@ validateEvidenceUse context path (TypedEvidenceUse _ (TypedCapabilityConstraint 
       case (constraintMethod, maybeMethodId) of
         (Nothing, Nothing) -> []
         (Nothing, Just methodId@(TypedMethodId methodImplId methodName)) ->
-          validateMethodId context path scope methodId
+          validateEvidenceMethod methodId
             <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
             <> [failure path TypedMethodSelectionMismatch (TypedTextDetail methodName)]
         (Just expectedMethod, Nothing) ->
           [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
         (Just expectedMethod, Just methodId@(TypedMethodId methodImplId methodName)) ->
-          validateMethodId context path scope methodId
+          validateEvidenceMethod methodId
             <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
             <> (if methodKeyMatches capability expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)])
             <> capabilityMethodFailures methodName
             <> implMethodFailures methodName
+    validateEvidenceImpl
+      | maybeParameterRef == Nothing = validateImplId context path scope
+      | otherwise = validateEvidenceImplId context path scope
+    validateEvidenceMethod
+      | maybeParameterRef == Nothing = validateMethodId context path scope
+      | otherwise = validateEvidenceMethodId context path scope
     capabilityMethodFailures methodName =
       case lookupImplMethodScheme context implId methodName of
         Left () -> []
@@ -3789,8 +3810,20 @@ operatorContractType context path info (TypedResolvedOperator name _) =
     typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
 
 validateImplId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedImplId -> [TypedCoreValidationFailure]
-validateImplId context path scope implId@(TypedImplId _ capability arguments) =
-  validateCapabilityName context path capability
+validateImplId = validateImplIdWith validateCapabilityName
+
+validateEvidenceImplId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedImplId -> [TypedCoreValidationFailure]
+validateEvidenceImplId = validateImplIdWith validateRetainedCapabilityName
+
+validateImplIdWith ::
+  (ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]) ->
+  ModuleContext ->
+  TypedCoreValidationPath ->
+  Set TypedTypeParameterId ->
+  TypedImplId ->
+  [TypedCoreValidationFailure]
+validateImplIdWith validateCapability context path scope implId@(TypedImplId _ capability arguments) =
+  validateCapability context path capability
     <> targetArityFailures
     <> concreteTargetFailures
     <> concatMap (validateType path scope) arguments
@@ -3814,9 +3847,20 @@ capabilityArity context capability =
 validateMethodId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedMethodId -> [TypedCoreValidationFailure]
 validateMethodId context path scope (TypedMethodId implId _) = validateImplId context path scope implId
 
+validateEvidenceMethodId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedMethodId -> [TypedCoreValidationFailure]
+validateEvidenceMethodId context path scope (TypedMethodId implId _) = validateEvidenceImplId context path scope implId
+
 validateCapabilityName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
 validateCapabilityName context path name =
   validateVisibleNameInNamespaces [TypedCapabilityNamespace] context path name
+
+validateRetainedCapabilityName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
+validateRetainedCapabilityName context path name =
+  validateCoreName path name
+    <> case resolvedNameKey (moduleContextPath context) name of
+      Just key
+        | Map.member key (moduleContextCapabilityContracts context) -> []
+      _ -> [failure path TypedInvisibleName (TypedNameDetail name)]
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
@@ -3824,6 +3868,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     <> concatMap validateDataInterface datas
     <> concatMap validateClassInterface classes
     <> concatMap validateImplInterface impls
+    <> missingImplInterfaceFailures
     <> concatMap validateExport exports
   where
     path = TypedInterfacePath modulePath
@@ -3835,14 +3880,24 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
+    visibleExternalModules = preludeModules <> importedModules
+    externalCapabilityContracts =
+      Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
+    externalVisibleImpls =
+      Set.fromList (concatMap interfaceVisibleImplIds visibleExternalModules)
     externalCapabilityIdentifiers =
       Set.fromList
         [ identifier
-        | visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ visibleClasses _) _ _) <-
-            preludeModules <> importedModules,
-          TypedClassInterface (TypedClassDeclaration _ name _ methods) <- visibleClasses,
-          interfaceCapabilityNameIncluded visibleModule name methods,
-          identifier <- maybeToList (coreNameIdentifier name)
+        | ResolvedNameKey _ TypedCapabilityNamespace identifier <-
+            Map.keys externalCapabilityContracts
+        ]
+    retainedCapabilityIdentifiers =
+      Set.fromList
+        [ identifier
+        | classInterface@(TypedClassInterface declaration@(TypedClassDeclaration _ name _ _)) <- classes,
+          retainedClassInterfaceMatches declaration,
+          identifier <- maybeToList (coreNameIdentifier name),
+          not (classInterface `elem` map TypedClassInterface declaredClasses)
         ]
     importedModules =
       [ (importPath, selectedNames, importedModule)
@@ -3871,10 +3926,23 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           concatMap
             (\(TypedMethodSignature _ _ scheme) -> validateValueInterfaceDependencies scheme)
             methods
+      | retainedClassInterfaceMatches declaration = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateImplInterface (TypedImplInterface implId)
-      | implId `elem` declaredImpls = []
+      | implId `elem` declaredImpls || Set.member implId externalVisibleImpls = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
+    retainedClassInterfaceMatches declaration =
+      case capabilityEntry modulePath declaration of
+        Just (key, contract) -> Map.lookup key externalCapabilityContracts == Just contract
+        Nothing -> False
+    missingImplInterfaceFailures =
+      [ failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)
+      | implId <- declaredImpls,
+        any (classInterfaceMatchesImpl implId) classes,
+        TypedImplInterface implId `notElem` impls
+      ]
+    classInterfaceMatchesImpl (TypedImplId _ capability _) (TypedClassInterface (TypedClassDeclaration _ name _ _)) =
+      resolvedNameKey modulePath name == resolvedNameKey modulePath capability
     validateValueInterfaceDependencies scheme =
       [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
       | dependencyName <- nub (schemeLocalDataDependencies scheme),
@@ -3897,7 +3965,8 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
                )
            | capability <- nub (schemeCapabilityDependencies scheme),
              not (any (classDeclarationMatches capability) declaredClasses),
-             Set.member capability externalCapabilityIdentifiers
+             Set.member capability externalCapabilityIdentifiers,
+             Set.notMember capability retainedCapabilityIdentifiers
            ]
     constructorDependencies (TypedConstructorDeclaration _ _ fields _) =
       concatMap localDataDependencies fields

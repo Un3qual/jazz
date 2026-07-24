@@ -140,6 +140,11 @@ tests =
     ("requires module metadata to equal the terminal node", testModuleMetadataIdentity),
     ("rejects stray qualified type-application instantiations", testQualifiedTypeApplicationInstantiation),
     ("keeps local class methods out of active scheme lookup", testLocalClassMethodSchemeIsolation),
+    ("retains imported capability evidence through selective values", testRetainedCapabilityEvidence),
+    ("requires polymorphic constructor instantiation metadata", testMissingConstructorInstantiation),
+    ("publishes impl identities for retained capabilities", testMissingPublishedImpl),
+    ("terminates equality checks for expanding recursive types", testExpandingRecursiveEquality),
+    ("checks non-recursive equality fields after recursion", testRecursiveEqualityCallableField),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -536,7 +541,12 @@ reviewRegressionPrograms =
     moduleMetadataIdentityProgram,
     qualifiedTypeApplicationInstantiationProgram,
     localClassMethodAfterValueProgram,
-    localClassMethodBeforeValueProgram
+    localClassMethodBeforeValueProgram,
+    retainedCapabilityEvidenceProgram,
+    missingConstructorInstantiationProgram,
+    missingPublishedImplProgram,
+    expandingRecursiveEqualityProgram,
+    recursiveEqualityCallableFieldProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2136,17 +2146,12 @@ testImportedCapabilityDependency =
 testMetadataOnlyImplVisibility :: IO ()
 testMetadataOnlyImplVisibility =
   assertEqual
-    "dependency-only capability metadata does not expose impl evidence"
+    "dependency-only capability metadata does not expose its source name"
     [ expressionFailureAt
         "review-metadata-only-impl-visibility"
         0
         TypedInvisibleName
-        (TypedNameDetail metadataOnlyImportedCapabilityName),
-      expressionFailureAt
-        "review-metadata-only-impl-visibility"
-        0
-        TypedInvisibleImpl
-        (TypedImplDetail metadataOnlyImportedImpl)
+        (TypedNameDetail metadataOnlyImportedCapabilityName)
     ]
     (validateTypedProgram metadataOnlyImplVisibilityProgram)
 
@@ -2548,6 +2553,55 @@ testLocalClassMethodSchemeIsolation =
     (\program -> assertEqual "local class methods never replace active value schemes" [] (validateTypedProgram program))
     [localClassMethodAfterValueProgram, localClassMethodBeforeValueProgram]
 
+testRetainedCapabilityEvidence :: IO ()
+testRetainedCapabilityEvidence =
+  assertEqual
+    "selective constrained-value imports retain capability and impl metadata without exposing the capability name"
+    []
+    (validateTypedProgram retainedCapabilityEvidenceProgram)
+
+testMissingConstructorInstantiation :: IO ()
+testMissingConstructorInstantiation =
+  assertEqual
+    "generic constructor values publish their owner instantiation"
+    [ expressionFailureAt
+        "review-missing-constructor-instantiation"
+        1
+        TypedInstantiationMismatch
+        (TypedBinderDetail missingConstructorInstantiationOwner)
+    ]
+    (validateTypedProgram missingConstructorInstantiationProgram)
+
+testMissingPublishedImpl :: IO ()
+testMissingPublishedImpl =
+  assertEqual
+    "interfaces publish every local impl for a retained capability"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath ["Fixture", "review-missing-published-impl"])
+        TypedModuleInterfaceMismatch
+        (TypedImplDetail missingPublishedImplId)
+    ]
+    (validateTypedProgram missingPublishedImplProgram)
+
+testExpandingRecursiveEquality :: IO ()
+testExpandingRecursiveEquality =
+  assertEqual
+    "equality support terminates when recursive instantiations keep expanding"
+    []
+    (validateTypedProgram expandingRecursiveEqualityProgram)
+
+testRecursiveEqualityCallableField :: IO ()
+testRecursiveEqualityCallableField =
+  assertEqual
+    "recursion detection still checks non-recursive constructor fields"
+    [ statementFailure
+        "review-recursive-equality-callable-field"
+        1
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType recursiveEqualityCallableType)
+    ]
+    (validateTypedProgram recursiveEqualityCallableFieldProgram)
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
@@ -2660,6 +2714,235 @@ constructorInstantiationProgram =
     statements =
       [ TypedDataStatement declaration,
         expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
+      ]
+
+missingConstructorInstantiationOwner :: TypedBinderId
+missingConstructorInstantiationOwner =
+  binder
+    ["Fixture", "review-missing-constructor-instantiation"]
+    [0, 0]
+    (resolved TypedCurrentModule TypedConstructorNamespace "Some")
+
+missingConstructorInstantiationProgram :: TypedProgram
+missingConstructorInstantiationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface constructorInfo modulePath
+  where
+    fixture = "review-missing-constructor-instantiation"
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Option"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
+    parameterId = TypedTypeParameterId 0
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameterId]
+        [ TypedConstructorDeclaration
+            missingConstructorInstantiationOwner
+            constructorName
+            [TypedTypeParameterType parameterId]
+            [TypedRepresentationParameterRecipe parameterId]
+        ]
+    constructorInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (TypedDataType dataName [TypedBoolType]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [TypedBoolType]))
+        []
+        []
+    statements =
+      [ TypedDataStatement declaration,
+        expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
+      ]
+
+retainedCapabilityEvidenceProgram :: TypedProgram
+retainedCapabilityEvidenceProgram =
+  TypedProgram Nothing [providerModule, facadeModule, entryModule] entryPath
+  where
+    providerPath = ["Library", "RetainedCapabilityProvider"]
+    facadePath = ["Library", "RetainedCapabilityFacade"]
+    entryPath = ["Fixture", "review-retained-capability-evidence"]
+    parameter = TypedTypeParameterId 0
+    localCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "ForeignEq"
+    localCapability =
+      TypedClassDeclaration span1 localCapabilityName [parameter] []
+    retainedCapability =
+      TypedClassDeclaration span1 importedCapabilityName [parameter] []
+    localImplId =
+      TypedImplId providerPath localCapabilityName [TypedBoolType]
+    retainedImplId =
+      TypedImplId providerPath importedCapabilityName [TypedBoolType]
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/RetainedCapabilityProvider.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "ForeignEq"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface localCapability]
+            [TypedImplInterface localImplId]
+        )
+        [ TypedClassStatement localCapability,
+          TypedImplStatement (TypedImplDeclaration span1 localImplId [])
+        ]
+        unitInfo
+    publishedName =
+      resolved TypedCurrentModule TypedValueNamespace "published"
+    publishedOwner = binder facadePath [0] publishedName
+    constraint = TypedCapabilityConstraint "ForeignEq" Nothing TypedBoolType
+    publishedScheme =
+      TypedScheme
+        publishedOwner
+        []
+        [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    facadeModule =
+      typedModule
+        facadePath
+        (TypedSourcePath "src/Library/RetainedCapabilityFacade.jz")
+        [TypedResolvedImport span1 providerPath Nothing (Just ["ForeignEq"])]
+        [TypedModuleExport TypedValueNamespace "published"]
+        ( TypedModuleInterface
+            [TypedValueInterface publishedName publishedScheme]
+            []
+            [TypedClassInterface retainedCapability]
+            [TypedImplInterface retainedImplId]
+        )
+        [TypedLetStatement publishedOwner publishedName span1 publishedScheme trueExpr]
+        unitInfo
+    importedPublishedName =
+      resolved
+        (TypedImportedModule facadePath)
+        TypedValueNamespace
+        "published"
+    instantiation = TypedInstantiation publishedOwner [] Nothing
+    evidenceUse =
+      TypedEvidenceUse
+        ( Just
+            ( TypedEvidenceParameterRef
+                publishedOwner
+                (TypedEvidenceParameterId 0)
+            )
+        )
+        constraint
+        retainedImplId
+        Nothing
+    entryInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [instantiation]
+        [TypedSelectedEvidence evidenceUse]
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 facadePath Nothing (Just ["published"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr entryInfo importedPublishedName)]
+        entryInfo
+
+missingPublishedImplId :: TypedImplId
+missingPublishedImplId =
+  TypedImplId
+    ["Fixture", "review-missing-published-impl"]
+    (resolved TypedCurrentModule TypedCapabilityNamespace "Comparable")
+    [TypedBoolType]
+
+missingPublishedImplProgram :: TypedProgram
+missingPublishedImplProgram =
+  singleModuleProgram fixture relativeSource exports statements interface unitInfo modulePath
+  where
+    fixture = "review-missing-published-impl"
+    modulePath = ["Fixture", fixture]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Comparable"
+    capability =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    exports = [TypedModuleExport TypedCapabilityNamespace "Comparable"]
+    statements =
+      [ TypedClassStatement capability,
+        TypedImplStatement (TypedImplDeclaration span1 missingPublishedImplId [])
+      ]
+    interface =
+      TypedModuleInterface [] [] [TypedClassInterface capability] []
+
+expandingRecursiveEqualityProgram :: TypedProgram
+expandingRecursiveEqualityProgram =
+  recursiveEqualityProgram "review-expanding-recursive-equality" False
+
+recursiveEqualityCallableType :: TypedType
+recursiveEqualityCallableType =
+  TypedDataType
+    (resolved TypedCurrentModule TypedTypeNamespace "Nest")
+    [TypedBoolType]
+
+recursiveEqualityCallableFieldProgram :: TypedProgram
+recursiveEqualityCallableFieldProgram =
+  recursiveEqualityProgram "review-recursive-equality-callable-field" True
+
+recursiveEqualityProgram :: Text -> Bool -> TypedProgram
+recursiveEqualityProgram fixture includeCallableField =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Nest"
+    recursiveConstructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Nest"
+    callableConstructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Callable"
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    recursiveArgument = TypedListType parameterType
+    recursiveField = TypedDataType dataName [recursiveArgument]
+    recursiveConstructor =
+      TypedConstructorDeclaration
+        (binder modulePath [0, 0] recursiveConstructorName)
+        recursiveConstructorName
+        [recursiveField]
+        [TypedManagedVariantRecipe dataName [recursiveArgument]]
+    callableConstructor =
+      TypedConstructorDeclaration
+        (binder modulePath [0, 1] callableConstructorName)
+        callableConstructorName
+        [boolToBoolType]
+        [boolToBoolRecipe]
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameter]
+        ( recursiveConstructor
+            : [callableConstructor | includeCallableField]
+        )
+    valueName = resolved TypedCurrentModule TypedValueNamespace "equality"
+    valueOwner = binder modulePath [1] valueName
+    targetType = TypedDataType dataName [TypedBoolType]
+    scheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint targetType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      [ TypedDataStatement declaration,
+        TypedSignatureStatement valueOwner valueName span1 scheme
       ]
 
 resolvedModuleOrderImporterPath :: [Text]
@@ -6713,22 +6996,25 @@ constructorPatternContractProgram =
     optionName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     someName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     parameterId = TypedTypeParameterId 0
+    constructorOwner = binder modulePath [0, 0] someName
     declaration =
       TypedDataDeclaration
         span1
         optionName
         [parameterId]
         [ TypedConstructorDeclaration
-            (binder modulePath [0, 0] someName)
+            constructorOwner
             someName
             [TypedTypeParameterType parameterId]
             [TypedRepresentationParameterRecipe parameterId]
         ]
     optionInfo = info (TypedDataType optionName [TypedBoolType]) (TypedManagedVariantRecipe optionName [TypedBoolType])
     constructorInfo =
-      info
+      TypedNodeInfo
         (TypedFunctionType TypedBoolType (TypedDataType optionName [TypedBoolType]))
         (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
+        [TypedInstantiation constructorOwner [TypedTypeArgument parameterId TypedBoolType] Nothing]
+        []
     scrutinee = TypedApplyExpr optionInfo (TypedVariableExpr constructorInfo someName) trueExpr
     expression =
       TypedPatternCaseExpr
@@ -7670,21 +7956,25 @@ listTupleDataRecipesProgram =
     optionName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     optionConstructor = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     optionParameter = TypedTypeParameterId 0
+    optionConstructorOwner =
+      binder ["Fixture", "list-tuple-data-recipes"] [0, 0] optionConstructor
     optionDeclaration =
       TypedDataDeclaration
         span1
         optionName
         [optionParameter]
         [ TypedConstructorDeclaration
-            (binder ["Fixture", "list-tuple-data-recipes"] [0, 0] optionConstructor)
+            optionConstructorOwner
             optionConstructor
             [TypedTypeParameterType optionParameter]
             [TypedRepresentationParameterRecipe optionParameter]
         ]
     optionConstructorInfo =
-      info
+      TypedNodeInfo
         (TypedFunctionType TypedBoolType (TypedDataType optionName [TypedBoolType]))
         (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
+        [TypedInstantiation optionConstructorOwner [TypedTypeArgument optionParameter TypedBoolType] Nothing]
+        []
 
 callableRecipesProgram :: TypedProgram
 callableRecipesProgram =
@@ -7984,22 +8274,26 @@ patternsBindersProgram =
     optionName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     someName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     optionParameter = TypedTypeParameterId 0
+    optionConstructorOwner =
+      binder ["Fixture", fixture] [0, 0] someName
     optionDeclaration =
       TypedDataDeclaration
         span1
         optionName
         [optionParameter]
         [ TypedConstructorDeclaration
-            (binder ["Fixture", fixture] [0, 0] someName)
+            optionConstructorOwner
             someName
             [TypedTypeParameterType optionParameter]
             [TypedRepresentationParameterRecipe optionParameter]
         ]
     optionInfo = info (TypedDataType optionName [TypedBoolType]) (TypedManagedVariantRecipe optionName [TypedBoolType])
     constructorInfo =
-      info
+      TypedNodeInfo
         (TypedFunctionType TypedBoolType (TypedDataType optionName [TypedBoolType]))
         (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
+        [TypedInstantiation optionConstructorOwner [TypedTypeArgument optionParameter TypedBoolType] Nothing]
+        []
     optionScrutinee = TypedApplyExpr optionInfo (TypedVariableExpr constructorInfo someName) trueExpr
     statements =
       TypedDataStatement optionDeclaration
