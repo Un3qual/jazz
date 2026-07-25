@@ -40,7 +40,6 @@ data ModuleContext = ModuleContext
     moduleContextVisibleModules :: Set [Text],
     moduleContextSchemes :: Map TypedBinderId TypedScheme,
     moduleContextActiveSchemes :: Map ResolvedNameKey TypedScheme,
-    moduleContextStatementIndices :: Map [Int] Int,
     moduleContextVisibleNames :: Set ResolvedNameKey,
     moduleContextVisibleImpls :: Set TypedImplId,
     moduleContextImplMethods :: Map TypedImplId (Set Text),
@@ -220,19 +219,12 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
       Map.fromList (concatMap interfaceEvidenceCapabilityEntries visibleExternalModules)
     externalDataMetadata =
       interfaceDataMetadataDeclarations moduleTable visibleExternalModules
-    statementIndices =
-      Map.fromList
-        ( zip
-            (topLevelStatementLocations statements <> concatMap (uncurry nestedStatementLocations) (zip (map pure [0 ..]) statements))
-            [0 ..]
-        )
     externalContext =
       ModuleContext
         { moduleContextPath = modulePath,
           moduleContextVisibleModules = visibleModules,
           moduleContextSchemes = schemes,
           moduleContextActiveSchemes = activeSchemes,
-          moduleContextStatementIndices = statementIndices,
           moduleContextVisibleNames = visibleNames,
           moduleContextVisibleImpls = visibleImpls,
           moduleContextImplMethods = implMethods,
@@ -506,7 +498,7 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
         key <- maybeToList (resolvedNameKey (moduleContextPath context) name)
       ]
       where
-        statementPath = TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation)
+        statementPath = TypedStatementPath (moduleContextPath context) statementLocation
     step (seen, failures) (path, key, name, identity) =
       case Map.lookup key seen of
         Just previousIdentity
@@ -518,7 +510,7 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
         Nothing -> (Map.insert key identity seen, failures)
     implFailures = snd (foldl' implStep (Set.empty, []) implOccurrences)
     implOccurrences =
-      [ ( TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation),
+      [ ( TypedStatementPath (moduleContextPath context) statementLocation,
           implId,
           qualifyExternalImplId (moduleContextPath context) implId
         )
@@ -571,14 +563,13 @@ statementBinderOccurrences context (statementLocation, statement) =
       TypedExpressionStatement _ expression -> expressionBinderOccurrences context statementLocation [0] expression
       _ -> []
   where
-    statementPath = TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation)
+    statementPath = TypedStatementPath (moduleContextPath context) statementLocation
 
 expressionBinderOccurrences :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [BinderOccurrence]
 expressionBinderOccurrences context statementLocation expressionPath expression =
   ownedOccurrences <> patternOccurrences <> childOccurrences
   where
-    statementIndex = statementIndexFor context statementLocation
-    expressionValidationPath = TypedExpressionPath (moduleContextPath context) statementIndex expressionPath
+    expressionValidationPath = TypedExpressionPath (moduleContextPath context) statementLocation expressionPath
     ownedOccurrences =
       case expression of
         TypedLambdaExpr _ binderId _ _ -> [BinderOccurrence expressionValidationPath binderId]
@@ -587,7 +578,7 @@ expressionBinderOccurrences context statementLocation expressionPath expression 
       case expression of
         TypedPatternCaseExpr _ _ arms ->
           concat
-            [ patternBinderOccurrences (moduleContextPath context) statementIndex (expressionPath <> [armIndex]) patternValue
+            [ patternBinderOccurrences (moduleContextPath context) statementLocation (expressionPath <> [armIndex]) patternValue
             | (armIndex, TypedCaseArm patternValue _ _) <- zip [0 ..] arms
             ]
         _ -> []
@@ -606,11 +597,11 @@ expressionBinderOccurrences context statementLocation expressionPath expression 
             | (childIndex, child) <- zip [0 ..] (expressionChildren expression)
             ]
 
-patternBinderOccurrences :: [Text] -> Int -> [Int] -> TypedPattern -> [BinderOccurrence]
-patternBinderOccurrences modulePath statementIndex patternPath patternValue =
+patternBinderOccurrences :: [Text] -> [Int] -> [Int] -> TypedPattern -> [BinderOccurrence]
+patternBinderOccurrences modulePath statementLocation patternPath patternValue =
   ownedOccurrences <> childOccurrences
   where
-    patternValidationPath = TypedPatternPath modulePath statementIndex patternPath
+    patternValidationPath = TypedPatternPath modulePath statementLocation patternPath
     ownedOccurrences =
       case patternValue of
         TypedVariablePattern _ binderId _ -> [BinderOccurrence patternValidationPath binderId]
@@ -622,12 +613,12 @@ patternBinderOccurrences modulePath statementIndex patternPath patternValue =
         TypedListPattern _ patterns -> indexedChildren patterns
         TypedConsListPattern _ headPattern tailPattern -> indexedChildren [headPattern, tailPattern]
         TypedTuplePattern _ patterns -> indexedChildren patterns
-        TypedAsPattern _ _ _ nested -> patternBinderOccurrences modulePath statementIndex (patternPath <> [0]) nested
+        TypedAsPattern _ _ _ nested -> patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) nested
         TypedOrPattern _ alternatives -> indexedChildren alternatives
         _ -> []
     indexedChildren patterns =
       concat
-        [ patternBinderOccurrences modulePath statementIndex (patternPath <> [childIndex]) child
+        [ patternBinderOccurrences modulePath statementLocation (patternPath <> [childIndex]) child
         | (childIndex, child) <- zip [0 ..] patterns
         ]
 
@@ -1200,7 +1191,7 @@ blockStatementScopeFailure context statementLocation statement =
     scopeFailure declarationKind =
       Just
         ( failure
-            (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
+            (TypedStatementPath (moduleContextPath context) statementLocation)
             TypedBlockResultMismatch
             (TypedTextDetail declarationKind)
         )
@@ -1529,45 +1520,9 @@ withSchemeScope (TypedScheme _ typeParameters _ primitiveConstraints _ _) contex
       moduleContextPrimitiveConstraints = primitiveConstraints <> moduleContextPrimitiveConstraints context
     }
 
-topLevelStatementLocations :: [TypedStatement] -> [[Int]]
-topLevelStatementLocations statements = map pure [0 .. length statements - 1]
-
-nestedStatementLocations :: [Int] -> TypedStatement -> [[Int]]
-nestedStatementLocations statementLocation statement =
-  case statement of
-    TypedLetStatement _ _ _ _ expression -> nestedExpressionLocations statementLocation [0] expression
-    TypedImplStatement (TypedImplDeclaration _ _ methods) ->
-      concat
-        [ nestedExpressionLocations statementLocation [methodIndex] expression
-        | (methodIndex, TypedMethodDefinition _ _ _ _ expression) <- zip [0 ..] methods
-        ]
-    TypedExpressionStatement _ expression -> nestedExpressionLocations statementLocation [0] expression
-    _ -> []
-
-nestedExpressionLocations :: [Int] -> [Int] -> TypedExpr -> [[Int]]
-nestedExpressionLocations statementLocation expressionPath expression =
-  case expression of
-    TypedBlockExpr _ statements ->
-      concat
-        [ let location = nestedStatementLocation statementLocation expressionPath blockIndex
-           in location : nestedStatementLocations location statement
-        | (blockIndex, statement) <- zip [0 ..] statements
-        ]
-    _ ->
-      concat
-        [ nestedExpressionLocations statementLocation (expressionPath <> [childIndex]) child
-        | (childIndex, child) <- zip [0 ..] (expressionChildren expression)
-        ]
-
 nestedStatementLocation :: [Int] -> [Int] -> Int -> [Int]
 nestedStatementLocation statementLocation expressionPath blockIndex =
-  statementLocation <> [-1] <> expressionPath <> [-2, blockIndex]
-
-statementIndexFor :: ModuleContext -> [Int] -> Int
-statementIndexFor context statementLocation =
-  case Map.lookup statementLocation (moduleContextStatementIndices context) of
-    Just statementIndex -> statementIndex
-    Nothing -> error "typed-core validator encountered an unindexed statement location"
+  statementLocation <> expressionPath <> [blockIndex]
 
 validateStatement :: ModuleContext -> [Int] -> TypedStatement -> [TypedCoreValidationFailure]
 validateStatement context statementLocation statement =
@@ -1592,8 +1547,7 @@ validateStatement context statementLocation statement =
       validateSpan statementPath spanValue
         <> validateExpression context statementLocation [0] expression
   where
-    statementIndex = statementIndexFor context statementLocation
-    statementPath = TypedStatementPath (moduleContextPath context) statementIndex
+    statementPath = TypedStatementPath (moduleContextPath context) statementLocation
 
 validateAttachedSignature :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedStatement -> [TypedCoreValidationFailure]
 validateAttachedSignature context statementLocation statement maybeNextStatement =
@@ -1603,13 +1557,13 @@ validateAttachedSignature context statementLocation statement maybeNextStatement
       )
         | signatureName == bindingName ->
             validateSignatureBindingScheme
-              (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
+              (TypedStatementPath (moduleContextPath context) statementLocation)
               signatureScheme
               bindingScheme
     (TypedSignatureStatement _ signatureName _ _, _)
       | null (validateStatement context statementLocation statement) ->
           [ failure
-              (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
+              (TypedStatementPath (moduleContextPath context) statementLocation)
               TypedBindingValueMismatch
               (TypedNameDetail signatureName)
           ]
@@ -2088,8 +2042,7 @@ validateExpressionWithParentSpan context statementLocation expressionPath parent
     <> expressionOwnedFailures
     <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
   where
-    statementIndex = statementIndexFor context statementLocation
-    path = TypedExpressionPath (moduleContextPath context) statementIndex expressionPath
+    path = TypedExpressionPath (moduleContextPath context) statementLocation expressionPath
     validateChild childIndex (childContext, child) =
       validateExpressionWithParentSpan
         childContext
@@ -2876,7 +2829,7 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
         armPath =
           TypedPatternPath
             (moduleContextPath context)
-            (statementIndexFor context statementLocation)
+            statementLocation
             (expressionPath <> [armIndex])
         duplicateNameStep (seen, failures) (PatternBinderContract binderId name _ _)
           | Set.member name seen =
@@ -2887,7 +2840,7 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
       | nodeType (expressionInfo guard) == TypedBoolType = []
       | otherwise =
           [ failure
-              (TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) (expressionPath <> [armIndex]))
+              (TypedPatternPath (moduleContextPath context) statementLocation (expressionPath <> [armIndex]))
               TypedPatternGuardMismatch
               (TypedTypeDetail TypedBoolType (nodeType (expressionInfo guard)))
           ]
@@ -2895,7 +2848,7 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
       | nodeType (expressionInfo resultExpression) == resultType = []
       | otherwise =
           [ failure
-              (TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) (expressionPath <> [armIndex]))
+              (TypedPatternPath (moduleContextPath context) statementLocation (expressionPath <> [armIndex]))
               TypedPatternArmResultMismatch
               (TypedTypeDetail resultType (nodeType (expressionInfo resultExpression)))
           ]
@@ -2908,7 +2861,7 @@ validatePattern context statementLocation patternPath expectedType patternValue 
     <> patternOwnedFailures
     <> concatMap validateChild (patternChildrenWithTypes context patternValue)
   where
-    path = TypedPatternPath (moduleContextPath context) (statementIndexFor context statementLocation) patternPath
+    path = TypedPatternPath (moduleContextPath context) statementLocation patternPath
     actualType = nodeType (patternInfo patternValue)
     scrutineeFailures
       | actualType == expectedType = []

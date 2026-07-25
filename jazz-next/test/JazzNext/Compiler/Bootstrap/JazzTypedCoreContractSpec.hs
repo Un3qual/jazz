@@ -598,11 +598,11 @@ nestedPathProgram =
 nestedPathFailures :: [TypedCoreValidationFailure]
 nestedPathFailures =
   [ TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-path"] 0 [0])
+      (TypedExpressionPath ["Fixture", "review-nested-path"] [0] [0])
       TypedTypeRepresentationMismatch
       (TypedRecipeDetail TypedBoolRecipe (TypedSignedIntegerRecipe 64)),
     TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-path"] 1 [0])
+      (TypedExpressionPath ["Fixture", "review-nested-path"] [0, 0, 0] [0])
       TypedUnresolvedName
       (TypedNameDetail (TypedUnresolvedSourceName "nested"))
   ]
@@ -627,11 +627,11 @@ nestedDeclarationProgram =
 nestedDeclarationFailures :: [TypedCoreValidationFailure]
 nestedDeclarationFailures =
   [ TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-declaration"] 0 [0])
+      (TypedExpressionPath ["Fixture", "review-nested-declaration"] [0] [0])
       TypedBlockResultMismatch
       TypedNoValidationDetail,
     TypedCoreValidationFailure
-      (TypedStatementPath ["Fixture", "review-nested-declaration"] 1)
+      (TypedStatementPath ["Fixture", "review-nested-declaration"] [0, 0, 0])
       TypedBlockResultMismatch
       (TypedTextDetail "data declaration")
   ]
@@ -656,7 +656,7 @@ nestedDuplicateBinderProgram =
 nestedDuplicateBinderFailures :: [TypedCoreValidationFailure]
 nestedDuplicateBinderFailures =
   [ TypedCoreValidationFailure
-      (TypedStatementPath ["Fixture", "review-nested-duplicate-binder"] 2)
+      (TypedStatementPath ["Fixture", "review-nested-duplicate-binder"] [0, 0, 1])
       TypedDuplicateBinder
       (TypedBinderDetail (binder ["Fixture", "review-nested-duplicate-binder"] [0, 0] (resolved TypedCurrentModule TypedValueNamespace "duplicate")))
   ]
@@ -1058,7 +1058,7 @@ testReviewFollowupRegressions = do
         TypedModuleInterfaceMismatch
         (TypedNameDetail privateInterfaceLocalName),
       TypedCoreValidationFailure
-        (TypedExpressionPath privateInterfaceEntryPath 0 [0])
+        (TypedExpressionPath privateInterfaceEntryPath [0] [0])
         TypedInvisibleName
         (TypedNameDetail privateInterfaceImportedName)
     ]
@@ -1066,11 +1066,11 @@ testReviewFollowupRegressions = do
   assertEqual
     "constructor patterns match declared field arity and types"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [0, 0])
+        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] [1] [0, 0])
         TypedPatternShapeMismatch
         (TypedArityDetail 1 0),
       TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] 1 [0, 1, 0])
+        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] [1] [0, 1, 0])
         TypedPatternScrutineeMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -1126,9 +1126,9 @@ testLatestReviewRegressions = do
     (validateTypedProgram blockLocalGeneralizedSchemeProgram)
   assertEqual
     "block-local monomorphic schemes constrain later uses"
-    [ expressionFailureAt
+    [ expressionFailureAtPath
         "review-block-local-monomorphic-scheme"
-        2
+        [0, 0, 1]
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -1148,7 +1148,7 @@ testLatestReviewRegressions = do
   assertEqual
     "nested case patterns retain their containing expression paths"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-nested-case-pattern-path"] 0 [0, 1, 0])
+        (TypedPatternPath ["Fixture", "review-nested-case-pattern-path"] [0] [0, 1, 0])
         TypedLiteralTypeMismatch
         (TypedTypeDetail TypedTextType TypedBoolType)
     ]
@@ -1247,7 +1247,7 @@ testNewestReviewRegressions = do
   assertEqual
     "lexical variable uses match their binder contracts"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-lexical-binder-contract"] 0 [0, 0])
+        (TypedExpressionPath ["Fixture", "review-lexical-binder-contract"] [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -1536,7 +1536,7 @@ testWrongConstructorPatternType =
   assertEqual
     "constructor patterns belong to their annotated data type"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-wrong-constructor-pattern-type"] 1 [0, 0])
+        (TypedPatternPath ["Fixture", "review-wrong-constructor-pattern-type"] [1] [0, 0])
         TypedPatternShapeMismatch
         (TypedTypeDetail wrongConstructorDataType TypedBoolType)
     ]
@@ -1617,7 +1617,7 @@ testCurrentReviewRegressions = do
   assertEqual
     "numeric operators over type parameters require a published primitive constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-unconstrained-numeric-parameter"] 0 [0, 0])
+        (TypedExpressionPath ["Fixture", "review-unconstrained-numeric-parameter"] [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTextDetail "+")
     ]
@@ -1625,7 +1625,7 @@ testCurrentReviewRegressions = do
   assertEqual
     "equality over type parameters requires a published primitive constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-unconstrained-equality-parameter"] 0 [0, 0])
+        (TypedExpressionPath ["Fixture", "review-unconstrained-equality-parameter"] [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
     ]
@@ -1713,7 +1713,7 @@ testLatestBotReviewRegressions = do
   assertEqual
     "nested operand types do not inherit an enclosing strict-equality constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-nested-strict-equality-constraint"] 0 [0, 0])
+        (TypedExpressionPath ["Fixture", "review-nested-strict-equality-constraint"] [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType nestedStrictEqualityOperandType)
     ]
@@ -1949,7 +1949,7 @@ testPostNewestBotReviewRegressions = do
   assertEqual
     "duplicate binder scanning visits every or-pattern alternative"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-later-or-pattern-binder-collision"] 1 [0, 0, 1])
+        (TypedPatternPath ["Fixture", "review-later-or-pattern-binder-collision"] [1] [0, 0, 1])
         TypedDuplicateBinder
         (TypedBinderDetail laterOrPatternCollidingBinder)
     ]
@@ -2101,7 +2101,7 @@ testForwardBlockReference =
   assertEqual
     "block expressions cannot see later non-recursive declarations"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-forward-block-reference"] 1 [0])
+        (TypedExpressionPath ["Fixture", "review-forward-block-reference"] [0, 0, 0] [0])
         TypedInvisibleName
         (TypedNameDetail forwardBlockReferenceName)
     ]
@@ -2204,7 +2204,7 @@ testPatternExpressionMetadata =
   assertEqual
     "patterns reject expression-only instantiation and evidence metadata"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-pattern-expression-metadata"] 3 [0, 0])
+        (TypedPatternPath ["Fixture", "review-pattern-expression-metadata"] [3] [0, 0])
         TypedPatternShapeMismatch
         TypedNoValidationDetail
     ]
@@ -2395,7 +2395,7 @@ testFinalReviewRegressions = do
   assertEqual
     "eager self references remain outside recursive binding scope"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-eager-self-reference"] 0 [0, 0])
+        (TypedExpressionPath ["Fixture", "review-eager-self-reference"] [0] [0, 0])
         TypedInvisibleName
         (TypedNameDetail eagerSelfReferenceName)
     ]
@@ -2463,7 +2463,7 @@ testPostFinalReviewRegressions = do
         TypedLiteralTypeMismatch
         (TypedTextDetail "non-scalar character"),
       TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-non-scalar-character"] 1 [0, 0])
+        (TypedPatternPath ["Fixture", "review-non-scalar-character"] [1] [0, 0])
         TypedLiteralTypeMismatch
         (TypedTextDetail "non-scalar character")
     ]
@@ -2544,19 +2544,19 @@ testBlockDeclarationScope :: IO ()
 testBlockDeclarationScope =
   assertEqual
     "blocks reject declarations that the source grammar reserves for module scope"
-    [ statementFailure
+    [ statementFailureAtPath
         "review-block-declaration-scope"
-        1
+        [0, 0, 0]
         TypedBlockResultMismatch
         (TypedTextDetail "data declaration"),
-      statementFailure
+      statementFailureAtPath
         "review-block-declaration-scope"
-        2
+        [0, 0, 1]
         TypedBlockResultMismatch
         (TypedTextDetail "class declaration"),
-      statementFailure
+      statementFailureAtPath
         "review-block-declaration-scope"
-        3
+        [0, 0, 2]
         TypedBlockResultMismatch
         (TypedTextDetail "impl declaration")
     ]
@@ -2811,7 +2811,7 @@ testNormalizedPreludeImplDuplicates =
   assertEqual
     "Prelude impl duplicates compare canonical capability and target identities"
     [ TypedCoreValidationFailure
-        (TypedStatementPath ["Prelude"] 2)
+        (TypedStatementPath ["Prelude"] [2])
         TypedDuplicateDeclaration
         (TypedImplDetail normalizedPreludeAmbientImpl)
     ]
@@ -2861,14 +2861,14 @@ testInvalidSourceSpans = do
     expectedPaths =
       [ [TypedModulePath ["Fixture", "review-invalid-import-span"]],
         map
-          (TypedStatementPath ["Fixture", "review-invalid-statement-spans"])
+          (TypedStatementPath ["Fixture", "review-invalid-statement-spans"] . pure)
           [0, 1, 2],
         concatMap
-          (replicate 3 . TypedStatementPath ["Prelude"])
+          (replicate 3 . TypedStatementPath ["Prelude"] . pure)
           [0 .. 4],
-        [ TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0],
-          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0],
-          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0, 0]
+        [ TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0],
+          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0],
+          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0, 0]
         ]
       ]
     validationPaths program =
@@ -8134,7 +8134,7 @@ operatorSchemeFailures =
   ]
   where
     operatorFailure statementIndex =
-      TypedCoreValidationFailure (TypedExpressionPath ["Fixture", "review-operator-scheme"] statementIndex [0])
+      TypedCoreValidationFailure (TypedExpressionPath ["Fixture", "review-operator-scheme"] [statementIndex] [0])
 
 selectiveImportProgram :: TypedProgram
 selectiveImportProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
@@ -9893,15 +9893,21 @@ moduleFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail ->
 moduleFailure fixture = TypedCoreValidationFailure (TypedModulePath ["Fixture", fixture])
 
 statementFailure :: Text -> Int -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
-statementFailure fixture statementIndex = TypedCoreValidationFailure (TypedStatementPath ["Fixture", fixture] statementIndex)
+statementFailure fixture statementIndex = statementFailureAtPath fixture [statementIndex]
+
+statementFailureAtPath :: Text -> [Int] -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+statementFailureAtPath fixture statementPath = TypedCoreValidationFailure (TypedStatementPath ["Fixture", fixture] statementPath)
 
 expressionFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 expressionFailure fixture = expressionFailureAt fixture 0
 
 expressionFailureAt :: Text -> Int -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
-expressionFailureAt fixture statementIndex =
-  TypedCoreValidationFailure (TypedExpressionPath ["Fixture", fixture] statementIndex [0])
+expressionFailureAt fixture statementIndex = expressionFailureAtPath fixture [statementIndex]
+
+expressionFailureAtPath :: Text -> [Int] -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
+expressionFailureAtPath fixture statementPath =
+  TypedCoreValidationFailure (TypedExpressionPath ["Fixture", fixture] statementPath [0])
 
 patternFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 patternFailure fixture =
-  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] 0 [0, 0])
+  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] [0] [0, 0])

@@ -291,9 +291,9 @@ data TypedCoreValidationPath
   | TypedPreludePath
   | TypedModulePath [Text]
   | TypedInterfacePath [Text]
-  | TypedStatementPath [Text] Int
-  | TypedExpressionPath [Text] Int [Int]
-  | TypedPatternPath [Text] Int [Int]
+  | TypedStatementPath [Text] [Int]
+  | TypedExpressionPath [Text] [Int] [Int]
+  | TypedPatternPath [Text] [Int] [Int]
   deriving (Eq, Ord, Show)
 
 data TypedCoreValidationKind

@@ -525,16 +525,16 @@ validationPathValue path =
     TypedPreludePath -> nullary "TypedPreludePath"
     TypedModulePath modulePath -> constructor "TypedModulePath" [textListValue modulePath]
     TypedInterfacePath modulePath -> constructor "TypedInterfacePath" [textListValue modulePath]
-    TypedStatementPath modulePath statementIndex ->
-      constructor "TypedStatementPath" [textListValue modulePath, runtimeIntValue statementIndex]
-    TypedExpressionPath modulePath statementIndex expressionPath ->
+    TypedStatementPath modulePath statementPath ->
+      constructor "TypedStatementPath" [textListValue modulePath, listValue runtimeIntValue statementPath]
+    TypedExpressionPath modulePath statementPath expressionPath ->
       constructor
         "TypedExpressionPath"
-        [textListValue modulePath, runtimeIntValue statementIndex, listValue runtimeIntValue expressionPath]
-    TypedPatternPath modulePath statementIndex patternPath ->
+        [textListValue modulePath, listValue runtimeIntValue statementPath, listValue runtimeIntValue expressionPath]
+    TypedPatternPath modulePath statementPath patternPath ->
       constructor
         "TypedPatternPath"
-        [textListValue modulePath, runtimeIntValue statementIndex, listValue runtimeIntValue patternPath]
+        [textListValue modulePath, listValue runtimeIntValue statementPath, listValue runtimeIntValue patternPath]
 
 validationKindValue :: TypedCoreValidationKind -> RuntimeValue
 validationKindValue = nullary . validationKindName
@@ -636,25 +636,25 @@ decodeValidationPath value = do
     "TypedStatementPath" -> do
       fields <- expectArity name 2 arguments
       case fields of
-        [modulePath, statementIndex] ->
-          TypedStatementPath <$> decodeTextList "statement module path" modulePath <*> decodeInt "statement index" statementIndex
+        [modulePath, statementPath] ->
+          TypedStatementPath <$> decodeTextList "statement module path" modulePath <*> decodeIntList "statement path" statementPath
         _ -> impossibleArity name
     "TypedExpressionPath" -> do
       fields <- expectArity name 3 arguments
       case fields of
-        [modulePath, statementIndex, expressionPath] ->
+        [modulePath, statementPath, expressionPath] ->
           TypedExpressionPath
             <$> decodeTextList "expression module path" modulePath
-            <*> decodeInt "expression statement index" statementIndex
+            <*> decodeIntList "expression statement path" statementPath
             <*> decodeIntList "expression path" expressionPath
         _ -> impossibleArity name
     "TypedPatternPath" -> do
       fields <- expectArity name 3 arguments
       case fields of
-        [modulePath, statementIndex, patternPath] ->
+        [modulePath, statementPath, patternPath] ->
           TypedPatternPath
             <$> decodeTextList "pattern module path" modulePath
-            <*> decodeInt "pattern statement index" statementIndex
+            <*> decodeIntList "pattern statement path" statementPath
             <*> decodeIntList "pattern path" patternPath
         _ -> impossibleArity name
     _ -> Left ("unknown validation path constructor '" <> name <> "'")
