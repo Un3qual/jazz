@@ -409,7 +409,10 @@ reviewRegressionGroups =
     (("allows local classes beside alias-qualified imports", testAliasedCapabilityLocalClass), [aliasedCapabilityLocalClassProgram]),
     (("preserves phantom parameters through equality recursion", testRecursivePhantomDataEquality), [recursivePhantomDataEqualityProgram]),
     (("retains data metadata for published impl targets", testPublishedImplDataMetadata), [publishedImplDataMetadataProgram]),
-    (("validates converging import graphs without path explosion", testDenseImportDag), [denseImportDagProgram 10])
+    (("validates converging import graphs without path explosion", testDenseImportDag), [denseImportDagProgram 10]),
+    (("rejects invalid resolved operator symbols", testInvalidResolvedOperatorSymbols), [invalidResolvedOperatorSymbolsProgram]),
+    (("requires one selected body for qualified methods", testAmbiguousQualifiedMethodSelection), [ambiguousQualifiedMethodSelectionProgram]),
+    (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -450,6 +453,45 @@ testDenseImportDag = do
   case result of
     Nothing -> failTest "large converging import graph exceeded the two-second validation budget"
     Just failureCount -> assertEqual "large converging import graph failures" 0 failureCount
+
+testInvalidResolvedOperatorSymbols :: IO ()
+testInvalidResolvedOperatorSymbols =
+  assertEqual
+    "resolved operators reject non-operator characters before encoding"
+    [ expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        2
+        TypedBindingValueMismatch
+        (TypedTextDetail "a"),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        3
+        TypedBindingValueMismatch
+        (TypedTextDetail "a")
+    ]
+    (validateTypedProgram invalidResolvedOperatorSymbolsProgram)
+
+testAmbiguousQualifiedMethodSelection :: IO ()
+testAmbiguousQualifiedMethodSelection =
+  assertEqual
+    "a qualified method value has exactly one selected dispatch body"
+    [ expressionFailure
+        "review-ambiguous-qualified-method-selection"
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 2)
+    ]
+    (validateTypedProgram ambiguousQualifiedMethodSelectionProgram)
+
+testRepeatedEqualityDag :: IO ()
+testRepeatedEqualityDag = do
+  assertEqual
+    "small repeated equality subgraphs remain supported"
+    []
+    (validateTypedProgram (repeatedEqualityDagProgram 10))
+  result <- timeout 2000000 (evaluate (length (validateTypedProgram (repeatedEqualityDagProgram 25))))
+  case result of
+    Nothing -> failTest "large repeated equality graph exceeded the two-second validation budget"
+    Just failureCount -> assertEqual "large repeated equality graph failures" 0 failureCount
 
 nestedPathProgram :: TypedProgram
 nestedPathProgram =
@@ -9971,6 +10013,133 @@ denseImportDagProgram moduleCount =
         emptyInterface
         []
         unitInfo
+
+invalidResolvedOperatorSymbolsProgram :: TypedProgram
+invalidResolvedOperatorSymbolsProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface operatorInfo modulePath
+  where
+    fixture = "review-invalid-resolved-operator-symbols"
+    modulePath = fixtureModulePath fixture
+    aliasedName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
+    encodedName = TypedGeneratedName (TypedOperatorBinding "$operator:%61")
+    operatorType =
+      TypedFunctionType
+        TypedBoolType
+        (TypedFunctionType TypedBoolType TypedBoolType)
+    operatorRecipe =
+      TypedClosureRecipe
+        [TypedBoolRecipe, TypedBoolRecipe]
+        TypedBoolRecipe
+    operatorInfo = info operatorType operatorRecipe
+    operatorScheme lexicalIndex name =
+      TypedScheme
+        (binder modulePath [lexicalIndex] name)
+        []
+        []
+        []
+        operatorType
+        operatorRecipe
+    operatorDefinition lexicalIndex name =
+      TypedLetStatement
+        (binder modulePath [lexicalIndex] name)
+        name
+        span1
+        (operatorScheme lexicalIndex name)
+        (boolBinaryFunctionExpression modulePath [lexicalIndex])
+    operatorUse name =
+      TypedOperatorValueExpr
+        operatorInfo
+        (TypedResolvedOperator name "a")
+    statements =
+      [ operatorDefinition 0 aliasedName,
+        operatorDefinition 1 encodedName,
+        expressionStatement 3 (operatorUse aliasedName),
+        expressionStatement 4 (operatorUse encodedName)
+      ]
+
+ambiguousQualifiedMethodSelectionProgram :: TypedProgram
+ambiguousQualifiedMethodSelectionProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-ambiguous-qualified-method-selection"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
+    selectedEvidence targetType =
+      let implId = TypedImplId ["Prelude"] capabilityName [targetType]
+       in TypedSelectedEvidence
+            ( TypedEvidenceUse
+                Nothing
+                (TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") targetType)
+                implId
+                (Just (TypedMethodId implId "equal"))
+            )
+    expression =
+      TypedVariableExpr
+        ( TypedNodeInfo
+            TypedBoolType
+            TypedBoolRecipe
+            []
+            [selectedEvidence TypedBoolType, selectedEvidence TypedCharType]
+        )
+        (TypedBuiltinName "Equal::equal")
+
+repeatedEqualityDagProgram :: Int -> TypedProgram
+repeatedEqualityDagProgram depth =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-repeated-equality-dag"
+    modulePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    dataName :: Int -> TypedCoreName
+    dataName index =
+      resolved
+        TypedCurrentModule
+        TypedTypeNamespace
+        ("D" <> Text.pack (show index))
+    constructorName :: Int -> TypedCoreName
+    constructorName index =
+      resolved
+        TypedCurrentModule
+        TypedConstructorNamespace
+        ("D" <> Text.pack (show index))
+    dataType :: Int -> TypedType
+    dataType index = TypedDataType (dataName index) [parameterType]
+    declaration :: Int -> TypedDataDeclaration
+    declaration index =
+      TypedDataDeclaration
+        span1
+        (dataName index)
+        [parameter]
+        [ TypedConstructorDeclaration
+            (binder modulePath [index, 0] (constructorName index))
+            (constructorName index)
+            fields
+            recipes
+        ]
+      where
+        (fields, recipes)
+          | index == depth =
+              ([parameterType], [TypedRepresentationParameterRecipe parameter])
+          | otherwise =
+              ( [dataType (index + 1), dataType (index + 1)],
+                [ TypedManagedVariantRecipe (dataName (index + 1)) [parameterType],
+                  TypedManagedVariantRecipe (dataName (index + 1)) [parameterType]
+                ]
+              )
+    valueName = fixtureValueName "equal"
+    valueOwner = binder modulePath [depth + 1] valueName
+    targetType = TypedDataType (dataName 0) [TypedBoolType]
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint targetType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      map (TypedDataStatement . declaration) [0 .. depth]
+        <> [TypedLetStatement valueOwner valueName span1 valueScheme trueExpr]
 
 emptyInterface :: TypedModuleInterface
 emptyInterface = TypedModuleInterface [] [] [] []

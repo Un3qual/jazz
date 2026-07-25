@@ -33,6 +33,7 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.Name (operatorBindingIdentifierText)
+import JazzNext.Compiler.Parser.Operator (isStage2OperatorSymbolChar)
 import JazzNext.Compiler.TypedCore
 
 data ModuleContext = ModuleContext
@@ -1824,41 +1825,58 @@ strictEqualityOperandTypeSupported context typeValue =
         `elem` moduleContextPrimitiveConstraints context
 
 strictEqualityTypeSupportedWith :: ModuleContext -> (TypedType -> Bool) -> TypedType -> Bool
-strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.empty
+strictEqualityTypeSupportedWith context typeParameterSupported typeValue =
+  supported Set.empty [(Set.empty, typeValue)]
   where
-    supported seen typeValue =
-      case typeValue of
-        TypedIntType -> True
-        TypedFloatType -> True
-        TypedNumericType _ -> True
-        TypedBoolType -> True
-        TypedCharType -> True
-        TypedTextType -> True
-        TypedListType elementType -> supported seen elementType
-        TypedTupleType elementTypes -> all (supported seen) elementTypes
-        TypedTypeParameterType _ -> typeParameterSupported typeValue
+    supported :: Set TypedType -> [(Set ResolvedNameKey, TypedType)] -> Bool
+    supported _ [] = True
+    supported expanded ((seen, currentType) : remaining) =
+      case currentType of
+        TypedIntType -> supported expanded remaining
+        TypedFloatType -> supported expanded remaining
+        TypedNumericType _ -> supported expanded remaining
+        TypedBoolType -> supported expanded remaining
+        TypedCharType -> supported expanded remaining
+        TypedTextType -> supported expanded remaining
+        TypedListType elementType ->
+          supported expanded ((seen, elementType) : remaining)
+        TypedTupleType elementTypes ->
+          supported expanded (map (\elementType -> (seen, elementType)) elementTypes <> remaining)
+        TypedTypeParameterType _
+          | typeParameterSupported currentType -> supported expanded remaining
+          | otherwise -> False
         TypedFunctionType {} -> False
-        TypedDataType name arguments ->
-          case resolvedNameKey (moduleContextPath context) name of
-            Nothing -> False
-            Just dataKey ->
-              case Map.lookup dataKey (moduleContextDataContracts context) of
+        TypedDataType name arguments
+          | Set.member currentType expanded -> supported expanded remaining
+          | otherwise ->
+              case resolvedNameKey (moduleContextPath context) name of
                 Nothing -> False
-                Just (DataContract parameters constructorFields)
-                  | length parameters /= length arguments -> False
-                  | Set.member dataKey seen ->
-                      all
-                        (supported seen)
-                        [ argument
-                        | (parameter, argument) <- zip parameters arguments,
-                          dataParameterContributesToEquality context Set.empty dataKey parameter
-                        ]
-                  | otherwise ->
-                      let substitutions = Map.fromList (zip parameters arguments)
-                          nextSeen = Set.insert dataKey seen
-                       in all
-                            (all (supported nextSeen . substituteTypeParameters substitutions))
-                            constructorFields
+                Just dataKey ->
+                  case Map.lookup dataKey (moduleContextDataContracts context) of
+                    Nothing -> False
+                    Just (DataContract parameters constructorFields)
+                      | length parameters /= length arguments -> False
+                      | Set.member dataKey seen ->
+                          supported
+                            expanded
+                            ( map
+                                (\argument -> (seen, argument))
+                                [ argument
+                                | (parameter, argument) <- zip parameters arguments,
+                                  dataParameterContributesToEquality context Set.empty dataKey parameter
+                                ]
+                                <> remaining
+                            )
+                      | otherwise ->
+                          let substitutions = Map.fromList (zip parameters arguments)
+                              nextSeen = Set.insert dataKey seen
+                              fields =
+                                map
+                                  (substituteTypeParameters substitutions)
+                                  (concat constructorFields)
+                           in supported
+                                (Set.insert currentType expanded)
+                                (map (\field -> (nextSeen, field)) fields <> remaining)
 
 dataParameterContributesToEquality ::
   ModuleContext ->
@@ -2553,15 +2571,12 @@ qualifiedMethodEvidenceTarget context methodKey (TypedNodeInfo _ _ _ evidenceSel
         _ -> False
     constraintMatches _ = False
 
-qualifiedMethodValueContract :: ModuleContext -> Text -> TypedNodeInfo -> Maybe ValueContract
-qualifiedMethodValueContract context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
-  firstContract evidenceSelections
+qualifiedMethodValueContracts :: ModuleContext -> Text -> TypedNodeInfo -> [ValueContract]
+qualifiedMethodValueContracts context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
+  mapMaybe
+    (qualifiedMethodConstraintContract context methodKey)
+    (nub (map selectionConstraint evidenceSelections))
   where
-    firstContract [] = Nothing
-    firstContract (selection : remainingSelections) =
-      case qualifiedMethodConstraintContract context methodKey (selectionConstraint selection) of
-        Just contract -> Just contract
-        Nothing -> firstContract remainingSelections
     selectionConstraint selection =
       case selection of
         TypedSelectedEvidence (TypedEvidenceUse _ constraint _ _) -> constraint
@@ -2608,10 +2623,11 @@ validateVariableExpression context path info name =
     <> case name of
       TypedBuiltinName identifier
         | qualifiedMethodTarget ->
-            maybe
-              []
-              (validateValueContract path info)
-              (qualifiedMethodValueContract context identifier info)
+            case qualifiedMethodValueContracts context identifier info of
+              [] -> []
+              [contract] -> validateValueContract path info contract
+              contracts ->
+                [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length contracts))]
         | otherwise -> validateBuiltinValueContract context path info identifier
       _ ->
         case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextLexicalContracts context) of
@@ -3896,10 +3912,12 @@ validateOperatorRef context path operator =
 
 resolvedOperatorMatchesSymbol :: TypedCoreName -> Text -> Bool
 resolvedOperatorMatchesSymbol name symbol =
-  case name of
-    TypedGeneratedName (TypedOperatorBinding bindingName) ->
-      bindingName == operatorBindingIdentifierText symbol
-    _ -> False
+  not (Text.null symbol)
+    && Text.all isStage2OperatorSymbolChar symbol
+    && case name of
+      TypedGeneratedName (TypedOperatorBinding bindingName) ->
+        bindingName == operatorBindingIdentifierText symbol
+      _ -> False
 
 validateOperatorValue :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> [TypedCoreValidationFailure]
 validateOperatorValue context path info operator =

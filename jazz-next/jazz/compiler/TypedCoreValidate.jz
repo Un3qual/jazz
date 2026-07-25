@@ -49,6 +49,8 @@ module TypedCoreValidate (
 
   data EqualityParameterKey = EqualityParameterKey EqualityDataKey TypedTypeParameterId.
 
+  data EqualitySupportTask = EqualitySupportTask [EqualityDataKey] TypedType.
+
   failure :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure.
   failure = TypedCoreValidationFailure.
 
@@ -685,14 +687,23 @@ module TypedCoreValidate (
     | Just (first, rest) -> textAppend (operatorBindingCharacter first) (operatorBindingSuffix rest)
   }.
 
+  userOperatorCharacter :: Char -> Bool.
+  userOperatorCharacter = \(character) ->
+    listContains character ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
+
+  validOperatorSymbolAlphabet :: Text -> Bool.
+  validOperatorSymbolAlphabet = \(symbol) ->
+    if textIsEmpty symbol then False else listAll userOperatorCharacter (textToChars symbol).
+
   resolvedOperatorMatchesSymbol :: TypedCoreName -> Text -> Bool.
-  resolvedOperatorMatchesSymbol = \(name, symbol) -> case name {
-    | TypedGeneratedName generated -> case generated {
-      | TypedOperatorBinding bindingName -> bindingName == textAppend "$operator:" (operatorBindingSuffix symbol)
+  resolvedOperatorMatchesSymbol = \(name, symbol) ->
+    if validOperatorSymbolAlphabet symbol then case name {
+      | TypedGeneratedName generated -> case generated {
+        | TypedOperatorBinding bindingName -> bindingName == textAppend "$operator:" (operatorBindingSuffix symbol)
+        | other -> False
+      }
       | other -> False
-    }
-    | other -> False
-  }.
+    } else False.
 
   validateOperatorRef :: ModuleContext -> TypedCoreValidationPath -> TypedOperatorRef -> [TypedCoreValidationFailure].
   validateOperatorRef = \(context, path, operator) -> case operator {
@@ -1250,45 +1261,6 @@ module TypedCoreValidate (
     | other -> []
   }.
 
-  strictEqualityTypeSupportedWithSeen :: ModuleContext -> [EqualityDataKey] -> TypedType -> Bool.
-  strictEqualityTypeSupportedWithSeen = \(context, seen, typeValue) -> case typeValue {
-    | TypedIntType -> True
-    | TypedFloatType -> True
-    | TypedNumericType numericType -> True
-    | TypedBoolType -> True
-    | TypedCharType -> True
-    | TypedTextType -> True
-    | TypedListType elementType -> strictEqualityTypeSupportedWithSeen context seen elementType
-    | TypedTupleType elementTypes -> listAll (\(elementType) -> strictEqualityTypeSupportedWithSeen context seen elementType) elementTypes
-    | TypedTypeParameterType parameterId -> True
-    | TypedFunctionType argument result -> False
-    | TypedDataType name arguments -> {
-      result = case (context, name, dataContractForName context name) {
-        | (ModuleContext currentPath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
-          | DataContract parameters constructors -> {
-            dataKey = EqualityDataKey (originModulePath currentPath origin) identifier.
-            if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then
-              listAll
-                (\(argument) -> strictEqualityTypeSupportedWithSeen context seen argument)
-                (equalityRelevantArguments context dataKey parameters arguments)
-            else {
-              substitutions = listZip parameters arguments.
-              nextSeen = listPrepend dataKey seen.
-              listAll
-                (\(fields) -> listAll (\(field) -> strictEqualityTypeSupportedWithSeen context nextSeen (substituteEqualityTypeParameters substitutions field)) fields)
-                constructors.
-            } else False.
-          }
-        }
-        | other -> False
-      }.
-      result.
-    }
-  }.
-
-  strictEqualityTypeSupported :: ModuleContext -> TypedType -> Bool.
-  strictEqualityTypeSupported = \(context, typeValue) -> strictEqualityTypeSupportedWithSeen context [] typeValue.
-
   activeStrictEqualityConstraint :: ModuleContext -> TypedType -> Bool.
   activeStrictEqualityConstraint = \(context, typeValue) ->
     listAll
@@ -1299,45 +1271,76 @@ module TypedCoreValidate (
       (activePrimitiveConstraints context)
       == False.
 
-  strictEqualityOperandSupportedWithSeen :: ModuleContext -> [EqualityDataKey] -> TypedType -> Bool.
-  strictEqualityOperandSupportedWithSeen = \(context, seen, typeValue) -> case typeValue {
-      | TypedIntType -> True
-      | TypedFloatType -> True
-      | TypedNumericType numericType -> True
-      | TypedBoolType -> True
-      | TypedCharType -> True
-      | TypedTextType -> True
-      | TypedListType elementType -> strictEqualityOperandSupportedWithSeen context seen elementType
-      | TypedTupleType elementTypes -> listAll (\(elementType) -> strictEqualityOperandSupportedWithSeen context seen elementType) elementTypes
-      | TypedTypeParameterType parameterId -> activeStrictEqualityConstraint context typeValue
+  equalityTypeMember :: TypedType -> [TypedType] -> Bool.
+  equalityTypeMember = \(candidate, types) -> case types {
+    | [] -> False
+    | [first | rest] -> if typeEqual candidate first then True else equalityTypeMember candidate rest
+  }.
+
+  equalitySupportTasks :: [EqualityDataKey] -> [TypedType] -> [EqualitySupportTask].
+  equalitySupportTasks = \(seen, types) -> case types {
+    | [] -> []
+    | [first | rest] -> listPrepend (EqualitySupportTask seen first) (equalitySupportTasks seen rest)
+  }.
+
+  strictEqualityWorklistSupported :: ModuleContext -> Bool -> [TypedType] -> [EqualitySupportTask] -> Bool.
+  strictEqualityWorklistSupported = \(context, requireTypeParameterConstraint, expanded, tasks) -> case tasks {
+    | [] -> True
+    | [EqualitySupportTask seen typeValue | rest] -> case typeValue {
+      | TypedIntType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedFloatType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedNumericType numericType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedBoolType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedCharType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedTextType -> strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+      | TypedListType elementType ->
+        strictEqualityWorklistSupported context requireTypeParameterConstraint expanded (listPrepend (EqualitySupportTask seen elementType) rest)
+      | TypedTupleType elementTypes ->
+        strictEqualityWorklistSupported context requireTypeParameterConstraint expanded (listAppend (equalitySupportTasks seen elementTypes) rest)
+      | TypedTypeParameterType parameterId ->
+        if requireTypeParameterConstraint then
+          if activeStrictEqualityConstraint context typeValue then strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest else False
+        else strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
       | TypedFunctionType argument result -> False
-      | TypedDataType name arguments -> {
-        result = case (context, name, dataContractForName context name) {
+      | TypedDataType name arguments ->
+        if equalityTypeMember typeValue expanded then
+          strictEqualityWorklistSupported context requireTypeParameterConstraint expanded rest
+        else case (context, name, dataContractForName context name) {
           | (ModuleContext currentPath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
-            | DataContract parameters constructors -> {
+            | DataContract parameters constructors -> if listLength parameters == listLength arguments then {
               dataKey = EqualityDataKey (originModulePath currentPath origin) identifier.
-              if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then
-                listAll
-                  (\(argument) -> strictEqualityOperandSupportedWithSeen context seen argument)
-                  (equalityRelevantArguments context dataKey parameters arguments)
+              if equalityDataKeyMember dataKey seen then
+                strictEqualityWorklistSupported
+                  context
+                  requireTypeParameterConstraint
+                  expanded
+                  (listAppend (equalitySupportTasks seen (equalityRelevantArguments context dataKey parameters arguments)) rest)
               else {
                 substitutions = listZip parameters arguments.
                 nextSeen = listPrepend dataKey seen.
-                listAll
-                  (\(fields) -> listAll (\(field) -> strictEqualityOperandSupportedWithSeen context nextSeen (substituteEqualityTypeParameters substitutions field)) fields)
-                  constructors.
-              } else False.
-            }
+                fields = listConcat constructors.
+                substitutedFields = listMap (\(field) -> substituteEqualityTypeParameters substitutions field) fields.
+                strictEqualityWorklistSupported
+                  context
+                  requireTypeParameterConstraint
+                  (listPrepend typeValue expanded)
+                  (listAppend (equalitySupportTasks nextSeen substitutedFields) rest).
+              }.
+            } else False
           }
           | other -> False
-        }.
-        result.
-      }
-    }.
+        }
+    }
+  }.
+
+  strictEqualityTypeSupported :: ModuleContext -> TypedType -> Bool.
+  strictEqualityTypeSupported = \(context, typeValue) ->
+    strictEqualityWorklistSupported context False [] [EqualitySupportTask [] typeValue].
 
   strictEqualityOperandSupported :: ModuleContext -> TypedType -> Bool.
   strictEqualityOperandSupported = \(context, typeValue) ->
-    if activeStrictEqualityConstraint context typeValue then True else strictEqualityOperandSupportedWithSeen context [] typeValue.
+    if activeStrictEqualityConstraint context typeValue then True else
+      strictEqualityWorklistSupported context True [] [EqualitySupportTask [] typeValue].
 
   validateStrictEqualityTarget :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure].
   validateStrictEqualityTarget = \(context, path, typeValue) ->
@@ -3256,9 +3259,9 @@ module TypedCoreValidate (
     }
   }.
 
-  qualifiedMethodValueContractFrom :: ModuleContext -> Text -> [TypedEvidenceSelection] -> Maybe(ValueContract).
-  qualifiedMethodValueContractFrom = \(context, methodKey, selections) -> case selections {
-    | [] -> Nothing
+  qualifiedMethodValueContractsUniqueFrom :: ModuleContext -> Text -> [TypedEvidenceSelection] -> [TypedCapabilityConstraint] -> [ValueContract].
+  qualifiedMethodValueContractsUniqueFrom = \(context, methodKey, selections, seenConstraints) -> case selections {
+    | [] -> []
     | [selection | rest] -> {
       constraint = case selection {
         | TypedSelectedEvidence evidenceUse -> case evidenceUse {
@@ -3266,12 +3269,18 @@ module TypedCoreValidate (
         }
         | TypedEvidenceCandidates candidateConstraint candidates -> candidateConstraint
       }.
-      case qualifiedMethodConstraintValueContract context methodKey constraint {
-        | Just contract -> Just contract
-        | Nothing -> qualifiedMethodValueContractFrom context methodKey rest
+      if capabilityConstraintMember constraint seenConstraints then
+        qualifiedMethodValueContractsUniqueFrom context methodKey rest seenConstraints
+      else case qualifiedMethodConstraintValueContract context methodKey constraint {
+        | Just contract -> listPrepend contract (qualifiedMethodValueContractsUniqueFrom context methodKey rest (listPrepend constraint seenConstraints))
+        | Nothing -> qualifiedMethodValueContractsUniqueFrom context methodKey rest (listPrepend constraint seenConstraints)
       }.
     }
   }.
+
+  qualifiedMethodValueContractsFrom :: ModuleContext -> Text -> [TypedEvidenceSelection] -> [ValueContract].
+  qualifiedMethodValueContractsFrom = \(context, methodKey, selections) ->
+    qualifiedMethodValueContractsUniqueFrom context methodKey selections [].
 
   validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedCoreValidationFailure].
   validateVariableExpression = \(context, path, info, name) -> case context {
@@ -3284,9 +3293,10 @@ module TypedCoreValidate (
       contractFailures = case lookupLexicalContract modulePath name dataEntries {
         | Just contract -> validateValueContract path info contract
         | Nothing -> case name {
-          | TypedBuiltinName identifier -> if qualifiedMethodTarget then case qualifiedMethodValueContractFrom context identifier (nodeEvidenceSelections info) {
-            | Nothing -> []
-            | Just contract -> validateValueContract path info contract
+          | TypedBuiltinName identifier -> if qualifiedMethodTarget then case qualifiedMethodValueContractsFrom context identifier (nodeEvidenceSelections info) {
+            | [] -> []
+            | [contract] -> validateValueContract path info contract
+            | contracts -> [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength contracts))]
           } else validateBuiltinValueContract context path info identifier
           | TypedResolvedName origin TypedValueNamespace identifier -> case lookupSchemeByName modulePath name schemes {
             | Just scheme -> validateVariableSchemeContract modulePath path info scheme
