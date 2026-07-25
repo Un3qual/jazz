@@ -121,13 +121,14 @@ data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe 
 data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint
   deriving (Eq, Ord, Show)
 
-data TypedScheme = TypedScheme
-  TypedBinderId
-  [TypedTypeParameterId]
-  [TypedEvidenceParameter]
-  [TypedPrimitiveConstraint]
-  TypedType
-  TypedRepresentationRecipe
+data TypedScheme
+  = TypedScheme
+      TypedBinderId
+      [TypedTypeParameterId]
+      [TypedEvidenceParameter]
+      [TypedPrimitiveConstraint]
+      TypedType
+      TypedRepresentationRecipe
   deriving (Eq, Ord, Show)
 
 data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType
@@ -142,11 +143,12 @@ data TypedImplId = TypedImplId [Text] TypedCoreName [TypedType]
 data TypedMethodId = TypedMethodId TypedImplId Text
   deriving (Eq, Ord, Show)
 
-data TypedEvidenceUse = TypedEvidenceUse
-  (Maybe TypedEvidenceParameterRef)
-  TypedCapabilityConstraint
-  TypedImplId
-  (Maybe TypedMethodId)
+data TypedEvidenceUse
+  = TypedEvidenceUse
+      (Maybe TypedEvidenceParameterRef)
+      TypedCapabilityConstraint
+      TypedImplId
+      (Maybe TypedMethodId)
   deriving (Eq, Ord, Show)
 
 data TypedEvidenceCandidate = TypedEvidenceCandidate TypedImplId (Maybe TypedMethodId)
@@ -157,11 +159,12 @@ data TypedEvidenceSelection
   | TypedEvidenceCandidates TypedCapabilityConstraint [TypedEvidenceCandidate]
   deriving (Eq, Ord, Show)
 
-data TypedNodeInfo = TypedNodeInfo
-  TypedType
-  TypedRepresentationRecipe
-  [TypedInstantiation]
-  [TypedEvidenceSelection]
+data TypedNodeInfo
+  = TypedNodeInfo
+      TypedType
+      TypedRepresentationRecipe
+      [TypedInstantiation]
+      [TypedEvidenceSelection]
   deriving (Eq, Ord, Show)
 
 data TypedLiteral
@@ -204,36 +207,40 @@ data TypedExpr
   | TypedBlockExpr TypedNodeInfo [TypedStatement]
   deriving (Eq, Ord, Show)
 
-data TypedConstructorDeclaration = TypedConstructorDeclaration
-  TypedBinderId
-  TypedCoreName
-  [TypedType]
-  [TypedRepresentationRecipe]
+data TypedConstructorDeclaration
+  = TypedConstructorDeclaration
+      TypedBinderId
+      TypedCoreName
+      [TypedType]
+      [TypedRepresentationRecipe]
   deriving (Eq, Ord, Show)
 
-data TypedDataDeclaration = TypedDataDeclaration
-  TypedSpan
-  TypedCoreName
-  [TypedTypeParameterId]
-  [TypedConstructorDeclaration]
+data TypedDataDeclaration
+  = TypedDataDeclaration
+      TypedSpan
+      TypedCoreName
+      [TypedTypeParameterId]
+      [TypedConstructorDeclaration]
   deriving (Eq, Ord, Show)
 
 data TypedMethodSignature = TypedMethodSignature TypedCoreName TypedSpan TypedScheme
   deriving (Eq, Ord, Show)
 
-data TypedClassDeclaration = TypedClassDeclaration
-  TypedSpan
-  TypedCoreName
-  [TypedTypeParameterId]
-  [TypedMethodSignature]
+data TypedClassDeclaration
+  = TypedClassDeclaration
+      TypedSpan
+      TypedCoreName
+      [TypedTypeParameterId]
+      [TypedMethodSignature]
   deriving (Eq, Ord, Show)
 
-data TypedMethodDefinition = TypedMethodDefinition
-  TypedMethodId
-  TypedBinderId
-  TypedCoreName
-  TypedSpan
-  TypedExpr
+data TypedMethodDefinition
+  = TypedMethodDefinition
+      TypedMethodId
+      TypedBinderId
+      TypedCoreName
+      TypedSpan
+      TypedExpr
   deriving (Eq, Ord, Show)
 
 data TypedImplDeclaration = TypedImplDeclaration TypedSpan TypedImplId [TypedMethodDefinition]
@@ -266,21 +273,23 @@ newtype TypedClassInterface = TypedClassInterface TypedClassDeclaration
 newtype TypedImplInterface = TypedImplInterface TypedImplId
   deriving (Eq, Ord, Show)
 
-data TypedModuleInterface = TypedModuleInterface
-  [TypedValueInterface]
-  [TypedDataInterface]
-  [TypedClassInterface]
-  [TypedImplInterface]
+data TypedModuleInterface
+  = TypedModuleInterface
+      [TypedValueInterface]
+      [TypedDataInterface]
+      [TypedClassInterface]
+      [TypedImplInterface]
   deriving (Eq, Ord, Show)
 
-data TypedModule = TypedModule
-  [Text]
-  TypedSourcePath
-  [TypedResolvedImport]
-  [TypedModuleExport]
-  TypedModuleInterface
-  [TypedStatement]
-  TypedNodeInfo
+data TypedModule
+  = TypedModule
+      [Text]
+      TypedSourcePath
+      [TypedResolvedImport]
+      [TypedModuleExport]
+      TypedModuleInterface
+      [TypedStatement]
+      TypedNodeInfo
   deriving (Eq, Ord, Show)
 
 data TypedProgram = TypedProgram (Maybe TypedModule) [TypedModule] [Text]
@@ -356,10 +365,11 @@ data TypedCoreValidationDetail
   | TypedImplDetail TypedImplId
   deriving (Eq, Ord, Show)
 
-data TypedCoreValidationFailure = TypedCoreValidationFailure
-  TypedCoreValidationPath
-  TypedCoreValidationKind
-  TypedCoreValidationDetail
+data TypedCoreValidationFailure
+  = TypedCoreValidationFailure
+      TypedCoreValidationPath
+      TypedCoreValidationKind
+      TypedCoreValidationDetail
   deriving (Eq, Ord, Show)
 
 data TypedCoreOutcome

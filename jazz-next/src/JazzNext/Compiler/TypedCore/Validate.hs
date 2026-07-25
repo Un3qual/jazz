@@ -1229,7 +1229,8 @@ recursiveGroupStatements outerContext statements statementIndex =
         nameKey <- maybeToList (resolvedNameKey (moduleContextPath outerContext) name)
       ]
     declarationIndicesByName =
-      Map.fromListWith (flip (<>))
+      Map.fromListWith
+        (flip (<>))
         [ (nameKey, [index])
         | (index, nameKey, _) <- declarations
         ]
