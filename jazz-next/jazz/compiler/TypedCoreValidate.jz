@@ -13,7 +13,7 @@ module TypedCoreValidate (
 
   data MethodContract = MethodContract Text TypedScheme.
 
-  data DataEntry = DataEntry [Text] Text Int | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]] | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType] | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract] | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text | ImplMethodEntry TypedImplId [Text] | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe | PrimitiveConstraintEntry TypedPrimitiveConstraint.
+  data DataEntry = DataEntry [Text] Text Int | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]] | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType] | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract] | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text | ImplMethodEntry TypedImplId [Text] | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe | PrimitiveConstraintEntry TypedPrimitiveConstraint | UnqualifiedCapabilityEntry [Text] Text.
 
   data DataMetadataDeclaration = DataMetadataDeclaration [Text] TypedDataDeclaration.
 
@@ -46,6 +46,8 @@ module TypedCoreValidate (
   data EvidenceBinding = EvidenceBinding TypedEvidenceParameterRef TypedCapabilityConstraint.
 
   data EqualityDataKey = EqualityDataKey [Text] Text.
+
+  data EqualityParameterKey = EqualityParameterKey EqualityDataKey TypedTypeParameterId.
 
   failure :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure.
   failure = TypedCoreValidationFailure.
@@ -201,6 +203,19 @@ module TypedCoreValidate (
       if textListEqual candidatePath firstPath then
         if candidateName == firstName then True else equalityDataKeyMember candidate rest
       else equalityDataKeyMember candidate rest
+  }.
+
+  equalityParameterKeyMember :: EqualityParameterKey -> [EqualityParameterKey] -> Bool.
+  equalityParameterKeyMember = \(candidate, keys) -> case (candidate, keys) {
+    | (other, []) -> False
+    | (EqualityParameterKey candidateDataKey candidateParameter, [EqualityParameterKey firstDataKey firstParameter | rest]) -> case (candidateDataKey, firstDataKey) {
+      | (EqualityDataKey candidatePath candidateName, EqualityDataKey firstPath firstName) ->
+        if textListEqual candidatePath firstPath then
+          if candidateName == firstName then
+            if typeParameterIdEqual candidateParameter firstParameter then True else equalityParameterKeyMember candidate rest
+          else equalityParameterKeyMember candidate rest
+        else equalityParameterKeyMember candidate rest
+    }
   }.
 
   recipeListEqual :: [TypedRepresentationRecipe] -> [TypedRepresentationRecipe] -> Bool.
@@ -1141,6 +1156,100 @@ module TypedCoreValidate (
     | other -> other
   }.
 
+  typeMentionsParameter :: TypedTypeParameterId -> TypedType -> Bool.
+  typeMentionsParameter = \(parameter, typeValue) -> case typeValue {
+    | TypedListType elementType -> typeMentionsParameter parameter elementType
+    | TypedTupleType elementTypes -> typeListMentionsParameter parameter elementTypes
+    | TypedDataType name arguments -> typeListMentionsParameter parameter arguments
+    | TypedFunctionType argument result -> if typeMentionsParameter parameter argument then True else typeMentionsParameter parameter result
+    | TypedTypeParameterType candidate -> typeParameterIdEqual parameter candidate
+    | other -> False
+  }.
+
+  typeListMentionsParameter :: TypedTypeParameterId -> [TypedType] -> Bool.
+  typeListMentionsParameter = \(parameter, typeValues) -> case typeValues {
+    | [] -> False
+    | [first | rest] -> if typeMentionsParameter parameter first then True else typeListMentionsParameter parameter rest
+  }.
+
+  dataContractForEqualityKey :: ModuleContext -> EqualityDataKey -> Maybe(DataContract).
+  dataContractForEqualityKey = \(context, dataKey) -> case (context, dataKey) {
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, EqualityDataKey dataPath identifier) ->
+      lookupDataContract dataPath identifier dataEntries
+  }.
+
+  equalityConstructorFieldsUseParameter :: ModuleContext -> [EqualityParameterKey] -> TypedTypeParameterId -> [TypedType] -> Bool.
+  equalityConstructorFieldsUseParameter = \(context, seen, parameter, fields) -> case fields {
+    | [] -> False
+    | [first | rest] ->
+      if equalityTypePositionUsesParameter context seen parameter first then True else
+        equalityConstructorFieldsUseParameter context seen parameter rest
+  }.
+
+  equalityConstructorsUseParameter :: ModuleContext -> [EqualityParameterKey] -> TypedTypeParameterId -> [[TypedType]] -> Bool.
+  equalityConstructorsUseParameter = \(context, seen, parameter, constructors) -> case constructors {
+    | [] -> False
+    | [first | rest] ->
+      if equalityConstructorFieldsUseParameter context seen parameter first then True else
+        equalityConstructorsUseParameter context seen parameter rest
+  }.
+
+  dataParameterContributesToEquality :: ModuleContext -> [EqualityParameterKey] -> EqualityDataKey -> TypedTypeParameterId -> Bool.
+  dataParameterContributesToEquality = \(context, seen, dataKey, parameter) -> {
+    parameterKey = EqualityParameterKey dataKey parameter.
+    if equalityParameterKeyMember parameterKey seen then False else case dataContractForEqualityKey context dataKey {
+      | Nothing -> True
+      | Just contract -> case contract {
+        | DataContract parameters constructors ->
+          equalityConstructorsUseParameter context (listPrepend parameterKey seen) parameter constructors
+      }
+    }.
+  }.
+
+  equalityDataArgumentsUseParameter :: ModuleContext -> [EqualityParameterKey] -> TypedTypeParameterId -> EqualityDataKey -> [TypedTypeParameterId] -> [TypedType] -> Bool.
+  equalityDataArgumentsUseParameter = \(context, seen, sourceParameter, dataKey, parameters, arguments) -> case (parameters, arguments) {
+    | ([], []) -> False
+    | ([parameter | parameterRest], [argument | argumentRest]) ->
+      if typeMentionsParameter sourceParameter argument then
+        if dataParameterContributesToEquality context seen dataKey parameter then True else
+          equalityDataArgumentsUseParameter context seen sourceParameter dataKey parameterRest argumentRest
+      else equalityDataArgumentsUseParameter context seen sourceParameter dataKey parameterRest argumentRest
+    | other -> False
+  }.
+
+  equalityTypePositionUsesParameter :: ModuleContext -> [EqualityParameterKey] -> TypedTypeParameterId -> TypedType -> Bool.
+  equalityTypePositionUsesParameter = \(context, seen, parameter, typeValue) -> case typeValue {
+    | TypedListType elementType -> equalityTypePositionUsesParameter context seen parameter elementType
+    | TypedTupleType elementTypes ->
+      listAll (\(elementType) -> equalityTypePositionUsesParameter context seen parameter elementType == False) elementTypes == False
+    | TypedDataType name arguments -> case (context, name, dataContractForName context name) {
+      | (ModuleContext currentPath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
+        | DataContract parameters constructors -> {
+          dataKey = EqualityDataKey (originModulePath currentPath origin) identifier.
+          if listLength parameters == listLength arguments then
+            equalityDataArgumentsUseParameter context seen parameter dataKey parameters arguments
+          else typeMentionsParameter parameter typeValue.
+        }
+      }
+      | other -> typeMentionsParameter parameter typeValue
+    }
+    | TypedFunctionType argument result ->
+      if equalityTypePositionUsesParameter context seen parameter argument then True else
+        equalityTypePositionUsesParameter context seen parameter result
+    | TypedTypeParameterType candidate -> typeParameterIdEqual candidate parameter
+    | other -> False
+  }.
+
+  equalityRelevantArguments :: ModuleContext -> EqualityDataKey -> [TypedTypeParameterId] -> [TypedType] -> [TypedType].
+  equalityRelevantArguments = \(context, dataKey, parameters, arguments) -> case (parameters, arguments) {
+    | ([], []) -> []
+    | ([parameter | parameterRest], [argument | argumentRest]) ->
+      if dataParameterContributesToEquality context [] dataKey parameter then
+        listPrepend argument (equalityRelevantArguments context dataKey parameterRest argumentRest)
+      else equalityRelevantArguments context dataKey parameterRest argumentRest
+    | other -> []
+  }.
+
   strictEqualityTypeSupportedWithSeen :: ModuleContext -> [EqualityDataKey] -> TypedType -> Bool.
   strictEqualityTypeSupportedWithSeen = \(context, seen, typeValue) -> case typeValue {
     | TypedIntType -> True
@@ -1159,7 +1268,9 @@ module TypedCoreValidate (
           | DataContract parameters constructors -> {
             dataKey = EqualityDataKey (originModulePath currentPath origin) identifier.
             if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then
-              listAll (\(argument) -> strictEqualityTypeSupportedWithSeen context seen argument) arguments
+              listAll
+                (\(argument) -> strictEqualityTypeSupportedWithSeen context seen argument)
+                (equalityRelevantArguments context dataKey parameters arguments)
             else {
               substitutions = listZip parameters arguments.
               nextSeen = listPrepend dataKey seen.
@@ -1205,7 +1316,11 @@ module TypedCoreValidate (
           | (ModuleContext currentPath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName origin TypedTypeNamespace identifier, Just contract) -> case contract {
             | DataContract parameters constructors -> {
               dataKey = EqualityDataKey (originModulePath currentPath origin) identifier.
-              if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then True else {
+              if listLength parameters == listLength arguments then if equalityDataKeyMember dataKey seen then
+                listAll
+                  (\(argument) -> strictEqualityOperandSupportedWithSeen context seen argument)
+                  (equalityRelevantArguments context dataKey parameters arguments)
+              else {
                 substitutions = listZip parameters arguments.
                 nextSeen = listPrepend dataKey seen.
                 listAll
@@ -3510,22 +3625,6 @@ module TypedCoreValidate (
   statementsDefinedNames :: [TypedStatement] -> [TypedCoreName].
   statementsDefinedNames = \(statements) -> listConcat (listMap statementDefinedNames statements).
 
-  typeMentionsParameter :: TypedTypeParameterId -> TypedType -> Bool.
-  typeMentionsParameter = \(parameter, typeValue) -> case typeValue {
-    | TypedListType elementType -> typeMentionsParameter parameter elementType
-    | TypedTupleType elementTypes -> typeListMentionsParameter parameter elementTypes
-    | TypedDataType name arguments -> typeListMentionsParameter parameter arguments
-    | TypedFunctionType argument result -> if typeMentionsParameter parameter argument then True else typeMentionsParameter parameter result
-    | TypedTypeParameterType candidate -> typeParameterIdEqual parameter candidate
-    | other -> False
-  }.
-
-  typeListMentionsParameter :: TypedTypeParameterId -> [TypedType] -> Bool.
-  typeListMentionsParameter = \(parameter, typeValues) -> case typeValues {
-    | [] -> False
-    | [first | rest] -> if typeMentionsParameter parameter first then True else typeListMentionsParameter parameter rest
-  }.
-
   recipeMentionsParameter :: TypedTypeParameterId -> TypedRepresentationRecipe -> Bool.
   recipeMentionsParameter = \(parameter, recipe) -> case recipe {
     | TypedManagedListRecipe elementRecipe -> recipeMentionsParameter parameter elementRecipe
@@ -4737,11 +4836,11 @@ module TypedCoreValidate (
       (duplicateClassMethodFailuresFrom path rest (if coreNameMember name seen then seen else listPrepend name seen))
   }.
 
-  externalVisibleCapabilityIdentifierPresent :: [Text] -> Text -> [NameEntry] -> Bool.
+  externalVisibleCapabilityIdentifierPresent :: [Text] -> Text -> [DataEntry] -> Bool.
   externalVisibleCapabilityIdentifierPresent = \(currentModulePath, expectedIdentifier, entries) -> case entries {
     | [] -> False
     | [first | rest] -> case first {
-      | NameEntry candidatePath TypedCapabilityNamespace candidateIdentifier ->
+      | UnqualifiedCapabilityEntry candidatePath candidateIdentifier ->
         if textListEqual candidatePath currentModulePath then externalVisibleCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
         else if candidateIdentifier == expectedIdentifier then True
         else externalVisibleCapabilityIdentifierPresent currentModulePath expectedIdentifier rest
@@ -4752,10 +4851,10 @@ module TypedCoreValidate (
   visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   visibleClassCollisionFailures = \(context, path, name) -> case (context, name) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedCurrentModule TypedCapabilityNamespace identifier) ->
-      if externalVisibleCapabilityIdentifierPresent modulePath identifier visibleNames then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+      if externalVisibleCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace identifier) ->
       if textListEqual modulePath ["Prelude"] then
-        if externalVisibleCapabilityIdentifierPresent modulePath identifier visibleNames then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
+        if externalVisibleCapabilityIdentifierPresent modulePath identifier dataEntries then [failure path TypedDuplicateDeclaration (TypedNameDetail name)] else []
       else []
     | other -> []
   }.
@@ -5251,12 +5350,20 @@ module TypedCoreValidate (
     }
   }.
 
-  validateImplInterfaces :: TypedCoreValidationPath -> [TypedStatement] -> [TypedImplId] -> [TypedImplInterface] -> [TypedCoreValidationFailure].
-  validateImplInterfaces = \(path, statements, externalImpls, interfaces) -> case interfaces {
+  validateImplInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [TypedDataInterface] -> [TypedImplId] -> [TypedImplInterface] -> [TypedCoreValidationFailure].
+  validateImplInterfaces = \(path, modulePath, statements, datas, externalImpls, interfaces) -> case interfaces {
     | [] -> []
     | [TypedImplInterface implId | rest] -> listAppend
-      (if declaredImplMatches implId statements then [] else if implIdMember implId externalImpls then [] else [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)])
-      (validateImplInterfaces path statements externalImpls rest)
+      (if declaredImplMatches implId statements then
+        listMap
+          (\(dependencyName) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName))
+          (listFilter
+            (\(dependencyName) -> dataInterfaceMatches dependencyName datas == False)
+            (uniqueCoreNames
+              (listConcat (listMap (\(targetType) -> localDataDependencies modulePath targetType) (implTargetTypes implId)))
+              []))
+      else if implIdMember implId externalImpls then [] else [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)])
+      (validateImplInterfaces path modulePath statements datas externalImpls rest)
   }.
 
   implInterfacePresent :: TypedImplId -> [TypedImplInterface] -> Bool.
@@ -5470,7 +5577,7 @@ module TypedCoreValidate (
           validateValueInterfaces path modulePath statements externalDataEntries exports datas classes values,
           validateDataInterfaces path modulePath statements datas datas,
           validateClassInterfaces path modulePath statements externalDataEntries datas classes classes,
-          validateImplInterfaces path statements externalImpls impls,
+          validateImplInterfaces path modulePath statements datas externalImpls impls,
           missingImplInterfaceFailures path modulePath statements classes impls,
           validateExports path statements interface exports
         ].
@@ -5545,27 +5652,23 @@ module TypedCoreValidate (
     | TypedModule modulePath sourcePath imports exports interface statements info -> imports
   }.
 
-  anyImportPathReaches :: [TypedModule] -> [[Text]] -> [TypedResolvedImport] -> [Text] -> Bool.
-  anyImportPathReaches = \(completeModules, seen, imports, targetPath) -> case imports {
+  modulePathReachableFrom :: [TypedModule] -> [[Text]] -> [[Text]] -> [Text] -> Bool.
+  modulePathReachableFrom = \(completeModules, seen, pendingPaths, targetPath) -> case pendingPaths {
     | [] -> False
-    | [TypedResolvedImport span importPath alias names | rest] ->
-      if modulePathReachable completeModules seen importPath targetPath then
-        True
-      else
-        anyImportPathReaches completeModules seen rest targetPath
+    | [currentPath | rest] ->
+      if textListEqual currentPath targetPath then True else
+        if modulePathMember currentPath seen then modulePathReachableFrom completeModules seen rest targetPath else {
+          nextPaths = case findModule currentPath completeModules {
+            | Nothing -> []
+            | Just moduleValue -> resolvedImportPaths (typedModuleImports moduleValue)
+          }.
+          modulePathReachableFrom completeModules (listPrepend currentPath seen) (listAppend nextPaths rest) targetPath.
+        }
   }.
 
   modulePathReachable :: [TypedModule] -> [[Text]] -> [Text] -> [Text] -> Bool.
   modulePathReachable = \(completeModules, seen, currentPath, targetPath) ->
-    if textListEqual currentPath targetPath then
-      True
-    else if modulePathMember currentPath seen then
-      False
-    else case findModule currentPath completeModules {
-      | Nothing -> False
-      | Just moduleValue ->
-        anyImportPathReaches completeModules (listPrepend currentPath seen) (typedModuleImports moduleValue) targetPath
-    }.
+    modulePathReachableFrom completeModules seen [currentPath] targetPath.
 
   importCycleFailuresForImports :: [TypedModule] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
   importCycleFailuresForImports = \(completeModules, modulePath, imports, seenImports) -> case imports {
@@ -5884,6 +5987,40 @@ module TypedCoreValidate (
 
   visibleModuleNameEntries :: [VisibleModule] -> [NameEntry].
   visibleModuleNameEntries = \(modules) -> listConcat (listMap interfaceNameEntries modules).
+
+  unqualifiedCapabilityEntriesFromNames :: [NameEntry] -> [DataEntry].
+  unqualifiedCapabilityEntriesFromNames = \(entries) -> case entries {
+    | [] -> []
+    | [first | rest] -> case first {
+      | NameEntry modulePath TypedCapabilityNamespace identifier ->
+        listPrepend (UnqualifiedCapabilityEntry modulePath identifier) (unqualifiedCapabilityEntriesFromNames rest)
+      | other -> unqualifiedCapabilityEntriesFromNames rest
+    }
+  }.
+
+  unqualifiedImportedCapabilityEntries :: [TypedResolvedImport] -> [TypedModule] -> [DataEntry].
+  unqualifiedImportedCapabilityEntries = \(imports, completeModules) -> case imports {
+    | [] -> []
+    | [TypedResolvedImport span modulePath alias names | rest] -> case alias {
+      | Just aliasName -> unqualifiedImportedCapabilityEntries rest completeModules
+      | Nothing -> case findModule modulePath completeModules {
+        | Nothing -> unqualifiedImportedCapabilityEntries rest completeModules
+        | Just moduleValue -> listAppend
+          (unqualifiedCapabilityEntriesFromNames (interfaceNameEntries (VisibleModule names moduleValue)))
+          (unqualifiedImportedCapabilityEntries rest completeModules)
+      }
+    }
+  }.
+
+  sourceVisibleCapabilityEntries :: Bool -> Maybe(TypedModule) -> [TypedResolvedImport] -> [TypedModule] -> [DataEntry].
+  sourceVisibleCapabilityEntries = \(isPrelude, prelude, imports, completeModules) -> {
+    preludeEntries = if isPrelude then [] else case prelude {
+      | Nothing -> []
+      | Just preludeModule ->
+        unqualifiedCapabilityEntriesFromNames (interfaceNameEntries (VisibleModule Nothing preludeModule))
+    }.
+    listAppend preludeEntries (unqualifiedImportedCapabilityEntries imports completeModules).
+  }.
 
   importCollisionIdentifier :: Bool -> NameEntry -> Maybe(Text).
   importCollisionIdentifier = \(typeBinding, entry) -> case entry {
@@ -6371,7 +6508,9 @@ module TypedCoreValidate (
       externalNames = visibleModuleNameEntries externalModules.
       visibleNames = externalNames.
       visibleImpls = visibleModuleImplIds externalModules.
-      dataEntries = visibleModuleDataEntries completeModules externalModules.
+      dataEntries = listAppend
+        (visibleModuleDataEntries completeModules externalModules)
+        (sourceVisibleCapabilityEntries isPrelude prelude imports completeModules).
       externalContext = ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries [].
       baseContext = withBlockDeclarations (moduleMetadataStatements statements) externalContext.
       context = withBlockDeclarations statements externalContext.

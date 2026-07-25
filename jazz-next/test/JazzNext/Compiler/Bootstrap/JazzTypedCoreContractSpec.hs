@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Exception (evaluate)
 import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -38,6 +39,7 @@ import JazzNext.TestHarness
     runTestSuite,
   )
 import JazzNext.TestSource (readCheckedInJazzProjectModuleSource)
+import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "JazzTypedCoreContract" tests
@@ -403,11 +405,51 @@ reviewRegressionGroups =
     (("rejects malformed import aliases", testMalformedImportAlias), [malformedImportAliasProgram]),
     (("rejects duplicate module exports", testDuplicateModuleExports), [duplicateModuleExportsProgram]),
     (("rejects non-positive source spans", testInvalidSourceSpans), [invalidImportSpanProgram, invalidStatementSpansProgram, invalidDeclarationSpansProgram, invalidExpressionSpansProgram]),
-    (("enforces canonical typed-core inventories", testUnresolvedReviewRegressions), [emptyImportSelectorProgram, duplicateImportSelectorProgram, aliasAndSelectorImportProgram, distinctClassMethodProgram, duplicateEvidenceConstraintProgram, singletonTupleTypeProgram, preludeAmbientDataDependencyProgram, duplicateModuleInterfaceEntriesProgram, sameNamedCapabilityDependencyProgram, sameNamedRetainedCapabilityProgram])
+    (("enforces canonical typed-core inventories", testUnresolvedReviewRegressions), [emptyImportSelectorProgram, duplicateImportSelectorProgram, aliasAndSelectorImportProgram, distinctClassMethodProgram, duplicateEvidenceConstraintProgram, singletonTupleTypeProgram, preludeAmbientDataDependencyProgram, duplicateModuleInterfaceEntriesProgram, sameNamedCapabilityDependencyProgram, sameNamedRetainedCapabilityProgram]),
+    (("allows local classes beside alias-qualified imports", testAliasedCapabilityLocalClass), [aliasedCapabilityLocalClassProgram]),
+    (("preserves phantom parameters through equality recursion", testRecursivePhantomDataEquality), [recursivePhantomDataEqualityProgram]),
+    (("retains data metadata for published impl targets", testPublishedImplDataMetadata), [publishedImplDataMetadataProgram]),
+    (("validates converging import graphs without path explosion", testDenseImportDag), [denseImportDagProgram 10])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
 reviewRegressionPrograms = concatMap snd reviewRegressionGroups
+
+testAliasedCapabilityLocalClass :: IO ()
+testAliasedCapabilityLocalClass =
+  assertEqual
+    "alias-qualified capabilities do not reserve unqualified local class names"
+    []
+    (validateTypedProgram aliasedCapabilityLocalClassProgram)
+
+testRecursivePhantomDataEquality :: IO ()
+testRecursivePhantomDataEquality =
+  assertEqual
+    "recursive phantom data arguments do not determine structural equality support"
+    []
+    (validateTypedProgram recursivePhantomDataEqualityProgram)
+
+testPublishedImplDataMetadata :: IO ()
+testPublishedImplDataMetadata =
+  assertEqual
+    "published impl targets retain their local data metadata"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureModulePath "review-published-impl-data-metadata"))
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail publishedImplDataName)
+    ]
+    (validateTypedProgram publishedImplDataMetadataProgram)
+
+testDenseImportDag :: IO ()
+testDenseImportDag = do
+  assertEqual
+    "small converging import graph is acyclic"
+    []
+    (validateTypedProgram (denseImportDagProgram 10))
+  result <- timeout 2000000 (evaluate (length (validateTypedProgram (denseImportDagProgram 27))))
+  case result of
+    Nothing -> failTest "large converging import graph exceeded the two-second validation budget"
+    Just failureCount -> assertEqual "large converging import graph failures" 0 failureCount
 
 nestedPathProgram :: TypedProgram
 nestedPathProgram =
@@ -9782,6 +9824,153 @@ multiModuleInterfaceProgram =
         emptyInterface
         [expressionStatement 1 trueExpr]
         boolInfo
+
+aliasedCapabilityLocalClassProgram :: TypedProgram
+aliasedCapabilityLocalClassProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = fixtureLibraryPath "AliasedCapability"
+    entryPath = fixtureModulePath "review-aliased-capability-local-class"
+    parameter = TypedTypeParameterId 0
+    libraryClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+    libraryDeclaration =
+      TypedClassDeclaration span1 libraryClassName [parameter] []
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/AliasedCapability.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Visible"]
+        (TypedModuleInterface [] [] [TypedClassInterface libraryDeclaration] [])
+        [TypedClassStatement libraryDeclaration]
+        unitInfo
+    localClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+    localDeclaration =
+      TypedClassDeclaration span1 localClassName [parameter] []
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath (Just "Library") Nothing]
+        []
+        emptyInterface
+        [TypedClassStatement localDeclaration, expressionStatement 2 trueExpr]
+        boolInfo
+
+recursivePhantomDataEqualityProgram :: TypedProgram
+recursivePhantomDataEqualityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-recursive-phantom-data-equality"
+    modulePath = fixtureModulePath fixture
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Phantom"
+    endName = resolved TypedCurrentModule TypedConstructorNamespace "End"
+    moreName = resolved TypedCurrentModule TypedConstructorNamespace "More"
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    recursiveField = TypedDataType dataName [parameterType]
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameter]
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] endName)
+            endName
+            []
+            [],
+          TypedConstructorDeclaration
+            (binder modulePath [0, 1] moreName)
+            moreName
+            [recursiveField]
+            [TypedManagedVariantRecipe dataName [parameterType]]
+        ]
+    valueName = fixtureValueName "phantomEquality"
+    valueOwner = binder modulePath [1] valueName
+    targetType = TypedDataType dataName [boolToBoolType]
+    scheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint targetType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      [ TypedDataStatement declaration,
+        TypedLetStatement valueOwner valueName span1 scheme trueExpr
+      ]
+
+publishedImplDataName :: TypedCoreName
+publishedImplDataName =
+  resolved TypedCurrentModule TypedTypeNamespace "Hidden"
+
+publishedImplDataMetadataProgram :: TypedProgram
+publishedImplDataMetadataProgram =
+  singleModuleProgram fixture relativeSource exports statements interface boolInfo modulePath
+  where
+    fixture = "review-published-impl-data-metadata"
+    modulePath = fixtureModulePath fixture
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Hidden"
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        publishedImplDataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            []
+            []
+        ]
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Default"
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    implId =
+      TypedImplId
+        modulePath
+        capabilityName
+        [TypedDataType publishedImplDataName []]
+    exports = [TypedModuleExport TypedCapabilityNamespace "Default"]
+    statements =
+      [ TypedDataStatement dataDeclaration,
+        TypedClassStatement capabilityDeclaration,
+        TypedImplStatement (TypedImplDeclaration span1 implId []),
+        expressionStatement 4 trueExpr
+      ]
+    interface =
+      TypedModuleInterface
+        []
+        []
+        [TypedClassInterface capabilityDeclaration]
+        [TypedImplInterface implId]
+
+denseImportDagProgram :: Int -> TypedProgram
+denseImportDagProgram moduleCount =
+  TypedProgram Nothing modules entryPath
+  where
+    modulePath moduleIndex = ["Dense", "M" <> Text.pack (show moduleIndex)]
+    entryPath = modulePath (moduleCount - 1)
+    modules = [denseModule moduleIndex | moduleIndex <- [0 .. moduleCount - 1]]
+    denseModule moduleIndex =
+      typedModule
+        (modulePath moduleIndex)
+        (TypedSourcePath ("src/Dense/M" <> Text.pack (show moduleIndex) <> ".jz"))
+        [ TypedResolvedImport span1 (modulePath importedIndex) Nothing Nothing
+        | importedIndex <- [0 .. moduleIndex - 1]
+        ]
+        []
+        emptyInterface
+        []
+        unitInfo
 
 emptyInterface :: TypedModuleInterface
 emptyInterface = TypedModuleInterface [] [] [] []

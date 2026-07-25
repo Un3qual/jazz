@@ -41,6 +41,7 @@ data ModuleContext = ModuleContext
     moduleContextSchemes :: Map TypedBinderId TypedScheme,
     moduleContextActiveSchemes :: Map ResolvedNameKey TypedScheme,
     moduleContextVisibleNames :: Set ResolvedNameKey,
+    moduleContextSourceVisibleCapabilities :: Set ResolvedNameKey,
     moduleContextVisibleImpls :: Set TypedImplId,
     moduleContextImplMethods :: Map TypedImplId (Set Text),
     moduleContextDataArities :: Map ResolvedNameKey Int,
@@ -125,16 +126,21 @@ importCycleFailures moduleTable modules =
   ]
 
 modulePathReachable :: Map [Text] TypedModule -> Set [Text] -> [Text] -> [Text] -> Bool
-modulePathReachable moduleTable seen currentPath targetPath
-  | currentPath == targetPath = True
-  | Set.member currentPath seen = False
-  | otherwise =
-      case Map.lookup currentPath moduleTable of
-        Nothing -> False
-        Just (TypedModule _ _ imports _ _ _ _) ->
-          any
-            (\(TypedResolvedImport _ nextPath _ _) -> modulePathReachable moduleTable (Set.insert currentPath seen) nextPath targetPath)
-            imports
+modulePathReachable moduleTable initialSeen currentPath targetPath =
+  go initialSeen [currentPath]
+  where
+    go _ [] = False
+    go seen (candidatePath : pendingPaths)
+      | candidatePath == targetPath = True
+      | Set.member candidatePath seen = go seen pendingPaths
+      | otherwise =
+          let nextSeen = Set.insert candidatePath seen
+              nextPaths =
+                case Map.lookup candidatePath moduleTable of
+                  Nothing -> []
+                  Just (TypedModule _ _ imports _ _ _ _) ->
+                    [nextPath | TypedResolvedImport _ nextPath _ _ <- imports]
+           in go nextSeen (nextPaths <> pendingPaths)
 
 moduleOrderFailures :: Map [Text] TypedModule -> [TypedModule] -> [TypedCoreValidationFailure]
 moduleOrderFailures moduleTable = go Set.empty
@@ -189,6 +195,18 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
         ]
     visibleNames =
       Set.fromList (concatMap interfaceNameKeys visibleExternalModules)
+    sourceVisibleCapabilities =
+      Set.fromList
+        [ key
+        | key@(ResolvedNameKey _ TypedCapabilityNamespace _) <-
+            concatMap interfaceNameKeys sourceVisibleExternalModules
+        ]
+    sourceVisibleExternalModules =
+      preludeModules
+        <> [ (importPath, names, importedModule)
+           | TypedResolvedImport _ importPath Nothing names <- imports,
+             importedModule <- maybeToList (Map.lookup importPath moduleTable)
+           ]
     visibleImpls =
       Set.fromList (concatMap interfaceVisibleImplIds visibleExternalModules)
     implMethods =
@@ -226,6 +244,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
           moduleContextSchemes = schemes,
           moduleContextActiveSchemes = activeSchemes,
           moduleContextVisibleNames = visibleNames,
+          moduleContextSourceVisibleCapabilities = sourceVisibleCapabilities,
           moduleContextVisibleImpls = visibleImpls,
           moduleContextImplMethods = implMethods,
           moduleContextDataArities = dataArities,
@@ -1822,19 +1841,72 @@ strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.e
         TypedDataType name arguments ->
           case resolvedNameKey (moduleContextPath context) name of
             Nothing -> False
-            Just dataKey
-              | Set.member dataKey seen -> all (supported seen) arguments
-              | otherwise ->
-                  case Map.lookup dataKey (moduleContextDataContracts context) of
-                    Nothing -> False
-                    Just (DataContract parameters constructorFields)
-                      | length parameters /= length arguments -> False
-                      | otherwise ->
-                          let substitutions = Map.fromList (zip parameters arguments)
-                              nextSeen = Set.insert dataKey seen
-                           in all
-                                (all (supported nextSeen . substituteTypeParameters substitutions))
-                                constructorFields
+            Just dataKey ->
+              case Map.lookup dataKey (moduleContextDataContracts context) of
+                Nothing -> False
+                Just (DataContract parameters constructorFields)
+                  | length parameters /= length arguments -> False
+                  | Set.member dataKey seen ->
+                      all
+                        (supported seen)
+                        [ argument
+                        | (parameter, argument) <- zip parameters arguments,
+                          dataParameterContributesToEquality context Set.empty dataKey parameter
+                        ]
+                  | otherwise ->
+                      let substitutions = Map.fromList (zip parameters arguments)
+                          nextSeen = Set.insert dataKey seen
+                       in all
+                            (all (supported nextSeen . substituteTypeParameters substitutions))
+                            constructorFields
+
+dataParameterContributesToEquality ::
+  ModuleContext ->
+  Set (ResolvedNameKey, TypedTypeParameterId) ->
+  ResolvedNameKey ->
+  TypedTypeParameterId ->
+  Bool
+dataParameterContributesToEquality context seen dataKey parameter
+  | Set.member (dataKey, parameter) seen = False
+  | otherwise =
+      case Map.lookup dataKey (moduleContextDataContracts context) of
+        Nothing -> True
+        Just (DataContract _ constructorFields) ->
+          let nextSeen = Set.insert (dataKey, parameter) seen
+           in any
+                (any (typePositionUsesParameter context nextSeen parameter))
+                constructorFields
+
+typePositionUsesParameter ::
+  ModuleContext ->
+  Set (ResolvedNameKey, TypedTypeParameterId) ->
+  TypedTypeParameterId ->
+  TypedType ->
+  Bool
+typePositionUsesParameter context seen parameter typeValue =
+  case typeValue of
+    TypedListType elementType ->
+      typePositionUsesParameter context seen parameter elementType
+    TypedTupleType elementTypes ->
+      any (typePositionUsesParameter context seen parameter) elementTypes
+    TypedDataType name arguments ->
+      case resolvedNameKey (moduleContextPath context) name of
+        Nothing -> typeMentionsParameter parameter typeValue
+        Just dataKey ->
+          case Map.lookup dataKey (moduleContextDataContracts context) of
+            Just (DataContract dataParameters _)
+              | length dataParameters == length arguments ->
+                  or
+                    [ typeMentionsParameter parameter argument
+                        && dataParameterContributesToEquality context seen dataKey dataParameter
+                    | (dataParameter, argument) <- zip dataParameters arguments
+                    ]
+            _ -> typeMentionsParameter parameter typeValue
+    TypedFunctionType argument result ->
+      typePositionUsesParameter context seen parameter argument
+        || typePositionUsesParameter context seen parameter result
+    TypedTypeParameterType candidate -> candidate == parameter
+    _ -> False
 
 validateNumericConstraintTarget :: TypedCoreValidationPath -> TypedNumericConstraint -> TypedType -> [TypedCoreValidationFailure]
 validateNumericConstraintTarget path numericConstraint typeValue
@@ -2014,7 +2086,7 @@ visibleClassCollisionFailures :: ModuleContext -> TypedCoreValidationPath -> Typ
 visibleClassCollisionFailures context path name =
   case localCapabilityIdentifier of
     Just identifier
-      | any (externalCapabilityMatches identifier) (Set.toList (moduleContextVisibleNames context)) ->
+      | any (externalCapabilityMatches identifier) (Set.toList (moduleContextSourceVisibleCapabilities context)) ->
           [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
     _ -> []
   where
@@ -4167,7 +4239,14 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       | retainedClassInterfaceMatches declaration = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateImplInterface (TypedImplInterface implId)
-      | implId `elem` declaredImpls || Set.member implId externalVisibleImpls = []
+      | implId `elem` declaredImpls =
+          [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
+          | dependencyName <-
+              nub
+                (concatMap (localDataDependencies modulePath) (implTargetTypes implId)),
+            not (any (dataInterfaceMatches dependencyName) datas)
+          ]
+      | Set.member implId externalVisibleImpls = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
     retainedClassInterfaceMatches declaration =
       case capabilityEntry modulePath declaration of
