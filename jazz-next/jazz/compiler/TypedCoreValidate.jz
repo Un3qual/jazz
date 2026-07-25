@@ -536,6 +536,15 @@ module TypedCoreValidate (
             if first == '_' then validIdentifierContinuation rest else False
       }.
 
+  validSpan :: TypedSpan -> Bool.
+  validSpan = \(span) -> case span {
+    | TypedSpan line column -> if line > 0 then column > 0 else False
+  }.
+
+  validateSpan :: TypedCoreValidationPath -> TypedSpan -> [TypedCoreValidationFailure].
+  validateSpan = \(path, span) ->
+    if validSpan span then [] else [failure path TypedInvalidSpan TypedNoValidationDetail].
+
   validResolvedIdentifierSegments :: [Text] -> Bool.
   validResolvedIdentifierSegments = \(segments) -> case segments {
     | [] -> False
@@ -1992,15 +2001,20 @@ module TypedCoreValidate (
 
   validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedInstantiation -> [TypedCoreValidationFailure].
   validateInstantiation = \(context, path, scope, instantiation) -> case (context, instantiation) {
-    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedInstantiation owner arguments explicitSpan) -> case lookupInstantiationContract owner schemes dataEntries {
-      | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-      | Just contract -> case contract {
-        | InstantiationContract contractOwner parameters primitive -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then listAppend
-          (validateTypeArguments context path scope arguments)
-          (validateInstantiatedPrimitiveConstraints context path scope modulePath contractOwner (typeArgumentSubstitutions arguments) primitive)
-        else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-      }
-    }
+    | (ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope, TypedInstantiation owner arguments explicitSpan) -> listAppend
+      (case explicitSpan {
+        | Nothing -> []
+        | Just span -> validateSpan path span
+      })
+      (case lookupInstantiationContract owner schemes dataEntries {
+        | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+        | Just contract -> case contract {
+          | InstantiationContract contractOwner parameters primitive -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then listAppend
+            (validateTypeArguments context path scope arguments)
+            (validateInstantiatedPrimitiveConstraints context path scope modulePath contractOwner (typeArgumentSubstitutions arguments) primitive)
+          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+        }
+      })
   }.
 
   validateInstantiations :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedInstantiation] -> [TypedCoreValidationFailure].
@@ -3475,7 +3489,8 @@ module TypedCoreValidate (
     | TypedApplyExpr info function argument -> validateApplication path info function argument
     | TypedTypeApplicationExpr info function span typeArgument -> case context {
       | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> listConcat
-        [ validateType path typeScope typeArgument,
+        [ validateSpan path span,
+          validateType path typeScope typeArgument,
           validateDataTypeApplications context path typeArgument,
           validateSourceDataTypeApplications context path typeArgument,
           validateExplicitTypeApplication context path info function span typeArgument
@@ -4797,7 +4812,8 @@ module TypedCoreValidate (
   validateDataDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedDataDeclaration -> [TypedCoreValidationFailure].
   validateDataDeclaration = \(context, path, declaration) -> case declaration {
     | TypedDataDeclaration span name parameters constructors -> listConcat
-      [ validateLocalDefinitionName context [TypedTypeNamespace] path name,
+      [ validateSpan path span,
+        validateLocalDefinitionName context [TypedTypeNamespace] path name,
         validateOrderedTypeParameters path parameters,
         if listLength constructors == 0 then [failure path TypedDataRecipeMismatch (TypedArityDetail 1 0)] else [],
         validateConstructorDeclarations context path parameters constructors
@@ -4865,7 +4881,8 @@ module TypedCoreValidate (
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
       | TypedScheme binder parameters evidence primitive resultType resultRecipe -> listConcat
-        [ validateLocalDefinitionName context [TypedValueNamespace] path name,
+        [ validateSpan path span,
+          validateLocalDefinitionName context [TypedValueNamespace] path name,
           validateBinderDefinition context path binder name,
           if listLength parameters + listLength evidence + listLength primitive == 0 then [] else [failure path TypedBindingValueMismatch (TypedArityDetail 0 (listLength parameters + listLength evidence + listLength primitive))],
           validateSchemeWithOuterScope context path binder outerScope scheme,
@@ -4902,7 +4919,8 @@ module TypedCoreValidate (
   validateClassDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedClassDeclaration -> [TypedCoreValidationFailure].
   validateClassDeclaration = \(context, path, declaration) -> case declaration {
     | TypedClassDeclaration span name parameters methods -> listConcat
-      [ validateLocalDefinitionName context [TypedCapabilityNamespace] path name,
+      [ validateSpan path span,
+        validateLocalDefinitionName context [TypedCapabilityNamespace] path name,
         visibleClassCollisionFailures context path name,
         if listLength parameters == 1 then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 (listLength parameters))],
         validateOrderedTypeParameters path parameters,
@@ -4962,7 +4980,8 @@ module TypedCoreValidate (
   validateMethodDefinitions = \(context, statementIndex, path, enclosingImpl, methods, methodIndex) -> case methods {
     | [] -> []
     | [TypedMethodDefinition methodId binder name span expression | rest] -> listConcat
-      [ validateMethodId context path [] methodId,
+      [ validateSpan path span,
+        validateMethodId context path [] methodId,
         case methodId {
           | TypedMethodId methodImpl methodName -> listAppend
             (if implIdEqual methodImpl enclosingImpl then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImpl)])
@@ -5036,7 +5055,8 @@ module TypedCoreValidate (
   validateImplDeclaration = \(context, statementIndex, path, declaration) -> case context {
     | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> case declaration {
       | TypedImplDeclaration span implId methods -> listConcat
-        [ if textListEqual (implModulePath implId) modulePath then [] else [failure path TypedInvisibleImpl (TypedImplDetail implId)],
+        [ validateSpan path span,
+          if textListEqual (implModulePath implId) modulePath then [] else [failure path TypedInvisibleImpl (TypedImplDetail implId)],
           validateImplId context path [] implId,
           validateImplDataTypes context path implId,
           listConcat (listMap (\(targetType) -> validateSourceDataTypeApplications context path targetType) (implTargetTypes implId)),
@@ -5061,18 +5081,19 @@ module TypedCoreValidate (
       path = TypedStatementPath modulePath statementIndex.
       case statement {
         | TypedLetStatement binder name span scheme expression -> listConcat
-          [ validateLocalDefinitionName context [TypedValueNamespace] path name,
+          [ validateSpan path span,
+            validateLocalDefinitionName context [TypedValueNamespace] path name,
             validateBinderDefinition context path binder name,
             validateSchemeWithOuterScope context path binder typeScope scheme,
             validateSchemeDataTypes context path scheme,
             validateBindingValue path scheme (expressionInfo expression),
             validateExpression (withSchemeScope scheme context) statementIndex [0] expression
           ]
-        | TypedSignatureStatement binder name span scheme -> listConcat [validateLocalDefinitionName context [TypedValueNamespace] path name, validateBinderDefinition context path binder name, validateSchemeWithOuterScope context path binder typeScope scheme, validateSchemeDataTypes context path scheme, validateSourceSchemeDataTypes context path scheme]
+        | TypedSignatureStatement binder name span scheme -> listConcat [validateSpan path span, validateLocalDefinitionName context [TypedValueNamespace] path name, validateBinderDefinition context path binder name, validateSchemeWithOuterScope context path binder typeScope scheme, validateSchemeDataTypes context path scheme, validateSourceSchemeDataTypes context path scheme]
         | TypedDataStatement declaration -> validateDataDeclaration context path declaration
         | TypedClassStatement declaration -> validateClassDeclaration context path declaration
         | TypedImplStatement declaration -> validateImplDeclaration context statementIndex path declaration
-        | TypedExpressionStatement span expression -> validateExpression context statementIndex [0] expression
+        | TypedExpressionStatement span expression -> listAppend (validateSpan path span) (validateExpression context statementIndex [0] expression)
       }.
     }
   }.
@@ -5515,12 +5536,37 @@ module TypedCoreValidate (
     }
   }.
 
+  moduleExportEqual :: TypedModuleExport -> TypedModuleExport -> Bool.
+  moduleExportEqual = \(left, right) -> case (left, right) {
+    | (TypedModuleExport leftNamespace leftName, TypedModuleExport rightNamespace rightName) ->
+      if nameNamespaceEqual leftNamespace rightNamespace then leftName == rightName else False
+  }.
+
+  moduleExportMember :: TypedModuleExport -> [TypedModuleExport] -> Bool.
+  moduleExportMember = \(candidate, exports) -> case exports {
+    | [] -> False
+    | [first | rest] -> if moduleExportEqual candidate first then True else moduleExportMember candidate rest
+  }.
+
+  duplicateModuleExportFailuresFrom :: TypedCoreValidationPath -> [TypedModuleExport] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
+  duplicateModuleExportFailuresFrom = \(path, exports, seen) -> case exports {
+    | [] -> []
+    | [export | rest] -> case export {
+      | TypedModuleExport namespace name -> listAppend
+        (if moduleExportMember export seen then
+          [failure path TypedDuplicateDeclaration (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
+        else [])
+        (duplicateModuleExportFailuresFrom path rest (if moduleExportMember export seen then seen else listPrepend export seen))
+    }
+  }.
+
   validateModuleInterface :: [Text] -> [DataEntry] -> [TypedImplId] -> [NameEntry] -> TypedModuleInterface -> [TypedStatement] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
   validateModuleInterface = \(modulePath, externalDataEntries, externalImpls, externalNames, interface, statements, exports) -> case interface {
     | TypedModuleInterface values datas classes impls -> {
       path = TypedInterfacePath modulePath.
       listConcat
-        [ validateValueInterfaces path modulePath statements externalDataEntries externalNames exports datas classes values,
+        [ duplicateModuleExportFailuresFrom path exports [],
+          validateValueInterfaces path modulePath statements externalDataEntries externalNames exports datas classes values,
           validateDataInterfaces path statements datas datas,
           validateClassInterfaces path modulePath statements externalDataEntries externalNames datas classes classes,
           validateImplInterfaces path statements externalImpls impls,
@@ -5709,15 +5755,25 @@ module TypedCoreValidate (
   validateResolvedImports :: [TypedModule] -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure].
   validateResolvedImports = \(completeModules, currentModulePath, imports) -> case imports {
     | [] -> []
-    | [TypedResolvedImport span importPath alias names | rest] -> listAppend
-      (case findModule importPath completeModules {
-        | Nothing -> [failure (TypedModulePath currentModulePath) TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
-        | Just moduleValue -> case names {
-          | Nothing -> []
-          | Just selectedNames -> validateSelectedImportNames currentModulePath moduleValue selectedNames
-        }
-      })
-      (validateResolvedImports completeModules currentModulePath rest)
+    | [TypedResolvedImport span importPath alias names | rest] -> {
+      path = TypedModulePath currentModulePath.
+      listConcat
+        [ validateSpan path span,
+          case alias {
+            | Nothing -> []
+            | Just aliasName ->
+              if validSourceIdentifier aliasName then [] else [failure path TypedUnresolvedName (TypedTextDetail aliasName)]
+          },
+          case findModule importPath completeModules {
+            | Nothing -> [failure path TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
+            | Just moduleValue -> case names {
+              | Nothing -> []
+              | Just selectedNames -> validateSelectedImportNames currentModulePath moduleValue selectedNames
+            }
+          },
+          validateResolvedImports completeModules currentModulePath rest
+        ].
+    }
   }.
 
   selectedNameAllowed :: Maybe([Text]) -> TypedCoreName -> Bool.

@@ -544,6 +544,7 @@ validationKindName kind =
   case kind of
     TypedUnresolvedName -> "TypedUnresolvedName"
     TypedInvalidSourcePath -> "TypedInvalidSourcePath"
+    TypedInvalidSpan -> "TypedInvalidSpan"
     TypedDuplicateModule -> "TypedDuplicateModule"
     TypedUnknownEntryModule -> "TypedUnknownEntryModule"
     TypedDuplicateBinder -> "TypedDuplicateBinder"
@@ -665,6 +666,7 @@ decodeValidationKind value = do
     case name of
       "TypedUnresolvedName" -> Right TypedUnresolvedName
       "TypedInvalidSourcePath" -> Right TypedInvalidSourcePath
+      "TypedInvalidSpan" -> Right TypedInvalidSpan
       "TypedDuplicateModule" -> Right TypedDuplicateModule
       "TypedUnknownEntryModule" -> Right TypedUnknownEntryModule
       "TypedDuplicateBinder" -> Right TypedDuplicateBinder

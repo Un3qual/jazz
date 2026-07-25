@@ -277,22 +277,30 @@ validateResolvedImports :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImp
 validateResolvedImports moduleTable modulePath imports =
   concatMap validateImport imports
   where
-    validateImport (TypedResolvedImport _ importPath _ selectedNames) =
-      case Map.lookup importPath moduleTable of
-        Nothing ->
-          [ failure
-              (TypedModulePath modulePath)
-              TypedModuleInterfaceMismatch
-              (TypedTextDetail (renderModulePath importPath))
-          ]
-        Just importedModule ->
-          [ failure
-              (TypedModulePath modulePath)
-              TypedModuleInterfaceMismatch
-              (TypedTextDetail selectedName)
-          | selectedName <- maybe [] id selectedNames,
-            not (moduleExportsImportSelectorName selectedName importedModule)
-          ]
+    validateImport (TypedResolvedImport spanValue importPath alias selectedNames) =
+      validateSpan path spanValue
+        <> maybe [] validateAlias alias
+        <> case Map.lookup importPath moduleTable of
+          Nothing ->
+            [ failure
+                path
+                TypedModuleInterfaceMismatch
+                (TypedTextDetail (renderModulePath importPath))
+            ]
+          Just importedModule ->
+            [ failure
+                path
+                TypedModuleInterfaceMismatch
+                (TypedTextDetail selectedName)
+            | selectedName <- maybe [] id selectedNames,
+              not (moduleExportsImportSelectorName selectedName importedModule)
+            ]
+      where
+        path = TypedModulePath modulePath
+        validateAlias aliasName
+          | validSourceIdentifier aliasName = []
+          | otherwise =
+              [failure path TypedUnresolvedName (TypedTextDetail aliasName)]
 
 importBindingCollisionFailures :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 importBindingCollisionFailures moduleTable modulePath imports =
@@ -430,6 +438,11 @@ validateSourcePath modulePath (TypedSourcePath sourcePath)
           TypedInvalidSourcePath
           (TypedTextDetail sourcePath)
       ]
+
+validateSpan :: TypedCoreValidationPath -> TypedSpan -> [TypedCoreValidationFailure]
+validateSpan path (TypedSpan line column)
+  | line > 0 && column > 0 = []
+  | otherwise = [failure path TypedInvalidSpan TypedNoValidationDetail]
 
 validRelativeSourcePath :: Text -> Bool
 validRelativeSourcePath sourcePath =
@@ -1559,21 +1572,25 @@ statementIndexFor context statementLocation =
 validateStatement :: ModuleContext -> [Int] -> TypedStatement -> [TypedCoreValidationFailure]
 validateStatement context statementLocation statement =
   case statement of
-    TypedLetStatement binderId name _ scheme expression ->
-      validateLocalDefinitionName context [TypedValueNamespace] statementPath name
+    TypedLetStatement binderId name spanValue scheme expression ->
+      validateSpan statementPath spanValue
+        <> validateLocalDefinitionName context [TypedValueNamespace] statementPath name
         <> validateBinderDefinition context statementPath binderId name
         <> validateScheme context statementPath binderId scheme
         <> validateBindingValue statementPath scheme (expressionInfo expression)
         <> validateExpression (withSchemeScope scheme context) statementLocation [0] expression
-    TypedSignatureStatement binderId name _ scheme ->
-      validateLocalDefinitionName context [TypedValueNamespace] statementPath name
+    TypedSignatureStatement binderId name spanValue scheme ->
+      validateSpan statementPath spanValue
+        <> validateLocalDefinitionName context [TypedValueNamespace] statementPath name
         <> validateBinderDefinition context statementPath binderId name
         <> validateScheme context statementPath binderId scheme
         <> validateSourceSchemeDataTypes context statementPath scheme
     TypedDataStatement declaration -> validateDataDeclaration context statementPath declaration
     TypedClassStatement declaration -> validateClassDeclaration context statementPath declaration
     TypedImplStatement declaration -> validateImplDeclaration context statementLocation statementPath declaration
-    TypedExpressionStatement _ expression -> validateExpression context statementLocation [0] expression
+    TypedExpressionStatement spanValue expression ->
+      validateSpan statementPath spanValue
+        <> validateExpression context statementLocation [0] expression
   where
     statementIndex = statementIndexFor context statementLocation
     statementPath = TypedStatementPath (moduleContextPath context) statementIndex
@@ -1898,8 +1915,9 @@ validateCapabilityConstraintTarget :: TypedCoreValidationPath -> Set TypedTypePa
 validateCapabilityConstraintTarget path scope = validateType path scope
 
 validateDataDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedDataDeclaration -> [TypedCoreValidationFailure]
-validateDataDeclaration context path (TypedDataDeclaration _ name parameters constructors) =
-  validateLocalDefinitionName context [TypedTypeNamespace] path name
+validateDataDeclaration context path (TypedDataDeclaration spanValue name parameters constructors) =
+  validateSpan path spanValue
+    <> validateLocalDefinitionName context [TypedTypeNamespace] path name
     <> validateOrderedTypeParameters path parameters
     <> (if null constructors then [failure path TypedDataRecipeMismatch (TypedArityDetail 1 0)] else [])
     <> concatMap validateConstructor constructors
@@ -1925,15 +1943,17 @@ validateDataDeclaration context path (TypedDataDeclaration _ name parameters con
         _ -> []
 
 validateClassDeclaration :: ModuleContext -> TypedCoreValidationPath -> TypedClassDeclaration -> [TypedCoreValidationFailure]
-validateClassDeclaration context path (TypedClassDeclaration _ name parameters methods) =
-  validateLocalDefinitionName context [TypedCapabilityNamespace] path name
+validateClassDeclaration context path (TypedClassDeclaration spanValue name parameters methods) =
+  validateSpan path spanValue
+    <> validateLocalDefinitionName context [TypedCapabilityNamespace] path name
     <> visibleClassCollisionFailures context path name
     <> (if length parameters == 1 then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 (length parameters))])
     <> validateOrderedTypeParameters path parameters
     <> concatMap validateMethod methods
   where
-    validateMethod (TypedMethodSignature methodName _ scheme@(TypedScheme binderId methodParameters evidenceParameters primitiveConstraints _ _)) =
-      validateLocalDefinitionName context [TypedValueNamespace] path methodName
+    validateMethod (TypedMethodSignature methodName methodSpan scheme@(TypedScheme binderId methodParameters evidenceParameters primitiveConstraints _ _)) =
+      validateSpan path methodSpan
+        <> validateLocalDefinitionName context [TypedValueNamespace] path methodName
         <> validateBinderDefinition context path binderId methodName
         <> classMethodSchemeShapeFailures methodParameters evidenceParameters primitiveConstraints
         <> validateSchemeWithOuterScope context path binderId (Set.fromList parameters) scheme
@@ -1965,8 +1985,9 @@ visibleClassCollisionFailures context path name =
         _ -> False
 
 validateImplDeclaration :: ModuleContext -> [Int] -> TypedCoreValidationPath -> TypedImplDeclaration -> [TypedCoreValidationFailure]
-validateImplDeclaration context statementLocation path (TypedImplDeclaration _ implId methods) =
-  implOwnerFailures
+validateImplDeclaration context statementLocation path (TypedImplDeclaration spanValue implId methods) =
+  validateSpan path spanValue
+    <> implOwnerFailures
     <> validateImplId context path Set.empty implId
     <> concatMap (validateDataTypeApplications context path) (implTargetTypes implId)
     <> concatMap (validateSourceDataTypeApplications context path) (implTargetTypes implId)
@@ -1977,8 +1998,9 @@ validateImplDeclaration context statementLocation path (TypedImplDeclaration _ i
     implOwnerFailures
       | implModulePath implId == moduleContextPath context = []
       | otherwise = [failure path TypedInvisibleImpl (TypedImplDetail implId)]
-    validateMethod methodIndex (TypedMethodDefinition methodId@(TypedMethodId methodImplId methodKey) binderId name _ expression) =
-      validateMethodId context path Set.empty methodId
+    validateMethod methodIndex (TypedMethodDefinition methodId@(TypedMethodId methodImplId methodKey) binderId name methodSpan expression) =
+      validateSpan path methodSpan
+        <> validateMethodId context path Set.empty methodId
         <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
         <> validateLocalDefinitionName context [TypedValueNamespace] path name
         <> validateBinderDefinition context path binderId name
@@ -2093,7 +2115,8 @@ validateExpressionWithParentSpan context statementLocation expressionPath parent
           TypedTupleExpr info expressions -> validateTupleShape path info expressions
           TypedApplyExpr info function argument -> validateApplication path info function argument
           TypedTypeApplicationExpr info function explicitSpan typeArgument ->
-            validateType path (moduleContextTypeScope context) typeArgument
+            validateSpan path explicitSpan
+              <> validateType path (moduleContextTypeScope context) typeArgument
               <> validateDataTypeApplications context path typeArgument
               <> validateSourceDataTypeApplications context path typeArgument
               <> validateExplicitTypeApplication context path info function explicitSpan typeArgument
@@ -3175,19 +3198,20 @@ validateSourceDataTypeApplications context path typeValue =
     _ -> []
 
 validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedInstantiation -> [TypedCoreValidationFailure]
-validateInstantiation context path parameterScope (TypedInstantiation owner arguments _) =
-  case lookupInstantiationContract context owner of
-    Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-    Just (InstantiationContract contractOwner parameters primitiveConstraints) ->
-      if map typeArgumentParameter arguments == parameters
-        then
-          concatMap
-            (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
-            arguments
-            <> concatMap
-              (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
-              primitiveConstraints
-        else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+validateInstantiation context path parameterScope (TypedInstantiation owner arguments maybeSpan) =
+  maybe [] (validateSpan path) maybeSpan
+    <> case lookupInstantiationContract context owner of
+      Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+      Just (InstantiationContract contractOwner parameters primitiveConstraints) ->
+        if map typeArgumentParameter arguments == parameters
+          then
+            concatMap
+              (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
+              arguments
+              <> concatMap
+                (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
+                primitiveConstraints
+          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
   where
     substitutions =
       Map.fromList
@@ -4039,7 +4063,8 @@ validateRetainedCapabilityName context path name =
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
-  concatMap validateValueInterface values
+  duplicateExportFailures
+    <> concatMap validateValueInterface values
     <> concatMap validateDataInterface datas
     <> concatMap validateClassInterface classes
     <> concatMap validateImplInterface impls
@@ -4118,6 +4143,21 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       ]
     classInterfaceMatchesImpl (TypedImplId _ capability _) (TypedClassInterface (TypedClassDeclaration _ name _ _)) =
       resolvedNameKey modulePath name == resolvedNameKey modulePath capability
+    duplicateExportFailures =
+      snd (foldl' checkExport (Set.empty, []) exports)
+    checkExport (seen, failures) export@(TypedModuleExport namespace exportedName)
+      | Set.member export seen =
+          ( seen,
+            failures
+              <> [ failure
+                     path
+                     TypedDuplicateDeclaration
+                     ( TypedNameDetail
+                         (TypedResolvedName TypedCurrentModule namespace exportedName)
+                     )
+                 ]
+          )
+      | otherwise = (Set.insert export seen, failures)
     validateValueInterfaceDependencies scheme =
       [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
       | dependencyName <- nub (schemeLocalDataDependencies scheme),

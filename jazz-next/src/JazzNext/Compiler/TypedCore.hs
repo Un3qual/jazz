@@ -299,6 +299,7 @@ data TypedCoreValidationPath
 data TypedCoreValidationKind
   = TypedUnresolvedName
   | TypedInvalidSourcePath
+  | TypedInvalidSpan
   | TypedDuplicateModule
   | TypedUnknownEntryModule
   | TypedDuplicateBinder

@@ -157,6 +157,9 @@ tests =
     ("keeps retained class methods out of explicit exports", testRetainedClassMethodExport),
     ("rejects malformed resolved-name payloads", testMalformedResolvedIdentifiers),
     ("normalizes duplicate Prelude impl identities", testNormalizedPreludeImplDuplicates),
+    ("rejects malformed import aliases", testMalformedImportAlias),
+    ("rejects duplicate module exports", testDuplicateModuleExports),
+    ("rejects non-positive source spans", testInvalidSourceSpans),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -570,7 +573,13 @@ reviewRegressionPrograms =
     regularPreludeModuleProgram,
     retainedClassMethodExportProgram,
     malformedResolvedIdentifiersProgram,
-    normalizedPreludeImplDuplicatesProgram
+    normalizedPreludeImplDuplicatesProgram,
+    malformedImportAliasProgram,
+    duplicateModuleExportsProgram,
+    invalidImportSpanProgram,
+    invalidStatementSpansProgram,
+    invalidDeclarationSpansProgram,
+    invalidExpressionSpansProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2807,6 +2816,63 @@ testNormalizedPreludeImplDuplicates =
     ]
     (validateTypedProgram normalizedPreludeImplDuplicatesProgram)
 
+testMalformedImportAlias :: IO ()
+testMalformedImportAlias =
+  assertEqual
+    "import aliases obey source identifier rules"
+    [ moduleFailure
+        "review-malformed-import-alias"
+        TypedUnresolvedName
+        (TypedTextDetail "True")
+    ]
+    (validateTypedProgram malformedImportAliasProgram)
+
+testDuplicateModuleExports :: IO ()
+testDuplicateModuleExports =
+  assertEqual
+    "module exports are unique within each namespace"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath ["Fixture", "review-duplicate-module-exports"])
+        TypedDuplicateDeclaration
+        ( TypedNameDetail
+            (resolved TypedCurrentModule TypedValueNamespace "answer")
+        )
+    ]
+    (validateTypedProgram duplicateModuleExportsProgram)
+
+testInvalidSourceSpans :: IO ()
+testInvalidSourceSpans = do
+  assertEqual
+    "all retained source spans use positive one-based coordinates"
+    expectedPaths
+    (map validationPaths invalidSourceSpanPrograms)
+  assertEqual
+    "invalid spans use the dedicated validation kind"
+    (map (map (const TypedInvalidSpan)) expectedPaths)
+    (map validationKinds invalidSourceSpanPrograms)
+  where
+    invalidSourceSpanPrograms =
+      [ invalidImportSpanProgram,
+        invalidStatementSpansProgram,
+        invalidDeclarationSpansProgram,
+        invalidExpressionSpansProgram
+      ]
+    expectedPaths =
+      [ [TypedModulePath ["Fixture", "review-invalid-import-span"]],
+        map
+          (TypedStatementPath ["Fixture", "review-invalid-statement-spans"])
+          [0, 1, 2],
+        concatMap
+          (replicate 3 . TypedStatementPath ["Prelude"])
+          [0 .. 4],
+        [ TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0],
+          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0],
+          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] 1 [0, 0]
+        ]
+      ]
+    validationPaths program =
+      [path | TypedCoreValidationFailure path _ _ <- validateTypedProgram program]
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
@@ -3604,6 +3670,142 @@ normalizedPreludeImplDuplicatesProgram =
             (TypedImplDeclaration span1 normalizedPreludeAmbientImpl [])
         ]
         unitInfo
+
+malformedImportAliasProgram :: TypedProgram
+malformedImportAliasProgram =
+  TypedProgram Nothing [dependencyModule, entryModule] entryPath
+  where
+    dependencyPath = ["Alias", "Dependency"]
+    entryPath = ["Fixture", "review-malformed-import-alias"]
+    dependencyModule =
+      typedModule
+        dependencyPath
+        (TypedSourcePath "src/Alias/Dependency.jz")
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 dependencyPath (Just "True") Nothing]
+        []
+        emptyInterface
+        []
+        unitInfo
+
+duplicateModuleExportsProgram :: TypedProgram
+duplicateModuleExportsProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    [ duplicateExport,
+      duplicateExport
+    ]
+    [TypedLetStatement owner name span1 scheme trueExpr]
+    (TypedModuleInterface [TypedValueInterface name scheme] [] [] [])
+    unitInfo
+    modulePath
+  where
+    fixture = "review-duplicate-module-exports"
+    modulePath = ["Fixture", fixture]
+    name = resolved TypedCurrentModule TypedValueNamespace "answer"
+    owner = binder modulePath [0] name
+    scheme = monoScheme owner
+    duplicateExport = TypedModuleExport TypedValueNamespace "answer"
+
+invalidSpan :: TypedSpan
+invalidSpan = TypedSpan 0 (-1)
+
+invalidImportSpanProgram :: TypedProgram
+invalidImportSpanProgram =
+  TypedProgram Nothing [dependencyModule, entryModule] entryPath
+  where
+    dependencyPath = ["Span", "Dependency"]
+    entryPath = ["Fixture", "review-invalid-import-span"]
+    dependencyModule =
+      typedModule
+        dependencyPath
+        (TypedSourcePath "src/Span/Dependency.jz")
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport invalidSpan dependencyPath Nothing Nothing]
+        []
+        emptyInterface
+        []
+        unitInfo
+
+invalidStatementSpansProgram :: TypedProgram
+invalidStatementSpansProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-invalid-statement-spans"
+    modulePath = ["Fixture", fixture]
+    name = resolved TypedCurrentModule TypedValueNamespace "answer"
+    signatureOwner = binder modulePath [0] name
+    bindingOwner = binder modulePath [1] name
+    signatureScheme = monoScheme signatureOwner
+    bindingScheme = monoScheme bindingOwner
+    statements =
+      [ TypedSignatureStatement signatureOwner name invalidSpan signatureScheme,
+        TypedLetStatement bindingOwner name invalidSpan bindingScheme trueExpr,
+        TypedExpressionStatement invalidSpan trueExpr
+      ]
+
+invalidDeclarationSpansProgram :: TypedProgram
+invalidDeclarationSpansProgram =
+  TypedProgram (Just invalidPrelude) [] ["Prelude"]
+  where
+    invalidPrelude =
+      case fixturePrelude of
+        TypedModule modulePath sourcePath imports exports interface statements moduleInfo ->
+          TypedModule
+            modulePath
+            sourcePath
+            imports
+            exports
+            (invalidateInterface interface)
+            (map invalidateStatement statements)
+            moduleInfo
+    invalidateInterface (TypedModuleInterface values datas classes impls) =
+      TypedModuleInterface
+        values
+        datas
+        [TypedClassInterface (invalidateClass declaration) | TypedClassInterface declaration <- classes]
+        impls
+    invalidateStatement statement =
+      case statement of
+        TypedClassStatement declaration ->
+          TypedClassStatement (invalidateClass declaration)
+        TypedImplStatement declaration ->
+          TypedImplStatement (invalidateImpl declaration)
+        other -> other
+    invalidateClass (TypedClassDeclaration _ name parameters methods) =
+      TypedClassDeclaration
+        invalidSpan
+        name
+        parameters
+        [TypedMethodSignature methodName invalidSpan scheme | TypedMethodSignature methodName _ scheme <- methods]
+    invalidateImpl (TypedImplDeclaration _ implId methods) =
+      TypedImplDeclaration
+        invalidSpan
+        implId
+        [ TypedMethodDefinition methodId owner name invalidSpan expression
+        | TypedMethodDefinition methodId owner name _ expression <- methods
+        ]
+
+invalidExpressionSpansProgram :: TypedProgram
+invalidExpressionSpansProgram =
+  instantiationProgram "review-invalid-expression-spans" (Just invalidSpan)
 
 resolvedModuleOrderImporterPath :: [Text]
 resolvedModuleOrderImporterPath =
@@ -5207,7 +5409,7 @@ moduleQualifiedMethodKeyProgram =
         []
         []
         emptyInterface
-        [expressionStatement 0 expression]
+        [expressionStatement 1 expression]
         (expressionInfoForFixture expression)
 
 importedDataDependencyProgram :: TypedProgram
