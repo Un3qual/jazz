@@ -1176,9 +1176,16 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
                 case drop (blockIndex + 1) locatedStatements of
                   (_, candidate) : _ -> Just candidate
                   [] -> Nothing
+              statementFailures =
+                validateStatement statementContext statementLocation statement
               attachedSignatureFailures =
-                validateAttachedSignature initialContext statementLocation statement nextStatement
-           in (failures <> attachedSignatureFailures <> validateStatement statementContext statementLocation statement, nextContext)
+                validateAttachedSignature
+                  initialContext
+                  statementLocation
+                  statement
+                  nextStatement
+                  (null statementFailures)
+           in (failures <> attachedSignatureFailures <> statementFailures, nextContext)
 
 blockStatementScopeFailure :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure
 blockStatementScopeFailure context statementLocation statement =
@@ -1549,8 +1556,8 @@ validateStatement context statementLocation statement =
   where
     statementPath = TypedStatementPath (moduleContextPath context) statementLocation
 
-validateAttachedSignature :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedStatement -> [TypedCoreValidationFailure]
-validateAttachedSignature context statementLocation statement maybeNextStatement =
+validateAttachedSignature :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedStatement -> Bool -> [TypedCoreValidationFailure]
+validateAttachedSignature context statementLocation statement maybeNextStatement statementIsValid =
   case (statement, maybeNextStatement) of
     ( TypedSignatureStatement _ signatureName _ signatureScheme,
       Just (TypedLetStatement _ bindingName _ bindingScheme _)
@@ -1561,7 +1568,7 @@ validateAttachedSignature context statementLocation statement maybeNextStatement
               signatureScheme
               bindingScheme
     (TypedSignatureStatement _ signatureName _ _, _)
-      | null (validateStatement context statementLocation statement) ->
+      | statementIsValid ->
           [ failure
               (TypedStatementPath (moduleContextPath context) statementLocation)
               TypedBindingValueMismatch

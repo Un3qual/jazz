@@ -1333,9 +1333,6 @@ module TypedCoreValidate (
     }
   }.
 
-  validateScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure].
-  validateScheme = \(context, path, owner, scheme) -> validateSchemeWithOuterScope context path owner [] scheme.
-
   implModulePath :: TypedImplId -> [Text].
   implModulePath = \(implId) -> case implId {
     | TypedImplId modulePath capability arguments -> modulePath
@@ -1958,11 +1955,6 @@ module TypedCoreValidate (
         validateDataTypeApplications context path typeValue,
         validateTypeArguments context path scope rest
       ]
-  }.
-
-  schemeTypeParameters :: TypedScheme -> [TypedTypeParameterId].
-  schemeTypeParameters = \(scheme) -> case scheme {
-    | TypedScheme owner typeParameters evidence primitive resultType resultRecipe -> typeParameters
   }.
 
   lookupInstantiationContract :: TypedBinderId -> [SchemeEntry] -> [DataEntry] -> Maybe(InstantiationContract).
@@ -4148,13 +4140,13 @@ module TypedCoreValidate (
         []
   }.
 
-  validateAttachedSignature :: ModuleContext -> [Int] -> TypedCoreValidationPath -> TypedStatement -> [TypedStatement] -> [TypedCoreValidationFailure].
-  validateAttachedSignature = \(context, statementIndex, path, statement, remainingStatements) -> case (statement, remainingStatements) {
+  validateAttachedSignature :: TypedCoreValidationPath -> TypedStatement -> [TypedStatement] -> Bool -> [TypedCoreValidationFailure].
+  validateAttachedSignature = \(path, statement, remainingStatements, statementIsValid) -> case (statement, remainingStatements) {
     | (TypedSignatureStatement signatureBinder signatureName signatureSpan signatureScheme, [TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression | rest]) ->
       if coreNameEqual signatureName bindingName then validateSignatureBindingScheme path signatureScheme bindingScheme else
-        if listLength (validateStatement context statementIndex statement) == 0 then [failure path TypedBindingValueMismatch (TypedNameDetail signatureName)] else []
+        if statementIsValid then [failure path TypedBindingValueMismatch (TypedNameDetail signatureName)] else []
     | (TypedSignatureStatement signatureBinder signatureName signatureSpan signatureScheme, other) ->
-      if listLength (validateStatement context statementIndex statement) == 0 then [failure path TypedBindingValueMismatch (TypedNameDetail signatureName)] else []
+      if statementIsValid then [failure path TypedBindingValueMismatch (TypedNameDetail signatureName)] else []
     | other -> []
   }.
 
@@ -4199,9 +4191,10 @@ module TypedCoreValidate (
             | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
             | other -> withBlockDeclarations [statement] visibleContext
           }.
+          statementFailures = validateStatement statementContext nestedStatementPath statement.
           listConcat
-            [ validateAttachedSignature initialContext nestedStatementPath (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) statement rest,
-              validateStatement statementContext nestedStatementPath statement,
+            [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) statement rest (listLength statementFailures == 0),
+              statementFailures,
               validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementLocation expressionPath allStatements rest (blockIndex + 1)
             ].
         }
@@ -4214,69 +4207,6 @@ module TypedCoreValidate (
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       validateBlockStatementsInOrderFrom context context statementLocation expressionPath statements statements 0.
     }
-  }.
-
-  blockConstructorBinders :: [TypedConstructorDeclaration] -> [TypedBinderId].
-  blockConstructorBinders = \(constructors) -> case constructors {
-    | [] -> []
-    | [TypedConstructorDeclaration binder name fields recipes | rest] -> listPrepend binder (blockConstructorBinders rest)
-  }.
-
-  blockMethodSignatureBinders :: [TypedMethodSignature] -> [TypedBinderId].
-  blockMethodSignatureBinders = \(methods) -> case methods {
-    | [] -> []
-    | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe -> listPrepend binder (blockMethodSignatureBinders rest)
-    }
-  }.
-
-  blockMethodDefinitionBinders :: [TypedMethodDefinition] -> [TypedBinderId].
-  blockMethodDefinitionBinders = \(methods) -> case methods {
-    | [] -> []
-    | [TypedMethodDefinition methodId binder name span expression | rest] -> listPrepend binder (blockMethodDefinitionBinders rest)
-  }.
-
-  blockStatementBinderDefinitions :: TypedStatement -> [TypedBinderId].
-  blockStatementBinderDefinitions = \(statement) -> case statement {
-    | TypedLetStatement binder name span scheme expression -> [binder]
-    | TypedSignatureStatement binder name span scheme -> [binder]
-    | TypedDataStatement declaration -> case declaration {
-      | TypedDataDeclaration span name parameters constructors -> blockConstructorBinders constructors
-    }
-    | TypedClassStatement declaration -> case declaration {
-      | TypedClassDeclaration span name parameters methods -> blockMethodSignatureBinders methods
-    }
-    | TypedImplStatement declaration -> case declaration {
-      | TypedImplDeclaration span implId methods -> blockMethodDefinitionBinders methods
-    }
-    | TypedExpressionStatement span expression -> []
-  }.
-
-  duplicateBlockBindersAt :: [Text] -> [Int] -> [TypedBinderId] -> [TypedBinderId] -> ([TypedBinderId], [TypedCoreValidationFailure]).
-  duplicateBlockBindersAt = \(modulePath, statementIndex, binders, seen) -> case binders {
-    | [] -> (seen, [])
-    | [first | rest] -> case duplicateBlockBindersAt modulePath statementIndex rest (if binderIdMember first seen then seen else listPrepend first seen) {
-      | (laterSeen, laterFailures) -> (laterSeen, listAppend (if binderIdMember first seen then [failure (TypedStatementPath modulePath statementIndex) TypedDuplicateBinder (TypedBinderDetail first)] else []) laterFailures)
-    }
-  }.
-
-  duplicateBlockBinderFailuresFrom :: ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> Int -> [TypedBinderId] -> [TypedCoreValidationFailure].
-  duplicateBlockBinderFailuresFrom = \(context, statementLocation, expressionPath, statements, blockIndex, seen) -> case (context, statements) {
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, []) -> []
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> {
-      nestedPath = nestedStatementLocation statementLocation expressionPath blockIndex.
-      case duplicateBlockBindersAt modulePath nestedPath (blockStatementBinderDefinitions first) seen {
-        | (laterSeen, currentFailures) -> listAppend
-          currentFailures
-          (duplicateBlockBinderFailuresFrom context statementLocation expressionPath rest (blockIndex + 1) laterSeen)
-      }.
-    }
-  }.
-
-  duplicateBlockBinderFailures :: ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [TypedCoreValidationFailure].
-  duplicateBlockBinderFailures = \(context, statementLocation, expressionPath, statements) -> case context {
-    | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope ->
-      duplicateBlockBinderFailuresFrom context statementLocation expressionPath statements 0 []
   }.
 
   declarationEntryForName :: [Text] -> TypedCoreName -> Maybe(TypedBinderId) -> [DeclarationEntry].
@@ -4984,9 +4914,10 @@ module TypedCoreValidate (
         | other -> if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext
       }.
       nextContext = if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext.
+      statementFailures = validateStatement statementContext statementLocation statement.
       listConcat
-        [ validateAttachedSignature initialContext statementLocation (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest,
-          validateStatement statementContext statementLocation statement,
+        [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest (listLength statementFailures == 0),
+          statementFailures,
           validateModuleStatementsInOrderFrom initialContext nextContext allStatements rest (statementIndex + 1)
         ].
     }
@@ -5944,12 +5875,6 @@ module TypedCoreValidate (
   visibleModuleImplIds :: [VisibleModule] -> [TypedImplId].
   visibleModuleImplIds = \(modules) -> listConcat (listMap interfaceImplIds modules).
 
-  appendDataEntry :: [Text] -> TypedCoreName -> [TypedTypeParameterId] -> [DataEntry] -> [DataEntry].
-  appendDataEntry = \(modulePath, name, parameters, entries) -> case coreNameIdentifier name {
-    | Nothing -> entries
-    | Just identifier -> listAppend entries [DataEntry modulePath identifier (listLength parameters)]
-  }.
-
   selectedConstructorAllowed :: Maybe([Text]) -> [TypedModuleExport] -> [TypedConstructorDeclaration] -> Bool.
   selectedConstructorAllowed = \(selectedNames, exports, constructors) -> case constructors {
     | [] -> False
@@ -6249,9 +6174,6 @@ module TypedCoreValidate (
       if evidenceSelectionEqual leftFirst rightFirst then evidenceSelectionListEqual leftRest rightRest else False
     | other -> False
   }.
-
-  nodeInfoContractEqual :: TypedNodeInfo -> TypedNodeInfo -> Bool.
-  nodeInfoContractEqual = \(left, right) -> if typeEqual (nodeType left) (nodeType right) then recipeEqual (nodeRecipe left) (nodeRecipe right) else False.
 
   nodeInfoEqual :: TypedNodeInfo -> TypedNodeInfo -> Bool.
   nodeInfoEqual = \(left, right) -> case (left, right) {

@@ -539,6 +539,10 @@ validationPathValue path =
 validationKindValue :: TypedCoreValidationKind -> RuntimeValue
 validationKindValue = nullary . validationKindName
 
+validationKindTable :: [(Text, TypedCoreValidationKind)]
+validationKindTable =
+  [(validationKindName kind, kind) | kind <- [minBound .. maxBound]]
+
 validationKindName :: TypedCoreValidationKind -> Text
 validationKindName kind =
   case kind of
@@ -663,51 +667,10 @@ decodeValidationKind :: RuntimeValue -> Either Text TypedCoreValidationKind
 decodeValidationKind value = do
   (name, arguments) <- expectConstructor "validation kind" value
   kind <-
-    case name of
-      "TypedUnresolvedName" -> Right TypedUnresolvedName
-      "TypedInvalidSourcePath" -> Right TypedInvalidSourcePath
-      "TypedInvalidSpan" -> Right TypedInvalidSpan
-      "TypedDuplicateModule" -> Right TypedDuplicateModule
-      "TypedUnknownEntryModule" -> Right TypedUnknownEntryModule
-      "TypedDuplicateBinder" -> Right TypedDuplicateBinder
-      "TypedDuplicateDeclaration" -> Right TypedDuplicateDeclaration
-      "TypedUnknownBinder" -> Right TypedUnknownBinder
-      "TypedDuplicateTypeParameter" -> Right TypedDuplicateTypeParameter
-      "TypedInvalidTypeParameterOrder" -> Right TypedInvalidTypeParameterOrder
-      "TypedUnboundTypeParameter" -> Right TypedUnboundTypeParameter
-      "TypedUnboundRepresentationParameter" -> Right TypedUnboundRepresentationParameter
-      "TypedInvalidRepresentationWidth" -> Right TypedInvalidRepresentationWidth
-      "TypedTypeRepresentationMismatch" -> Right TypedTypeRepresentationMismatch
-      "TypedApplicationFunctionMismatch" -> Right TypedApplicationFunctionMismatch
-      "TypedApplicationArgumentMismatch" -> Right TypedApplicationArgumentMismatch
-      "TypedApplicationResultMismatch" -> Right TypedApplicationResultMismatch
-      "TypedConditionalConditionMismatch" -> Right TypedConditionalConditionMismatch
-      "TypedConditionalBranchMismatch" -> Right TypedConditionalBranchMismatch
-      "TypedPatternScrutineeMismatch" -> Right TypedPatternScrutineeMismatch
-      "TypedPatternGuardMismatch" -> Right TypedPatternGuardMismatch
-      "TypedPatternArmResultMismatch" -> Right TypedPatternArmResultMismatch
-      "TypedOrPatternBinderMismatch" -> Right TypedOrPatternBinderMismatch
-      "TypedDuplicateEvidenceParameter" -> Right TypedDuplicateEvidenceParameter
-      "TypedInvalidEvidenceParameterOrder" -> Right TypedInvalidEvidenceParameterOrder
-      "TypedInstantiationMismatch" -> Right TypedInstantiationMismatch
-      "TypedMissingEvidence" -> Right TypedMissingEvidence
-      "TypedDuplicateEvidence" -> Right TypedDuplicateEvidence
-      "TypedAmbiguousEvidence" -> Right TypedAmbiguousEvidence
-      "TypedInvisibleName" -> Right TypedInvisibleName
-      "TypedInvisibleImpl" -> Right TypedInvisibleImpl
-      "TypedMethodSelectionMismatch" -> Right TypedMethodSelectionMismatch
-      "TypedBindingValueMismatch" -> Right TypedBindingValueMismatch
-      "TypedLambdaResultMismatch" -> Right TypedLambdaResultMismatch
-      "TypedLiteralTypeMismatch" -> Right TypedLiteralTypeMismatch
-      "TypedCollectionShapeMismatch" -> Right TypedCollectionShapeMismatch
-      "TypedDataTypeMismatch" -> Right TypedDataTypeMismatch
-      "TypedPatternShapeMismatch" -> Right TypedPatternShapeMismatch
-      "TypedBlockResultMismatch" -> Right TypedBlockResultMismatch
-      "TypedModuleResultMismatch" -> Right TypedModuleResultMismatch
-      "TypedDataRecipeMismatch" -> Right TypedDataRecipeMismatch
-      "TypedCallableRecipeMismatch" -> Right TypedCallableRecipeMismatch
-      "TypedModuleInterfaceMismatch" -> Right TypedModuleInterfaceMismatch
-      _ -> Left ("unknown validation kind constructor '" <> name <> "'")
+    maybe
+      (Left ("unknown validation kind constructor '" <> name <> "'"))
+      Right
+      (lookup name validationKindTable)
   expectNullary name arguments kind
 
 decodeValidationDetail :: RuntimeValue -> Either Text TypedCoreValidationDetail
