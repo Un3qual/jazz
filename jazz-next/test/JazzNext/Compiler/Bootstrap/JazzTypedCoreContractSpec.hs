@@ -145,6 +145,15 @@ tests =
     ("publishes impl identities for retained capabilities", testMissingPublishedImpl),
     ("terminates equality checks for expanding recursive types", testExpandingRecursiveEquality),
     ("checks non-recursive equality fields after recursion", testRecursiveEqualityCallableField),
+    ("rejects orphan signatures", testOrphanSignature),
+    ("checks transformed recursive equality payloads", testRecursiveEqualityNestedCallable),
+    ("rejects current-module imported origins", testImportedCurrentOrigin),
+    ("keeps retained capabilities out of explicit exports", testRetainedCapabilityExport),
+    ("rejects duplicate import aliases", testImportAliasCollision),
+    ("preserves class-before-impl ordering", testImplBeforeClass),
+    ("matches evidence capability origins", testEvidenceCapabilityOrigin),
+    ("rejects malformed generated-name payloads", testMalformedGeneratedNames),
+    ("reserves Prelude for the explicit slot", testRegularPreludeModule),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -546,7 +555,16 @@ reviewRegressionPrograms =
     missingConstructorInstantiationProgram,
     missingPublishedImplProgram,
     expandingRecursiveEqualityProgram,
-    recursiveEqualityCallableFieldProgram
+    recursiveEqualityCallableFieldProgram,
+    orphanSignatureProgram,
+    recursiveEqualityNestedCallableProgram,
+    importedCurrentOriginProgram,
+    retainedCapabilityExportProgram,
+    importAliasCollisionProgram,
+    implBeforeClassProgram,
+    evidenceCapabilityOriginProgram,
+    malformedGeneratedNamesProgram,
+    regularPreludeModuleProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -1261,6 +1279,16 @@ testNewestReviewRegressions = do
         "review-duplicate-declaration"
         1
         TypedDuplicateDeclaration
+        (TypedNameDetail duplicateDeclarationName),
+      statementFailure
+        "review-duplicate-declaration"
+        0
+        TypedBindingValueMismatch
+        (TypedNameDetail duplicateDeclarationName),
+      statementFailure
+        "review-duplicate-declaration"
+        1
+        TypedBindingValueMismatch
         (TypedNameDetail duplicateDeclarationName)
     ]
     (validateTypedProgram duplicateDeclarationProgram)
@@ -2211,7 +2239,12 @@ testBareSignatureVisibility :: IO ()
 testBareSignatureVisibility =
   assertEqual
     "a signature without a value body is not an executable binding"
-    [ expressionFailureAt
+    [ statementFailure
+        "review-bare-signature-visibility"
+        0
+        TypedBindingValueMismatch
+        (TypedNameDetail bareSignatureValueName),
+      expressionFailureAt
         "review-bare-signature-visibility"
         1
         TypedInvisibleName
@@ -2602,6 +2635,126 @@ testRecursiveEqualityCallableField =
     ]
     (validateTypedProgram recursiveEqualityCallableFieldProgram)
 
+testOrphanSignature :: IO ()
+testOrphanSignature =
+  assertEqual
+    "signatures require an adjacent same-name binding"
+    [ statementFailure
+        "review-orphan-signature"
+        0
+        TypedBindingValueMismatch
+        (TypedNameDetail orphanSignatureName)
+    ]
+    (validateTypedProgram orphanSignatureProgram)
+
+testRecursiveEqualityNestedCallable :: IO ()
+testRecursiveEqualityNestedCallable =
+  assertEqual
+    "recursive equality checks transformed payload arguments"
+    [ statementFailure
+        "review-recursive-equality-nested-callable"
+        1
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType recursiveEqualityNestedCallableType)
+    ]
+    (validateTypedProgram recursiveEqualityNestedCallableProgram)
+
+testImportedCurrentOrigin :: IO ()
+testImportedCurrentOrigin =
+  assertEqual
+    "imported origins cannot identify the current module"
+    [ expressionFailureAt
+        "review-imported-current-origin"
+        1
+        TypedInvisibleName
+        (TypedNameDetail importedCurrentOriginName)
+    ]
+    (validateTypedProgram importedCurrentOriginProgram)
+
+testRetainedCapabilityExport :: IO ()
+testRetainedCapabilityExport =
+  assertEqual
+    "retained imported capabilities cannot become explicit exports"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath ["Library", "RetainedCapabilityFacade"])
+        TypedModuleInterfaceMismatch
+        ( TypedNameDetail
+            (resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq")
+        )
+    ]
+    (validateTypedProgram retainedCapabilityExportProgram)
+
+testImportAliasCollision :: IO ()
+testImportAliasCollision =
+  assertEqual
+    "import aliases have their own collision scope"
+    [ moduleFailure
+        "review-import-alias-collision"
+        TypedDuplicateDeclaration
+        (TypedTextDetail "Ops")
+    ]
+    (validateTypedProgram importAliasCollisionProgram)
+
+testImplBeforeClass :: IO ()
+testImplBeforeClass =
+  assertEqual
+    "impl validation cannot see a later class declaration"
+    [ statementFailure
+        "review-impl-before-class"
+        0
+        TypedInvisibleName
+        (TypedNameDetail implBeforeClassCapabilityName)
+    ]
+    (validateTypedProgram implBeforeClassProgram)
+
+testEvidenceCapabilityOrigin :: IO ()
+testEvidenceCapabilityOrigin =
+  assertEqual
+    "bound evidence keeps the capability origin associated with its owner"
+    [ expressionFailure
+        "review-evidence-capability-origin"
+        TypedMethodSelectionMismatch
+        (TypedNameDetail evidenceCapabilityWrongName)
+    ]
+    (validateTypedProgram evidenceCapabilityOriginProgram)
+
+testMalformedGeneratedNames :: IO ()
+testMalformedGeneratedNames =
+  assertEqual
+    "compiler-generated names validate their payloads"
+    [ expressionFailureAt
+        "review-malformed-generated-names"
+        0
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedLambdaPatternArgument (-1)))
+        ),
+      statementFailure
+        "review-malformed-generated-names"
+        1
+        TypedUnresolvedName
+        (TypedNameDetail (TypedGeneratedName (TypedOperatorBinding ""))),
+      statementFailure
+        "review-malformed-generated-names"
+        2
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "operator:%2B"))
+        )
+    ]
+    (validateTypedProgram malformedGeneratedNamesProgram)
+
+testRegularPreludeModule :: IO ()
+testRegularPreludeModule =
+  assertEqual
+    "the Prelude path belongs only to the explicit prelude slot"
+    [ TypedCoreValidationFailure
+        (TypedModulePath ["Prelude"])
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Prelude")
+    ]
+    (validateTypedProgram regularPreludeModuleProgram)
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
@@ -2942,8 +3095,308 @@ recursiveEqualityProgram fixture includeCallableField =
         TypedBoolRecipe
     statements =
       [ TypedDataStatement declaration,
-        TypedSignatureStatement valueOwner valueName span1 scheme
+        TypedLetStatement valueOwner valueName span1 scheme trueExpr
       ]
+
+orphanSignatureName :: TypedCoreName
+orphanSignatureName =
+  resolved TypedCurrentModule TypedValueNamespace "orphan"
+
+orphanSignatureProgram :: TypedProgram
+orphanSignatureProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-orphan-signature"
+    modulePath = ["Fixture", fixture]
+    owner = binder modulePath [0] orphanSignatureName
+    statements =
+      [TypedSignatureStatement owner orphanSignatureName span1 (monoScheme owner)]
+
+recursiveEqualityNestedCallableType :: TypedType
+recursiveEqualityNestedCallableType =
+  TypedDataType
+    (resolved TypedCurrentModule TypedTypeNamespace "Nest")
+    [TypedBoolType]
+
+recursiveEqualityNestedCallableProgram :: TypedProgram
+recursiveEqualityNestedCallableProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-recursive-equality-nested-callable"
+    modulePath = ["Fixture", fixture]
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Nest"
+    stepName = resolved TypedCurrentModule TypedConstructorNamespace "Step"
+    baseName = resolved TypedCurrentModule TypedConstructorNamespace "Base"
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    callableParameter = TypedFunctionType parameterType parameterType
+    recursiveField = TypedDataType dataName [callableParameter]
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        [parameter]
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] stepName)
+            stepName
+            [recursiveField]
+            [TypedManagedVariantRecipe dataName [callableParameter]],
+          TypedConstructorDeclaration
+            (binder modulePath [0, 1] baseName)
+            baseName
+            [parameterType]
+            [TypedRepresentationParameterRecipe parameter]
+        ]
+    valueName = resolved TypedCurrentModule TypedValueNamespace "equality"
+    valueOwner = binder modulePath [1] valueName
+    scheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint recursiveEqualityNestedCallableType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      [ TypedDataStatement declaration,
+        TypedLetStatement valueOwner valueName span1 scheme trueExpr
+      ]
+
+importedCurrentOriginName :: TypedCoreName
+importedCurrentOriginName =
+  resolved
+    (TypedImportedModule ["Fixture", "review-imported-current-origin"])
+    TypedValueNamespace
+    "value"
+
+importedCurrentOriginProgram :: TypedProgram
+importedCurrentOriginProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-imported-current-origin"
+    modulePath = ["Fixture", fixture]
+    localName = resolved TypedCurrentModule TypedValueNamespace "value"
+    owner = binder modulePath [0] localName
+    statements =
+      [ TypedLetStatement owner localName span1 (monoScheme owner) trueExpr,
+        expressionStatement
+          2
+          (TypedVariableExpr boolInfo importedCurrentOriginName)
+      ]
+
+retainedCapabilityExportProgram :: TypedProgram
+retainedCapabilityExportProgram =
+  case retainedCapabilityEvidenceProgram of
+    TypedProgram prelude modules entryPath ->
+      TypedProgram prelude (map addCapabilityExport modules) entryPath
+  where
+    facadePath = ["Library", "RetainedCapabilityFacade"]
+    addCapabilityExport moduleValue@(TypedModule modulePath sourcePath imports exports interface statements moduleInfo)
+      | modulePath == facadePath =
+          TypedModule
+            modulePath
+            sourcePath
+            imports
+            (TypedModuleExport TypedCapabilityNamespace "ForeignEq" : exports)
+            interface
+            statements
+            moduleInfo
+      | otherwise = moduleValue
+
+importAliasCollisionProgram :: TypedProgram
+importAliasCollisionProgram =
+  TypedProgram Nothing [leftModule, rightModule, entryModule] entryPath
+  where
+    leftPath = ["Alias", "Left"]
+    rightPath = ["Alias", "Right"]
+    entryPath = ["Fixture", "review-import-alias-collision"]
+    dependency path sourcePath =
+      typedModule path (TypedSourcePath sourcePath) [] [] emptyInterface [] unitInfo
+    leftModule = dependency leftPath "src/Alias/Left.jz"
+    rightModule = dependency rightPath "src/Alias/Right.jz"
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport span1 leftPath (Just "Ops") Nothing,
+          TypedResolvedImport span1 rightPath (Just "Ops") Nothing
+        ]
+        []
+        emptyInterface
+        []
+        unitInfo
+
+implBeforeClassCapabilityName :: TypedCoreName
+implBeforeClassCapabilityName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "Deferred"
+
+implBeforeClassProgram :: TypedProgram
+implBeforeClassProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-impl-before-class"
+    modulePath = ["Fixture", fixture]
+    implId =
+      TypedImplId modulePath implBeforeClassCapabilityName [TypedBoolType]
+    declaration =
+      TypedClassDeclaration
+        span1
+        implBeforeClassCapabilityName
+        [TypedTypeParameterId 0]
+        []
+    statements =
+      [ TypedImplStatement (TypedImplDeclaration span1 implId []),
+        TypedClassStatement declaration
+      ]
+
+evidenceCapabilityWrongName :: TypedCoreName
+evidenceCapabilityWrongName =
+  resolved
+    (TypedImportedModule ["Evidence", "Right"])
+    TypedCapabilityNamespace
+    "Shared"
+
+evidenceCapabilityOriginProgram :: TypedProgram
+evidenceCapabilityOriginProgram =
+  TypedProgram Nothing [leftModule, rightModule, entryModule] entryPath
+  where
+    leftPath = ["Evidence", "Left"]
+    rightPath = ["Evidence", "Right"]
+    entryPath = ["Fixture", "review-evidence-capability-origin"]
+    constraint = TypedCapabilityConstraint "Shared" Nothing TypedBoolType
+    provider modulePath sourcePath publishedIdentifier =
+      typedModule
+        modulePath
+        (TypedSourcePath sourcePath)
+        []
+        [TypedModuleExport TypedValueNamespace publishedIdentifier]
+        ( TypedModuleInterface
+            [TypedValueInterface publishedName publishedScheme]
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface localImplId]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement
+            (TypedImplDeclaration span1 localImplId []),
+          TypedLetStatement
+            publishedOwner
+            publishedName
+            span1
+            publishedScheme
+            trueExpr
+        ]
+        unitInfo
+      where
+        capabilityName =
+          resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
+        classDeclaration =
+          TypedClassDeclaration
+            span1
+            capabilityName
+            [TypedTypeParameterId 0]
+            []
+        localImplId =
+          TypedImplId modulePath capabilityName [TypedBoolType]
+        publishedName =
+          resolved TypedCurrentModule TypedValueNamespace publishedIdentifier
+        publishedOwner = binder modulePath [2] publishedName
+        publishedScheme =
+          TypedScheme
+            publishedOwner
+            []
+            [ TypedEvidenceParameter
+                (TypedEvidenceParameterId 0)
+                constraint
+            ]
+            []
+            TypedBoolType
+            TypedBoolRecipe
+    leftModule = provider leftPath "src/Evidence/Left.jz" "left"
+    rightModule = provider rightPath "src/Evidence/Right.jz" "right"
+    leftName =
+      resolved (TypedImportedModule leftPath) TypedValueNamespace "left"
+    leftOwner = binder leftPath [2] (resolved TypedCurrentModule TypedValueNamespace "left")
+    wrongImplId =
+      TypedImplId rightPath evidenceCapabilityWrongName [TypedBoolType]
+    evidenceUse =
+      TypedEvidenceUse
+        ( Just
+            ( TypedEvidenceParameterRef
+                leftOwner
+                (TypedEvidenceParameterId 0)
+            )
+        )
+        constraint
+        wrongImplId
+        Nothing
+    entryInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation leftOwner [] Nothing]
+        [TypedSelectedEvidence evidenceUse]
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport span1 leftPath Nothing (Just ["left"]),
+          TypedResolvedImport span1 rightPath Nothing (Just ["right"])
+        ]
+        []
+        emptyInterface
+        [expressionStatement 1 (TypedVariableExpr entryInfo leftName)]
+        entryInfo
+
+malformedGeneratedNamesProgram :: TypedProgram
+malformedGeneratedNamesProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-malformed-generated-names"
+    modulePath = ["Fixture", fixture]
+    invalidLambdaName =
+      TypedGeneratedName (TypedLambdaPatternArgument (-1))
+    invalidLambda =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath [0, 0] invalidLambdaName)
+        invalidLambdaName
+        trueExpr
+    emptyOperatorName = TypedGeneratedName (TypedOperatorBinding "")
+    malformedOperatorName =
+      TypedGeneratedName (TypedOperatorBinding "operator:%2B")
+    emptyOperatorOwner = binder modulePath [1] emptyOperatorName
+    malformedOperatorOwner = binder modulePath [2] malformedOperatorName
+    statements =
+      [ expressionStatement 1 invalidLambda,
+        TypedLetStatement
+          emptyOperatorOwner
+          emptyOperatorName
+          span1
+          (monoScheme emptyOperatorOwner)
+          trueExpr,
+        TypedLetStatement
+          malformedOperatorOwner
+          malformedOperatorName
+          span1
+          (monoScheme malformedOperatorOwner)
+          trueExpr
+      ]
+
+regularPreludeModuleProgram :: TypedProgram
+regularPreludeModuleProgram =
+  TypedProgram
+    Nothing
+    [ typedModule
+        ["Prelude"]
+        (TypedSourcePath "src/Prelude.jz")
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+    ]
+    ["Prelude"]
 
 resolvedModuleOrderImporterPath :: [Text]
 resolvedModuleOrderImporterPath =
@@ -4874,7 +5327,7 @@ phantomDataEqualityProgram =
         TypedBoolRecipe
     statements =
       [ TypedDataStatement declaration,
-        TypedSignatureStatement valueOwner valueName span1 scheme
+        TypedLetStatement valueOwner valueName span1 scheme trueExpr
       ]
 
 sameScopeValueRebindingProgram :: TypedProgram
@@ -6281,7 +6734,7 @@ missingModuleResultProgram =
         []
         []
         emptyInterface
-        [TypedSignatureStatement owner name span1 (monoScheme owner)]
+        [TypedLetStatement owner name span1 (monoScheme owner) trueExpr]
         boolInfo
     ]
     ["Fixture", fixture]
@@ -6328,11 +6781,12 @@ laterOrPatternBinderCollisionProgram =
         trueExpr
         [TypedCaseArm patternValue Nothing trueExpr]
     statements =
-      [ TypedSignatureStatement
+      [ TypedLetStatement
           laterOrPatternCollidingBinder
           valueName
           span1
-          (monoScheme laterOrPatternCollidingBinder),
+          (monoScheme laterOrPatternCollidingBinder)
+          trueExpr,
         expressionStatement 2 expression
       ]
 

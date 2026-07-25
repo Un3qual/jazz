@@ -48,6 +48,7 @@ data ModuleContext = ModuleContext
     moduleContextDataContracts :: Map ResolvedNameKey DataContract,
     moduleContextConstructorContracts :: Map ResolvedNameKey ConstructorContract,
     moduleContextCapabilityContracts :: Map ResolvedNameKey CapabilityContract,
+    moduleContextEvidenceCapabilities :: Map TypedEvidenceParameterRef ResolvedNameKey,
     moduleContextLexicalContracts :: Map ResolvedNameKey ValueContract,
     moduleContextTypeScope :: Set TypedTypeParameterId,
     moduleContextPrimitiveConstraints :: [TypedPrimitiveConstraint]
@@ -79,6 +80,7 @@ validateTypedProgram (TypedProgram prelude modules entryModule) =
     <> importCycleFailures moduleTable allModules
     <> moduleOrderFailures moduleTable allModules
     <> preludePathFailures
+    <> regularPreludePathFailures
     <> unknownEntryFailure
     <> maybe [] (validateModule moduleTable prelude True) prelude
     <> concatMap (validateModule moduleTable prelude False) modules
@@ -96,6 +98,13 @@ validateTypedProgram (TypedProgram prelude modules entryModule) =
                   (TypedTextDetail (renderModulePath preludePath))
               ]
         _ -> []
+    regularPreludePathFailures =
+      [ failure
+          (TypedModulePath ["Prelude"])
+          TypedModuleInterfaceMismatch
+          (TypedTextDetail "Prelude")
+      | any ((== ["Prelude"]) . typedModulePath) modules
+      ]
     unknownEntryFailure
       | Set.member entryModule allModulePaths = []
       | otherwise =
@@ -207,6 +216,8 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
       Map.fromList (concatMap interfaceConstructorEntries visibleExternalModules)
     capabilityContracts =
       Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
+    evidenceCapabilities =
+      Map.fromList (concatMap interfaceEvidenceCapabilityEntries visibleExternalModules)
     externalDataMetadata =
       interfaceDataMetadataDeclarations moduleTable visibleExternalModules
     statementIndices =
@@ -229,6 +240,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
           moduleContextDataContracts = dataContracts,
           moduleContextConstructorContracts = constructorContracts,
           moduleContextCapabilityContracts = capabilityContracts,
+          moduleContextEvidenceCapabilities = evidenceCapabilities,
           moduleContextLexicalContracts = Map.empty,
           moduleContextTypeScope = Set.empty,
           moduleContextPrimitiveConstraints = []
@@ -238,8 +250,6 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
       | statement <- statements,
         case statement of
           TypedDataStatement {} -> True
-          TypedClassStatement {} -> True
-          TypedImplStatement {} -> True
           _ -> False
       ]
     baseContext = withBlockDeclarations moduleMetadataStatements externalContext
@@ -286,8 +296,27 @@ validateResolvedImports moduleTable modulePath imports =
 
 importBindingCollisionFailures :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 importBindingCollisionFailures moduleTable modulePath imports =
-  collisionFailures valueBindingIdentifier <> collisionFailures typeBindingIdentifier
+  aliasCollisionFailures
+    <> collisionFailures valueBindingIdentifier
+    <> collisionFailures typeBindingIdentifier
   where
+    aliasCollisionFailures =
+      snd (foldl' checkAlias (Map.empty, []) imports)
+    checkAlias (origins, failures) (TypedResolvedImport _ importPath alias _) =
+      case alias of
+        Nothing -> (origins, failures)
+        Just aliasName ->
+          case Map.lookup aliasName origins of
+            Nothing -> (Map.insert aliasName importPath origins, failures)
+            Just _ ->
+              ( origins,
+                failures
+                  <> [ failure
+                         (TypedModulePath modulePath)
+                         TypedDuplicateDeclaration
+                         (TypedTextDetail aliasName)
+                     ]
+              )
     collisionFailures identifierFor =
       snd (foldl' (checkImport identifierFor) (Map.empty, []) imports)
     checkImport identifierFor (origins, failures) (TypedResolvedImport _ importPath alias selectedNames)
@@ -905,6 +934,35 @@ interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
     entry <- maybeToList (capabilityEntry modulePath declaration)
   ]
 
+interfaceEvidenceCapabilityEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedEvidenceParameterRef, ResolvedNameKey)]
+interfaceEvidenceCapabilityEntries visibleModule =
+  evidenceCapabilityEntries
+    capabilityContracts
+    (Map.keysSet capabilityContracts)
+    (interfaceSchemeEntries visibleModule)
+  where
+    capabilityContracts =
+      Map.fromList (interfaceCapabilityEntries visibleModule)
+
+evidenceCapabilityEntries ::
+  Map ResolvedNameKey CapabilityContract ->
+  Set ResolvedNameKey ->
+  [(TypedBinderId, TypedScheme)] ->
+  [(TypedEvidenceParameterRef, ResolvedNameKey)]
+evidenceCapabilityEntries capabilityContracts eligibleCapabilities schemes =
+  [ (TypedEvidenceParameterRef owner parameterId, capabilityKey)
+  | (owner, TypedScheme _ _ parameters _ _ _) <- schemes,
+    TypedEvidenceParameter parameterId (TypedCapabilityConstraint capability _ _) <- parameters,
+    [capabilityKey] <-
+      [ [ key
+        | key@(ResolvedNameKey _ TypedCapabilityNamespace identifier) <-
+            Map.keys capabilityContracts,
+          Set.member key eligibleCapabilities,
+          identifier == capability
+        ]
+      ]
+  ]
+
 interfaceCapabilityIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
 interfaceCapabilityIncluded visibleModule name methods =
   interfaceCapabilityNameIncluded visibleModule name methods
@@ -1052,7 +1110,9 @@ withBlockDeclarations statements context =
       moduleContextDataArities = Map.union localDataArities (moduleContextDataArities context),
       moduleContextDataContracts = Map.union localDataContracts (moduleContextDataContracts context),
       moduleContextConstructorContracts = Map.union localConstructors (moduleContextConstructorContracts context),
-      moduleContextCapabilityContracts = Map.union localCapabilities (moduleContextCapabilityContracts context)
+      moduleContextCapabilityContracts = combinedCapabilities,
+      moduleContextEvidenceCapabilities =
+        Map.union localEvidenceCapabilities (moduleContextEvidenceCapabilities context)
     }
   where
     modulePath = moduleContextPath context
@@ -1072,6 +1132,17 @@ withBlockDeclarations statements context =
     localDataContracts = Map.fromList (concatMap (statementDataContractEntries modulePath) statements)
     localConstructors = Map.fromList (concatMap (statementConstructorEntries modulePath) statements)
     localCapabilities = Map.fromList (concatMap (statementCapabilityEntries modulePath) statements)
+    combinedCapabilities =
+      Map.union localCapabilities (moduleContextCapabilityContracts context)
+    combinedVisibleNames =
+      Set.union localNames (moduleContextVisibleNames context)
+    localEvidenceCapabilities =
+      Map.fromList
+        ( evidenceCapabilityEntries
+            combinedCapabilities
+            combinedVisibleNames
+            localSchemeEntries
+        )
 
 validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
 validateStatementsInOrder = validateStatementsInOrderWith (\_ _ _ -> Nothing)
@@ -1517,6 +1588,14 @@ validateAttachedSignature context statementLocation statement maybeNextStatement
               (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
               signatureScheme
               bindingScheme
+    (TypedSignatureStatement _ signatureName _ _, _)
+      | null (validateStatement context statementLocation statement) ->
+          [ failure
+              (TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation))
+              TypedBindingValueMismatch
+              (TypedNameDetail signatureName)
+          ]
+      | otherwise -> []
     _ -> []
 
 validateSignatureBindingScheme :: TypedCoreValidationPath -> TypedScheme -> TypedScheme -> [TypedCoreValidationFailure]
@@ -1680,7 +1759,7 @@ strictEqualityTypeSupportedWith context typeParameterSupported = supported Set.e
           case resolvedNameKey (moduleContextPath context) name of
             Nothing -> False
             Just dataKey
-              | Set.member dataKey seen -> True
+              | Set.member dataKey seen -> all (supported seen) arguments
               | otherwise ->
                   case Map.lookup dataKey (moduleContextDataContracts context) of
                     Nothing -> False
@@ -3312,12 +3391,28 @@ validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidence
 validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
   validateCapabilityConstraintTarget path scope targetType
     <> validateEvidenceImpl implId
+    <> capabilityOriginFailures
     <> capabilityFailures
     <> targetFailures
     <> visibilityFailures
     <> methodFailures
   where
     scope = moduleContextTypeScope context
+    capabilityOriginFailures =
+      case maybeParameterRef >>= (`Map.lookup` moduleContextEvidenceCapabilities context) of
+        Nothing -> []
+        Just expectedCapability ->
+          case implId of
+            TypedImplId _ capabilityName _
+              | resolvedNameKey (moduleContextPath context) capabilityName
+                  == Just expectedCapability ->
+                  []
+              | otherwise ->
+                  [ failure
+                      path
+                      TypedMethodSelectionMismatch
+                      (TypedNameDetail capabilityName)
+                  ]
     capabilityFailures =
       case implId of
         TypedImplId _ capabilityName _
@@ -3532,7 +3627,17 @@ validateCoreName path name =
     TypedUnresolvedQualifiedName _ _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedResolvedName _ _ identifier
       | Text.null identifier -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+    TypedGeneratedName (TypedLambdaPatternArgument index)
+      | index < 0 -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+    TypedGeneratedName (TypedOperatorBinding bindingName)
+      | not (validOperatorBindingName bindingName) ->
+          [failure path TypedUnresolvedName (TypedNameDetail name)]
     _ -> []
+  where
+    validOperatorBindingName bindingName =
+      case Text.stripPrefix "$operator:" bindingName of
+        Just suffix -> not (Text.null suffix)
+        Nothing -> False
 
 validateLocalDefinitionName :: ModuleContext -> [TypedNameNamespace] -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
 validateLocalDefinitionName context allowedNamespaces path name =
@@ -3560,6 +3665,11 @@ validateVisibleNameInNamespaces allowedNamespaces context path name =
     <> ( case name of
            TypedBuiltinName identifier
              | TypedValueNamespace `notElem` allowedNamespaces || not (knownBuiltinName identifier) ->
+                 [failure path TypedInvisibleName (TypedNameDetail name)]
+           TypedResolvedName (TypedImportedModule importedPath) _ _
+             | importedPath == moduleContextPath context
+                 || importedPath == ["Prelude"]
+                 || Set.notMember importedPath (moduleContextVisibleModules context) ->
                  [failure path TypedInvisibleName (TypedNameDetail name)]
            _ ->
              case resolvedNameKey (moduleContextPath context) name of
@@ -3857,10 +3967,16 @@ validateCapabilityName context path name =
 validateRetainedCapabilityName :: ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
 validateRetainedCapabilityName context path name =
   validateCoreName path name
-    <> case resolvedNameKey (moduleContextPath context) name of
-      Just key
-        | Map.member key (moduleContextCapabilityContracts context) -> []
-      _ -> [failure path TypedInvisibleName (TypedNameDetail name)]
+    <> case name of
+      TypedResolvedName (TypedImportedModule importedPath) _ _
+        | importedPath == moduleContextPath context
+            || importedPath == ["Prelude"] ->
+            [failure path TypedInvisibleName (TypedNameDetail name)]
+      _ ->
+        case resolvedNameKey (moduleContextPath context) name of
+          Just key
+            | Map.member key (moduleContextCapabilityContracts context) -> []
+          _ -> [failure path TypedInvisibleName (TypedNameDetail name)]
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
@@ -3979,7 +4095,9 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         TypedConstructorNamespace
           | any (dataInterfaceConstructorMatches exportedName) datas -> []
         TypedCapabilityNamespace
-          | any (classInterfaceNameMatches exportedName) classes -> []
+          | any (classInterfaceNameMatches exportedName) classes,
+            any (classDeclarationMatches exportedName) declaredClasses ->
+              []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
 
 schemeLocalDataDependencies :: TypedScheme -> [TypedCoreName]
