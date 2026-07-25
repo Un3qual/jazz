@@ -468,6 +468,7 @@ reviewRegressionPrograms =
     unconstrainedNumericParameterProgram,
     unconstrainedEqualityParameterProgram,
     duplicatePatternNameProgram,
+    duplicateOrPatternContractProgram,
     nonTuplePatternProgram,
     ownerAmbiguousEvidenceProgram,
     reorderedOrPatternProgram,
@@ -6284,6 +6285,42 @@ duplicatePatternNameProgram =
         ]
     scrutinee = TypedTupleExpr pairInfo [trueExpr, falseExpr]
     expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
+
+duplicateOrPatternContractProgram :: TypedProgram
+duplicateOrPatternContractProgram =
+  expressionFixtureProgram fixture expression
+  where
+    fixture = "review-duplicate-or-pattern-contract"
+    modulePath = ["Fixture", fixture]
+    duplicateName = fixtureValueName "duplicate"
+    mixedTupleInfo =
+      info
+        (TypedTupleType [TypedBoolType, TypedTextType])
+        (TypedManagedProductRecipe [TypedBoolRecipe, TypedManagedTextRecipe])
+    variable lexicalPath valueInfo =
+      TypedVariablePattern
+        valueInfo
+        (binder modulePath lexicalPath duplicateName)
+        duplicateName
+    firstAlternative =
+      TypedTuplePattern
+        mixedTupleInfo
+        [variable [0, 0] boolInfo, variable [0, 1] textInfo]
+    secondAlternative =
+      TypedTuplePattern
+        mixedTupleInfo
+        [variable [1, 0] boolInfo, variable [1, 1] boolInfo]
+    patternValue =
+      TypedOrPattern mixedTupleInfo [firstAlternative, secondAlternative]
+    scrutinee =
+      TypedTupleExpr
+        mixedTupleInfo
+        [trueExpr, literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "value")]
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        scrutinee
+        [TypedCaseArm patternValue Nothing trueExpr]
 
 nonTuplePatternProgram :: TypedProgram
 nonTuplePatternProgram =

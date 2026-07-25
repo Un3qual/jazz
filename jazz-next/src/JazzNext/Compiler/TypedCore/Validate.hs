@@ -10,7 +10,7 @@ module JazzNext.Compiler.TypedCore.Validate
 where
 
 import Data.Char (isAlpha, isAlphaNum, ord)
-import Data.List (find, nub, sort, sortOn)
+import Data.List (find, nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -3036,7 +3036,7 @@ validateOrPattern :: TypedCoreValidationPath -> [TypedPattern] -> [TypedCoreVali
 validateOrPattern path [] = [failure path TypedPatternShapeMismatch (TypedArityDetail 1 0)]
 validateOrPattern path (firstAlternative : rest) = concatMap compareAlternative rest
   where
-    expected = normalizedPatternBinderContract firstAlternative
+    expected = patternBinderContract firstAlternative
     compareAlternative alternative
       | patternBinderContractsEqual expected actual = []
       | otherwise =
@@ -3044,13 +3044,7 @@ validateOrPattern path (firstAlternative : rest) = concatMap compareAlternative 
             Just binderId -> [failure path TypedOrPatternBinderMismatch (TypedBinderDetail binderId)]
             Nothing -> [failure path TypedOrPatternBinderMismatch TypedNoValidationDetail]
       where
-        actual = normalizedPatternBinderContract alternative
-
-normalizedPatternBinderContract :: TypedPattern -> [PatternBinderContract]
-normalizedPatternBinderContract =
-  sortOn contractName . patternBinderContract
-  where
-    contractName (PatternBinderContract _ name _ _) = name
+        actual = patternBinderContract alternative
 
 patternBinderContract :: TypedPattern -> [PatternBinderContract]
 patternBinderContract patternValue =
@@ -3087,23 +3081,20 @@ valueContractFromInfo info = ValueContract (nodeType info) (nodeRecipe info)
 patternBinderContractsEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool
 patternBinderContractsEqual expected actual =
   length expected == length actual
-    && and (zipWith contractEqual expected actual)
-  where
-    contractEqual
-      (PatternBinderContract _ expectedName expectedType expectedRecipeValue)
-      (PatternBinderContract _ actualName actualType actualRecipeValue) =
-        expectedName == actualName
-          && expectedType == actualType
-          && expectedRecipeValue == actualRecipeValue
+    && firstMismatchedBinder expected actual == Nothing
 
 firstMismatchedBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe TypedBinderId
-firstMismatchedBinder expected actual =
-  case dropWhile (uncurry contractsEqual) (zip expected actual) of
-    (_, PatternBinderContract binderId _ _ _) : _ -> Just binderId
-    [] ->
-      case drop (length expected) actual of
-        PatternBinderContract binderId _ _ _ : _ -> Just binderId
-        [] -> Nothing
+firstMismatchedBinder _ [] = Nothing
+firstMismatchedBinder expected (actual@(PatternBinderContract binderId _ _ _) : rest) =
+  case removeFirstMatchingContract actual expected of
+    Just remainingExpected -> firstMismatchedBinder remainingExpected rest
+    Nothing -> Just binderId
+
+removeFirstMatchingContract :: PatternBinderContract -> [PatternBinderContract] -> Maybe [PatternBinderContract]
+removeFirstMatchingContract _ [] = Nothing
+removeFirstMatchingContract actual (expected : rest)
+  | contractsEqual expected actual = Just rest
+  | otherwise = (expected :) <$> removeFirstMatchingContract actual rest
   where
     contractsEqual
       (PatternBinderContract _ expectedName expectedType expectedRecipeValue)

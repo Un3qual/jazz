@@ -2341,32 +2341,36 @@ module TypedCoreValidate (
     | (PatternBinderContract leftBinder leftName leftType leftRecipe, PatternBinderContract rightBinder rightName rightType rightRecipe) -> if coreNameEqual leftName rightName then if typeEqual leftType rightType then recipeEqual leftRecipe rightRecipe else False else False
   }.
 
-  patternBinderContractMember :: PatternBinderContract -> [PatternBinderContract] -> Bool.
-  patternBinderContractMember = \(candidate, contracts) -> case contracts {
-    | [] -> False
-    | [first | rest] -> if patternBinderContractEqual candidate first then True else patternBinderContractMember candidate rest
+  removeFirstPatternBinderContract :: PatternBinderContract -> [PatternBinderContract] -> Maybe([PatternBinderContract]).
+  removeFirstPatternBinderContract = \(candidate, contracts) -> case contracts {
+    | [] -> Nothing
+    | [first | rest] ->
+      if patternBinderContractEqual candidate first then Just rest else
+        case removeFirstPatternBinderContract candidate rest {
+          | Nothing -> Nothing
+          | Just remaining -> Just (listPrepend first remaining)
+        }
   }.
 
-  patternBinderContractCount :: PatternBinderContract -> [PatternBinderContract] -> Int.
-  patternBinderContractCount = \(candidate, contracts) -> case contracts {
-    | [] -> 0
-    | [first | rest] ->
-      (if patternBinderContractEqual candidate first then 1 else 0) + patternBinderContractCount candidate rest
+  mismatchedPatternBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe(TypedBinderId).
+  mismatchedPatternBinder = \(expected, actual) -> case actual {
+    | [] -> Nothing
+    | [first | rest] -> case removeFirstPatternBinderContract first expected {
+      | Just remainingExpected -> mismatchedPatternBinder remainingExpected rest
+      | Nothing -> case first {
+        | PatternBinderContract binder name typeValue recipe -> Just binder
+      }
+    }
   }.
 
   patternBinderContractListEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool.
   patternBinderContractListEqual = \(left, right) ->
     if listLength left == listLength right then
-      listAll (\(contract) -> patternBinderContractCount contract left == patternBinderContractCount contract right) left
+      case mismatchedPatternBinder left right {
+        | Nothing -> True
+        | Just binder -> False
+      }
     else False.
-
-  mismatchedPatternBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe(TypedBinderId).
-  mismatchedPatternBinder = \(expected, actual) -> case actual {
-    | [] -> Nothing
-    | [first | rest] -> if patternBinderContractMember first expected then mismatchedPatternBinder expected rest else case first {
-      | PatternBinderContract binder name typeValue recipe -> Just binder
-    }
-  }.
 
   patternContractNameMember :: TypedCoreName -> [PatternBinderContract] -> Bool.
   patternContractNameMember = \(candidate, contracts) -> case contracts {
@@ -4565,11 +4569,6 @@ module TypedCoreValidate (
     | ([], []) -> True
     | ([leftFirst | leftRest], [rightFirst | rightRest]) -> if constructorDeclarationEqual leftFirst rightFirst then constructorDeclarationListEqual leftRest rightRest else False
     | other -> False
-  }.
-
-  spanEqual :: TypedSpan -> TypedSpan -> Bool.
-  spanEqual = \(left, right) -> case (left, right) {
-    | (TypedSpan leftLine leftColumn, TypedSpan rightLine rightColumn) -> if leftLine == rightLine then leftColumn == rightColumn else False
   }.
 
   dataDeclarationEqual :: TypedDataDeclaration -> TypedDataDeclaration -> Bool.
