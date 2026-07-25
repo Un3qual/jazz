@@ -5098,47 +5098,57 @@ module TypedCoreValidate (
     }
   }.
 
-  schemeLocalCapabilityDependenciesFrom :: [TypedStatement] -> [TypedEvidenceParameter] -> [Text].
-  schemeLocalCapabilityDependenciesFrom = \(statements, evidence) -> case evidence {
+  schemeCapabilityDependenciesFrom :: [TypedEvidenceParameter] -> [TypedCoreName].
+  schemeCapabilityDependenciesFrom = \(evidence) -> case evidence {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
-        | Just identifier ->
-          if localCapabilityDeclared identifier statements then listPrepend identifier (schemeLocalCapabilityDependenciesFrom statements rest) else schemeLocalCapabilityDependenciesFrom statements rest
-        | Nothing -> schemeLocalCapabilityDependenciesFrom statements rest
-      }
+      | TypedCapabilityConstraint capability method targetType ->
+        listPrepend capability (schemeCapabilityDependenciesFrom rest)
     }
   }.
 
-  schemeLocalCapabilityDependencies :: [TypedStatement] -> TypedScheme -> [Text].
-  schemeLocalCapabilityDependencies = \(statements, scheme) -> case scheme {
+  schemeCapabilityDependencies :: TypedScheme -> [TypedCoreName].
+  schemeCapabilityDependencies = \(scheme) -> case scheme {
     | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
-      uniqueTexts (schemeLocalCapabilityDependenciesFrom statements evidence) []
+      uniqueCoreNames (schemeCapabilityDependenciesFrom evidence) []
   }.
 
-  classInterfaceMatches :: Text -> [TypedClassInterface] -> Bool.
-  classInterfaceMatches = \(expected, interfaces) -> case interfaces {
+  localCapabilityNamePresent :: [Text] -> TypedCoreName -> [TypedStatement] -> Bool.
+  localCapabilityNamePresent = \(modulePath, capability, statements) -> case statements {
+    | [] -> False
+    | [first | rest] -> case first {
+      | TypedClassStatement declaration -> case declaration {
+        | TypedClassDeclaration span name parameters methods -> case (resolvedNameEntry modulePath capability, resolvedNameEntry modulePath name) {
+          | (Just expected, Just actual) -> if nameEntryEqual expected actual then True else localCapabilityNamePresent modulePath capability rest
+          | other -> localCapabilityNamePresent modulePath capability rest
+        }
+      }
+      | other -> localCapabilityNamePresent modulePath capability rest
+    }
+  }.
+
+  externalCapabilityContractPresent :: [Text] -> TypedCoreName -> [DataEntry] -> Bool.
+  externalCapabilityContractPresent = \(modulePath, capability, externalDataEntries) -> case resolvedNameEntry modulePath capability {
+    | Nothing -> False
+    | Just entry -> case entry {
+      | GeneratedNameEntry kind -> False
+      | NameEntry capabilityPath TypedCapabilityNamespace identifier -> case lookupCapabilityContract capabilityPath identifier externalDataEntries {
+        | Nothing -> False
+        | Just contract -> True
+      }
+      | other -> False
+    }
+  }.
+
+  classInterfaceNamePresent :: [Text] -> TypedCoreName -> [TypedClassInterface] -> Bool.
+  classInterfaceNamePresent = \(modulePath, capability, classes) -> case classes {
     | [] -> False
     | [TypedClassInterface declaration | rest] -> case declaration {
-      | TypedClassDeclaration span name parameters methods ->
-        if coreNameIdentifierEqual expected name then True else classInterfaceMatches expected rest
-    }
-  }.
-
-  interfaceEvidenceCapabilityIdentifiers :: [TypedEvidenceParameter] -> [Text].
-  interfaceEvidenceCapabilityIdentifiers = \(parameters) -> case parameters {
-    | [] -> []
-    | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
-        | Just identifier -> listPrepend identifier (interfaceEvidenceCapabilityIdentifiers rest)
-        | Nothing -> interfaceEvidenceCapabilityIdentifiers rest
+      | TypedClassDeclaration span name parameters methods -> case (resolvedNameEntry modulePath capability, resolvedNameEntry modulePath name) {
+        | (Just expected, Just actual) -> if nameEntryEqual expected actual then True else classInterfaceNamePresent modulePath capability rest
+        | other -> classInterfaceNamePresent modulePath capability rest
       }
     }
-  }.
-
-  evidenceCapabilityIdentifiersFromScheme :: TypedScheme -> [Text].
-  evidenceCapabilityIdentifiersFromScheme = \(scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> interfaceEvidenceCapabilityIdentifiers evidence
   }.
 
   methodContractListsEqual :: [MethodContract] -> [MethodContract] -> Bool.
@@ -5168,44 +5178,31 @@ module TypedCoreValidate (
     }
   }.
 
-  retainedCapabilityIdentifierPresent :: [Text] -> Text -> [TypedClassInterface] -> [DataEntry] -> Bool.
-  retainedCapabilityIdentifierPresent = \(modulePath, capability, classes, externalDataEntries) -> case classes {
-    | [] -> False
-    | [TypedClassInterface declaration | rest] -> case declaration {
-      | TypedClassDeclaration span name parameters methods ->
-        if coreNameIdentifierEqual capability name then
-          if retainedCapabilityMatches modulePath declaration externalDataEntries then True else retainedCapabilityIdentifierPresent modulePath capability rest externalDataEntries
-        else retainedCapabilityIdentifierPresent modulePath capability rest externalDataEntries
-    }
-  }.
-
-  validateValueInterfaceDependencies :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [NameEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> TypedScheme -> [TypedCoreValidationFailure].
-  validateValueInterfaceDependencies = \(path, modulePath, statements, externalDataEntries, externalNames, datas, classes, scheme) -> listConcat
+  validateValueInterfaceDependencies :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> TypedScheme -> [TypedCoreValidationFailure].
+  validateValueInterfaceDependencies = \(path, modulePath, statements, externalDataEntries, datas, classes, scheme) -> listConcat
     [ listMap
         (\(dependencyName) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName))
         (listFilter (\(dependencyName) -> dataInterfaceMatches dependencyName datas == False) (schemeLocalDataDependencies modulePath scheme)),
       listMap
-        (\(capability) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule TypedCapabilityNamespace capability)))
-        (listFilter (\(capability) -> classInterfaceMatches capability classes == False) (schemeLocalCapabilityDependencies statements scheme)),
-      listMap
-        (\(capability) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule TypedCapabilityNamespace capability)))
+        (\(capability) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail capability))
         (listFilter
           (\(capability) ->
-            if localCapabilityDeclared capability statements then False else
-              if externalVisibleCapabilityIdentifierPresent modulePath capability externalNames then
-                retainedCapabilityIdentifierPresent modulePath capability classes externalDataEntries == False
-              else False)
-          (uniqueTexts (evidenceCapabilityIdentifiersFromScheme scheme) []))
+            if localCapabilityNamePresent modulePath capability statements then
+              classInterfaceNamePresent modulePath capability classes == False
+            else if externalCapabilityContractPresent modulePath capability externalDataEntries then
+              classInterfaceNamePresent modulePath capability classes == False
+            else False)
+          (schemeCapabilityDependencies scheme))
     ].
 
-  validateValueInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [NameEntry] -> [TypedModuleExport] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedValueInterface] -> [TypedCoreValidationFailure].
-  validateValueInterfaces = \(path, modulePath, statements, externalDataEntries, externalNames, exports, datas, classes, interfaces) -> case interfaces {
+  validateValueInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedModuleExport] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedValueInterface] -> [TypedCoreValidationFailure].
+  validateValueInterfaces = \(path, modulePath, statements, externalDataEntries, exports, datas, classes, interfaces) -> case interfaces {
     | [] -> []
     | [TypedValueInterface name scheme | rest] -> listAppend
       (if declaredValueMatches name scheme statements then
-        if moduleExportsName TypedValueNamespace name exports then validateValueInterfaceDependencies path modulePath statements externalDataEntries externalNames datas classes scheme else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
+        if moduleExportsName TypedValueNamespace name exports then validateValueInterfaceDependencies path modulePath statements externalDataEntries datas classes scheme else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
       else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)])
-      (validateValueInterfaces path modulePath statements externalDataEntries externalNames exports datas classes rest)
+      (validateValueInterfaces path modulePath statements externalDataEntries exports datas classes rest)
   }.
 
   constructorLocalDataDependencies :: [Text] -> TypedConstructorDeclaration -> [TypedCoreName].
@@ -5235,22 +5232,22 @@ module TypedCoreValidate (
     }
   }.
 
-  validateClassMethodInterfaceDependencies :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [NameEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedMethodSignature] -> [TypedCoreValidationFailure].
-  validateClassMethodInterfaceDependencies = \(path, modulePath, statements, externalDataEntries, externalNames, datas, classes, methods) -> case methods {
+  validateClassMethodInterfaceDependencies :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedMethodSignature] -> [TypedCoreValidationFailure].
+  validateClassMethodInterfaceDependencies = \(path, modulePath, statements, externalDataEntries, datas, classes, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> listAppend
-      (validateValueInterfaceDependencies path modulePath statements externalDataEntries externalNames datas classes scheme)
-      (validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries externalNames datas classes rest)
+      (validateValueInterfaceDependencies path modulePath statements externalDataEntries datas classes scheme)
+      (validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries datas classes rest)
   }.
 
-  validateClassInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [NameEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedClassInterface] -> [TypedCoreValidationFailure].
-  validateClassInterfaces = \(path, modulePath, statements, externalDataEntries, externalNames, datas, classes, interfaces) -> case interfaces {
+  validateClassInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedClassInterface] -> [TypedCoreValidationFailure].
+  validateClassInterfaces = \(path, modulePath, statements, externalDataEntries, datas, classes, interfaces) -> case interfaces {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods -> listAppend
-        (if declaredClassMatches declaration statements then validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries externalNames datas classes methods else
+        (if declaredClassMatches declaration statements then validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries datas classes methods else
           if retainedCapabilityMatches modulePath declaration externalDataEntries then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)])
-        (validateClassInterfaces path modulePath statements externalDataEntries externalNames datas classes rest)
+        (validateClassInterfaces path modulePath statements externalDataEntries datas classes rest)
     }
   }.
 
@@ -5463,16 +5460,16 @@ module TypedCoreValidate (
       duplicateInterfaceImplFailuresFrom path (implInterfaceIds impls) []
     ].
 
-  validateModuleInterface :: [Text] -> [DataEntry] -> [TypedImplId] -> [NameEntry] -> TypedModuleInterface -> [TypedStatement] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
-  validateModuleInterface = \(modulePath, externalDataEntries, externalImpls, externalNames, interface, statements, exports) -> case interface {
+  validateModuleInterface :: [Text] -> [DataEntry] -> [TypedImplId] -> TypedModuleInterface -> [TypedStatement] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
+  validateModuleInterface = \(modulePath, externalDataEntries, externalImpls, interface, statements, exports) -> case interface {
     | TypedModuleInterface values datas classes impls -> {
       path = TypedInterfacePath modulePath.
       listConcat
         [ duplicateModuleExportFailuresFrom path exports [],
           duplicateModuleInterfaceFailures path values datas classes impls,
-          validateValueInterfaces path modulePath statements externalDataEntries externalNames exports datas classes values,
+          validateValueInterfaces path modulePath statements externalDataEntries exports datas classes values,
           validateDataInterfaces path modulePath statements datas datas,
-          validateClassInterfaces path modulePath statements externalDataEntries externalNames datas classes classes,
+          validateClassInterfaces path modulePath statements externalDataEntries datas classes classes,
           validateImplInterfaces path statements externalImpls impls,
           missingImplInterfaceFailures path modulePath statements classes impls,
           validateExports path statements interface exports
@@ -5683,6 +5680,11 @@ module TypedCoreValidate (
             | Just aliasName ->
               if validSourceIdentifier aliasName then [] else [failure path TypedUnresolvedName (TypedTextDetail aliasName)]
           },
+          case (alias, names) {
+            | (Just aliasName, Just selectedNames) ->
+              [failure path TypedModuleInterfaceMismatch (TypedTextDetail "alias and selectors")]
+            | other -> []
+          },
           validateSelectedImportShape path names,
           case findModule importPath completeModules {
             | Nothing -> [failure path TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
@@ -5741,11 +5743,22 @@ module TypedCoreValidate (
     }
   }.
 
+  moduleOwnedCapabilityName :: [Text] -> TypedCoreName -> Bool.
+  moduleOwnedCapabilityName = \(modulePath, name) -> case name {
+    | TypedResolvedName TypedCurrentModule TypedCapabilityNamespace identifier -> True
+    | TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace identifier ->
+      textListEqual modulePath ["Prelude"]
+    | other -> False
+  }.
+
   classInterfaceSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedClassInterface] -> [SchemeEntry].
   classInterfaceSchemeEntries = \(modulePath, selectedNames, exports, classes) -> case classes {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
-      | TypedClassDeclaration span name parameters methods -> listAppend (selectedMethodSchemeEntries modulePath selectedNames exports parameters methods) (classInterfaceSchemeEntries modulePath selectedNames exports rest)
+      | TypedClassDeclaration span name parameters methods ->
+        if moduleOwnedCapabilityName modulePath name then
+          listAppend (selectedMethodSchemeEntries modulePath selectedNames exports parameters methods) (classInterfaceSchemeEntries modulePath selectedNames exports rest)
+        else classInterfaceSchemeEntries modulePath selectedNames exports rest
     }
   }.
 
@@ -5788,63 +5801,65 @@ module TypedCoreValidate (
     | [TypedMethodSignature name span scheme | rest] -> if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then True else methodInterfaceImported selectedNames exports rest else methodInterfaceImported selectedNames exports rest
   }.
 
-  evidenceCapabilityIdentifiers :: [TypedEvidenceParameter] -> [Text].
-  evidenceCapabilityIdentifiers = \(parameters) -> case parameters {
+  evidenceCapabilityNameEntries :: [Text] -> [TypedEvidenceParameter] -> [NameEntry].
+  evidenceCapabilityNameEntries = \(modulePath, parameters) -> case parameters {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
-        | Just identifier -> listPrepend identifier (evidenceCapabilityIdentifiers rest)
-        | Nothing -> evidenceCapabilityIdentifiers rest
+      | TypedCapabilityConstraint capability method targetType -> case resolvedNameEntry modulePath capability {
+        | Just entry -> listPrepend entry (evidenceCapabilityNameEntries modulePath rest)
+        | Nothing -> evidenceCapabilityNameEntries modulePath rest
       }
     }
   }.
 
-  schemeEntryCapabilityIdentifiers :: [SchemeEntry] -> [Text].
-  schemeEntryCapabilityIdentifiers = \(entries) -> case entries {
+  schemeEntryCapabilityNameEntries :: [Text] -> [SchemeEntry] -> [NameEntry].
+  schemeEntryCapabilityNameEntries = \(modulePath, entries) -> case entries {
     | [] -> []
     | [SchemeEntry binder scheme | rest] -> case scheme {
-      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listAppend (evidenceCapabilityIdentifiers evidence) (schemeEntryCapabilityIdentifiers rest)
+      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listAppend (evidenceCapabilityNameEntries modulePath evidence) (schemeEntryCapabilityNameEntries modulePath rest)
     }
   }.
 
-  interfaceCapabilityNameDirectlyIncluded :: Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> Bool.
-  interfaceCapabilityNameDirectlyIncluded = \(selectedNames, exports, name) ->
-    if selectedNameAllowed selectedNames name then
+  interfaceCapabilityNameDirectlyIncluded :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> Bool.
+  interfaceCapabilityNameDirectlyIncluded = \(modulePath, selectedNames, exports, name) ->
+    if moduleOwnedCapabilityName modulePath name then if selectedNameAllowed selectedNames name then
       moduleExportsName TypedCapabilityNamespace name exports
-    else False.
+    else False else False.
 
-  interfaceCapabilityNameIncluded :: Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
-  interfaceCapabilityNameIncluded = \(selectedNames, exports, name, methods) -> {
-    directlyImported = interfaceCapabilityNameDirectlyIncluded selectedNames exports name.
-    if directlyImported then True else methodInterfaceImported selectedNames exports methods.
+  interfaceCapabilityNameIncluded :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
+  interfaceCapabilityNameIncluded = \(modulePath, selectedNames, exports, name, methods) -> {
+    directlyImported = interfaceCapabilityNameDirectlyIncluded modulePath selectedNames exports name.
+    if directlyImported then True else if moduleOwnedCapabilityName modulePath name then methodInterfaceImported selectedNames exports methods else False.
   }.
 
-  interfaceCapabilityIncluded :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
-  interfaceCapabilityIncluded = \(selectedNames, exports, requiredCapabilities, name, methods) -> {
-    required = case coreNameIdentifier name {
+  interfaceCapabilityIncluded :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> TypedCoreName -> [TypedMethodSignature] -> Bool.
+  interfaceCapabilityIncluded = \(modulePath, selectedNames, exports, requiredCapabilities, name, methods) -> {
+    required = case resolvedNameEntry modulePath name {
       | Nothing -> False
-      | Just identifier -> listContains identifier requiredCapabilities
+      | Just entry -> nameEntryMember entry requiredCapabilities
     }.
-    if interfaceCapabilityNameIncluded selectedNames exports name methods then True else required.
+    if interfaceCapabilityNameIncluded modulePath selectedNames exports name methods then True else required.
   }.
 
-  includedCapabilitySchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [SchemeEntry].
-  includedCapabilitySchemeEntries = \(selectedNames, exports, requiredCapabilities, classes) -> case classes {
+  includedCapabilitySchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [SchemeEntry].
+  includedCapabilitySchemeEntries = \(modulePath, selectedNames, exports, requiredCapabilities, classes) -> case classes {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods ->
-        if interfaceCapabilityIncluded selectedNames exports requiredCapabilities name methods then
-          listAppend (methodSchemeEntries parameters methods) (includedCapabilitySchemeEntries selectedNames exports requiredCapabilities rest)
-        else includedCapabilitySchemeEntries selectedNames exports requiredCapabilities rest
+        if interfaceCapabilityIncluded modulePath selectedNames exports requiredCapabilities name methods then
+          listAppend (methodSchemeEntries parameters methods) (includedCapabilitySchemeEntries modulePath selectedNames exports requiredCapabilities rest)
+        else includedCapabilitySchemeEntries modulePath selectedNames exports requiredCapabilities rest
     }
   }.
 
-  classInterfaceNameEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [NameEntry] -> [NameEntry].
+  classInterfaceNameEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [NameEntry] -> [NameEntry].
   classInterfaceNameEntries = \(modulePath, selectedNames, exports, requiredCapabilities, classes, entries) -> case classes {
     | [] -> entries
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods -> classInterfaceNameEntries modulePath selectedNames exports requiredCapabilities rest
-        (methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityNameDirectlyIncluded selectedNames exports name then appendDefinitionNameEntry modulePath name entries else entries))
+        (if moduleOwnedCapabilityName modulePath name then
+          methodInterfaceNameEntries modulePath selectedNames exports methods (if interfaceCapabilityNameDirectlyIncluded modulePath selectedNames exports name then appendDefinitionNameEntry modulePath name entries else entries)
+        else entries)
     }
   }.
 
@@ -5859,7 +5874,7 @@ module TypedCoreValidate (
     | VisibleModule selectedNames moduleValue -> case moduleValue {
       | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
-          requiredCapabilities = schemeEntryCapabilityIdentifiers (interfaceSchemeEntries visibleModule).
+          requiredCapabilities = schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
           classInterfaceNameEntries modulePath selectedNames exports requiredCapabilities classes
             (dataInterfaceNameEntries modulePath selectedNames exports datas (valueInterfaceNameEntries modulePath selectedNames exports values [])).
         }
@@ -5952,14 +5967,17 @@ module TypedCoreValidate (
         importBindingCollisionFailuresFrom completeModules currentModulePath imports True []
       ].
 
-  implImportAllowed :: Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> TypedImplId -> Bool.
-  implImportAllowed = \(selectedNames, exports, requiredCapabilities, classes, implId) -> case (classes, implId) {
+  implImportAllowed :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> TypedImplId -> Bool.
+  implImportAllowed = \(modulePath, selectedNames, exports, requiredCapabilities, classes, implId) -> case (classes, implId) {
     | ([], other) -> False
     | ([TypedClassInterface declaration | rest], TypedImplId implPath capability targets) -> case declaration {
-      | TypedClassDeclaration span name parameters methods ->
-        if coreNameIdentifier name == coreNameIdentifier capability then
-          interfaceCapabilityIncluded selectedNames exports requiredCapabilities name methods
-        else implImportAllowed selectedNames exports requiredCapabilities rest implId
+      | TypedClassDeclaration span name parameters methods -> case (resolvedNameEntry modulePath name, resolvedNameEntry modulePath capability) {
+        | (Just nameEntry, Just capabilityEntry) ->
+          if nameEntryEqual nameEntry capabilityEntry then
+            interfaceCapabilityIncluded modulePath selectedNames exports requiredCapabilities name methods
+          else implImportAllowed modulePath selectedNames exports requiredCapabilities rest implId
+        | other -> implImportAllowed modulePath selectedNames exports requiredCapabilities rest implId
+      }
     }
   }.
 
@@ -5974,11 +5992,11 @@ module TypedCoreValidate (
     }
   }.
 
-  interfaceImplIdsFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedStatement] -> [TypedImplId].
+  interfaceImplIdsFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedStatement] -> [TypedImplId].
   interfaceImplIdsFrom = \(modulePath, selectedNames, exports, requiredCapabilities, classes, impls, statements) -> case impls {
     | [] -> []
     | [TypedImplInterface implId | rest] ->
-      if implImportAllowed selectedNames exports requiredCapabilities classes implId then
+      if implImportAllowed modulePath selectedNames exports requiredCapabilities classes implId then
         listPrepend (qualifyExternalImplId modulePath implId) (interfaceImplIdsFrom modulePath selectedNames exports requiredCapabilities classes rest statements)
       else interfaceImplIdsFrom modulePath selectedNames exports requiredCapabilities classes rest statements
   }.
@@ -5988,7 +6006,7 @@ module TypedCoreValidate (
     | VisibleModule selectedNames moduleValue -> case moduleValue {
       | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
-          requiredCapabilities = schemeEntryCapabilityIdentifiers (interfaceSchemeEntries visibleModule).
+          requiredCapabilities = schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
           interfaceImplIdsFrom modulePath selectedNames exports requiredCapabilities classes impls statements.
         }
       }
@@ -6139,18 +6157,18 @@ module TypedCoreValidate (
     }
   }.
 
-  interfaceImplMethodEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedStatement] -> [DataEntry].
+  interfaceImplMethodEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedStatement] -> [DataEntry].
   interfaceImplMethodEntriesFrom = \(modulePath, selectedNames, exports, requiredCapabilities, classes, impls, statements) -> case impls {
     | [] -> []
     | [TypedImplInterface implId | rest] -> case implDeclarationMethods implId statements {
       | Nothing -> interfaceImplMethodEntriesFrom modulePath selectedNames exports requiredCapabilities classes rest statements
-      | Just methods -> if implImportAllowed selectedNames exports requiredCapabilities classes implId then
+      | Just methods -> if implImportAllowed modulePath selectedNames exports requiredCapabilities classes implId then
         listPrepend (ImplMethodEntry (qualifyExternalImplId modulePath implId) (methodDefinitionKeys methods)) (interfaceImplMethodEntriesFrom modulePath selectedNames exports requiredCapabilities classes rest statements)
       else interfaceImplMethodEntriesFrom modulePath selectedNames exports requiredCapabilities classes rest statements
     }
   }.
 
-  interfaceCapabilityEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [Text] -> [TypedClassInterface] -> [DataEntry].
+  interfaceCapabilityEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [DataEntry].
   interfaceCapabilityEntriesFrom = \(modulePath, selectedNames, exports, requiredCapabilities, classes) -> case classes {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
@@ -6159,7 +6177,7 @@ module TypedCoreValidate (
         | Just entry -> case entry {
           | GeneratedNameEntry kind -> interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities rest
           | NameEntry capabilityPath namespace identifier -> {
-            includeCapability = interfaceCapabilityIncluded selectedNames exports requiredCapabilities name methods.
+            includeCapability = interfaceCapabilityIncluded modulePath selectedNames exports requiredCapabilities name methods.
             if includeCapability then
               listPrepend (CapabilityEntry capabilityPath identifier parameters (methodContractEntries methods)) (interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities rest)
             else interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities rest.
@@ -6175,8 +6193,8 @@ module TypedCoreValidate (
       | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
           selectedSchemeEntries = interfaceSchemeEntries visibleModule.
-          requiredCapabilities = schemeEntryCapabilityIdentifiers selectedSchemeEntries.
-          capabilitySchemeEntries = includedCapabilitySchemeEntries selectedNames exports requiredCapabilities classes.
+          requiredCapabilities = schemeEntryCapabilityNameEntries modulePath selectedSchemeEntries.
+          capabilitySchemeEntries = includedCapabilitySchemeEntries modulePath selectedNames exports requiredCapabilities classes.
           capabilityEntries = interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities classes.
           dataRoots = listAppend
             (selectedDataNameEntriesFrom modulePath selectedNames exports datas)
@@ -6365,7 +6383,7 @@ module TypedCoreValidate (
           validateSourcePath modulePath sourcePath,
           validateResolvedImports completeModules modulePath imports,
           importBindingCollisionFailures completeModules modulePath imports,
-          validateModuleInterface modulePath dataEntries visibleImpls externalNames interface statements exports,
+          validateModuleInterface modulePath dataEntries visibleImpls interface statements exports,
           duplicateModuleDeclarationFailures context statements,
           duplicateModuleBinderFailures context statements,
           statementFailures,

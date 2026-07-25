@@ -49,13 +49,11 @@ tests =
 coreTests :: [NamedTest]
 coreTests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
-    ("renders the complete valid contract deterministically", testValidContractRendering),
-    ("renders every typed-core outcome deterministically", testOutcomeRendering),
+    ("encodes every typed-core outcome constructor", testOutcomeEncoding),
     ("accepts every fixed valid program", testValidPrograms),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("audits the combined fixed fixture count", testCombinedFixtureCount),
-    ("validates the complete fixture family deterministically", testValidationDeterminism),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
     ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
     ("rejects wrong validation constructor arity", testCheckedValidationAdapterWrongArity),
@@ -73,24 +71,27 @@ testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
   assertEqual "valid fixture count" 16 (length validFixtures)
 
-testValidContractRendering :: IO ()
-testValidContractRendering = do
-  let first = map (renderRuntimeValue . canonicalTypedProgramRuntimeValue . validFixtureProgram) validFixtures
-      second = map (renderRuntimeValue . canonicalTypedProgramRuntimeValue . validFixtureProgram) validFixtures
-  assertEqual "complete valid typed-core rendering" first second
-
-testOutcomeRendering :: IO ()
-testOutcomeRendering = do
+testOutcomeEncoding :: IO ()
+testOutcomeEncoding = do
   let failure = TypedCoreValidationFailure TypedProgramPath TypedUnknownEntryModule TypedNoValidationDetail
       outcomes =
         [ TypedCoreBlockedByDiagnostics,
           TypedCoreInvariantFailures [failure],
           TypedCoreSucceeded scalarAliasesWidthsProgram
         ]
-      first = map (renderRuntimeValue . canonicalTypedCoreOutcomeRuntimeValue) outcomes
-      second = map (renderRuntimeValue . canonicalTypedCoreOutcomeRuntimeValue) outcomes
-  assertEqual "typed-core outcome constructor count" 3 (length outcomes)
-  assertEqual "typed-core outcome rendering" first second
+      expected =
+        [ canonicalNullaryConstructor "TypedCoreBlockedByDiagnostics",
+          canonicalConstructor
+            "TypedCoreInvariantFailures"
+            [canonicalTypedValidationFailuresRuntimeValue [failure]],
+          canonicalConstructor
+            "TypedCoreSucceeded"
+            [canonicalTypedProgramRuntimeValue scalarAliasesWidthsProgram]
+        ]
+  assertEqual
+    "typed-core outcome encoding"
+    expected
+    (map canonicalTypedCoreOutcomeRuntimeValue outcomes)
 
 testValidPrograms :: IO ()
 testValidPrograms =
@@ -117,13 +118,6 @@ testInvalidPrograms =
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
   assertEqual "combined fixture count" 44 (length validFixtures + length invalidFixtures)
-
-testValidationDeterminism :: IO ()
-testValidationDeterminism = do
-  let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures
-      first = map validateTypedProgram programs
-      second = map validateTypedProgram programs
-  assertEqual "complete validation output" first second
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -290,6 +284,22 @@ testNestedBlockValidationRegressions = do
     "block-local binder identities remain unique"
     nestedDuplicateBinderFailures
     (validateTypedProgram nestedDuplicateBinderProgram)
+  assertEqual
+    "guarded case children use one flattened expression path"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-guarded-case-path") [0] [0, 1])
+        TypedUnresolvedName
+        (TypedNameDetail (TypedUnresolvedSourceName "guard")),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-guarded-case-path") [0] [0, 2])
+        TypedUnresolvedName
+        (TypedNameDetail (TypedUnresolvedSourceName "first-result")),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-guarded-case-path") [0] [0, 3])
+        TypedUnresolvedName
+        (TypedNameDetail (TypedUnresolvedSourceName "second-result"))
+    ]
+    (validateTypedProgram guardedCasePathProgram)
 
 reviewRegressionGroups :: [(NamedTest, [TypedProgram])]
 -- The lone-surrogate character regression remains Haskell-only because its
@@ -393,7 +403,7 @@ reviewRegressionGroups =
     (("rejects malformed import aliases", testMalformedImportAlias), [malformedImportAliasProgram]),
     (("rejects duplicate module exports", testDuplicateModuleExports), [duplicateModuleExportsProgram]),
     (("rejects non-positive source spans", testInvalidSourceSpans), [invalidImportSpanProgram, invalidStatementSpansProgram, invalidDeclarationSpansProgram, invalidExpressionSpansProgram]),
-    (("enforces canonical typed-core inventories", testUnresolvedReviewRegressions), [emptyImportSelectorProgram, duplicateImportSelectorProgram, distinctClassMethodProgram, duplicateEvidenceConstraintProgram, singletonTupleTypeProgram, preludeAmbientDataDependencyProgram, duplicateModuleInterfaceEntriesProgram])
+    (("enforces canonical typed-core inventories", testUnresolvedReviewRegressions), [emptyImportSelectorProgram, duplicateImportSelectorProgram, aliasAndSelectorImportProgram, distinctClassMethodProgram, duplicateEvidenceConstraintProgram, singletonTupleTypeProgram, preludeAmbientDataDependencyProgram, duplicateModuleInterfaceEntriesProgram, sameNamedCapabilityDependencyProgram, sameNamedRetainedCapabilityProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -1465,6 +1475,34 @@ testCurrentReviewRegressions = do
     ]
     (validateTypedProgram duplicatePatternNameProgram)
   assertEqual
+    "or-pattern contract mismatches preserve duplicate-name diagnostics"
+    [ TypedCoreValidationFailure
+        (TypedPatternPath (fixtureModulePath "review-duplicate-or-pattern-contract") [0] [0, 0])
+        TypedDuplicateBinder
+        ( TypedBinderDetail
+            ( binder
+                (fixtureModulePath "review-duplicate-or-pattern-contract")
+                [0, 1]
+                (fixtureValueName "duplicate")
+            )
+        ),
+      TypedCoreValidationFailure
+        (TypedPatternPath (fixtureModulePath "review-duplicate-or-pattern-contract") [0] [0, 0])
+        TypedOrPatternBinderMismatch
+        ( TypedBinderDetail
+            ( binder
+                (fixtureModulePath "review-duplicate-or-pattern-contract")
+                [1, 1]
+                (fixtureValueName "duplicate")
+            )
+        ),
+      TypedCoreValidationFailure
+        (TypedPatternPath (fixtureModulePath "review-duplicate-or-pattern-contract") [0] [0, 0, 1, 1])
+        TypedPatternScrutineeMismatch
+        (TypedTypeDetail TypedTextType TypedBoolType)
+    ]
+    (validateTypedProgram duplicateOrPatternContractProgram)
+  assertEqual
     "tuple patterns require tuple-typed nodes"
     [ patternFailure
         "review-non-tuple-pattern"
@@ -2028,7 +2066,13 @@ testImportedCapabilityDependency =
     [ TypedCoreValidationFailure
         (TypedInterfacePath importedCapabilityFacadePath)
         TypedModuleInterfaceMismatch
-        (TypedNameDetail (resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"))
+        ( TypedNameDetail
+            ( resolved
+                (TypedImportedModule (fixtureLibraryPath "ImportedCapabilityProvider"))
+                TypedCapabilityNamespace
+                "ForeignEq"
+            )
+        )
     ]
     (validateTypedProgram importedCapabilityDependencyProgram)
 
@@ -2746,11 +2790,14 @@ testUnresolvedReviewRegressions =
     programs =
       [ ("nonempty import selectors", emptyImportSelectorProgram),
         ("unique import selectors", duplicateImportSelectorProgram),
+        ("exclusive import alias and selectors", aliasAndSelectorImportProgram),
         ("class-scoped method identities", distinctClassMethodProgram),
         ("unique evidence obligations", duplicateEvidenceConstraintProgram),
         ("tuple arity", singletonTupleTypeProgram),
         ("Prelude data closure", preludeAmbientDataDependencyProgram),
-        ("unique interface entries", duplicateModuleInterfaceEntriesProgram)
+        ("unique interface entries", duplicateModuleInterfaceEntriesProgram),
+        ("resolved capability dependencies", sameNamedCapabilityDependencyProgram),
+        ("metadata-only same-named capabilities", sameNamedRetainedCapabilityProgram)
       ]
     expected :: [(Text, [TypedCoreValidationFailure])]
     expected =
@@ -2766,6 +2813,13 @@ testUnresolvedReviewRegressions =
               "review-duplicate-import-selector"
               TypedDuplicateDeclaration
               (TypedTextDetail "item")
+          ]
+        ),
+        ( "exclusive import alias and selectors",
+          [ moduleFailure
+              "review-alias-and-selector-import"
+              TypedModuleInterfaceMismatch
+              (TypedTextDetail "alias and selectors")
           ]
         ),
         ("class-scoped method identities", []),
@@ -2809,6 +2863,24 @@ testUnresolvedReviewRegressions =
               TypedDuplicateDeclaration
               (TypedImplDetail duplicateInterfaceImplId)
           ]
+        ),
+        ( "resolved capability dependencies",
+          [ TypedCoreValidationFailure
+              (TypedInterfacePath sameNamedCapabilityFacadePath)
+              TypedModuleInterfaceMismatch
+              (TypedNameDetail sameNamedImportedCapabilityName)
+          ]
+        ),
+        ( "metadata-only same-named capabilities",
+          [ expressionFailure
+              "review-same-named-retained-capability"
+              TypedInvisibleName
+              (TypedNameDetail sameNamedImportedCapabilityName),
+            expressionFailure
+              "review-same-named-retained-capability"
+              TypedInvisibleImpl
+              (TypedImplDetail sameNamedImportedImplId)
+          ]
         )
       ]
 
@@ -2824,8 +2896,19 @@ duplicateImportSelectorProgram :: TypedProgram
 duplicateImportSelectorProgram =
   importSelectorShapeProgram "review-duplicate-import-selector" ["item", "item"]
 
+aliasAndSelectorImportProgram :: TypedProgram
+aliasAndSelectorImportProgram =
+  importSelectorProgram
+    "review-alias-and-selector-import"
+    (Just "Library")
+    ["item"]
+
 importSelectorShapeProgram :: Text -> [Text] -> TypedProgram
 importSelectorShapeProgram fixture selectedNames =
+  importSelectorProgram fixture Nothing selectedNames
+
+importSelectorProgram :: Text -> Maybe Text -> [Text] -> TypedProgram
+importSelectorProgram fixture alias selectedNames =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     libraryPath = (fixtureLibraryPath fixture)
@@ -2846,11 +2929,244 @@ importSelectorShapeProgram fixture selectedNames =
       typedModule
         entryPath
         relativeSource
-        [TypedResolvedImport span1 libraryPath Nothing (Just selectedNames)]
+        [TypedResolvedImport span1 libraryPath alias (Just selectedNames)]
         []
         emptyInterface
         []
         unitInfo
+
+sameNamedCapabilityProviderPath :: [Text]
+sameNamedCapabilityProviderPath =
+  fixtureLibraryPath "SameNamedCapabilityProvider"
+
+sameNamedImportedCapabilityName :: TypedCoreName
+sameNamedImportedCapabilityName =
+  resolved
+    (TypedImportedModule sameNamedCapabilityProviderPath)
+    TypedCapabilityNamespace
+    "Shared"
+
+sameNamedImportedImplId :: TypedImplId
+sameNamedImportedImplId =
+  TypedImplId
+    sameNamedCapabilityProviderPath
+    sameNamedImportedCapabilityName
+    [TypedBoolType]
+
+sameNamedCapabilityProviderModule :: TypedModule
+sameNamedCapabilityProviderModule =
+  sameNamedCapabilityProviderModuleAt sameNamedCapabilityProviderPath
+
+sameNamedCapabilityProviderModuleAt :: [Text] -> TypedModule
+sameNamedCapabilityProviderModuleAt providerPath =
+  typedModule
+    providerPath
+    (TypedSourcePath "src/Library/SameNamedCapabilityProvider.jz")
+    []
+    [TypedModuleExport TypedValueNamespace "source"]
+    ( TypedModuleInterface
+        [TypedValueInterface sourceName sourceScheme]
+        []
+        [TypedClassInterface capability]
+        [TypedImplInterface localImplId]
+    )
+    [ TypedClassStatement capability,
+      TypedImplStatement (TypedImplDeclaration span1 localImplId []),
+      TypedLetStatement sourceOwner sourceName span1 sourceScheme trueExpr
+    ]
+    unitInfo
+  where
+    parameter = TypedTypeParameterId 0
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
+    capability =
+      TypedClassDeclaration span1 capabilityName [parameter] []
+    localImplId =
+      TypedImplId
+        providerPath
+        capabilityName
+        [TypedBoolType]
+    sourceName =
+      resolved TypedCurrentModule TypedValueNamespace "source"
+    sourceOwner =
+      binder providerPath [2] sourceName
+    sourceScheme =
+      TypedScheme
+        sourceOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint capabilityName Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+
+sameNamedVisibleCapabilityProviderModuleAt :: [Text] -> TypedModule
+sameNamedVisibleCapabilityProviderModuleAt providerPath =
+  typedModule
+    providerPath
+    (TypedSourcePath "src/Library/SameNamedVisibleCapabilityProvider.jz")
+    []
+    [TypedModuleExport TypedCapabilityNamespace "Shared"]
+    (TypedModuleInterface [] [] [TypedClassInterface capability] [])
+    [TypedClassStatement capability]
+    unitInfo
+  where
+    capability =
+      TypedClassDeclaration
+        span1
+        (resolved TypedCurrentModule TypedCapabilityNamespace "Shared")
+        [TypedTypeParameterId 0]
+        []
+
+sameNamedCapabilityFacadePath :: [Text]
+sameNamedCapabilityFacadePath =
+  fixtureLibraryPath "SameNamedCapabilityFacadeMissing"
+
+sameNamedCapabilityDependencyProgram :: TypedProgram
+sameNamedCapabilityDependencyProgram =
+  TypedProgram
+    Nothing
+    [ sameNamedVisibleCapabilityProviderModuleAt sameNamedCapabilityProviderPath,
+      secondProviderModule,
+      facadeModule
+    ]
+    sameNamedCapabilityFacadePath
+  where
+    secondProviderPath =
+      fixtureLibraryPath "SameNamedCapabilityProviderTwo"
+    secondProviderModule =
+      sameNamedVisibleCapabilityProviderModuleAt secondProviderPath
+    secondImportedCapabilityName =
+      resolved
+        (TypedImportedModule secondProviderPath)
+        TypedCapabilityNamespace
+        "Shared"
+    retainedWrongCapability =
+      TypedClassDeclaration
+        span1
+        secondImportedCapabilityName
+        [TypedTypeParameterId 0]
+        []
+    publishedName =
+      resolved TypedCurrentModule TypedValueNamespace "published"
+    publishedOwner =
+      binder sameNamedCapabilityFacadePath [0] publishedName
+    publishedScheme =
+      TypedScheme
+        publishedOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            ( TypedCapabilityConstraint
+                sameNamedImportedCapabilityName
+                Nothing
+                TypedBoolType
+            )
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    facadeModule =
+      typedModule
+        sameNamedCapabilityFacadePath
+        (TypedSourcePath "src/Library/SameNamedCapabilityFacadeMissing.jz")
+        [ TypedResolvedImport
+            span1
+            sameNamedCapabilityProviderPath
+            (Just "First")
+            Nothing,
+          TypedResolvedImport
+            span1
+            secondProviderPath
+            (Just "Second")
+            Nothing
+        ]
+        [TypedModuleExport TypedValueNamespace "published"]
+        ( TypedModuleInterface
+            [TypedValueInterface publishedName publishedScheme]
+            []
+            [TypedClassInterface retainedWrongCapability]
+            []
+        )
+        [ TypedLetStatement
+            publishedOwner
+            publishedName
+            span1
+            publishedScheme
+            trueExpr
+        ]
+        unitInfo
+
+sameNamedRetainedCapabilityProgram :: TypedProgram
+sameNamedRetainedCapabilityProgram =
+  TypedProgram
+    Nothing
+    [sameNamedCapabilityProviderModule, facadeModule, entryModule]
+    entryPath
+  where
+    facadePath =
+      fixtureLibraryPath "SameNamedCapabilityFacade"
+    entryPath =
+      fixtureModulePath "review-same-named-retained-capability"
+    parameter = TypedTypeParameterId 0
+    localCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
+    localCapability =
+      TypedClassDeclaration span1 localCapabilityName [parameter] []
+    retainedCapability =
+      TypedClassDeclaration span1 sameNamedImportedCapabilityName [parameter] []
+    constraint =
+      TypedCapabilityConstraint
+        sameNamedImportedCapabilityName
+        Nothing
+        TypedBoolType
+    facadeModule =
+      typedModule
+        facadePath
+        (TypedSourcePath "src/Library/SameNamedCapabilityFacade.jz")
+        [ TypedResolvedImport
+            span1
+            sameNamedCapabilityProviderPath
+            Nothing
+            (Just ["source"])
+        ]
+        [TypedModuleExport TypedCapabilityNamespace "Shared"]
+        ( TypedModuleInterface
+            []
+            []
+            [ TypedClassInterface localCapability,
+              TypedClassInterface retainedCapability
+            ]
+            [TypedImplInterface sameNamedImportedImplId]
+        )
+        [TypedClassStatement localCapability]
+        unitInfo
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        constraint
+        sameNamedImportedImplId
+        Nothing
+    expression =
+      TypedLiteralExpr
+        ( TypedNodeInfo
+            TypedBoolType
+            TypedBoolRecipe
+            []
+            [TypedSelectedEvidence evidenceUse]
+        )
+        (TypedBooleanLiteral True)
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 facadePath Nothing (Just ["Shared"])]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        boolInfo
 
 distinctClassMethodProgram :: TypedProgram
 distinctClassMethodProgram =

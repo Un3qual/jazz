@@ -290,6 +290,7 @@ validateResolvedImports moduleTable modulePath imports =
     validateImport (TypedResolvedImport spanValue importPath alias selectedNames) =
       validateSpan path spanValue
         <> maybe [] validateAlias alias
+        <> validateImportShape alias selectedNames
         <> validateSelectedNameShape selectedNames
         <> case Map.lookup importPath moduleTable of
           Nothing ->
@@ -312,6 +313,13 @@ validateResolvedImports moduleTable modulePath imports =
           | validSourceIdentifier aliasName = []
           | otherwise =
               [failure path TypedUnresolvedName (TypedTextDetail aliasName)]
+        validateImportShape (Just _) (Just _) =
+          [ failure
+              path
+              TypedModuleInterfaceMismatch
+              (TypedTextDetail "alias and selectors")
+          ]
+        validateImportShape _ _ = []
         validateSelectedNameShape Nothing = []
         validateSelectedNameShape (Just []) =
           [failure path TypedModuleInterfaceMismatch (TypedArityDetail 1 0)]
@@ -661,7 +669,8 @@ interfaceSchemeEntries (modulePath, selectedNames, TypedModule _ _ _ exports (Ty
     moduleExportsName TypedValueNamespace name exports
   ]
     <> [ (binderId, qualifyExternalScheme modulePath (generalizeClassMethodScheme classParameters scheme))
-       | TypedClassInterface (TypedClassDeclaration _ _ classParameters methods) <- classes,
+       | TypedClassInterface (TypedClassDeclaration _ className classParameters methods) <- classes,
+         moduleOwnedCapabilityName modulePath className,
          TypedMethodSignature name _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods,
          importAllows selectedNames name,
          moduleExportsName TypedValueNamespace name exports
@@ -762,12 +771,17 @@ interfaceImplMethodEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
   ]
 
 implImportAllowed :: ([Text], Maybe [Text], TypedModule) -> TypedImplId -> Bool
-implImportAllowed visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) (TypedImplId _ capability _) =
+implImportAllowed visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) (TypedImplId _ capability _) =
   any capabilityIncluded classes
   where
     capabilityIncluded (TypedClassInterface (TypedClassDeclaration _ name _ methods)) =
-      coreNameIdentifier name == coreNameIdentifier capability
-        && interfaceCapabilityIncluded visibleModule name methods
+      case ( resolvedNameKey modulePath name,
+             resolvedNameKey modulePath capability
+           ) of
+        (Just nameKey, Just capabilityKey) ->
+          nameKey == capabilityKey
+            && interfaceCapabilityIncluded visibleModule name methods
+        _ -> False
 
 interfaceDataMetadataDeclarations ::
   Map [Text] TypedModule ->
@@ -900,7 +914,8 @@ interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ ex
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
-      | TypedClassInterface (TypedClassDeclaration _ _ _ methods) <- classes,
+      | TypedClassInterface (TypedClassDeclaration _ className _ methods) <- classes,
+        moduleOwnedCapabilityName modulePath className,
         TypedMethodSignature name _ _ <- methods,
         importAllows selectedNames name,
         moduleExportsName TypedValueNamespace name exports,
@@ -1003,29 +1018,42 @@ evidenceCapabilityEntries capabilityContracts eligibleCapabilities schemes =
   ]
 
 interfaceCapabilityIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
-interfaceCapabilityIncluded visibleModule name methods =
+interfaceCapabilityIncluded visibleModule@(modulePath, _, _) name methods =
   interfaceCapabilityNameIncluded visibleModule name methods
-    || maybe False (`Set.member` requiredCapabilityIdentifiers visibleModule) (coreNameIdentifier name)
+    || maybe
+      False
+      (`Set.member` requiredCapabilityKeys visibleModule)
+      (resolvedNameKey modulePath name)
 
 interfaceCapabilityNameIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
-interfaceCapabilityNameIncluded visibleModule@(_, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
-  interfaceCapabilityNameDirectlyIncluded visibleModule name || any methodImported methods
+interfaceCapabilityNameIncluded visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
+  interfaceCapabilityNameDirectlyIncluded visibleModule name
+    || (moduleOwnedCapabilityName modulePath name && any methodImported methods)
   where
     methodImported (TypedMethodSignature methodName _ _) =
       importAllows selectedNames methodName && moduleExportsName TypedValueNamespace methodName exports
 
 interfaceCapabilityNameDirectlyIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> Bool
-interfaceCapabilityNameDirectlyIncluded (_, selectedNames, TypedModule _ _ _ exports _ _ _) name =
-  importAllows selectedNames name
+interfaceCapabilityNameDirectlyIncluded (modulePath, selectedNames, TypedModule _ _ _ exports _ _ _) name =
+  moduleOwnedCapabilityName modulePath name
+    && importAllows selectedNames name
     && moduleExportsName TypedCapabilityNamespace name exports
 
-requiredCapabilityIdentifiers :: ([Text], Maybe [Text], TypedModule) -> Set Text
-requiredCapabilityIdentifiers visibleModule =
+moduleOwnedCapabilityName :: [Text] -> TypedCoreName -> Bool
+moduleOwnedCapabilityName modulePath name =
+  case name of
+    TypedResolvedName TypedCurrentModule TypedCapabilityNamespace _ -> True
+    TypedResolvedName TypedAmbientPrelude TypedCapabilityNamespace _ ->
+      modulePath == ["Prelude"]
+    _ -> False
+
+requiredCapabilityKeys :: ([Text], Maybe [Text], TypedModule) -> Set ResolvedNameKey
+requiredCapabilityKeys visibleModule@(modulePath, _, _) =
   Set.fromList
-    [ identifier
+    [ key
     | (_, TypedScheme _ _ evidence _ _ _) <- interfaceSchemeEntries visibleModule,
       TypedEvidenceParameter _ (TypedCapabilityConstraint capability _ _) <- evidence,
-      identifier <- maybeToList (coreNameIdentifier capability)
+      key <- maybeToList (resolvedNameKey modulePath capability)
     ]
 
 capabilityEntry :: [Text] -> TypedClassDeclaration -> Maybe (ResolvedNameKey, CapabilityContract)
@@ -4097,19 +4125,17 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
     externalVisibleImpls =
       Set.fromList (concatMap interfaceVisibleImplIds visibleExternalModules)
-    externalCapabilityIdentifiers =
+    declaredCapabilityKeys =
       Set.fromList
-        [ identifier
-        | ResolvedNameKey _ TypedCapabilityNamespace identifier <-
-            Map.keys externalCapabilityContracts
+        [ key
+        | declaration <- declaredClasses,
+          (key, _) <- maybeToList (capabilityEntry modulePath declaration)
         ]
-    retainedCapabilityIdentifiers =
+    interfaceCapabilityKeys =
       Set.fromList
-        [ identifier
-        | classInterface@(TypedClassInterface declaration@(TypedClassDeclaration _ name _ _)) <- classes,
-          retainedClassInterfaceMatches declaration,
-          identifier <- maybeToList (coreNameIdentifier name),
-          not (classInterface `elem` map TypedClassInterface declaredClasses)
+        [ key
+        | TypedClassInterface declaration <- classes,
+          (key, _) <- maybeToList (capabilityEntry modulePath declaration)
         ]
     importedModules =
       [ (importPath, selectedNames, importedModule)
@@ -4199,22 +4225,13 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         <> [ failure
                path
                TypedModuleInterfaceMismatch
-               ( TypedNameDetail
-                   (TypedResolvedName TypedCurrentModule TypedCapabilityNamespace capability)
-               )
-           | capability <- nub (schemeLocalCapabilityDependencies declaredClasses scheme),
-             not (any (classInterfaceMatches capability) classes)
-           ]
-        <> [ failure
-               path
-               TypedModuleInterfaceMismatch
-               ( TypedNameDetail
-                   (TypedResolvedName TypedCurrentModule TypedCapabilityNamespace capability)
-               )
-           | capability <- nub (schemeCapabilityDependencies scheme),
-             not (any (classDeclarationMatches capability) declaredClasses),
-             Set.member capability externalCapabilityIdentifiers,
-             Set.notMember capability retainedCapabilityIdentifiers
+               (TypedNameDetail capability)
+           | (capabilityKey, capability) <-
+               nub (schemeCapabilityDependencies modulePath scheme),
+             Set.member
+               capabilityKey
+               (Set.union declaredCapabilityKeys (Map.keysSet externalCapabilityContracts)),
+             Set.notMember capabilityKey interfaceCapabilityKeys
            ]
     constructorDependencies (TypedConstructorDeclaration _ _ fields _) =
       concatMap (localDataDependencies modulePath) fields
@@ -4270,28 +4287,16 @@ localDataDependencies modulePath typeValue =
         <> localDataDependencies modulePath result
     _ -> []
 
-schemeLocalCapabilityDependencies :: [TypedClassDeclaration] -> TypedScheme -> [Text]
-schemeLocalCapabilityDependencies declaredClasses (TypedScheme _ _ evidence _ _ _) =
-  [ identifier
+schemeCapabilityDependencies :: [Text] -> TypedScheme -> [(ResolvedNameKey, TypedCoreName)]
+schemeCapabilityDependencies modulePath (TypedScheme _ _ evidence _ _ _) =
+  [ (key, capability)
   | TypedEvidenceParameter _ (TypedCapabilityConstraint capability _ _) <- evidence,
-    identifier <- maybeToList (coreNameIdentifier capability),
-    any (classDeclarationMatches identifier) declaredClasses
-  ]
-
-schemeCapabilityDependencies :: TypedScheme -> [Text]
-schemeCapabilityDependencies (TypedScheme _ _ evidence _ _ _) =
-  [ identifier
-  | TypedEvidenceParameter _ (TypedCapabilityConstraint capability _ _) <- evidence,
-    identifier <- maybeToList (coreNameIdentifier capability)
+    key <- maybeToList (resolvedNameKey modulePath capability)
   ]
 
 dataInterfaceMatches :: TypedCoreName -> TypedDataInterface -> Bool
 dataInterfaceMatches expected (TypedDataInterface (TypedDataDeclaration _ actual _ _)) =
   expected == actual
-
-classInterfaceMatches :: Text -> TypedClassInterface -> Bool
-classInterfaceMatches expected (TypedClassInterface (TypedClassDeclaration _ name _ _)) =
-  coreNameIdentifier name == Just expected
 
 classDeclarationMatches :: Text -> TypedClassDeclaration -> Bool
 classDeclarationMatches expected (TypedClassDeclaration _ name _ _) =
