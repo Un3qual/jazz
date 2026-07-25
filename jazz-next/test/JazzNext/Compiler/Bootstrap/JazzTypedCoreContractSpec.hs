@@ -800,7 +800,7 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder entryPath [0] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedEvidenceUse Nothing constraint invisibleSiblingImplId Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     entryModule =
@@ -824,7 +824,7 @@ selectedEvidenceTargetProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder modulePath [1] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedEvidenceUse Nothing constraint implId Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     statements =
@@ -858,7 +858,7 @@ selectedMethodContractProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "equal"
     valueBinder = binder modulePath [1] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") TypedBoolType
     withoutMethod = TypedEvidenceUse Nothing constraint implId Nothing
     wrongMethod = TypedEvidenceUse Nothing constraint implId (Just (TypedMethodId implId "other"))
     selected evidence = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
@@ -1103,7 +1103,7 @@ testReviewFollowupRegressions = do
     (validateTypedProgram missingImportProgram)
   assertEqual
     "candidate evidence matches capability and method constraints"
-    [ expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTextDetail "Render"),
+    [ expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedNameDetail (preludeCapability "Equal")),
       expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTypeDetail TypedTextType TypedBoolType),
       expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTextDetail "Render.map"),
       expressionFailureAt "review-candidate-constraint" 1 TypedMethodSelectionMismatch (TypedTextDetail "Render.map")
@@ -1606,7 +1606,7 @@ testCurrentReviewRegressions = do
         "review-capability-constraint-visibility"
         0
         TypedInvisibleName
-        (TypedTextDetail "Missing"),
+        (TypedNameDetail (preludeCapability "Missing")),
       statementFailure
         "review-capability-constraint-visibility"
         0
@@ -2083,14 +2083,9 @@ testGeneralizedClassMethodImport =
 testImportedClassCollision :: IO ()
 testImportedClassCollision =
   assertEqual
-    "constraints reject colliding imported class identifiers"
+    "resolved constraints do not repeat import-collision diagnostics"
     [ moduleFailure
         "review-imported-class-collision"
-        TypedDuplicateDeclaration
-        (TypedTextDetail "Clash"),
-      statementFailure
-        "review-imported-class-collision"
-        0
         TypedDuplicateDeclaration
         (TypedTextDetail "Clash")
     ]
@@ -2477,7 +2472,13 @@ testMethodOnlyCapabilityVisibility =
         "review-method-only-capability-visibility"
         0
         TypedInvisibleName
-        (TypedTextDetail "Render")
+        ( TypedNameDetail
+            ( resolved
+                (TypedImportedModule ["Library", "MethodOnlyCapability"])
+                TypedCapabilityNamespace
+                "Render"
+            )
+        )
     ]
     (validateTypedProgram methodOnlyCapabilityVisibilityProgram)
 
@@ -3068,7 +3069,7 @@ retainedCapabilityEvidenceProgram =
     publishedName =
       resolved TypedCurrentModule TypedValueNamespace "published"
     publishedOwner = binder facadePath [0] publishedName
-    constraint = TypedCapabilityConstraint "ForeignEq" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType
     publishedScheme =
       TypedScheme
         publishedOwner
@@ -3382,7 +3383,6 @@ evidenceCapabilityOriginProgram =
     leftPath = ["Evidence", "Left"]
     rightPath = ["Evidence", "Right"]
     entryPath = ["Fixture", "review-evidence-capability-origin"]
-    constraint = TypedCapabilityConstraint "Shared" Nothing TypedBoolType
     provider modulePath sourcePath publishedIdentifier =
       typedModule
         modulePath
@@ -3409,6 +3409,8 @@ evidenceCapabilityOriginProgram =
       where
         capabilityName =
           resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
+        constraint =
+          TypedCapabilityConstraint capabilityName Nothing TypedBoolType
         classDeclaration =
           TypedClassDeclaration
             span1
@@ -3435,6 +3437,10 @@ evidenceCapabilityOriginProgram =
     rightModule = provider rightPath "src/Evidence/Right.jz" "right"
     leftName =
       resolved (TypedImportedModule leftPath) TypedValueNamespace "left"
+    leftCapabilityName =
+      resolved (TypedImportedModule leftPath) TypedCapabilityNamespace "Shared"
+    leftConstraint =
+      TypedCapabilityConstraint leftCapabilityName Nothing TypedBoolType
     leftOwner = binder leftPath [2] (resolved TypedCurrentModule TypedValueNamespace "left")
     wrongImplId =
       TypedImplId rightPath evidenceCapabilityWrongName [TypedBoolType]
@@ -3446,7 +3452,7 @@ evidenceCapabilityOriginProgram =
                 (TypedEvidenceParameterId 0)
             )
         )
-        constraint
+        leftConstraint
         wrongImplId
         Nothing
     entryInfo =
@@ -3555,7 +3561,7 @@ retainedClassMethodExportProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint "Display" Nothing TypedBoolType)
+            (TypedCapabilityConstraint localClassName Nothing TypedBoolType)
         ]
         []
         TypedBoolType
@@ -3907,7 +3913,7 @@ singleEvidenceCandidateProgram =
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     constraint =
-      TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+      TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     implId =
       TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     candidate =
@@ -4040,7 +4046,7 @@ qualifiedMethodTypeApplicationProgram =
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint "Printable" (Just "Printable::print!") TypedBoolType)
+        (TypedCapabilityConstraint (preludeCapability "Printable") (Just "Printable::print!") TypedBoolType)
         importedImplId
         (Just (TypedMethodId importedImplId "print!"))
     methodInfo =
@@ -4077,7 +4083,7 @@ qualifiedMethodValueContractProgram =
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint "Render" (Just "Render::map") TypedTextType)
+        (TypedCapabilityConstraint (preludeCapability "Render") (Just "Render::map") TypedTextType)
         implId
         (Just (TypedMethodId implId "map"))
     expression =
@@ -4291,7 +4297,7 @@ duplicateQualifiedMethodCandidateProgram =
   where
     fixture = "review-duplicate-qualified-method-candidate"
     constraint =
-      TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+      TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
     candidate =
       TypedEvidenceCandidate
         duplicateQualifiedMethodCandidateImpl
@@ -4417,6 +4423,11 @@ methodOnlyCapabilityVisibilityProgram =
     entryPath = ["Fixture", fixture]
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule libraryPath)
+        TypedCapabilityNamespace
+        "Render"
     methodName =
       resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
@@ -4447,7 +4458,7 @@ methodOnlyCapabilityVisibilityProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint "Render" Nothing TypedBoolType)
+            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
         ]
         []
         TypedBoolType
@@ -4631,7 +4642,7 @@ ordinaryUnboundEvidenceProgram =
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     constraint =
-      TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+      TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
     evidenceUse =
@@ -4988,7 +4999,7 @@ fullyAppliedMethodCandidatesProgram =
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
     secondImpl = TypedImplId modulePath capabilityName [TypedTextType]
-    constraint = TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
     candidates =
       [ TypedEvidenceCandidate firstImpl (Just (TypedMethodId firstImpl "map")),
         TypedEvidenceCandidate secondImpl (Just (TypedMethodId secondImpl "map"))
@@ -5033,7 +5044,7 @@ duplicateUnboundEvidenceProgram =
   where
     fixture = "review-duplicate-unbound-evidence"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     use =
       TypedEvidenceUse
@@ -5128,7 +5139,11 @@ importedClassCollisionProgram =
     secondLibrary = libraryModule secondPath
     valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
     valueOwner = binder entryPath [0] valueName
-    constraint = TypedCapabilityConstraint "Clash" Nothing TypedBoolType
+    constraint =
+      TypedCapabilityConstraint
+        (resolved (TypedImportedModule firstPath) TypedCapabilityNamespace "Clash")
+        Nothing
+        TypedBoolType
     scheme =
       TypedScheme
         valueOwner
@@ -5146,7 +5161,7 @@ importedClassCollisionProgram =
         ]
         []
         emptyInterface
-        [ TypedSignatureStatement valueOwner valueName span1 scheme,
+        [ TypedLetStatement valueOwner valueName span1 scheme trueExpr,
           expressionStatement 1 trueExpr
         ]
         boolInfo
@@ -5250,8 +5265,8 @@ evidenceSelectionOrderProgram =
     owner = binder modulePath [0] valueName
     firstParameter = TypedEvidenceParameterId 0
     secondParameter = TypedEvidenceParameterId 1
-    firstConstraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
-    secondConstraint = TypedCapabilityConstraint "Equal" Nothing TypedCharType
+    firstConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    secondConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
     scheme =
       TypedScheme
         owner
@@ -5306,7 +5321,7 @@ privateCapabilityMetadataVisibilityProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint "PrivateEq" Nothing TypedBoolType)
+            (TypedCapabilityConstraint libraryCapabilityName Nothing TypedBoolType)
         ]
         []
         TypedBoolType
@@ -5391,7 +5406,7 @@ moduleQualifiedMethodKeyProgram =
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint capabilityIdentifier (Just qualifiedMethod) TypedBoolType)
+        (TypedCapabilityConstraint importedCapabilityName (Just qualifiedMethod) TypedBoolType)
         (TypedImplId preludePath importedCapabilityName [TypedBoolType])
         ( Just
             ( TypedMethodId
@@ -5574,13 +5589,18 @@ importedCapabilityDependencyProgram =
         unitInfo
     valueName = resolved TypedCurrentModule TypedValueNamespace "published"
     valueOwner = binder importedCapabilityFacadePath [0] valueName
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "ForeignEq"
     valueScheme =
       TypedScheme
         valueOwner
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint "ForeignEq" Nothing TypedBoolType)
+            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
         ]
         []
         TypedBoolType
@@ -5625,7 +5645,9 @@ metadataOnlyImplVisibilityProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
     valueOwner = binder libraryPath [2] valueName
     constraint =
-      TypedCapabilityConstraint "PrivateEq" Nothing TypedBoolType
+      TypedCapabilityConstraint capabilityName Nothing TypedBoolType
+    importedConstraint =
+      TypedCapabilityConstraint metadataOnlyImportedCapabilityName Nothing TypedBoolType
     valueScheme =
       TypedScheme
         valueOwner
@@ -5652,7 +5674,7 @@ metadataOnlyImplVisibilityProgram =
         ]
         unitInfo
     evidenceUse =
-      TypedEvidenceUse Nothing constraint metadataOnlyImportedImpl Nothing
+      TypedEvidenceUse Nothing importedConstraint metadataOnlyImportedImpl Nothing
     expression =
       TypedLiteralExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
@@ -5684,7 +5706,7 @@ patternExpressionMetadataProgram =
       TypedClassDeclaration span1 capabilityName [parameter] []
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     constraint =
-      TypedCapabilityConstraint "PatternMarker" Nothing TypedBoolType
+      TypedCapabilityConstraint capabilityName Nothing TypedBoolType
     patternInfo =
       TypedNodeInfo
         TypedBoolType
@@ -6018,7 +6040,7 @@ missingPreludeImplProgram =
   where
     fixture = "review-missing-prelude-impl"
     modulePath = ["Fixture", fixture]
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedTextType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint missingPreludeImplId Nothing)
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule = typedModule modulePath relativeSource [] [] emptyInterface [expressionStatement 1 expression] boolInfo
@@ -6041,7 +6063,7 @@ evidenceTypeScopeProgram =
         ["Prelude"]
         (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
         [TypedBoolType]
-    constraint = TypedCapabilityConstraint "Equal" Nothing parameterType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing parameterType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule =
@@ -6199,10 +6221,10 @@ capabilityConstraintVisibilityProgram =
     evidence =
       [ TypedEvidenceParameter
           (TypedEvidenceParameterId 0)
-          (TypedCapabilityConstraint "Missing" (Just "Missing.m") TypedBoolType),
+          (TypedCapabilityConstraint (preludeCapability "Missing") (Just "Missing.m") TypedBoolType),
         TypedEvidenceParameter
           (TypedEvidenceParameterId 1)
-          (TypedCapabilityConstraint "Equal" (Just "Equal.missing") TypedBoolType)
+          (TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.missing") TypedBoolType)
       ]
     scheme = TypedScheme owner [] evidence [] TypedBoolType TypedBoolRecipe
 
@@ -6340,7 +6362,7 @@ ownerAmbiguousEvidenceProgram =
     firstOwner = fixtureBinder fixture 0 firstName
     secondOwner = ownerAmbiguousSecondOwner
     parameter = TypedTypeParameterId 0
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme owner =
       TypedScheme
         owner
@@ -6465,7 +6487,7 @@ visibleClassImplImportProgram fixture exports selectedNames =
             )
         ]
         boolInfo
-    constraint = TypedCapabilityConstraint "Render" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint importedClassName Nothing TypedBoolType
     evidence =
       TypedSelectedEvidence
         (TypedEvidenceUse Nothing constraint importedImplId Nothing)
@@ -6549,7 +6571,7 @@ qualifiedMethodKeyProgram fixture methodKey =
   withFixturePrelude (expressionFixtureProgram fixture expression)
   where
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint "Equal" (Just methodKey) TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just methodKey) TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
@@ -6636,7 +6658,7 @@ constrainedMonomorphicUseProgram =
     fixture = "review-constrained-monomorphic-use"
     modulePath = ["Fixture", fixture]
     valueName = fixtureValueName "same"
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme =
       TypedScheme
         constrainedMonomorphicOwner
@@ -6785,7 +6807,7 @@ classMethodSchemeShapeProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint "Marker" Nothing parameterType)
+            (TypedCapabilityConstraint capabilityName Nothing parameterType)
         ]
         []
         parameterType
@@ -7147,7 +7169,7 @@ constrainedResolvedOperatorProgram =
         [TypedBoolRecipe, TypedBoolRecipe]
         TypedBoolRecipe
     operatorInfo = info operatorType operatorRecipe
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme =
       TypedScheme
         constrainedResolvedOperatorOwner
@@ -7621,7 +7643,7 @@ selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModu
             )
         ]
         boolInfo
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint selectiveImportLeakedImpl Nothing)
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule =
@@ -7644,7 +7666,7 @@ selectedEvidenceMethodExistenceProgram =
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     capability = TypedClassDeclaration span1 capabilityName [parameter] []
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") TypedBoolType
     methodId = TypedMethodId implId "equal"
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId (Just methodId))
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
@@ -7769,7 +7791,7 @@ ordinaryFunctionCandidateAmbiguityProgram =
     modulePath = ["Fixture", fixture]
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
-    constraint = TypedCapabilityConstraint "Render" (Just "Render.render") TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.render") TypedTextType
     candidate = TypedEvidenceCandidate implId (Just (TypedMethodId implId "render"))
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     expression =
@@ -7992,7 +8014,7 @@ candidateConstraintProgram =
     equalName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     renderImpl = TypedImplId ["Prelude"] renderName [TypedTextType]
     equalImpl = TypedImplId ["Prelude"] equalName [TypedBoolType]
-    constraint = TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
     equalCandidate = TypedEvidenceCandidate equalImpl (Just (TypedMethodId equalImpl "equal"))
     wrongMethodCandidate = TypedEvidenceCandidate renderImpl (Just (TypedMethodId renderImpl "render"))
     candidateExpression candidate =
@@ -8190,7 +8212,7 @@ evidenceParameterContractProgram =
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
     evidenceId = TypedEvidenceParameterId 0
-    generalizedConstraint = TypedCapabilityConstraint "Equal" Nothing (TypedTypeParameterType parameterId)
+    generalizedConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing (TypedTypeParameterType parameterId)
     scheme = TypedScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
@@ -8205,8 +8227,8 @@ evidenceParameterContractProgram =
     expression selection = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
     statements =
       [ TypedLetStatement owner valueName span1 scheme trueExpr,
-        expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint "Equal" Nothing TypedBoolType) TypedBoolType)),
-        expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint "Equal" Nothing TypedCharType) TypedCharType))
+        expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType) TypedBoolType)),
+        expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType) TypedCharType))
       ]
 
 invalidImplCapabilityName :: TypedCoreName
@@ -8237,7 +8259,7 @@ missingInstantiatedEvidenceProgram =
     owner = binder modulePath [0] valueName
     evidenceId = TypedEvidenceParameterId 0
     laterEvidenceId = TypedEvidenceParameterId 1
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId constraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [] Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
@@ -8486,7 +8508,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
     importedCapabilityName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Mark"
     importedTargetType = TypedDataType importedDataName []
     importedImplId = TypedImplId libraryPath importedCapabilityName [importedTargetType]
-    constraint = TypedCapabilityConstraint "Mark" Nothing importedTargetType
+    constraint = TypedCapabilityConstraint importedCapabilityName Nothing importedTargetType
     valueName = resolved TypedCurrentModule TypedValueNamespace "usesMark"
     valueOwner = binder entryPath [0] valueName
     evidenceParameter = TypedEvidenceParameterId 0
@@ -8531,7 +8553,7 @@ implTargetArityProgram =
     modulePath = ["Fixture", fixture]
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType, TypedCharType]
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     statements =
@@ -9055,7 +9077,7 @@ evidenceProgram fixture parameterId =
   where
     capability =
       TypedCapabilityConstraint
-        "Equal"
+        (preludeCapability "Equal")
         (case parameterId of Nothing -> Just "Equal.equal"; Just _ -> Nothing)
         TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
@@ -9093,7 +9115,7 @@ qualifiedMethodSelectionProgram =
   where
     fixture = "qualified-method-selection"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
@@ -9121,7 +9143,7 @@ partialMethodCandidatesProgram =
   where
     fixture = "partial-method-candidates"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    constraint = TypedCapabilityConstraint "Render" (Just "Render.map") TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
     secondImpl = TypedImplId ["Fixture", fixture] capabilityName [TypedTextType]
     candidates =
@@ -9654,7 +9676,7 @@ duplicateEvidenceParameterFixture =
     fixture = "duplicate-or-noncanonical-evidence-parameter"
     valueName = fixtureValueName "value"
     valueBinder = fixtureBinder fixture 0 valueName
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence =
       [ TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
         TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
@@ -9683,7 +9705,7 @@ missingOrDuplicateEvidenceFixture =
   InvalidFixture fixture program failures
   where
     fixture = "missing-or-duplicate-evidence"
-    constraint = TypedCapabilityConstraint "Equal" Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     duplicateOwner = fixtureBinder fixture 9 (fixtureValueName "duplicateEvidence")
@@ -9717,7 +9739,7 @@ ambiguousOrInvisibleEvidenceFixture =
   InvalidFixture fixture program failures
   where
     fixture = "ambiguous-or-invisible-evidence"
-    constraint = TypedCapabilityConstraint "Render" Nothing TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") Nothing TypedTextType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
     secondImpl = TypedImplId ["Library", "Render"] capabilityName [TypedTextType]
@@ -9743,7 +9765,7 @@ methodOrInterfaceIdentityFixture =
   where
     fixture = "method-or-interface-identity"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint "Equal" (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     otherImpl = TypedImplId ["Prelude"] capabilityName [TypedCharType]
     mismatchedMethod = TypedMethodId otherImpl "equal"
@@ -9856,6 +9878,9 @@ relativeSource = TypedSourcePath "src/Fixture/Main.jz"
 
 fixtureValueName :: Text -> TypedCoreName
 fixtureValueName = resolved TypedCurrentModule TypedValueNamespace
+
+preludeCapability :: Text -> TypedCoreName
+preludeCapability = resolved TypedAmbientPrelude TypedCapabilityNamespace
 
 fixtureBinder :: Text -> Int -> TypedCoreName -> TypedBinderId
 fixtureBinder fixture lexicalIndex = binder ["Fixture", fixture] [lexicalIndex]

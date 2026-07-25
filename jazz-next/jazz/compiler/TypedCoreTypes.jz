@@ -33,7 +33,7 @@ module TypedCoreTypes {
 
   data TypedPrimitiveConstraint = TypedNumericPrimitiveConstraint TypedNumericConstraint TypedType | TypedStrictEqualityPrimitiveConstraint TypedType.
 
-  data TypedCapabilityConstraint = TypedCapabilityConstraint Text (Maybe Text) TypedType.
+  data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe Text) TypedType.
 
   data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint.
 

@@ -115,7 +115,7 @@ data TypedPrimitiveConstraint
   | TypedStrictEqualityPrimitiveConstraint TypedType
   deriving (Eq, Ord, Show)
 
-data TypedCapabilityConstraint = TypedCapabilityConstraint Text (Maybe Text) TypedType
+data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe Text) TypedType
   deriving (Eq, Ord, Show)
 
 data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint

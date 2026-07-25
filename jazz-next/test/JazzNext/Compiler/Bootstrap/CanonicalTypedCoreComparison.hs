@@ -329,7 +329,7 @@ capabilityConstraintValue :: TypedCapabilityConstraint -> RuntimeValue
 capabilityConstraintValue (TypedCapabilityConstraint capability method typeValue') =
   constructor
     "TypedCapabilityConstraint"
-    [VText capability, maybeValue VText method, typeValue typeValue']
+    [coreNameValue capability, maybeValue VText method, typeValue typeValue']
 
 instantiationValue :: TypedInstantiation -> RuntimeValue
 instantiationValue (TypedInstantiation binder arguments explicitSpan) =

@@ -223,7 +223,7 @@ module TypedCoreValidate (
 
   capabilityConstraintEqual :: TypedCapabilityConstraint -> TypedCapabilityConstraint -> Bool.
   capabilityConstraintEqual = \(left, right) -> case (left, right) {
-    | (TypedCapabilityConstraint leftCapability leftMethod leftType, TypedCapabilityConstraint rightCapability rightMethod rightType) -> if leftCapability == rightCapability then if leftMethod == rightMethod then typeEqual leftType rightType else False else False
+    | (TypedCapabilityConstraint leftCapability leftMethod leftType, TypedCapabilityConstraint rightCapability rightMethod rightType) -> if coreNameEqual leftCapability rightCapability then if leftMethod == rightMethod then typeEqual leftType rightType else False else False
   }.
 
   implIdEqual :: TypedImplId -> TypedImplId -> Bool.
@@ -897,16 +897,6 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  visibleCapabilityIdentifierCount :: Text -> [NameEntry] -> Int.
-  visibleCapabilityIdentifierCount = \(capability, entries) -> case entries {
-    | [] -> 0
-    | [first | rest] -> case first {
-      | NameEntry modulePath TypedCapabilityNamespace identifier ->
-        if identifier == capability then 1 + visibleCapabilityIdentifierCount capability rest else visibleCapabilityIdentifierCount capability rest
-      | other -> visibleCapabilityIdentifierCount capability rest
-    }
-  }.
-
   methodContractMatches :: Text -> Text -> [MethodContract] -> Bool.
   methodContractMatches = \(capability, method, methods) -> case methods {
     | [] -> False
@@ -914,31 +904,30 @@ module TypedCoreValidate (
       if methodKeyMatches capability method methodName then True else methodContractMatches capability method rest
   }.
 
-  visibleCapabilityMethodPresent :: Text -> Text -> [NameEntry] -> [DataEntry] -> Bool.
-  visibleCapabilityMethodPresent = \(capability, method, names, entries) -> case names {
-    | [] -> False
-    | [first | rest] -> case first {
-      | NameEntry modulePath TypedCapabilityNamespace identifier ->
-        if identifier == capability then case lookupCapabilityContract modulePath identifier entries {
-          | Just contract -> case contract {
-            | CapabilityContract parameters methods -> if methodContractMatches capability method methods then True else visibleCapabilityMethodPresent capability method rest entries
-          }
-          | Nothing -> visibleCapabilityMethodPresent capability method rest entries
-        } else visibleCapabilityMethodPresent capability method rest entries
-      | other -> visibleCapabilityMethodPresent capability method rest entries
-    }
-  }.
-
   validateDeclaredCapabilityConstraint :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedCapabilityConstraint -> [TypedCoreValidationFailure].
   validateDeclaredCapabilityConstraint = \(context, path, scope, constraint) -> case (context, constraint) {
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) ->
-      listAppend
-        (validateType path scope targetType)
-        (if visibleCapabilityIdentifierCount capability visibleNames == 0 then [failure path TypedInvisibleName (TypedTextDetail capability)] else
-          if visibleCapabilityIdentifierCount capability visibleNames > 1 then [failure path TypedDuplicateDeclaration (TypedTextDetail capability)] else case maybeMethod {
-            | Nothing -> []
-            | Just method -> if visibleCapabilityMethodPresent capability method visibleNames dataEntries then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
-          })
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> {
+      capabilityContract = case resolvedNameEntry modulePath capability {
+        | Just entry -> case entry {
+          | NameEntry capabilityPath TypedCapabilityNamespace identifier -> lookupCapabilityContract capabilityPath identifier dataEntries
+          | other -> Nothing
+        }
+        | Nothing -> Nothing
+      }.
+      listConcat
+        [ validateType path scope targetType,
+          validateVisibleNameInNamespaces [TypedCapabilityNamespace] context path capability,
+          case (coreNameIdentifier capability, maybeMethod, capabilityContract) {
+            | (identifier, Nothing, contract) -> []
+            | (Just identifier, Just method, Just contract) -> case contract {
+              | CapabilityContract parameters methods ->
+                if methodContractMatches identifier method methods then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
+            }
+            | (identifier, Just method, Just contract) -> [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
+            | other -> []
+          }
+        ].
+    }
   }.
 
   numericTypeIntegral :: TypedNumericType -> Bool.
@@ -1455,7 +1444,7 @@ module TypedCoreValidate (
     }
   }.
 
-  evidenceMethodFailures :: ModuleContext -> TypedCoreValidationPath -> Bool -> Text -> Maybe(Text) -> TypedImplId -> Maybe(TypedMethodId) -> [TypedCoreValidationFailure].
+  evidenceMethodFailures :: ModuleContext -> TypedCoreValidationPath -> Bool -> TypedCoreName -> Maybe(Text) -> TypedImplId -> Maybe(TypedMethodId) -> [TypedCoreValidationFailure].
   evidenceMethodFailures = \(context, path, retainedCapability, capability, constraintMethod, implId, maybeMethod) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case (constraintMethod, maybeMethod) {
       | (Nothing, Nothing) -> []
@@ -1471,7 +1460,10 @@ module TypedCoreValidate (
         | TypedMethodId methodImpl methodName -> listConcat
           [ if retainedCapability then validateEvidenceMethodId context path typeScope methodId else validateMethodId context path typeScope methodId,
             if implIdEqual methodImpl implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImpl)],
-            if methodKeyMatches capability expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)],
+            case coreNameIdentifier capability {
+              | Just identifier -> if methodKeyMatches identifier expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
+              | Nothing -> [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
+            },
             capabilityMethodExistenceFailures context path implId methodName,
             implMethodExistenceFailures context path implId methodName
           ]
@@ -1498,7 +1490,11 @@ module TypedCoreValidate (
               }
             }
           },
-          if coreNameIdentifierEqual capability capabilityName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail capability)],
+          if retainedCapability then [] else case (resolvedNameEntry modulePath capabilityName, resolvedNameEntry modulePath capability) {
+            | (Just actualCapability, Just expectedCapability) ->
+              if nameEntryEqual actualCapability expectedCapability then [] else [failure path TypedMethodSelectionMismatch (TypedNameDetail capabilityName)]
+            | other -> [failure path TypedMethodSelectionMismatch (TypedNameDetail capabilityName)]
+          },
           case targetTypes {
             | [first] -> if typeEqual first targetType then [] else [failure path TypedMethodSelectionMismatch (TypedTypeDetail targetType first)]
             | other -> []
@@ -1568,7 +1564,7 @@ module TypedCoreValidate (
   capabilityConstraintLabel :: TypedCapabilityConstraint -> Text.
   capabilityConstraintLabel = \(constraint) -> case constraint {
     | TypedCapabilityConstraint capability maybeMethod targetType -> case maybeMethod {
-      | Nothing -> capability
+      | Nothing -> case coreNameIdentifier capability { | Nothing -> "" | Just identifier -> identifier }
       | Just method -> method
     }
   }.
@@ -1581,9 +1577,12 @@ module TypedCoreValidate (
     else duplicateUnboundEvidenceFailuresFrom path rest (listPrepend first seen) reversed
   }.
 
-  qualifiedMethodCandidates :: Text -> Maybe(Text) -> Maybe(Text) -> Bool.
+  qualifiedMethodCandidates :: TypedCoreName -> Maybe(Text) -> Maybe(Text) -> Bool.
   qualifiedMethodCandidates = \(capability, constraintMethod, expressionMethod) -> case (constraintMethod, expressionMethod) {
-    | (Just expectedMethod, Just actualMethod) -> methodKeyMatches capability expectedMethod actualMethod
+    | (Just expectedMethod, Just actualMethod) -> case coreNameIdentifier capability {
+      | Just identifier -> methodKeyMatches identifier expectedMethod actualMethod
+      | Nothing -> False
+    }
     | other -> False
   }.
 
@@ -1630,7 +1629,7 @@ module TypedCoreValidate (
       }
     }
     | TypedEvidenceCandidates constraint candidates -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> if listLength candidates == 0 then [failure path TypedMissingEvidence (TypedTextDetail capability)] else
+      | TypedCapabilityConstraint capability method targetType -> if listLength candidates == 0 then [failure path TypedMissingEvidence (TypedTextDetail (capabilityConstraintLabel constraint))] else
         if qualifiedMethodCandidates capability method candidateMethodKey then listAppend (duplicateEvidenceCandidateFailuresFrom path candidates []) (validateEvidenceCandidates context path constraint candidates) else
           [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength candidates))]
     }
@@ -1756,6 +1755,22 @@ module TypedCoreValidate (
     | TypedResolvedName TypedCurrentModule namespace identifier ->
       TypedResolvedName (if textListEqual modulePath ["Prelude"] then TypedAmbientPrelude else TypedImportedModule modulePath) namespace identifier
     | other -> other
+  }.
+
+  qualifyExternalEvidenceParameters :: [Text] -> [TypedEvidenceParameter] -> [TypedEvidenceParameter].
+  qualifyExternalEvidenceParameters = \(modulePath, parameters) -> case parameters {
+    | [] -> []
+    | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
+      | TypedCapabilityConstraint capability method targetType -> listPrepend
+        (TypedEvidenceParameter parameterId (TypedCapabilityConstraint (qualifyExternalName modulePath capability) method targetType))
+        (qualifyExternalEvidenceParameters modulePath rest)
+    }
+  }.
+
+  qualifyExternalScheme :: [Text] -> TypedScheme -> TypedScheme.
+  qualifyExternalScheme = \(modulePath, scheme) -> case scheme {
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
+      TypedScheme owner parameters (qualifyExternalEvidenceParameters modulePath evidence) primitive resultType resultRecipe
   }.
 
   qualifyExternalType :: [Text] -> TypedType -> TypedType.
@@ -3011,32 +3026,45 @@ module TypedCoreValidate (
     | other -> Nothing
   }.
 
-  qualifiedMethodConstraintMatches :: Text -> [NameEntry] -> [DataEntry] -> TypedCapabilityConstraint -> Bool.
-  qualifiedMethodConstraintMatches = \(methodKey, visibleNames, dataEntries, constraint) -> case constraint {
+  qualifiedMethodConstraintMatches :: [Text] -> Text -> [NameEntry] -> [DataEntry] -> TypedCapabilityConstraint -> Bool.
+  qualifiedMethodConstraintMatches = \(currentModulePath, methodKey, visibleNames, dataEntries, constraint) -> case constraint {
     | TypedCapabilityConstraint capability maybeMethod targetType -> case maybeMethod {
       | Nothing -> False
-      | Just constraintMethod ->
-        if methodKeyMatches capability constraintMethod methodKey then visibleCapabilityMethodPresent capability constraintMethod visibleNames dataEntries else False
+      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just identifier, Just entry) ->
+          if methodKeyMatches identifier constraintMethod methodKey then
+            if nameEntryMember entry visibleNames then case entry {
+              | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
+                | Just contract -> case contract {
+                  | CapabilityContract parameters methods -> methodContractMatches identifier constraintMethod methods
+                }
+                | Nothing -> False
+              }
+              | other -> False
+            } else False
+          else False
+        | other -> False
+      }
     }
   }.
 
-  qualifiedMethodSelectionsMatch :: Text -> [NameEntry] -> [DataEntry] -> [TypedEvidenceSelection] -> Bool.
-  qualifiedMethodSelectionsMatch = \(methodKey, visibleNames, dataEntries, selections) -> case selections {
+  qualifiedMethodSelectionsMatch :: [Text] -> Text -> [NameEntry] -> [DataEntry] -> [TypedEvidenceSelection] -> Bool.
+  qualifiedMethodSelectionsMatch = \(currentModulePath, methodKey, visibleNames, dataEntries, selections) -> case selections {
     | [] -> False
     | [selection | rest] -> case selection {
       | TypedSelectedEvidence evidenceUse -> case evidenceUse {
         | TypedEvidenceUse parameterRef constraint implId maybeMethod ->
-          if qualifiedMethodConstraintMatches methodKey visibleNames dataEntries constraint then True else qualifiedMethodSelectionsMatch methodKey visibleNames dataEntries rest
+          if qualifiedMethodConstraintMatches currentModulePath methodKey visibleNames dataEntries constraint then True else qualifiedMethodSelectionsMatch currentModulePath methodKey visibleNames dataEntries rest
       }
       | TypedEvidenceCandidates constraint candidates ->
-        if qualifiedMethodConstraintMatches methodKey visibleNames dataEntries constraint then True else qualifiedMethodSelectionsMatch methodKey visibleNames dataEntries rest
+        if qualifiedMethodConstraintMatches currentModulePath methodKey visibleNames dataEntries constraint then True else qualifiedMethodSelectionsMatch currentModulePath methodKey visibleNames dataEntries rest
     }
   }.
 
   qualifiedMethodEvidenceTarget :: ModuleContext -> Text -> TypedNodeInfo -> Bool.
   qualifiedMethodEvidenceTarget = \(context, methodKey, info) -> case (context, info) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedNodeInfo typeValue recipe instantiations evidenceSelections) ->
-      qualifiedMethodSelectionsMatch methodKey visibleNames dataEntries evidenceSelections
+      qualifiedMethodSelectionsMatch modulePath methodKey visibleNames dataEntries evidenceSelections
   }.
 
   qualifiedMethodContractForKey :: Text -> Text -> [MethodContract] -> Maybe(TypedScheme).
@@ -3046,41 +3074,37 @@ module TypedCoreValidate (
       if methodKeyMatches capability candidateMethod methodKey then Just scheme else qualifiedMethodContractForKey capability methodKey rest
   }.
 
-  visibleCapabilityContract :: Text -> [NameEntry] -> [DataEntry] -> Maybe(CapabilityContract).
-  visibleCapabilityContract = \(capability, names, entries) -> case names {
-    | [] -> Nothing
-    | [first | rest] -> case first {
-      | NameEntry modulePath TypedCapabilityNamespace identifier ->
-        if identifier == capability then lookupCapabilityContract modulePath identifier entries else visibleCapabilityContract capability rest entries
-      | other -> visibleCapabilityContract capability rest entries
-    }
-  }.
-
   qualifiedMethodConstraintValueContract :: ModuleContext -> Text -> TypedCapabilityConstraint -> Maybe(ValueContract).
   qualifiedMethodConstraintValueContract = \(context, methodKey, constraint) -> case (context, constraint) {
     | (ModuleContext currentModulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> case maybeMethod {
       | Nothing -> Nothing
-      | Just constraintMethod ->
-        if methodKeyMatches capability constraintMethod methodKey then
-          if visibleCapabilityIdentifierCount capability visibleNames == 1 then case visibleCapabilityContract capability visibleNames dataEntries {
-            | Just contract -> case contract {
-              | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capability methodKey methods {
-                | Just scheme -> case scheme {
-                  | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
-                    ownerPath = binderModulePathValue owner.
-                    qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
-                    qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
-                    substitutions = [(classParameter, targetType)].
-                    Just (ValueContract (substituteTypeParameters substitutions qualifiedType) (substituteRepresentationParameters substitutions qualifiedRecipe)).
+      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just identifier, Just entry) ->
+          if methodKeyMatches identifier constraintMethod methodKey then
+            if nameEntryMember entry visibleNames then case entry {
+              | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
+                | Just contract -> case contract {
+                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey identifier methodKey methods {
+                    | Just scheme -> case scheme {
+                      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+                        ownerPath = binderModulePathValue owner.
+                        qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
+                        qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
+                        substitutions = [(classParameter, targetType)].
+                        Just (ValueContract (substituteTypeParameters substitutions qualifiedType) (substituteRepresentationParameters substitutions qualifiedRecipe)).
+                      }
+                    }
+                    | Nothing -> Nothing
                   }
+                  | other -> Nothing
                 }
                 | Nothing -> Nothing
               }
               | other -> Nothing
-            }
-            | Nothing -> Nothing
-          } else Nothing
-        else Nothing
+            } else Nothing
+          else Nothing
+        | other -> Nothing
+      }
     }
   }.
 
@@ -3269,41 +3293,41 @@ module TypedCoreValidate (
         | Nothing -> Nothing
         | Just constraintMethod -> case implId {
           | TypedImplId implPath capabilityName targetTypes -> case (targetTypes, maybeMethodId) {
-            | ([implTarget], Just methodId) -> case (capabilityName, methodId) {
-              | (TypedResolvedName capabilityOrigin TypedCapabilityNamespace capabilityIdentifier, TypedMethodId methodImpl selectedMethod) -> {
-                capabilityPath = originModulePath currentModulePath capabilityOrigin.
-                capabilityVisible = nameEntryMember (NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier) visibleNames.
+            | ([implTarget], Just methodId) -> case (resolvedNameEntry currentModulePath capability, resolvedNameEntry currentModulePath capabilityName, coreNameIdentifier capability, methodId) {
+              | (Just capabilityEntry, Just implCapabilityEntry, Just capabilityIdentifier, TypedMethodId methodImpl selectedMethod) ->
                 if implIdEqual methodImpl implId then
-                  if capability == capabilityIdentifier then
+                  if nameEntryEqual capabilityEntry implCapabilityEntry then
                     if typeEqual targetType typeArgument then
                       if typeEqual implTarget targetType then
-                        if methodKeyMatches capability constraintMethod methodKey then
-                          if methodKeyMatches capability selectedMethod methodKey then
-                            if capabilityVisible then case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
-                              | Just contract -> case contract {
-                                | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capability methodKey methods {
-                                  | Just scheme -> case scheme {
-                                    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
-                                      ownerPath = binderModulePathValue owner.
-                                      qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
-                                      qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
-                                      substitutions = [(classParameter, typeArgument)].
-                                      Just (ValueContract (substituteTypeParameters substitutions qualifiedType) (substituteRepresentationParameters substitutions qualifiedRecipe)).
+                        if methodKeyMatches capabilityIdentifier constraintMethod methodKey then
+                          if methodKeyMatches capabilityIdentifier selectedMethod methodKey then
+                            if nameEntryMember capabilityEntry visibleNames then case capabilityEntry {
+                              | NameEntry capabilityPath TypedCapabilityNamespace contractIdentifier -> case lookupCapabilityContract capabilityPath contractIdentifier dataEntries {
+                                | Just contract -> case contract {
+                                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capabilityIdentifier methodKey methods {
+                                    | Just scheme -> case scheme {
+                                      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+                                        ownerPath = binderModulePathValue owner.
+                                        qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
+                                        qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
+                                        substitutions = [(classParameter, typeArgument)].
+                                        Just (ValueContract (substituteTypeParameters substitutions qualifiedType) (substituteRepresentationParameters substitutions qualifiedRecipe)).
+                                      }
                                     }
+                                    | Nothing -> Nothing
                                   }
-                                  | Nothing -> Nothing
+                                  | other -> Nothing
                                 }
-                                | other -> Nothing
+                                | Nothing -> Nothing
                               }
-                              | Nothing -> Nothing
+                              | other -> Nothing
                             } else Nothing
                           else Nothing
                         else Nothing
                       else Nothing
                     else Nothing
                   else Nothing
-                else Nothing.
-              }
+                else Nothing
               | other -> Nothing
             }
             | other -> Nothing
@@ -3578,25 +3602,18 @@ module TypedCoreValidate (
   capabilityNameEntries :: [DataEntry] -> [NameEntry].
   capabilityNameEntries = \(entries) -> capabilityNameEntriesFrom entries [].
 
-  matchingCapabilityNames :: Text -> [NameEntry] -> [NameEntry].
-  matchingCapabilityNames = \(identifier, names) -> case names {
-    | [] -> []
-    | [first | rest] -> case first {
-      | NameEntry modulePath TypedCapabilityNamespace candidate ->
-        if identifier == candidate then listPrepend first (matchingCapabilityNames identifier rest) else matchingCapabilityNames identifier rest
-      | other -> matchingCapabilityNames identifier rest
-    }
-  }.
-
   evidenceCapabilityEntriesFromParameters :: TypedBinderId -> [TypedEvidenceParameter] -> [NameEntry] -> [DataEntry].
   evidenceCapabilityEntriesFromParameters = \(owner, parameters, eligibleCapabilities) -> case parameters {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> case matchingCapabilityNames capability eligibleCapabilities {
-        | [NameEntry modulePath TypedCapabilityNamespace identifier] -> listPrepend
-          (EvidenceCapabilityEntry (TypedEvidenceParameterRef owner parameterId) modulePath identifier)
-          (evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities)
-        | other -> evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities
+      | TypedCapabilityConstraint capability method targetType -> case resolvedNameEntry (binderModulePathValue owner) capability {
+        | Just entry -> if nameEntryMember entry eligibleCapabilities then case entry {
+          | NameEntry modulePath TypedCapabilityNamespace identifier -> listPrepend
+            (EvidenceCapabilityEntry (TypedEvidenceParameterRef owner parameterId) modulePath identifier)
+            (evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities)
+          | other -> evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities
+        } else evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities
+        | Nothing -> evidenceCapabilityEntriesFromParameters owner rest eligibleCapabilities
       }
     }
   }.
@@ -5057,8 +5074,11 @@ module TypedCoreValidate (
   schemeLocalCapabilityDependenciesFrom = \(statements, evidence) -> case evidence {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType ->
-        if localCapabilityDeclared capability statements then listPrepend capability (schemeLocalCapabilityDependenciesFrom statements rest) else schemeLocalCapabilityDependenciesFrom statements rest
+      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
+        | Just identifier ->
+          if localCapabilityDeclared identifier statements then listPrepend identifier (schemeLocalCapabilityDependenciesFrom statements rest) else schemeLocalCapabilityDependenciesFrom statements rest
+        | Nothing -> schemeLocalCapabilityDependenciesFrom statements rest
+      }
     }
   }.
 
@@ -5081,7 +5101,10 @@ module TypedCoreValidate (
   interfaceEvidenceCapabilityIdentifiers = \(parameters) -> case parameters {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> listPrepend capability (interfaceEvidenceCapabilityIdentifiers rest)
+      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
+        | Just identifier -> listPrepend identifier (interfaceEvidenceCapabilityIdentifiers rest)
+        | Nothing -> interfaceEvidenceCapabilityIdentifiers rest
+      }
     }
   }.
 
@@ -5603,29 +5626,29 @@ module TypedCoreValidate (
     }.
   }.
 
-  valueInterfaceSchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [TypedValueInterface] -> [SchemeEntry].
-  valueInterfaceSchemeEntries = \(selectedNames, exports, values) -> case values {
+  valueInterfaceSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedValueInterface] -> [SchemeEntry].
+  valueInterfaceSchemeEntries = \(modulePath, selectedNames, exports, values) -> case values {
     | [] -> []
     | [TypedValueInterface name scheme | rest] -> case scheme {
       | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
-        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder scheme) (valueInterfaceSchemeEntries selectedNames exports rest) else valueInterfaceSchemeEntries selectedNames exports rest else valueInterfaceSchemeEntries selectedNames exports rest
+        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath scheme)) (valueInterfaceSchemeEntries modulePath selectedNames exports rest) else valueInterfaceSchemeEntries modulePath selectedNames exports rest else valueInterfaceSchemeEntries modulePath selectedNames exports rest
     }
   }.
 
-  selectedMethodSchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].
-  selectedMethodSchemeEntries = \(selectedNames, exports, classParameters, methods) -> case methods {
+  selectedMethodSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].
+  selectedMethodSchemeEntries = \(modulePath, selectedNames, exports, classParameters, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
       | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
-        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (generalizeClassMethodScheme classParameters scheme)) (selectedMethodSchemeEntries selectedNames exports classParameters rest) else selectedMethodSchemeEntries selectedNames exports classParameters rest else selectedMethodSchemeEntries selectedNames exports classParameters rest
+        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath (generalizeClassMethodScheme classParameters scheme))) (selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest) else selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest else selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest
     }
   }.
 
-  classInterfaceSchemeEntries :: Maybe([Text]) -> [TypedModuleExport] -> [TypedClassInterface] -> [SchemeEntry].
-  classInterfaceSchemeEntries = \(selectedNames, exports, classes) -> case classes {
+  classInterfaceSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedClassInterface] -> [SchemeEntry].
+  classInterfaceSchemeEntries = \(modulePath, selectedNames, exports, classes) -> case classes {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
-      | TypedClassDeclaration span name parameters methods -> listAppend (selectedMethodSchemeEntries selectedNames exports parameters methods) (classInterfaceSchemeEntries selectedNames exports rest)
+      | TypedClassDeclaration span name parameters methods -> listAppend (selectedMethodSchemeEntries modulePath selectedNames exports parameters methods) (classInterfaceSchemeEntries modulePath selectedNames exports rest)
     }
   }.
 
@@ -5633,7 +5656,7 @@ module TypedCoreValidate (
   interfaceSchemeEntries = \(visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
       | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
-        | TypedModuleInterface values datas classes impls -> listAppend (valueInterfaceSchemeEntries selectedNames exports values) (classInterfaceSchemeEntries selectedNames exports classes)
+        | TypedModuleInterface values datas classes impls -> listAppend (valueInterfaceSchemeEntries modulePath selectedNames exports values) (classInterfaceSchemeEntries modulePath selectedNames exports classes)
       }
     }
   }.
@@ -5672,7 +5695,10 @@ module TypedCoreValidate (
   evidenceCapabilityIdentifiers = \(parameters) -> case parameters {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
-      | TypedCapabilityConstraint capability method targetType -> listPrepend capability (evidenceCapabilityIdentifiers rest)
+      | TypedCapabilityConstraint capability method targetType -> case coreNameIdentifier capability {
+        | Just identifier -> listPrepend identifier (evidenceCapabilityIdentifiers rest)
+        | Nothing -> evidenceCapabilityIdentifiers rest
+      }
     }
   }.
 
