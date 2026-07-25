@@ -369,7 +369,7 @@ reviewRegressionGroups =
     (("preserves nested local generalization under generics", testNestedLocalGeneralization), [nestedLocalGeneralizationProgram]),
     (("rejects non-concrete impl targets", testNonConcreteImplTarget), [nonConcreteImplTargetProgram]),
     (("rejects module-scope declarations inside blocks", testBlockDeclarationScope), [blockDeclarationScopeProgram]),
-    (("rejects delimiter-bearing module path segments", testModulePathIdentifierSegments), [delimiterModulePathProgram]),
+    (("rejects non-lexical module path segments", testModulePathIdentifierSegments), [delimiterModulePathProgram, slashModulePathProgram, reservedModulePathProgram]),
     (("requires module metadata to equal the terminal node", testModuleMetadataIdentity), [moduleMetadataIdentityProgram]),
     (("rejects stray qualified type-application instantiations", testQualifiedTypeApplicationInstantiation), [qualifiedTypeApplicationInstantiationProgram]),
     (("keeps local class methods out of active scheme lookup", testLocalClassMethodSchemeIsolation), [localClassMethodAfterValueProgram, localClassMethodBeforeValueProgram]),
@@ -392,7 +392,8 @@ reviewRegressionGroups =
     (("normalizes duplicate Prelude impl identities", testNormalizedPreludeImplDuplicates), [normalizedPreludeImplDuplicatesProgram]),
     (("rejects malformed import aliases", testMalformedImportAlias), [malformedImportAliasProgram]),
     (("rejects duplicate module exports", testDuplicateModuleExports), [duplicateModuleExportsProgram]),
-    (("rejects non-positive source spans", testInvalidSourceSpans), [invalidImportSpanProgram, invalidStatementSpansProgram, invalidDeclarationSpansProgram, invalidExpressionSpansProgram])
+    (("rejects non-positive source spans", testInvalidSourceSpans), [invalidImportSpanProgram, invalidStatementSpansProgram, invalidDeclarationSpansProgram, invalidExpressionSpansProgram]),
+    (("enforces canonical typed-core inventories", testUnresolvedReviewRegressions), [emptyImportSelectorProgram, duplicateImportSelectorProgram, distinctClassMethodProgram, duplicateEvidenceConstraintProgram, singletonTupleTypeProgram, preludeAmbientDataDependencyProgram, duplicateModuleInterfaceEntriesProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -403,7 +404,7 @@ nestedPathProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-path"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     nestedName = TypedUnresolvedSourceName "nested"
     block =
       TypedBlockExpr
@@ -413,11 +414,11 @@ nestedPathProgram =
 nestedPathFailures :: [TypedCoreValidationFailure]
 nestedPathFailures =
   [ TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-path"] [0] [0])
+      (TypedExpressionPath (fixtureModulePath "review-nested-path") [0] [0])
       TypedTypeRepresentationMismatch
       (TypedRecipeDetail TypedBoolRecipe (TypedSignedIntegerRecipe 64)),
     TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-path"] [0, 0, 0] [0])
+      (TypedExpressionPath (fixtureModulePath "review-nested-path") [0, 0, 0] [0])
       TypedUnresolvedName
       (TypedNameDetail (TypedUnresolvedSourceName "nested"))
   ]
@@ -427,7 +428,7 @@ nestedDeclarationProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-declaration"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Flag"
     constructorBinder = binder modulePath [0, 0] constructorName
@@ -442,11 +443,11 @@ nestedDeclarationProgram =
 nestedDeclarationFailures :: [TypedCoreValidationFailure]
 nestedDeclarationFailures =
   [ TypedCoreValidationFailure
-      (TypedExpressionPath ["Fixture", "review-nested-declaration"] [0] [0])
+      (TypedExpressionPath (fixtureModulePath "review-nested-declaration") [0] [0])
       TypedBlockResultMismatch
       TypedNoValidationDetail,
     TypedCoreValidationFailure
-      (TypedStatementPath ["Fixture", "review-nested-declaration"] [0, 0, 0])
+      (TypedStatementPath (fixtureModulePath "review-nested-declaration") [0, 0, 0])
       TypedBlockResultMismatch
       (TypedTextDetail "data declaration")
   ]
@@ -456,7 +457,7 @@ nestedDuplicateBinderProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-duplicate-binder"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     name = resolved TypedCurrentModule TypedValueNamespace "duplicate"
     duplicateBinder = binder modulePath [0, 0] name
     scheme = monoScheme duplicateBinder
@@ -471,9 +472,9 @@ nestedDuplicateBinderProgram =
 nestedDuplicateBinderFailures :: [TypedCoreValidationFailure]
 nestedDuplicateBinderFailures =
   [ TypedCoreValidationFailure
-      (TypedStatementPath ["Fixture", "review-nested-duplicate-binder"] [0, 0, 1])
+      (TypedStatementPath (fixtureModulePath "review-nested-duplicate-binder") [0, 0, 1])
       TypedDuplicateBinder
-      (TypedBinderDetail (binder ["Fixture", "review-nested-duplicate-binder"] [0, 0] (resolved TypedCurrentModule TypedValueNamespace "duplicate")))
+      (TypedBinderDetail (binder (fixtureModulePath "review-nested-duplicate-binder") [0, 0] (resolved TypedCurrentModule TypedValueNamespace "duplicate")))
   ]
 
 guardedCasePathProgram :: TypedProgram
@@ -481,7 +482,7 @@ guardedCasePathProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface boolInfo modulePath
   where
     fixture = "review-guarded-case-path"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     unresolved name = TypedVariableExpr boolInfo (TypedUnresolvedSourceName name)
     expression =
       TypedPatternCaseExpr
@@ -527,7 +528,7 @@ generalizedLetScopeProgram =
   singleModuleProgram fixture relativeSource [TypedModuleExport TypedValueNamespace "identity"] [statement] interface boolInfo modulePath
   where
     fixture = "review-generalized-let-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
     valueBinder = binder modulePath [0] valueName
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
@@ -546,8 +547,8 @@ generalizedLetScopeProgram =
 importedInstantiationProgram :: TypedProgram
 importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "Identity"]
-    entryPath = ["Fixture", "review-imported-instantiation"]
+    libraryPath = (fixtureLibraryPath "Identity")
+    entryPath = (fixtureModulePath "review-imported-instantiation")
     localName = resolved TypedCurrentModule TypedValueNamespace "identity"
     importedName = resolved (TypedImportedModule libraryPath) TypedValueNamespace "identity"
     owner = binder libraryPath [0] localName
@@ -595,7 +596,7 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
   where
     fixture = "review-invisible-sibling-impl"
     hiddenPath = ["Hidden", "Evidence"]
-    entryPath = ["Fixture", fixture]
+    entryPath = (fixtureModulePath fixture)
     hiddenDeclaration =
       TypedImplDeclaration
         span1
@@ -633,7 +634,7 @@ selectedEvidenceTargetProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-selected-evidence-target"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedCharType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
@@ -667,7 +668,7 @@ selectedMethodContractProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-selected-method-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "equal"
@@ -693,14 +694,14 @@ selectedMethodContractProgram =
 
 enclosingOtherImplId :: TypedImplId
 enclosingOtherImplId =
-  TypedImplId ["Fixture", "review-enclosing-impl-method"] (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render") [TypedCharType]
+  TypedImplId (fixtureModulePath "review-enclosing-impl-method") (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render") [TypedCharType]
 
 enclosingImplMethodProgram :: TypedProgram
 enclosingImplMethodProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] [TypedImplStatement declaration] emptyInterface boolInfo modulePath)
   where
     fixture = "review-enclosing-impl-method"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
@@ -760,7 +761,7 @@ bindingValueProgram =
   singleModuleProgram fixture relativeSource [] [TypedLetStatement valueBinder valueName span1 (monoScheme valueBinder) value] emptyInterface boolInfo modulePath
   where
     fixture = "review-binding-value"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     valueBinder = binder modulePath [0] valueName
     value = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "wrong")
@@ -769,7 +770,7 @@ lambdaResultProgram :: TypedProgram
 lambdaResultProgram = expressionFixtureProgram fixture expression
   where
     fixture = "review-lambda-result"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     expression =
       TypedLambdaExpr
@@ -792,7 +793,7 @@ dataTypeArityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface dataInfo modulePath
   where
     fixture = "review-data-type-arity"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     declaration =
       dataDeclarationWithNullaryConstructor
@@ -818,7 +819,7 @@ tuplePatternShapeProgram = expressionFixtureProgram fixture expression
 
 moduleResultProgram :: TypedProgram
 moduleResultProgram =
-  singleModuleProgram fixture relativeSource [] [expressionStatement 1 terminal] emptyInterface boolInfo ["Fixture", fixture]
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 terminal] emptyInterface boolInfo (fixtureModulePath fixture)
   where
     fixture = "review-module-result"
     terminal = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "result")
@@ -831,7 +832,7 @@ schemeDataTypeProgram =
   singleModuleProgram fixture relativeSource [] [TypedSignatureStatement valueBinder valueName span1 scheme] emptyInterface boolInfo modulePath
   where
     fixture = "review-scheme-data-type"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     valueBinder = binder modulePath [0] valueName
     resultType = TypedDataType missingSchemeDataName []
@@ -839,7 +840,7 @@ schemeDataTypeProgram =
 
 driveAbsoluteProgram :: TypedProgram
 driveAbsoluteProgram =
-  singleModuleProgram fixture (TypedSourcePath "C:/Fixture/Main.jz") [] [] emptyInterface boolInfo ["Fixture", fixture]
+  singleModuleProgram fixture (TypedSourcePath "C:/Fixture/Main.jz") [] [] emptyInterface boolInfo (fixtureModulePath fixture)
   where
     fixture = "review-drive-absolute"
 
@@ -881,11 +882,11 @@ testReviewFollowupRegressions = do
   assertEqual
     "constructor patterns match declared field arity and types"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] [1] [0, 0])
+        (TypedPatternPath (fixtureModulePath "review-constructor-pattern-contract") [1] [0, 0])
         TypedPatternShapeMismatch
         (TypedArityDetail 1 0),
       TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-constructor-pattern-contract"] [1] [0, 1, 0])
+        (TypedPatternPath (fixtureModulePath "review-constructor-pattern-contract") [1] [0, 1, 0])
         TypedPatternScrutineeMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -963,7 +964,7 @@ testLatestReviewRegressions = do
   assertEqual
     "nested case patterns retain their containing expression paths"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-nested-case-pattern-path"] [0] [0, 1, 0])
+        (TypedPatternPath (fixtureModulePath "review-nested-case-pattern-path") [0] [0, 1, 0])
         TypedLiteralTypeMismatch
         (TypedTypeDetail TypedTextType TypedBoolType)
     ]
@@ -1062,7 +1063,7 @@ testNewestReviewRegressions = do
   assertEqual
     "lexical variable uses match their binder contracts"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-lexical-binder-contract"] [0] [0, 0])
+        (TypedExpressionPath (fixtureModulePath "review-lexical-binder-contract") [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
@@ -1351,7 +1352,7 @@ testWrongConstructorPatternType =
   assertEqual
     "constructor patterns belong to their annotated data type"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-wrong-constructor-pattern-type"] [1] [0, 0])
+        (TypedPatternPath (fixtureModulePath "review-wrong-constructor-pattern-type") [1] [0, 0])
         TypedPatternShapeMismatch
         (TypedTypeDetail wrongConstructorDataType TypedBoolType)
     ]
@@ -1372,16 +1373,26 @@ testForeignOwnedLocalImpl =
 testImportedTypeCapabilityMetadata :: IO ()
 testImportedTypeCapabilityMetadata =
   assertEqual
-    "type-exported classes retain metadata after their selector is rejected"
-    [ moduleFailure
+    "classes exported in the type namespace publish neither an export nor capability metadata"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureLibraryPath "TypeCapability"))
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail (resolved TypedCurrentModule TypedTypeNamespace "Render")),
+      moduleFailure
         "review-imported-type-capability-metadata"
         TypedModuleInterfaceMismatch
         (TypedTextDetail "Render"),
       statementFailure
         "review-imported-type-capability-metadata"
         0
-        TypedMethodSelectionMismatch
-        (TypedArityDetail 1 2)
+        TypedInvisibleName
+        ( TypedNameDetail
+            ( resolved
+                (TypedImportedModule (fixtureLibraryPath "TypeCapability"))
+                TypedCapabilityNamespace
+                "Render"
+            )
+        )
     ]
     (validateTypedProgram importedTypeCapabilityMetadataProgram)
 
@@ -1432,7 +1443,7 @@ testCurrentReviewRegressions = do
   assertEqual
     "numeric operators over type parameters require a published primitive constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-unconstrained-numeric-parameter"] [0] [0, 0])
+        (TypedExpressionPath (fixtureModulePath "review-unconstrained-numeric-parameter") [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTextDetail "+")
     ]
@@ -1440,7 +1451,7 @@ testCurrentReviewRegressions = do
   assertEqual
     "equality over type parameters requires a published primitive constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-unconstrained-equality-parameter"] [0] [0, 0])
+        (TypedExpressionPath (fixtureModulePath "review-unconstrained-equality-parameter") [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
     ]
@@ -1488,15 +1499,39 @@ testCurrentReviewRegressions = do
     ]
     (validateTypedProgram emptyPatternCaseProgram)
   assertEqual
-    "type-only class selectors are rejected before ordinary evidence use"
-    [ moduleFailure
+    "type-only class exports are rejected and cannot expose evidence metadata"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureLibraryPath "review-type-visible-impl-import"))
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail (resolved TypedCurrentModule TypedTypeNamespace "Render")),
+      moduleFailure
         "review-type-visible-impl-import"
         TypedModuleInterfaceMismatch
         (TypedTextDetail "Render"),
       expressionFailure
         "review-type-visible-impl-import"
-        TypedMethodSelectionMismatch
-        (TypedTextDetail "Render")
+        TypedInvisibleName
+        ( TypedNameDetail
+            ( resolved
+                (TypedImportedModule (fixtureLibraryPath "review-type-visible-impl-import"))
+                TypedCapabilityNamespace
+                "Render"
+            )
+        ),
+      expressionFailure
+        "review-type-visible-impl-import"
+        TypedInvisibleImpl
+        ( TypedImplDetail
+            ( TypedImplId
+                (fixtureLibraryPath "review-type-visible-impl-import")
+                ( resolved
+                    (TypedImportedModule (fixtureLibraryPath "review-type-visible-impl-import"))
+                    TypedCapabilityNamespace
+                    "Render"
+                )
+                [TypedBoolType]
+            )
+        )
     ]
     (validateTypedProgram typeVisibleImplImportProgram)
   assertEqual
@@ -1506,7 +1541,7 @@ testCurrentReviewRegressions = do
         TypedInvisibleName
         ( TypedNameDetail
             ( resolved
-                (TypedImportedModule ["Library", "review-method-visible-impl-import"])
+                (TypedImportedModule (fixtureLibraryPath "review-method-visible-impl-import"))
                 TypedCapabilityNamespace
                 "Render"
             )
@@ -1528,7 +1563,7 @@ testLatestBotReviewRegressions = do
   assertEqual
     "nested operand types do not inherit an enclosing strict-equality constraint"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-nested-strict-equality-constraint"] [0] [0, 0])
+        (TypedExpressionPath (fixtureModulePath "review-nested-strict-equality-constraint") [0] [0, 0])
         TypedBindingValueMismatch
         (TypedTypeDetail TypedBoolType nestedStrictEqualityOperandType)
     ]
@@ -1556,7 +1591,7 @@ testLatestBotReviewRegressions = do
   assertEqual
     "value interfaces carry local data metadata referenced by their schemes"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Library", "MissingMetadata"])
+        (TypedInterfacePath (fixtureLibraryPath "MissingMetadata"))
         TypedModuleInterfaceMismatch
         (TypedNameDetail missingInterfaceMetadataDataName)
     ]
@@ -1691,7 +1726,7 @@ testNewestBotReviewRegressions = do
   assertEqual
     "data interfaces retain local field-type metadata"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Library", "DataDependency"])
+        (TypedInterfacePath (fixtureLibraryPath "DataDependency"))
         TypedModuleInterfaceMismatch
         (TypedNameDetail dataInterfaceDependencyHiddenName)
     ]
@@ -1699,7 +1734,7 @@ testNewestBotReviewRegressions = do
   assertEqual
     "class method interfaces retain local type metadata"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Library", "ClassMethodDependency"])
+        (TypedInterfacePath (fixtureLibraryPath "ClassMethodDependency"))
         TypedModuleInterfaceMismatch
         (TypedNameDetail classMethodInterfaceDependencyDataName)
     ]
@@ -1764,7 +1799,7 @@ testPostNewestBotReviewRegressions = do
   assertEqual
     "duplicate binder scanning visits every or-pattern alternative"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-later-or-pattern-binder-collision"] [1] [0, 0, 1])
+        (TypedPatternPath (fixtureModulePath "review-later-or-pattern-binder-collision") [1] [0, 0, 1])
         TypedDuplicateBinder
         (TypedBinderDetail laterOrPatternCollidingBinder)
     ]
@@ -1911,7 +1946,7 @@ testForwardBlockReference =
   assertEqual
     "block expressions cannot see later non-recursive declarations"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-forward-block-reference"] [0, 0, 0] [0])
+        (TypedExpressionPath (fixtureModulePath "review-forward-block-reference") [0, 0, 0] [0])
         TypedInvisibleName
         (TypedNameDetail forwardBlockReferenceName)
     ]
@@ -2014,7 +2049,7 @@ testPatternExpressionMetadata =
   assertEqual
     "patterns reject expression-only instantiation and evidence metadata"
     [ TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-pattern-expression-metadata"] [3] [0, 0])
+        (TypedPatternPath (fixtureModulePath "review-pattern-expression-metadata") [3] [0, 0])
         TypedPatternShapeMismatch
         TypedNoValidationDetail
     ]
@@ -2083,7 +2118,7 @@ testActiveRebindingExport =
   assertEqual
     "an interface cannot publish a shadowed rebinding contract"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Fixture", "review-active-rebinding-export"])
+        (TypedInterfacePath (fixtureModulePath "review-active-rebinding-export"))
         TypedModuleInterfaceMismatch
         (TypedNameDetail activeRebindingExportName)
     ]
@@ -2205,7 +2240,7 @@ testFinalReviewRegressions = do
   assertEqual
     "eager self references remain outside recursive binding scope"
     [ TypedCoreValidationFailure
-        (TypedExpressionPath ["Fixture", "review-eager-self-reference"] [0] [0, 0])
+        (TypedExpressionPath (fixtureModulePath "review-eager-self-reference") [0] [0, 0])
         TypedInvisibleName
         (TypedNameDetail eagerSelfReferenceName)
     ]
@@ -2273,7 +2308,7 @@ testPostFinalReviewRegressions = do
         TypedLiteralTypeMismatch
         (TypedTextDetail "non-scalar character"),
       TypedCoreValidationFailure
-        (TypedPatternPath ["Fixture", "review-non-scalar-character"] [1] [0, 0])
+        (TypedPatternPath (fixtureModulePath "review-non-scalar-character") [1] [0, 0])
         TypedLiteralTypeMismatch
         (TypedTextDetail "non-scalar character")
     ]
@@ -2289,7 +2324,7 @@ testMethodOnlyCapabilityVisibility =
         TypedInvisibleName
         ( TypedNameDetail
             ( resolved
-                (TypedImportedModule ["Library", "MethodOnlyCapability"])
+                (TypedImportedModule (fixtureLibraryPath "MethodOnlyCapability"))
                 TypedCapabilityNamespace
                 "Render"
             )
@@ -2381,13 +2416,21 @@ testBlockDeclarationScope =
 testModulePathIdentifierSegments :: IO ()
 testModulePathIdentifierSegments =
   assertEqual
-    "module path rendering remains injective across structural segments"
+    "module paths contain only lexer-produced identifier segments"
     [ TypedCoreValidationFailure
         (TypedModulePath ["A::B"])
         TypedModuleInterfaceMismatch
-        (TypedTextDetail "A::B")
+        (TypedTextDetail "A::B"),
+      TypedCoreValidationFailure
+        (TypedModulePath ["App/Main"])
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "App/Main"),
+      TypedCoreValidationFailure
+        (TypedModulePath ["if"])
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "if")
     ]
-    (validateTypedProgram delimiterModulePathProgram)
+    (concatMap validateTypedProgram [delimiterModulePathProgram, slashModulePathProgram, reservedModulePathProgram])
 
 testModuleMetadataIdentity :: IO ()
 testModuleMetadataIdentity =
@@ -2442,7 +2485,7 @@ testMissingPublishedImpl =
   assertEqual
     "interfaces publish every local impl for a retained capability"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Fixture", "review-missing-published-impl"])
+        (TypedInterfacePath (fixtureModulePath "review-missing-published-impl"))
         TypedModuleInterfaceMismatch
         (TypedImplDetail missingPublishedImplId)
     ]
@@ -2508,7 +2551,7 @@ testRetainedCapabilityExport =
   assertEqual
     "retained imported capabilities cannot become explicit exports"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Library", "RetainedCapabilityFacade"])
+        (TypedInterfacePath (fixtureLibraryPath "RetainedCapabilityFacade"))
         TypedModuleInterfaceMismatch
         ( TypedNameDetail
             (resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq")
@@ -2592,7 +2635,7 @@ testRetainedClassMethodExport =
   assertEqual
     "retained imported class methods cannot become explicit exports"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Library", "RetainedMethodFacade"])
+        (TypedInterfacePath (fixtureLibraryPath "RetainedMethodFacade"))
         TypedModuleInterfaceMismatch
         ( TypedNameDetail
             (resolved TypedCurrentModule TypedValueNamespace "display")
@@ -2649,7 +2692,7 @@ testDuplicateModuleExports =
   assertEqual
     "module exports are unique within each namespace"
     [ TypedCoreValidationFailure
-        (TypedInterfacePath ["Fixture", "review-duplicate-module-exports"])
+        (TypedInterfacePath (fixtureModulePath "review-duplicate-module-exports"))
         TypedDuplicateDeclaration
         ( TypedNameDetail
             (resolved TypedCurrentModule TypedValueNamespace "answer")
@@ -2675,24 +2718,316 @@ testInvalidSourceSpans = do
         invalidExpressionSpansProgram
       ]
     expectedPaths =
-      [ [TypedModulePath ["Fixture", "review-invalid-import-span"]],
+      [ [TypedModulePath (fixtureModulePath "review-invalid-import-span")],
         map
-          (TypedStatementPath ["Fixture", "review-invalid-statement-spans"] . pure)
+          (TypedStatementPath (fixtureModulePath "review-invalid-statement-spans") . pure)
           [0, 1, 2],
         concatMap
           (replicate 3 . TypedStatementPath ["Prelude"] . pure)
           [0 .. 4],
-        [ TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0],
-          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0],
-          TypedExpressionPath ["Fixture", "review-invalid-expression-spans"] [1] [0, 0]
+        [ TypedExpressionPath (fixtureModulePath "review-invalid-expression-spans") [1] [0],
+          TypedExpressionPath (fixtureModulePath "review-invalid-expression-spans") [1] [0],
+          TypedExpressionPath (fixtureModulePath "review-invalid-expression-spans") [1] [0, 0]
         ]
       ]
     validationPaths program =
       [path | TypedCoreValidationFailure path _ _ <- validateTypedProgram program]
 
+testUnresolvedReviewRegressions :: IO ()
+testUnresolvedReviewRegressions =
+  assertEqual
+    "canonical inventory regressions"
+    expected
+    [ (label, validateTypedProgram program)
+    | (label, program) <- programs
+    ]
+  where
+    programs :: [(Text, TypedProgram)]
+    programs =
+      [ ("nonempty import selectors", emptyImportSelectorProgram),
+        ("unique import selectors", duplicateImportSelectorProgram),
+        ("class-scoped method identities", distinctClassMethodProgram),
+        ("unique evidence obligations", duplicateEvidenceConstraintProgram),
+        ("tuple arity", singletonTupleTypeProgram),
+        ("Prelude data closure", preludeAmbientDataDependencyProgram),
+        ("unique interface entries", duplicateModuleInterfaceEntriesProgram)
+      ]
+    expected :: [(Text, [TypedCoreValidationFailure])]
+    expected =
+      [ ( "nonempty import selectors",
+          [ moduleFailure
+              "review-empty-import-selector"
+              TypedModuleInterfaceMismatch
+              (TypedArityDetail 1 0)
+          ]
+        ),
+        ( "unique import selectors",
+          [ moduleFailure
+              "review-duplicate-import-selector"
+              TypedDuplicateDeclaration
+              (TypedTextDetail "item")
+          ]
+        ),
+        ("class-scoped method identities", []),
+        ( "unique evidence obligations",
+          [ statementFailure
+              "review-duplicate-evidence-constraint"
+              0
+              TypedDuplicateEvidenceParameter
+              (TypedEvidenceParameterDetail (TypedEvidenceParameterId 1))
+          ]
+        ),
+        ( "tuple arity",
+          [ expressionFailure
+              "review-singleton-tuple-type"
+              TypedCollectionShapeMismatch
+              (TypedArityDetail 2 1)
+          ]
+        ),
+        ( "Prelude data closure",
+          [ TypedCoreValidationFailure
+              (TypedInterfacePath ["Prelude"])
+              TypedModuleInterfaceMismatch
+              (TypedNameDetail preludeAmbientDependencyName)
+          ]
+        ),
+        ( "unique interface entries",
+          [ TypedCoreValidationFailure
+              (TypedInterfacePath duplicateInterfaceModulePath)
+              TypedDuplicateDeclaration
+              (TypedNameDetail duplicateInterfaceValueName),
+            TypedCoreValidationFailure
+              (TypedInterfacePath duplicateInterfaceModulePath)
+              TypedDuplicateDeclaration
+              (TypedNameDetail duplicateInterfaceDataName),
+            TypedCoreValidationFailure
+              (TypedInterfacePath duplicateInterfaceModulePath)
+              TypedDuplicateDeclaration
+              (TypedNameDetail duplicateInterfaceClassName),
+            TypedCoreValidationFailure
+              (TypedInterfacePath duplicateInterfaceModulePath)
+              TypedDuplicateDeclaration
+              (TypedImplDetail duplicateInterfaceImplId)
+          ]
+        )
+      ]
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
+
+emptyImportSelectorProgram :: TypedProgram
+emptyImportSelectorProgram =
+  importSelectorShapeProgram "review-empty-import-selector" []
+
+duplicateImportSelectorProgram :: TypedProgram
+duplicateImportSelectorProgram =
+  importSelectorShapeProgram "review-duplicate-import-selector" ["item", "item"]
+
+importSelectorShapeProgram :: Text -> [Text] -> TypedProgram
+importSelectorShapeProgram fixture selectedNames =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = (fixtureLibraryPath fixture)
+    entryPath = (fixtureModulePath fixture)
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
+    valueOwner = binder libraryPath [0] valueName
+    valueScheme = monoScheme valueOwner
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath ("src/Library/" <> fixture <> ".jz"))
+        []
+        [TypedModuleExport TypedValueNamespace "item"]
+        (TypedModuleInterface [TypedValueInterface valueName valueScheme] [] [] [])
+        [TypedLetStatement valueOwner valueName span1 valueScheme trueExpr]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just selectedNames)]
+        []
+        emptyInterface
+        []
+        unitInfo
+
+distinctClassMethodProgram :: TypedProgram
+distinctClassMethodProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-distinct-class-methods"
+    modulePath = (fixtureModulePath fixture)
+    methodName = resolved TypedCurrentModule TypedValueNamespace "render"
+    classDeclaration statementIndex classIdentifier =
+      let methodOwner = binder modulePath [statementIndex, 0] methodName
+          methodScheme = monoScheme methodOwner
+       in TypedClassDeclaration
+            span1
+            (resolved TypedCurrentModule TypedCapabilityNamespace classIdentifier)
+            [TypedTypeParameterId 0]
+            [TypedMethodSignature methodName span1 methodScheme]
+    statements =
+      [ TypedClassStatement (classDeclaration 0 "Render"),
+        TypedClassStatement (classDeclaration 1 "Debug")
+      ]
+
+duplicateEvidenceConstraintProgram :: TypedProgram
+duplicateEvidenceConstraintProgram =
+  withFixturePrelude (signatureProgram fixture valueOwner valueName valueScheme)
+  where
+    fixture = "review-duplicate-evidence-constraint"
+    valueName = fixtureValueName "value"
+    valueOwner = fixtureBinder fixture 0 valueName
+    constraint =
+      TypedCapabilityConstraint
+        (preludeCapability "Equal")
+        Nothing
+        TypedBoolType
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        [ TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
+          TypedEvidenceParameter (TypedEvidenceParameterId 1) constraint
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+
+singletonTupleTypeProgram :: TypedProgram
+singletonTupleTypeProgram =
+  expressionFixtureProgram
+    "review-singleton-tuple-type"
+    (TypedTupleExpr singletonInfo [trueExpr])
+  where
+    singletonInfo =
+      info
+        (TypedTupleType [TypedBoolType])
+        (TypedManagedProductRecipe [TypedBoolRecipe])
+
+preludeAmbientDependencyName :: TypedCoreName
+preludeAmbientDependencyName =
+  resolved TypedAmbientPrelude TypedTypeNamespace "Payload"
+
+preludeAmbientDataDependencyProgram :: TypedProgram
+preludeAmbientDataDependencyProgram =
+  TypedProgram (Just preludeModule) [entryModule] entryPath
+  where
+    fixture = "review-prelude-ambient-data-dependency"
+    entryPath = (fixtureModulePath fixture)
+    dataDeclaration =
+      dataDeclarationWithNullaryConstructor
+        ["Prelude"]
+        [0, 0]
+        preludeAmbientDependencyName
+        []
+    className =
+      resolved TypedCurrentModule TypedCapabilityNamespace "ProvidesPayload"
+    methodName =
+      resolved TypedCurrentModule TypedValueNamespace "payload"
+    methodOwner = binder ["Prelude"] [1, 0] methodName
+    methodScheme =
+      TypedScheme
+        methodOwner
+        []
+        []
+        []
+        (TypedDataType preludeAmbientDependencyName [])
+        (TypedManagedVariantRecipe preludeAmbientDependencyName [])
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        className
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature methodName span1 methodScheme]
+    preludeModule =
+      typedModule
+        ["Prelude"]
+        (TypedSourcePath "src/Prelude.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "ProvidesPayload"]
+        (TypedModuleInterface [] [] [TypedClassInterface classDeclaration] [])
+        [ TypedDataStatement dataDeclaration,
+          TypedClassStatement classDeclaration
+        ]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        []
+        []
+        emptyInterface
+        []
+        unitInfo
+
+duplicateInterfaceModulePath :: [Text]
+duplicateInterfaceModulePath =
+  (fixtureModulePath "review-duplicate-interface-entries")
+
+duplicateInterfaceValueName :: TypedCoreName
+duplicateInterfaceValueName =
+  resolved TypedCurrentModule TypedValueNamespace "published"
+
+duplicateInterfaceDataName :: TypedCoreName
+duplicateInterfaceDataName =
+  resolved TypedCurrentModule TypedTypeNamespace "Flag"
+
+duplicateInterfaceClassName :: TypedCoreName
+duplicateInterfaceClassName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "Render"
+
+duplicateInterfaceImplId :: TypedImplId
+duplicateInterfaceImplId =
+  TypedImplId
+    duplicateInterfaceModulePath
+    duplicateInterfaceClassName
+    [TypedBoolType]
+
+duplicateModuleInterfaceEntriesProgram :: TypedProgram
+duplicateModuleInterfaceEntriesProgram =
+  TypedProgram Nothing [moduleValue] duplicateInterfaceModulePath
+  where
+    valueOwner =
+      binder duplicateInterfaceModulePath [0] duplicateInterfaceValueName
+    valueScheme = monoScheme valueOwner
+    valueInterface =
+      TypedValueInterface duplicateInterfaceValueName valueScheme
+    dataDeclaration =
+      dataDeclarationWithNullaryConstructor
+        duplicateInterfaceModulePath
+        [1, 0]
+        duplicateInterfaceDataName
+        []
+    dataInterface = TypedDataInterface dataDeclaration
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        duplicateInterfaceClassName
+        [TypedTypeParameterId 0]
+        []
+    classInterface = TypedClassInterface classDeclaration
+    implInterface = TypedImplInterface duplicateInterfaceImplId
+    moduleValue =
+      typedModule
+        duplicateInterfaceModulePath
+        relativeSource
+        []
+        [TypedModuleExport TypedValueNamespace "published"]
+        ( TypedModuleInterface
+            [valueInterface, valueInterface]
+            [dataInterface, dataInterface]
+            [classInterface, classInterface]
+            [implInterface, implInterface]
+        )
+        [ TypedLetStatement valueOwner duplicateInterfaceValueName span1 valueScheme trueExpr,
+          TypedDataStatement dataDeclaration,
+          TypedClassStatement classDeclaration,
+          TypedImplStatement
+            (TypedImplDeclaration span1 duplicateInterfaceImplId [])
+        ]
+        unitInfo
 
 cyclicImportFirstPath :: [Text]
 cyclicImportFirstPath = ["Cycle", "First"]
@@ -2728,7 +3063,7 @@ bareSignatureVisibilityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-bare-signature-visibility"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     owner = binder modulePath [0] bareSignatureValueName
     statements =
       [ TypedSignatureStatement owner bareSignatureValueName span1 (monoScheme owner),
@@ -2744,7 +3079,7 @@ activeRebindingExportProgram =
   singleModuleProgram fixture relativeSource exports statements interface unitInfo modulePath
   where
     fixture = "review-active-rebinding-export"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     firstOwner = binder modulePath [0] activeRebindingExportName
     secondOwner = binder modulePath [1] activeRebindingExportName
     firstScheme = monoScheme firstOwner
@@ -2772,7 +3107,7 @@ constructorInstantiationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface constructorInfo modulePath
   where
     fixture = "review-constructor-instantiation"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     parameterId = TypedTypeParameterId 0
@@ -2807,7 +3142,7 @@ constructorInstantiationProgram =
 missingConstructorInstantiationOwner :: TypedBinderId
 missingConstructorInstantiationOwner =
   binder
-    ["Fixture", "review-missing-constructor-instantiation"]
+    (fixtureModulePath "review-missing-constructor-instantiation")
     [0, 0]
     (resolved TypedCurrentModule TypedConstructorNamespace "Some")
 
@@ -2816,7 +3151,7 @@ missingConstructorInstantiationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface constructorInfo modulePath
   where
     fixture = "review-missing-constructor-instantiation"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     parameterId = TypedTypeParameterId 0
@@ -2846,9 +3181,9 @@ retainedCapabilityEvidenceProgram :: TypedProgram
 retainedCapabilityEvidenceProgram =
   TypedProgram Nothing [providerModule, facadeModule, entryModule] entryPath
   where
-    providerPath = ["Library", "RetainedCapabilityProvider"]
-    facadePath = ["Library", "RetainedCapabilityFacade"]
-    entryPath = ["Fixture", "review-retained-capability-evidence"]
+    providerPath = (fixtureLibraryPath "RetainedCapabilityProvider")
+    facadePath = (fixtureLibraryPath "RetainedCapabilityFacade")
+    entryPath = (fixtureModulePath "review-retained-capability-evidence")
     parameter = TypedTypeParameterId 0
     localCapabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"
@@ -2943,7 +3278,7 @@ retainedCapabilityEvidenceProgram =
 missingPublishedImplId :: TypedImplId
 missingPublishedImplId =
   TypedImplId
-    ["Fixture", "review-missing-published-impl"]
+    (fixtureModulePath "review-missing-published-impl")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Comparable")
     [TypedBoolType]
 
@@ -2952,7 +3287,7 @@ missingPublishedImplProgram =
   singleModuleProgram fixture relativeSource exports statements interface unitInfo modulePath
   where
     fixture = "review-missing-published-impl"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Comparable"
     capability =
@@ -2987,7 +3322,7 @@ recursiveEqualityProgram :: Text -> Bool -> TypedProgram
 recursiveEqualityProgram fixture includeCallableField =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Nest"
     recursiveConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Nest"
@@ -3042,7 +3377,7 @@ orphanSignatureProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-orphan-signature"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     owner = binder modulePath [0] orphanSignatureName
     statements =
       [TypedSignatureStatement owner orphanSignatureName span1 (monoScheme owner)]
@@ -3058,7 +3393,7 @@ recursiveEqualityNestedCallableProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-recursive-equality-nested-callable"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Nest"
     stepName = resolved TypedCurrentModule TypedConstructorNamespace "Step"
     baseName = resolved TypedCurrentModule TypedConstructorNamespace "Base"
@@ -3100,7 +3435,7 @@ recursiveEqualityNestedCallableProgram =
 importedCurrentOriginName :: TypedCoreName
 importedCurrentOriginName =
   resolved
-    (TypedImportedModule ["Fixture", "review-imported-current-origin"])
+    (TypedImportedModule (fixtureModulePath "review-imported-current-origin"))
     TypedValueNamespace
     "value"
 
@@ -3109,7 +3444,7 @@ importedCurrentOriginProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-imported-current-origin"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     localName = resolved TypedCurrentModule TypedValueNamespace "value"
     owner = binder modulePath [0] localName
     statements =
@@ -3125,7 +3460,7 @@ retainedCapabilityExportProgram =
     TypedProgram prelude modules entryPath ->
       TypedProgram prelude (map addCapabilityExport modules) entryPath
   where
-    facadePath = ["Library", "RetainedCapabilityFacade"]
+    facadePath = (fixtureLibraryPath "RetainedCapabilityFacade")
     addCapabilityExport moduleValue@(TypedModule modulePath sourcePath imports exports interface statements moduleInfo)
       | modulePath == facadePath =
           TypedModule
@@ -3144,7 +3479,7 @@ importAliasCollisionProgram =
   where
     leftPath = ["Alias", "Left"]
     rightPath = ["Alias", "Right"]
-    entryPath = ["Fixture", "review-import-alias-collision"]
+    entryPath = (fixtureModulePath "review-import-alias-collision")
     dependency path sourcePath =
       typedModule path (TypedSourcePath sourcePath) [] [] emptyInterface [] unitInfo
     leftModule = dependency leftPath "src/Alias/Left.jz"
@@ -3170,7 +3505,7 @@ implBeforeClassProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-impl-before-class"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     implId =
       TypedImplId modulePath implBeforeClassCapabilityName [TypedBoolType]
     declaration =
@@ -3197,7 +3532,7 @@ evidenceCapabilityOriginProgram =
   where
     leftPath = ["Evidence", "Left"]
     rightPath = ["Evidence", "Right"]
-    entryPath = ["Fixture", "review-evidence-capability-origin"]
+    entryPath = (fixtureModulePath "review-evidence-capability-origin")
     provider modulePath sourcePath publishedIdentifier =
       typedModule
         modulePath
@@ -3293,7 +3628,7 @@ malformedGeneratedNamesProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-malformed-generated-names"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     invalidLambdaName =
       TypedGeneratedName (TypedLambdaPatternArgument (-1))
     invalidLambda =
@@ -3342,8 +3677,8 @@ retainedClassMethodExportProgram :: TypedProgram
 retainedClassMethodExportProgram =
   TypedProgram Nothing [providerModule, facadeModule] facadePath
   where
-    providerPath = ["Library", "RetainedMethodProvider"]
-    facadePath = ["Library", "RetainedMethodFacade"]
+    providerPath = (fixtureLibraryPath "RetainedMethodProvider")
+    facadePath = (fixtureLibraryPath "RetainedMethodFacade")
     parameter = TypedTypeParameterId 0
     localClassName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Display"
@@ -3440,7 +3775,7 @@ malformedResolvedIdentifiersProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-malformed-resolved-identifiers"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     binding statementIndex name =
       let owner = binder modulePath [statementIndex] name
        in TypedLetStatement owner name span1 (monoScheme owner) trueExpr
@@ -3498,7 +3833,7 @@ malformedImportAliasProgram =
   TypedProgram Nothing [dependencyModule, entryModule] entryPath
   where
     dependencyPath = ["Alias", "Dependency"]
-    entryPath = ["Fixture", "review-malformed-import-alias"]
+    entryPath = (fixtureModulePath "review-malformed-import-alias")
     dependencyModule =
       typedModule
         dependencyPath
@@ -3532,7 +3867,7 @@ duplicateModuleExportsProgram =
     modulePath
   where
     fixture = "review-duplicate-module-exports"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     name = resolved TypedCurrentModule TypedValueNamespace "answer"
     owner = binder modulePath [0] name
     scheme = monoScheme owner
@@ -3546,7 +3881,7 @@ invalidImportSpanProgram =
   TypedProgram Nothing [dependencyModule, entryModule] entryPath
   where
     dependencyPath = ["Span", "Dependency"]
-    entryPath = ["Fixture", "review-invalid-import-span"]
+    entryPath = (fixtureModulePath "review-invalid-import-span")
     dependencyModule =
       typedModule
         dependencyPath
@@ -3571,7 +3906,7 @@ invalidStatementSpansProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-invalid-statement-spans"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     name = resolved TypedCurrentModule TypedValueNamespace "answer"
     signatureOwner = binder modulePath [0] name
     bindingOwner = binder modulePath [1] name
@@ -3631,7 +3966,7 @@ invalidExpressionSpansProgram =
 
 resolvedModuleOrderImporterPath :: [Text]
 resolvedModuleOrderImporterPath =
-  ["Fixture", "review-resolved-module-order"]
+  (fixtureModulePath "review-resolved-module-order")
 
 resolvedModuleOrderProgram :: TypedProgram
 resolvedModuleOrderProgram =
@@ -3667,7 +4002,7 @@ emptyResolvedIdentifierProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-empty-resolved-identifier"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     owner = binder modulePath [0] emptyResolvedIdentifierName
     statements =
       [ TypedLetStatement owner emptyResolvedIdentifierName span1 (monoScheme owner) trueExpr,
@@ -3677,7 +4012,7 @@ emptyResolvedIdentifierProgram =
 explicitSpanOnVariableOwner :: TypedBinderId
 explicitSpanOnVariableOwner =
   binder
-    ["Fixture", "review-explicit-span-on-variable"]
+    (fixtureModulePath "review-explicit-span-on-variable")
     [0]
     (resolved TypedCurrentModule TypedValueNamespace "identity")
 
@@ -3686,7 +4021,7 @@ explicitSpanOnVariableProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface instantiatedInfo modulePath
   where
     fixture = "review-explicit-span-on-variable"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
@@ -3758,7 +4093,7 @@ wrongPreludeSlotProgram =
   TypedProgram
     ( Just
         ( typedModule
-            ["Library", "WrongPrelude"]
+            (fixtureLibraryPath "WrongPrelude")
             (TypedSourcePath "src/Library/WrongPrelude.jz")
             []
             []
@@ -3778,14 +4113,14 @@ wrongPreludeSlotProgram =
     ]
     entryPath
   where
-    entryPath = ["Fixture", "review-wrong-prelude-slot"]
+    entryPath = (fixtureModulePath "review-wrong-prelude-slot")
 
 signatureBindingMismatchProgram :: TypedProgram
 signatureBindingMismatchProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-signature-binding-mismatch"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "annotated"
     signatureOwner = binder modulePath [0] valueName
     bindingOwner = binder modulePath [1] valueName
@@ -3807,7 +4142,7 @@ qualifiedMethodTypeApplicationProgram =
   TypedProgram (Just preludeModule) [entryModule] entryPath
   where
     preludePath = ["Prelude"]
-    entryPath = ["Fixture", "review-qualified-method-type-application"]
+    entryPath = (fixtureModulePath "review-qualified-method-type-application")
     parameter = TypedTypeParameterId 0
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Printable"
@@ -3911,7 +4246,7 @@ aliasShapedSelfRecursionProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-alias-shaped-self-recursion"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     owner = binder modulePath [0] valueName
     expression =
@@ -3935,7 +4270,7 @@ eagerSelfReferenceProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-eager-self-reference"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     owner = binder modulePath [0] eagerSelfReferenceName
     expression =
       TypedIfExpr
@@ -3951,9 +4286,9 @@ importNameCollisionProgram =
   TypedProgram Nothing [firstLibrary, secondLibrary, entryModule] entryPath
   where
     fixture = "review-import-name-collision"
-    firstPath = ["Library", "FirstCollision"]
-    secondPath = ["Library", "SecondCollision"]
-    entryPath = ["Fixture", fixture]
+    firstPath = (fixtureLibraryPath "FirstCollision")
+    secondPath = (fixtureLibraryPath "SecondCollision")
+    entryPath = (fixtureModulePath fixture)
     collisionLibrary libraryPath constructorIdentifier =
       let dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
           constructorName = resolved TypedCurrentModule TypedConstructorNamespace constructorIdentifier
@@ -4007,7 +4342,7 @@ localClassMethodVisibilityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath
   where
     fixture = "review-local-class-method-visibility"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     methodOwner = binder modulePath [0, 0] localClassMethodName
     methodScheme =
@@ -4028,7 +4363,7 @@ syntheticBinderShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
   where
     fixture = "review-synthetic-binder-shadowing"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     earlierOwner = binder modulePath [99] valueName
     laterOwner = binder modulePath [0] valueName
@@ -4052,7 +4387,7 @@ implFreeClassParameterProgram =
     (singleModuleProgram fixture relativeSource [] [statement] emptyInterface unitInfo modulePath)
   where
     fixture = "review-impl-free-class-parameter"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
@@ -4130,7 +4465,7 @@ duplicateQualifiedMethodCandidateProgram =
 metadataOnlyImportedTypeName :: TypedCoreName
 metadataOnlyImportedTypeName =
   resolved
-    (TypedImportedModule ["Library", "MetadataProvider"])
+    (TypedImportedModule (fixtureLibraryPath "MetadataProvider"))
     TypedTypeNamespace
     "Box"
 
@@ -4139,8 +4474,8 @@ metadataOnlySourceTypeProgram =
   TypedProgram Nothing [providerModule, entryModule] entryPath
   where
     fixture = "review-metadata-only-source-type"
-    providerPath = ["Library", "MetadataProvider"]
-    entryPath = ["Fixture", fixture]
+    providerPath = (fixtureLibraryPath "MetadataProvider")
+    entryPath = (fixtureModulePath fixture)
     localDataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     localConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Box"
@@ -4212,7 +4547,7 @@ nonScalarCharacterProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-non-scalar-character"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     charInfo = info TypedCharType TypedCharRecipe
     nonScalar = '\xD800'
     invalidLiteral =
@@ -4234,8 +4569,8 @@ methodOnlyCapabilityVisibilityProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     fixture = "review-method-only-capability-visibility"
-    libraryPath = ["Library", "MethodOnlyCapability"]
-    entryPath = ["Fixture", fixture]
+    libraryPath = (fixtureLibraryPath "MethodOnlyCapability")
+    entryPath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     importedCapabilityName =
@@ -4293,9 +4628,9 @@ capabilityImportCollisionProgram =
   TypedProgram Nothing [valueModule, capabilityModule, entryModule] entryPath
   where
     fixture = "review-capability-import-collision"
-    valuePath = ["Library", "SharedValue"]
-    capabilityPath = ["Library", "SharedCapability"]
-    entryPath = ["Fixture", fixture]
+    valuePath = (fixtureLibraryPath "SharedValue")
+    capabilityPath = (fixtureLibraryPath "SharedCapability")
+    entryPath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "Shared"
     valueOwner = binder valuePath [0] valueName
     valueScheme = monoScheme valueOwner
@@ -4342,7 +4677,7 @@ nestedTypeParameterShadowingProgram =
   singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-type-parameter-shadowing"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
@@ -4414,8 +4749,8 @@ typeOnlyImportSelectorProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     fixture = "review-type-only-import-selector"
-    libraryPath = ["Library", "TypeOnlySelector"]
-    entryPath = ["Fixture", fixture]
+    libraryPath = (fixtureLibraryPath "TypeOnlySelector")
+    entryPath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     constructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "BoxValue"
@@ -4477,7 +4812,7 @@ nestedLocalGeneralizationProgram =
   singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-local-generalization"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     outerParameter = TypedTypeParameterId 0
     innerParameter = TypedTypeParameterId 1
     outerParameterType = TypedTypeParameterType outerParameter
@@ -4575,7 +4910,7 @@ nestedLocalGeneralizationProgram =
 nonConcreteImplTargetId :: TypedImplId
 nonConcreteImplTargetId =
   TypedImplId
-    ["Fixture", "review-non-concrete-impl-target"]
+    (fixtureModulePath "review-non-concrete-impl-target")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Concrete")
     [TypedFunctionType TypedBoolType TypedBoolType]
 
@@ -4584,7 +4919,7 @@ nonConcreteImplTargetProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-non-concrete-impl-target"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Concrete"
     capabilityDeclaration =
@@ -4605,7 +4940,7 @@ blockDeclarationScopeProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-block-declaration-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Nested"
     constructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Nested"
@@ -4641,10 +4976,22 @@ blockDeclarationScopeProgram =
 
 delimiterModulePathProgram :: TypedProgram
 delimiterModulePathProgram =
+  modulePathFixtureProgram ["A::B"]
+
+slashModulePathProgram :: TypedProgram
+slashModulePathProgram =
+  modulePathFixtureProgram ["App/Main"]
+
+reservedModulePathProgram :: TypedProgram
+reservedModulePathProgram =
+  modulePathFixtureProgram ["if"]
+
+modulePathFixtureProgram :: [Text] -> TypedProgram
+modulePathFixtureProgram modulePath =
   TypedProgram
     Nothing
     [ typedModule
-        ["A::B"]
+        modulePath
         relativeSource
         []
         []
@@ -4652,14 +4999,14 @@ delimiterModulePathProgram =
         [expressionStatement 1 trueExpr]
         boolInfo
     ]
-    ["A::B"]
+    modulePath
 
 moduleMetadataIdentityProgram :: TypedProgram
 moduleMetadataIdentityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface moduleInfo modulePath
   where
     fixture = "review-module-metadata-identity"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     owner = binder modulePath [0] valueName
     scheme = monoScheme owner
@@ -4677,7 +5024,7 @@ moduleMetadataIdentityProgram =
 qualifiedTypeApplicationInstantiationOwner :: TypedBinderId
 qualifiedTypeApplicationInstantiationOwner =
   binder
-    ["Fixture", "review-qualified-type-application-instantiation"]
+    (fixtureModulePath "review-qualified-type-application-instantiation")
     [0]
     (resolved TypedCurrentModule TypedValueNamespace "ordinary")
 
@@ -4703,7 +5050,7 @@ qualifiedTypeApplicationInstantiationProgram =
                 ordinaryScheme =
                   monoScheme qualifiedTypeApplicationInstantiationOwner
                 entryPath =
-                  ["Fixture", "review-qualified-type-application-instantiation"]
+                  (fixtureModulePath "review-qualified-type-application-instantiation")
                 entryModule =
                   TypedModule
                     entryPath
@@ -4736,7 +5083,7 @@ localClassMethodSchemeProgram :: Text -> Bool -> TypedProgram
 localClassMethodSchemeProgram fixture classFirst =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "shared"
     valueOwner = binder modulePath [0] valueName
     valueStatement =
@@ -4766,7 +5113,7 @@ lexicalSchemeShadowingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
   where
     fixture = "review-lexical-scheme-shadowing"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     outerOwner = binder modulePath [0] valueName
     innerOwner = binder modulePath [1, 0] valueName
@@ -4810,7 +5157,7 @@ fullyAppliedMethodCandidatesProgram =
     )
   where
     fixture = "review-fully-applied-method-candidates"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
     secondImpl = TypedImplId modulePath capabilityName [TypedTextType]
@@ -4876,8 +5223,8 @@ generalizedClassMethodImportProgram :: TypedProgram
 generalizedClassMethodImportProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "GeneralizedClassMethod"]
-    entryPath = ["Fixture", "review-generalized-class-method-import"]
+    libraryPath = (fixtureLibraryPath "GeneralizedClassMethod")
+    entryPath = (fixtureModulePath "review-generalized-class-method-import")
     parameter = TypedTypeParameterId 0
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Display"
     methodName = resolved TypedCurrentModule TypedValueNamespace "display"
@@ -4935,9 +5282,9 @@ importedClassCollisionProgram :: TypedProgram
 importedClassCollisionProgram =
   TypedProgram Nothing [firstLibrary, secondLibrary, entryModule] entryPath
   where
-    firstPath = ["Library", "FirstClash"]
-    secondPath = ["Library", "SecondClash"]
-    entryPath = ["Fixture", "review-imported-class-collision"]
+    firstPath = (fixtureLibraryPath "FirstClash")
+    secondPath = (fixtureLibraryPath "SecondClash")
+    entryPath = (fixtureModulePath "review-imported-class-collision")
     parameter = TypedTypeParameterId 0
     libraryModule libraryPath =
       let className = resolved TypedCurrentModule TypedCapabilityNamespace "Clash"
@@ -4990,7 +5337,7 @@ forwardBlockReferenceProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-forward-block-reference"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     owner = binder modulePath [0, 1] forwardBlockReferenceName
     block =
       TypedBlockExpr
@@ -5005,7 +5352,7 @@ recursiveBlockPeerProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolToBoolInfo modulePath
   where
     fixture = "review-recursive-block-peers"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     leftName = resolved TypedCurrentModule TypedValueNamespace "left"
     rightName = resolved TypedCurrentModule TypedValueNamespace "right"
     leftOwner = binder modulePath [0, 0] leftName
@@ -5049,7 +5396,7 @@ malformedLiteralConstraintBoundsProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
   where
     fixture = "review-malformed-literal-constraint-bounds"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
     signature statementIndex suffix lower upper =
@@ -5075,7 +5422,7 @@ evidenceSelectionOrderProgram =
     (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-evidence-selection-order"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
     owner = binder modulePath [0] valueName
     firstParameter = TypedEvidenceParameterId 0
@@ -5121,8 +5468,8 @@ privateCapabilityMetadataVisibilityProgram :: TypedProgram
 privateCapabilityMetadataVisibilityProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "PrivateCapabilityMetadata"]
-    entryPath = ["Fixture", "review-private-capability-metadata-visibility"]
+    libraryPath = (fixtureLibraryPath "PrivateCapabilityMetadata")
+    entryPath = (fixtureModulePath "review-private-capability-metadata-visibility")
     parameter = TypedTypeParameterId 0
     libraryCapabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "PrivateEq"
@@ -5177,7 +5524,7 @@ moduleQualifiedMethodKeyProgram =
   TypedProgram (Just preludeModule) [entryModule] entryPath
   where
     preludePath = ["Prelude"]
-    entryPath = ["Fixture", "review-module-qualified-method-key"]
+    entryPath = (fixtureModulePath "review-module-qualified-method-key")
     capabilityIdentifier = "Make"
     qualifiedMethod = "Lib::Api::Make::make"
     parameter = TypedTypeParameterId 0
@@ -5247,9 +5594,9 @@ importedDataDependencyProgram :: TypedProgram
 importedDataDependencyProgram =
   TypedProgram Nothing [providerModule, facadeModule, entryModule] entryPath
   where
-    providerPath = ["Library", "ImportedDataProvider"]
-    facadePath = ["Library", "ImportedDataFacade"]
-    entryPath = ["Fixture", "review-imported-data-dependency"]
+    providerPath = (fixtureLibraryPath "ImportedDataProvider")
+    facadePath = (fixtureLibraryPath "ImportedDataFacade")
+    entryPath = (fixtureModulePath "review-imported-data-dependency")
     providerBoxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     importedBoxName =
       resolved (TypedImportedModule providerPath) TypedTypeNamespace "Box"
@@ -5310,8 +5657,8 @@ transitiveDataContractDependencyProgram :: TypedProgram
 transitiveDataContractDependencyProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "TransitiveDataContract"]
-    entryPath = ["Fixture", "review-transitive-data-contract-dependency"]
+    libraryPath = (fixtureLibraryPath "TransitiveDataContract")
+    entryPath = (fixtureModulePath "review-transitive-data-contract-dependency")
     hiddenName = resolved TypedCurrentModule TypedTypeNamespace "Hidden"
     boxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     boxConstructorName =
@@ -5381,13 +5728,13 @@ transitiveDataContractDependencyProgram =
         entryInfo
 
 importedCapabilityFacadePath :: [Text]
-importedCapabilityFacadePath = ["Library", "ImportedCapabilityFacade"]
+importedCapabilityFacadePath = (fixtureLibraryPath "ImportedCapabilityFacade")
 
 importedCapabilityDependencyProgram :: TypedProgram
 importedCapabilityDependencyProgram =
   TypedProgram Nothing [providerModule, facadeModule] importedCapabilityFacadePath
   where
-    providerPath = ["Library", "ImportedCapabilityProvider"]
+    providerPath = (fixtureLibraryPath "ImportedCapabilityProvider")
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "ForeignEq"
     parameter = TypedTypeParameterId 0
@@ -5433,14 +5780,14 @@ importedCapabilityDependencyProgram =
 metadataOnlyImportedCapabilityName :: TypedCoreName
 metadataOnlyImportedCapabilityName =
   resolved
-    (TypedImportedModule ["Library", "MetadataOnlyImpl"])
+    (TypedImportedModule (fixtureLibraryPath "MetadataOnlyImpl"))
     TypedCapabilityNamespace
     "PrivateEq"
 
 metadataOnlyImportedImpl :: TypedImplId
 metadataOnlyImportedImpl =
   TypedImplId
-    ["Library", "MetadataOnlyImpl"]
+    (fixtureLibraryPath "MetadataOnlyImpl")
     metadataOnlyImportedCapabilityName
     [TypedBoolType]
 
@@ -5448,8 +5795,8 @@ metadataOnlyImplVisibilityProgram :: TypedProgram
 metadataOnlyImplVisibilityProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "MetadataOnlyImpl"]
-    entryPath = ["Fixture", "review-metadata-only-impl-visibility"]
+    libraryPath = (fixtureLibraryPath "MetadataOnlyImpl")
+    entryPath = (fixtureModulePath "review-metadata-only-impl-visibility")
     parameter = TypedTypeParameterId 0
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "PrivateEq"
@@ -5509,7 +5856,7 @@ patternExpressionMetadataProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-pattern-expression-metadata"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     genericName = fixtureValueName "generic"
     genericOwner = binder modulePath [0] genericName
     parameter = TypedTypeParameterId 0
@@ -5545,7 +5892,7 @@ phantomDataEqualityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-phantom-data-equality"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Phantom"
     constructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Phantom"
@@ -5582,7 +5929,7 @@ sameScopeValueRebindingProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
   where
     fixture = "review-same-scope-value-rebinding"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "value"
     firstOwner = binder modulePath [0] valueName
     secondOwner = binder modulePath [1] valueName
@@ -5606,7 +5953,7 @@ forwardModuleReferenceProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-forward-module-reference"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     firstName = fixtureValueName "first"
     laterName = fixtureValueName "later"
     firstOwner = binder modulePath [0] firstName
@@ -5634,7 +5981,7 @@ missingPolymorphicInstantiationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath
   where
     fixture = "review-missing-polymorphic-instantiation"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "identity"
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
@@ -5668,7 +6015,7 @@ unsupportedStrictEqualityConstraintProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-unsupported-strict-equality-constraint"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "CallableBox"
     dataDeclaration =
       TypedDataDeclaration
@@ -5699,7 +6046,7 @@ unsupportedStrictEqualityConstraintProgram =
 
 uncheckedSpecialNameProgram :: TypedProgram
 uncheckedSpecialNameProgram =
-  singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapInfo ["Fixture", fixture]
+  singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapInfo (fixtureModulePath fixture)
   where
     fixture = "review-unchecked-special-name"
     statements =
@@ -5711,8 +6058,8 @@ uncheckedSpecialNameProgram =
 classMethodExportProgram :: TypedProgram
 classMethodExportProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "ClassMethodExport"]
-    entryPath = ["Fixture", "review-class-method-export"]
+    libraryPath = (fixtureLibraryPath "ClassMethodExport")
+    entryPath = (fixtureModulePath "review-class-method-export")
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
@@ -5723,7 +6070,7 @@ classMethodExportProgram = TypedProgram Nothing [libraryModule, entryModule] ent
         libraryPath
         (TypedSourcePath "src/Library/ClassMethodExport.jz")
         []
-        [ TypedModuleExport TypedTypeNamespace "Render",
+        [ TypedModuleExport TypedCapabilityNamespace "Render",
           TypedModuleExport TypedValueNamespace "render"
         ]
         (TypedModuleInterface [] [] [TypedClassInterface declaration] [])
@@ -5854,7 +6201,7 @@ missingPreludeImplProgram =
   TypedProgram (Just fixturePrelude) [entryModule] modulePath
   where
     fixture = "review-missing-prelude-impl"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedTextType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint missingPreludeImplId Nothing)
     expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
@@ -5868,7 +6215,7 @@ evidenceTypeScopeProgram =
   TypedProgram (Just fixturePrelude) [entryModule] modulePath
   where
     fixture = "review-evidence-type-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "generic"
     owner = binder modulePath [0] valueName
     parameterType = TypedTypeParameterType evidenceTypeScopeParameter
@@ -5902,7 +6249,7 @@ wrongConstructorPatternTypeProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-wrong-constructor-pattern-type"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "On"
     declaration =
       TypedDataDeclaration
@@ -5926,7 +6273,7 @@ foreignOwnedLocalImplProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-foreign-owned-local-impl"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Marker"
     statements =
       [ TypedClassStatement (TypedClassDeclaration span1 className [TypedTypeParameterId 0] []),
@@ -5936,8 +6283,8 @@ foreignOwnedLocalImplProgram =
 importedTypeCapabilityMetadataProgram :: TypedProgram
 importedTypeCapabilityMetadataProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "TypeCapability"]
-    entryPath = ["Fixture", "review-imported-type-capability-metadata"]
+    libraryPath = (fixtureLibraryPath "TypeCapability")
+    entryPath = (fixtureModulePath "review-imported-type-capability-metadata")
     localClassName = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     importedClassName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Render"
     parameter = TypedTypeParameterId 0
@@ -5966,7 +6313,7 @@ callableBuiltinEqualityProgram :: TypedProgram
 callableBuiltinEqualityProgram =
   expressionFixtureProgram "review-callable-builtin-equality" expression
   where
-    modulePath = ["Fixture", "review-callable-builtin-equality"]
+    modulePath = (fixtureModulePath "review-callable-builtin-equality")
     argumentName index = resolved TypedCurrentModule TypedValueNamespace ("argument" <> Text.pack (show index))
     function index =
       let name = argumentName index
@@ -5985,7 +6332,7 @@ moduleInfoStructuralEqualityProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 trueExpr] emptyInterface moduleInfo modulePath
   where
     fixture = "review-module-info-structural-equality"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     moduleInfo =
       TypedNodeInfo
         TypedBoolType
@@ -5998,7 +6345,7 @@ typeApplicationResultContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface applicationInfo modulePath
   where
     fixture = "review-type-application-result-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "identity"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
@@ -6048,7 +6395,7 @@ unconstrainedNumericParameterProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-unconstrained-numeric-parameter"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "numeric"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
@@ -6074,7 +6421,7 @@ unconstrainedEqualityParameterProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-unconstrained-equality-parameter"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "equal"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
@@ -6102,7 +6449,7 @@ unconstrainedEqualityParameterProgram =
 duplicatePatternNameSecondBinder :: TypedBinderId
 duplicatePatternNameSecondBinder =
   binder
-    ["Fixture", "review-duplicate-pattern-name"]
+    (fixtureModulePath "review-duplicate-pattern-name")
     [0, 1]
     (fixtureValueName "duplicate")
 
@@ -6111,7 +6458,7 @@ duplicatePatternNameProgram =
   expressionFixtureProgram fixture expression
   where
     fixture = "review-duplicate-pattern-name"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     duplicateName = fixtureValueName "duplicate"
     firstBinder = binder modulePath [0, 0] duplicateName
     patternValue =
@@ -6128,7 +6475,7 @@ duplicateOrPatternContractProgram =
   expressionFixtureProgram fixture expression
   where
     fixture = "review-duplicate-or-pattern-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     duplicateName = fixtureValueName "duplicate"
     mixedTupleInfo =
       info
@@ -6171,7 +6518,7 @@ ownerAmbiguousEvidenceProgram =
     (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-owner-ambiguous-evidence"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     firstName = fixtureValueName "first"
     secondName = fixtureValueName "second"
     firstOwner = fixtureBinder fixture 0 firstName
@@ -6224,7 +6571,7 @@ reorderedOrPatternProgram =
   expressionFixtureProgram fixture expression
   where
     fixture = "review-reordered-or-pattern"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     leftName = fixtureValueName "left"
     rightName = fixtureValueName "right"
     variable lexicalPath name =
@@ -6265,8 +6612,8 @@ visibleClassImplImportProgram :: Text -> [TypedModuleExport] -> [Text] -> TypedP
 visibleClassImplImportProgram fixture exports selectedNames =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", fixture]
-    entryPath = ["Fixture", fixture]
+    libraryPath = (fixtureLibraryPath fixture)
+    entryPath = (fixtureModulePath fixture)
     localClassName = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     importedClassName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Render"
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
@@ -6353,7 +6700,7 @@ nestedStrictEqualityConstraintProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-strict-equality-constraint"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "compare"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
@@ -6422,7 +6769,7 @@ missingInterfaceMetadataProgram :: TypedProgram
 missingInterfaceMetadataProgram =
   TypedProgram Nothing [libraryModule] libraryPath
   where
-    libraryPath = ["Library", "MissingMetadata"]
+    libraryPath = (fixtureLibraryPath "MissingMetadata")
     valueName = resolved TypedCurrentModule TypedValueNamespace "boxed"
     valueBinder = binder libraryPath [0] valueName
     dataType = TypedDataType missingInterfaceMetadataDataName []
@@ -6471,7 +6818,7 @@ constrainedMonomorphicUseProgram =
     (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-constrained-monomorphic-use"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "same"
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme =
@@ -6500,7 +6847,7 @@ unrelatedKnownInstantiationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-unrelated-known-instantiation"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "known"
     instantiation = TypedInstantiation unrelatedKnownInstantiationOwner [] Nothing
     expression =
@@ -6524,7 +6871,7 @@ explicitHeadParameterProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface instantiatedInfo modulePath
   where
     fixture = "review-explicit-head-parameter"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "choose"
     firstParameter = TypedTypeParameterId 0
     secondParameter = TypedTypeParameterId 1
@@ -6574,7 +6921,7 @@ classArityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-class-arity"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     zeroName = resolved TypedCurrentModule TypedCapabilityNamespace "Zero"
     multiName = resolved TypedCurrentModule TypedCapabilityNamespace "Multi"
     statements =
@@ -6593,7 +6940,7 @@ classMethodSchemeShapeProgram =
   singleModuleProgram fixture relativeSource [] [TypedClassStatement declaration] emptyInterface boolInfo modulePath
   where
     fixture = "review-class-method-scheme-shape"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Marker"
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
@@ -6648,7 +6995,7 @@ classMethodSchemeShapeProgram =
 duplicateImplDeclarationId :: TypedImplId
 duplicateImplDeclarationId =
   TypedImplId
-    ["Fixture", "review-duplicate-impl-declaration"]
+    (fixtureModulePath "review-duplicate-impl-declaration")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Marker")
     [TypedBoolType]
 
@@ -6657,7 +7004,7 @@ duplicateImplDeclarationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-duplicate-impl-declaration"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Marker"
     declaration =
       TypedClassDeclaration
@@ -6686,7 +7033,7 @@ nonBindingTypeApplicationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-non-binding-type-application"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "identity"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
@@ -6738,7 +7085,7 @@ mismatchedResolvedOperatorProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface operatorInfo modulePath
   where
     fixture = "review-mismatched-resolved-operator"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     operatorName =
       TypedGeneratedName
         (TypedOperatorBinding "$operator:%2B")
@@ -6777,7 +7124,7 @@ dataInterfaceDependencyProgram :: TypedProgram
 dataInterfaceDependencyProgram =
   TypedProgram Nothing [libraryModule] libraryPath
   where
-    libraryPath = ["Library", "DataDependency"]
+    libraryPath = (fixtureLibraryPath "DataDependency")
     boxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     boxConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Box"
@@ -6820,7 +7167,7 @@ classMethodInterfaceDependencyProgram :: TypedProgram
 classMethodInterfaceDependencyProgram =
   TypedProgram Nothing [libraryModule] libraryPath
   where
-    libraryPath = ["Library", "ClassMethodDependency"]
+    libraryPath = (fixtureLibraryPath "ClassMethodDependency")
     boxDeclaration =
       dataDeclarationWithNullaryConstructor
         libraryPath
@@ -6873,7 +7220,7 @@ instantiatedPrimitiveConstraintProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-instantiated-primitive-constraints"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
     numericName = fixtureValueName "numeric"
@@ -6926,7 +7273,7 @@ typeApplicationExtraOwnerProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-type-application-extra-owner"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     functionName = fixtureValueName "function"
     functionOwner = binder modulePath [0] functionName
@@ -6960,7 +7307,7 @@ typeApplicationExtraOwnerProgram =
 constrainedResolvedOperatorOwner :: TypedBinderId
 constrainedResolvedOperatorOwner =
   binder
-    ["Fixture", "review-constrained-resolved-operator"]
+    (fixtureModulePath "review-constrained-resolved-operator")
     [0]
     constrainedResolvedOperatorName
 
@@ -6974,7 +7321,7 @@ constrainedResolvedOperatorProgram =
     (singleModuleProgram fixture relativeSource [] statements emptyInterface operatorInfo modulePath)
   where
     fixture = "review-constrained-resolved-operator"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     operatorType =
       TypedFunctionType
         TypedBoolType
@@ -7012,7 +7359,7 @@ missingModuleResultProgram =
   TypedProgram
     Nothing
     [ TypedModule
-        ["Fixture", fixture]
+        (fixtureModulePath fixture)
         relativeSource
         []
         []
@@ -7020,7 +7367,7 @@ missingModuleResultProgram =
         [TypedLetStatement owner name span1 (monoScheme owner) trueExpr]
         boolInfo
     ]
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
   where
     fixture = "review-missing-module-result"
     name = fixtureValueName "value"
@@ -7031,7 +7378,7 @@ emptyDataDeclarationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-empty-data-declaration"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Never"
     statements =
       [ TypedDataStatement (TypedDataDeclaration span1 dataName [] []),
@@ -7050,7 +7397,7 @@ laterOrPatternBinderCollisionProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-later-or-pattern-binder-collision"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "matched"
     firstBinder = binder modulePath [1, 0] valueName
     firstAlternative = TypedVariablePattern boolInfo firstBinder valueName
@@ -7084,7 +7431,7 @@ concreteIntegerBoundsProgram =
     ]
     emptyInterface
     integerInfo
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
   where
     fixture = "review-concrete-integer-bounds"
     integerInfo =
@@ -7099,7 +7446,7 @@ incompleteImplProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-incomplete-impl"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     renderName =
@@ -7146,7 +7493,7 @@ duplicateInstantiationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-duplicate-instantiation"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "value"
     parameter = TypedTypeParameterId 0
     scheme =
@@ -7197,7 +7544,7 @@ fractionalLiteralBoundsProgram =
     ]
     emptyInterface
     (floatInfo TypedFloat64Type 64)
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
   where
     fixture = "review-fractional-literal-bounds"
     float32Maximum =
@@ -7225,8 +7572,8 @@ visibleClassCollisionProgram :: TypedProgram
 visibleClassCollisionProgram =
   TypedProgram (Just fixturePrelude) [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "VisibleClass"]
-    entryPath = ["Fixture", "review-visible-class-collision"]
+    libraryPath = (fixtureLibraryPath "VisibleClass")
+    entryPath = (fixtureModulePath "review-visible-class-collision")
     parameter = TypedTypeParameterId 0
     libraryClassName =
       resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
@@ -7270,8 +7617,8 @@ selectedClassDataDependencyProgram :: TypedProgram
 selectedClassDataDependencyProgram =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "SelectedClassData"]
-    entryPath = ["Fixture", "review-selected-class-data-dependency"]
+    libraryPath = (fixtureLibraryPath "SelectedClassData")
+    entryPath = (fixtureModulePath "review-selected-class-data-dependency")
     dataName =
       resolved TypedCurrentModule TypedTypeNamespace "Box"
     constructorName =
@@ -7379,8 +7726,8 @@ selectedClassDataDependencyProgram =
 selectedValueDataMetadataProgram :: TypedProgram
 selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "SelectedValueData"]
-    entryPath = ["Fixture", "review-selected-value-data-metadata"]
+    libraryPath = (fixtureLibraryPath "SelectedValueData")
+    entryPath = (fixtureModulePath "review-selected-value-data-metadata")
     localDataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     importedDataName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Box"
     localValueName = resolved TypedCurrentModule TypedValueNamespace "boxed"
@@ -7428,15 +7775,15 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
 selectiveImportLeakedImpl :: TypedImplId
 selectiveImportLeakedImpl =
   TypedImplId
-    ["Library", "PrivateImpl"]
+    (fixtureLibraryPath "PrivateImpl")
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
     [TypedBoolType]
 
 selectiveImportImplLeakProgram :: TypedProgram
 selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "PrivateImpl"]
-    entryPath = ["Fixture", "review-selective-import-impl-leak"]
+    libraryPath = (fixtureLibraryPath "PrivateImpl")
+    entryPath = (fixtureModulePath "review-selective-import-impl-leak")
     localValueName = resolved TypedCurrentModule TypedValueNamespace "published"
     valueBinder = binder libraryPath [0] localValueName
     valueScheme = monoScheme valueBinder
@@ -7476,7 +7823,7 @@ selectedEvidenceMethodExistenceProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-selected-evidence-method-existence"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     capability = TypedClassDeclaration span1 capabilityName [parameter] []
@@ -7499,7 +7846,7 @@ duplicateImplMethodProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] [TypedImplStatement declaration] emptyInterface boolInfo modulePath)
   where
     fixture = "review-duplicate-impl-method"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     methodId = TypedMethodId implId "equal"
@@ -7524,7 +7871,7 @@ nestedOuterTypeScopeProgram =
   singleModuleProgram fixture relativeSource [] [topLevelBinding] emptyInterface boolInfo modulePath
   where
     fixture = "review-nested-outer-type-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
@@ -7565,7 +7912,7 @@ implMethodValueVisibilityProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-impl-method-value-visibility"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     method =
@@ -7590,7 +7937,7 @@ builtinOperatorContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface intInfo modulePath
   where
     fixture = "review-builtin-operator-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
     one = TypedLiteralExpr intInfo (TypedIntegerLiteral "1")
     invalidUnknown = TypedOperatorValueExpr boolToBoolInfo (TypedBuiltinOperator "%%")
@@ -7603,7 +7950,7 @@ ordinaryFunctionCandidateAmbiguityProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface boolToBoolInfo modulePath
   where
     fixture = "review-ordinary-function-candidate-ambiguity"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
     constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.render") TypedTextType
@@ -7640,7 +7987,7 @@ instantiationDataTypeProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-instantiation-data-type"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "phantom"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
@@ -7667,13 +8014,13 @@ invisibleOperatorProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface boolInfo entryPath
   where
     fixture = "review-invisible-operator"
-    entryPath = ["Fixture", "review-invisible-operator"]
+    entryPath = (fixtureModulePath "review-invisible-operator")
     expression = TypedOperatorValueExpr boolInfo (TypedResolvedOperator invisibleOperatorName "+")
 
 expressionDuplicateBinder :: TypedBinderId
 expressionDuplicateBinder =
   binder
-    ["Fixture", "review-expression-duplicate-binder"]
+    (fixtureModulePath "review-expression-duplicate-binder")
     [0]
     (resolved TypedCurrentModule TypedValueNamespace "value")
 
@@ -7682,7 +8029,7 @@ expressionDuplicateBinderProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath
   where
     fixture = "review-expression-duplicate-binder"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     scheme = monoScheme expressionDuplicateBinder
     lambda = TypedLambdaExpr boolToBoolInfo expressionDuplicateBinder valueName (TypedVariableExpr boolInfo valueName)
@@ -7692,7 +8039,7 @@ privateInterfaceLibraryPath :: [Text]
 privateInterfaceLibraryPath = ["Private", "Library"]
 
 privateInterfaceEntryPath :: [Text]
-privateInterfaceEntryPath = ["Fixture", "review-private-interface"]
+privateInterfaceEntryPath = (fixtureModulePath "review-private-interface")
 
 privateInterfaceLocalName :: TypedCoreName
 privateInterfaceLocalName = resolved TypedCurrentModule TypedValueNamespace "secret"
@@ -7729,7 +8076,7 @@ constructorPatternContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-constructor-pattern-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     optionName = resolved TypedCurrentModule TypedTypeNamespace "Option"
     someName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     parameterId = TypedTypeParameterId 0
@@ -7771,7 +8118,7 @@ nonListPatternProgram =
 explicitTypeApplicationOwner :: TypedBinderId
 explicitTypeApplicationOwner =
   binder
-    ["Fixture", "review-explicit-type-application-contract"]
+    (fixtureModulePath "review-explicit-type-application-contract")
     [0]
     (resolved TypedCurrentModule TypedValueNamespace "value")
 
@@ -7780,7 +8127,7 @@ explicitTypeApplicationContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-explicit-type-application-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     scheme = monoScheme explicitTypeApplicationOwner
     expression = TypedTypeApplicationExpr boolInfo (TypedVariableExpr boolInfo valueName) span1 TypedBoolType
@@ -7791,7 +8138,7 @@ variableSchemeContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textInfo modulePath
   where
     fixture = "review-variable-scheme-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
     valueBinder = binder modulePath [0] valueName
     statements =
@@ -7804,7 +8151,7 @@ missingImportProgram =
   typedProgram
   where
     fixture = "review-missing-import"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     typedProgram =
       TypedProgram
         Nothing
@@ -7824,7 +8171,7 @@ candidateConstraintProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapInfo modulePath)
   where
     fixture = "review-candidate-constraint"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     renderName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     equalName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     renderImpl = TypedImplId ["Prelude"] renderName [TypedTextType]
@@ -7849,7 +8196,7 @@ invalidVariableNamespaceProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-variable-namespace"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     declaration =
       dataDeclarationWithNullaryConstructor
         modulePath
@@ -7864,7 +8211,7 @@ invalidVariableNamespaceProgram =
 binderNameContractBinder :: TypedBinderId
 binderNameContractBinder =
   binder
-    ["Fixture", "review-binder-name-contract"]
+    (fixtureModulePath "review-binder-name-contract")
     [0]
     (resolved TypedCurrentModule TypedValueNamespace "embedded")
 
@@ -7873,7 +8220,7 @@ binderNameContractProgram =
   singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo modulePath
   where
     fixture = "review-binder-name-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     publishedName = resolved TypedCurrentModule TypedValueNamespace "published"
     scheme = monoScheme binderNameContractBinder
     statement = TypedLetStatement binderNameContractBinder publishedName span1 scheme trueExpr
@@ -7883,7 +8230,7 @@ blockLocalGeneralizedSchemeProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
   where
     fixture = "review-block-local-generalized-scheme"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "local"
     owner = binder modulePath [0, 0] valueName
     parameterId = TypedTypeParameterId 0
@@ -7897,7 +8244,7 @@ blockLocalMonomorphicSchemeProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface textInfo modulePath
   where
     fixture = "review-block-local-monomorphic-scheme"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "local"
     owner = binder modulePath [0, 0] valueName
     scheme = monoScheme owner
@@ -7909,7 +8256,7 @@ implMethodNameProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] [TypedImplStatement declaration] emptyInterface boolInfo modulePath)
   where
     fixture = "review-impl-method-name"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType]
     publishedName = resolved TypedCurrentModule TypedValueNamespace "render"
@@ -7943,7 +8290,7 @@ operatorSchemeProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface textToTextInfo modulePath
   where
     fixture = "review-operator-scheme"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     operatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
     owner = binder modulePath [0] operatorName
     operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
@@ -7971,13 +8318,13 @@ operatorSchemeFailures =
   ]
   where
     operatorFailure statementIndex =
-      TypedCoreValidationFailure (TypedExpressionPath ["Fixture", "review-operator-scheme"] [statementIndex] [0])
+      TypedCoreValidationFailure (TypedExpressionPath (fixtureModulePath "review-operator-scheme") [statementIndex] [0])
 
 selectiveImportProgram :: TypedProgram
 selectiveImportProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "Selective"]
-    entryPath = ["Fixture", "review-selective-import"]
+    libraryPath = (fixtureLibraryPath "Selective")
+    entryPath = (fixtureModulePath "review-selective-import")
     localName = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder libraryPath [0] localName
     scheme = monoScheme owner
@@ -8005,7 +8352,7 @@ classParameterScopeProgram =
   singleModuleProgram fixture relativeSource [] [TypedClassStatement declaration] emptyInterface boolInfo modulePath
   where
     fixture = "review-class-parameter-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
     methodBinder = binder modulePath [0, 0] methodName
@@ -8022,7 +8369,7 @@ evidenceParameterContractProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-evidence-parameter-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
@@ -8057,7 +8404,7 @@ implCapabilityNamespaceProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-impl-capability-namespace"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     statements =
       [ TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invalidImplCapabilityName [TypedBoolType]) []),
         TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invisibleImplCapabilityName [TypedBoolType]) [])
@@ -8069,13 +8416,14 @@ missingInstantiatedEvidenceProgram =
     (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-missing-instantiated-evidence"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     owner = binder modulePath [0] valueName
     evidenceId = TypedEvidenceParameterId 0
     laterEvidenceId = TypedEvidenceParameterId 1
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
-    scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId constraint] [] TypedBoolType TypedBoolRecipe
+    laterConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
+    scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId laterConstraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [] Nothing
     expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
     statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
@@ -8091,7 +8439,7 @@ constructorExpressionContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-constructor-expression-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Flag"
     declaration =
       TypedDataDeclaration
@@ -8111,7 +8459,7 @@ unrelatedTypeApplicationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface applicationInfo modulePath
   where
     fixture = "review-unrelated-type-application"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "unrelated"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
@@ -8139,7 +8487,7 @@ lexicalBinderContractProgram :: TypedProgram
 lexicalBinderContractProgram = expressionFixtureProgram fixture expression
   where
     fixture = "review-lexical-binder-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     argumentBinder = binder modulePath [0] argumentName
     lambdaInfo =
@@ -8153,7 +8501,7 @@ generalizedVariableContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface badUseInfo modulePath
   where
     fixture = "review-generalized-variable-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
@@ -8180,7 +8528,7 @@ enclosingInstantiationScopeProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-enclosing-instantiation-scope"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     identityName = resolved TypedCurrentModule TypedValueNamespace "identity"
     identityOwner = binder modulePath [0] identityName
     identityParameter = TypedTypeParameterId 0
@@ -8219,7 +8567,7 @@ implMethodContractProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-impl-method-contract"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     parameterId = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameterId
@@ -8256,7 +8604,7 @@ dataDeclarationNamespaceProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-data-declaration-namespace"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     statements =
       [ TypedDataStatement
           ( dataDeclarationWithNullaryConstructor
@@ -8275,7 +8623,7 @@ duplicateDeclarationProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-duplicate-declaration"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     firstOwner = binder modulePath [0] duplicateDeclarationName
     secondOwner = binder modulePath [1] duplicateDeclarationName
     statements =
@@ -8286,8 +8634,8 @@ duplicateDeclarationProgram =
 importedImplQualificationProgram :: TypedProgram
 importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = ["Library", "QualifiedImpl"]
-    entryPath = ["Fixture", "review-imported-impl-qualification"]
+    libraryPath = (fixtureLibraryPath "QualifiedImpl")
+    entryPath = (fixtureModulePath "review-imported-impl-qualification")
     localDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
     localCapabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Mark"
     parameterId = TypedTypeParameterId 0
@@ -8365,7 +8713,7 @@ implTargetArityProgram =
   withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath)
   where
     fixture = "review-impl-target-arity"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId modulePath capabilityName [TypedBoolType, TypedCharType]
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
@@ -8379,7 +8727,7 @@ implTargetArityProgram =
 localDeclarationOriginBinder :: TypedBinderId
 localDeclarationOriginBinder =
   binder
-    ["Fixture", "review-local-declaration-origin"]
+    (fixtureModulePath "review-local-declaration-origin")
     [0]
     localDeclarationOriginName
 
@@ -8391,7 +8739,7 @@ localDeclarationOriginProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
   where
     fixture = "review-local-declaration-origin"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     scheme = monoScheme localDeclarationOriginBinder
     statements =
       [ TypedLetStatement
@@ -8404,7 +8752,7 @@ localDeclarationOriginProgram =
 
 expressionFixtureProgram :: Text -> TypedExpr -> TypedProgram
 expressionFixtureProgram fixture expression =
-  singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) ["Fixture", fixture]
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) (fixtureModulePath fixture)
 
 expressionInfoForFixture :: TypedExpr -> TypedNodeInfo
 expressionInfoForFixture expression =
@@ -8535,7 +8883,7 @@ programWith fixtureName statements interface moduleInfo =
   TypedProgram
     Nothing
     [ typedModule
-        ["Fixture", fixtureName]
+        (fixtureModulePath fixtureName)
         (TypedSourcePath ("src/Fixture/" <> fixtureName <> ".jz"))
         []
         []
@@ -8543,7 +8891,7 @@ programWith fixtureName statements interface moduleInfo =
         statements
         moduleInfo
     ]
-    ["Fixture", fixtureName]
+    (fixtureModulePath fixtureName)
 
 scalarAliasesWidthsProgram :: TypedProgram
 scalarAliasesWidthsProgram =
@@ -8583,8 +8931,8 @@ resolvedNameOriginsProgram :: TypedProgram
 resolvedNameOriginsProgram =
   TypedProgram (Just preludeModule) [libraryModule, entryModule] entryPath
   where
-    entryPath = ["Fixture", "resolved-name-origins"]
-    libraryPath = ["Library", "Data"]
+    entryPath = (fixtureModulePath "resolved-name-origins")
+    libraryPath = (fixtureLibraryPath "Data")
     localValue = resolved TypedCurrentModule TypedValueNamespace "localValue"
     localBinder = binder entryPath [0] localValue
     localScheme = TypedScheme localBinder [] [] [] TypedTextType TypedManagedTextRecipe
@@ -8656,7 +9004,7 @@ builtinGeneratedNamesProgram =
     emptyInterface
     functionInfo
   where
-    modulePath = ["Fixture", "builtin-generated-names"]
+    modulePath = (fixtureModulePath "builtin-generated-names")
     generatedNames =
       [ TypedGeneratedName (TypedLambdaPatternArgument 0),
         TypedGeneratedName (TypedOperatorBinding "$operator:%2B"),
@@ -8694,7 +9042,7 @@ listTupleDataRecipesProgram =
     optionConstructor = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     optionParameter = TypedTypeParameterId 0
     optionConstructorOwner =
-      binder ["Fixture", "list-tuple-data-recipes"] [0, 0] optionConstructor
+      binder (fixtureModulePath "list-tuple-data-recipes") [0, 0] optionConstructor
     optionDeclaration =
       TypedDataDeclaration
         span1
@@ -8722,9 +9070,9 @@ callableRecipesProgram =
     callableInfo
   where
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
-    argumentBinder = binder ["Fixture", "callable-recipes"] [0] argumentName
+    argumentBinder = binder (fixtureModulePath "callable-recipes") [0] argumentName
     innerArgumentName = resolved TypedCurrentModule TypedValueNamespace "innerArgument"
-    innerArgumentBinder = binder ["Fixture", "callable-recipes"] [0, 0] innerArgumentName
+    innerArgumentBinder = binder (fixtureModulePath "callable-recipes") [0, 0] innerArgumentName
     functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
     callableInfo =
       info functionType (TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe)
@@ -8748,11 +9096,11 @@ monomorphicBindingProgram =
     [TypedLetStatement valueBinder valueName span1 scheme trueExpr]
     (TypedModuleInterface [TypedValueInterface valueName scheme] [] [] [])
     boolInfo
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
   where
     fixture = "monomorphic-binding"
     valueName = resolved TypedCurrentModule TypedValueNamespace "enabled"
-    valueBinder = binder ["Fixture", fixture] [0] valueName
+    valueBinder = binder (fixtureModulePath fixture) [0] valueName
     scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
 
 generalizedBindingProgram :: TypedProgram
@@ -8764,11 +9112,11 @@ generalizedBindingProgram =
     [TypedLetStatement valueBinder valueName span1 scheme valueExpression]
     (TypedModuleInterface [TypedValueInterface valueName scheme] [] [] [])
     boolInfo
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
   where
     fixture = "generalized-binding"
     valueName = resolved TypedCurrentModule TypedValueNamespace "choose"
-    valueBinder = binder ["Fixture", fixture] [0] valueName
+    valueBinder = binder (fixtureModulePath fixture) [0] valueName
     parameter0 = TypedTypeParameterId 0
     parameter1 = TypedTypeParameterId 1
     polymorphicType =
@@ -8794,11 +9142,11 @@ generalizedBindingProgram =
     valueExpression =
       TypedLambdaExpr
         (info polymorphicType polymorphicRecipe)
-        (binder ["Fixture", fixture] [0, 0] firstArgumentName)
+        (binder (fixtureModulePath fixture) [0, 0] firstArgumentName)
         firstArgumentName
         ( TypedLambdaExpr
             (info innerType innerRecipe)
-            (binder ["Fixture", fixture] [0, 0, 0] secondArgumentName)
+            (binder (fixtureModulePath fixture) [0, 0, 0] secondArgumentName)
             secondArgumentName
             ( TypedVariableExpr
                 (info (TypedTypeParameterType parameter0) (TypedRepresentationParameterRecipe parameter0))
@@ -8834,14 +9182,14 @@ instantiationProgram fixture explicitSpan =
         name
         span1
         scheme
-        (polymorphicIdentityExpression ["Fixture", fixture] [0] parameterId),
+        (polymorphicIdentityExpression (fixtureModulePath fixture) [0] parameterId),
       expressionStatement 2 expression
     ]
     emptyInterface
     instantiatedInfo
   where
     name = resolved TypedCurrentModule TypedValueNamespace "identity"
-    owner = binder ["Fixture", fixture] [0] name
+    owner = binder (fixtureModulePath fixture) [0] name
     instantiation =
       TypedInstantiation
         owner
@@ -8898,7 +9246,7 @@ evidenceProgram fixture parameterId =
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
-    valueBinder = binder ["Fixture", fixture] [0] valueName
+    valueBinder = binder (fixtureModulePath fixture) [0] valueName
     evidenceUse =
       TypedEvidenceUse
         (TypedEvidenceParameterRef valueBinder <$> parameterId)
@@ -8948,7 +9296,7 @@ partialMethodCandidatesProgram =
             ( TypedImplDeclaration
                 span1
                 secondImpl
-                [method, fixtureImplMethod ["Fixture", fixture] [0, 1] secondImpl "render"]
+                [method, fixtureImplMethod (fixtureModulePath fixture) [0, 1] secondImpl "render"]
             ),
           expressionStatement 1 expression
         ]
@@ -8960,7 +9308,7 @@ partialMethodCandidatesProgram =
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
-    secondImpl = TypedImplId ["Fixture", fixture] capabilityName [TypedTextType]
+    secondImpl = TypedImplId (fixtureModulePath fixture) capabilityName [TypedTextType]
     candidates =
       [ TypedEvidenceCandidate firstImpl (Just (TypedMethodId firstImpl "map")),
         TypedEvidenceCandidate secondImpl (Just (TypedMethodId secondImpl "map"))
@@ -8969,7 +9317,7 @@ partialMethodCandidatesProgram =
     method =
       TypedMethodDefinition
         (TypedMethodId secondImpl "map")
-        (binder ["Fixture", fixture] [0] methodName)
+        (binder (fixtureModulePath fixture) [0] methodName)
         methodName
         span1
         methodExpression
@@ -8984,7 +9332,7 @@ patternsBindersProgram =
   programWith fixture statements emptyInterface boolInfo
   where
     fixture = "patterns-binders"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     variablePattern index =
       let name = resolved TypedCurrentModule TypedValueNamespace ("value" <> Text.pack (show index))
        in TypedVariablePattern boolInfo (binder modulePath [index] name) name
@@ -9012,7 +9360,7 @@ patternsBindersProgram =
     someName = resolved TypedCurrentModule TypedConstructorNamespace "Some"
     optionParameter = TypedTypeParameterId 0
     optionConstructorOwner =
-      binder ["Fixture", fixture] [0, 0] someName
+      binder (fixtureModulePath fixture) [0, 0] someName
     optionDeclaration =
       TypedDataDeclaration
         span1
@@ -9060,8 +9408,8 @@ orPatternAlignmentProgram =
   where
     fixture = "or-pattern-alignment"
     valueName = resolved TypedCurrentModule TypedValueNamespace "matched"
-    firstBinder = binder ["Fixture", fixture] [0] valueName
-    secondBinder = binder ["Fixture", fixture] [1] valueName
+    firstBinder = binder (fixtureModulePath fixture) [0] valueName
+    secondBinder = binder (fixtureModulePath fixture) [1] valueName
     firstAlternative = TypedVariablePattern boolInfo firstBinder valueName
     secondAlternative = TypedVariablePattern boolInfo secondBinder valueName
     expression =
@@ -9091,7 +9439,7 @@ multiModuleInterfaceProgram =
         boolInfo
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Flag"
-    constructorBinder = binder ["Library", "Flag"] [0] constructorName
+    constructorBinder = binder (fixtureLibraryPath "Flag") [0] constructorName
     declaration =
       TypedDataDeclaration
         span1
@@ -9100,7 +9448,7 @@ multiModuleInterfaceProgram =
         [TypedConstructorDeclaration constructorBinder constructorName [TypedBoolType] [TypedBoolRecipe]]
     libraryModule =
       typedModule
-        ["Library", "Flag"]
+        (fixtureLibraryPath "Flag")
         (TypedSourcePath "src/Library/Flag.jz")
         []
         [TypedModuleExport TypedTypeNamespace "Flag", TypedModuleExport TypedConstructorNamespace "Flag"]
@@ -9112,7 +9460,7 @@ multiModuleInterfaceProgram =
         ["App", "Main"]
         (TypedSourcePath "src/App/Main.jz")
         [ TypedResolvedImport span1 ["Prelude"] Nothing (Just ["truth"]),
-          TypedResolvedImport span1 ["Library", "Flag"] (Just "FlagModule") Nothing
+          TypedResolvedImport span1 (fixtureLibraryPath "Flag") (Just "FlagModule") Nothing
         ]
         []
         emptyInterface
@@ -9272,7 +9620,7 @@ absoluteSourcePathFixture :: InvalidFixture
 absoluteSourcePathFixture =
   InvalidFixture
     fixture
-    (singleModuleProgram fixture (TypedSourcePath "/absolute/Main.jz") [] [] emptyInterface boolInfo ["Fixture", fixture])
+    (singleModuleProgram fixture (TypedSourcePath "/absolute/Main.jz") [] [] emptyInterface boolInfo (fixtureModulePath fixture))
     [moduleFailure fixture TypedInvalidSourcePath (TypedTextDetail "/absolute/Main.jz")]
   where
     fixture = "absolute-source-path"
@@ -9282,10 +9630,10 @@ duplicateModulePathFixture =
   InvalidFixture
     fixture
     (TypedProgram Nothing [moduleValue, moduleValue] modulePath)
-    [TypedCoreValidationFailure (TypedModulePath modulePath) TypedDuplicateModule (TypedTextDetail "Fixture::duplicate-module-path")]
+    [TypedCoreValidationFailure (TypedModulePath modulePath) TypedDuplicateModule (TypedTextDetail "Fixture::duplicate_module_path")]
   where
     fixture = "duplicate-module-path"
-    modulePath = ["Fixture", fixture]
+    modulePath = (fixtureModulePath fixture)
     moduleValue = typedModule modulePath (TypedSourcePath "src/Fixture/duplicate-module-path.jz") [] [] emptyInterface [] boolInfo
 
 unknownEntryModuleFixture :: InvalidFixture
@@ -9306,7 +9654,7 @@ duplicateBinderFixture =
     valueBinder = fixtureBinder fixture 0 valueName
     scheme = monoScheme valueBinder
     statement = TypedLetStatement valueBinder valueName span1 scheme trueExpr
-    program = singleModuleProgram fixture relativeSource [] [statement, statement] emptyInterface boolInfo ["Fixture", fixture]
+    program = singleModuleProgram fixture relativeSource [] [statement, statement] emptyInterface boolInfo (fixtureModulePath fixture)
 
 unknownBinderFixture :: InvalidFixture
 unknownBinderFixture =
@@ -9317,7 +9665,7 @@ unknownBinderFixture =
     statementBinder = fixtureBinder fixture 0 valueName
     schemeBinder = fixtureBinder fixture 1 valueName
     statement = TypedLetStatement statementBinder valueName span1 (monoScheme schemeBinder) trueExpr
-    program = singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo ["Fixture", fixture]
+    program = singleModuleProgram fixture relativeSource [] [statement] emptyInterface boolInfo (fixtureModulePath fixture)
 
 duplicateTypeParameterFixture :: InvalidFixture
 duplicateTypeParameterFixture =
@@ -9386,7 +9734,7 @@ dataRecipeDeclarationFixture =
     constructorBinder = fixtureBinder fixture 0 constructorName
     declaration =
       TypedDataDeclaration span1 dataName [] [TypedConstructorDeclaration constructorBinder constructorName [TypedBoolType] [TypedSignedIntegerRecipe 64]]
-    program = singleModuleProgram fixture relativeSource [] [TypedDataStatement declaration] emptyInterface boolInfo ["Fixture", fixture]
+    program = singleModuleProgram fixture relativeSource [] [TypedDataStatement declaration] emptyInterface boolInfo (fixtureModulePath fixture)
 
 callableRecipeSignatureFixture :: InvalidFixture
 callableRecipeSignatureFixture =
@@ -9413,7 +9761,7 @@ applicationArgumentTypeFixture =
   where
     fixture = "application-argument-type"
     functionName = resolved TypedCurrentModule TypedValueNamespace "argument"
-    functionExpr = TypedLambdaExpr boolToBoolInfo (binder ["Fixture", fixture] [0, 0] functionName) functionName trueExpr
+    functionExpr = TypedLambdaExpr boolToBoolInfo (binder (fixtureModulePath fixture) [0, 0] functionName) functionName trueExpr
     argumentExpr = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
     expression = TypedApplyExpr boolInfo functionExpr argumentExpr
 
@@ -9423,7 +9771,7 @@ applicationResultTypeFixture =
   where
     fixture = "application-result-type"
     functionName = resolved TypedCurrentModule TypedValueNamespace "argument"
-    functionExpr = TypedLambdaExpr boolToBoolInfo (binder ["Fixture", fixture] [0, 0] functionName) functionName trueExpr
+    functionExpr = TypedLambdaExpr boolToBoolInfo (binder (fixtureModulePath fixture) [0, 0] functionName) functionName trueExpr
     expression = TypedApplyExpr textInfo functionExpr trueExpr
 
 ifConditionTypeFixture :: InvalidFixture
@@ -9501,6 +9849,7 @@ duplicateEvidenceParameterFixture =
     program = withFixturePrelude (signatureProgram fixture valueBinder valueName scheme)
     failures =
       [ statementFailure fixture 0 TypedDuplicateEvidenceParameter (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
+        statementFailure fixture 0 TypedDuplicateEvidenceParameter (TypedEvidenceParameterDetail (TypedEvidenceParameterId 3)),
         statementFailure fixture 0 TypedInvalidEvidenceParameterOrder (TypedIndexDetail 1),
         statementFailure fixture 0 TypedInvalidEvidenceParameterOrder (TypedIndexDetail 2)
       ]
@@ -9541,7 +9890,7 @@ missingOrDuplicateEvidenceFixture =
       TypedLiteralExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
         (TypedBooleanLiteral True)
-    program = withFixturePrelude (singleModuleProgram fixture relativeSource [] [expressionStatement 1 missingExpression, expressionStatement 2 duplicateExpression] emptyInterface boolInfo ["Fixture", fixture])
+    program = withFixturePrelude (singleModuleProgram fixture relativeSource [] [expressionStatement 1 missingExpression, expressionStatement 2 duplicateExpression] emptyInterface boolInfo (fixtureModulePath fixture))
     failures =
       [ expressionFailureAt fixture 0 TypedMissingEvidence (TypedTextDetail "Equal"),
         expressionFailureAt fixture 1 TypedDuplicateEvidence (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
@@ -9557,7 +9906,7 @@ ambiguousOrInvisibleEvidenceFixture =
     constraint = TypedCapabilityConstraint (preludeCapability "Render") Nothing TypedTextType
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
-    secondImpl = TypedImplId ["Library", "Render"] capabilityName [TypedTextType]
+    secondImpl = TypedImplId (fixtureLibraryPath "Render") capabilityName [TypedTextType]
     invisibleImpl = TypedImplId ["Hidden", "Render"] capabilityName [TypedTextType]
     ambiguousExpression =
       TypedLiteralExpr
@@ -9568,7 +9917,7 @@ ambiguousOrInvisibleEvidenceFixture =
       TypedLiteralExpr
         (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [TypedSelectedEvidence invisibleUse])
         (TypedTextLiteral "invisible")
-    program = withFixturePrelude (singleModuleProgram fixture relativeSource [] [expressionStatement 1 ambiguousExpression, expressionStatement 2 invisibleExpression] emptyInterface textInfo ["Fixture", fixture])
+    program = withFixturePrelude (singleModuleProgram fixture relativeSource [] [expressionStatement 1 ambiguousExpression, expressionStatement 2 invisibleExpression] emptyInterface textInfo (fixtureModulePath fixture))
     failures =
       [ expressionFailureAt fixture 0 TypedAmbiguousEvidence (TypedArityDetail 1 2),
         expressionFailureAt fixture 1 TypedInvisibleImpl (TypedImplDetail invisibleImpl)
@@ -9602,10 +9951,10 @@ methodOrInterfaceIdentityFixture =
             [expressionStatement 1 expression, statement]
             emptyInterface
             boolInfo
-            ["Fixture", fixture]
+            (fixtureModulePath fixture)
         )
     failures =
-      [ TypedCoreValidationFailure (TypedInterfacePath ["Fixture", fixture]) TypedModuleInterfaceMismatch (TypedNameDetail valueName),
+      [ TypedCoreValidationFailure (TypedInterfacePath (fixtureModulePath fixture)) TypedModuleInterfaceMismatch (TypedNameDetail valueName),
         expressionFailureAt fixture 0 TypedMethodSelectionMismatch (TypedImplDetail otherImpl)
       ]
 
@@ -9613,7 +9962,7 @@ expressionFixture :: Text -> TypedExpr -> [TypedCoreValidationFailure] -> Invali
 expressionFixture fixture expression failures =
   InvalidFixture
     fixture
-    (singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) ["Fixture", fixture])
+    (singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) (fixtureModulePath fixture))
     failures
 
 signatureProgram :: Text -> TypedBinderId -> TypedCoreName -> TypedScheme -> TypedProgram
@@ -9625,13 +9974,13 @@ signatureProgram fixture valueBinder valueName scheme =
     [TypedSignatureStatement valueBinder valueName span1 scheme]
     emptyInterface
     boolInfo
-    ["Fixture", fixture]
+    (fixtureModulePath fixture)
 
 singleModuleProgram :: Text -> TypedSourcePath -> [TypedModuleExport] -> [TypedStatement] -> TypedModuleInterface -> TypedNodeInfo -> [Text] -> TypedProgram
 singleModuleProgram fixture sourcePath exports statements interface moduleInfo entryModule =
   TypedProgram
     Nothing
-    [typedModule ["Fixture", fixture] sourcePath [] exports interface statements moduleInfo]
+    [typedModule (fixtureModulePath fixture) sourcePath [] exports interface statements moduleInfo]
     entryModule
 
 typedModule :: [Text] -> TypedSourcePath -> [TypedResolvedImport] -> [TypedModuleExport] -> TypedModuleInterface -> [TypedStatement] -> TypedNodeInfo -> TypedModule
@@ -9698,7 +10047,16 @@ preludeCapability :: Text -> TypedCoreName
 preludeCapability = resolved TypedAmbientPrelude TypedCapabilityNamespace
 
 fixtureBinder :: Text -> Int -> TypedCoreName -> TypedBinderId
-fixtureBinder fixture lexicalIndex = binder ["Fixture", fixture] [lexicalIndex]
+fixtureBinder fixture lexicalIndex = binder (fixtureModulePath fixture) [lexicalIndex]
+
+fixtureModulePath :: Text -> [Text]
+fixtureModulePath fixture = ["Fixture", fixtureModuleSegment fixture]
+
+fixtureLibraryPath :: Text -> [Text]
+fixtureLibraryPath fixture = ["Library", fixtureModuleSegment fixture]
+
+fixtureModuleSegment :: Text -> Text
+fixtureModuleSegment = Text.replace "-" "_"
 
 monoScheme :: TypedBinderId -> TypedScheme
 monoScheme valueBinder = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
@@ -9730,13 +10088,13 @@ builtinMapInfo :: TypedNodeInfo
 builtinMapInfo = info builtinMapType builtinMapRecipe
 
 moduleFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
-moduleFailure fixture = TypedCoreValidationFailure (TypedModulePath ["Fixture", fixture])
+moduleFailure fixture = TypedCoreValidationFailure (TypedModulePath (fixtureModulePath fixture))
 
 statementFailure :: Text -> Int -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 statementFailure fixture statementIndex = statementFailureAtPath fixture [statementIndex]
 
 statementFailureAtPath :: Text -> [Int] -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
-statementFailureAtPath fixture statementPath = TypedCoreValidationFailure (TypedStatementPath ["Fixture", fixture] statementPath)
+statementFailureAtPath fixture statementPath = TypedCoreValidationFailure (TypedStatementPath (fixtureModulePath fixture) statementPath)
 
 expressionFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 expressionFailure fixture = expressionFailureAt fixture 0
@@ -9746,8 +10104,8 @@ expressionFailureAt fixture statementIndex = expressionFailureAtPath fixture [st
 
 expressionFailureAtPath :: Text -> [Int] -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 expressionFailureAtPath fixture statementPath =
-  TypedCoreValidationFailure (TypedExpressionPath ["Fixture", fixture] statementPath [0])
+  TypedCoreValidationFailure (TypedExpressionPath (fixtureModulePath fixture) statementPath [0])
 
 patternFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 patternFailure fixture =
-  TypedCoreValidationFailure (TypedPatternPath ["Fixture", fixture] [0] [0, 0])
+  TypedCoreValidationFailure (TypedPatternPath (fixtureModulePath fixture) [0] [0, 0])

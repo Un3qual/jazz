@@ -263,7 +263,25 @@ validateModulePath modulePath
 
 validModulePathSegment :: Text -> Bool
 validModulePathSegment segment =
-  not (Text.null segment) && not (Text.isInfixOf "::" segment)
+  segment `notElem` moduleKeywords
+    && validIdentifierSpelling segment
+  where
+    moduleKeywords =
+      ["module", "import", "as", "data", "if", "then", "else", "case"]
+
+validIdentifierSpelling :: Text -> Bool
+validIdentifierSpelling identifier =
+  case Text.uncons identifier of
+    Just (first, rest) ->
+      (isAlpha first || first == '_')
+        && Text.all validContinuation rest
+    Nothing -> False
+  where
+    validContinuation character =
+      isAlphaNum character
+        || character == '_'
+        || character == '\''
+        || character == '!'
 
 validateResolvedImports :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 validateResolvedImports moduleTable modulePath imports =
@@ -272,6 +290,7 @@ validateResolvedImports moduleTable modulePath imports =
     validateImport (TypedResolvedImport spanValue importPath alias selectedNames) =
       validateSpan path spanValue
         <> maybe [] validateAlias alias
+        <> validateSelectedNameShape selectedNames
         <> case Map.lookup importPath moduleTable of
           Nothing ->
             [ failure
@@ -293,6 +312,15 @@ validateResolvedImports moduleTable modulePath imports =
           | validSourceIdentifier aliasName = []
           | otherwise =
               [failure path TypedUnresolvedName (TypedTextDetail aliasName)]
+        validateSelectedNameShape Nothing = []
+        validateSelectedNameShape (Just []) =
+          [failure path TypedModuleInterfaceMismatch (TypedArityDetail 1 0)]
+        validateSelectedNameShape (Just names) =
+          duplicateParameterFailures
+            path
+            TypedDuplicateDeclaration
+            TypedTextDetail
+            names
 
 importBindingCollisionFailures :: Map [Text] TypedModule -> [Text] -> [TypedResolvedImport] -> [TypedCoreValidationFailure]
 importBindingCollisionFailures moduleTable modulePath imports =
@@ -371,7 +399,7 @@ interfaceContainsExport :: TypedModuleExport -> TypedModuleInterface -> Bool
 interfaceContainsExport (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
   case namespace of
     TypedValueNamespace -> any (interfaceNameMatches expected) values || any (classInterfaceMethodMatches expected) classes
-    TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas || any (classInterfaceNameMatches expected) classes
+    TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas
     TypedConstructorNamespace -> any (dataInterfaceConstructorMatches expected) datas
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
 
@@ -529,11 +557,7 @@ duplicateCheckedDeclarations statement =
     TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
       (name, Nothing)
         : [(constructorName, Just binderId) | TypedConstructorDeclaration binderId constructorName _ _ <- constructors]
-    TypedClassStatement (TypedClassDeclaration _ name _ methods) ->
-      (name, Nothing)
-        : [ (methodName, Just binderId)
-          | TypedMethodSignature methodName _ (TypedScheme binderId _ _ _ _ _) <- methods
-          ]
+    TypedClassStatement (TypedClassDeclaration _ name _ _) -> [(name, Nothing)]
     TypedImplStatement {} -> []
     TypedExpressionStatement {} -> []
 
@@ -993,7 +1017,7 @@ interfaceCapabilityNameIncluded visibleModule@(_, selectedNames, TypedModule _ _
 interfaceCapabilityNameDirectlyIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> Bool
 interfaceCapabilityNameDirectlyIncluded (_, selectedNames, TypedModule _ _ _ exports _ _ _) name =
   importAllows selectedNames name
-    && (moduleExportsName TypedCapabilityNamespace name exports || moduleExportsName TypedTypeNamespace name exports)
+    && moduleExportsName TypedCapabilityNamespace name exports
 
 requiredCapabilityIdentifiers :: ([Text], Maybe [Text], TypedModule) -> Set Text
 requiredCapabilityIdentifiers visibleModule =
@@ -1682,10 +1706,31 @@ nextTypeParameterOrdinal =
     . Set.toList
 
 validateOrderedEvidenceParameters :: TypedCoreValidationPath -> [TypedEvidenceParameter] -> [TypedCoreValidationFailure]
-validateOrderedEvidenceParameters path parameters = duplicateFailures <> orderFailures
+validateOrderedEvidenceParameters path parameters =
+  duplicateFailures <> duplicateConstraintFailures <> orderFailures
   where
     parameterIds = [parameterId | TypedEvidenceParameter parameterId _ <- parameters]
     duplicateFailures = duplicateParameterFailures path TypedDuplicateEvidenceParameter TypedEvidenceParameterDetail parameterIds
+    (_, _, duplicateConstraintFailures) =
+      foldl' checkConstraint (Set.empty, Set.empty, []) parameters
+    checkConstraint (seenIds, seenConstraints, failures) (TypedEvidenceParameter parameterId constraint)
+      | Set.member parameterId seenIds =
+          (seenIds, seenConstraints, failures)
+      | Set.member constraint seenConstraints =
+          ( Set.insert parameterId seenIds,
+            seenConstraints,
+            failures
+              <> [ failure
+                     path
+                     TypedDuplicateEvidenceParameter
+                     (TypedEvidenceParameterDetail parameterId)
+                 ]
+          )
+      | otherwise =
+          ( Set.insert parameterId seenIds,
+            Set.insert constraint seenConstraints,
+            failures
+          )
     orderFailures =
       [ failure path TypedInvalidEvidenceParameterOrder (TypedIndexDetail index)
       | (index, TypedEvidenceParameter (TypedEvidenceParameterId actual) _) <- zip [0 ..] parameters,
@@ -1917,6 +1962,11 @@ validateClassDeclaration context path (TypedClassDeclaration spanValue name para
     <> visibleClassCollisionFailures context path name
     <> (if length parameters == 1 then [] else [failure path TypedMethodSelectionMismatch (TypedArityDetail 1 (length parameters))])
     <> validateOrderedTypeParameters path parameters
+    <> duplicateParameterFailures
+      path
+      TypedDuplicateDeclaration
+      TypedNameDetail
+      [methodName | TypedMethodSignature methodName _ _ <- methods]
     <> concatMap validateMethod methods
   where
     validateMethod (TypedMethodSignature methodName methodSpan scheme@(TypedScheme binderId methodParameters evidenceParameters primitiveConstraints _ _)) =
@@ -3495,7 +3545,12 @@ validateType path scope typeValue =
     TypedCharType -> []
     TypedTextType -> []
     TypedListType elementType -> validateType path scope elementType
-    TypedTupleType elementTypes -> concatMap (validateType path scope) elementTypes
+    TypedTupleType elementTypes ->
+      ( if length elementTypes == 1
+          then [failure path TypedCollectionShapeMismatch (TypedArityDetail 2 1)]
+          else []
+      )
+        <> concatMap (validateType path scope) elementTypes
     TypedDataType name arguments -> validateCoreName path name <> concatMap (validateType path scope) arguments
     TypedFunctionType argument result -> validateType path scope argument <> validateType path scope result
     TypedTypeParameterType parameterId
@@ -3654,17 +3709,8 @@ validQualifiedIdentifier identifier =
 validSourceIdentifier :: Text -> Bool
 validSourceIdentifier identifier =
   identifier `notElem` reservedIdentifiers
-    && case Text.uncons identifier of
-      Just (first, rest) ->
-        validStart first && Text.all validContinuation rest
-      Nothing -> False
+    && validIdentifierSpelling identifier
   where
-    validStart character = isAlpha character || character == '_'
-    validContinuation character =
-      isAlphaNum character
-        || character == '_'
-        || character == '\''
-        || character == '!'
     reservedIdentifiers =
       [ "module",
         "import",
@@ -4029,6 +4075,7 @@ validateRetainedCapabilityName context path name =
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
   duplicateExportFailures
+    <> duplicateInterfaceFailures
     <> concatMap validateValueInterface values
     <> concatMap validateDataInterface datas
     <> concatMap validateClassInterface classes
@@ -4123,9 +4170,30 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
                  ]
           )
       | otherwise = (Set.insert export seen, failures)
+    duplicateInterfaceFailures =
+      duplicateParameterFailures
+        path
+        TypedDuplicateDeclaration
+        TypedNameDetail
+        [name | TypedValueInterface name _ <- values]
+        <> duplicateParameterFailures
+          path
+          TypedDuplicateDeclaration
+          TypedNameDetail
+          [name | TypedDataInterface (TypedDataDeclaration _ name _ _) <- datas]
+        <> duplicateParameterFailures
+          path
+          TypedDuplicateDeclaration
+          TypedNameDetail
+          [name | TypedClassInterface (TypedClassDeclaration _ name _ _) <- classes]
+        <> duplicateParameterFailures
+          path
+          TypedDuplicateDeclaration
+          TypedImplDetail
+          [implId | TypedImplInterface implId <- impls]
     validateValueInterfaceDependencies scheme =
       [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
-      | dependencyName <- nub (schemeLocalDataDependencies scheme),
+      | dependencyName <- nub (schemeLocalDataDependencies modulePath scheme),
         not (any (dataInterfaceMatches dependencyName) datas)
       ]
         <> [ failure
@@ -4149,7 +4217,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
              Set.notMember capability retainedCapabilityIdentifiers
            ]
     constructorDependencies (TypedConstructorDeclaration _ _ fields _) =
-      concatMap localDataDependencies fields
+      concatMap (localDataDependencies modulePath) fields
     validateExport (TypedModuleExport namespace exportedName) =
       case namespace of
         TypedValueNamespace
@@ -4157,7 +4225,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
               || any (localClassInterfaceMethodMatches exportedName) classes ->
               []
         TypedTypeNamespace
-          | any (dataInterfaceNameMatches exportedName) datas || any (classInterfaceNameMatches exportedName) classes -> []
+          | any (dataInterfaceNameMatches exportedName) datas -> []
         TypedConstructorNamespace
           | any (dataInterfaceConstructorMatches exportedName) datas -> []
         TypedCapabilityNamespace
@@ -4169,9 +4237,9 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       declaration `elem` declaredClasses
         && classInterfaceMethodMatches exportedName classInterface
 
-schemeLocalDataDependencies :: TypedScheme -> [TypedCoreName]
-schemeLocalDataDependencies (TypedScheme _ _ evidence primitive resultType _) =
-  concatMap localDataDependencies (resultType : evidenceTypes <> primitiveTypes)
+schemeLocalDataDependencies :: [Text] -> TypedScheme -> [TypedCoreName]
+schemeLocalDataDependencies modulePath (TypedScheme _ _ evidence primitive resultType _) =
+  concatMap (localDataDependencies modulePath) (resultType : evidenceTypes <> primitiveTypes)
   where
     evidenceTypes =
       [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidence]
@@ -4183,16 +4251,23 @@ schemeLocalDataDependencies (TypedScheme _ _ evidence primitive resultType _) =
           TypedStrictEqualityPrimitiveConstraint value -> [value]
       ]
 
-localDataDependencies :: TypedType -> [TypedCoreName]
-localDataDependencies typeValue =
+localDataDependencies :: [Text] -> TypedType -> [TypedCoreName]
+localDataDependencies modulePath typeValue =
   case typeValue of
-    TypedListType elementType -> localDataDependencies elementType
-    TypedTupleType elementTypes -> concatMap localDataDependencies elementTypes
+    TypedListType elementType -> localDataDependencies modulePath elementType
+    TypedTupleType elementTypes -> concatMap (localDataDependencies modulePath) elementTypes
     TypedDataType name arguments ->
-      [name | TypedResolvedName TypedCurrentModule TypedTypeNamespace _ <- [name]]
-        <> concatMap localDataDependencies arguments
+      [ name
+      | case name of
+          TypedResolvedName TypedCurrentModule TypedTypeNamespace _ -> True
+          TypedResolvedName TypedAmbientPrelude TypedTypeNamespace _ ->
+            modulePath == ["Prelude"]
+          _ -> False
+      ]
+        <> concatMap (localDataDependencies modulePath) arguments
     TypedFunctionType argument result ->
-      localDataDependencies argument <> localDataDependencies result
+      localDataDependencies modulePath argument
+        <> localDataDependencies modulePath result
     _ -> []
 
 schemeLocalCapabilityDependencies :: [TypedClassDeclaration] -> TypedScheme -> [Text]
