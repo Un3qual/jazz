@@ -1,7 +1,7 @@
 module TypedCoreValidate (
   value validateProgram
 ) {
-  import Char (charToUInt32).
+  import Char (charIsAlpha, charIsAlphaNum, charToUInt32).
   import List (listAll, listAppend, listConcat, listContains, listFilter, listIndexed, listLength, listMap, listPrepend, listReverse, listSort, listZip).
   import Maybe.
   import Text (textAppend, textContains, textIsEmpty, textJoin, textSplit, textStartsWith, textToChars, textUncons).
@@ -29,7 +29,7 @@ module TypedCoreValidate (
 
   data ValueContract = ValueContract TypedType TypedRepresentationRecipe.
 
-  data DeclarationEntry = DeclarationEntry NameEntry TypedCoreName (Maybe(TypedBinderId)) | ImplDeclarationEntry TypedImplId.
+  data DeclarationEntry = DeclarationEntry NameEntry TypedCoreName (Maybe(TypedBinderId)) | ImplDeclarationEntry TypedImplId TypedImplId.
 
   data VisibleModule = VisibleModule (Maybe([Text])) TypedModule.
 
@@ -516,12 +516,58 @@ module TypedCoreValidate (
       if textListEqual modulePath binderModule then if coreNameEqual embeddedName publishedName then [] else [failure path TypedUnknownBinder (TypedBinderDetail binder)] else [failure path TypedUnknownBinder (TypedBinderDetail binder)]
   }.
 
+  validIdentifierContinuation :: [Char] -> Bool.
+  validIdentifierContinuation = \(characters) -> case characters {
+    | [] -> True
+    | [first | rest] ->
+      if charIsAlphaNum first then validIdentifierContinuation rest else
+        if first == '_' then validIdentifierContinuation rest else
+          if first == '\'' then validIdentifierContinuation rest else
+            if first == '!' then validIdentifierContinuation rest else False
+  }.
+
+  validSourceIdentifier :: Text -> Bool.
+  validSourceIdentifier = \(identifier) ->
+    if listContains identifier ["module", "import", "as", "data", "if", "then", "else", "case", "True", "False"] then False else
+      case textToChars identifier {
+        | [] -> False
+        | [first | rest] ->
+          if charIsAlpha first then validIdentifierContinuation rest else
+            if first == '_' then validIdentifierContinuation rest else False
+      }.
+
+  validResolvedIdentifierSegments :: [Text] -> Bool.
+  validResolvedIdentifierSegments = \(segments) -> case segments {
+    | [] -> False
+    | [first] -> validSourceIdentifier first
+    | [first | rest] -> if validSourceIdentifier first then validResolvedIdentifierSegments rest else False
+  }.
+
+  validQualifiedIdentifier :: Text -> Bool.
+  validQualifiedIdentifier = \(identifier) -> case textSplit "::" identifier {
+    | [first | [second | rest]] ->
+      if validSourceIdentifier first then
+        if validSourceIdentifier second then
+          case rest {
+            | [] -> True
+            | other -> validResolvedIdentifierSegments other
+          }
+        else False
+      else False
+    | other -> False
+  }.
+
+  validResolvedIdentifier :: TypedNameNamespace -> Text -> Bool.
+  validResolvedIdentifier = \(namespace, identifier) ->
+    if validSourceIdentifier identifier then True else
+      if nameNamespaceEqual namespace TypedValueNamespace then validQualifiedIdentifier identifier else False.
+
   validateCoreName :: TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   validateCoreName = \(path, name) -> case name {
     | TypedUnresolvedSourceName source -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     | TypedUnresolvedQualifiedName qualifier member -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     | TypedResolvedName origin namespace identifier ->
-      if textIsEmpty identifier then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
+      if validResolvedIdentifier namespace identifier then [] else [failure path TypedUnresolvedName (TypedNameDetail name)]
     | TypedGeneratedName generated -> case generated {
       | TypedLambdaPatternArgument index ->
         if index < 0 then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
@@ -536,16 +582,24 @@ module TypedCoreValidate (
 
   validateLocalDefinitionName :: ModuleContext -> [TypedNameNamespace] -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   validateLocalDefinitionName = \(context, allowedNamespaces, path, name) -> case context {
-    | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> listAppend
-      (validateCoreName path name)
-      (case name {
-        | TypedResolvedName TypedCurrentModule namespace identifier -> if nameNamespaceMember namespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)]
-        | TypedResolvedName TypedAmbientPrelude namespace identifier -> if textListEqual modulePath ["Prelude"] then if nameNamespaceMember namespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)] else [failure path TypedInvisibleName (TypedNameDetail name)]
-        | TypedGeneratedName kind -> if nameNamespaceMember TypedValueNamespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)]
-        | TypedUnresolvedSourceName source -> []
-        | TypedUnresolvedQualifiedName qualifier member -> []
-        | other -> [failure path TypedInvisibleName (TypedNameDetail name)]
-      })
+    | ModuleContext modulePath visibleModules schemes statementIndices visibleNames visibleImpls dataEntries typeScope -> listConcat
+      [ validateCoreName path name,
+        case name {
+          | TypedResolvedName origin namespace identifier ->
+            if validResolvedIdentifier namespace identifier then
+              if validSourceIdentifier identifier then [] else [failure path TypedUnresolvedName (TypedNameDetail name)]
+            else []
+          | other -> []
+        },
+        case name {
+          | TypedResolvedName TypedCurrentModule namespace identifier -> if nameNamespaceMember namespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)]
+          | TypedResolvedName TypedAmbientPrelude namespace identifier -> if textListEqual modulePath ["Prelude"] then if nameNamespaceMember namespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)] else [failure path TypedInvisibleName (TypedNameDetail name)]
+          | TypedGeneratedName kind -> if nameNamespaceMember TypedValueNamespace allowedNamespaces then [] else [failure path TypedInvisibleName (TypedNameDetail name)]
+          | TypedUnresolvedSourceName source -> []
+          | TypedUnresolvedQualifiedName qualifier member -> []
+          | other -> [failure path TypedInvisibleName (TypedNameDetail name)]
+        }
+      ]
   }.
 
   knownBuiltinName :: Text -> Bool.
@@ -832,12 +886,22 @@ module TypedCoreValidate (
     | qualifiedParts -> qualifiedMethodKeyParts qualifiedParts []
   }.
 
+  methodQualifierMatchesCapability :: Text -> Text -> Bool.
+  methodQualifierMatchesCapability = \(capability, qualifier) ->
+    if qualifier == capability then True else {
+      qualifierParts = textSplit "::" qualifier.
+      if validResolvedIdentifierSegments qualifierParts then case listReverse qualifierParts {
+        | [] -> False
+        | [finalPart | rest] -> finalPart == capability
+      } else False.
+    }.
+
   methodKeyMatches :: Text -> Text -> Text -> Bool.
   methodKeyMatches = \(capability, expected, actual) -> case (methodKeyParts expected, methodKeyParts actual) {
     | (Just (expectedQualifier, expectedMethod), Just (actualQualifier, actualMethod)) ->
       if expectedMethod == actualMethod then
-        if case expectedQualifier { | Nothing -> True | Just qualifier -> qualifier == capability } then
-          case actualQualifier { | Nothing -> True | Just qualifier -> qualifier == capability }
+        if case expectedQualifier { | Nothing -> True | Just qualifier -> methodQualifierMatchesCapability capability qualifier } then
+          case actualQualifier { | Nothing -> True | Just qualifier -> methodQualifierMatchesCapability capability qualifier }
         else False
       else False
     | other -> False
@@ -4365,7 +4429,7 @@ module TypedCoreValidate (
         (methodDeclarationEntries modulePath methods)
     }
     | TypedImplStatement declaration -> case declaration {
-      | TypedImplDeclaration span implId methods -> [ImplDeclarationEntry implId]
+      | TypedImplDeclaration span implId methods -> [ImplDeclarationEntry implId (qualifyExternalImplId modulePath implId)]
     }
     | other -> []
   }.
@@ -4373,7 +4437,7 @@ module TypedCoreValidate (
   declarationEntryMatches :: DeclarationEntry -> DeclarationEntry -> Bool.
   declarationEntryMatches = \(expected, candidate) -> case (expected, candidate) {
     | (DeclarationEntry expectedName expectedCoreName expectedBinder, DeclarationEntry candidateName candidateCoreName candidateBinder) -> nameEntryEqual expectedName candidateName
-    | (ImplDeclarationEntry expectedImpl, ImplDeclarationEntry candidateImpl) -> implIdEqual expectedImpl candidateImpl
+    | (ImplDeclarationEntry expectedImpl expectedNormalized, ImplDeclarationEntry candidateImpl candidateNormalized) -> implIdEqual expectedNormalized candidateNormalized
     | other -> False
   }.
 
@@ -4399,10 +4463,10 @@ module TypedCoreValidate (
           | DeclarationEntry previousName previousCoreName previousBinder -> case duplicateDeclarationsAt path rest seen {
             | (laterSeen, laterFailures) -> (laterSeen, listAppend (if declarationBinderEqual previousBinder binder then [] else [failure path TypedDuplicateDeclaration (TypedNameDetail name)]) laterFailures)
           }
-          | ImplDeclarationEntry previousImpl -> duplicateDeclarationsAt path rest seen
+          | ImplDeclarationEntry previousImpl previousNormalized -> duplicateDeclarationsAt path rest seen
         }
       }
-      | ImplDeclarationEntry implId -> case lookupDeclarationEntry first seen {
+      | ImplDeclarationEntry implId normalizedImplId -> case lookupDeclarationEntry first seen {
         | Nothing -> duplicateDeclarationsAt path rest (listPrepend first seen)
         | Just previous -> case duplicateDeclarationsAt path rest seen {
           | (laterSeen, laterFailures) -> (laterSeen, listPrepend (failure path TypedDuplicateDeclaration (TypedImplDetail implId)) laterFailures)
@@ -5394,6 +5458,17 @@ module TypedCoreValidate (
     }
   }.
 
+  localClassMethodExportPresent :: Text -> [TypedClassInterface] -> [TypedStatement] -> Bool.
+  localClassMethodExportPresent = \(expected, interfaces, statements) -> case interfaces {
+    | [] -> False
+    | [TypedClassInterface declaration | rest] -> case declaration {
+      | TypedClassDeclaration span name parameters methods ->
+        if declaredClassMatches declaration statements then
+          if methodExportPresent expected methods then True else localClassMethodExportPresent expected rest statements
+        else localClassMethodExportPresent expected rest statements
+    }
+  }.
+
   constructorExportPresentIn :: Text -> [TypedConstructorDeclaration] -> Bool.
   constructorExportPresentIn = \(expected, constructors) -> case constructors {
     | [] -> False
@@ -5418,6 +5493,12 @@ module TypedCoreValidate (
     }
   }.
 
+  localValueExportPresent :: Text -> TypedModuleInterface -> [TypedStatement] -> Bool.
+  localValueExportPresent = \(name, interface, statements) -> case interface {
+    | TypedModuleInterface values datas classes impls ->
+      if valueExportPresent name values then True else localClassMethodExportPresent name classes statements
+  }.
+
   validateExports :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedCoreValidationFailure].
   validateExports = \(path, statements, interface, exports) -> case exports {
     | [] -> []
@@ -5426,6 +5507,8 @@ module TypedCoreValidate (
         (if exportPresent export interface then
           if nameNamespaceEqual namespace TypedCapabilityNamespace then
             if localCapabilityDeclared name statements then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
+          else if nameNamespaceEqual namespace TypedValueNamespace then
+            if localValueExportPresent name interface statements then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
           else []
         else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))])
         (validateExports path statements interface rest)

@@ -9,7 +9,7 @@ module JazzNext.Compiler.TypedCore.Validate
   )
 where
 
-import Data.Char (ord)
+import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.List (find, nub, sort, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -506,14 +506,15 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
     implFailures = snd (foldl' implStep (Set.empty, []) implOccurrences)
     implOccurrences =
       [ ( TypedStatementPath (moduleContextPath context) (statementIndexFor context statementLocation),
-          implId
+          implId,
+          qualifyExternalImplId (moduleContextPath context) implId
         )
       | (statementLocation, TypedImplStatement (TypedImplDeclaration _ implId _)) <- statements
       ]
-    implStep (seen, failures) (path, implId)
-      | Set.member implId seen =
+    implStep (seen, failures) (path, implId, normalizedImplId)
+      | Set.member normalizedImplId seen =
           (seen, failures <> [failure path TypedDuplicateDeclaration (TypedImplDetail implId)])
-      | otherwise = (Set.insert implId seen, failures)
+      | otherwise = (Set.insert normalizedImplId seen, failures)
 
 duplicateCheckedDeclarations :: TypedStatement -> [(TypedCoreName, Maybe TypedBinderId)]
 duplicateCheckedDeclarations statement =
@@ -3465,9 +3466,19 @@ methodKeyMatches capability expected actual =
   case (methodKeyParts expected, methodKeyParts actual) of
     (Just (expectedQualifier, expectedMethod), Just (actualQualifier, actualMethod)) ->
       expectedMethod == actualMethod
-        && maybe True (== capability) expectedQualifier
-        && maybe True (== capability) actualQualifier
+        && maybe True qualifierMatchesCapability expectedQualifier
+        && maybe True qualifierMatchesCapability actualQualifier
     _ -> False
+  where
+    qualifierMatchesCapability qualifier =
+      qualifier == capability
+        || case reverse qualifierSegments of
+          finalSegment : _ ->
+            all validSourceIdentifier qualifierSegments
+              && finalSegment == capability
+          [] -> False
+      where
+        qualifierSegments = Text.splitOn "::" qualifier
 
 methodKeyParts :: Text -> Maybe (Maybe Text, Text)
 methodKeyParts methodKey
@@ -3625,8 +3636,9 @@ validateCoreName path name =
   case name of
     TypedUnresolvedSourceName _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedUnresolvedQualifiedName _ _ -> [failure path TypedUnresolvedName (TypedNameDetail name)]
-    TypedResolvedName _ _ identifier
-      | Text.null identifier -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+    TypedResolvedName _ namespace identifier
+      | not (validResolvedIdentifier namespace identifier) ->
+          [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedGeneratedName (TypedLambdaPatternArgument index)
       | index < 0 -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedGeneratedName (TypedOperatorBinding bindingName)
@@ -3639,9 +3651,48 @@ validateCoreName path name =
         Just suffix -> not (Text.null suffix)
         Nothing -> False
 
+validResolvedIdentifier :: TypedNameNamespace -> Text -> Bool
+validResolvedIdentifier namespace identifier =
+  validSourceIdentifier identifier
+    || (namespace == TypedValueNamespace && validQualifiedIdentifier identifier)
+
+validQualifiedIdentifier :: Text -> Bool
+validQualifiedIdentifier identifier =
+  case Text.splitOn "::" identifier of
+    segments@(_ : _ : _) -> all validSourceIdentifier segments
+    _ -> False
+
+validSourceIdentifier :: Text -> Bool
+validSourceIdentifier identifier =
+  identifier `notElem` reservedIdentifiers
+    && case Text.uncons identifier of
+      Just (first, rest) ->
+        validStart first && Text.all validContinuation rest
+      Nothing -> False
+  where
+    validStart character = isAlpha character || character == '_'
+    validContinuation character =
+      isAlphaNum character
+        || character == '_'
+        || character == '\''
+        || character == '!'
+    reservedIdentifiers =
+      [ "module",
+        "import",
+        "as",
+        "data",
+        "if",
+        "then",
+        "else",
+        "case",
+        "True",
+        "False"
+      ]
+
 validateLocalDefinitionName :: ModuleContext -> [TypedNameNamespace] -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]
 validateLocalDefinitionName context allowedNamespaces path name =
   validateCoreName path name
+    <> localIdentifierFailures
     <> case name of
       TypedResolvedName TypedCurrentModule namespace _
         | namespace `elem` allowedNamespaces -> []
@@ -3652,6 +3703,14 @@ validateLocalDefinitionName context allowedNamespaces path name =
       TypedUnresolvedSourceName {} -> []
       TypedUnresolvedQualifiedName {} -> []
       _ -> [failure path TypedInvisibleName (TypedNameDetail name)]
+  where
+    localIdentifierFailures =
+      case name of
+        TypedResolvedName _ namespace identifier
+          | validResolvedIdentifier namespace identifier,
+            not (validSourceIdentifier identifier) ->
+              [failure path TypedUnresolvedName (TypedNameDetail name)]
+        _ -> []
 
 nodeContractFailures :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedNodeInfo -> TypedNodeInfo -> [TypedCoreValidationFailure]
 nodeContractFailures path kind expected actual
@@ -4089,7 +4148,9 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     validateExport (TypedModuleExport namespace exportedName) =
       case namespace of
         TypedValueNamespace
-          | any (interfaceNameMatches exportedName) values || any (classInterfaceMethodMatches exportedName) classes -> []
+          | any (interfaceNameMatches exportedName) values
+              || any (localClassInterfaceMethodMatches exportedName) classes ->
+              []
         TypedTypeNamespace
           | any (dataInterfaceNameMatches exportedName) datas || any (classInterfaceNameMatches exportedName) classes -> []
         TypedConstructorNamespace
@@ -4099,6 +4160,9 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
             any (classDeclarationMatches exportedName) declaredClasses ->
               []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
+    localClassInterfaceMethodMatches exportedName classInterface@(TypedClassInterface declaration) =
+      declaration `elem` declaredClasses
+        && classInterfaceMethodMatches exportedName classInterface
 
 schemeLocalDataDependencies :: TypedScheme -> [TypedCoreName]
 schemeLocalDataDependencies (TypedScheme _ _ evidence primitive resultType _) =

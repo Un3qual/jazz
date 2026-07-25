@@ -154,6 +154,9 @@ tests =
     ("matches evidence capability origins", testEvidenceCapabilityOrigin),
     ("rejects malformed generated-name payloads", testMalformedGeneratedNames),
     ("reserves Prelude for the explicit slot", testRegularPreludeModule),
+    ("keeps retained class methods out of explicit exports", testRetainedClassMethodExport),
+    ("rejects malformed resolved-name payloads", testMalformedResolvedIdentifiers),
+    ("normalizes duplicate Prelude impl identities", testNormalizedPreludeImplDuplicates),
     ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
   ]
 
@@ -564,7 +567,10 @@ reviewRegressionPrograms =
     implBeforeClassProgram,
     evidenceCapabilityOriginProgram,
     malformedGeneratedNamesProgram,
-    regularPreludeModuleProgram
+    regularPreludeModuleProgram,
+    retainedClassMethodExportProgram,
+    malformedResolvedIdentifiersProgram,
+    normalizedPreludeImplDuplicatesProgram
   ]
 
 nestedPathProgram :: TypedProgram
@@ -2755,6 +2761,52 @@ testRegularPreludeModule =
     ]
     (validateTypedProgram regularPreludeModuleProgram)
 
+testRetainedClassMethodExport :: IO ()
+testRetainedClassMethodExport =
+  assertEqual
+    "retained imported class methods cannot become explicit exports"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath ["Library", "RetainedMethodFacade"])
+        TypedModuleInterfaceMismatch
+        ( TypedNameDetail
+            (resolved TypedCurrentModule TypedValueNamespace "display")
+        )
+    ]
+    (validateTypedProgram retainedClassMethodExportProgram)
+
+testMalformedResolvedIdentifiers :: IO ()
+testMalformedResolvedIdentifiers =
+  assertEqual
+    "resolved identifiers obey source spelling and reserved-token rules"
+    [ statementFailure
+        "review-malformed-resolved-identifiers"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail malformedWhitespaceName),
+      statementFailure
+        "review-malformed-resolved-identifiers"
+        1
+        TypedUnresolvedName
+        (TypedNameDetail malformedReservedName),
+      statementFailure
+        "review-malformed-resolved-identifiers"
+        2
+        TypedUnresolvedName
+        (TypedNameDetail malformedQualifiedName)
+    ]
+    (validateTypedProgram malformedResolvedIdentifiersProgram)
+
+testNormalizedPreludeImplDuplicates :: IO ()
+testNormalizedPreludeImplDuplicates =
+  assertEqual
+    "Prelude impl duplicates compare canonical capability and target identities"
+    [ TypedCoreValidationFailure
+        (TypedStatementPath ["Prelude"] 2)
+        TypedDuplicateDeclaration
+        (TypedImplDetail normalizedPreludeAmbientImpl)
+    ]
+    (validateTypedProgram normalizedPreludeImplDuplicatesProgram)
+
 validationKinds :: TypedProgram -> [TypedCoreValidationKind]
 validationKinds program =
   [kind | TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
@@ -3397,6 +3449,161 @@ regularPreludeModuleProgram =
         unitInfo
     ]
     ["Prelude"]
+
+retainedClassMethodExportProgram :: TypedProgram
+retainedClassMethodExportProgram =
+  TypedProgram Nothing [providerModule, facadeModule] facadePath
+  where
+    providerPath = ["Library", "RetainedMethodProvider"]
+    facadePath = ["Library", "RetainedMethodFacade"]
+    parameter = TypedTypeParameterId 0
+    localClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Display"
+    localMethodName =
+      resolved TypedCurrentModule TypedValueNamespace "display"
+    methodOwner = binder providerPath [0, 0] localMethodName
+    methodScheme =
+      TypedScheme
+        methodOwner
+        []
+        []
+        []
+        (TypedFunctionType (TypedTypeParameterType parameter) TypedTextType)
+        ( TypedClosureRecipe
+            [TypedRepresentationParameterRecipe parameter]
+            TypedManagedTextRecipe
+        )
+    localClass =
+      TypedClassDeclaration
+        span1
+        localClassName
+        [parameter]
+        [TypedMethodSignature localMethodName span1 methodScheme]
+    publishedName =
+      resolved TypedCurrentModule TypedValueNamespace "published"
+    publishedOwner = binder providerPath [1] publishedName
+    publishedScheme =
+      TypedScheme
+        publishedOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint "Display" Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/RetainedMethodProvider.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "published"]
+        ( TypedModuleInterface
+            [TypedValueInterface publishedName publishedScheme]
+            []
+            [TypedClassInterface localClass]
+            []
+        )
+        [ TypedClassStatement localClass,
+          TypedLetStatement publishedOwner publishedName span1 publishedScheme trueExpr
+        ]
+        unitInfo
+    retainedClassName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "Display"
+    retainedMethodName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedValueNamespace
+        "display"
+    retainedClass =
+      TypedClassDeclaration
+        span1
+        retainedClassName
+        [parameter]
+        [TypedMethodSignature retainedMethodName span1 methodScheme]
+    facadeModule =
+      typedModule
+        facadePath
+        (TypedSourcePath "src/Library/RetainedMethodFacade.jz")
+        [TypedResolvedImport span1 providerPath Nothing (Just ["published"])]
+        [TypedModuleExport TypedValueNamespace "display"]
+        (TypedModuleInterface [] [] [TypedClassInterface retainedClass] [])
+        []
+        unitInfo
+
+malformedWhitespaceName :: TypedCoreName
+malformedWhitespaceName =
+  resolved TypedCurrentModule TypedValueNamespace "bad name"
+
+malformedReservedName :: TypedCoreName
+malformedReservedName =
+  resolved TypedCurrentModule TypedValueNamespace "if"
+
+malformedQualifiedName :: TypedCoreName
+malformedQualifiedName =
+  resolved TypedCurrentModule TypedValueNamespace "Other::render"
+
+malformedResolvedIdentifiersProgram :: TypedProgram
+malformedResolvedIdentifiersProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-malformed-resolved-identifiers"
+    modulePath = ["Fixture", fixture]
+    binding statementIndex name =
+      let owner = binder modulePath [statementIndex] name
+       in TypedLetStatement owner name span1 (monoScheme owner) trueExpr
+    statements =
+      [ binding 0 malformedWhitespaceName,
+        binding 1 malformedReservedName,
+        binding 2 malformedQualifiedName
+      ]
+
+normalizedPreludeAmbientImpl :: TypedImplId
+normalizedPreludeAmbientImpl =
+  TypedImplId
+    ["Prelude"]
+    (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
+    [TypedBoolType]
+
+normalizedPreludeImplDuplicatesProgram :: TypedProgram
+normalizedPreludeImplDuplicatesProgram =
+  TypedProgram (Just preludeModule) [] ["Prelude"]
+  where
+    preludePath = ["Prelude"]
+    localCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
+    localClass =
+      TypedClassDeclaration
+        span1
+        localCapabilityName
+        [TypedTypeParameterId 0]
+        []
+    localImpl =
+      TypedImplId preludePath localCapabilityName [TypedBoolType]
+    preludeModule =
+      typedModule
+        preludePath
+        (TypedSourcePath "src/Prelude.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Equal"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface localClass]
+            [ TypedImplInterface localImpl,
+              TypedImplInterface normalizedPreludeAmbientImpl
+            ]
+        )
+        [ TypedClassStatement localClass,
+          TypedImplStatement (TypedImplDeclaration span1 localImpl []),
+          TypedImplStatement
+            (TypedImplDeclaration span1 normalizedPreludeAmbientImpl [])
+        ]
+        unitInfo
 
 resolvedModuleOrderImporterPath :: [Text]
 resolvedModuleOrderImporterPath =
@@ -4938,7 +5145,7 @@ moduleQualifiedMethodKeyProgram =
   where
     preludePath = ["Prelude"]
     entryPath = ["Fixture", "review-module-qualified-method-key"]
-    capabilityIdentifier = "Lib::Api::Make"
+    capabilityIdentifier = "Make"
     qualifiedMethod = "Lib::Api::Make::make"
     parameter = TypedTypeParameterId 0
     capabilityName =
@@ -8440,7 +8647,7 @@ callableRecipesProgram =
   where
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     argumentBinder = binder ["Fixture", "callable-recipes"] [0] argumentName
-    innerArgumentName = resolved TypedCurrentModule TypedValueNamespace "inner-argument"
+    innerArgumentName = resolved TypedCurrentModule TypedValueNamespace "innerArgument"
     innerArgumentBinder = binder ["Fixture", "callable-recipes"] [0, 0] innerArgumentName
     functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
     callableInfo =
@@ -8703,11 +8910,11 @@ patternsBindersProgram =
     fixture = "patterns-binders"
     modulePath = ["Fixture", fixture]
     variablePattern index =
-      let name = resolved TypedCurrentModule TypedValueNamespace ("value-" <> Text.pack (show index))
+      let name = resolved TypedCurrentModule TypedValueNamespace ("value" <> Text.pack (show index))
        in TypedVariablePattern boolInfo (binder modulePath [index] name) name
-    asName = resolved TypedCurrentModule TypedValueNamespace "as-value"
+    asName = resolved TypedCurrentModule TypedValueNamespace "asValue"
     asPattern = TypedAsPattern boolInfo (binder modulePath [6] asName) asName (TypedWildcardPattern boolInfo)
-    orPatternName = resolved TypedCurrentModule TypedValueNamespace "value-7"
+    orPatternName = resolved TypedCurrentModule TypedValueNamespace "value7"
     orPatternBinder lexicalIndex =
       TypedVariablePattern
         boolInfo
