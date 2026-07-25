@@ -41,9 +41,9 @@ deliverable: "Establish the permanent typed-core contract with matching Haskell 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox syntax for tracking. This plan follows the repository's contract-
-> foundation convention: it records exact schemas, constructor inventories,
-> observable behavior, commands, and commit boundaries without embedding full
-> validator bodies.
+> foundation convention: it records responsibilities, observable behavior,
+> commands, and commit boundaries. The executable schema inventory is not
+> duplicated here.
 
 **Goal:** Implement the permanent typed-core data and validation contract for
 both the Haskell stage-0 compiler and the later Jazz-authored compiler path.
@@ -102,342 +102,21 @@ values, Cabal test components, and the Nix-pinned development environment.
 | `jazz-next/jazz-next.cabal` | Register production Haskell modules, checked-in Jazz sources, and the focused test component. |
 | Coordination/status paths in frontmatter | Promote, document, close, archive, and expose typed-core expression production plus direct-call lowering as a later gate. |
 
-## Exact Contract Schema
+## Contract Authority
 
-`TypedCore.hs` must expose the following constructor inventory. Record syntax
-may replace positional constructors only when field order in canonical
-comparison remains exactly the order shown here.
+The approved semantic rules and ownership boundaries live in
+[`2026-07-22-jazz-next-typed-core-elaboration-design.md`](../specs/2026-07-22-jazz-next-typed-core-elaboration-design.md#contract-authority-and-evolution).
 
-```haskell
-newtype TypedTypeParameterId = TypedTypeParameterId Int
-newtype TypedEvidenceParameterId = TypedEvidenceParameterId Int
-newtype TypedBinderId = TypedBinderId ([Text], [Int], TypedCoreName)
-newtype TypedSourcePath = TypedSourcePath Text
+The mirrored source modules are the executable constructor inventory:
 
-data TypedNameOrigin
-  = TypedCurrentModule
-  | TypedImportedModule [Text]
-  | TypedAmbientPrelude
+- `jazz-next/src/JazzNext/Compiler/TypedCore.hs`;
+- `jazz-next/jazz/compiler/TypedCoreTypes.jz`; and
+- the checked canonical adapter and exhaustive validation-kind audit in
+  `JazzTypedCoreContractSpec.hs`.
 
-data TypedNameNamespace
-  = TypedValueNamespace
-  | TypedConstructorNamespace
-  | TypedTypeNamespace
-  | TypedCapabilityNamespace
-
-data TypedGeneratedNameKind
-  = TypedLambdaPatternArgument Int
-  | TypedOperatorBinding Text
-  | TypedOperatorSectionFunction
-  | TypedOperatorSectionLeft
-  | TypedOperatorSectionRight
-
-data TypedCoreName
-  = TypedUnresolvedSourceName Text
-  | TypedUnresolvedQualifiedName Text Text
-  | TypedResolvedName TypedNameOrigin TypedNameNamespace Text
-  | TypedBuiltinName Text
-  | TypedGeneratedName TypedGeneratedNameKind
-
-data TypedOperatorRef
-  = TypedBuiltinOperator Text
-  | TypedResolvedOperator TypedCoreName Text
-
-data TypedSpan = TypedSpan Int Int
-
-data TypedNumericType
-  = TypedInt8Type | TypedInt16Type | TypedInt32Type | TypedInt64Type
-  | TypedUInt8Type | TypedUInt16Type | TypedUInt32Type | TypedUInt64Type
-  | TypedFloat16Type | TypedFloat32Type | TypedFloat64Type
-
-data TypedType
-  = TypedIntType
-  | TypedFloatType
-  | TypedNumericType TypedNumericType
-  | TypedBoolType
-  | TypedCharType
-  | TypedTextType
-  | TypedListType TypedType
-  | TypedTupleType [TypedType]
-  | TypedDataType TypedCoreName [TypedType]
-  | TypedFunctionType TypedType TypedType
-  | TypedTypeParameterType TypedTypeParameterId
-
-data TypedRepresentationRecipe
-  = TypedUnitRecipe
-  | TypedBoolRecipe
-  | TypedSignedIntegerRecipe Int
-  | TypedUnsignedIntegerRecipe Int
-  | TypedFloatRecipe Int
-  | TypedCharRecipe
-  | TypedManagedTextRecipe
-  | TypedManagedListRecipe TypedRepresentationRecipe
-  | TypedManagedProductRecipe [TypedRepresentationRecipe]
-  | TypedManagedVariantRecipe TypedCoreName [TypedType]
-  | TypedClosureRecipe [TypedRepresentationRecipe] TypedRepresentationRecipe
-  | TypedRepresentationParameterRecipe TypedTypeParameterId
-
-data TypedNumericConstraint
-  = TypedAnyNumericConstraint
-  | TypedRuntimeArithmeticNumericConstraint
-  | TypedRuntimeComparisonNumericConstraint
-  | TypedIntegralNumericConstraint
-  | TypedIntegralLiteralNumericConstraint Text Text
-
-data TypedPrimitiveConstraint
-  = TypedNumericPrimitiveConstraint TypedNumericConstraint TypedType
-  | TypedStrictEqualityPrimitiveConstraint TypedType
-
-data TypedCapabilityConstraint = TypedCapabilityConstraint
-  Text                 -- capability/class name
-  (Maybe Text)         -- qualified method key
-  TypedType            -- target type
-
-data TypedEvidenceParameter = TypedEvidenceParameter
-  TypedEvidenceParameterId
-  TypedCapabilityConstraint
-
-data TypedScheme = TypedScheme
-  TypedBinderId
-  [TypedTypeParameterId]
-  [TypedEvidenceParameter]
-  [TypedPrimitiveConstraint]
-  TypedType
-  TypedRepresentationRecipe
-
-data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType
-
-data TypedInstantiation = TypedInstantiation
-  TypedBinderId
-  [TypedTypeArgument]
-  (Maybe TypedSpan)
-
-data TypedImplId = TypedImplId
-  [Text]               -- defining module path
-  TypedCoreName        -- capability/class name
-  [TypedType]          -- concrete target arguments
-
-data TypedMethodId = TypedMethodId TypedImplId Text
-
-data TypedEvidenceUse = TypedEvidenceUse
-  (Maybe TypedEvidenceParameterId)
-  TypedCapabilityConstraint
-  TypedImplId
-  (Maybe TypedMethodId)
-
-data TypedEvidenceCandidate = TypedEvidenceCandidate
-  TypedImplId
-  (Maybe TypedMethodId)
-
-data TypedEvidenceSelection
-  = TypedSelectedEvidence TypedEvidenceUse
-  | TypedEvidenceCandidates TypedCapabilityConstraint [TypedEvidenceCandidate]
-
-data TypedNodeInfo = TypedNodeInfo
-  TypedType
-  TypedRepresentationRecipe
-  [TypedInstantiation]
-  [TypedEvidenceSelection]
-
-data TypedLiteral
-  = TypedIntegerLiteral Text
-  | TypedFractionalLiteral Text Text (Maybe TypedNumericType)
-  | TypedBooleanLiteral Bool
-  | TypedCharacterLiteral Char
-  | TypedTextLiteral Text
-
-data TypedPattern
-  = TypedWildcardPattern TypedNodeInfo
-  | TypedVariablePattern TypedNodeInfo TypedBinderId TypedCoreName
-  | TypedLiteralPattern TypedNodeInfo TypedLiteral
-  | TypedConstructorPattern TypedNodeInfo TypedCoreName [TypedPattern]
-  | TypedListPattern TypedNodeInfo [TypedPattern]
-  | TypedConsListPattern TypedNodeInfo TypedPattern TypedPattern
-  | TypedTuplePattern TypedNodeInfo [TypedPattern]
-  | TypedAsPattern TypedNodeInfo TypedBinderId TypedCoreName TypedPattern
-  | TypedOrPattern TypedNodeInfo [TypedPattern]
-
-data TypedCaseArm = TypedCaseArm
-  TypedPattern
-  (Maybe TypedExpr)
-  TypedExpr
-
-data TypedExpr
-  = TypedLiteralExpr TypedNodeInfo TypedLiteral
-  | TypedVariableExpr TypedNodeInfo TypedCoreName
-  | TypedLambdaExpr TypedNodeInfo TypedBinderId TypedCoreName TypedExpr
-  | TypedOperatorValueExpr TypedNodeInfo TypedOperatorRef
-  | TypedListExpr TypedNodeInfo [TypedExpr]
-  | TypedTupleExpr TypedNodeInfo [TypedExpr]
-  | TypedApplyExpr TypedNodeInfo TypedExpr TypedExpr
-  | TypedTypeApplicationExpr TypedNodeInfo TypedExpr TypedSpan TypedType
-  | TypedIfExpr TypedNodeInfo TypedExpr TypedExpr TypedExpr
-  | TypedPatternCaseExpr TypedNodeInfo TypedExpr [TypedCaseArm]
-  | TypedBinaryExpr TypedNodeInfo TypedOperatorRef TypedExpr TypedExpr
-  | TypedLeftSectionExpr TypedNodeInfo TypedExpr TypedOperatorRef
-  | TypedRightSectionExpr TypedNodeInfo TypedOperatorRef TypedExpr
-  | TypedBlockExpr TypedNodeInfo [TypedStatement]
-
-data TypedConstructorDeclaration = TypedConstructorDeclaration
-  TypedBinderId
-  TypedCoreName
-  [TypedType]
-  [TypedRepresentationRecipe]
-
-data TypedDataDeclaration = TypedDataDeclaration
-  TypedSpan
-  TypedCoreName
-  [TypedTypeParameterId]
-  [TypedConstructorDeclaration]
-
-data TypedMethodSignature = TypedMethodSignature
-  TypedCoreName
-  TypedSpan
-  TypedScheme
-
-data TypedClassDeclaration = TypedClassDeclaration
-  TypedSpan
-  TypedCoreName
-  [TypedTypeParameterId]
-  [TypedMethodSignature]
-
-data TypedMethodDefinition = TypedMethodDefinition
-  TypedMethodId
-  TypedBinderId
-  TypedCoreName
-  TypedSpan
-  TypedExpr
-
-data TypedImplDeclaration = TypedImplDeclaration
-  TypedSpan
-  TypedImplId
-  [TypedMethodDefinition]
-
-data TypedStatement
-  = TypedLetStatement TypedBinderId TypedCoreName TypedSpan TypedScheme TypedExpr
-  | TypedSignatureStatement TypedBinderId TypedCoreName TypedSpan TypedScheme
-  | TypedDataStatement TypedDataDeclaration
-  | TypedClassStatement TypedClassDeclaration
-  | TypedImplStatement TypedImplDeclaration
-  | TypedExpressionStatement TypedSpan TypedExpr
-
-data TypedResolvedImport = TypedResolvedImport
-  TypedSpan
-  [Text]
-  (Maybe Text)
-  (Maybe [Text])
-
-data TypedModuleExport = TypedModuleExport TypedNameNamespace Text
-
-data TypedValueInterface = TypedValueInterface TypedCoreName TypedScheme
-data TypedDataInterface = TypedDataInterface TypedDataDeclaration
-data TypedClassInterface = TypedClassInterface TypedClassDeclaration
-data TypedImplInterface = TypedImplInterface TypedImplId
-
-data TypedModuleInterface = TypedModuleInterface
-  [TypedValueInterface]
-  [TypedDataInterface]
-  [TypedClassInterface]
-  [TypedImplInterface]
-
-data TypedModule = TypedModule
-  [Text]
-  TypedSourcePath
-  [TypedResolvedImport]
-  [TypedModuleExport]
-  TypedModuleInterface
-  [TypedStatement]
-  TypedNodeInfo
-
-data TypedProgram = TypedProgram
-  (Maybe TypedModule)
-  [TypedModule]
-  [Text]
-```
-
-`TypedSignedIntegerRecipe`, `TypedUnsignedIntegerRecipe`, and
-`TypedFloatRecipe` accept only widths in `{8,16,32,64}`, `{8,16,32,64}`, and
-`{16,32,64}` respectively. Keeping widths as `Int` makes malformed widths
-constructible and therefore validator-testable; valid canonical values remain
-equivalent to `TypedNumericType`.
-
-The Jazz schema uses the same constructor names and field order. Haskell
-tuples used only to define newtype payloads become ordinary multi-field Jazz
-constructors. The `Maybe` and list shapes remain explicit.
-
-## Exact Validation Contract
-
-`TypedCore.hs` also owns these result types:
-
-```haskell
-data TypedCoreValidationPath
-  = TypedProgramPath
-  | TypedPreludePath
-  | TypedModulePath [Text]
-  | TypedInterfacePath [Text]
-  | TypedStatementPath [Text] Int
-  | TypedExpressionPath [Text] Int [Int]
-  | TypedPatternPath [Text] Int [Int]
-
-data TypedCoreValidationKind
-  = TypedUnresolvedName
-  | TypedInvalidSourcePath
-  | TypedDuplicateModule
-  | TypedUnknownEntryModule
-  | TypedDuplicateBinder
-  | TypedUnknownBinder
-  | TypedDuplicateTypeParameter
-  | TypedInvalidTypeParameterOrder
-  | TypedUnboundTypeParameter
-  | TypedUnboundRepresentationParameter
-  | TypedInvalidRepresentationWidth
-  | TypedTypeRepresentationMismatch
-  | TypedApplicationFunctionMismatch
-  | TypedApplicationArgumentMismatch
-  | TypedApplicationResultMismatch
-  | TypedConditionalConditionMismatch
-  | TypedConditionalBranchMismatch
-  | TypedPatternScrutineeMismatch
-  | TypedPatternGuardMismatch
-  | TypedPatternArmResultMismatch
-  | TypedOrPatternBinderMismatch
-  | TypedDuplicateEvidenceParameter
-  | TypedInvalidEvidenceParameterOrder
-  | TypedInstantiationMismatch
-  | TypedMissingEvidence
-  | TypedDuplicateEvidence
-  | TypedAmbiguousEvidence
-  | TypedInvisibleImpl
-  | TypedMethodSelectionMismatch
-  | TypedDataRecipeMismatch
-  | TypedCallableRecipeMismatch
-  | TypedModuleInterfaceMismatch
-
-data TypedCoreValidationDetail
-  = TypedNoValidationDetail
-  | TypedTextDetail Text
-  | TypedIndexDetail Int
-  | TypedArityDetail Int Int
-  | TypedNameDetail TypedCoreName
-  | TypedBinderDetail TypedBinderId
-  | TypedTypeDetail TypedType TypedType
-  | TypedRecipeDetail TypedRepresentationRecipe TypedRepresentationRecipe
-  | TypedTypeParameterDetail TypedTypeParameterId
-  | TypedEvidenceParameterDetail TypedEvidenceParameterId
-  | TypedImplDetail TypedImplId
-
-data TypedCoreValidationFailure = TypedCoreValidationFailure
-  TypedCoreValidationPath
-  TypedCoreValidationKind
-  TypedCoreValidationDetail
-
-data TypedCoreOutcome
-  = TypedCoreBlockedByDiagnostics
-  | TypedCoreInvariantFailures [TypedCoreValidationFailure]
-  | TypedCoreSucceeded TypedProgram
-```
-
-Stable public interfaces are:
+This completed implementation plan intentionally does not repeat the schema.
+Any contract evolution must update both mirrors and their checked parity tests
+in one change. Stable public entry points remain:
 
 ```haskell
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
@@ -450,16 +129,15 @@ decodeCanonicalTypedValidationFailuresRuntimeValue
   :: RuntimeValue -> Either Text [TypedCoreValidationFailure]
 ```
 
-The matching Jazz interface is:
+The matching Jazz entry point remains:
 
 ```jazz
 validateProgram :: TypedProgram -> [TypedCoreValidationFailure].
 ```
 
-The Haskell and Jazz validators traverse the whole program and append failures
-in program, prelude, module, interface, statement, expression, pattern, and
-child order. Internal maps or sets may answer lookups but may not determine
-output order.
+Both validators traverse the whole program and append failures in program,
+prelude, module, interface, statement, expression, pattern, and child order.
+Internal indexes may answer lookups but may not determine output order.
 
 ## Fixed Fixture Inventory
 

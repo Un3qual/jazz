@@ -159,6 +159,22 @@ The comparison adapter is not an elaborator. It only translates already-built
 typed-core values and validation failures. It must reject unknown constructors,
 wrong field shapes, malformed identifiers, and values outside the contract.
 
+## Contract Authority and Evolution
+
+This document is normative for semantic boundaries, ownership, ordering, and
+invalid-state behavior. The exact constructor inventory is executable and has
+two authoritative mirrors:
+
+- `jazz-next/src/JazzNext/Compiler/TypedCore.hs`; and
+- `jazz-next/jazz/compiler/TypedCoreTypes.jz`.
+
+The checked canonical adapter and the exhaustive validation-kind audit enforce
+that both mirrors stay aligned. A contract change must update both schemas,
+both validators when semantics change, canonical conversion, and exact parity
+coverage in one reviewable change. Completed implementation plans must link to
+this section instead of copying a third constructor or validation-kind
+inventory that can drift.
+
 ## Typed Program and Module Shape
 
 A typed program contains:
