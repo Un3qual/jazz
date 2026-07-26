@@ -414,7 +414,10 @@ reviewRegressionGroups =
     (("requires one selected body for qualified methods", testAmbiguousQualifiedMethodSelection), [ambiguousQualifiedMethodSelectionProgram]),
     (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10]),
     (("requires capability metadata for published impls", testPublishedImplCapabilityMetadata), [publishedImplWithoutCapabilityMetadataProgram]),
-    (("keeps selected impls inside deferred candidate sets", testDeferredCandidateSelection), [deferredCandidateSelectionProgram])
+    (("keeps selected impls inside deferred candidate sets", testDeferredCandidateSelection), [deferredCandidateSelectionProgram]),
+    (("rejects duplicate deferred evidence obligations", testDuplicateDeferredEvidence), [duplicateDeferredEvidenceProgram]),
+    (("rejects ambiguous value exports", testAmbiguousValueExport), [ambiguousValueExportProgram]),
+    (("entails polymorphic primitive instantiations", testPrimitiveInstantiationEntailment), [unentailedPrimitiveInstantiationProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -517,6 +520,197 @@ testDeferredCandidateSelection =
         (TypedImplDetail deferredCandidateSelectedImpl)
     ]
     (validateTypedProgram deferredCandidateSelectionProgram)
+
+testDuplicateDeferredEvidence :: IO ()
+testDuplicateDeferredEvidence =
+  assertEqual
+    "deferred evidence obligations are unique across one node"
+    [ expressionFailure
+        "review-duplicate-deferred-evidence"
+        TypedDuplicateEvidence
+        (TypedTextDetail "Render.map")
+    ]
+    (validateTypedProgram duplicateDeferredEvidenceProgram)
+
+testAmbiguousValueExport :: IO ()
+testAmbiguousValueExport =
+  assertEqual
+    "one value export resolves to exactly one interface provider"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureModulePath "review-ambiguous-value-export"))
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail ambiguousValueExportName)
+    ]
+    (validateTypedProgram ambiguousValueExportProgram)
+
+testPrimitiveInstantiationEntailment :: IO ()
+testPrimitiveInstantiationEntailment =
+  assertEqual
+    "polymorphic instantiations require enclosing primitive entailment"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [2] [0, 0])
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0))),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [3] [0, 0])
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
+    ]
+    (validateTypedProgram unentailedPrimitiveInstantiationProgram)
+
+duplicateDeferredEvidenceProgram :: TypedProgram
+duplicateDeferredEvidenceProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-duplicate-deferred-evidence"
+    candidate =
+      fixtureRenderCandidate (fixtureRenderImpl ["Prelude"])
+    selection =
+      TypedEvidenceCandidates fixtureRenderConstraint [candidate]
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo builtinMapType builtinMapRecipe [] [selection, selection])
+        (TypedBuiltinName "map")
+
+ambiguousValueExportName :: TypedCoreName
+ambiguousValueExportName =
+  resolved TypedCurrentModule TypedValueNamespace "render"
+
+ambiguousValueExportProgram :: TypedProgram
+ambiguousValueExportProgram =
+  singleModuleProgram fixture relativeSource exports statements interface boolInfo modulePath
+  where
+    fixture = "review-ambiguous-value-export"
+    modulePath = fixtureModulePath fixture
+    valueOwner = binder modulePath [0] ambiguousValueExportName
+    valueScheme = monoScheme valueOwner
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Display"
+    methodOwner = binder modulePath [1, 0] ambiguousValueExportName
+    methodScheme = monoScheme methodOwner
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature ambiguousValueExportName span1 methodScheme]
+    exports = [TypedModuleExport TypedValueNamespace "render"]
+    statements =
+      [ TypedLetStatement valueOwner ambiguousValueExportName span1 valueScheme trueExpr,
+        TypedClassStatement classDeclaration,
+        expressionStatement 2 trueExpr
+      ]
+    interface =
+      TypedModuleInterface
+        [TypedValueInterface ambiguousValueExportName valueScheme]
+        []
+        [TypedClassInterface classDeclaration]
+        []
+
+unentailedPrimitiveInstantiationProgram :: TypedProgram
+unentailedPrimitiveInstantiationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-unentailed-primitive-instantiation"
+    modulePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    numericName = fixtureValueName "numeric"
+    numericOwner = binder modulePath [0] numericName
+    equalityName = fixtureValueName "equality"
+    equalityOwner = binder modulePath [1] equalityName
+    outerScheme owner =
+      TypedScheme
+        owner
+        [parameter]
+        []
+        []
+        (TypedFunctionType parameterType TypedBoolType)
+        (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
+    constrainedOuterScheme owner constraint =
+      TypedScheme
+        owner
+        [parameter]
+        []
+        [constraint]
+        (TypedFunctionType parameterType TypedBoolType)
+        (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
+    constrainedScheme owner constraint =
+      TypedScheme owner [parameter] [] [constraint] TypedBoolType TypedBoolRecipe
+    instantiate owner =
+      TypedInstantiation
+        owner
+        [TypedTypeArgument parameter parameterType]
+        Nothing
+    outerExpression statementIndex owner name =
+      TypedLambdaExpr
+        ( info
+            (TypedFunctionType parameterType TypedBoolType)
+            (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
+        )
+        (binder modulePath [statementIndex, 0] (fixtureValueName "argument"))
+        (fixtureValueName "argument")
+        ( TypedVariableExpr
+            (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiate owner] [])
+            name
+        )
+    numericOuterName = fixtureValueName "numericOuter"
+    numericOuterOwner = binder modulePath [2] numericOuterName
+    equalityOuterName = fixtureValueName "equalityOuter"
+    equalityOuterOwner = binder modulePath [3] equalityOuterName
+    entailedNumericOuterName = fixtureValueName "entailedNumericOuter"
+    entailedNumericOuterOwner = binder modulePath [4] entailedNumericOuterName
+    entailedEqualityOuterName = fixtureValueName "entailedEqualityOuter"
+    entailedEqualityOuterOwner = binder modulePath [5] entailedEqualityOuterName
+    statements =
+      [ TypedLetStatement
+          numericOwner
+          numericName
+          span1
+          ( constrainedScheme
+              numericOwner
+              (TypedNumericPrimitiveConstraint TypedRuntimeArithmeticNumericConstraint parameterType)
+          )
+          trueExpr,
+        TypedLetStatement
+          equalityOwner
+          equalityName
+          span1
+          (constrainedScheme equalityOwner (TypedStrictEqualityPrimitiveConstraint parameterType))
+          trueExpr,
+        TypedLetStatement
+          numericOuterOwner
+          numericOuterName
+          span1
+          (outerScheme numericOuterOwner)
+          (outerExpression 2 numericOwner numericName),
+        TypedLetStatement
+          equalityOuterOwner
+          equalityOuterName
+          span1
+          (outerScheme equalityOuterOwner)
+          (outerExpression 3 equalityOwner equalityName),
+        TypedLetStatement
+          entailedNumericOuterOwner
+          entailedNumericOuterName
+          span1
+          ( constrainedOuterScheme
+              entailedNumericOuterOwner
+              (TypedNumericPrimitiveConstraint TypedIntegralNumericConstraint parameterType)
+          )
+          (outerExpression 4 numericOwner numericName),
+        TypedLetStatement
+          entailedEqualityOuterOwner
+          entailedEqualityOuterName
+          span1
+          ( constrainedOuterScheme
+              entailedEqualityOuterOwner
+              (TypedStrictEqualityPrimitiveConstraint parameterType)
+          )
+          (outerExpression 5 equalityOwner equalityName),
+        expressionStatement 6 trueExpr
+      ]
 
 publishedImplWithoutCapabilityMetadataId :: TypedImplId
 publishedImplWithoutCapabilityMetadataId =

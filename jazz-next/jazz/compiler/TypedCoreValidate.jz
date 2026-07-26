@@ -1356,6 +1356,55 @@ module TypedCoreValidate (
       (validateStrictEqualityTarget context path typeValue)
   }.
 
+  numericConstraintEntails :: TypedNumericConstraint -> TypedNumericConstraint -> Bool.
+  numericConstraintEntails = \(provided, required) -> case (provided, required) {
+    | (TypedIntegralLiteralNumericConstraint providedLower providedUpper, TypedIntegralLiteralNumericConstraint requiredLower requiredUpper) ->
+      if decimalValueAtMost providedLower providedUpper then
+        if decimalValueAtMost requiredLower requiredUpper then
+          if decimalValueAtMost providedLower requiredLower then decimalValueAtMost requiredUpper providedUpper else False
+        else False
+      else False
+    | (TypedIntegralLiteralNumericConstraint providedLower providedUpper, other) ->
+      decimalValueAtMost providedLower providedUpper
+    | (other, TypedIntegralLiteralNumericConstraint requiredLower requiredUpper) -> False
+    | (TypedIntegralNumericConstraint, other) -> True
+    | (other, TypedIntegralNumericConstraint) -> False
+    | (TypedRuntimeArithmeticNumericConstraint, other) -> True
+    | (other, TypedRuntimeArithmeticNumericConstraint) -> False
+    | (TypedRuntimeComparisonNumericConstraint, TypedRuntimeComparisonNumericConstraint) -> True
+    | (TypedRuntimeComparisonNumericConstraint, TypedAnyNumericConstraint) -> True
+    | (TypedAnyNumericConstraint, TypedAnyNumericConstraint) -> True
+    | (TypedAnyNumericConstraint, other) -> False
+  }.
+
+  primitiveConstraintsEntailNumeric :: TypedNumericConstraint -> TypedType -> [TypedPrimitiveConstraint] -> Bool.
+  primitiveConstraintsEntailNumeric = \(required, targetType, constraints) -> case constraints {
+    | [] -> False
+    | [first | rest] -> case first {
+      | TypedNumericPrimitiveConstraint provided candidateType ->
+        if typeEqual candidateType targetType then
+          if numericConstraintEntails provided required then True else primitiveConstraintsEntailNumeric required targetType rest
+        else primitiveConstraintsEntailNumeric required targetType rest
+      | other -> primitiveConstraintsEntailNumeric required targetType rest
+    }
+  }.
+
+  validateInstantiatedPrimitiveConstraint :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedPrimitiveConstraint -> [TypedCoreValidationFailure].
+  validateInstantiatedPrimitiveConstraint = \(context, path, scope, constraint) -> case constraint {
+    | TypedNumericPrimitiveConstraint required typeValue -> listAppend
+      (validateType path scope typeValue)
+      (case typeValue {
+        | TypedTypeParameterType parameter ->
+          if primitiveConstraintsEntailNumeric required typeValue (activePrimitiveConstraints context) then [] else
+            [failure path TypedBindingValueMismatch (TypedTypeDetail TypedIntType typeValue)]
+        | other -> validateNumericConstraintTarget path required typeValue
+      })
+    | TypedStrictEqualityPrimitiveConstraint typeValue -> listAppend
+      (validateType path scope typeValue)
+      (if strictEqualityOperandSupported context typeValue then [] else
+        [failure path TypedBindingValueMismatch (TypedTypeDetail TypedBoolType typeValue)])
+  }.
+
   validatePrimitiveConstraints :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedPrimitiveConstraint] -> [TypedCoreValidationFailure].
   validatePrimitiveConstraints = \(context, path, scope, constraints) -> case constraints {
     | [] -> []
@@ -1708,7 +1757,8 @@ module TypedCoreValidate (
           | Just parameterRef -> selectedUnboundEvidenceConstraints rest
         }
       }
-      | other -> selectedUnboundEvidenceConstraints rest
+      | TypedEvidenceCandidates constraint candidates ->
+        listPrepend constraint (selectedUnboundEvidenceConstraints rest)
     }
   }.
 
@@ -1969,7 +2019,7 @@ module TypedCoreValidate (
   validateInstantiatedPrimitiveConstraints = \(context, path, scope, modulePath, owner, substitutions, constraints) -> case constraints {
     | [] -> []
     | [first | rest] -> listAppend
-      (validatePrimitiveConstraint context path scope (instantiatedPrimitiveConstraint modulePath owner substitutions first))
+      (validateInstantiatedPrimitiveConstraint context path scope (instantiatedPrimitiveConstraint modulePath owner substitutions first))
       (validateInstantiatedPrimitiveConstraints context path scope modulePath owner substitutions rest)
   }.
 
@@ -5485,15 +5535,55 @@ module TypedCoreValidate (
     }
   }.
 
-  localClassMethodExportPresent :: Text -> [TypedClassInterface] -> [TypedStatement] -> Bool.
-  localClassMethodExportPresent = \(expected, interfaces, statements) -> case interfaces {
-    | [] -> False
+  valueExportProviderIds :: Text -> [TypedValueInterface] -> [TypedBinderId].
+  valueExportProviderIds = \(expected, interfaces) -> case interfaces {
+    | [] -> []
+    | [TypedValueInterface name scheme | rest] -> case scheme {
+      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe ->
+        if coreNameIdentifierEqual expected name then
+          listPrepend owner (valueExportProviderIds expected rest)
+        else valueExportProviderIds expected rest
+    }
+  }.
+
+  methodExportProviderIds :: Text -> [TypedMethodSignature] -> [TypedBinderId].
+  methodExportProviderIds = \(expected, methods) -> case methods {
+    | [] -> []
+    | [TypedMethodSignature name span scheme | rest] -> case scheme {
+      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe ->
+        if coreNameIdentifierEqual expected name then
+          listPrepend owner (methodExportProviderIds expected rest)
+        else methodExportProviderIds expected rest
+    }
+  }.
+
+  localClassMethodExportProviderIds :: Text -> [TypedClassInterface] -> [TypedStatement] -> [TypedBinderId].
+  localClassMethodExportProviderIds = \(expected, interfaces, statements) -> case interfaces {
+    | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods ->
-        if declaredClassMatches declaration statements then
-          if methodExportPresent expected methods then True else localClassMethodExportPresent expected rest statements
-        else localClassMethodExportPresent expected rest statements
+        listAppend
+          (if declaredClassMatches declaration statements then methodExportProviderIds expected methods else [])
+          (localClassMethodExportProviderIds expected rest statements)
     }
+  }.
+
+  uniqueBinderIds :: [TypedBinderId] -> [TypedBinderId] -> [TypedBinderId].
+  uniqueBinderIds = \(identifiers, seen) -> case identifiers {
+    | [] -> seen
+    | [first | rest] ->
+      uniqueBinderIds rest (if binderIdMember first seen then seen else listPrepend first seen)
+  }.
+
+  localValueExportProviderCount :: Text -> TypedModuleInterface -> [TypedStatement] -> Int.
+  localValueExportProviderCount = \(expected, interface, statements) -> case interface {
+    | TypedModuleInterface values datas classes impls ->
+      listLength
+        (uniqueBinderIds
+          (listAppend
+            (valueExportProviderIds expected values)
+            (localClassMethodExportProviderIds expected classes statements))
+          [])
   }.
 
   constructorExportPresentIn :: Text -> [TypedConstructorDeclaration] -> Bool.
@@ -5520,22 +5610,17 @@ module TypedCoreValidate (
     }
   }.
 
-  localValueExportPresent :: Text -> TypedModuleInterface -> [TypedStatement] -> Bool.
-  localValueExportPresent = \(name, interface, statements) -> case interface {
-    | TypedModuleInterface values datas classes impls ->
-      if valueExportPresent name values then True else localClassMethodExportPresent name classes statements
-  }.
-
   validateExports :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedCoreValidationFailure].
   validateExports = \(path, statements, interface, exports) -> case exports {
     | [] -> []
     | [export | rest] -> case export {
       | TypedModuleExport namespace name -> listAppend
-        (if exportPresent export interface then
+        (if nameNamespaceEqual namespace TypedValueNamespace then
+          if localValueExportProviderCount name interface statements == 1 then [] else
+            [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
+        else if exportPresent export interface then
           if nameNamespaceEqual namespace TypedCapabilityNamespace then
             if localCapabilityDeclared name statements then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
-          else if nameNamespaceEqual namespace TypedValueNamespace then
-            if localValueExportPresent name interface statements then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
           else []
         else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))])
         (validateExports path statements interface rest)

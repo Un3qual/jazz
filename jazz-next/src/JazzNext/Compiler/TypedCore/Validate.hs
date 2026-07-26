@@ -3353,7 +3353,7 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
               (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
               arguments
               <> concatMap
-                (validatePrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
+                (validateInstantiatedPrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
                 primitiveConstraints
           else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
   where
@@ -3377,6 +3377,64 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
         qualifiedType
           | ownerPath == moduleContextPath context = typeValue
           | otherwise = qualifyExternalType ownerPath typeValue
+
+validateInstantiatedPrimitiveConstraint :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedPrimitiveConstraint -> [TypedCoreValidationFailure]
+validateInstantiatedPrimitiveConstraint context path scope constraint =
+  case constraint of
+    TypedNumericPrimitiveConstraint required typeValue ->
+      validateType path scope typeValue
+        <> case typeValue of
+          TypedTypeParameterType _
+            | any (numericConstraintProvides required typeValue) (moduleContextPrimitiveConstraints context) -> []
+            | otherwise -> unsupportedNumericTarget typeValue
+          _ -> validateNumericConstraintTarget path required typeValue
+    TypedStrictEqualityPrimitiveConstraint typeValue ->
+      validateType path scope typeValue
+        <> if strictEqualityOperandTypeSupported context typeValue
+          then []
+          else [failure path TypedBindingValueMismatch (TypedTypeDetail TypedBoolType typeValue)]
+  where
+    numericConstraintProvides required targetType provided =
+      case provided of
+        TypedNumericPrimitiveConstraint candidate candidateType ->
+          candidateType == targetType && numericConstraintEntails candidate required
+        _ -> False
+    unsupportedNumericTarget typeValue =
+      [failure path TypedBindingValueMismatch (TypedTypeDetail TypedIntType typeValue)]
+
+numericConstraintEntails :: TypedNumericConstraint -> TypedNumericConstraint -> Bool
+numericConstraintEntails provided required =
+  case (provided, required) of
+    (TypedIntegralLiteralNumericConstraint providedLower providedUpper, TypedIntegralLiteralNumericConstraint requiredLower requiredUpper) ->
+      literalConstraintEntails providedLower providedUpper requiredLower requiredUpper
+    (TypedIntegralLiteralNumericConstraint lower upper, _) ->
+      validLiteralConstraint lower upper
+    (_, TypedIntegralLiteralNumericConstraint {}) -> False
+    (TypedIntegralNumericConstraint, _) -> True
+    (_, TypedIntegralNumericConstraint) -> False
+    (TypedRuntimeArithmeticNumericConstraint, _) -> True
+    (_, TypedRuntimeArithmeticNumericConstraint) -> False
+    (TypedRuntimeComparisonNumericConstraint, TypedRuntimeComparisonNumericConstraint) -> True
+    (TypedRuntimeComparisonNumericConstraint, TypedAnyNumericConstraint) -> True
+    (TypedAnyNumericConstraint, TypedAnyNumericConstraint) -> True
+    (TypedAnyNumericConstraint, _) -> False
+  where
+    validLiteralConstraint lower upper =
+      case (parseDecimalBound lower, parseDecimalBound upper) of
+        (Just minimumValue, Just maximumValue) -> minimumValue <= maximumValue
+        _ -> False
+    literalConstraintEntails providedLower providedUpper requiredLower requiredUpper =
+      case ( parseDecimalBound providedLower,
+             parseDecimalBound providedUpper,
+             parseDecimalBound requiredLower,
+             parseDecimalBound requiredUpper
+           ) of
+        (Just providedMinimum, Just providedMaximum, Just requiredMinimum, Just requiredMaximum) ->
+          providedMinimum <= providedMaximum
+            && requiredMinimum <= requiredMaximum
+            && providedMinimum <= requiredMinimum
+            && requiredMaximum <= providedMaximum
+        _ -> False
 
 lookupInstantiationContract :: ModuleContext -> TypedBinderId -> Maybe InstantiationContract
 lookupInstantiationContract context owner =
@@ -3524,9 +3582,12 @@ duplicateEvidenceUseFailures path selections =
       | TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) _ _ _) <- selections
       ]
     unboundConstraints =
-      [ constraint
-      | TypedSelectedEvidence (TypedEvidenceUse Nothing constraint _ _) <- selections
-      ]
+      mapMaybe unboundConstraint selections
+    unboundConstraint selection =
+      case selection of
+        TypedSelectedEvidence (TypedEvidenceUse Nothing constraint _ _) -> Just constraint
+        TypedEvidenceCandidates constraint _ -> Just constraint
+        _ -> Nothing
     parameterStep (seen, failures) parameterRef
       | Set.member parameterRef seen =
           ( seen,
@@ -4358,8 +4419,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     validateExport (TypedModuleExport namespace exportedName) =
       case namespace of
         TypedValueNamespace
-          | any (interfaceNameMatches exportedName) values
-              || any (localClassInterfaceMethodMatches exportedName) classes ->
+          | valueExportProviderCount exportedName == 1 ->
               []
         TypedTypeNamespace
           | any (dataInterfaceNameMatches exportedName) datas -> []
@@ -4370,9 +4430,21 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
             any (classDeclarationMatches exportedName) declaredClasses ->
               []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
-    localClassInterfaceMethodMatches exportedName classInterface@(TypedClassInterface declaration) =
-      declaration `elem` declaredClasses
-        && classInterfaceMethodMatches exportedName classInterface
+    valueExportProviderCount exportedName =
+      length
+        ( nub
+            ( [ owner
+              | TypedValueInterface name (TypedScheme owner _ _ _ _ _) <- values,
+                coreNameIdentifier name == Just exportedName
+              ]
+                <> [ owner
+                   | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
+                     declaration `elem` declaredClasses,
+                     TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _) <- methods,
+                     coreNameIdentifier name == Just exportedName
+                   ]
+            )
+        )
 
 schemeLocalDataDependencies :: [Text] -> TypedScheme -> [TypedCoreName]
 schemeLocalDataDependencies modulePath (TypedScheme _ _ evidence primitive resultType _) =
