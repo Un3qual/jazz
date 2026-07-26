@@ -2486,8 +2486,11 @@ module TypedCoreValidate (
 
   validateOrPattern :: TypedCoreValidationPath -> [TypedPattern] -> [TypedCoreValidationFailure].
   validateOrPattern = \(path, alternatives) -> case alternatives {
-    | [] -> [failure path TypedPatternShapeMismatch (TypedArityDetail 1 0)]
-    | [first | rest] -> validateOrAlternatives path (patternBinderContract first) rest
+    | [] -> [failure path TypedPatternShapeMismatch (TypedArityDetail 2 0)]
+    | [first | rest] -> case rest {
+      | [] -> [failure path TypedPatternShapeMismatch (TypedArityDetail 2 1)]
+      | [second | remaining] -> validateOrAlternatives path (patternBinderContract first) rest
+    }
   }.
 
   constructorPatternFieldTypes :: ModuleContext -> TypedNodeInfo -> TypedCoreName -> Maybe([TypedType]).
@@ -4919,6 +4922,10 @@ module TypedCoreValidate (
       | TypedScheme binder parameters evidence primitive resultType resultRecipe -> listConcat
         [ validateSpan path span,
           validateLocalDefinitionName context [TypedValueNamespace] path name,
+          case name {
+            | TypedGeneratedName kind -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+            | other -> []
+          },
           validateBinderDefinition context path binder name,
           if listLength parameters + listLength evidence + listLength primitive == 0 then [] else [failure path TypedBindingValueMismatch (TypedArityDetail 0 (listLength parameters + listLength evidence + listLength primitive))],
           validateSchemeWithOuterScope context path binder outerScope scheme,

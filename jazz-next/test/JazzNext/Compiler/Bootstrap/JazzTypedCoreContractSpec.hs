@@ -417,7 +417,9 @@ reviewRegressionGroups =
     (("keeps selected impls inside deferred candidate sets", testDeferredCandidateSelection), [deferredCandidateSelectionProgram]),
     (("rejects duplicate deferred evidence obligations", testDuplicateDeferredEvidence), [duplicateDeferredEvidenceProgram]),
     (("rejects ambiguous value exports", testAmbiguousValueExport), [ambiguousValueExportProgram]),
-    (("entails polymorphic primitive instantiations", testPrimitiveInstantiationEntailment), [unentailedPrimitiveInstantiationProgram])
+    (("entails polymorphic primitive instantiations", testPrimitiveInstantiationEntailment), [unentailedPrimitiveInstantiationProgram]),
+    (("requires source-addressable class methods", testGeneratedClassMethodName), [generatedClassMethodNameProgram]),
+    (("rejects singleton or-pattern nodes", testSingletonOrPattern), [singletonOrPatternProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -557,6 +559,29 @@ testPrimitiveInstantiationEntailment =
         (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
     ]
     (validateTypedProgram unentailedPrimitiveInstantiationProgram)
+
+testGeneratedClassMethodName :: IO ()
+testGeneratedClassMethodName =
+  assertEqual
+    "class methods require identifier-bearing source names"
+    [ statementFailure
+        "review-generated-class-method-name"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail generatedClassMethodName)
+    ]
+    (validateTypedProgram generatedClassMethodNameProgram)
+
+testSingletonOrPattern :: IO ()
+testSingletonOrPattern =
+  assertEqual
+    "or-pattern nodes require at least two alternatives"
+    [ patternFailure
+        "review-singleton-or-pattern"
+        TypedPatternShapeMismatch
+        (TypedArityDetail 2 1)
+    ]
+    (validateTypedProgram singletonOrPatternProgram)
 
 duplicateDeferredEvidenceProgram :: TypedProgram
 duplicateDeferredEvidenceProgram =
@@ -711,6 +736,45 @@ unentailedPrimitiveInstantiationProgram =
           (outerExpression 5 equalityOwner equalityName),
         expressionStatement 6 trueExpr
       ]
+
+generatedClassMethodName :: TypedCoreName
+generatedClassMethodName =
+  TypedGeneratedName TypedOperatorSectionFunction
+
+generatedClassMethodNameProgram :: TypedProgram
+generatedClassMethodNameProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-generated-class-method-name"
+    modulePath = fixtureModulePath fixture
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "GeneratedMethod"
+    methodOwner = binder modulePath [0, 0] generatedClassMethodName
+    methodScheme = monoScheme methodOwner
+    declaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature generatedClassMethodName span1 methodScheme]
+    statements =
+      [ TypedClassStatement declaration,
+        expressionStatement 1 trueExpr
+      ]
+
+singletonOrPatternProgram :: TypedProgram
+singletonOrPatternProgram =
+  expressionFixtureProgram
+    "review-singleton-or-pattern"
+    ( TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [ TypedCaseArm
+            (TypedOrPattern boolInfo [TypedWildcardPattern boolInfo])
+            Nothing
+            trueExpr
+        ]
+    )
 
 publishedImplWithoutCapabilityMetadataId :: TypedImplId
 publishedImplWithoutCapabilityMetadataId =
@@ -2116,11 +2180,11 @@ testNewestBotReviewRegressions = do
     ]
     (validateTypedProgram duplicateImplDeclarationProgram)
   assertEqual
-    "or-patterns require at least one alternative"
+    "or-patterns require at least two alternatives"
     [ patternFailure
         "review-empty-or-pattern"
         TypedPatternShapeMismatch
-        (TypedArityDetail 1 0)
+        (TypedArityDetail 2 0)
     ]
     (validateTypedProgram emptyOrPatternProgram)
   assertEqual

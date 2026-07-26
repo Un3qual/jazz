@@ -2091,6 +2091,7 @@ validateClassDeclaration context path (TypedClassDeclaration spanValue name para
     validateMethod (TypedMethodSignature methodName methodSpan scheme@(TypedScheme binderId methodParameters evidenceParameters primitiveConstraints _ _)) =
       validateSpan path methodSpan
         <> validateLocalDefinitionName context [TypedValueNamespace] path methodName
+        <> (case methodName of TypedGeneratedName {} -> [failure path TypedUnresolvedName (TypedNameDetail methodName)]; _ -> [])
         <> validateBinderDefinition context path binderId methodName
         <> classMethodSchemeShapeFailures methodParameters evidenceParameters primitiveConstraints
         <> validateSchemeWithOuterScope context path binderId (Set.fromList parameters) scheme
@@ -3186,7 +3187,8 @@ substituteRepresentationParameters substitutions recipe =
     _ -> recipe
 
 validateOrPattern :: TypedCoreValidationPath -> [TypedPattern] -> [TypedCoreValidationFailure]
-validateOrPattern path [] = [failure path TypedPatternShapeMismatch (TypedArityDetail 1 0)]
+validateOrPattern path [] = [failure path TypedPatternShapeMismatch (TypedArityDetail 2 0)]
+validateOrPattern path [_] = [failure path TypedPatternShapeMismatch (TypedArityDetail 2 1)]
 validateOrPattern path (firstAlternative : rest) = concatMap compareAlternative rest
   where
     expected = patternBinderContract firstAlternative
