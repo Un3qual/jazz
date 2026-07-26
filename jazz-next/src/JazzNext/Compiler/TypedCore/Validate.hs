@@ -33,7 +33,7 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.Name (operatorBindingIdentifierText)
-import JazzNext.Compiler.Parser.Operator (isStage2OperatorSymbolChar)
+import JazzNext.Compiler.Parser.Operator (isValidUserOperatorSymbol)
 import JazzNext.Compiler.TypedCore
 
 data ModuleContext = ModuleContext
@@ -2229,7 +2229,7 @@ validateExpressionWithParentSpan context statementLocation expressionPath parent
     (moduleContextTypeScope context)
     True
     (qualifiedMethodExpressionKey expression)
-    (qualifiedMethodCandidateKey expression)
+    (qualifiedMethodCandidateKey context expression)
     (expressionInfo expression)
     <> expressionOwnedFailures
     <> concatMap (uncurry validateChild) (zip [0 ..] (expressionChildrenWithContexts context expression))
@@ -2560,6 +2560,9 @@ binderDefinitionKey (TypedBinderId (modulePath, _, name)) = definitionNameKey mo
 
 nodeInfoInstantiations :: TypedNodeInfo -> [TypedInstantiation]
 nodeInfoInstantiations (TypedNodeInfo _ _ instantiations _) = instantiations
+
+nodeInfoEvidenceSelections :: TypedNodeInfo -> [TypedEvidenceSelection]
+nodeInfoEvidenceSelections (TypedNodeInfo _ _ _ evidenceSelections) = evidenceSelections
 
 qualifiedMethodEvidenceTarget :: ModuleContext -> Text -> TypedNodeInfo -> Bool
 qualifiedMethodEvidenceTarget context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
@@ -3469,11 +3472,55 @@ lookupConstructorContractByOwner context owner =
   where
     matchesOwner (ConstructorContract candidateOwner _ _ _) = candidateOwner == owner
 
-qualifiedMethodCandidateKey :: TypedExpr -> Maybe Text
-qualifiedMethodCandidateKey expression =
-  case nodeType (expressionInfo expression) of
-    TypedFunctionType {} -> qualifiedMethodExpressionKey expression
-    _ -> Nothing
+qualifiedMethodCandidateKey :: ModuleContext -> TypedExpr -> Maybe Text
+qualifiedMethodCandidateKey context expression = do
+  methodKey <- qualifiedMethodExpressionKey expression
+  if all (candidateConstraintCanDefer context methodKey suppliedArgumentCount) candidateConstraints
+    then Just methodKey
+    else Nothing
+  where
+    suppliedArgumentCount = applicationArgumentCount expression
+    candidateConstraints =
+      [ constraint
+      | TypedEvidenceCandidates constraint _ <- nodeInfoEvidenceSelections (expressionInfo expression)
+      ]
+
+applicationArgumentCount :: TypedExpr -> Int
+applicationArgumentCount expression =
+  case expression of
+    TypedApplyExpr _ function _ -> 1 + applicationArgumentCount function
+    TypedTypeApplicationExpr _ function _ _ -> applicationArgumentCount function
+    _ -> 0
+
+candidateConstraintCanDefer :: ModuleContext -> Text -> Int -> TypedCapabilityConstraint -> Bool
+candidateConstraintCanDefer context methodKey suppliedArgumentCount constraint =
+  case matchingMethodContracts of
+    [(classParameter, TypedScheme _ _ _ _ methodType _)] ->
+      targetArgumentRemains classParameter suppliedArgumentCount methodType
+    _ -> False
+  where
+    matchingMethodContracts =
+      [ (classParameter, scheme)
+      | TypedCapabilityConstraint capability (Just constraintMethod) _ <- [constraint],
+        key <- maybeToList (resolvedNameKey (moduleContextPath context) capability),
+        capabilityIdentifier <- maybeToList (coreNameIdentifier capability),
+        methodKeyMatches capabilityIdentifier constraintMethod methodKey,
+        CapabilityContract [classParameter] methods <-
+          maybeToList (Map.lookup key (moduleContextCapabilityContracts context)),
+        (contractMethod, scheme) <- Map.toList methods,
+        methodKeyMatches capabilityIdentifier contractMethod methodKey
+      ]
+
+targetArgumentRemains :: TypedTypeParameterId -> Int -> TypedType -> Bool
+targetArgumentRemains parameter suppliedArgumentCount methodType =
+  case methodType of
+    TypedFunctionType argument result
+      | suppliedArgumentCount > 0 ->
+          not (typeMentionsParameter parameter argument)
+            && targetArgumentRemains parameter (suppliedArgumentCount - 1) result
+      | typeMentionsParameter parameter argument -> True
+      | otherwise -> targetArgumentRemains parameter 0 result
+    _ -> False
 
 qualifiedMethodExpressionKey :: TypedExpr -> Maybe Text
 qualifiedMethodExpressionKey expression =
@@ -4028,8 +4075,7 @@ validateOperatorRef context path operator =
 
 resolvedOperatorMatchesSymbol :: TypedCoreName -> Text -> Bool
 resolvedOperatorMatchesSymbol name symbol =
-  not (Text.null symbol)
-    && Text.all isStage2OperatorSymbolChar symbol
+  isValidUserOperatorSymbol symbol
     && case name of
       TypedGeneratedName (TypedOperatorBinding bindingName) ->
         bindingName == operatorBindingIdentifierText symbol
@@ -4460,10 +4506,12 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         TypedConstructorNamespace
           | any (dataInterfaceConstructorMatches exportedName) datas -> []
         TypedCapabilityNamespace
-          | any (classInterfaceNameMatches exportedName) classes,
-            any (classDeclarationMatches exportedName) declaredClasses ->
+          | any (localClassInterfaceMatches exportedName) classes ->
               []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
+    localClassInterfaceMatches exportedName (TypedClassInterface declaration) =
+      declaration `elem` declaredClasses
+        && classDeclarationMatches exportedName declaration
     valueExportProviderCount exportedName =
       length
         ( nub

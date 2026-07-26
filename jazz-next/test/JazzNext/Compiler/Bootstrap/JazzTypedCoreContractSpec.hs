@@ -431,7 +431,9 @@ reviewRegressionGroups =
     (("rejects fractional literal patterns", testFractionalLiteralPattern), [fractionalPatternProgram]),
     (("enforces constructor-like identifier casing", testConstructorLikeIdentifierCasing), [lowercaseConstructorLikeNamesProgram]),
     (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
-    (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram])
+    (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram]),
+    (("rejects deferred evidence after the target argument", testAppliedTargetCandidateDeferral), [appliedTargetCandidateDeferralProgram]),
+    (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -476,7 +478,7 @@ testDenseImportDag = do
 testInvalidResolvedOperatorSymbols :: IO ()
 testInvalidResolvedOperatorSymbols =
   assertEqual
-    "resolved operators reject non-operator characters before encoding"
+    "resolved operators reject non-user symbols before dispatch"
     [ statementFailure
         "review-invalid-resolved-operator-symbols"
         1
@@ -486,21 +488,31 @@ testInvalidResolvedOperatorSymbols =
         ),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
-        2
+        4
         TypedBindingValueMismatch
         (TypedTextDetail "a"),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
-        3
+        5
         TypedUnresolvedName
         ( TypedNameDetail
             (TypedGeneratedName (TypedOperatorBinding "$operator:%61"))
         ),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
-        3
+        5
         TypedBindingValueMismatch
-        (TypedTextDetail "a")
+        (TypedTextDetail "a"),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        6
+        TypedBindingValueMismatch
+        (TypedTextDetail "+"),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        7
+        TypedBindingValueMismatch
+        (TypedTextDetail "->")
     ]
     (validateTypedProgram invalidResolvedOperatorSymbolsProgram)
 
@@ -540,12 +552,16 @@ testPublishedImplCapabilityMetadata =
 testDeferredCandidateSelection :: IO ()
 testDeferredCandidateSelection =
   assertEqual
-    "application evidence can only select an immediate callee candidate"
+    "application evidence selects only an immediate pre-target candidate"
     [ expressionFailureAt
         "review-deferred-candidate-selection"
         1
         TypedMethodSelectionMismatch
-        (TypedImplDetail deferredCandidateSelectedImpl)
+        (TypedImplDetail deferredCandidateSelectedImpl),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-deferred-candidate-selection") [1] [0, 0])
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 1)
     ]
     (validateTypedProgram deferredCandidateSelectionProgram)
 
@@ -670,6 +686,166 @@ testBuiltinCatalogParity =
     "every catalog builtin name and value contract validates"
     []
     (validateTypedProgram builtinCatalogProgram)
+
+testAppliedTargetCandidateDeferral :: IO ()
+testAppliedTargetCandidateDeferral =
+  assertEqual
+    "candidate evidence cannot survive application of the class-target argument"
+    [ expressionFailureAt
+        "review-applied-target-candidate-deferral"
+        2
+        TypedAmbiguousEvidence
+        (TypedArityDetail 1 1)
+    ]
+    (validateTypedProgram appliedTargetCandidateDeferralProgram)
+
+testLocalCapabilityExportIdentity :: IO ()
+testLocalCapabilityExportIdentity =
+  assertEqual
+    "a capability export requires the matching declared local class interface"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureModulePath "review-local-capability-export-identity"))
+        TypedModuleInterfaceMismatch
+        ( TypedNameDetail
+            (resolved TypedCurrentModule TypedCapabilityNamespace "Visible")
+        )
+    ]
+    (validateTypedProgram localCapabilityExportIdentityProgram)
+
+appliedTargetCandidateDeferralProgram :: TypedProgram
+appliedTargetCandidateDeferralProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface resultInfo modulePath
+  where
+    fixture = "review-applied-target-candidate-deferral"
+    modulePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Build"
+    methodName = resolved TypedCurrentModule TypedValueNamespace "build"
+    methodOwner = binder modulePath [0, 0] methodName
+    genericMethodType = TypedFunctionType parameterType boolToBoolType
+    genericMethodRecipe =
+      TypedClosureRecipe [parameterRecipe, TypedBoolRecipe] TypedBoolRecipe
+    methodScheme =
+      TypedScheme
+        methodOwner
+        []
+        []
+        []
+        genericMethodType
+        genericMethodRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    implId = TypedImplId modulePath capabilityName [TypedTextType]
+    targetName = resolved TypedCurrentModule TypedValueNamespace "target"
+    resultName = resolved TypedCurrentModule TypedValueNamespace "result"
+    specializedMethodType = TypedFunctionType TypedTextType boolToBoolType
+    specializedMethodRecipe =
+      TypedClosureRecipe
+        [TypedManagedTextRecipe, TypedBoolRecipe]
+        TypedBoolRecipe
+    methodExpression =
+      TypedLambdaExpr
+        (info specializedMethodType specializedMethodRecipe)
+        (binder modulePath [1, 0, 0] targetName)
+        targetName
+        ( TypedLambdaExpr
+            boolToBoolInfo
+            (binder modulePath [1, 0, 0, 0] resultName)
+            resultName
+            trueExpr
+        )
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "build")
+        (binder modulePath [1, 0] methodName)
+        methodName
+        span1
+        methodExpression
+    constraint =
+      TypedCapabilityConstraint capabilityName (Just "Build.build") TypedTextType
+    candidate =
+      TypedEvidenceCandidate implId (Just (TypedMethodId implId "build"))
+    selection = TypedEvidenceCandidates constraint [candidate]
+    functionInfo =
+      TypedNodeInfo specializedMethodType specializedMethodRecipe [] [selection]
+    resultInfo =
+      TypedNodeInfo boolToBoolType boolToBoolRecipe [] [selection]
+    expression =
+      TypedApplyExpr
+        resultInfo
+        ( TypedVariableExpr
+            functionInfo
+            (TypedBuiltinName "Build::build")
+        )
+        (TypedLiteralExpr textInfo (TypedTextLiteral "target"))
+    statements =
+      [ TypedClassStatement classDeclaration,
+        TypedImplStatement
+          (TypedImplDeclaration span1 implId [methodDefinition]),
+        expressionStatement 2 expression
+      ]
+
+localCapabilityExportIdentityProgram :: TypedProgram
+localCapabilityExportIdentityProgram =
+  TypedProgram Nothing [providerModule, entryModule] entryPath
+  where
+    providerPath = fixtureLibraryPath "CapabilityExportIdentity"
+    entryPath = fixtureModulePath "review-local-capability-export-identity"
+    parameter = TypedTypeParameterId 0
+    providerClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+    providerDeclaration =
+      TypedClassDeclaration span1 providerClassName [parameter] []
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/CapabilityExportIdentity.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Visible"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface providerDeclaration]
+            []
+        )
+        [TypedClassStatement providerDeclaration]
+        unitInfo
+    localClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+    localDeclaration =
+      TypedClassDeclaration span1 localClassName [parameter] []
+    retainedClassName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "Visible"
+    retainedDeclaration =
+      TypedClassDeclaration span1 retainedClassName [parameter] []
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [ TypedResolvedImport
+            span1
+            providerPath
+            (Just "Library")
+            Nothing
+        ]
+        [TypedModuleExport TypedCapabilityNamespace "Visible"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface retainedDeclaration]
+            []
+        )
+        [TypedClassStatement localDeclaration]
+        unitInfo
 
 duplicateDeferredEvidenceProgram :: TypedProgram
 duplicateDeferredEvidenceProgram =
@@ -1559,7 +1735,7 @@ enclosingImplMethodProgram =
     fixture = "review-enclosing-impl-method"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [TypedTextType]
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodBinder = binder modulePath [0, 0] methodName
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
@@ -2608,7 +2784,7 @@ testNewestBotReviewRegressions = do
         "review-mismatched-resolved-operator"
         1
         TypedBindingValueMismatch
-        (TypedTextDetail "-")
+        (TypedTextDetail "^")
     ]
     (validateTypedProgram mismatchedResolvedOperatorProgram)
   assertEqual
@@ -7367,11 +7543,26 @@ fixturePrelude =
         renderClassName
         [parameter]
         [ TypedMethodSignature renderName span1 (TypedScheme renderOwner [] [] [] boolToBoolType boolToBoolRecipe),
-          TypedMethodSignature mapName span1 (TypedScheme mapOwner [] [] [] builtinMapType builtinMapRecipe)
+          TypedMethodSignature mapName span1 (TypedScheme mapOwner [] [] [] genericMapType genericMapRecipe)
         ]
     boolImpl = TypedImplId ["Prelude"] equalClassName [TypedBoolType]
     charImpl = TypedImplId ["Prelude"] equalClassName [TypedCharType]
     textRenderImpl = TypedImplId ["Prelude"] renderClassName [TypedTextType]
+    genericMapType =
+      TypedFunctionType
+        (TypedFunctionType TypedBoolType (TypedTypeParameterType parameter))
+        ( TypedFunctionType
+            (TypedListType TypedBoolType)
+            (TypedListType (TypedTypeParameterType parameter))
+        )
+    genericMapRecipe =
+      TypedClosureRecipe
+        [ TypedClosureRecipe
+            [TypedBoolRecipe]
+            (TypedRepresentationParameterRecipe parameter),
+          TypedManagedListRecipe TypedBoolRecipe
+        ]
+        (TypedManagedListRecipe (TypedRepresentationParameterRecipe parameter))
     equalImplMethod = TypedMethodDefinition (TypedMethodId boolImpl "equal") (binder ["Prelude"] [2, 0] equalName) equalName span1 trueExpr
     otherBoolArgument = resolved TypedCurrentModule TypedValueNamespace "otherBoolArgument"
     otherBoolExpression = TypedLambdaExpr boolToBoolInfo (binder ["Prelude"] [2, 1, 0] otherBoolArgument) otherBoolArgument trueExpr
@@ -8318,7 +8509,7 @@ mismatchedResolvedOperatorProgram =
     modulePath = (fixtureModulePath fixture)
     operatorName =
       TypedGeneratedName
-        (TypedOperatorBinding "$operator:%2B")
+        (TypedOperatorBinding "$operator:%7E")
     owner = binder modulePath [0] operatorName
     operatorType =
       TypedFunctionType
@@ -8340,7 +8531,7 @@ mismatchedResolvedOperatorProgram =
     expression =
       TypedOperatorValueExpr
         operatorInfo
-        (TypedResolvedOperator operatorName "-")
+        (TypedResolvedOperator operatorName "^")
     statements =
       [ TypedLetStatement owner operatorName span1 scheme (boolBinaryFunctionExpression modulePath [0]),
         expressionStatement 1 expression
@@ -8543,7 +8734,7 @@ constrainedResolvedOperatorOwner =
 
 constrainedResolvedOperatorName :: TypedCoreName
 constrainedResolvedOperatorName =
-  TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
+  TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
 
 constrainedResolvedOperatorProgram :: TypedProgram
 constrainedResolvedOperatorProgram =
@@ -8573,7 +8764,7 @@ constrainedResolvedOperatorProgram =
     expression =
       TypedOperatorValueExpr
         operatorInfo
-        (TypedResolvedOperator constrainedResolvedOperatorName "+")
+        (TypedResolvedOperator constrainedResolvedOperatorName "~")
     statements =
       [ TypedLetStatement
           constrainedResolvedOperatorOwner
@@ -9285,7 +9476,7 @@ literalPatternProgram =
     )
 
 invisibleOperatorName :: TypedCoreName
-invisibleOperatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
+invisibleOperatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
 
 invisibleOperatorProgram :: TypedProgram
 invisibleOperatorProgram =
@@ -9293,7 +9484,7 @@ invisibleOperatorProgram =
   where
     fixture = "review-invisible-operator"
     entryPath = (fixtureModulePath "review-invisible-operator")
-    expression = TypedOperatorValueExpr boolInfo (TypedResolvedOperator invisibleOperatorName "+")
+    expression = TypedOperatorValueExpr boolInfo (TypedResolvedOperator invisibleOperatorName "~")
 
 expressionDuplicateBinder :: TypedBinderId
 expressionDuplicateBinder =
@@ -9569,12 +9760,12 @@ operatorSchemeProgram =
   where
     fixture = "review-operator-scheme"
     modulePath = (fixtureModulePath fixture)
-    operatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
+    operatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
     owner = binder modulePath [0] operatorName
     operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
     operatorRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
     scheme = TypedScheme owner [] [] [] operatorType operatorRecipe
-    operator = TypedResolvedOperator operatorName "+"
+    operator = TypedResolvedOperator operatorName "~"
     textExpr = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text")
     textToTextInfo = info (TypedFunctionType TypedTextType TypedTextType) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
     statements =
@@ -10900,6 +11091,8 @@ invalidResolvedOperatorSymbolsProgram =
     modulePath = fixtureModulePath fixture
     aliasedName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
     encodedName = TypedGeneratedName (TypedOperatorBinding "$operator:%61")
+    builtinName = TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
+    reservedName = TypedGeneratedName (TypedOperatorBinding "$operator:%2D%3E")
     operatorType =
       TypedFunctionType
         TypedBoolType
@@ -10924,15 +11117,19 @@ invalidResolvedOperatorSymbolsProgram =
         span1
         (operatorScheme lexicalIndex name)
         (boolBinaryFunctionExpression modulePath [lexicalIndex])
-    operatorUse name =
+    operatorUse name symbol =
       TypedOperatorValueExpr
         operatorInfo
-        (TypedResolvedOperator name "a")
+        (TypedResolvedOperator name symbol)
     statements =
       [ operatorDefinition 0 aliasedName,
         operatorDefinition 1 encodedName,
-        expressionStatement 3 (operatorUse aliasedName),
-        expressionStatement 4 (operatorUse encodedName)
+        operatorDefinition 2 builtinName,
+        operatorDefinition 3 reservedName,
+        expressionStatement 4 (operatorUse aliasedName "a"),
+        expressionStatement 5 (operatorUse encodedName "a"),
+        expressionStatement 6 (operatorUse builtinName "+"),
+        expressionStatement 7 (operatorUse reservedName "->")
       ]
 
 ambiguousQualifiedMethodSelectionProgram :: TypedProgram

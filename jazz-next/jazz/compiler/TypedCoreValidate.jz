@@ -4,6 +4,7 @@ module TypedCoreValidate (
   import Char (charIsAlpha, charIsAlphaNum, charIsUpper, charToUInt32).
   import List (listAll, listAppend, listConcat, listContains, listFilter, listIndexed, listLength, listMap, listPrepend, listReverse, listSort, listZip).
   import Maybe.
+  import ParserOperator (operatorIsValidUserSymbol).
   import Text (textAppend, textContains, textDrop, textIsEmpty, textJoin, textLength, textSplit, textStartsWith, textTake, textToChars, textUncons).
   import TypedCoreTypes.
 
@@ -710,17 +711,9 @@ module TypedCoreValidate (
     | Just (first, rest) -> textAppend (operatorBindingCharacter first) (operatorBindingSuffix rest)
   }.
 
-  userOperatorCharacter :: Char -> Bool.
-  userOperatorCharacter = \(character) ->
-    listContains character ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
-
-  validOperatorSymbolAlphabet :: Text -> Bool.
-  validOperatorSymbolAlphabet = \(symbol) ->
-    if textIsEmpty symbol then False else listAll userOperatorCharacter (textToChars symbol).
-
   resolvedOperatorMatchesSymbol :: TypedCoreName -> Text -> Bool.
   resolvedOperatorMatchesSymbol = \(name, symbol) ->
-    if validOperatorSymbolAlphabet symbol then case name {
+    if operatorIsValidUserSymbol symbol then case name {
       | TypedGeneratedName generated -> case generated {
         | TypedOperatorBinding bindingName -> bindingName == textAppend "$operator:" (operatorBindingSuffix symbol)
         | other -> False
@@ -2350,10 +2343,72 @@ module TypedCoreValidate (
     | TypedBlockExpr info statements -> info
   }.
 
-  qualifiedMethodCandidateKey :: TypedExpr -> Maybe(Text).
-  qualifiedMethodCandidateKey = \(expression) -> case nodeType (expressionInfo expression) {
-    | TypedFunctionType argument result -> qualifiedMethodExpressionKey expression
-    | other -> Nothing
+  applicationArgumentCount :: TypedExpr -> Int.
+  applicationArgumentCount = \(expression) -> case expression {
+    | TypedApplyExpr info function argument -> 1 + applicationArgumentCount function
+    | TypedTypeApplicationExpr info function span typeArgument -> applicationArgumentCount function
+    | other -> 0
+  }.
+
+  targetArgumentRemains :: TypedTypeParameterId -> Int -> TypedType -> Bool.
+  targetArgumentRemains = \(parameter, suppliedArgumentCount, methodType) -> case methodType {
+    | TypedFunctionType argument result ->
+      if suppliedArgumentCount > 0 then
+        if typeMentionsParameter parameter argument then False else
+          targetArgumentRemains parameter (suppliedArgumentCount - 1) result
+      else if typeMentionsParameter parameter argument then True else
+        targetArgumentRemains parameter 0 result
+    | other -> False
+  }.
+
+  candidateMethodTargetRemains :: Text -> Text -> TypedTypeParameterId -> Int -> [MethodContract] -> Bool.
+  candidateMethodTargetRemains = \(capability, methodKey, classParameter, suppliedArgumentCount, methods) -> case methods {
+    | [] -> False
+    | [MethodContract candidateMethod scheme | rest] ->
+      if methodKeyMatches capability candidateMethod methodKey then case scheme {
+        | TypedScheme owner parameters evidence primitive methodType methodRecipe ->
+          targetArgumentRemains classParameter suppliedArgumentCount methodType
+      } else candidateMethodTargetRemains capability methodKey classParameter suppliedArgumentCount rest
+  }.
+
+  candidateConstraintCanDefer :: ModuleContext -> Text -> Int -> TypedCapabilityConstraint -> Bool.
+  candidateConstraintCanDefer = \(context, methodKey, suppliedArgumentCount, constraint) -> case (context, constraint) {
+    | (ModuleContext currentModulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> case maybeMethod {
+      | Nothing -> False
+      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just identifier, Just entry) ->
+          if methodKeyMatches identifier constraintMethod methodKey then case entry {
+            | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
+              | Just contract -> case contract {
+                | CapabilityContract [classParameter] methods ->
+                  candidateMethodTargetRemains identifier methodKey classParameter suppliedArgumentCount methods
+                | other -> False
+              }
+              | Nothing -> False
+            }
+            | other -> False
+          } else False
+        | other -> False
+      }
+    }
+  }.
+
+  candidateSelectionsCanDefer :: ModuleContext -> Text -> Int -> [TypedEvidenceSelection] -> Bool.
+  candidateSelectionsCanDefer = \(context, methodKey, suppliedArgumentCount, selections) -> case selections {
+    | [] -> True
+    | [TypedEvidenceCandidates constraint candidates | rest] ->
+      if candidateConstraintCanDefer context methodKey suppliedArgumentCount constraint then
+        candidateSelectionsCanDefer context methodKey suppliedArgumentCount rest
+      else False
+    | [first | rest] ->
+      candidateSelectionsCanDefer context methodKey suppliedArgumentCount rest
+  }.
+
+  qualifiedMethodCandidateKey :: ModuleContext -> TypedExpr -> Maybe(Text).
+  qualifiedMethodCandidateKey = \(context, expression) -> case qualifiedMethodExpressionKey expression {
+    | Just methodKey ->
+      if candidateSelectionsCanDefer context methodKey (applicationArgumentCount expression) (nodeEvidenceSelections (expressionInfo expression)) then Just methodKey else Nothing
+    | Nothing -> Nothing
   }.
 
   patternInfo :: TypedPattern -> TypedNodeInfo.
@@ -4636,7 +4691,7 @@ module TypedCoreValidate (
         | other -> []
       }.
       listConcat
-        [ validateNodeInfo context path typeScope True (qualifiedMethodExpressionKey expression) (qualifiedMethodCandidateKey expression) (expressionInfo expression),
+        [ validateNodeInfo context path typeScope True (qualifiedMethodExpressionKey expression) (qualifiedMethodCandidateKey context expression) (expressionInfo expression),
           validateExpressionInstantiationOwners parentExplicitSpan context path expression,
           validateExpressionOwned context statementIndex expressionPath path expression,
           childFailures
@@ -5341,18 +5396,6 @@ module TypedCoreValidate (
     }
   }.
 
-  localCapabilityDeclared :: Text -> [TypedStatement] -> Bool.
-  localCapabilityDeclared = \(capability, statements) -> case statements {
-    | [] -> False
-    | [first | rest] -> case first {
-      | TypedClassStatement declaration -> case declaration {
-        | TypedClassDeclaration span name parameters methods ->
-          if coreNameIdentifierEqual capability name then True else localCapabilityDeclared capability rest
-      }
-      | other -> localCapabilityDeclared capability rest
-    }
-  }.
-
   schemeCapabilityDependenciesFrom :: [TypedEvidenceParameter] -> [TypedCoreName].
   schemeCapabilityDependenciesFrom = \(evidence) -> case evidence {
     | [] -> []
@@ -5576,6 +5619,17 @@ module TypedCoreValidate (
     }
   }.
 
+  localClassExportPresent :: Text -> [TypedStatement] -> [TypedClassInterface] -> Bool.
+  localClassExportPresent = \(expected, statements, interfaces) -> case interfaces {
+    | [] -> False
+    | [TypedClassInterface declaration | rest] -> case declaration {
+      | TypedClassDeclaration span name parameters methods ->
+        if coreNameIdentifierEqual expected name then
+          if declaredClassMatches declaration statements then True else localClassExportPresent expected statements rest
+        else localClassExportPresent expected statements rest
+    }
+  }.
+
   methodExportPresent :: Text -> [TypedMethodSignature] -> Bool.
   methodExportPresent = \(expected, methods) -> case methods {
     | [] -> False
@@ -5673,10 +5727,13 @@ module TypedCoreValidate (
         (if nameNamespaceEqual namespace TypedValueNamespace then
           if localValueExportProviderCount name interface statements == 1 then [] else
             [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
+        else if nameNamespaceEqual namespace TypedCapabilityNamespace then case interface {
+          | TypedModuleInterface values datas classes impls ->
+            if localClassExportPresent name statements classes then [] else
+              [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
+        }
         else if exportPresent export interface then
-          if nameNamespaceEqual namespace TypedCapabilityNamespace then
-            if localCapabilityDeclared name statements then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
-          else []
+          []
         else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))])
         (validateExports path statements interface rest)
     }
