@@ -829,8 +829,8 @@ interfaceDataMetadataDeclarations moduleTable visibleModules =
         sourceVisibleDataIncluded selectedNames exports name constructors,
         key <- maybeToList (definitionNameKey modulePath name)
       ]
-    selectedSchemeDataKeys visibleModule@(modulePath, _, _) =
-      concatMap (schemeDataTypeKeys modulePath) selectedSchemes
+    selectedSchemeDataKeys visibleModule =
+      concatMap schemeDataTypeKeys selectedSchemes
       where
         selectedSchemes =
           map snd (interfaceSchemeEntries visibleModule)
@@ -881,10 +881,11 @@ interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModule
     TypedMethodSignature _ _ scheme <- methods
   ]
 
-schemeDataTypeKeys :: [Text] -> TypedScheme -> [ResolvedNameKey]
-schemeDataTypeKeys modulePath (TypedScheme _ _ evidence primitive resultType _) =
+schemeDataTypeKeys :: TypedScheme -> [ResolvedNameKey]
+schemeDataTypeKeys (TypedScheme owner _ evidence primitive resultType _) =
   concatMap (typeDataKeys modulePath) (resultType : evidenceTypes <> primitiveTypes)
   where
+    modulePath = binderModulePath owner
     evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidence]
     primitiveTypes =
       [ typeValue
@@ -2953,17 +2954,19 @@ expressionChildren expression =
     armExpressions (TypedCaseArm _ guard result) = maybeToList guard <> [result]
 
 validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
-validateApplication path (TypedNodeInfo resultType _ _ _) function argument =
-  case nodeType (expressionInfo function) of
-    TypedFunctionType expectedArgument expectedResult ->
-      argumentFailures expectedArgument <> resultFailures expectedResult
-    actualFunctionType ->
-      [ failure
-          path
-          TypedApplicationFunctionMismatch
-          (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) resultType) actualFunctionType)
-      ]
+validateApplication path (TypedNodeInfo resultType _ _ resultSelections) function argument =
+  typeFailures <> candidateProgressionFailures
   where
+    typeFailures =
+      case nodeType (expressionInfo function) of
+        TypedFunctionType expectedArgument expectedResult ->
+          argumentFailures expectedArgument <> resultFailures expectedResult
+        actualFunctionType ->
+          [ failure
+              path
+              TypedApplicationFunctionMismatch
+              (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) resultType) actualFunctionType)
+          ]
     actualArgument = nodeType (expressionInfo argument)
     argumentFailures expected
       | expected == actualArgument = []
@@ -2971,6 +2974,24 @@ validateApplication path (TypedNodeInfo resultType _ _ _) function argument =
     resultFailures expected
       | expected == resultType = []
       | otherwise = [failure path TypedApplicationResultMismatch (TypedTypeDetail expected resultType)]
+    functionSelections =
+      case expressionInfo function of
+        TypedNodeInfo _ _ _ selections -> selections
+    candidateProgressionFailures =
+      [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
+      | TypedSelectedEvidence
+          (TypedEvidenceUse Nothing constraint selectedImpl maybeSelectedMethod) <-
+          resultSelections,
+        let selectedCandidate =
+              TypedEvidenceCandidate selectedImpl maybeSelectedMethod,
+        let matchingCandidateSets =
+              [ candidates
+              | TypedEvidenceCandidates candidateConstraint candidates <- functionSelections,
+                candidateConstraint == constraint
+              ],
+        not (null matchingCandidateSets),
+        any (selectedCandidate `notElem`) matchingCandidateSets
+      ]
 
 validateConditional :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
 validateConditional path (TypedNodeInfo resultType _ _ _) condition thenExpression elseExpression =
@@ -4257,6 +4278,8 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       | retainedClassInterfaceMatches declaration = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateImplInterface (TypedImplInterface implId)
+      | not (any (classInterfaceMatchesImpl implId) classes) =
+          [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
       | implId `elem` declaredImpls =
           [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
           | dependencyName <-

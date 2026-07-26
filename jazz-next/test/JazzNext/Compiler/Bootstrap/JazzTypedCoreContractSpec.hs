@@ -339,7 +339,7 @@ reviewRegressionGroups =
     (("enforces post-newest bot-reviewed typed-core contracts", testPostNewestBotReviewRegressions), [instantiatedPrimitiveConstraintProgram, typeApplicationExtraOwnerProgram, constrainedResolvedOperatorProgram, missingModuleResultProgram, emptyDataDeclarationProgram, laterOrPatternBinderCollisionProgram, concreteIntegerBoundsProgram, incompleteImplProgram, duplicateInstantiationProgram]),
     (("checks fractional literals against their selected floating widths", testFractionalLiteralBounds), [fractionalLiteralBoundsProgram]),
     (("rejects local classes that collide with visible classes", testVisibleClassCollisions), [visibleClassCollisionProgram]),
-    (("retains method data metadata for selective class imports", testSelectedClassDataDependency), [selectedClassDataDependencyProgram]),
+    (("retains method data metadata across selective class facades", testSelectedClassDataDependency), [selectedClassDataDependencyProgram]),
     (("resolves shadowed schemes through lexical scope", testLexicalSchemeShadowing), [lexicalSchemeShadowingProgram]),
     (("rejects method candidates after full application", testFullyAppliedMethodCandidates), [fullyAppliedMethodCandidatesProgram]),
     (("rejects duplicate unbound selected evidence", testDuplicateUnboundEvidence), [duplicateUnboundEvidenceProgram]),
@@ -412,7 +412,9 @@ reviewRegressionGroups =
     (("validates converging import graphs without path explosion", testDenseImportDag), [denseImportDagProgram 10]),
     (("rejects invalid resolved operator symbols", testInvalidResolvedOperatorSymbols), [invalidResolvedOperatorSymbolsProgram]),
     (("requires one selected body for qualified methods", testAmbiguousQualifiedMethodSelection), [ambiguousQualifiedMethodSelectionProgram]),
-    (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10])
+    (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10]),
+    (("requires capability metadata for published impls", testPublishedImplCapabilityMetadata), [publishedImplWithoutCapabilityMetadataProgram]),
+    (("keeps selected impls inside deferred candidate sets", testDeferredCandidateSelection), [deferredCandidateSelectionProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -492,6 +494,82 @@ testRepeatedEqualityDag = do
   case result of
     Nothing -> failTest "large repeated equality graph exceeded the two-second validation budget"
     Just failureCount -> assertEqual "large repeated equality graph failures" 0 failureCount
+
+testPublishedImplCapabilityMetadata :: IO ()
+testPublishedImplCapabilityMetadata =
+  assertEqual
+    "an impl interface requires the matching class interface"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureModulePath "review-published-impl-capability-metadata"))
+        TypedModuleInterfaceMismatch
+        (TypedImplDetail publishedImplWithoutCapabilityMetadataId)
+    ]
+    (validateTypedProgram publishedImplWithoutCapabilityMetadataProgram)
+
+testDeferredCandidateSelection :: IO ()
+testDeferredCandidateSelection =
+  assertEqual
+    "application evidence can only select an immediate callee candidate"
+    [ expressionFailureAt
+        "review-deferred-candidate-selection"
+        1
+        TypedMethodSelectionMismatch
+        (TypedImplDetail deferredCandidateSelectedImpl)
+    ]
+    (validateTypedProgram deferredCandidateSelectionProgram)
+
+publishedImplWithoutCapabilityMetadataId :: TypedImplId
+publishedImplWithoutCapabilityMetadataId =
+  TypedImplId
+    (fixtureModulePath "review-published-impl-capability-metadata")
+    (resolved TypedCurrentModule TypedCapabilityNamespace "Published")
+    [TypedBoolType]
+
+publishedImplWithoutCapabilityMetadataProgram :: TypedProgram
+publishedImplWithoutCapabilityMetadataProgram =
+  singleModuleProgram fixture relativeSource [] statements interface unitInfo modulePath
+  where
+    fixture = "review-published-impl-capability-metadata"
+    modulePath = fixtureModulePath fixture
+    capability =
+      TypedClassDeclaration
+        span1
+        (resolved TypedCurrentModule TypedCapabilityNamespace "Published")
+        [TypedTypeParameterId 0]
+        []
+    statements =
+      [ TypedClassStatement capability,
+        TypedImplStatement (TypedImplDeclaration span1 publishedImplWithoutCapabilityMetadataId [])
+      ]
+    interface =
+      TypedModuleInterface
+        []
+        []
+        []
+        [TypedImplInterface publishedImplWithoutCapabilityMetadataId]
+
+deferredCandidateSelectedImpl :: TypedImplId
+deferredCandidateSelectedImpl =
+  fixtureRenderImpl (fixtureModulePath "review-deferred-candidate-selection")
+
+deferredCandidateSelectionProgram :: TypedProgram
+deferredCandidateSelectionProgram =
+  qualifiedMapDispatchProgram
+    fixture
+    [ TypedEvidenceCandidates
+        fixtureRenderConstraint
+        [fixtureRenderCandidate (fixtureRenderImpl ["Prelude"])]
+    ]
+    [ TypedSelectedEvidence
+        ( TypedEvidenceUse
+            Nothing
+            fixtureRenderConstraint
+            deferredCandidateSelectedImpl
+            (Just (TypedMethodId deferredCandidateSelectedImpl "map"))
+        )
+    ]
+  where
+    fixture = "review-deferred-candidate-selection"
 
 nestedPathProgram :: TypedProgram
 nestedPathProgram =
@@ -685,6 +763,36 @@ invisibleSiblingImplId :: TypedImplId
 invisibleSiblingImplId =
   TypedImplId ["Hidden", "Evidence"] (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal") [TypedBoolType]
 
+retainedPreludeEqualClass :: TypedClassDeclaration
+retainedPreludeEqualClass = fixtureEqualClass TypedAmbientPrelude
+
+fixtureEqualClass :: TypedNameOrigin -> TypedClassDeclaration
+fixtureEqualClass origin =
+  TypedClassDeclaration
+    span1
+    (resolved origin TypedCapabilityNamespace "Equal")
+    [TypedTypeParameterId 0]
+    [ TypedMethodSignature
+        (resolved origin TypedValueNamespace "equal")
+        span1
+        (monoScheme equalOwner),
+      TypedMethodSignature
+        (resolved origin TypedValueNamespace "other")
+        span1
+        (TypedScheme otherOwner [] [] [] boolToBoolType boolToBoolRecipe)
+    ]
+  where
+    equalOwner =
+      binder
+        ["Prelude"]
+        [0, 0]
+        (resolved TypedCurrentModule TypedValueNamespace "equal")
+    otherOwner =
+      binder
+        ["Prelude"]
+        [0, 1]
+        (resolved TypedCurrentModule TypedValueNamespace "other")
+
 invisibleSiblingImplProgram :: TypedProgram
 invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, entryModule] entryPath
   where
@@ -704,7 +812,12 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
         (TypedSourcePath "src/Hidden/Evidence.jz")
         []
         []
-        (TypedModuleInterface [] [] [] [TypedImplInterface invisibleSiblingImplId])
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface retainedPreludeEqualClass]
+            [TypedImplInterface invisibleSiblingImplId]
+        )
         [TypedImplStatement hiddenDeclaration]
         boolInfo
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
@@ -2011,8 +2124,18 @@ testVisibleClassCollisions =
 testSelectedClassDataDependency :: IO ()
 testSelectedClassDataDependency =
   assertEqual
-    "selective class imports retain data metadata used by method contracts"
-    []
+    "retained class methods resolve provider data without exposing the retained capability to source"
+    [ statementFailure
+        "review-selected-class-data-dependency"
+        0
+        TypedInvisibleName
+        (TypedNameDetail selectedClassDataDependencyCapabilityName),
+      statementFailure
+        "review-selected-class-data-dependency"
+        0
+        TypedInvisibleName
+        (TypedNameDetail selectedClassDataDependencyCapabilityName)
+    ]
     (validateTypedProgram selectedClassDataDependencyProgram)
 
 testLexicalSchemeShadowing :: IO ()
@@ -5536,6 +5659,38 @@ lexicalSchemeShadowingProgram =
 
 fullyAppliedMethodCandidatesProgram :: TypedProgram
 fullyAppliedMethodCandidatesProgram =
+  qualifiedMapDispatchProgram
+    fixture
+    []
+    [ TypedEvidenceCandidates
+        fixtureRenderConstraint
+        [ fixtureRenderCandidate (fixtureRenderImpl ["Prelude"]),
+          fixtureRenderCandidate (fixtureRenderImpl (fixtureModulePath fixture))
+        ]
+    ]
+  where
+    fixture = "review-fully-applied-method-candidates"
+
+fixtureRenderImpl :: [Text] -> TypedImplId
+fixtureRenderImpl modulePath =
+  TypedImplId
+    modulePath
+    (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render")
+    [TypedTextType]
+
+fixtureRenderConstraint :: TypedCapabilityConstraint
+fixtureRenderConstraint =
+  TypedCapabilityConstraint
+    (preludeCapability "Render")
+    (Just "Render.map")
+    TypedTextType
+
+fixtureRenderCandidate :: TypedImplId -> TypedEvidenceCandidate
+fixtureRenderCandidate implId =
+  TypedEvidenceCandidate implId (Just (TypedMethodId implId "map"))
+
+qualifiedMapDispatchProgram :: Text -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> TypedProgram
+qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
   withFixturePrelude
     ( singleModuleProgram
         fixture
@@ -5552,20 +5707,12 @@ fullyAppliedMethodCandidatesProgram =
           expressionStatement 1 expression
         ]
         emptyInterface
-        listTextInfo
+        resultInfo
         modulePath
     )
   where
-    fixture = "review-fully-applied-method-candidates"
-    modulePath = (fixtureModulePath fixture)
-    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    firstImpl = TypedImplId ["Prelude"] capabilityName [TypedTextType]
-    secondImpl = TypedImplId modulePath capabilityName [TypedTextType]
-    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
-    candidates =
-      [ TypedEvidenceCandidate firstImpl (Just (TypedMethodId firstImpl "map")),
-        TypedEvidenceCandidate secondImpl (Just (TypedMethodId secondImpl "map"))
-      ]
+    modulePath = fixtureModulePath fixture
+    secondImpl = fixtureRenderImpl modulePath
     boolToTextType = TypedFunctionType TypedBoolType TypedTextType
     boolToTextRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe
     mapperName = resolved TypedCurrentModule TypedValueNamespace "mapperArgument"
@@ -5585,20 +5732,20 @@ fullyAppliedMethodCandidatesProgram =
         (TypedManagedListRecipe TypedManagedTextRecipe)
     intermediate =
       TypedApplyExpr
-        (info intermediateType intermediateRecipe)
+        (TypedNodeInfo intermediateType intermediateRecipe [] intermediateEvidence)
         (TypedVariableExpr builtinMapInfo (TypedBuiltinName "map"))
         mapper
     argument =
       TypedListExpr
         (info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe))
         [trueExpr]
-    listTextInfo =
+    resultInfo =
       TypedNodeInfo
         (TypedListType TypedTextType)
         (TypedManagedListRecipe TypedManagedTextRecipe)
         []
-        [TypedEvidenceCandidates constraint candidates]
-    expression = TypedApplyExpr listTextInfo intermediate argument
+        resultEvidence
+    expression = TypedApplyExpr resultInfo intermediate argument
 
 duplicateUnboundEvidenceProgram :: TypedProgram
 duplicateUnboundEvidenceProgram =
@@ -6526,18 +6673,9 @@ fixturePrelude =
     otherName = resolved TypedCurrentModule TypedValueNamespace "other"
     renderName = resolved TypedCurrentModule TypedValueNamespace "render"
     mapName = resolved TypedCurrentModule TypedValueNamespace "map"
-    equalOwner = binder ["Prelude"] [0, 0] equalName
-    otherOwner = binder ["Prelude"] [0, 1] otherName
     renderOwner = binder ["Prelude"] [1, 0] renderName
     mapOwner = binder ["Prelude"] [1, 1] mapName
-    equalityClass =
-      TypedClassDeclaration
-        span1
-        equalClassName
-        [parameter]
-        [ TypedMethodSignature equalName span1 (monoScheme equalOwner),
-          TypedMethodSignature otherName span1 (TypedScheme otherOwner [] [] [] boolToBoolType boolToBoolRecipe)
-        ]
+    equalityClass = fixtureEqualClass TypedCurrentModule
     renderClass =
       TypedClassDeclaration
         span1
@@ -8013,11 +8151,19 @@ visibleClassCollisionProgram =
         ]
         boolInfo
 
+selectedClassDataDependencyCapabilityName :: TypedCoreName
+selectedClassDataDependencyCapabilityName =
+  resolved
+    (TypedImportedModule (fixtureLibraryPath "SelectedClassData"))
+    TypedCapabilityNamespace
+    "RoundTrip"
+
 selectedClassDataDependencyProgram :: TypedProgram
 selectedClassDataDependencyProgram =
-  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  TypedProgram Nothing [libraryModule, facadeModule, entryModule] entryPath
   where
     libraryPath = (fixtureLibraryPath "SelectedClassData")
+    facadePath = (fixtureLibraryPath "SelectedClassDataFacade")
     entryPath = (fixtureModulePath "review-selected-class-data-dependency")
     dataName =
       resolved TypedCurrentModule TypedTypeNamespace "Box"
@@ -8072,11 +8218,46 @@ selectedClassDataDependencyProgram =
           TypedClassStatement classDeclaration
         ]
         unitInfo
-    importedCapabilityName =
+    importedCapabilityName = selectedClassDataDependencyCapabilityName
+    importedMethodName =
       resolved
         (TypedImportedModule libraryPath)
-        TypedCapabilityNamespace
-        "RoundTrip"
+        TypedValueNamespace
+        "roundTrip"
+    retainedClass =
+      TypedClassDeclaration
+        span1
+        importedCapabilityName
+        [classParameter]
+        [TypedMethodSignature importedMethodName span1 methodScheme]
+    forwardedName =
+      resolved TypedCurrentModule TypedValueNamespace "forwarded"
+    forwardedOwner = binder facadePath [0] forwardedName
+    forwardedScheme =
+      TypedScheme
+        forwardedOwner
+        []
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId 0)
+            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    facadeModule =
+      typedModule
+        facadePath
+        (TypedSourcePath "src/Library/SelectedClassDataFacade.jz")
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["RoundTrip"])]
+        [TypedModuleExport TypedValueNamespace "forwarded"]
+        ( TypedModuleInterface
+            [TypedValueInterface forwardedName forwardedScheme]
+            []
+            [TypedClassInterface retainedClass]
+            []
+        )
+        [TypedLetStatement forwardedOwner forwardedName span1 forwardedScheme trueExpr]
+        unitInfo
     importedDataName =
       resolved
         (TypedImportedModule libraryPath)
@@ -8115,7 +8296,7 @@ selectedClassDataDependencyProgram =
       typedModule
         entryPath
         relativeSource
-        [TypedResolvedImport span1 libraryPath Nothing (Just ["RoundTrip"])]
+        [TypedResolvedImport span1 facadePath Nothing (Just ["forwarded"])]
         []
         emptyInterface
         [ TypedImplStatement
@@ -8193,7 +8374,12 @@ selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModu
         (TypedSourcePath "src/Library/PrivateImpl.jz")
         []
         [TypedModuleExport TypedValueNamespace "published"]
-        (TypedModuleInterface [TypedValueInterface localValueName valueScheme] [] [] [TypedImplInterface selectiveImportLeakedImpl])
+        ( TypedModuleInterface
+            [TypedValueInterface localValueName valueScheme]
+            []
+            [TypedClassInterface retainedPreludeEqualClass]
+            [TypedImplInterface selectiveImportLeakedImpl]
+        )
         [ TypedLetStatement valueBinder localValueName span1 valueScheme trueExpr,
           TypedImplStatement
             ( TypedImplDeclaration

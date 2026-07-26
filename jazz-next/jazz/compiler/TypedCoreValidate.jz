@@ -2602,13 +2602,54 @@ module TypedCoreValidate (
       ]
   }.
 
-  validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
-  validateApplication = \(path, resultInfo, function, argument) -> case nodeType (expressionInfo function) {
-    | TypedFunctionType expectedArgument expectedResult -> listAppend
-      (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
-      (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
-    | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
+  matchingEvidenceCandidateSetPresent :: TypedCapabilityConstraint -> [TypedEvidenceSelection] -> Bool.
+  matchingEvidenceCandidateSetPresent = \(constraint, selections) -> case selections {
+    | [] -> False
+    | [TypedEvidenceCandidates candidateConstraint candidates | rest] ->
+      if capabilityConstraintEqual constraint candidateConstraint then True else matchingEvidenceCandidateSetPresent constraint rest
+    | [first | rest] -> matchingEvidenceCandidateSetPresent constraint rest
   }.
+
+  candidateAllowedByMatchingEvidenceSets :: TypedCapabilityConstraint -> TypedEvidenceCandidate -> [TypedEvidenceSelection] -> Bool.
+  candidateAllowedByMatchingEvidenceSets = \(constraint, candidate, selections) -> case selections {
+    | [] -> True
+    | [TypedEvidenceCandidates candidateConstraint candidates | rest] ->
+      if capabilityConstraintEqual constraint candidateConstraint then
+        if evidenceCandidateMember candidate candidates then candidateAllowedByMatchingEvidenceSets constraint candidate rest else False
+      else candidateAllowedByMatchingEvidenceSets constraint candidate rest
+    | [first | rest] -> candidateAllowedByMatchingEvidenceSets constraint candidate rest
+  }.
+
+  validateApplicationCandidateProgressionFrom :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
+  validateApplicationCandidateProgressionFrom = \(path, resultSelections, functionSelections) -> case resultSelections {
+    | [] -> []
+    | [TypedSelectedEvidence evidenceUse | rest] -> case evidenceUse {
+      | TypedEvidenceUse maybeParameter constraint implId maybeMethod -> {
+        currentFailures = case maybeParameter {
+          | Just parameter -> []
+          | Nothing -> {
+            selectedCandidate = TypedEvidenceCandidate implId maybeMethod.
+            if matchingEvidenceCandidateSetPresent constraint functionSelections then
+              if candidateAllowedByMatchingEvidenceSets constraint selectedCandidate functionSelections then [] else
+                [failure path TypedMethodSelectionMismatch (TypedImplDetail implId)]
+            else [].
+          }
+        }.
+        listAppend currentFailures (validateApplicationCandidateProgressionFrom path rest functionSelections).
+      }
+    }
+    | [first | rest] -> validateApplicationCandidateProgressionFrom path rest functionSelections
+  }.
+
+  validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
+  validateApplication = \(path, resultInfo, function, argument) -> listAppend
+    (case nodeType (expressionInfo function) {
+      | TypedFunctionType expectedArgument expectedResult -> listAppend
+        (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
+        (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
+      | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
+    })
+    (validateApplicationCandidateProgressionFrom path (nodeEvidenceSelections resultInfo) (nodeEvidenceSelections (expressionInfo function))).
 
   validateConditional :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
   validateConditional = \(path, resultInfo, condition, thenExpression, elseExpression) -> {
@@ -5360,28 +5401,6 @@ module TypedCoreValidate (
     }
   }.
 
-  validateImplInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [TypedDataInterface] -> [TypedImplId] -> [TypedImplInterface] -> [TypedCoreValidationFailure].
-  validateImplInterfaces = \(path, modulePath, statements, datas, externalImpls, interfaces) -> case interfaces {
-    | [] -> []
-    | [TypedImplInterface implId | rest] -> listAppend
-      (if declaredImplMatches implId statements then
-        listMap
-          (\(dependencyName) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName))
-          (listFilter
-            (\(dependencyName) -> dataInterfaceMatches dependencyName datas == False)
-            (uniqueCoreNames
-              (listConcat (listMap (\(targetType) -> localDataDependencies modulePath targetType) (implTargetTypes implId)))
-              []))
-      else if implIdMember implId externalImpls then [] else [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)])
-      (validateImplInterfaces path modulePath statements datas externalImpls rest)
-  }.
-
-  implInterfacePresent :: TypedImplId -> [TypedImplInterface] -> Bool.
-  implInterfacePresent = \(implId, interfaces) -> case interfaces {
-    | [] -> False
-    | [TypedImplInterface candidate | rest] -> if implIdEqual implId candidate then True else implInterfacePresent implId rest
-  }.
-
   classInterfaceMatchesImpl :: [Text] -> TypedImplId -> [TypedClassInterface] -> Bool.
   classInterfaceMatchesImpl = \(modulePath, implId, classes) -> case (implId, classes) {
     | (other, []) -> False
@@ -5391,6 +5410,28 @@ module TypedCoreValidate (
         | other -> classInterfaceMatchesImpl modulePath implId rest
       }
     }
+  }.
+
+  validateImplInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedImplId] -> [TypedImplInterface] -> [TypedCoreValidationFailure].
+  validateImplInterfaces = \(path, modulePath, statements, datas, classes, externalImpls, interfaces) -> case interfaces {
+    | [] -> []
+    | [TypedImplInterface implId | rest] -> listAppend
+      (if classInterfaceMatchesImpl modulePath implId classes == False then [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)] else if declaredImplMatches implId statements then
+        listMap
+          (\(dependencyName) -> failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName))
+          (listFilter
+            (\(dependencyName) -> dataInterfaceMatches dependencyName datas == False)
+            (uniqueCoreNames
+              (listConcat (listMap (\(targetType) -> localDataDependencies modulePath targetType) (implTargetTypes implId)))
+              []))
+      else if implIdMember implId externalImpls then [] else [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)])
+      (validateImplInterfaces path modulePath statements datas classes externalImpls rest)
+  }.
+
+  implInterfacePresent :: TypedImplId -> [TypedImplInterface] -> Bool.
+  implInterfacePresent = \(implId, interfaces) -> case interfaces {
+    | [] -> False
+    | [TypedImplInterface candidate | rest] -> if implIdEqual implId candidate then True else implInterfacePresent implId rest
   }.
 
   missingImplInterfaceFailures :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedCoreValidationFailure].
@@ -5587,7 +5628,7 @@ module TypedCoreValidate (
           validateValueInterfaces path modulePath statements externalDataEntries exports datas classes values,
           validateDataInterfaces path modulePath statements datas datas,
           validateClassInterfaces path modulePath statements externalDataEntries datas classes classes,
-          validateImplInterfaces path modulePath statements datas externalImpls impls,
+          validateImplInterfaces path modulePath statements datas classes externalImpls impls,
           missingImplInterfaceFailures path modulePath statements classes impls,
           validateExports path statements interface exports
         ].
@@ -6205,10 +6246,10 @@ module TypedCoreValidate (
       (listMap (typeDataNameEntries modulePath) (listConcat [[resultType], evidenceParameterTypes evidence, primitiveConstraintTypes primitive]))
   }.
 
-  schemeEntryDataNameEntries :: [Text] -> [SchemeEntry] -> [NameEntry].
-  schemeEntryDataNameEntries = \(modulePath, entries) -> case entries {
+  schemeEntryDataNameEntries :: [SchemeEntry] -> [NameEntry].
+  schemeEntryDataNameEntries = \(entries) -> case entries {
     | [] -> []
-    | [SchemeEntry binder scheme | rest] -> listAppend (schemeDataNameEntries modulePath scheme) (schemeEntryDataNameEntries modulePath rest)
+    | [SchemeEntry binder scheme | rest] -> listAppend (schemeDataNameEntries (binderModulePathValue binder) scheme) (schemeEntryDataNameEntries rest)
   }.
 
   interfaceConstructorEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> Text -> [TypedTypeParameterId] -> [TypedConstructorDeclaration] -> [DataEntry].
@@ -6345,7 +6386,7 @@ module TypedCoreValidate (
           capabilityEntries = interfaceCapabilityEntriesFrom modulePath selectedNames exports requiredCapabilities classes.
           dataRoots = listAppend
             (selectedDataNameEntriesFrom modulePath selectedNames exports datas)
-            (schemeEntryDataNameEntries modulePath (listAppend selectedSchemeEntries capabilitySchemeEntries)).
+            (schemeEntryDataNameEntries (listAppend selectedSchemeEntries capabilitySchemeEntries)).
           listConcat
             [ dataMetadataEntriesFrom completeModules dataRoots [],
               interfaceConstructorEntries modulePath selectedNames exports datas,
