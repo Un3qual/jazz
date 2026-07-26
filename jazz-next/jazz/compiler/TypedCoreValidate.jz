@@ -526,7 +526,11 @@ module TypedCoreValidate (
   validateBinderDefinition :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedCoreName -> [TypedCoreValidationFailure].
   validateBinderDefinition = \(context, path, binder, publishedName) -> case (context, binder) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedBinderId binderModule lexicalPath embeddedName) ->
-      if textListEqual modulePath binderModule then if coreNameEqual embeddedName publishedName then [] else [failure path TypedUnknownBinder (TypedBinderDetail binder)] else [failure path TypedUnknownBinder (TypedBinderDetail binder)]
+      if textListEqual modulePath binderModule then
+        if listAll (\(index) -> index >= 0) lexicalPath then
+          if coreNameEqual embeddedName publishedName then [] else [failure path TypedUnknownBinder (TypedBinderDetail binder)]
+        else [failure path TypedUnknownBinder (TypedBinderDetail binder)]
+      else [failure path TypedUnknownBinder (TypedBinderDetail binder)]
   }.
 
   validIdentifierContinuation :: [Char] -> Bool.
@@ -1873,7 +1877,7 @@ module TypedCoreValidate (
       | TypedDataType name arguments -> listAppend
         (listConcat (listMap (\(argument) -> validateDataTypeApplications context path argument) arguments))
         (case name {
-          | TypedResolvedName origin namespace identifier -> case lookupDataArity (originModulePath modulePath origin) identifier dataEntries {
+          | TypedResolvedName origin TypedTypeNamespace identifier -> case lookupDataArity (originModulePath modulePath origin) identifier dataEntries {
             | Nothing -> [failure path TypedDataTypeMismatch (TypedNameDetail name)]
             | Just expectedArity -> if expectedArity == listLength arguments then [] else [failure path TypedDataTypeMismatch (TypedArityDetail expectedArity (listLength arguments))]
           }
@@ -1892,7 +1896,7 @@ module TypedCoreValidate (
       | TypedDataType name arguments -> listAppend
         (listConcat (listMap (\(argument) -> validateSourceDataTypeApplications context path argument) arguments))
         (case name {
-          | TypedResolvedName origin namespace identifier -> case lookupDataArity (originModulePath modulePath origin) identifier dataEntries {
+          | TypedResolvedName origin TypedTypeNamespace identifier -> case lookupDataArity (originModulePath modulePath origin) identifier dataEntries {
             | Nothing -> []
             | Just expectedArity -> case resolvedNameEntry modulePath name {
               | Nothing -> []
@@ -1988,6 +1992,25 @@ module TypedCoreValidate (
   qualifyExternalScheme = \(modulePath, scheme) -> case scheme {
     | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
       TypedScheme owner parameters (qualifyExternalEvidenceParameters modulePath evidence) primitive resultType resultRecipe
+  }.
+
+  qualifyExternalMethodSignatures :: [Text] -> [TypedMethodSignature] -> [TypedMethodSignature].
+  qualifyExternalMethodSignatures = \(modulePath, methods) -> case methods {
+    | [] -> []
+    | [TypedMethodSignature name span scheme | rest] ->
+      listPrepend
+        (TypedMethodSignature (qualifyExternalName modulePath name) span (qualifyExternalScheme modulePath scheme))
+        (qualifyExternalMethodSignatures modulePath rest)
+  }.
+
+  qualifyExternalClassDeclaration :: [Text] -> TypedClassDeclaration -> TypedClassDeclaration.
+  qualifyExternalClassDeclaration = \(modulePath, declaration) -> case declaration {
+    | TypedClassDeclaration span name parameters methods ->
+      TypedClassDeclaration
+        span
+        (qualifyExternalName modulePath name)
+        parameters
+        (qualifyExternalMethodSignatures modulePath methods)
   }.
 
   qualifyExternalType :: [Text] -> TypedType -> TypedType.
@@ -2564,8 +2587,8 @@ module TypedCoreValidate (
 
   constructorPatternFieldTypes :: ModuleContext -> TypedNodeInfo -> TypedCoreName -> Maybe([TypedType]).
   constructorPatternFieldTypes = \(context, info, constructorName) -> case (context, constructorName, nodeType info) {
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName constructorOrigin constructorNamespace constructorIdentifier, TypedDataType dataName arguments) -> case (lookupConstructorContract (originModulePath modulePath constructorOrigin) constructorIdentifier dataEntries, dataName) {
-      | (Just contract, TypedResolvedName dataOrigin dataNamespace actualDataIdentifier) -> case contract {
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName constructorOrigin TypedConstructorNamespace constructorIdentifier, TypedDataType dataName arguments) -> case (lookupConstructorContract (originModulePath modulePath constructorOrigin) constructorIdentifier dataEntries, dataName) {
+      | (Just contract, TypedResolvedName dataOrigin TypedTypeNamespace actualDataIdentifier) -> case contract {
         | ConstructorContract binder dataModulePath dataIdentifier parameters fields ->
           if textListEqual dataModulePath (originModulePath modulePath dataOrigin) then if dataIdentifier == actualDataIdentifier then if listLength parameters == listLength arguments then
             Just (listMap (\(fieldType) -> substituteTypeParameters (listZip parameters arguments) fieldType) fields)
@@ -2578,7 +2601,7 @@ module TypedCoreValidate (
 
   constructorPatternExpectedType :: ModuleContext -> TypedCoreName -> Maybe(TypedType).
   constructorPatternExpectedType = \(context, constructorName) -> case (context, constructorName) {
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName constructorOrigin constructorNamespace constructorIdentifier) ->
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedName constructorOrigin TypedConstructorNamespace constructorIdentifier) ->
       case lookupConstructorContract (originModulePath modulePath constructorOrigin) constructorIdentifier dataEntries {
         | Nothing -> Nothing
         | Just contract -> case contract {
@@ -5449,31 +5472,11 @@ module TypedCoreValidate (
     }
   }.
 
-  methodContractListsEqual :: [MethodContract] -> [MethodContract] -> Bool.
-  methodContractListsEqual = \(left, right) -> case (left, right) {
-    | ([], []) -> True
-    | ([MethodContract leftName leftScheme | leftRest], [MethodContract rightName rightScheme | rightRest]) ->
-      if leftName == rightName then if schemeEqual leftScheme rightScheme then methodContractListsEqual leftRest rightRest else False else False
-    | other -> False
-  }.
-
-  retainedCapabilityMatches :: [Text] -> TypedClassDeclaration -> [DataEntry] -> Bool.
-  retainedCapabilityMatches = \(modulePath, retained, externalDataEntries) -> case retained {
-    | TypedClassDeclaration span name parameters methods -> case resolvedNameEntry modulePath name {
-      | Nothing -> False
-      | Just entry -> case entry {
-        | GeneratedNameEntry kind -> False
-        | NameEntry capabilityPath namespace identifier -> case lookupCapabilityContract capabilityPath identifier externalDataEntries {
-          | Nothing -> False
-          | Just contract -> case contract {
-            | CapabilityContract externalParameters externalMethods ->
-              if typeParameterIdListEqual parameters externalParameters then
-                methodContractListsEqual (methodContractEntries methods) externalMethods
-              else False
-          }
-        }
-      }
-    }
+  retainedClassDeclarationMatches :: TypedClassDeclaration -> [TypedClassDeclaration] -> Bool.
+  retainedClassDeclarationMatches = \(retained, declarations) -> case declarations {
+    | [] -> False
+    | [first | rest] ->
+      if classDeclarationEqual retained first then True else retainedClassDeclarationMatches retained rest
   }.
 
   validateValueInterfaceDependencies :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> TypedScheme -> [TypedCoreValidationFailure].
@@ -5538,14 +5541,14 @@ module TypedCoreValidate (
       (validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries datas classes rest)
   }.
 
-  validateClassInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedClassInterface] -> [TypedCoreValidationFailure].
-  validateClassInterfaces = \(path, modulePath, statements, externalDataEntries, datas, classes, interfaces) -> case interfaces {
+  validateClassInterfaces :: TypedCoreValidationPath -> [Text] -> [TypedStatement] -> [TypedClassDeclaration] -> [DataEntry] -> [TypedDataInterface] -> [TypedClassInterface] -> [TypedClassInterface] -> [TypedCoreValidationFailure].
+  validateClassInterfaces = \(path, modulePath, statements, externalClasses, externalDataEntries, datas, classes, interfaces) -> case interfaces {
     | [] -> []
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods -> listAppend
         (if declaredClassMatches declaration statements then validateClassMethodInterfaceDependencies path modulePath statements externalDataEntries datas classes methods else
-          if retainedCapabilityMatches modulePath declaration externalDataEntries then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)])
-        (validateClassInterfaces path modulePath statements externalDataEntries datas classes rest)
+          if retainedClassDeclarationMatches declaration externalClasses then [] else [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)])
+        (validateClassInterfaces path modulePath statements externalClasses externalDataEntries datas classes rest)
     }
   }.
 
@@ -5815,8 +5818,8 @@ module TypedCoreValidate (
       duplicateInterfaceImplFailuresFrom path (implInterfaceIds impls) []
     ].
 
-  validateModuleInterface :: [Text] -> [DataEntry] -> [TypedImplId] -> TypedModuleInterface -> [TypedStatement] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
-  validateModuleInterface = \(modulePath, externalDataEntries, externalImpls, interface, statements, exports) -> case interface {
+  validateModuleInterface :: [Text] -> [TypedClassDeclaration] -> [DataEntry] -> [TypedImplId] -> TypedModuleInterface -> [TypedStatement] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
+  validateModuleInterface = \(modulePath, externalClasses, externalDataEntries, externalImpls, interface, statements, exports) -> case interface {
     | TypedModuleInterface values datas classes impls -> {
       path = TypedInterfacePath modulePath.
       listConcat
@@ -5824,7 +5827,7 @@ module TypedCoreValidate (
           duplicateModuleInterfaceFailures path values datas classes impls,
           validateValueInterfaces path modulePath statements externalDataEntries exports datas classes values,
           validateDataInterfaces path modulePath statements datas datas,
-          validateClassInterfaces path modulePath statements externalDataEntries datas classes classes,
+          validateClassInterfaces path modulePath statements externalClasses externalDataEntries datas classes classes,
           validateImplInterfaces path modulePath statements datas classes externalImpls impls,
           missingImplInterfaceFailures path modulePath statements classes impls,
           validateExports path statements interface exports
@@ -6203,6 +6206,19 @@ module TypedCoreValidate (
     }
   }.
 
+  includedClassDeclarations :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [TypedClassDeclaration].
+  includedClassDeclarations = \(modulePath, selectedNames, exports, requiredCapabilities, classes) -> case classes {
+    | [] -> []
+    | [TypedClassInterface declaration | rest] -> case declaration {
+      | TypedClassDeclaration span name parameters methods ->
+        if interfaceCapabilityIncluded modulePath selectedNames exports requiredCapabilities name methods then
+          listPrepend
+            (qualifyExternalClassDeclaration modulePath declaration)
+            (includedClassDeclarations modulePath selectedNames exports requiredCapabilities rest)
+        else includedClassDeclarations modulePath selectedNames exports requiredCapabilities rest
+    }
+  }.
+
   classInterfaceNameEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [NameEntry] -> [NameEntry].
   classInterfaceNameEntries = \(modulePath, selectedNames, exports, requiredCapabilities, classes, entries) -> case classes {
     | [] -> entries
@@ -6572,6 +6588,19 @@ module TypedCoreValidate (
     }
   }.
 
+  interfaceClassDeclarations :: VisibleModule -> [TypedClassDeclaration].
+  interfaceClassDeclarations = \(visibleModule) -> case visibleModule {
+    | VisibleModule selectedNames moduleValue -> case moduleValue {
+      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+        | TypedModuleInterface values datas classes impls -> {
+          requiredCapabilities =
+            schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
+          includedClassDeclarations modulePath selectedNames exports requiredCapabilities classes.
+        }
+      }
+    }
+  }.
+
   interfaceDataEntries :: [TypedModule] -> VisibleModule -> [DataEntry].
   interfaceDataEntries = \(completeModules, visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
@@ -6598,6 +6627,9 @@ module TypedCoreValidate (
 
   visibleModuleDataEntries :: [TypedModule] -> [VisibleModule] -> [DataEntry].
   visibleModuleDataEntries = \(completeModules, modules) -> listConcat (listMap (interfaceDataEntries completeModules) modules).
+
+  visibleModuleClassDeclarations :: [VisibleModule] -> [TypedClassDeclaration].
+  visibleModuleClassDeclarations = \(modules) -> listConcat (listMap interfaceClassDeclarations modules).
 
   duplicateModuleFailuresFrom :: [TypedModule] -> [[Text]] -> [TypedCoreValidationFailure] -> [TypedCoreValidationFailure].
   duplicateModuleFailuresFrom = \(modules, seen, reversed) -> case modules {
@@ -6756,6 +6788,7 @@ module TypedCoreValidate (
       externalNames = visibleModuleNameEntries externalModules.
       visibleNames = externalNames.
       visibleImpls = visibleModuleImplIds externalModules.
+      externalClasses = visibleModuleClassDeclarations externalModules.
       dataEntries = listAppend
         (visibleModuleDataEntries completeModules externalModules)
         (sourceVisibleCapabilityEntries isPrelude prelude imports completeModules).
@@ -6770,7 +6803,7 @@ module TypedCoreValidate (
           validateSourcePath modulePath sourcePath,
           validateResolvedImports completeModules modulePath imports,
           importBindingCollisionFailures completeModules modulePath imports,
-          validateModuleInterface modulePath dataEntries visibleImpls interface statements exports,
+          validateModuleInterface modulePath externalClasses dataEntries visibleImpls interface statements exports,
           duplicateModuleDeclarationFailures context statements,
           duplicateModuleBinderFailures context statements,
           statementFailures,

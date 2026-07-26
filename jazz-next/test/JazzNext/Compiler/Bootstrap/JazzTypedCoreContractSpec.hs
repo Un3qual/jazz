@@ -433,7 +433,8 @@ reviewRegressionGroups =
     (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
     (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram]),
     (("rejects deferred evidence after the target argument", testAppliedTargetCandidateDeferral), [appliedTargetCandidateDeferralProgram]),
-    (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram])
+    (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram]),
+    (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -711,6 +712,205 @@ testLocalCapabilityExportIdentity =
         )
     ]
     (validateTypedProgram localCapabilityExportIdentityProgram)
+
+testStructuralIdentityRegressions :: IO ()
+testStructuralIdentityRegressions =
+  assertEqual
+    "exact retained metadata, nonnegative binder paths, and namespace-preserving lookups"
+    expected
+    [(label, validateTypedProgram program) | (label, program) <- programs]
+  where
+    programs :: [(Text, TypedProgram)]
+    programs =
+      [ ("retained class spans", invalidRetainedClassSpanProgram),
+        ("retained class method cardinality", duplicateRetainedClassMethodProgram),
+        ("binder lexical paths", negativeBinderPathProgram),
+        ("data namespaces", wrongDataNamespaceProgram),
+        ("constructor namespaces", wrongConstructorNamespaceProgram)
+      ]
+    expected :: [(Text, [TypedCoreValidationFailure])]
+    expected =
+      [ ( "retained class spans",
+          [retainedClassMetadataFailure "review-invalid-retained-class-span"]
+        ),
+        ( "retained class method cardinality",
+          [retainedClassMetadataFailure "review-duplicate-retained-class-method"]
+        ),
+        ( "binder lexical paths",
+          [ statementFailure
+              "review-negative-binder-path"
+              0
+              TypedUnknownBinder
+              (TypedBinderDetail negativeBinderPathOwner)
+          ]
+        ),
+        ( "data namespaces",
+          [ statementFailure
+              "review-wrong-data-namespace"
+              1
+              TypedDataTypeMismatch
+              (TypedNameDetail wrongDataNamespaceName)
+          ]
+        ),
+        ( "constructor namespaces",
+          [ TypedCoreValidationFailure
+              (TypedPatternPath (fixtureModulePath "review-wrong-constructor-namespace") [1] [0, 0])
+              TypedInvisibleName
+              (TypedNameDetail wrongConstructorNamespaceName)
+          ]
+        )
+      ]
+
+retainedClassMetadataFailure :: Text -> TypedCoreValidationFailure
+retainedClassMetadataFailure fixture =
+  TypedCoreValidationFailure
+    (TypedInterfacePath (fixtureModulePath fixture))
+    TypedModuleInterfaceMismatch
+    (TypedNameDetail retainedClassMetadataName)
+
+retainedClassMetadataName :: TypedCoreName
+retainedClassMetadataName =
+  resolved
+    (TypedImportedModule retainedClassMetadataProviderPath)
+    TypedCapabilityNamespace
+    "Display"
+
+retainedClassMetadataProviderPath :: [Text]
+retainedClassMetadataProviderPath =
+  fixtureLibraryPath "RetainedClassMetadataProvider"
+
+invalidRetainedClassSpanProgram :: TypedProgram
+invalidRetainedClassSpanProgram =
+  retainedClassMetadataProgram
+    "review-invalid-retained-class-span"
+    invalidSpan
+    False
+
+duplicateRetainedClassMethodProgram :: TypedProgram
+duplicateRetainedClassMethodProgram =
+  retainedClassMetadataProgram
+    "review-duplicate-retained-class-method"
+    span1
+    True
+
+retainedClassMetadataProgram :: Text -> TypedSpan -> Bool -> TypedProgram
+retainedClassMetadataProgram fixture retainedSpan duplicateMethod =
+  TypedProgram Nothing [providerModule, facadeModule] facadePath
+  where
+    providerPath = retainedClassMetadataProviderPath
+    facadePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    localClassName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Display"
+    localMethodName =
+      resolved TypedCurrentModule TypedValueNamespace "display"
+    methodOwner = binder providerPath [0, 0] localMethodName
+    methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    localMethod = TypedMethodSignature localMethodName span1 methodScheme
+    localClass =
+      TypedClassDeclaration span1 localClassName [parameter] [localMethod]
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/RetainedClassMetadataProvider.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Display"]
+        (TypedModuleInterface [] [] [TypedClassInterface localClass] [])
+        [TypedClassStatement localClass]
+        unitInfo
+    retainedMethodName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedValueNamespace
+        "display"
+    retainedMethod =
+      TypedMethodSignature retainedMethodName span1 methodScheme
+    retainedMethods
+      | duplicateMethod = [retainedMethod, retainedMethod]
+      | otherwise = [retainedMethod]
+    retainedClass =
+      TypedClassDeclaration
+        retainedSpan
+        retainedClassMetadataName
+        [parameter]
+        retainedMethods
+    facadeModule =
+      typedModule
+        facadePath
+        relativeSource
+        [TypedResolvedImport span1 providerPath Nothing (Just ["Display"])]
+        []
+        (TypedModuleInterface [] [] [TypedClassInterface retainedClass] [])
+        []
+        unitInfo
+
+negativeBinderPathOwner :: TypedBinderId
+negativeBinderPathOwner =
+  binder
+    (fixtureModulePath "review-negative-binder-path")
+    [-1]
+    (fixtureValueName "answer")
+
+negativeBinderPathProgram :: TypedProgram
+negativeBinderPathProgram =
+  singleModuleProgram fixture relativeSource [] [statement] emptyInterface unitInfo modulePath
+  where
+    fixture = "review-negative-binder-path"
+    modulePath = fixtureModulePath fixture
+    valueName = fixtureValueName "answer"
+    statement =
+      TypedLetStatement
+        negativeBinderPathOwner
+        valueName
+        span1
+        (monoScheme negativeBinderPathOwner)
+        trueExpr
+
+wrongDataNamespaceName :: TypedCoreName
+wrongDataNamespaceName =
+  resolved TypedCurrentModule TypedValueNamespace "Box"
+
+wrongDataNamespaceProgram :: TypedProgram
+wrongDataNamespaceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-wrong-data-namespace"
+    modulePath = fixtureModulePath fixture
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    declaration =
+      dataDeclarationWithNullaryConstructor modulePath [0, 0] dataName []
+    valueName = fixtureValueName "value"
+    owner = binder modulePath [1] valueName
+    invalidType = TypedDataType wrongDataNamespaceName []
+    invalidRecipe = TypedManagedVariantRecipe wrongDataNamespaceName []
+    scheme = TypedScheme owner [] [] [] invalidType invalidRecipe
+    statements =
+      [ TypedDataStatement declaration,
+        TypedSignatureStatement owner valueName span1 scheme
+      ]
+
+wrongConstructorNamespaceName :: TypedCoreName
+wrongConstructorNamespaceName =
+  resolved TypedCurrentModule TypedValueNamespace "Box"
+
+wrongConstructorNamespaceProgram :: TypedProgram
+wrongConstructorNamespaceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-wrong-constructor-namespace"
+    modulePath = fixtureModulePath fixture
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
+    declaration =
+      dataDeclarationWithNullaryConstructor modulePath [0, 0] dataName []
+    patternValue =
+      TypedConstructorPattern boolInfo wrongConstructorNamespaceName []
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [TypedCaseArm patternValue Nothing trueExpr]
+    statements =
+      [TypedDataStatement declaration, expressionStatement 1 expression]
 
 appliedTargetCandidateDeferralProgram :: TypedProgram
 appliedTargetCandidateDeferralProgram =

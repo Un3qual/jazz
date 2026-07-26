@@ -722,6 +722,19 @@ qualifyExternalScheme modulePath (TypedScheme owner parameters evidence primitiv
         parameterId
         (TypedCapabilityConstraint (qualifyExternalName modulePath capability) method targetType)
 
+qualifyExternalClassDeclaration :: [Text] -> TypedClassDeclaration -> TypedClassDeclaration
+qualifyExternalClassDeclaration modulePath (TypedClassDeclaration spanValue name parameters methods) =
+  TypedClassDeclaration
+    spanValue
+    (qualifyExternalName modulePath name)
+    parameters
+    [ TypedMethodSignature
+        (qualifyExternalName modulePath methodName)
+        methodSpan
+        (qualifyExternalScheme modulePath scheme)
+    | TypedMethodSignature methodName methodSpan scheme <- methods
+    ]
+
 schemeMentionsTypeParameter ::
   TypedTypeParameterId ->
   [TypedEvidenceParameter] ->
@@ -1012,6 +1025,13 @@ interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
   | TypedClassInterface declaration@(TypedClassDeclaration _ name _ methods) <- classes,
     interfaceCapabilityIncluded visibleModule name methods,
     entry <- maybeToList (capabilityEntry modulePath declaration)
+  ]
+
+interfaceClassDeclarations :: ([Text], Maybe [Text], TypedModule) -> [TypedClassDeclaration]
+interfaceClassDeclarations visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
+  [ qualifyExternalClassDeclaration modulePath declaration
+  | TypedClassInterface declaration@(TypedClassDeclaration _ name _ methods) <- classes,
+    interfaceCapabilityIncluded visibleModule name methods
   ]
 
 interfaceEvidenceCapabilityEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedEvidenceParameterRef, ResolvedNameKey)]
@@ -1689,8 +1709,11 @@ signatureBindingSchemeMismatch
     | otherwise = Nothing
 
 validateBinderDefinition :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedCoreName -> [TypedCoreValidationFailure]
-validateBinderDefinition context path binderId@(TypedBinderId (modulePath, _, embeddedName)) publishedName
-  | modulePath == moduleContextPath context && embeddedName == publishedName = []
+validateBinderDefinition context path binderId@(TypedBinderId (modulePath, lexicalPath, embeddedName)) publishedName
+  | modulePath == moduleContextPath context,
+    all (>= 0) lexicalPath,
+    embeddedName == publishedName =
+      []
   | otherwise = [failure path TypedUnknownBinder (TypedBinderDetail binderId)]
 
 validateBindingValue :: TypedCoreValidationPath -> TypedScheme -> TypedNodeInfo -> [TypedCoreValidationFailure]
@@ -4373,6 +4396,8 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
     visibleExternalModules = preludeModules <> importedModules
+    externalClassDeclarations =
+      concatMap interfaceClassDeclarations visibleExternalModules
     externalCapabilityContracts =
       Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
     externalVisibleImpls =
@@ -4431,9 +4456,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       | Set.member implId externalVisibleImpls = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
     retainedClassInterfaceMatches declaration =
-      case capabilityEntry modulePath declaration of
-        Just (key, contract) -> Map.lookup key externalCapabilityContracts == Just contract
-        Nothing -> False
+      declaration `elem` externalClassDeclarations
     missingImplInterfaceFailures =
       [ failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)
       | implId <- declaredImpls,
