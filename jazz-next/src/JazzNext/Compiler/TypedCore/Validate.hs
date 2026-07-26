@@ -9,7 +9,7 @@ module JazzNext.Compiler.TypedCore.Validate
   )
 where
 
-import Data.Char (isAlpha, isAlphaNum, ord)
+import Data.Char (isAlpha, isAlphaNum, isUpper, ord)
 import Data.List (find, nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -1241,14 +1241,17 @@ validateBlockStatementsInOrder = validateStatementsInOrderWith blockStatementSco
 
 validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
 validateStatementsInOrderWith rejectedStatement initialContext locatedStatements =
-  fst (foldl' validateNext ([], initialContext) (zip [0 ..] locatedStatements))
+  validateFrom initialContext 0 locatedStatements
   where
     statements = map snd locatedStatements
-    validateNext (failures, visibleContext) (blockIndex, (statementLocation, statement)) =
+    dependencies = recursiveGroupDependencies initialContext statements
+    validateFrom _ _ [] = []
+    validateFrom visibleContext blockIndex ((statementLocation, statement) : rest) =
       case rejectedStatement initialContext statementLocation statement of
-        Just scopeFailure -> (failures <> [scopeFailure], visibleContext)
+        Just scopeFailure ->
+          scopeFailure : validateFrom visibleContext (blockIndex + 1) rest
         Nothing ->
-          let recursiveGroup = recursiveGroupStatements initialContext statements blockIndex
+          let recursiveGroup = recursiveGroupStatements dependencies statements blockIndex
               statementContext =
                 case statement of
                   TypedLetStatement {}
@@ -1257,7 +1260,7 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
                   _ -> withBlockDeclarations [statement] visibleContext
               nextContext = withBlockDeclarations [statement] visibleContext
               nextStatement =
-                case drop (blockIndex + 1) locatedStatements of
+                case rest of
                   (_, candidate) : _ -> Just candidate
                   [] -> Nothing
               statementFailures =
@@ -1269,7 +1272,9 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
                   statement
                   nextStatement
                   (null statementFailures)
-           in (failures <> attachedSignatureFailures <> statementFailures, nextContext)
+           in attachedSignatureFailures
+                <> statementFailures
+                <> validateFrom nextContext (blockIndex + 1) rest
 
 blockStatementScopeFailure :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure
 blockStatementScopeFailure context statementLocation statement =
@@ -1287,14 +1292,34 @@ blockStatementScopeFailure context statementLocation statement =
             (TypedTextDetail declarationKind)
         )
 
-recursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement]
-recursiveGroupStatements outerContext statements statementIndex =
+recursiveGroupStatements :: Map Int (Set Int) -> [TypedStatement] -> Int -> [TypedStatement]
+recursiveGroupStatements dependencies statements statementIndex =
   case Map.lookup statementIndex dependencies of
     Nothing -> []
     Just directDependencies
       | length members > 1 || Set.member statementIndex directDependencies ->
           [statement | (index, statement) <- zip [0 ..] statements, index `elem` members]
       | otherwise -> []
+  where
+    members =
+      [ candidate
+      | candidate <- Map.keys dependencies,
+        dependencyReachable dependencies statementIndex candidate,
+        dependencyReachable dependencies candidate statementIndex
+      ]
+
+recursiveGroupDependencies :: ModuleContext -> [TypedStatement] -> Map Int (Set Int)
+recursiveGroupDependencies outerContext statements =
+  Map.fromList
+    [ ( index,
+        Set.fromList
+          [ dependency
+          | referencedName <- Set.toList (freeExpressionValueNames outerContext Set.empty expression),
+            dependency <- maybeToList (resolveDependency index nameKey expression referencedName)
+          ]
+      )
+    | (index, nameKey, expression) <- declarations
+    ]
   where
     declarations =
       [ (index, nameKey, expression)
@@ -1306,17 +1331,6 @@ recursiveGroupStatements outerContext statements statementIndex =
         (flip (<>))
         [ (nameKey, [index])
         | (index, nameKey, _) <- declarations
-        ]
-    dependencies =
-      Map.fromList
-        [ ( index,
-            Set.fromList
-              [ dependency
-              | referencedName <- Set.toList (freeExpressionValueNames outerContext Set.empty expression),
-                dependency <- maybeToList (resolveDependency index nameKey expression referencedName)
-              ]
-          )
-        | (index, nameKey, expression) <- declarations
         ]
     resolveDependency index ownName expression referencedName =
       case Map.lookup referencedName declarationIndicesByName of
@@ -1332,12 +1346,6 @@ recursiveGroupStatements outerContext statements statementIndex =
                   case filter (> index) declarationIndices of
                     future : _ -> Just future
                     [] -> Nothing
-    members =
-      [ candidate
-      | candidate <- Map.keys dependencies,
-        dependencyReachable dependencies statementIndex candidate,
-        dependencyReachable dependencies candidate statementIndex
-      ]
 
 dependencyReachable :: Map Int (Set Int) -> Int -> Int -> Bool
 dependencyReachable dependencies source target = go Set.empty [source]
@@ -2926,7 +2934,10 @@ expressionChildrenWithContexts context expression =
     TypedBinaryExpr _ _ left right -> [(context, left), (context, right)]
     TypedLeftSectionExpr _ left _ -> [(context, left)]
     TypedRightSectionExpr _ _ right -> [(context, right)]
-    _ -> []
+    TypedLiteralExpr {} -> []
+    TypedVariableExpr {} -> []
+    TypedOperatorValueExpr {} -> []
+    TypedBlockExpr {} -> []
 
 lambdaArgumentContract :: TypedNodeInfo -> Maybe ValueContract
 lambdaArgumentContract info =
@@ -3070,7 +3081,7 @@ validatePattern context statementLocation patternPath expectedType patternValue 
     patternOwnedFailures =
       case patternValue of
         TypedVariablePattern _ binderId name -> validateLocalDefinitionName context [TypedValueNamespace] path name <> validateBinderDefinition context path binderId name
-        TypedLiteralPattern info literal -> validateLiteral path info literal
+        TypedLiteralPattern info literal -> validatePatternLiteral path info literal
         TypedConstructorPattern info name patterns ->
           validateVisibleNameInNamespaces [TypedConstructorNamespace] context path name
             <> validateConstructorPatternShape context path info name patterns
@@ -3082,6 +3093,12 @@ validatePattern context statementLocation patternPath expectedType patternValue 
         _ -> []
     validateChild (childIndex, childType, childPattern) =
       validatePattern context statementLocation (patternPath <> [childIndex]) childType childPattern
+
+validatePatternLiteral :: TypedCoreValidationPath -> TypedNodeInfo -> TypedLiteral -> [TypedCoreValidationFailure]
+validatePatternLiteral path _ TypedFractionalLiteral {} =
+  [failure path TypedPatternShapeMismatch TypedNoValidationDetail]
+validatePatternLiteral path info literal =
+  validateLiteral path info literal
 
 validatePatternMetadata :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validatePatternMetadata path (TypedNodeInfo _ _ instantiations evidenceSelections)
@@ -3239,24 +3256,21 @@ patternBinderContractsEqual expected actual =
     && firstMismatchedBinder expected actual == Nothing
 
 firstMismatchedBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe TypedBinderId
-firstMismatchedBinder _ [] = Nothing
-firstMismatchedBinder expected (actual@(PatternBinderContract binderId _ _ _) : rest) =
-  case removeFirstMatchingContract actual expected of
-    Just remainingExpected -> firstMismatchedBinder remainingExpected rest
-    Nothing -> Just binderId
+firstMismatchedBinder [] [] = Nothing
+firstMismatchedBinder (PatternBinderContract binderId _ _ _ : _) [] = Just binderId
+firstMismatchedBinder [] (PatternBinderContract binderId _ _ _ : _) = Just binderId
+firstMismatchedBinder (expected : expectedRest) (actual@(PatternBinderContract binderId _ _ _) : actualRest)
+  | patternBinderContractEqual expected actual =
+      firstMismatchedBinder expectedRest actualRest
+  | otherwise = Just binderId
 
-removeFirstMatchingContract :: PatternBinderContract -> [PatternBinderContract] -> Maybe [PatternBinderContract]
-removeFirstMatchingContract _ [] = Nothing
-removeFirstMatchingContract actual (expected : rest)
-  | contractsEqual expected actual = Just rest
-  | otherwise = (expected :) <$> removeFirstMatchingContract actual rest
-  where
-    contractsEqual
-      (PatternBinderContract _ expectedName expectedType expectedRecipeValue)
-      (PatternBinderContract _ actualName actualType actualRecipeValue) =
-        expectedName == actualName
-          && expectedType == actualType
-          && expectedRecipeValue == actualRecipeValue
+patternBinderContractEqual :: PatternBinderContract -> PatternBinderContract -> Bool
+patternBinderContractEqual
+  (PatternBinderContract _ expectedName expectedType expectedRecipeValue)
+  (PatternBinderContract _ actualName actualType actualRecipeValue) =
+    expectedName == actualName
+      && expectedType == actualType
+      && expectedRecipeValue == actualRecipeValue
 
 validateNodeInfo :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> Bool -> Maybe Text -> Maybe Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateNodeInfo context path parameterScope requireSelectedConsumer selectedMethodKey candidateMethodKey (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
@@ -3889,16 +3903,34 @@ validateCoreName path name =
       | not (validOperatorBindingName bindingName) ->
           [failure path TypedUnresolvedName (TypedNameDetail name)]
     _ -> []
+
+validOperatorBindingName :: Text -> Bool
+validOperatorBindingName bindingName =
+  case Text.stripPrefix "$operator:" bindingName of
+    Just suffix ->
+      not (Text.null suffix)
+        && all (`elem` canonicalOperatorEncodings) (Text.chunksOf 3 suffix)
+    Nothing -> False
   where
-    validOperatorBindingName bindingName =
-      case Text.stripPrefix "$operator:" bindingName of
-        Just suffix -> not (Text.null suffix)
-        Nothing -> False
+    canonicalOperatorEncodings =
+      [ encoded
+      | character <- ("!%&*+-/<>?^|~" :: String),
+        encoded <- maybeToList (Text.stripPrefix "$operator:" (operatorBindingIdentifierText (Text.singleton character)))
+      ]
 
 validResolvedIdentifier :: TypedNameNamespace -> Text -> Bool
 validResolvedIdentifier namespace identifier =
-  validSourceIdentifier identifier
-    || (namespace == TypedValueNamespace && validQualifiedIdentifier identifier)
+  case namespace of
+    TypedValueNamespace ->
+      validSourceIdentifier identifier || validQualifiedIdentifier identifier
+    _ ->
+      validSourceIdentifier identifier && identifierStartsUpper identifier
+
+identifierStartsUpper :: Text -> Bool
+identifierStartsUpper identifier =
+  case Text.uncons identifier of
+    Just (first, _) -> isUpper first
+    Nothing -> False
 
 validQualifiedIdentifier :: Text -> Bool
 validQualifiedIdentifier identifier =

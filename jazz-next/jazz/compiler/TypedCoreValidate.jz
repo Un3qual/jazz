@@ -1,13 +1,15 @@
 module TypedCoreValidate (
   value validateProgram
 ) {
-  import Char (charIsAlpha, charIsAlphaNum, charToUInt32).
+  import Char (charIsAlpha, charIsAlphaNum, charIsUpper, charToUInt32).
   import List (listAll, listAppend, listConcat, listContains, listFilter, listIndexed, listLength, listMap, listPrepend, listReverse, listSort, listZip).
   import Maybe.
-  import Text (textAppend, textContains, textIsEmpty, textJoin, textSplit, textStartsWith, textToChars, textUncons).
+  import Text (textAppend, textContains, textDrop, textIsEmpty, textJoin, textLength, textSplit, textStartsWith, textTake, textToChars, textUncons).
   import TypedCoreTypes.
 
   data SchemeEntry = SchemeEntry TypedBinderId TypedScheme.
+
+  data StatementDependencies = StatementDependencies Int [Int].
 
   data NameEntry = NameEntry [Text] TypedNameNamespace Text | GeneratedNameEntry TypedGeneratedNameKind.
 
@@ -584,8 +586,28 @@ module TypedCoreValidate (
 
   validResolvedIdentifier :: TypedNameNamespace -> Text -> Bool.
   validResolvedIdentifier = \(namespace, identifier) ->
-    if validSourceIdentifier identifier then True else
-      if nameNamespaceEqual namespace TypedValueNamespace then validQualifiedIdentifier identifier else False.
+    if nameNamespaceEqual namespace TypedValueNamespace then
+      if validSourceIdentifier identifier then True else validQualifiedIdentifier identifier
+    else
+      if validSourceIdentifier identifier then case textUncons identifier {
+        | Just (first, rest) -> charIsUpper first
+        | Nothing -> False
+      } else False.
+
+  canonicalOperatorBindingChunk :: Text -> Bool.
+  canonicalOperatorBindingChunk = \(chunk) ->
+    listContains chunk ["%21", "%25", "%26", "%2A", "%2B", "%2D", "%2F", "%3C", "%3E", "%3F", "%5E", "%7C", "%7E"].
+
+  validOperatorBindingSuffix :: Text -> Bool.
+  validOperatorBindingSuffix = \(suffix) ->
+    if textIsEmpty suffix then False else
+      if textLength suffix < 3 then False else {
+        chunk = textTake 3 suffix.
+        rest = textDrop 3 suffix.
+        if canonicalOperatorBindingChunk chunk then
+          if textIsEmpty rest then True else validOperatorBindingSuffix rest
+        else False.
+      }.
 
   validateCoreName :: TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   validateCoreName = \(path, name) -> case name {
@@ -598,7 +620,7 @@ module TypedCoreValidate (
         if index < 0 then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
       | TypedOperatorBinding bindingName ->
         if textStartsWith "$operator:" bindingName then
-          if bindingName == "$operator:" then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
+          if validOperatorBindingSuffix (textDrop (textLength "$operator:") bindingName) then [] else [failure path TypedUnresolvedName (TypedNameDetail name)]
         else [failure path TypedUnresolvedName (TypedNameDetail name)]
       | other -> []
     }
@@ -679,7 +701,8 @@ module TypedCoreValidate (
     if character == '>' then "%3E" else
     if character == '?' then "%3F" else
     if character == '^' then "%5E" else
-    if character == '|' then "%7C" else "%7E".
+    if character == '|' then "%7C" else
+    if character == '~' then "%7E" else "".
 
   operatorBindingSuffix :: Text -> Text.
   operatorBindingSuffix = \(symbol) -> case textUncons symbol {
@@ -2426,26 +2449,17 @@ module TypedCoreValidate (
     | (PatternBinderContract leftBinder leftName leftType leftRecipe, PatternBinderContract rightBinder rightName rightType rightRecipe) -> if coreNameEqual leftName rightName then if typeEqual leftType rightType then recipeEqual leftRecipe rightRecipe else False else False
   }.
 
-  removeFirstPatternBinderContract :: PatternBinderContract -> [PatternBinderContract] -> Maybe([PatternBinderContract]).
-  removeFirstPatternBinderContract = \(candidate, contracts) -> case contracts {
-    | [] -> Nothing
-    | [first | rest] ->
-      if patternBinderContractEqual candidate first then Just rest else
-        case removeFirstPatternBinderContract candidate rest {
-          | Nothing -> Nothing
-          | Just remaining -> Just (listPrepend first remaining)
-        }
-  }.
-
   mismatchedPatternBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe(TypedBinderId).
-  mismatchedPatternBinder = \(expected, actual) -> case actual {
-    | [] -> Nothing
-    | [first | rest] -> case removeFirstPatternBinderContract first expected {
-      | Just remainingExpected -> mismatchedPatternBinder remainingExpected rest
-      | Nothing -> case first {
+  mismatchedPatternBinder = \(expected, actual) -> case (expected, actual) {
+    | ([], []) -> Nothing
+    | ([PatternBinderContract binder name typeValue recipe | rest], []) -> Just binder
+    | ([], [PatternBinderContract binder name typeValue recipe | rest]) -> Just binder
+    | ([expectedFirst | expectedRest], [actualFirst | actualRest]) ->
+      if patternBinderContractEqual expectedFirst actualFirst then
+        mismatchedPatternBinder expectedRest actualRest
+      else case actualFirst {
         | PatternBinderContract binder name typeValue recipe -> Just binder
       }
-    }
   }.
 
   patternBinderContractListEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool.
@@ -2626,7 +2640,10 @@ module TypedCoreValidate (
           if typeEqual (nodeType info) expectedType then [] else [failure path TypedPatternScrutineeMismatch (TypedTypeDetail expectedType (nodeType info))],
           case pattern {
             | TypedVariablePattern valueInfo binder name -> listAppend (validateLocalDefinitionName context [TypedValueNamespace] path name) (validateBinderDefinition context path binder name)
-            | TypedLiteralPattern valueInfo literal -> validateLiteral path valueInfo literal
+            | TypedLiteralPattern valueInfo literal -> case literal {
+              | TypedFractionalLiteral whole fractional suffix -> [failure path TypedPatternShapeMismatch TypedNoValidationDetail]
+              | other -> validateLiteral path valueInfo literal
+            }
             | TypedConstructorPattern valueInfo name patterns -> validateVisibleNameInNamespaces [TypedConstructorNamespace] context path name
             | TypedAsPattern valueInfo binder name nested -> listAppend (validateLocalDefinitionName context [TypedValueNamespace] path name) (validateBinderDefinition context path binder name)
             | TypedOrPattern valueInfo alternatives -> validateOrPattern path alternatives
@@ -4288,33 +4305,53 @@ module TypedCoreValidate (
     | Nothing -> []
   }.
 
-  dependencyReachableFrom :: ModuleContext -> [TypedStatement] -> Int -> [Int] -> [Int] -> Bool.
-  dependencyReachableFrom = \(context, statements, target, seen, pending) -> case pending {
-    | [] -> False
-    | [current | rest] -> if current == target then True else
-      if listContains current seen then dependencyReachableFrom context statements target seen rest else
-        dependencyReachableFrom context statements target (listPrepend current seen) (listAppend (statementDependencyIndices context statements current) rest)
+  statementDependenciesFrom :: ModuleContext -> [TypedStatement] -> [(Int, TypedStatement)] -> [StatementDependencies].
+  statementDependenciesFrom = \(context, statements, indexedStatements) -> case indexedStatements {
+    | [] -> []
+    | [(statementIndex, statement) | rest] ->
+      listPrepend
+        (StatementDependencies statementIndex (statementDependencyIndices context statements statementIndex))
+        (statementDependenciesFrom context statements rest)
   }.
 
-  dependencyReachable :: ModuleContext -> [TypedStatement] -> Int -> Int -> Bool.
-  dependencyReachable = \(context, statements, source, target) -> dependencyReachableFrom context statements target [] [source].
+  statementDependencies :: ModuleContext -> [TypedStatement] -> [StatementDependencies].
+  statementDependencies = \(context, statements) ->
+    statementDependenciesFrom context statements (listIndexed statements).
 
-  recursiveGroupMembersFrom :: ModuleContext -> [TypedStatement] -> Int -> [(Int, TypedStatement)] -> [TypedStatement].
-  recursiveGroupMembersFrom = \(context, statements, statementIndex, indexedStatements) -> case indexedStatements {
+  dependenciesForStatement :: Int -> [StatementDependencies] -> [Int].
+  dependenciesForStatement = \(statementIndex, dependencies) -> case dependencies {
+    | [] -> []
+    | [StatementDependencies candidateIndex candidateDependencies | rest] ->
+      if statementIndex == candidateIndex then candidateDependencies else dependenciesForStatement statementIndex rest
+  }.
+
+  dependencyReachableFrom :: [StatementDependencies] -> Int -> [Int] -> [Int] -> Bool.
+  dependencyReachableFrom = \(dependencies, target, seen, pending) -> case pending {
+    | [] -> False
+    | [current | rest] -> if current == target then True else
+      if listContains current seen then dependencyReachableFrom dependencies target seen rest else
+        dependencyReachableFrom dependencies target (listPrepend current seen) (listAppend (dependenciesForStatement current dependencies) rest)
+  }.
+
+  dependencyReachable :: [StatementDependencies] -> Int -> Int -> Bool.
+  dependencyReachable = \(dependencies, source, target) -> dependencyReachableFrom dependencies target [] [source].
+
+  recursiveGroupMembersFrom :: [StatementDependencies] -> Int -> [(Int, TypedStatement)] -> [TypedStatement].
+  recursiveGroupMembersFrom = \(dependencies, statementIndex, indexedStatements) -> case indexedStatements {
     | [] -> []
     | [(candidateIndex, statement) | rest] -> case letStatementName statement {
-      | Nothing -> recursiveGroupMembersFrom context statements statementIndex rest
+      | Nothing -> recursiveGroupMembersFrom dependencies statementIndex rest
       | Just candidateName ->
-        if dependencyReachable context statements statementIndex candidateIndex then
-          if dependencyReachable context statements candidateIndex statementIndex then listPrepend statement (recursiveGroupMembersFrom context statements statementIndex rest) else recursiveGroupMembersFrom context statements statementIndex rest
-        else recursiveGroupMembersFrom context statements statementIndex rest
+        if dependencyReachable dependencies statementIndex candidateIndex then
+          if dependencyReachable dependencies candidateIndex statementIndex then listPrepend statement (recursiveGroupMembersFrom dependencies statementIndex rest) else recursiveGroupMembersFrom dependencies statementIndex rest
+        else recursiveGroupMembersFrom dependencies statementIndex rest
     }
   }.
 
-  blockRecursiveGroupStatements :: ModuleContext -> [TypedStatement] -> Int -> [TypedStatement].
-  blockRecursiveGroupStatements = \(context, statements, statementIndex) -> {
-    directDependencies = statementDependencyIndices context statements statementIndex.
-    members = recursiveGroupMembersFrom context statements statementIndex (listIndexed statements).
+  blockRecursiveGroupStatements :: [StatementDependencies] -> [TypedStatement] -> Int -> [TypedStatement].
+  blockRecursiveGroupStatements = \(dependencies, statements, statementIndex) -> {
+    directDependencies = dependenciesForStatement statementIndex dependencies.
+    members = recursiveGroupMembersFrom dependencies statementIndex (listIndexed statements).
     if listLength members > 1 then members else if listContains statementIndex directDependencies then members else [].
   }.
 
@@ -4429,17 +4466,17 @@ module TypedCoreValidate (
     | other -> Nothing
   }.
 
-  validateBlockStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateBlockStatementsInOrderFrom = \(initialContext, visibleContext, statementLocation, expressionPath, allStatements, remainingStatements, blockIndex) -> case remainingStatements {
+  validateBlockStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateBlockStatementsInOrderFrom = \(initialContext, visibleContext, statementLocation, expressionPath, allStatements, dependencies, remainingStatements, blockIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       nestedStatementPath = nestedStatementLocation statementLocation expressionPath blockIndex.
       case blockStatementScopeDetail statement {
         | Just detail -> listAppend
           [failure (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) TypedBlockResultMismatch (TypedTextDetail detail)]
-          (validateBlockStatementsInOrderFrom initialContext visibleContext statementLocation expressionPath allStatements rest (blockIndex + 1))
+          (validateBlockStatementsInOrderFrom initialContext visibleContext statementLocation expressionPath allStatements dependencies rest (blockIndex + 1))
         | Nothing -> {
-          recursiveGroup = blockRecursiveGroupStatements initialContext allStatements blockIndex.
+          recursiveGroup = blockRecursiveGroupStatements dependencies allStatements blockIndex.
           statementContext = case statement {
             | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
             | other -> withBlockDeclarations [statement] visibleContext
@@ -4448,7 +4485,7 @@ module TypedCoreValidate (
           listConcat
             [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) statement rest (listLength statementFailures == 0),
               statementFailures,
-              validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementLocation expressionPath allStatements rest (blockIndex + 1)
+              validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementLocation expressionPath allStatements dependencies rest (blockIndex + 1)
             ].
         }
       }.
@@ -4458,7 +4495,8 @@ module TypedCoreValidate (
   validateBlockStatementsInOrder :: ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [TypedCoreValidationFailure].
   validateBlockStatementsInOrder = \(context, statementLocation, expressionPath, statements) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
-      validateBlockStatementsInOrderFrom context context statementLocation expressionPath statements statements 0.
+      dependencies = statementDependencies context statements.
+      validateBlockStatementsInOrderFrom context context statementLocation expressionPath statements dependencies statements 0.
     }
   }.
 
@@ -4476,20 +4514,25 @@ module TypedCoreValidate (
       (constructorDeclarationEntries modulePath rest)
   }.
 
-  statementDeclarationEntries :: [Text] -> TypedStatement -> [DeclarationEntry].
-  statementDeclarationEntries = \(modulePath, statement) -> case statement {
+  statementDeclarationEntries :: Bool -> [Text] -> TypedStatement -> [DeclarationEntry].
+  statementDeclarationEntries = \(includeNames, modulePath, statement) -> case statement {
     | TypedLetStatement binder name span scheme expression -> []
-    | TypedSignatureStatement binder name span scheme -> declarationEntryForName modulePath name (Just binder)
+    | TypedSignatureStatement binder name span scheme ->
+      if includeNames then declarationEntryForName modulePath name (Just binder) else []
     | TypedDataStatement declaration -> case declaration {
-      | TypedDataDeclaration span name parameters constructors -> listAppend
-        (declarationEntryForName modulePath name Nothing)
-        (constructorDeclarationEntries modulePath constructors)
+      | TypedDataDeclaration span name parameters constructors ->
+        if includeNames then listAppend
+          (declarationEntryForName modulePath name Nothing)
+          (constructorDeclarationEntries modulePath constructors)
+        else []
     }
     | TypedClassStatement declaration -> case declaration {
-      | TypedClassDeclaration span name parameters methods -> declarationEntryForName modulePath name Nothing
+      | TypedClassDeclaration span name parameters methods ->
+        if includeNames then declarationEntryForName modulePath name Nothing else []
     }
     | TypedImplStatement declaration -> case declaration {
-      | TypedImplDeclaration span implId methods -> [ImplDeclarationEntry implId (qualifyExternalImplId modulePath implId)]
+      | TypedImplDeclaration span implId methods ->
+        if includeNames then [] else [ImplDeclarationEntry implId (qualifyExternalImplId modulePath implId)]
     }
     | other -> []
   }.
@@ -4535,21 +4578,22 @@ module TypedCoreValidate (
     }
   }.
 
-  duplicateBlockDeclarationFailuresFrom :: ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
-  duplicateBlockDeclarationFailuresFrom = \(context, statementLocation, expressionPath, statements, blockIndex, seen) -> case (context, statements) {
+  duplicateBlockDeclarationFailuresFrom :: Bool -> ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
+  duplicateBlockDeclarationFailuresFrom = \(includeNames, context, statementLocation, expressionPath, statements, blockIndex, seen) -> case (context, statements) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, []) -> []
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> {
       nestedPath = nestedStatementLocation statementLocation expressionPath blockIndex.
-      case duplicateDeclarationsAt (TypedStatementPath modulePath nestedPath) (statementDeclarationEntries modulePath first) seen {
-        | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateBlockDeclarationFailuresFrom context statementLocation expressionPath rest (blockIndex + 1) laterSeen)
+      case duplicateDeclarationsAt (TypedStatementPath modulePath nestedPath) (statementDeclarationEntries includeNames modulePath first) seen {
+        | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateBlockDeclarationFailuresFrom includeNames context statementLocation expressionPath rest (blockIndex + 1) laterSeen)
       }.
     }
   }.
 
   duplicateBlockDeclarationFailures :: ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [TypedCoreValidationFailure].
   duplicateBlockDeclarationFailures = \(context, statementLocation, expressionPath, statements) -> case context {
-    | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope ->
-      duplicateBlockDeclarationFailuresFrom context statementLocation expressionPath statements 0 []
+    | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> listAppend
+      (duplicateBlockDeclarationFailuresFrom True context statementLocation expressionPath statements 0 [])
+      (duplicateBlockDeclarationFailuresFrom False context statementLocation expressionPath statements 0 [])
   }.
 
   validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure].
@@ -4807,16 +4851,18 @@ module TypedCoreValidate (
   duplicateModuleBinderFailures :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
   duplicateModuleBinderFailures = \(context, statements) -> duplicateBinderOccurrenceFailures (moduleBinderOccurrences context statements 0) [].
 
-  duplicateModuleDeclarationFailuresFrom :: ModuleContext -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
-  duplicateModuleDeclarationFailuresFrom = \(context, statements, statementIndex, seen) -> case (context, statements) {
+  duplicateModuleDeclarationFailuresFrom :: Bool -> ModuleContext -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
+  duplicateModuleDeclarationFailuresFrom = \(includeNames, context, statements, statementIndex, seen) -> case (context, statements) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, []) -> []
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> case duplicateDeclarationsAt (TypedStatementPath modulePath [statementIndex]) (statementDeclarationEntries modulePath first) seen {
-      | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateModuleDeclarationFailuresFrom context rest (statementIndex + 1) laterSeen)
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> case duplicateDeclarationsAt (TypedStatementPath modulePath [statementIndex]) (statementDeclarationEntries includeNames modulePath first) seen {
+      | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateModuleDeclarationFailuresFrom includeNames context rest (statementIndex + 1) laterSeen)
     }
   }.
 
   duplicateModuleDeclarationFailures :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
-  duplicateModuleDeclarationFailures = \(context, statements) -> duplicateModuleDeclarationFailuresFrom context statements 0 [].
+  duplicateModuleDeclarationFailures = \(context, statements) -> listAppend
+    (duplicateModuleDeclarationFailuresFrom True context statements 0 [])
+    (duplicateModuleDeclarationFailuresFrom False context statements 0 []).
 
   dataRecipePairFailures :: TypedCoreValidationPath -> [(TypedType, TypedRepresentationRecipe)] -> [TypedCoreValidationFailure].
   dataRecipePairFailures = \(path, pairs) -> case pairs {
@@ -5156,12 +5202,12 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, allStatements, remainingStatements, statementIndex) -> case remainingStatements {
+  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, allStatements, dependencies, remainingStatements, statementIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       statementLocation = [statementIndex].
-      recursiveGroup = blockRecursiveGroupStatements initialContext allStatements statementIndex.
+      recursiveGroup = blockRecursiveGroupStatements dependencies allStatements statementIndex.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->
           if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
@@ -5172,14 +5218,16 @@ module TypedCoreValidate (
       listConcat
         [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest (listLength statementFailures == 0),
           statementFailures,
-          validateModuleStatementsInOrderFrom initialContext nextContext allStatements rest (statementIndex + 1)
+          validateModuleStatementsInOrderFrom initialContext nextContext allStatements dependencies rest (statementIndex + 1)
         ].
     }
   }.
 
   validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrder = \(context, statements) ->
-    validateModuleStatementsInOrderFrom context context statements statements 0.
+  validateModuleStatementsInOrder = \(context, statements) -> {
+    dependencies = statementDependencies context statements.
+    validateModuleStatementsInOrderFrom context context statements dependencies statements 0.
+  }.
 
   activeDeclaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
   activeDeclaredValueMatches = \(name, scheme, statements) -> case statements {

@@ -16,6 +16,14 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
     canonicalNullaryConstructor,
   )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinOwnership (..),
+    BuiltinSymbol (..),
+    allBuiltinSymbols,
+    builtinSymbolKernelName,
+    builtinSymbolName,
+    builtinSymbolOwnership,
+  )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
@@ -419,7 +427,11 @@ reviewRegressionGroups =
     (("rejects ambiguous value exports", testAmbiguousValueExport), [ambiguousValueExportProgram]),
     (("entails polymorphic primitive instantiations", testPrimitiveInstantiationEntailment), [unentailedPrimitiveInstantiationProgram]),
     (("requires source-addressable class methods", testGeneratedClassMethodName), [generatedClassMethodNameProgram]),
-    (("rejects singleton or-pattern nodes", testSingletonOrPattern), [singletonOrPatternProgram])
+    (("rejects singleton or-pattern nodes", testSingletonOrPattern), [singletonOrPatternProgram]),
+    (("rejects fractional literal patterns", testFractionalLiteralPattern), [fractionalPatternProgram]),
+    (("enforces constructor-like identifier casing", testConstructorLikeIdentifierCasing), [lowercaseConstructorLikeNamesProgram]),
+    (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
+    (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -465,11 +477,25 @@ testInvalidResolvedOperatorSymbols :: IO ()
 testInvalidResolvedOperatorSymbols =
   assertEqual
     "resolved operators reject non-operator characters before encoding"
-    [ expressionFailureAt
+    [ statementFailure
+        "review-invalid-resolved-operator-symbols"
+        1
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%61"))
+        ),
+      expressionFailureAt
         "review-invalid-resolved-operator-symbols"
         2
         TypedBindingValueMismatch
         (TypedTextDetail "a"),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        3
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%61"))
+        ),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
         3
@@ -582,6 +608,68 @@ testSingletonOrPattern =
         (TypedArityDetail 2 1)
     ]
     (validateTypedProgram singletonOrPatternProgram)
+
+testFractionalLiteralPattern :: IO ()
+testFractionalLiteralPattern =
+  assertEqual
+    "fractional literal patterns remain outside the canonical typed-core contract"
+    [ patternFailure
+        "review-fractional-pattern"
+        TypedPatternShapeMismatch
+        TypedNoValidationDetail
+    ]
+    (validateTypedProgram fractionalPatternProgram)
+
+testConstructorLikeIdentifierCasing :: IO ()
+testConstructorLikeIdentifierCasing =
+  assertEqual
+    "constructor-like namespaces retain their uppercase source invariant"
+    [ statementFailure
+        "review-lowercase-constructor-like-names"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail lowercaseTypeName),
+      statementFailure
+        "review-lowercase-constructor-like-names"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail lowercaseConstructorName),
+      statementFailure
+        "review-lowercase-constructor-like-names"
+        1
+        TypedUnresolvedName
+        (TypedNameDetail lowercaseCapabilityName)
+    ]
+    (validateTypedProgram lowercaseConstructorLikeNamesProgram)
+
+testDuplicateDeclarationOrdering :: IO ()
+testDuplicateDeclarationOrdering =
+  assertEqual
+    "duplicate declaration failures keep names before impl identities"
+    [ statementFailure
+        "review-duplicate-declaration-ordering"
+        4
+        TypedDuplicateDeclaration
+        (TypedNameDetail duplicateOrderingDataName),
+      statementFailure
+        "review-duplicate-declaration-ordering"
+        4
+        TypedDuplicateDeclaration
+        (TypedNameDetail duplicateOrderingConstructorName),
+      statementFailure
+        "review-duplicate-declaration-ordering"
+        2
+        TypedDuplicateDeclaration
+        (TypedImplDetail duplicateOrderingImplId)
+    ]
+    (validateTypedProgram duplicateDeclarationOrderingProgram)
+
+testBuiltinCatalogParity :: IO ()
+testBuiltinCatalogParity =
+  assertEqual
+    "every catalog builtin name and value contract validates"
+    []
+    (validateTypedProgram builtinCatalogProgram)
 
 duplicateDeferredEvidenceProgram :: TypedProgram
 duplicateDeferredEvidenceProgram =
@@ -775,6 +863,309 @@ singletonOrPatternProgram =
             trueExpr
         ]
     )
+
+fractionalPatternProgram :: TypedProgram
+fractionalPatternProgram =
+  expressionFixtureProgram
+    "review-fractional-pattern"
+    ( TypedPatternCaseExpr
+        boolInfo
+        fractionalExpression
+        [ TypedCaseArm
+            (TypedLiteralPattern fractionalInfo fractionalLiteral)
+            Nothing
+            trueExpr
+        ]
+    )
+  where
+    fractionalInfo =
+      info
+        (TypedNumericType TypedFloat64Type)
+        (TypedFloatRecipe 64)
+    fractionalLiteral =
+      TypedFractionalLiteral "1" "5" (Just TypedFloat64Type)
+    fractionalExpression =
+      TypedLiteralExpr fractionalInfo fractionalLiteral
+
+lowercaseTypeName :: TypedCoreName
+lowercaseTypeName =
+  resolved TypedCurrentModule TypedTypeNamespace "lower"
+
+lowercaseConstructorName :: TypedCoreName
+lowercaseConstructorName =
+  resolved TypedCurrentModule TypedConstructorNamespace "lowerConstructor"
+
+lowercaseCapabilityName :: TypedCoreName
+lowercaseCapabilityName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "lowerCapability"
+
+lowercaseConstructorLikeNamesProgram :: TypedProgram
+lowercaseConstructorLikeNamesProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-lowercase-constructor-like-names"
+    modulePath = fixtureModulePath fixture
+    dataDeclaration =
+      TypedDataDeclaration
+        span1
+        lowercaseTypeName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] lowercaseConstructorName)
+            lowercaseConstructorName
+            []
+            []
+        ]
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        lowercaseCapabilityName
+        [TypedTypeParameterId 0]
+        []
+    statements =
+      [ TypedDataStatement dataDeclaration,
+        TypedClassStatement capabilityDeclaration,
+        expressionStatement 2 trueExpr
+      ]
+
+duplicateOrderingDataName :: TypedCoreName
+duplicateOrderingDataName =
+  resolved TypedCurrentModule TypedTypeNamespace "Duplicate"
+
+duplicateOrderingConstructorName :: TypedCoreName
+duplicateOrderingConstructorName =
+  resolved TypedCurrentModule TypedConstructorNamespace "Duplicate"
+
+duplicateOrderingImplId :: TypedImplId
+duplicateOrderingImplId =
+  TypedImplId
+    (fixtureModulePath "review-duplicate-declaration-ordering")
+    (resolved TypedCurrentModule TypedCapabilityNamespace "Marker")
+    [TypedBoolType]
+
+duplicateDeclarationOrderingProgram :: TypedProgram
+duplicateDeclarationOrderingProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-duplicate-declaration-ordering"
+    modulePath = fixtureModulePath fixture
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Marker"
+    capabilityDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        []
+    dataDeclaration statementIndex =
+      TypedDataDeclaration
+        span1
+        duplicateOrderingDataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [statementIndex, 0] duplicateOrderingConstructorName)
+            duplicateOrderingConstructorName
+            []
+            []
+        ]
+    statements =
+      [ TypedClassStatement capabilityDeclaration,
+        TypedImplStatement (TypedImplDeclaration span1 duplicateOrderingImplId []),
+        TypedImplStatement (TypedImplDeclaration span1 duplicateOrderingImplId []),
+        TypedDataStatement (dataDeclaration 3),
+        TypedDataStatement (dataDeclaration 4),
+        expressionStatement 5 trueExpr
+      ]
+
+builtinCatalogProgram :: TypedProgram
+builtinCatalogProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface terminalInfo modulePath
+  where
+    fixture = "review-builtin-catalog-parity"
+    modulePath = fixtureModulePath fixture
+    builtinExpressions =
+      [ TypedVariableExpr (builtinCatalogInfo symbol) (TypedBuiltinName name)
+      | symbol <- allBuiltinSymbols,
+        name <- builtinAcceptedNames symbol
+      ]
+    statements =
+      zipWith expressionStatement [1 ..] builtinExpressions
+    terminalInfo = builtinCatalogInfo BuiltinExit
+
+builtinAcceptedNames :: BuiltinSymbol -> [Text]
+builtinAcceptedNames symbol =
+  case builtinSymbolOwnership symbol of
+    PreludeTarget ->
+      [builtinSymbolName symbol, builtinSymbolKernelName symbol]
+    KernelIntrinsic ->
+      [builtinSymbolKernelName symbol]
+
+builtinCatalogInfo :: BuiltinSymbol -> TypedNodeInfo
+builtinCatalogInfo symbol =
+  case symbol of
+    BuiltinMap -> builtinMapInfo
+    BuiltinFilter ->
+      info
+        ( TypedFunctionType
+            (TypedFunctionType TypedBoolType TypedBoolType)
+            (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
+        )
+        ( TypedClosureRecipe
+            [boolToBoolRecipe, TypedManagedListRecipe TypedBoolRecipe]
+            (TypedManagedListRecipe TypedBoolRecipe)
+        )
+    BuiltinHd ->
+      functionInfo
+        (TypedListType TypedBoolType)
+        (TypedManagedListRecipe TypedBoolRecipe)
+        TypedBoolType
+        TypedBoolRecipe
+    BuiltinTl -> boolListTransformInfo
+    BuiltinPrint -> boolToBoolInfo
+    BuiltinToInt8 -> numericConversionInfo TypedInt8Type (TypedSignedIntegerRecipe 8)
+    BuiltinToInt16 -> numericConversionInfo TypedInt16Type (TypedSignedIntegerRecipe 16)
+    BuiltinToInt32 -> numericConversionInfo TypedInt32Type (TypedSignedIntegerRecipe 32)
+    BuiltinToInt64 -> numericConversionInfo TypedInt64Type (TypedSignedIntegerRecipe 64)
+    BuiltinToUInt8 -> numericConversionInfo TypedUInt8Type (TypedUnsignedIntegerRecipe 8)
+    BuiltinToUInt16 -> numericConversionInfo TypedUInt16Type (TypedUnsignedIntegerRecipe 16)
+    BuiltinToUInt32 -> numericConversionInfo TypedUInt32Type (TypedUnsignedIntegerRecipe 32)
+    BuiltinToUInt64 -> numericConversionInfo TypedUInt64Type (TypedUnsignedIntegerRecipe 64)
+    BuiltinToFloat16 -> numericConversionInfo TypedFloat16Type (TypedFloatRecipe 16)
+    BuiltinToFloat32 -> numericConversionInfo TypedFloat32Type (TypedFloatRecipe 32)
+    BuiltinToFloat64 -> numericConversionInfo TypedFloat64Type (TypedFloatRecipe 64)
+    BuiltinListPrependRaw ->
+      info
+        ( TypedFunctionType
+            TypedBoolType
+            (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
+        )
+        ( TypedClosureRecipe
+            [TypedBoolRecipe, TypedManagedListRecipe TypedBoolRecipe]
+            (TypedManagedListRecipe TypedBoolRecipe)
+        )
+    BuiltinListReverseRaw -> boolListTransformInfo
+    BuiltinCharToUInt32 ->
+      functionInfo
+        TypedCharType
+        TypedCharRecipe
+        (TypedNumericType TypedUInt32Type)
+        (TypedUnsignedIntegerRecipe 32)
+    BuiltinCharFromUInt32Raw ->
+      functionInfo
+        (TypedNumericType TypedUInt32Type)
+        (TypedUnsignedIntegerRecipe 32)
+        (TypedListType TypedCharType)
+        (TypedManagedListRecipe TypedCharRecipe)
+    BuiltinCharIsAlpha -> charPredicateInfo
+    BuiltinCharIsAlphaNum -> charPredicateInfo
+    BuiltinCharIsDigit -> charPredicateInfo
+    BuiltinCharIsSpace -> charPredicateInfo
+    BuiltinCharIsHexDigit -> charPredicateInfo
+    BuiltinCharIsLower -> charPredicateInfo
+    BuiltinCharIsUpper -> charPredicateInfo
+    BuiltinCharToLower -> charTransformInfo
+    BuiltinCharToUpper -> charTransformInfo
+    BuiltinTextLength ->
+      functionInfo
+        TypedTextType
+        TypedManagedTextRecipe
+        TypedIntType
+        (TypedSignedIntegerRecipe 64)
+    BuiltinTextUnconsRaw ->
+      functionInfo
+        TypedTextType
+        TypedManagedTextRecipe
+        (TypedListType (TypedTupleType [TypedCharType, TypedTextType]))
+        ( TypedManagedListRecipe
+            (TypedManagedProductRecipe [TypedCharRecipe, TypedManagedTextRecipe])
+        )
+    BuiltinTextAppend -> textBinaryInfo TypedTextType TypedManagedTextRecipe
+    BuiltinTextAppendChar -> textBinaryInfo TypedCharType TypedCharRecipe
+    BuiltinTextFromChars ->
+      functionInfo
+        (TypedListType TypedCharType)
+        (TypedManagedListRecipe TypedCharRecipe)
+        TypedTextType
+        TypedManagedTextRecipe
+    BuiltinTextConcat ->
+      functionInfo
+        (TypedListType TypedTextType)
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+        TypedTextType
+        TypedManagedTextRecipe
+    BuiltinRenderValue ->
+      functionInfo
+        TypedBoolType
+        TypedBoolRecipe
+        TypedTextType
+        TypedManagedTextRecipe
+    BuiltinReadTextRaw ->
+      functionInfo
+        TypedTextType
+        TypedManagedTextRecipe
+        hostIOOutcomeType
+        hostIOOutcomeRecipe
+    BuiltinWriteTextRaw ->
+      info
+        (TypedFunctionType TypedTextType (TypedFunctionType TypedTextType hostIOOutcomeType))
+        (TypedClosureRecipe [TypedManagedTextRecipe, TypedManagedTextRecipe] hostIOOutcomeRecipe)
+    BuiltinReadStdinRaw ->
+      functionInfo
+        (TypedTupleType [])
+        TypedUnitRecipe
+        hostIOOutcomeType
+        hostIOOutcomeRecipe
+    BuiltinWriteStdoutRaw -> textToHostIOInfo
+    BuiltinWriteStderrRaw -> textToHostIOInfo
+    BuiltinArguments ->
+      functionInfo
+        (TypedTupleType [])
+        TypedUnitRecipe
+        (TypedListType TypedTextType)
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+    BuiltinExit ->
+      functionInfo
+        TypedIntType
+        (TypedSignedIntegerRecipe 64)
+        (TypedTupleType [])
+        TypedUnitRecipe
+  where
+    functionInfo argumentType argumentRecipe resultType resultRecipe =
+      info
+        (TypedFunctionType argumentType resultType)
+        (TypedClosureRecipe [argumentRecipe] resultRecipe)
+    numericConversionInfo targetType targetRecipe =
+      functionInfo
+        TypedIntType
+        (TypedSignedIntegerRecipe 64)
+        (TypedNumericType targetType)
+        targetRecipe
+    boolListTransformInfo =
+      functionInfo
+        (TypedListType TypedBoolType)
+        (TypedManagedListRecipe TypedBoolRecipe)
+        (TypedListType TypedBoolType)
+        (TypedManagedListRecipe TypedBoolRecipe)
+    charPredicateInfo =
+      functionInfo TypedCharType TypedCharRecipe TypedBoolType TypedBoolRecipe
+    charTransformInfo =
+      functionInfo TypedCharType TypedCharRecipe TypedCharType TypedCharRecipe
+    textBinaryInfo secondType secondRecipe =
+      info
+        (TypedFunctionType TypedTextType (TypedFunctionType secondType TypedTextType))
+        (TypedClosureRecipe [TypedManagedTextRecipe, secondRecipe] TypedManagedTextRecipe)
+    hostIOOutcomeType =
+      TypedTupleType
+        [TypedBoolType, TypedTextType, TypedTextType, TypedTextType]
+    hostIOOutcomeRecipe =
+      TypedManagedProductRecipe
+        [TypedBoolRecipe, TypedManagedTextRecipe, TypedManagedTextRecipe, TypedManagedTextRecipe]
+    textToHostIOInfo =
+      functionInfo
+        TypedTextType
+        TypedManagedTextRecipe
+        hostIOOutcomeType
+        hostIOOutcomeRecipe
 
 publishedImplWithoutCapabilityMetadataId :: TypedImplId
 publishedImplWithoutCapabilityMetadataId =
@@ -1980,8 +2371,12 @@ testCurrentReviewRegressions = do
     ]
     (validateTypedProgram ownerAmbiguousEvidenceProgram)
   assertEqual
-    "or-pattern contracts compare binder names independently of traversal order"
-    []
+    "or-pattern contracts preserve positional binder associations"
+    [ patternFailure
+        "review-reordered-or-pattern"
+        TypedOrPatternBinderMismatch
+        (TypedBinderDetail reorderedOrPatternMismatchBinder)
+    ]
     (validateTypedProgram reorderedOrPatternProgram)
   assertEqual
     "pattern cases require at least one arm"
@@ -3124,6 +3519,20 @@ testMalformedGeneratedNames =
         TypedUnresolvedName
         ( TypedNameDetail
             (TypedGeneratedName (TypedOperatorBinding "operator:%2B"))
+        ),
+      statementFailure
+        "review-malformed-generated-names"
+        3
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:garbage"))
+        ),
+      statementFailure
+        "review-malformed-generated-names"
+        4
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%GG"))
         )
     ]
     (validateTypedProgram malformedGeneratedNamesProgram)
@@ -4421,8 +4830,14 @@ malformedGeneratedNamesProgram =
     emptyOperatorName = TypedGeneratedName (TypedOperatorBinding "")
     malformedOperatorName =
       TypedGeneratedName (TypedOperatorBinding "operator:%2B")
+    unencodedOperatorName =
+      TypedGeneratedName (TypedOperatorBinding "$operator:garbage")
+    invalidHexOperatorName =
+      TypedGeneratedName (TypedOperatorBinding "$operator:%GG")
     emptyOperatorOwner = binder modulePath [1] emptyOperatorName
     malformedOperatorOwner = binder modulePath [2] malformedOperatorName
+    unencodedOperatorOwner = binder modulePath [3] unencodedOperatorName
+    invalidHexOperatorOwner = binder modulePath [4] invalidHexOperatorName
     statements =
       [ expressionStatement 1 invalidLambda,
         TypedLetStatement
@@ -4436,6 +4851,18 @@ malformedGeneratedNamesProgram =
           malformedOperatorName
           span1
           (monoScheme malformedOperatorOwner)
+          trueExpr,
+        TypedLetStatement
+          unencodedOperatorOwner
+          unencodedOperatorName
+          span1
+          (monoScheme unencodedOperatorOwner)
+          trueExpr,
+        TypedLetStatement
+          invalidHexOperatorOwner
+          invalidHexOperatorName
+          span1
+          (monoScheme invalidHexOperatorOwner)
           trueExpr
       ]
 
@@ -7383,6 +7810,13 @@ reorderedOrPatternProgram =
     patternValue = TypedOrPattern pairInfo [firstAlternative, secondAlternative]
     scrutinee = TypedTupleExpr pairInfo [trueExpr, falseExpr]
     expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
+
+reorderedOrPatternMismatchBinder :: TypedBinderId
+reorderedOrPatternMismatchBinder =
+  binder
+    (fixtureModulePath "review-reordered-or-pattern")
+    [1, 0]
+    (fixtureValueName "right")
 
 emptyPatternCaseProgram :: TypedProgram
 emptyPatternCaseProgram =
