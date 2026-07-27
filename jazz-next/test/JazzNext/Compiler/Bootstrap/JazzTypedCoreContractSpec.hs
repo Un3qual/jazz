@@ -381,7 +381,7 @@ reviewRegressionGroups =
     (("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication), [qualifiedMethodTypeApplicationProgram]),
     (("enforces final typed-core review contracts", testFinalReviewRegressions), [aliasShapedSelfRecursionProgram, qualifiedMethodValueContractProgram, eagerSelfReferenceProgram]),
     (("enforces post-final typed-core review contracts", testPostFinalReviewRegressions), [importNameCollisionProgram, localClassMethodVisibilityProgram, syntheticBinderShadowingProgram, implFreeClassParameterProgram, duplicateQualifiedMethodCandidateProgram, metadataOnlySourceTypeProgram]),
-    (("keeps method-only imports from exposing class names", testMethodOnlyCapabilityVisibility), [methodOnlyCapabilityVisibilityProgram]),
+    (("keeps retained capabilities out of source while allowing inferred schemes", testMethodOnlyCapabilityVisibility), [inferredMethodOnlyCapabilityVisibilityProgram, explicitMethodOnlyCapabilityVisibilityProgram]),
     (("includes capabilities in import collision checks", testCapabilityImportCollision), [capabilityImportCollisionProgram]),
     (("rejects nested type-parameter ordinal shadowing", testNestedTypeParameterShadowing), [nestedTypeParameterShadowingProgram]),
     (("rejects type-only explicit import selectors", testTypeOnlyImportSelector), [typeOnlyImportSelectorProgram]),
@@ -421,6 +421,7 @@ reviewRegressionGroups =
     (("rejects invalid resolved operator symbols", testInvalidResolvedOperatorSymbols), [invalidResolvedOperatorSymbolsProgram]),
     (("requires one selected body for qualified methods", testAmbiguousQualifiedMethodSelection), [ambiguousQualifiedMethodSelectionProgram]),
     (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10]),
+    (("validates recursive phantom equality graphs without path explosion", testRecursivePhantomEqualityDag), [recursivePhantomEqualityDagProgram 8]),
     (("requires capability metadata for published impls", testPublishedImplCapabilityMetadata), [publishedImplWithoutCapabilityMetadataProgram]),
     (("keeps selected impls inside deferred candidate sets", testDeferredCandidateSelection), [deferredCandidateSelectionProgram]),
     (("rejects duplicate deferred evidence obligations", testDuplicateDeferredEvidence), [duplicateDeferredEvidenceProgram]),
@@ -538,6 +539,17 @@ testRepeatedEqualityDag = do
   case result of
     Nothing -> failTest "large repeated equality graph exceeded the two-second validation budget"
     Just failureCount -> assertEqual "large repeated equality graph failures" 0 failureCount
+
+testRecursivePhantomEqualityDag :: IO ()
+testRecursivePhantomEqualityDag = do
+  assertEqual
+    "small recursive phantom equality graphs remain supported"
+    []
+    (validateTypedProgram (recursivePhantomEqualityDagProgram 8))
+  result <- timeout 2000000 (evaluate (length (validateTypedProgram (recursivePhantomEqualityDagProgram 25))))
+  case result of
+    Nothing -> failTest "large recursive phantom equality graph exceeded the two-second validation budget"
+    Just failureCount -> assertEqual "large recursive phantom equality graph failures" 0 failureCount
 
 testPublishedImplCapabilityMetadata :: IO ()
 testPublishedImplCapabilityMetadata =
@@ -3595,9 +3607,13 @@ testPostFinalReviewRegressions = do
     (validateTypedProgram nonScalarCharacterProgram)
 
 testMethodOnlyCapabilityVisibility :: IO ()
-testMethodOnlyCapabilityVisibility =
+testMethodOnlyCapabilityVisibility = do
   assertEqual
-    "method-only imports retain class metadata without exposing the class name"
+    "inferred schemes may retain capability metadata hidden from source"
+    []
+    (validateTypedProgram inferredMethodOnlyCapabilityVisibilityProgram)
+  assertEqual
+    "explicit signatures still require source-visible capability names"
     [ statementFailure
         "review-method-only-capability-visibility"
         0
@@ -3610,7 +3626,7 @@ testMethodOnlyCapabilityVisibility =
             )
         )
     ]
-    (validateTypedProgram methodOnlyCapabilityVisibilityProgram)
+    (validateTypedProgram explicitMethodOnlyCapabilityVisibilityProgram)
 
 testCapabilityImportCollision :: IO ()
 testCapabilityImportCollision =
@@ -6148,8 +6164,16 @@ nonScalarCharacterProgram =
         expressionStatement 2 patternExpression
       ]
 
-methodOnlyCapabilityVisibilityProgram :: TypedProgram
-methodOnlyCapabilityVisibilityProgram =
+inferredMethodOnlyCapabilityVisibilityProgram :: TypedProgram
+inferredMethodOnlyCapabilityVisibilityProgram =
+  methodOnlyCapabilityVisibilityProgram False
+
+explicitMethodOnlyCapabilityVisibilityProgram :: TypedProgram
+explicitMethodOnlyCapabilityVisibilityProgram =
+  methodOnlyCapabilityVisibilityProgram True
+
+methodOnlyCapabilityVisibilityProgram :: Bool -> TypedProgram
+methodOnlyCapabilityVisibilityProgram hasExplicitSignature =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     fixture = "review-method-only-capability-visibility"
@@ -6185,10 +6209,12 @@ methodOnlyCapabilityVisibilityProgram =
         [TypedClassStatement classDeclaration]
         unitInfo
     localName = resolved TypedCurrentModule TypedValueNamespace "local"
-    localOwner = binder entryPath [0] localName
-    localScheme =
+    inferredOwner = binder entryPath [0] localName
+    explicitOwner = binder entryPath [0] localName
+    explicitBindingOwner = binder entryPath [1] localName
+    localScheme owner =
       TypedScheme
-        localOwner
+        owner
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
@@ -6197,6 +6223,13 @@ methodOnlyCapabilityVisibilityProgram =
         []
         TypedBoolType
         TypedBoolRecipe
+    localStatements
+      | hasExplicitSignature =
+          [ TypedSignatureStatement explicitOwner localName span1 (localScheme explicitOwner),
+            TypedLetStatement explicitBindingOwner localName span1 (localScheme explicitBindingOwner) trueExpr
+          ]
+      | otherwise =
+          [TypedLetStatement inferredOwner localName span1 (localScheme inferredOwner) trueExpr]
     entryModule =
       typedModule
         entryPath
@@ -6204,7 +6237,7 @@ methodOnlyCapabilityVisibilityProgram =
         [TypedResolvedImport span1 libraryPath Nothing (Just ["render"])]
         []
         emptyInterface
-        [TypedLetStatement localOwner localName span1 localScheme trueExpr]
+        localStatements
         boolInfo
 
 capabilityImportCollisionProgram :: TypedProgram
@@ -11401,6 +11434,79 @@ repeatedEqualityDagProgram depth =
                   TypedManagedVariantRecipe (dataName (index + 1)) [parameterType]
                 ]
               )
+    valueName = fixtureValueName "equal"
+    valueOwner = binder modulePath [depth + 1] valueName
+    targetType = TypedDataType (dataName 0) [TypedBoolType]
+    valueScheme =
+      TypedScheme
+        valueOwner
+        []
+        []
+        [TypedStrictEqualityPrimitiveConstraint targetType]
+        TypedBoolType
+        TypedBoolRecipe
+    statements =
+      map (TypedDataStatement . declaration) [0 .. depth]
+        <> [TypedLetStatement valueOwner valueName span1 valueScheme trueExpr]
+
+recursivePhantomEqualityDagProgram :: Int -> TypedProgram
+recursivePhantomEqualityDagProgram depth =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-recursive-phantom-equality-dag"
+    modulePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    dataName :: Int -> TypedCoreName
+    dataName index =
+      resolved
+        TypedCurrentModule
+        TypedTypeNamespace
+        ("P" <> Text.pack (show index))
+    endName :: Int -> TypedCoreName
+    endName index =
+      resolved
+        TypedCurrentModule
+        TypedConstructorNamespace
+        ("End" <> Text.pack (show index))
+    stepName :: Int -> TypedCoreName
+    stepName index =
+      resolved
+        TypedCurrentModule
+        TypedConstructorNamespace
+        ("Step" <> Text.pack (show index))
+    nextIndex :: Int -> Int
+    nextIndex index
+      | index == depth = 0
+      | otherwise = index + 1
+    nextArgument :: Int -> TypedType
+    nextArgument index
+      | index == depth = TypedListType parameterType
+      | otherwise = parameterType
+    nextType :: Int -> TypedType
+    nextType index =
+      TypedDataType
+        (dataName (nextIndex index))
+        [nextArgument index]
+    declaration :: Int -> TypedDataDeclaration
+    declaration index =
+      TypedDataDeclaration
+        span1
+        (dataName index)
+        [parameter]
+        [ TypedConstructorDeclaration
+            (binder modulePath [index, 0] (endName index))
+            (endName index)
+            []
+            [],
+          TypedConstructorDeclaration
+            (binder modulePath [index, 1] (stepName index))
+            (stepName index)
+            [nextType index, nextType index]
+            [ TypedManagedVariantRecipe (dataName (nextIndex index)) [nextArgument index],
+              TypedManagedVariantRecipe (dataName (nextIndex index)) [nextArgument index]
+            ]
+        ]
     valueName = fixtureValueName "equal"
     valueOwner = binder modulePath [depth + 1] valueName
     targetType = TypedDataType (dataName 0) [TypedBoolType]

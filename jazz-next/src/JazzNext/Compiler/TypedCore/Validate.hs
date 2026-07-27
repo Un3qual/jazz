@@ -1651,7 +1651,7 @@ validateStatement context statementLocation statement =
       validateSpan statementPath spanValue
         <> validateLocalDefinitionName context [TypedValueNamespace] statementPath name
         <> validateBinderDefinition context statementPath binderId name
-        <> validateScheme context statementPath binderId scheme
+        <> validateInferredScheme context statementPath binderId scheme
         <> validateBindingValue statementPath scheme (expressionInfo expression)
         <> validateExpression (withSchemeScope scheme context) statementLocation [0] expression
     TypedSignatureStatement binderId name spanValue scheme ->
@@ -1730,13 +1730,32 @@ validateBindingValue path (TypedScheme _ _ _ _ resultType resultRecipe) info =
 validateScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
 validateScheme context path owner = validateSchemeWithOuterScope context path owner (moduleContextTypeScope context)
 
+validateInferredScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
+validateInferredScheme context path owner =
+  validateSchemeWithOuterScopeUsing
+    validateRetainedCapabilityConstraint
+    context
+    path
+    owner
+    (moduleContextTypeScope context)
+
 validateSchemeWithOuterScope :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> Set TypedTypeParameterId -> TypedScheme -> [TypedCoreValidationFailure]
-validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
+validateSchemeWithOuterScope = validateSchemeWithOuterScopeUsing validateCapabilityConstraint
+
+validateSchemeWithOuterScopeUsing ::
+  (ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedCapabilityConstraint -> [TypedCoreValidationFailure]) ->
+  ModuleContext ->
+  TypedCoreValidationPath ->
+  TypedBinderId ->
+  Set TypedTypeParameterId ->
+  TypedScheme ->
+  [TypedCoreValidationFailure]
+validateSchemeWithOuterScopeUsing validateConstraint context path owner outerScope (TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe) =
   ownerFailures
     <> parameterShadowingFailures
     <> parameterOrderFailures
     <> validateOrderedEvidenceParameters path evidenceParameters
-    <> concatMap (validateEvidenceParameter context path parameterScope) evidenceParameters
+    <> concatMap validateEvidenceParameter evidenceParameters
     <> concatMap (validatePrimitiveConstraint context path parameterScope) primitiveConstraints
     <> validateType path parameterScope resultType
     <> concatMap (validateDataTypeApplications context path) (resultType : evidenceTypes <> primitiveTypes)
@@ -1756,6 +1775,8 @@ validateSchemeWithOuterScope context path owner outerScope (TypedScheme schemeOw
           validateOrderedTypeParametersFrom path (nextTypeParameterOrdinal outerScope) typeParameters
       | otherwise = []
     parameterScope = Set.union outerScope (Set.fromList typeParameters)
+    validateEvidenceParameter (TypedEvidenceParameter _ constraint) =
+      validateConstraint context path parameterScope constraint
     evidenceTypes = [targetType | TypedEvidenceParameter _ (TypedCapabilityConstraint _ _ targetType) <- evidenceParameters]
     primitiveTypes =
       [ typeValue
@@ -1824,10 +1845,6 @@ duplicateParameterFailures path kind detailOf = snd . foldl' step (Set.empty, []
       | Set.member identifier seen =
           (seen, failures <> [failure path kind (detailOf identifier)])
       | otherwise = (Set.insert identifier seen, failures)
-
-validateEvidenceParameter :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedEvidenceParameter -> [TypedCoreValidationFailure]
-validateEvidenceParameter context path scope (TypedEvidenceParameter _ constraint) =
-  validateCapabilityConstraint context path scope constraint
 
 validatePrimitiveConstraint :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedPrimitiveConstraint -> [TypedCoreValidationFailure]
 validatePrimitiveConstraint context path scope constraint =
@@ -1916,47 +1933,81 @@ dataParameterContributesToEquality ::
   ResolvedNameKey ->
   TypedTypeParameterId ->
   Bool
-dataParameterContributesToEquality context seen dataKey parameter
-  | Set.member (dataKey, parameter) seen = False
+dataParameterContributesToEquality context seen dataKey parameter =
+  fst (dataParameterContributesToEqualityFrom context seen dataKey parameter)
+
+dataParameterContributesToEqualityFrom ::
+  ModuleContext ->
+  Set (ResolvedNameKey, TypedTypeParameterId) ->
+  ResolvedNameKey ->
+  TypedTypeParameterId ->
+  (Bool, Set (ResolvedNameKey, TypedTypeParameterId))
+dataParameterContributesToEqualityFrom context seen dataKey parameter
+  | Set.member parameterKey seen = (False, seen)
   | otherwise =
       case Map.lookup dataKey (moduleContextDataContracts context) of
-        Nothing -> True
+        Nothing -> (True, nextSeen)
         Just (DataContract _ constructorFields) ->
-          let nextSeen = Set.insert (dataKey, parameter) seen
-           in any
-                (any (typePositionUsesParameter context nextSeen parameter))
-                constructorFields
+          typePositionsUseParameter context nextSeen parameter (concat constructorFields)
+  where
+    parameterKey = (dataKey, parameter)
+    nextSeen = Set.insert parameterKey seen
+
+typePositionsUseParameter ::
+  ModuleContext ->
+  Set (ResolvedNameKey, TypedTypeParameterId) ->
+  TypedTypeParameterId ->
+  [TypedType] ->
+  (Bool, Set (ResolvedNameKey, TypedTypeParameterId))
+typePositionsUseParameter _ seen _ [] = (False, seen)
+typePositionsUseParameter context seen parameter (typeValue : remaining) =
+  case typePositionUsesParameter context seen parameter typeValue of
+    (True, nextSeen) -> (True, nextSeen)
+    (False, nextSeen) -> typePositionsUseParameter context nextSeen parameter remaining
 
 typePositionUsesParameter ::
   ModuleContext ->
   Set (ResolvedNameKey, TypedTypeParameterId) ->
   TypedTypeParameterId ->
   TypedType ->
-  Bool
+  (Bool, Set (ResolvedNameKey, TypedTypeParameterId))
 typePositionUsesParameter context seen parameter typeValue =
   case typeValue of
     TypedListType elementType ->
       typePositionUsesParameter context seen parameter elementType
     TypedTupleType elementTypes ->
-      any (typePositionUsesParameter context seen parameter) elementTypes
+      typePositionsUseParameter context seen parameter elementTypes
     TypedDataType name arguments ->
       case resolvedNameKey (moduleContextPath context) name of
-        Nothing -> typeMentionsParameter parameter typeValue
+        Nothing -> (typeMentionsParameter parameter typeValue, seen)
         Just dataKey ->
           case Map.lookup dataKey (moduleContextDataContracts context) of
             Just (DataContract dataParameters _)
               | length dataParameters == length arguments ->
-                  or
-                    [ typeMentionsParameter parameter argument
-                        && dataParameterContributesToEquality context seen dataKey dataParameter
-                    | (dataParameter, argument) <- zip dataParameters arguments
-                    ]
-            _ -> typeMentionsParameter parameter typeValue
+                  dataArgumentsUseParameter context seen parameter dataKey (zip dataParameters arguments)
+            _ -> (typeMentionsParameter parameter typeValue, seen)
     TypedFunctionType argument result ->
-      typePositionUsesParameter context seen parameter argument
-        || typePositionUsesParameter context seen parameter result
-    TypedTypeParameterType candidate -> candidate == parameter
-    _ -> False
+      case typePositionUsesParameter context seen parameter argument of
+        (True, nextSeen) -> (True, nextSeen)
+        (False, nextSeen) -> typePositionUsesParameter context nextSeen parameter result
+    TypedTypeParameterType candidate -> (candidate == parameter, seen)
+    _ -> (False, seen)
+
+dataArgumentsUseParameter ::
+  ModuleContext ->
+  Set (ResolvedNameKey, TypedTypeParameterId) ->
+  TypedTypeParameterId ->
+  ResolvedNameKey ->
+  [(TypedTypeParameterId, TypedType)] ->
+  (Bool, Set (ResolvedNameKey, TypedTypeParameterId))
+dataArgumentsUseParameter _ seen _ _ [] = (False, seen)
+dataArgumentsUseParameter context seen sourceParameter dataKey ((dataParameter, argument) : remaining)
+  | not (typeMentionsParameter sourceParameter argument) =
+      dataArgumentsUseParameter context seen sourceParameter dataKey remaining
+  | otherwise =
+      case dataParameterContributesToEqualityFrom context seen dataKey dataParameter of
+        (True, nextSeen) -> (True, nextSeen)
+        (False, nextSeen) -> dataArgumentsUseParameter context nextSeen sourceParameter dataKey remaining
 
 validateNumericConstraintTarget :: TypedCoreValidationPath -> TypedNumericConstraint -> TypedType -> [TypedCoreValidationFailure]
 validateNumericConstraintTarget path numericConstraint typeValue
@@ -2057,9 +2108,21 @@ numericTypeIsIntegral numericType =
     TypedFloat64Type -> False
 
 validateCapabilityConstraint :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedCapabilityConstraint -> [TypedCoreValidationFailure]
-validateCapabilityConstraint context path scope (TypedCapabilityConstraint capability maybeMethod targetType) =
+validateCapabilityConstraint = validateCapabilityConstraintWith validateCapabilityName
+
+validateRetainedCapabilityConstraint :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedCapabilityConstraint -> [TypedCoreValidationFailure]
+validateRetainedCapabilityConstraint = validateCapabilityConstraintWith validateRetainedCapabilityName
+
+validateCapabilityConstraintWith ::
+  (ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]) ->
+  ModuleContext ->
+  TypedCoreValidationPath ->
+  Set TypedTypeParameterId ->
+  TypedCapabilityConstraint ->
+  [TypedCoreValidationFailure]
+validateCapabilityConstraintWith validateCapability context path scope (TypedCapabilityConstraint capability maybeMethod targetType) =
   validateCapabilityConstraintTarget path scope targetType
-    <> validateVisibleNameInNamespaces [TypedCapabilityNamespace] context path capability
+    <> validateCapability context path capability
     <> methodFailures
   where
     capabilityContract = do
