@@ -3939,13 +3939,16 @@ module TypedCoreValidate (
 
   generalizeImportedClassMethodScheme :: TypedCoreName -> [TypedTypeParameterId] -> TypedCoreName -> TypedScheme -> TypedScheme.
   generalizeImportedClassMethodScheme = \(className, classParameters, methodName, scheme) -> case generalizeClassMethodScheme classParameters scheme {
-    | TypedScheme binder parameters evidence primitive resultType resultRecipe -> TypedScheme
-      binder
-      parameters
-      (listAppend evidence (importedClassMethodDispatchEvidence className methodName classParameters parameters evidence))
-      primitive
-      resultType
-      resultRecipe
+    | TypedScheme binder parameters evidence primitive resultType resultRecipe -> {
+      importedParameters = listAppend classParameters (listFilter (\(parameter) -> if typeParameterIdMember parameter classParameters then False else True) parameters).
+      TypedScheme
+        binder
+        importedParameters
+        (listAppend evidence (importedClassMethodDispatchEvidence className methodName classParameters importedParameters evidence))
+        primitive
+        resultType
+        resultRecipe.
+    }
   }.
 
   methodSchemeEntries :: [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].

@@ -97,7 +97,8 @@ import JazzNext.Compiler.Profiling
     withCompilerStageResult
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
+  ( RuntimeValue,
+    evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
     renderRuntimeValue
   )
 import JazzNext.Compiler.Runtime.Observation
@@ -143,6 +144,7 @@ compileErrors = filter isErrorDiagnostic . compileDiagnostics
 data RunResult = RunResult
   { runDiagnostics :: [Diagnostic],
     runOutput :: Maybe Text,
+    runRuntimeValue :: Maybe RuntimeValue,
     runExitStatus :: Maybe Integer,
     runRuntimeObservation :: Maybe RuntimeObservationReport
   }
@@ -316,6 +318,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
         RunResult
           { runDiagnostics = compilePhaseDiagnostics,
             runOutput = Nothing,
+            runRuntimeValue = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
@@ -334,6 +337,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             RunResult
               { runDiagnostics = compilePhaseDiagnostics <> [runtimeError],
                 runOutput = Nothing,
+                runRuntimeValue = Nothing,
                 runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
               }
@@ -342,6 +346,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             RunResult
               { runDiagnostics = compilePhaseDiagnostics,
                 runOutput = Nothing,
+                runRuntimeValue = Nothing,
                 runExitStatus = Just status,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
               }
@@ -350,6 +355,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             RunResult
               { runDiagnostics = compilePhaseDiagnostics,
                 runOutput = fmap renderRuntimeValue runtimeValue,
+                runRuntimeValue = runtimeValue,
                 runExitStatus = Nothing,
                 runRuntimeObservation = runtimeObservationReport runtimeResult
               }
@@ -396,6 +402,7 @@ runSourceWithResolvedPreludeAndHostObserved observationRequest host settings res
         RunResult
           { runDiagnostics = [parseErrorCode],
             runOutput = Nothing,
+            runRuntimeValue = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
@@ -538,6 +545,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
         RunResult
           { runDiagnostics = [diagnostic],
             runOutput = Nothing,
+            runRuntimeValue = Nothing,
             runExitStatus = Nothing,
             runRuntimeObservation = Nothing
           }
@@ -549,6 +557,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                 RunResult
                   { runDiagnostics = moduleDiagnostics,
                     runOutput = Nothing,
+                    runRuntimeValue = Nothing,
                     runExitStatus = Nothing,
                     runRuntimeObservation = Nothing
                   }
@@ -560,6 +569,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                     RunResult
                       { runDiagnostics = moduleDiagnostics <> [runtimeError],
                         runOutput = Nothing,
+                        runRuntimeValue = Nothing,
                         runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
@@ -568,6 +578,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                     RunResult
                       { runDiagnostics = moduleDiagnostics,
                         runOutput = Nothing,
+                        runRuntimeValue = Nothing,
                         runExitStatus = Just status,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
                       }
@@ -576,6 +587,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
                     RunResult
                       { runDiagnostics = moduleDiagnostics,
                         runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram,
+                        runRuntimeValue = runtimeProgramOutput runtimeProgram,
                         runExitStatus = Nothing,
                         runRuntimeObservation = runtimeObservationReport runtimeResult
                       }

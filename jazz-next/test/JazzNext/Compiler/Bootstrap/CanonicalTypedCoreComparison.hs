@@ -4,6 +4,8 @@ module JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
   ( canonicalTypedProgramRuntimeValue,
     canonicalTypedCoreOutcomeRuntimeValue,
     canonicalTypedValidationFailuresRuntimeValue,
+    CanonicalTypedCoreStructure,
+    decodeCanonicalTypedCoreStructure,
     decodeCanonicalTypedValidationFailuresRuntimeValue,
   )
 where
@@ -18,6 +20,62 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
 import JazzNext.Compiler.Name (identifierText)
 import JazzNext.Compiler.Runtime (RuntimeValue (..))
 import JazzNext.Compiler.TypedCore
+
+data CanonicalTypedCoreStructure
+  = CanonicalStructureInt Integer
+  | CanonicalStructureBool Bool
+  | CanonicalStructureChar Char
+  | CanonicalStructureText Text
+  | CanonicalStructureList [CanonicalTypedCoreStructure]
+  | CanonicalStructureTuple [CanonicalTypedCoreStructure]
+  | CanonicalStructureConstructor Text [CanonicalTypedCoreStructure]
+  deriving (Eq, Show)
+
+decodeCanonicalTypedCoreStructure :: RuntimeValue -> Either Text CanonicalTypedCoreStructure
+decodeCanonicalTypedCoreStructure value =
+  case value of
+    VInt integer _ -> Right (CanonicalStructureInt integer)
+    VBool boolean -> Right (CanonicalStructureBool boolean)
+    VChar character -> Right (CanonicalStructureChar character)
+    VText textValue -> Right (CanonicalStructureText textValue)
+    VList elements _ ->
+      CanonicalStructureList <$> traverse decodeCanonicalTypedCoreStructure elements
+    VTuple elements ->
+      CanonicalStructureTuple <$> traverse decodeCanonicalTypedCoreStructure elements
+    VConstructor _ _ constructorName constructorArguments arguments
+      | length constructorArguments == length arguments -> do
+          canonicalName <-
+            canonicalTypedCoreConstructorName (identifierText constructorName)
+          CanonicalStructureConstructor canonicalName
+            <$> traverse decodeCanonicalTypedCoreStructure arguments
+      | otherwise ->
+          Left
+            ( "canonical typed-core constructor '"
+                <> identifierText constructorName
+                <> "' is only partially applied"
+            )
+    VTyped _ innerValue ->
+      decodeCanonicalTypedCoreStructure innerValue
+    VExplicitTypeApplication _ innerValue ->
+      decodeCanonicalTypedCoreStructure innerValue
+    _ ->
+      Left
+        ( "canonical typed-core structure contains unsupported "
+            <> runtimeValueCategory value
+        )
+
+canonicalTypedCoreConstructorName :: Text -> Either Text Text
+canonicalTypedCoreConstructorName name =
+  case Text.splitOn "::" name of
+    [unqualified] -> Right unqualified
+    ["TypedCoreTypes", member] -> Right member
+    ["Maybe", member]
+      | member == "Just" || member == "Nothing" -> Right member
+    _ ->
+      Left
+        ( "canonical typed-core structure contains constructor outside the checked modules: "
+            <> name
+        )
 
 canonicalTypedProgramRuntimeValue :: TypedProgram -> RuntimeValue
 canonicalTypedProgramRuntimeValue (TypedProgram prelude modules entryModule) =

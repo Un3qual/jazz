@@ -7,9 +7,11 @@ import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Bootstrap.CanonicalTypedCoreComparison
-  ( canonicalTypedCoreOutcomeRuntimeValue,
+  ( CanonicalTypedCoreStructure,
+    canonicalTypedCoreOutcomeRuntimeValue,
     canonicalTypedProgramRuntimeValue,
     canonicalTypedValidationFailuresRuntimeValue,
+    decodeCanonicalTypedCoreStructure,
     decodeCanonicalTypedValidationFailuresRuntimeValue,
   )
 import JazzNext.Compiler.Bootstrap.CanonicalValue
@@ -263,22 +265,21 @@ allValidationKinds = [minBound .. maxBound]
 testJazzValidationParity :: IO ()
 testJazzValidationParity = do
   let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures <> reviewRegressionPrograms
-      expected =
-        renderRuntimeValue
-          ( VList
-              [ VTuple
-                  [ canonicalTypedProgramRuntimeValue program,
-                    canonicalTypedValidationFailuresRuntimeValue (validateTypedProgram program)
-                  ]
-              | program <- programs
+      expectedRuntimeValue =
+        VList
+          [ VTuple
+              [ canonicalTypedProgramRuntimeValue program,
+                canonicalTypedValidationFailuresRuntimeValue (validateTypedProgram program)
               ]
-              Nothing
-          )
+          | program <- programs
+          ]
+          Nothing
+      expected = decodeCanonicalTypedCoreStructure expectedRuntimeValue
   first <- runJazzValidationBatch programs
   second <- runJazzValidationBatch programs
-  assertJazzOutput "Jazz validation first run" expected first
-  assertJazzOutput "Jazz validation second run" expected second
-  assertEqual "Jazz validation deterministic output" (runOutput first) (runOutput second)
+  assertJazzStructure "Jazz validation first run" expected first
+  assertJazzStructure "Jazz validation second run" expected second
+  assertEqual "Jazz validation deterministic structure" (checkedRunStructure first) (checkedRunStructure second)
 
 testNestedBlockValidationRegressions :: IO ()
 testNestedBlockValidationRegressions = do
@@ -333,7 +334,7 @@ reviewRegressionGroups =
     (("requires polymorphic variable instantiations", testMissingPolymorphicInstantiation), [missingPolymorphicInstantiationProgram]),
     (("rejects unsupported strict equality constraints", testUnsupportedStrictEqualityConstraint), [unsupportedStrictEqualityConstraintProgram]),
     (("checks builtin and generated name visibility", testUncheckedSpecialNames), [uncheckedSpecialNameProgram]),
-    (("exports class methods as values", testClassMethodExport), [classMethodExportProgram]),
+    (("exports target-independent class methods with dispatch", testClassMethodExport), [classMethodExportProgram, missingTargetIndependentClassMethodDispatchProgram]),
     (("matches fractional literal suffix widths", testFractionalLiteralSuffix), [fractionalLiteralSuffixProgram]),
     (("checks Prelude evidence implementations", testMissingPreludeImpl), [missingPreludeImplProgram]),
     (("retains type scope for evidence", testEvidenceTypeScope), [evidenceTypeScopeProgram]),
@@ -2564,11 +2565,19 @@ testUncheckedSpecialNames =
     (validateTypedProgram uncheckedSpecialNameProgram)
 
 testClassMethodExport :: IO ()
-testClassMethodExport =
+testClassMethodExport = do
   assertEqual
-    "class methods can be exported and selectively imported as values"
+    "target-independent class methods can be exported and selectively imported with a selected body"
     []
     (validateTypedProgram classMethodExportProgram)
+  assertEqual
+    "target-independent imported class methods cannot omit their dispatch body"
+    [ expressionFailure
+        "review-missing-target-independent-class-method-dispatch"
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+    ]
+    (validateTypedProgram missingTargetIndependentClassMethodDispatchProgram)
 
 testFractionalLiteralSuffix :: IO ()
 testFractionalLiteralSuffix =
@@ -7875,15 +7884,31 @@ uncheckedSpecialNameProgram =
       ]
 
 classMethodExportProgram :: TypedProgram
-classMethodExportProgram = TypedProgram Nothing [libraryModule, entryModule] entryPath
+classMethodExportProgram =
+  targetIndependentClassMethodImportProgramWith
+    "review-class-method-export"
+    True
+
+missingTargetIndependentClassMethodDispatchProgram :: TypedProgram
+missingTargetIndependentClassMethodDispatchProgram =
+  targetIndependentClassMethodImportProgramWith
+    "review-missing-target-independent-class-method-dispatch"
+    False
+
+targetIndependentClassMethodImportProgramWith :: Text -> Bool -> TypedProgram
+targetIndependentClassMethodImportProgramWith fixture includeEvidence =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     libraryPath = (fixtureLibraryPath "ClassMethodExport")
-    entryPath = (fixtureModulePath "review-class-method-export")
+    entryPath = (fixtureModulePath fixture)
+    parameter = TypedTypeParameterId 0
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
     methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
-    declaration = TypedClassDeclaration span1 className [TypedTypeParameterId 0] [TypedMethodSignature methodName span1 methodScheme]
+    declaration = TypedClassDeclaration span1 className [parameter] [TypedMethodSignature methodName span1 methodScheme]
+    localImplId = TypedImplId libraryPath className [TypedBoolType]
+    methodDefinition = fixtureImplMethod libraryPath [1, 0] localImplId "render"
     libraryModule =
       typedModule
         libraryPath
@@ -7892,10 +7917,50 @@ classMethodExportProgram = TypedProgram Nothing [libraryModule, entryModule] ent
         [ TypedModuleExport TypedCapabilityNamespace "Render",
           TypedModuleExport TypedValueNamespace "render"
         ]
-        (TypedModuleInterface [] [] [TypedClassInterface declaration] [])
-        [TypedClassStatement declaration]
+        (TypedModuleInterface [] [] [TypedClassInterface declaration] [TypedImplInterface localImplId])
+        [ TypedClassStatement declaration,
+          TypedImplStatement (TypedImplDeclaration span1 localImplId [methodDefinition])
+        ]
         boolInfo
     importedMethod = resolved (TypedImportedModule libraryPath) TypedValueNamespace "render"
+    importedClassName =
+      resolved
+        (TypedImportedModule libraryPath)
+        TypedCapabilityNamespace
+        "Render"
+    importedImplId =
+      TypedImplId libraryPath importedClassName [TypedBoolType]
+    constraint =
+      TypedCapabilityConstraint
+        importedClassName
+        (Just "Render::render")
+        TypedBoolType
+    selectedEvidence =
+      TypedSelectedEvidence
+        ( TypedEvidenceUse
+            ( Just
+                ( TypedEvidenceParameterRef
+                    methodOwner
+                    (TypedEvidenceParameterId 0)
+                )
+            )
+            constraint
+            importedImplId
+            (Just (TypedMethodId importedImplId "render"))
+        )
+    evidenceSelections
+      | includeEvidence = [selectedEvidence]
+      | otherwise = []
+    importedMethodInfo =
+      TypedNodeInfo
+        boolToBoolType
+        boolToBoolRecipe
+        [ TypedInstantiation
+            methodOwner
+            [TypedTypeArgument parameter TypedBoolType]
+            Nothing
+        ]
+        evidenceSelections
     entryModule =
       typedModule
         entryPath
@@ -7903,8 +7968,8 @@ classMethodExportProgram = TypedProgram Nothing [libraryModule, entryModule] ent
         [TypedResolvedImport span1 libraryPath Nothing (Just ["render"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr boolToBoolInfo importedMethod)]
-        boolToBoolInfo
+        [expressionStatement 1 (TypedVariableExpr importedMethodInfo importedMethod)]
+        importedMethodInfo
 
 fractionalLiteralSuffixProgram :: TypedProgram
 fractionalLiteralSuffixProgram =
@@ -10683,11 +10748,17 @@ jazzValidationBatchSource programs =
       ""
     ]
 
-assertJazzOutput :: Text -> Text -> RunResult -> IO ()
-assertJazzOutput label expected result = do
+assertJazzStructure :: Text -> Either Text CanonicalTypedCoreStructure -> RunResult -> IO ()
+assertJazzStructure label expected result = do
   assertEqual (label <> " compile errors") [] (runCompileErrors result)
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
-  assertEqual (label <> " output") (Just expected) (runOutput result)
+  assertEqual (label <> " structure") expected (checkedRunStructure result)
+
+checkedRunStructure :: RunResult -> Either Text CanonicalTypedCoreStructure
+checkedRunStructure result =
+  case runRuntimeValue result of
+    Just value -> decodeCanonicalTypedCoreStructure value
+    Nothing -> Left "run completed without a runtime value"
 
 renderJazzRuntimeValue :: RuntimeValue -> Text
 renderJazzRuntimeValue value =

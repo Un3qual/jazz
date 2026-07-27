@@ -159,7 +159,7 @@ The valid family contains exactly these 16 fixtures:
 | `qualified-method-selection` | Fully applied method with one selected impl and method-body identity. |
 | `partial-method-candidates` | Permitted ordered candidate set before full application. |
 | `patterns-binders` | Every pattern form, binder annotations, guard typing, and arm result typing. |
-| `or-pattern-alignment` | Identical binder ids, order, types, and recipes across alternatives. |
+| `or-pattern-alignment` | Unique occurrence binder ids plus identical ordered resolved names, types, and recipes across alternatives. |
 | `multi-module-interface` | Relative source paths, imports, exports, typed interfaces, prelude ownership, dependency order, and entry path. |
 
 The invalid family contains exactly these 28 fixtures:
@@ -332,10 +332,12 @@ failures rather than constructible typed-core values.
 
   Validate relative `TypedSourcePath`, unique module paths, existing entry
   module, unique binder ids, binder references, scheme-owned type parameters,
-  representation parameters, and evidence parameters. Type-parameter and
-  evidence-parameter ids must be the exact zero-based sequence in stored
-  order. Emit failures at the first structural path that owns the invalid value
-  while continuing traversal.
+  representation parameters, and evidence parameters. Evidence-parameter ids
+  must be the exact zero-based sequence in stored order. Type-parameter ids
+  start at zero for a top-level scope and continue after enclosing ids for a
+  nested scheme, keeping captured and locally generalized parameters
+  unambiguous. Emit failures at the first structural path that owns the invalid
+  value while continuing traversal.
 
 - [x] **Step 4: Implement type and representation validation**
 

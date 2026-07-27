@@ -713,11 +713,15 @@ generalizeImportedClassMethodScheme className classParameters methodName scheme 
     TypedScheme owner parameters evidence primitive resultType resultRecipe ->
       TypedScheme
         owner
-        parameters
-        (evidence <> dispatchEvidence parameters evidence)
+        importedParameters
+        (evidence <> dispatchEvidence importedParameters evidence)
         primitive
         resultType
         resultRecipe
+      where
+        importedParameters =
+          classParameters
+            <> filter (`notElem` classParameters) parameters
   where
     dispatchEvidence parameters evidence =
       case ( filter (`elem` parameters) classParameters,

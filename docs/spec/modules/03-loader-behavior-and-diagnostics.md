@@ -128,10 +128,10 @@ Driver results are structured:
 
 - `CompileResult` stores one ordered `compileDiagnostics` stream.
   `compileWarnings` and `compileErrors` are severity filters over that stream.
-- `RunResult` stores one ordered `runDiagnostics` stream plus optional runtime
-  output, exit status, and runtime observation. `runWarnings`,
-  `runCompileErrors`, and `runRuntimeErrors` filter by effective severity and
-  origin. Compile diagnostics precede runtime diagnostics.
+- `RunResult` stores one ordered `runDiagnostics` stream plus the optional raw
+  runtime value, its rendered output, exit status, and runtime observation.
+  `runWarnings`, `runCompileErrors`, and `runRuntimeErrors` filter by effective
+  severity and origin. Compile diagnostics precede runtime diagnostics.
 - A promoted warning appears once with error severity, retains its `W####` code
   and warning category, and is selected only by the error view.
 

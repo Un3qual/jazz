@@ -229,8 +229,10 @@ Each typed expression contains one `TypedNodeInfo` record with:
 Typed patterns mirror every active core pattern. Each pattern node records the
 type and representation recipe of the value it matches. Every variable or as-
 pattern binder additionally records its resolved binder name, type, and
-representation recipe. All alternatives of an or-pattern must expose the same
-ordered binder contract.
+representation recipe. Binder ids identify individual pattern occurrences and
+therefore remain unique across or-pattern alternatives. All alternatives must
+expose the same ordered logical binder contract: resolved name, type, and
+representation recipe.
 
 Typed binding statements record:
 
@@ -270,11 +272,15 @@ defaulting rules before constructing `TypedType`. A remaining free solver
 variable is valid only when it maps to a declared generalized type parameter.
 All other remaining variables are elaboration failures.
 
-Generalized parameters use stable zero-based ordinals in the existing
-`schemeQuantifiedOrder`, scoped to the owning binding. Internal `TVarType Int`
-values never cross the boundary. Explicit and implicit instantiations record
-the same parameter ordinals with the concrete typed arguments chosen at that
-use site.
+Generalized parameters use stable canonical ordinals derived from the existing
+`schemeQuantifiedOrder`. A top-level type-parameter scope starts at zero. A
+nested scheme allocates its parameters after the enclosing scope, so its bare
+`TypedTypeParameterId` values remain unambiguous when its types refer to both
+captured outer parameters and locally generalized parameters. Sibling scopes
+may reuse ordinals because they are never active together. Internal
+`TVarType Int` values never cross the boundary. Explicit and implicit
+instantiations record the owning scheme's parameter ordinals with the concrete
+typed arguments chosen at that use site.
 
 ## Representation Recipes
 
