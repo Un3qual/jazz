@@ -351,7 +351,7 @@ reviewRegressionGroups =
     (("resolves shadowed schemes through lexical scope", testLexicalSchemeShadowing), [lexicalSchemeShadowingProgram]),
     (("rejects method candidates after full application", testFullyAppliedMethodCandidates), [fullyAppliedMethodCandidatesProgram]),
     (("rejects duplicate unbound selected evidence", testDuplicateUnboundEvidence), [duplicateUnboundEvidenceProgram]),
-    (("generalizes imported class methods as values", testGeneralizedClassMethodImport), [generalizedClassMethodImportProgram]),
+    (("generalizes imported class methods without losing dispatch", testGeneralizedClassMethodImport), [generalizedClassMethodImportProgram, missingImportedClassMethodDispatchProgram]),
     (("rejects colliding imported class identifiers", testImportedClassCollision), [importedClassCollisionProgram]),
     (("preserves block statement scope order", testForwardBlockReference), [forwardBlockReferenceProgram]),
     (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram]),
@@ -394,6 +394,7 @@ reviewRegressionGroups =
     (("rejects stray qualified type-application instantiations", testQualifiedTypeApplicationInstantiation), [qualifiedTypeApplicationInstantiationProgram]),
     (("keeps local class methods out of active scheme lookup", testLocalClassMethodSchemeIsolation), [localClassMethodAfterValueProgram, localClassMethodBeforeValueProgram]),
     (("retains imported capability evidence through selective values", testRetainedCapabilityEvidence), [retainedCapabilityEvidenceProgram]),
+    (("matches retained evidence parameters to their capability", testRetainedCapabilityEvidenceOrigin), [retainedCapabilityWrongImplProgram]),
     (("requires polymorphic constructor instantiation metadata", testMissingConstructorInstantiation), [missingConstructorInstantiationProgram]),
     (("publishes impl identities for retained capabilities", testMissingPublishedImpl), [missingPublishedImplProgram]),
     (("terminates equality checks for expanding recursive types", testExpandingRecursiveEquality), [expandingRecursiveEqualityProgram]),
@@ -418,6 +419,7 @@ reviewRegressionGroups =
     (("preserves phantom parameters through equality recursion", testRecursivePhantomDataEquality), [recursivePhantomDataEqualityProgram]),
     (("retains data metadata for published impl targets", testPublishedImplDataMetadata), [publishedImplDataMetadataProgram]),
     (("validates converging import graphs without path explosion", testDenseImportDag), [denseImportDagProgram 10]),
+    (("computes dense recursive groups without repeated graph searches", testDenseBindingDag), [denseBindingDagProgram 10]),
     (("rejects invalid resolved operator symbols", testInvalidResolvedOperatorSymbols), [invalidResolvedOperatorSymbolsProgram]),
     (("requires one selected body for qualified methods", testAmbiguousQualifiedMethodSelection), [ambiguousQualifiedMethodSelectionProgram]),
     (("validates repeated equality subgraphs once", testRepeatedEqualityDag), [repeatedEqualityDagProgram 10]),
@@ -476,6 +478,17 @@ testDenseImportDag = do
   case result of
     Nothing -> failTest "large converging import graph exceeded the two-second validation budget"
     Just failureCount -> assertEqual "large converging import graph failures" 0 failureCount
+
+testDenseBindingDag :: IO ()
+testDenseBindingDag = do
+  assertEqual
+    "small dense binding graph is non-recursive"
+    []
+    (validateTypedProgram (denseBindingDagProgram 10))
+  result <- timeout 2000000 (evaluate (length (validateTypedProgram (denseBindingDagProgram 200))))
+  case result of
+    Nothing -> failTest "large dense binding graph exceeded the two-second validation budget"
+    Just failureCount -> assertEqual "large dense binding graph failures" 0 failureCount
 
 testInvalidResolvedOperatorSymbols :: IO ()
 testInvalidResolvedOperatorSymbols =
@@ -3210,11 +3223,19 @@ testDuplicateUnboundEvidence =
     (validateTypedProgram duplicateUnboundEvidenceProgram)
 
 testGeneralizedClassMethodImport :: IO ()
-testGeneralizedClassMethodImport =
+testGeneralizedClassMethodImport = do
   assertEqual
-    "imported class methods quantify their class parameters as values"
+    "imported class methods quantify their class parameters and select a dispatch body"
     []
     (validateTypedProgram generalizedClassMethodImportProgram)
+  assertEqual
+    "imported class methods cannot omit their dispatch body"
+    [ expressionFailure
+        "review-missing-imported-class-method-dispatch"
+        TypedMissingEvidence
+        (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0))
+    ]
+    (validateTypedProgram missingImportedClassMethodDispatchProgram)
 
 testImportedClassCollision :: IO ()
 testImportedClassCollision =
@@ -3763,6 +3784,18 @@ testRetainedCapabilityEvidence =
     "selective constrained-value imports retain capability and impl metadata without exposing the capability name"
     []
     (validateTypedProgram retainedCapabilityEvidenceProgram)
+
+testRetainedCapabilityEvidenceOrigin :: IO ()
+testRetainedCapabilityEvidenceOrigin =
+  assertEqual
+    "retained evidence parameters reject an implementation of another capability"
+    [ expressionFailureAt
+        "review-retained-capability-wrong-impl"
+        3
+        TypedMethodSelectionMismatch
+        (TypedNameDetail retainedCapabilityWrongImplName)
+    ]
+    (validateTypedProgram retainedCapabilityWrongImplProgram)
 
 testMissingConstructorInstantiation :: IO ()
 testMissingConstructorInstantiation =
@@ -4855,6 +4888,100 @@ retainedCapabilityEvidenceProgram =
         []
         emptyInterface
         [expressionStatement 1 (TypedVariableExpr entryInfo importedPublishedName)]
+        entryInfo
+
+retainedCapabilityWrongImplName :: TypedCoreName
+retainedCapabilityWrongImplName =
+  resolved TypedCurrentModule TypedCapabilityNamespace "Visible"
+
+retainedCapabilityWrongImplProgram :: TypedProgram
+retainedCapabilityWrongImplProgram =
+  TypedProgram Nothing [providerModule, entryModule] entryPath
+  where
+    providerPath = fixtureLibraryPath "RetainedCapabilityWrongImpl"
+    entryPath = fixtureModulePath "review-retained-capability-wrong-impl"
+    parameter = TypedTypeParameterId 0
+    providerCapability =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Hidden"
+    providerMethod =
+      resolved TypedCurrentModule TypedValueNamespace "render"
+    providerMethodOwner = binder providerPath [0, 0] providerMethod
+    providerMethodScheme =
+      TypedScheme
+        providerMethodOwner
+        []
+        []
+        []
+        (TypedFunctionType (TypedTypeParameterType parameter) TypedTextType)
+        (TypedClosureRecipe [TypedRepresentationParameterRecipe parameter] TypedManagedTextRecipe)
+    providerClass =
+      TypedClassDeclaration
+        span1
+        providerCapability
+        [parameter]
+        [TypedMethodSignature providerMethod span1 providerMethodScheme]
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/RetainedCapabilityWrongImpl.jz")
+        []
+        [ TypedModuleExport TypedCapabilityNamespace "Hidden",
+          TypedModuleExport TypedValueNamespace "render"
+        ]
+        (TypedModuleInterface [] [] [TypedClassInterface providerClass] [])
+        [TypedClassStatement providerClass]
+        unitInfo
+    importedCapability =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "Hidden"
+    visibleClass =
+      TypedClassDeclaration
+        span1
+        retainedCapabilityWrongImplName
+        [parameter]
+        []
+    wrongImplId =
+      TypedImplId entryPath retainedCapabilityWrongImplName [TypedBoolType]
+    localName =
+      resolved TypedCurrentModule TypedValueNamespace "local"
+    localOwner = binder entryPath [2] localName
+    evidenceParameter = TypedEvidenceParameterId 0
+    constraint =
+      TypedCapabilityConstraint importedCapability Nothing TypedBoolType
+    localScheme =
+      TypedScheme
+        localOwner
+        []
+        [TypedEvidenceParameter evidenceParameter constraint]
+        []
+        TypedBoolType
+        TypedBoolRecipe
+    evidenceUse =
+      TypedEvidenceUse
+        (Just (TypedEvidenceParameterRef localOwner evidenceParameter))
+        constraint
+        wrongImplId
+        Nothing
+    entryInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation localOwner [] Nothing]
+        [TypedSelectedEvidence evidenceUse]
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 providerPath Nothing (Just ["render"])]
+        []
+        emptyInterface
+        [ TypedClassStatement visibleClass,
+          TypedImplStatement (TypedImplDeclaration span1 wrongImplId []),
+          TypedLetStatement localOwner localName span1 localScheme trueExpr,
+          expressionStatement 4 (TypedVariableExpr entryInfo localName)
+        ]
         entryInfo
 
 missingPublishedImplId :: TypedImplId
@@ -6862,10 +6989,22 @@ duplicateUnboundEvidenceProgram =
 
 generalizedClassMethodImportProgram :: TypedProgram
 generalizedClassMethodImportProgram =
+  generalizedClassMethodImportProgramWith
+    "review-generalized-class-method-import"
+    True
+
+missingImportedClassMethodDispatchProgram :: TypedProgram
+missingImportedClassMethodDispatchProgram =
+  generalizedClassMethodImportProgramWith
+    "review-missing-imported-class-method-dispatch"
+    False
+
+generalizedClassMethodImportProgramWith :: Text -> Bool -> TypedProgram
+generalizedClassMethodImportProgramWith fixture includeEvidence =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
     libraryPath = (fixtureLibraryPath "GeneralizedClassMethod")
-    entryPath = (fixtureModulePath "review-generalized-class-method-import")
+    entryPath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Display"
     methodName = resolved TypedCurrentModule TypedValueNamespace "display"
@@ -6873,11 +7012,11 @@ generalizedClassMethodImportProgram =
     methodType =
       TypedFunctionType
         (TypedTypeParameterType parameter)
-        TypedTextType
+        (TypedTypeParameterType parameter)
     methodRecipe =
       TypedClosureRecipe
         [TypedRepresentationParameterRecipe parameter]
-        TypedManagedTextRecipe
+        (TypedRepresentationParameterRecipe parameter)
     methodScheme =
       TypedScheme methodOwner [] [] [] methodType methodRecipe
     classDeclaration =
@@ -6886,6 +7025,9 @@ generalizedClassMethodImportProgram =
         className
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
+    localImplId = TypedImplId libraryPath className [TypedBoolType]
+    methodDefinition =
+      fixtureImplMethod libraryPath [1, 0] localImplId "display"
     libraryModule =
       typedModule
         libraryPath
@@ -6894,21 +7036,57 @@ generalizedClassMethodImportProgram =
         [ TypedModuleExport TypedCapabilityNamespace "Display",
           TypedModuleExport TypedValueNamespace "display"
         ]
-        (TypedModuleInterface [] [] [TypedClassInterface classDeclaration] [])
-        [TypedClassStatement classDeclaration]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface localImplId]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement
+            (TypedImplDeclaration span1 localImplId [methodDefinition])
+        ]
         unitInfo
     importedMethodName =
       resolved (TypedImportedModule libraryPath) TypedValueNamespace "display"
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule libraryPath)
+        TypedCapabilityNamespace
+        "Display"
+    importedImplId =
+      TypedImplId libraryPath importedCapabilityName [TypedBoolType]
+    constraint =
+      TypedCapabilityConstraint
+        importedCapabilityName
+        (Just "Display::display")
+        TypedBoolType
+    selectedEvidence =
+      TypedSelectedEvidence
+        ( TypedEvidenceUse
+            ( Just
+                ( TypedEvidenceParameterRef
+                    methodOwner
+                    (TypedEvidenceParameterId 0)
+                )
+            )
+            constraint
+            importedImplId
+            (Just (TypedMethodId importedImplId "display"))
+        )
+    evidence
+      | includeEvidence = [selectedEvidence]
+      | otherwise = []
     instantiatedInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType TypedTextType)
-        (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+        boolToBoolType
+        boolToBoolRecipe
         [ TypedInstantiation
             methodOwner
             [TypedTypeArgument parameter TypedBoolType]
             Nothing
         ]
-        []
+        evidence
     entryModule =
       typedModule
         entryPath
@@ -11315,6 +11493,51 @@ denseImportDagProgram moduleCount =
         emptyInterface
         []
         unitInfo
+
+denseBindingDagProgram :: Int -> TypedProgram
+denseBindingDagProgram bindingCount =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    (bindings <> [expressionStatement bindingCount terminalExpression])
+    emptyInterface
+    boolInfo
+    modulePath
+  where
+    fixture = "review-dense-binding-dag"
+    modulePath = fixtureModulePath fixture
+    names =
+      [ resolved
+          TypedCurrentModule
+          TypedValueNamespace
+          ("value" <> Text.pack (show index))
+      | index <- [0 .. bindingCount - 1]
+      ]
+    bindings =
+      [ TypedLetStatement
+          owner
+          name
+          span1
+          (monoScheme owner)
+          (denseExpression (take index names))
+      | (index, name) <- zip [0 ..] names,
+        let owner = binder modulePath [index] name
+      ]
+    denseExpression =
+      foldr
+        ( \name rest ->
+            TypedIfExpr
+              boolInfo
+              (TypedVariableExpr boolInfo name)
+              rest
+              falseExpr
+        )
+        trueExpr
+    terminalExpression =
+      case reverse names of
+        name : _ -> TypedVariableExpr boolInfo name
+        [] -> trueExpr
 
 invalidResolvedOperatorSymbolsProgram :: TypedProgram
 invalidResolvedOperatorSymbolsProgram =

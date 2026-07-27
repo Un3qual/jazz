@@ -688,7 +688,7 @@ interfaceSchemeEntries (modulePath, selectedNames, TypedModule _ _ _ exports (Ty
     importAllows selectedNames name,
     moduleExportsName TypedValueNamespace name exports
   ]
-    <> [ (binderId, qualifyExternalScheme modulePath (generalizeClassMethodScheme classParameters scheme))
+    <> [ (binderId, qualifyExternalScheme modulePath (generalizeImportedClassMethodScheme className classParameters name scheme))
        | TypedClassInterface (TypedClassDeclaration _ className classParameters methods) <- classes,
          moduleOwnedCapabilityName modulePath className,
          TypedMethodSignature name _ scheme@(TypedScheme binderId _ _ _ _ _) <- methods,
@@ -706,6 +706,34 @@ generalizeClassMethodScheme classParameters (TypedScheme owner methodParameters 
         parameter `notElem` methodParameters,
         schemeMentionsTypeParameter parameter evidence primitive resultType resultRecipe
       ]
+
+generalizeImportedClassMethodScheme :: TypedCoreName -> [TypedTypeParameterId] -> TypedCoreName -> TypedScheme -> TypedScheme
+generalizeImportedClassMethodScheme className classParameters methodName scheme =
+  case generalizeClassMethodScheme classParameters scheme of
+    TypedScheme owner parameters evidence primitive resultType resultRecipe ->
+      TypedScheme
+        owner
+        parameters
+        (evidence <> dispatchEvidence parameters evidence)
+        primitive
+        resultType
+        resultRecipe
+  where
+    dispatchEvidence parameters evidence =
+      case ( filter (`elem` parameters) classParameters,
+             coreNameIdentifier className,
+             coreNameIdentifier methodName
+           ) of
+        ([targetParameter], Just classIdentifier, Just methodIdentifier) ->
+          [ TypedEvidenceParameter
+              (TypedEvidenceParameterId (length evidence))
+              ( TypedCapabilityConstraint
+                  className
+                  (Just (classIdentifier <> "::" <> methodIdentifier))
+                  (TypedTypeParameterType targetParameter)
+              )
+          ]
+        _ -> []
 
 qualifyExternalScheme :: [Text] -> TypedScheme -> TypedScheme
 qualifyExternalScheme modulePath (TypedScheme owner parameters evidence primitive resultType resultRecipe) =
@@ -1243,13 +1271,11 @@ withBlockDeclarations statements context =
     localCapabilities = Map.fromList (concatMap (statementCapabilityEntries modulePath) statements)
     combinedCapabilities =
       Map.union localCapabilities (moduleContextCapabilityContracts context)
-    combinedVisibleNames =
-      Set.union localNames (moduleContextVisibleNames context)
     localEvidenceCapabilities =
       Map.fromList
         ( evidenceCapabilityEntries
             combinedCapabilities
-            combinedVisibleNames
+            (Map.keysSet combinedCapabilities)
             localSchemeEntries
         )
 
@@ -1265,13 +1291,14 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
   where
     statements = map snd locatedStatements
     dependencies = recursiveGroupDependencies initialContext statements
+    reachability = recursiveGroupReachability dependencies
     validateFrom _ _ [] = []
     validateFrom visibleContext blockIndex ((statementLocation, statement) : rest) =
       case rejectedStatement initialContext statementLocation statement of
         Just scopeFailure ->
           scopeFailure : validateFrom visibleContext (blockIndex + 1) rest
         Nothing ->
-          let recursiveGroup = recursiveGroupStatements dependencies statements blockIndex
+          let recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
               statementContext =
                 case statement of
                   TypedLetStatement {}
@@ -1312,8 +1339,8 @@ blockStatementScopeFailure context statementLocation statement =
             (TypedTextDetail declarationKind)
         )
 
-recursiveGroupStatements :: Map Int (Set Int) -> [TypedStatement] -> Int -> [TypedStatement]
-recursiveGroupStatements dependencies statements statementIndex =
+recursiveGroupStatements :: Map Int (Set Int) -> Map Int (Set Int) -> [TypedStatement] -> Int -> [TypedStatement]
+recursiveGroupStatements dependencies reachability statements statementIndex =
   case Map.lookup statementIndex dependencies of
     Nothing -> []
     Just directDependencies
@@ -1323,9 +1350,8 @@ recursiveGroupStatements dependencies statements statementIndex =
   where
     members =
       [ candidate
-      | candidate <- Map.keys dependencies,
-        dependencyReachable dependencies statementIndex candidate,
-        dependencyReachable dependencies candidate statementIndex
+      | candidate <- Set.toList (Map.findWithDefault Set.empty statementIndex reachability),
+        Set.member statementIndex (Map.findWithDefault Set.empty candidate reachability)
       ]
 
 recursiveGroupDependencies :: ModuleContext -> [TypedStatement] -> Map Int (Set Int)
@@ -1367,12 +1393,13 @@ recursiveGroupDependencies outerContext statements =
                     future : _ -> Just future
                     [] -> Nothing
 
-dependencyReachable :: Map Int (Set Int) -> Int -> Int -> Bool
-dependencyReachable dependencies source target = go Set.empty [source]
+recursiveGroupReachability :: Map Int (Set Int) -> Map Int (Set Int)
+recursiveGroupReachability dependencies =
+  Map.mapWithKey (\source _ -> reachableDependencies source) dependencies
   where
-    go _ [] = False
+    reachableDependencies source = go Set.empty [source]
+    go seen [] = seen
     go seen (current : rest)
-      | current == target = True
       | Set.member current seen = go seen rest
       | otherwise =
           go

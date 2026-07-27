@@ -10,7 +10,7 @@ module TypedCoreValidate (
 
   data SchemeEntry = SchemeEntry TypedBinderId TypedScheme.
 
-  data StatementDependencies = StatementDependencies Int [Int].
+  data StatementDependencies = StatementDependencies Int [Int] [Int].
 
   data NameEntry = NameEntry [Text] TypedNameNamespace Text | GeneratedNameEntry TypedGeneratedNameKind.
 
@@ -3920,6 +3920,34 @@ module TypedCoreValidate (
       resultRecipe
   }.
 
+  importedClassMethodDispatchEvidence :: TypedCoreName -> TypedCoreName -> [TypedTypeParameterId] -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedEvidenceParameter].
+  importedClassMethodDispatchEvidence = \(className, methodName, classParameters, generalizedParameters, evidence) -> {
+    dispatchParameters = listFilter (\(parameter) -> typeParameterIdMember parameter generalizedParameters) classParameters.
+    case (dispatchParameters, coreNameIdentifier className, coreNameIdentifier methodName) {
+      | ([targetParameter], Just classIdentifier, Just methodIdentifier) ->
+        [ TypedEvidenceParameter
+            (TypedEvidenceParameterId (listLength evidence))
+            ( TypedCapabilityConstraint
+                className
+                (Just (textAppend classIdentifier (textAppend "::" methodIdentifier)))
+                (TypedTypeParameterType targetParameter)
+            )
+        ]
+      | other -> []
+    }.
+  }.
+
+  generalizeImportedClassMethodScheme :: TypedCoreName -> [TypedTypeParameterId] -> TypedCoreName -> TypedScheme -> TypedScheme.
+  generalizeImportedClassMethodScheme = \(className, classParameters, methodName, scheme) -> case generalizeClassMethodScheme classParameters scheme {
+    | TypedScheme binder parameters evidence primitive resultType resultRecipe -> TypedScheme
+      binder
+      parameters
+      (listAppend evidence (importedClassMethodDispatchEvidence className methodName classParameters parameters evidence))
+      primitive
+      resultType
+      resultRecipe
+  }.
+
   methodSchemeEntries :: [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].
   methodSchemeEntries = \(classParameters, methods) -> case methods {
     | [] -> []
@@ -4070,7 +4098,7 @@ module TypedCoreValidate (
       localSchemes = moduleSchemeEntries statements.
       combinedVisibleNames = listAppend (localNameEntries modulePath statements) visibleNames.
       combinedDataEntries = listAppend (localDataEntries modulePath statements) dataEntries.
-      localEvidenceEntries = evidenceCapabilityEntries localSchemes (visibleCapabilityNames combinedVisibleNames combinedDataEntries).
+      localEvidenceEntries = evidenceCapabilityEntries localSchemes (capabilityNameEntries combinedDataEntries).
       ModuleContext
         modulePath
         visibleModules
@@ -4421,48 +4449,63 @@ module TypedCoreValidate (
     | [] -> []
     | [(statementIndex, statement) | rest] ->
       listPrepend
-        (StatementDependencies statementIndex (statementDependencyIndices context statements statementIndex))
+        (StatementDependencies statementIndex (statementDependencyIndices context statements statementIndex) [])
         (statementDependenciesFrom context statements rest)
   }.
-
-  statementDependencies :: ModuleContext -> [TypedStatement] -> [StatementDependencies].
-  statementDependencies = \(context, statements) ->
-    statementDependenciesFrom context statements (listIndexed statements).
 
   dependenciesForStatement :: Int -> [StatementDependencies] -> [Int].
   dependenciesForStatement = \(statementIndex, dependencies) -> case dependencies {
     | [] -> []
-    | [StatementDependencies candidateIndex candidateDependencies | rest] ->
+    | [StatementDependencies candidateIndex candidateDependencies reachable | rest] ->
       if statementIndex == candidateIndex then candidateDependencies else dependenciesForStatement statementIndex rest
   }.
 
-  dependencyReachableFrom :: [StatementDependencies] -> Int -> [Int] -> [Int] -> Bool.
-  dependencyReachableFrom = \(dependencies, target, seen, pending) -> case pending {
-    | [] -> False
-    | [current | rest] -> if current == target then True else
-      if listContains current seen then dependencyReachableFrom dependencies target seen rest else
-        dependencyReachableFrom dependencies target (listPrepend current seen) (listAppend (dependenciesForStatement current dependencies) rest)
+  reachableDependenciesFrom :: [StatementDependencies] -> [Int] -> [Int] -> [Int].
+  reachableDependenciesFrom = \(dependencies, seen, pending) -> case pending {
+    | [] -> seen
+    | [current | rest] ->
+      if listContains current seen then reachableDependenciesFrom dependencies seen rest else
+        reachableDependenciesFrom dependencies (listPrepend current seen) (listAppend (dependenciesForStatement current dependencies) rest)
   }.
 
-  dependencyReachable :: [StatementDependencies] -> Int -> Int -> Bool.
-  dependencyReachable = \(dependencies, source, target) -> dependencyReachableFrom dependencies target [] [source].
+  statementReachabilityFrom :: [StatementDependencies] -> [StatementDependencies] -> [StatementDependencies].
+  statementReachabilityFrom = \(allDependencies, remaining) -> case remaining {
+    | [] -> []
+    | [StatementDependencies statementIndex directDependencies reachable | rest] ->
+      listPrepend
+        (StatementDependencies statementIndex directDependencies (reachableDependenciesFrom allDependencies [] [statementIndex]))
+        (statementReachabilityFrom allDependencies rest)
+  }.
 
-  recursiveGroupMembersFrom :: [StatementDependencies] -> Int -> [(Int, TypedStatement)] -> [TypedStatement].
-  recursiveGroupMembersFrom = \(dependencies, statementIndex, indexedStatements) -> case indexedStatements {
+  statementDependencies :: ModuleContext -> [TypedStatement] -> [StatementDependencies].
+  statementDependencies = \(context, statements) -> {
+    directDependencies = statementDependenciesFrom context statements (listIndexed statements).
+    statementReachabilityFrom directDependencies directDependencies.
+  }.
+
+  reachabilityForStatement :: Int -> [StatementDependencies] -> [Int].
+  reachabilityForStatement = \(statementIndex, dependencies) -> case dependencies {
+    | [] -> []
+    | [StatementDependencies candidateIndex directDependencies reachable | rest] ->
+      if statementIndex == candidateIndex then reachable else reachabilityForStatement statementIndex rest
+  }.
+
+  recursiveGroupMembersFrom :: [StatementDependencies] -> Int -> [Int] -> [(Int, TypedStatement)] -> [TypedStatement].
+  recursiveGroupMembersFrom = \(dependencies, statementIndex, sourceReachability, indexedStatements) -> case indexedStatements {
     | [] -> []
     | [(candidateIndex, statement) | rest] -> case letStatementName statement {
-      | Nothing -> recursiveGroupMembersFrom dependencies statementIndex rest
+      | Nothing -> recursiveGroupMembersFrom dependencies statementIndex sourceReachability rest
       | Just candidateName ->
-        if dependencyReachable dependencies statementIndex candidateIndex then
-          if dependencyReachable dependencies candidateIndex statementIndex then listPrepend statement (recursiveGroupMembersFrom dependencies statementIndex rest) else recursiveGroupMembersFrom dependencies statementIndex rest
-        else recursiveGroupMembersFrom dependencies statementIndex rest
+        if listContains candidateIndex sourceReachability then
+          if listContains statementIndex (reachabilityForStatement candidateIndex dependencies) then listPrepend statement (recursiveGroupMembersFrom dependencies statementIndex sourceReachability rest) else recursiveGroupMembersFrom dependencies statementIndex sourceReachability rest
+        else recursiveGroupMembersFrom dependencies statementIndex sourceReachability rest
     }
   }.
 
   blockRecursiveGroupStatements :: [StatementDependencies] -> [TypedStatement] -> Int -> [TypedStatement].
   blockRecursiveGroupStatements = \(dependencies, statements, statementIndex) -> {
     directDependencies = dependenciesForStatement statementIndex dependencies.
-    members = recursiveGroupMembersFrom dependencies statementIndex (listIndexed statements).
+    members = recursiveGroupMembersFrom dependencies statementIndex (reachabilityForStatement statementIndex dependencies) (listIndexed statements).
     if listLength members > 1 then members else if listContains statementIndex directDependencies then members else [].
   }.
 
@@ -6121,12 +6164,12 @@ module TypedCoreValidate (
     }
   }.
 
-  selectedMethodSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].
-  selectedMethodSchemeEntries = \(modulePath, selectedNames, exports, classParameters, methods) -> case methods {
+  selectedMethodSchemeEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> TypedCoreName -> [TypedTypeParameterId] -> [TypedMethodSignature] -> [SchemeEntry].
+  selectedMethodSchemeEntries = \(modulePath, selectedNames, exports, className, classParameters, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
       | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
-        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath (generalizeClassMethodScheme classParameters scheme))) (selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest) else selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest else selectedMethodSchemeEntries modulePath selectedNames exports classParameters rest
+        if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath (generalizeImportedClassMethodScheme className classParameters name scheme))) (selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest) else selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest else selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest
     }
   }.
 
@@ -6144,7 +6187,7 @@ module TypedCoreValidate (
     | [TypedClassInterface declaration | rest] -> case declaration {
       | TypedClassDeclaration span name parameters methods ->
         if moduleOwnedCapabilityName modulePath name then
-          listAppend (selectedMethodSchemeEntries modulePath selectedNames exports parameters methods) (classInterfaceSchemeEntries modulePath selectedNames exports rest)
+          listAppend (selectedMethodSchemeEntries modulePath selectedNames exports name parameters methods) (classInterfaceSchemeEntries modulePath selectedNames exports rest)
         else classInterfaceSchemeEntries modulePath selectedNames exports rest
     }
   }.
