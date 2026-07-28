@@ -3127,8 +3127,7 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
       case selection of
         TypedEvidenceCandidates resultConstraint resultCandidates ->
           resultConstraint == constraint
-            && length resultCandidates == length candidates
-            && all (`elem` resultCandidates) candidates
+            && resultCandidates == candidates
         TypedSelectedEvidence (TypedEvidenceUse Nothing resultConstraint _ _) ->
           resultConstraint == constraint
         _ -> False

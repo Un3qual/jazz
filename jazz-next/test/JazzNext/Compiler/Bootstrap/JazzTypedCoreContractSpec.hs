@@ -440,6 +440,7 @@ reviewRegressionGroups =
     (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram]),
     (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram]),
     (("preserves deferred evidence across applications", testDroppedDeferredEvidence), [droppedDeferredEvidenceProgram]),
+    (("preserves deferred candidate order across applications", testReorderedDeferredEvidence), [reorderedDeferredEvidenceProgram]),
     (("validates evidence capability identities", testForgedEvidenceCapability), [forgedEvidenceCapabilityProgram]),
     (("rejects empty monomorphic instantiations", testEmptyMonomorphicInstantiation), [emptyMonomorphicInstantiationProgram])
   ]
@@ -830,6 +831,17 @@ testDroppedDeferredEvidence =
     ]
     (validateTypedProgram droppedDeferredEvidenceProgram)
 
+testReorderedDeferredEvidence :: IO ()
+testReorderedDeferredEvidence =
+  assertEqual
+    "application nodes preserve the solver's deferred candidate order"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-reordered-deferred-evidence") [1] [0, 0])
+        TypedMissingEvidence
+        (TypedTextDetail "Build::build")
+    ]
+    (validateTypedProgram reorderedDeferredEvidenceProgram)
+
 testForgedEvidenceCapability :: IO ()
 testForgedEvidenceCapability =
   assertEqual
@@ -864,6 +876,175 @@ droppedDeferredEvidenceProgram =
   targetCandidateApplicationProgram
     "review-dropped-deferred-evidence"
     False
+
+reorderedDeferredEvidenceProgram :: TypedProgram
+reorderedDeferredEvidenceProgram =
+  TypedProgram Nothing [providerModule, entryModule] entryPath
+  where
+    fixture = "review-reordered-deferred-evidence"
+    providerPath = fixtureLibraryPath "ReorderedDeferredEvidence"
+    entryPath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    providerCapabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Build"
+    importedCapabilityName =
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        "Build"
+    providerMethodName =
+      resolved TypedCurrentModule TypedValueNamespace "build"
+    methodOwner = binder providerPath [0, 0] providerMethodName
+    genericMethodType =
+      TypedFunctionType
+        TypedBoolType
+        (TypedFunctionType (TypedTypeParameterType parameter) TypedBoolType)
+    genericMethodRecipe =
+      TypedClosureRecipe
+        [TypedBoolRecipe, TypedRepresentationParameterRecipe parameter]
+        TypedBoolRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        providerCapabilityName
+        [parameter]
+        [ TypedMethodSignature
+            providerMethodName
+            span1
+            ( TypedScheme
+                methodOwner
+                []
+                []
+                []
+                genericMethodType
+                genericMethodRecipe
+            )
+        ]
+    providerImpl =
+      TypedImplId providerPath providerCapabilityName [TypedTextType]
+    importedProviderImpl =
+      TypedImplId providerPath importedCapabilityName [TypedTextType]
+    localImpl =
+      TypedImplId entryPath importedCapabilityName [TypedTextType]
+    providerModule =
+      typedModule
+        providerPath
+        (TypedSourcePath "src/Library/ReorderedDeferredEvidence.jz")
+        []
+        [TypedModuleExport TypedCapabilityNamespace "Build"]
+        ( TypedModuleInterface
+            []
+            []
+            [TypedClassInterface classDeclaration]
+            [TypedImplInterface providerImpl]
+        )
+        [ TypedClassStatement classDeclaration,
+          TypedImplStatement
+            ( TypedImplDeclaration
+                span1
+                providerImpl
+                [methodDefinition providerPath [1, 0] providerImpl]
+            )
+        ]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 providerPath Nothing Nothing]
+        []
+        emptyInterface
+        [ TypedImplStatement
+            ( TypedImplDeclaration
+                span1
+                localImpl
+                [methodDefinition entryPath [0, 0] localImpl]
+            ),
+          expressionStatement 1 expression
+        ]
+        resultInfo
+    specializedMethodType =
+      TypedFunctionType TypedBoolType (TypedFunctionType TypedTextType TypedBoolType)
+    specializedMethodRecipe =
+      TypedClosureRecipe
+        [TypedBoolRecipe, TypedManagedTextRecipe]
+        TypedBoolRecipe
+    specializedMethodInfo =
+      info specializedMethodType specializedMethodRecipe
+    textToBoolType = TypedFunctionType TypedTextType TypedBoolType
+    textToBoolRecipe =
+      TypedClosureRecipe [TypedManagedTextRecipe] TypedBoolRecipe
+    textToBoolInfo = info textToBoolType textToBoolRecipe
+    flagName = resolved TypedCurrentModule TypedValueNamespace "flag"
+    targetName = resolved TypedCurrentModule TypedValueNamespace "target"
+    methodDefinition modulePath methodPath implId =
+      TypedMethodDefinition
+        (TypedMethodId implId "build")
+        (binder modulePath methodPath providerMethodName)
+        providerMethodName
+        span1
+        ( TypedLambdaExpr
+            specializedMethodInfo
+            (binder modulePath (methodPath <> [0]) flagName)
+            flagName
+            ( TypedLambdaExpr
+                textToBoolInfo
+                (binder modulePath (methodPath <> [0, 0]) targetName)
+                targetName
+                trueExpr
+            )
+        )
+    constraint =
+      TypedCapabilityConstraint
+        importedCapabilityName
+        (Just "Build::build")
+        TypedTextType
+    candidates =
+      [ TypedEvidenceCandidate
+          importedProviderImpl
+          (Just (TypedMethodId importedProviderImpl "build")),
+        TypedEvidenceCandidate
+          localImpl
+          (Just (TypedMethodId localImpl "build"))
+      ]
+    functionInfo =
+      TypedNodeInfo
+        specializedMethodType
+        specializedMethodRecipe
+        []
+        [TypedEvidenceCandidates constraint candidates]
+    intermediateInfo =
+      TypedNodeInfo
+        textToBoolType
+        textToBoolRecipe
+        []
+        [TypedEvidenceCandidates constraint (reverse candidates)]
+    resultInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        []
+        [ TypedSelectedEvidence
+            ( TypedEvidenceUse
+                Nothing
+                constraint
+                importedProviderImpl
+                (Just (TypedMethodId importedProviderImpl "build"))
+            )
+        ]
+    intermediate =
+      TypedApplyExpr
+        intermediateInfo
+        ( TypedVariableExpr
+            functionInfo
+            (TypedBuiltinName "Build::build")
+        )
+        trueExpr
+    expression =
+      TypedApplyExpr
+        resultInfo
+        intermediate
+        (TypedLiteralExpr textInfo (TypedTextLiteral "target"))
 
 forgedEvidenceCapabilityName :: TypedCoreName
 forgedEvidenceCapabilityName =

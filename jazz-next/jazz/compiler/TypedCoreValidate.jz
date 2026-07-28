@@ -2835,18 +2835,22 @@ module TypedCoreValidate (
     | [first | rest] -> candidateAllowedByMatchingEvidenceSets constraint candidate rest
   }.
 
-  evidenceCandidateSetsMatch :: [TypedEvidenceCandidate] -> [TypedEvidenceCandidate] -> Bool.
-  evidenceCandidateSetsMatch = \(left, right) ->
-    if listLength left == listLength right then
-      listAll (\(candidate) -> evidenceCandidateMember candidate right) left
-    else False.
+  evidenceCandidateListsMatch :: [TypedEvidenceCandidate] -> [TypedEvidenceCandidate] -> Bool.
+  evidenceCandidateListsMatch = \(left, right) -> case (left, right) {
+    | ([], []) -> True
+    | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
+      if evidenceCandidateIdentityEqual leftFirst rightFirst then
+        evidenceCandidateListsMatch leftRest rightRest
+      else False
+    | other -> False
+  }.
 
   applicationEvidenceObligationProgresses :: TypedCapabilityConstraint -> [TypedEvidenceCandidate] -> [TypedEvidenceSelection] -> Bool.
   applicationEvidenceObligationProgresses = \(constraint, candidates, selections) -> case selections {
     | [] -> False
     | [TypedEvidenceCandidates resultConstraint resultCandidates | rest] ->
       if capabilityConstraintEqual constraint resultConstraint then
-        if evidenceCandidateSetsMatch candidates resultCandidates then True else
+        if evidenceCandidateListsMatch candidates resultCandidates then True else
           applicationEvidenceObligationProgresses constraint candidates rest
       else applicationEvidenceObligationProgresses constraint candidates rest
     | [TypedSelectedEvidence evidenceUse | rest] -> case evidenceUse {
