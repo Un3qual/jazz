@@ -502,6 +502,20 @@ testInvalidResolvedOperatorSymbols =
         ( TypedNameDetail
             (TypedGeneratedName (TypedOperatorBinding "$operator:%61"))
         ),
+      statementFailure
+        "review-invalid-resolved-operator-symbols"
+        2
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2B"))
+        ),
+      statementFailure
+        "review-invalid-resolved-operator-symbols"
+        3
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2D%3E"))
+        ),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
         4
@@ -522,8 +536,22 @@ testInvalidResolvedOperatorSymbols =
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
         6
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2B"))
+        ),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        6
         TypedBindingValueMismatch
         (TypedTextDetail "+"),
+      expressionFailureAt
+        "review-invalid-resolved-operator-symbols"
+        7
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2D%3E"))
+        ),
       expressionFailureAt
         "review-invalid-resolved-operator-symbols"
         7
@@ -3967,6 +3995,20 @@ testMalformedGeneratedNames =
         TypedUnresolvedName
         ( TypedNameDetail
             (TypedGeneratedName (TypedOperatorBinding "$operator:%GG"))
+        ),
+      statementFailure
+        "review-malformed-generated-names"
+        5
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2B"))
+        ),
+      statementFailure
+        "review-malformed-generated-names"
+        6
+        TypedUnresolvedName
+        ( TypedNameDetail
+            (TypedGeneratedName (TypedOperatorBinding "$operator:%2D%3E"))
         )
     ]
     (validateTypedProgram malformedGeneratedNamesProgram)
@@ -5362,10 +5404,16 @@ malformedGeneratedNamesProgram =
       TypedGeneratedName (TypedOperatorBinding "$operator:garbage")
     invalidHexOperatorName =
       TypedGeneratedName (TypedOperatorBinding "$operator:%GG")
+    builtinOperatorName =
+      TypedGeneratedName (TypedOperatorBinding "$operator:%2B")
+    reservedOperatorName =
+      TypedGeneratedName (TypedOperatorBinding "$operator:%2D%3E")
     emptyOperatorOwner = binder modulePath [1] emptyOperatorName
     malformedOperatorOwner = binder modulePath [2] malformedOperatorName
     unencodedOperatorOwner = binder modulePath [3] unencodedOperatorName
     invalidHexOperatorOwner = binder modulePath [4] invalidHexOperatorName
+    builtinOperatorOwner = binder modulePath [5] builtinOperatorName
+    reservedOperatorOwner = binder modulePath [6] reservedOperatorName
     statements =
       [ expressionStatement 1 invalidLambda,
         TypedLetStatement
@@ -5391,6 +5439,18 @@ malformedGeneratedNamesProgram =
           invalidHexOperatorName
           span1
           (monoScheme invalidHexOperatorOwner)
+          trueExpr,
+        TypedLetStatement
+          builtinOperatorOwner
+          builtinOperatorName
+          span1
+          (monoScheme builtinOperatorOwner)
+          trueExpr,
+        TypedLetStatement
+          reservedOperatorOwner
+          reservedOperatorName
+          span1
+          (monoScheme reservedOperatorOwner)
           trueExpr
       ]
 
@@ -10958,7 +11018,7 @@ builtinGeneratedNamesProgram =
     modulePath = (fixtureModulePath "builtin-generated-names")
     generatedNames =
       [ TypedGeneratedName (TypedLambdaPatternArgument 0),
-        TypedGeneratedName (TypedOperatorBinding "$operator:%2B"),
+        TypedGeneratedName (TypedOperatorBinding "$operator:%7E"),
         TypedGeneratedName TypedOperatorSectionFunction,
         TypedGeneratedName TypedOperatorSectionLeft,
         TypedGeneratedName TypedOperatorSectionRight

@@ -5,7 +5,7 @@ module TypedCoreValidate (
   import List (listAll, listAppend, listConcat, listContains, listFilter, listIndexed, listLength, listMap, listPrepend, listReverse, listSort, listZip).
   import Maybe.
   import ParserOperator (operatorIsValidUserSymbol).
-  import Text (textAppend, textContains, textDrop, textIsEmpty, textJoin, textLength, textSplit, textStartsWith, textTake, textToChars, textUncons).
+  import Text (textAppend, textContains, textDrop, textFromChars, textIsEmpty, textJoin, textLength, textSplit, textStartsWith, textTake, textToChars, textUncons).
   import TypedCoreTypes.
 
   data SchemeEntry = SchemeEntry TypedBinderId TypedScheme.
@@ -599,20 +599,39 @@ module TypedCoreValidate (
         | Nothing -> False
       } else False.
 
-  canonicalOperatorBindingChunk :: Text -> Bool.
-  canonicalOperatorBindingChunk = \(chunk) ->
-    listContains chunk ["%21", "%25", "%26", "%2A", "%2B", "%2D", "%2F", "%3C", "%3E", "%3F", "%5E", "%7C", "%7E"].
+  operatorBindingChunkCharacter :: Text -> Maybe(Char).
+  operatorBindingChunkCharacter = \(chunk) ->
+    if chunk == "%21" then Just '!' else
+    if chunk == "%25" then Just '%' else
+    if chunk == "%26" then Just '&' else
+    if chunk == "%2A" then Just '*' else
+    if chunk == "%2B" then Just '+' else
+    if chunk == "%2D" then Just '-' else
+    if chunk == "%2F" then Just '/' else
+    if chunk == "%3C" then Just '<' else
+    if chunk == "%3E" then Just '>' else
+    if chunk == "%3F" then Just '?' else
+    if chunk == "%5E" then Just '^' else
+    if chunk == "%7C" then Just '|' else
+    if chunk == "%7E" then Just '~' else Nothing.
 
-  validOperatorBindingSuffix :: Text -> Bool.
-  validOperatorBindingSuffix = \(suffix) ->
-    if textIsEmpty suffix then False else
-      if textLength suffix < 3 then False else {
+  decodeOperatorBindingSuffix :: Text -> [Char] -> Maybe(Text).
+  decodeOperatorBindingSuffix = \(suffix, reversed) ->
+    if textIsEmpty suffix then Just (textFromChars (listReverse reversed)) else
+      if textLength suffix < 3 then Nothing else {
         chunk = textTake 3 suffix.
         rest = textDrop 3 suffix.
-        if canonicalOperatorBindingChunk chunk then
-          if textIsEmpty rest then True else validOperatorBindingSuffix rest
-        else False.
+        case operatorBindingChunkCharacter chunk {
+          | Just character -> decodeOperatorBindingSuffix rest (listPrepend character reversed)
+          | Nothing -> Nothing
+        }.
       }.
+
+  validOperatorBindingSuffix :: Text -> Bool.
+  validOperatorBindingSuffix = \(suffix) -> case decodeOperatorBindingSuffix suffix [] {
+    | Just symbol -> operatorIsValidUserSymbol symbol
+    | Nothing -> False
+  }.
 
   validateCoreName :: TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure].
   validateCoreName = \(path, name) -> case name {

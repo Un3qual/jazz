@@ -4072,12 +4072,13 @@ validOperatorBindingName :: Text -> Bool
 validOperatorBindingName bindingName =
   case Text.stripPrefix "$operator:" bindingName of
     Just suffix ->
-      not (Text.null suffix)
-        && all (`elem` canonicalOperatorEncodings) (Text.chunksOf 3 suffix)
+      maybe False isValidUserOperatorSymbol (decodeOperatorBindingSuffix suffix)
     Nothing -> False
   where
-    canonicalOperatorEncodings =
-      [ encoded
+    decodeOperatorBindingSuffix suffix =
+      Text.pack <$> traverse (`lookup` canonicalOperatorEncodingPairs) (Text.chunksOf 3 suffix)
+    canonicalOperatorEncodingPairs =
+      [ (encoded, character)
       | character <- ("!%&*+-/<>?^|~" :: String),
         encoded <- maybeToList (Text.stripPrefix "$operator:" (operatorBindingIdentifierText (Text.singleton character)))
       ]
