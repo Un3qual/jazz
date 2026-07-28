@@ -1598,6 +1598,14 @@ parseNonEmptyUniqueList listKind listDescription renderItem parseItem tokens = d
 parseModuleExport :: [Token] -> Either ParserFailure (ModuleExportSelector, SourceSpan, [Token])
 parseModuleExport tokens =
   case tokens of
+    Token {tokenKind = TValue}
+      : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan}
+      : rest ->
+        Right
+          ( ModuleExportSelector (Just ValueNamespace) exportName,
+            exportSpan,
+            rest
+          )
     Token {tokenKind = TIdentifier prefix} : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest
       | Just TypeNamespace <- moduleExportNamespacePrefix prefix ->
           parseTypeModuleExport exportName exportSpan rest
@@ -1680,7 +1688,6 @@ parseLocatedModuleExportName tokens =
 moduleExportNamespacePrefix :: Text -> Maybe NameNamespace
 moduleExportNamespacePrefix prefix =
   case prefix of
-    "value" -> Just ValueNamespace
     "constructor" -> Just ConstructorNamespace
     "type" -> Just TypeNamespace
     "class" -> Just CapabilityNamespace

@@ -54,7 +54,7 @@ tests =
     ("parses populated module export list", testParsesModuleExportList),
     ("parses namespace-aware module export list", testParsesNamespaceAwareModuleExportList),
     ("parses grouped type constructor exports", testParsesGroupedTypeConstructorExports),
-    ("keeps namespace prefix words contextual in module export lists", testParsesNamespacePrefixWordsAsBareExports),
+    ("keeps remaining namespace prefix words contextual in module export lists", testParsesNamespacePrefixWordsAsBareExports),
     ("parses empty module export list", testParsesEmptyModuleExportList),
     ("lowers module export list into core metadata", testLowersModuleExportList),
     ("qualifies grouped module export spans during lowering", testLowersGroupedModuleExportList),
@@ -222,8 +222,7 @@ testParsesNamespacePrefixWordsAsBareExports =
                 (SourceSpan 1 1)
                 ["Lib", "Keywords"]
                 ( Just
-                    [ ModuleExportSelector Nothing "value",
-                      ModuleExportSelector Nothing "constructor",
+                    [ ModuleExportSelector Nothing "constructor",
                       ModuleExportSelector Nothing "type",
                       ModuleExportSelector Nothing "class"
                     ]
@@ -234,7 +233,7 @@ testParsesNamespacePrefixWordsAsBareExports =
     )
     ( parseSurfaceProgram
         """
-        module Lib::Keywords (value, constructor, type, class) {
+        module Lib::Keywords (constructor, type, class) {
         answer = 1.
         }
         """
@@ -492,14 +491,14 @@ testParsesCompactSignatureWhenNotAlias =
     "compact signature surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "value" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
-              SSLet "value" (SourceSpan 2 1) (SELit (SLInt 1))
+            [ SSSignature "result" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "result" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     (parseSurfaceProgram """
-    value::Int.
-    value = 1.
+    result::Int.
+    result = 1.
     """)
 
 testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias :: IO ()
@@ -508,13 +507,13 @@ testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias =
     "compact signature before different binding surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "value" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+            [ SSSignature "result" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
               SSLet "other" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     (parseSurfaceProgram """
-    value::Int.
+    result::Int.
     other = 1.
     """)
 
@@ -592,14 +591,14 @@ testParsesLowercaseSignaturePayloadWhenNotAlias =
     "lowercase signature payload surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "value" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
-              SSLet "value" (SourceSpan 2 1) (SELit (SLInt 1))
+            [ SSSignature "result" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
+              SSLet "result" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     (parseSurfaceProgram """
-    value :: a.
-    value = 1.
+    result :: a.
+    result = 1.
     """)
 
 testParsesImportSymbolList :: IO ()
@@ -802,7 +801,7 @@ testRejectsDuplicateNamespaceAwareModuleExport = do
     ( parseSurfaceProgram
         """
         module Lib::Box (type Box, constructor Box) {
-        data Box = Box value.
+        data Box = Box Int.
         }
         """
     )
@@ -813,7 +812,7 @@ testRejectsDuplicateNamespaceAwareModuleExport = do
     ( parseSurfaceProgram
         """
         module Lib::Box (type Box, type Box) {
-        data Box = Box value.
+        data Box = Box Int.
         }
         """
     )

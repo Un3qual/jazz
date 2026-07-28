@@ -57,6 +57,7 @@ data TokenKind
   | TImport
   | TAs
   | TData
+  | TValue
   | TIf
   | TThen
   | TElse
@@ -388,6 +389,7 @@ identifierKind ident =
     "import" -> TImport
     "as" -> TAs
     "data" -> TData
+    "value" -> TValue
     "if" -> TIf
     "then" -> TThen
     "else" -> TElse

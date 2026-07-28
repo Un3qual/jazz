@@ -116,7 +116,7 @@ testParsesGenericNamedSignatures =
     ( Right
         ( SEBlock
             [ SSSignature
-                "value"
+                "maybeCharacter"
                 (SourceSpan 1 1)
                 ( SurfaceSignatureType
                     (SurfaceTypeApplication "Maybe" [SurfaceTypeChar])
@@ -137,7 +137,7 @@ testParsesGenericNamedSignatures =
         )
     )
     (parseSurfaceProgram """
-    value :: Maybe(Char).
+    maybeCharacter :: Maybe(Char).
     map :: (a -> b) -> List(a) -> [b].
     """)
 
@@ -378,13 +378,13 @@ testParseEmptyConstraintBlockSignaturePayload =
                 "f"
                 (SourceSpan 1 1)
                 (SurfaceConstrainedSignature [] SurfaceTypeInt),
-              SSLet "f" (SourceSpan 2 1) (SEVar "value")
+              SSLet "f" (SourceSpan 2 1) (SEVar "input")
             ]
         )
     )
     (parseSurfaceProgram """
     f :: @{}: Int.
-    f = value.
+    f = input.
     """)
 
 testParseConstrainedTupleSignaturePayload :: IO ()
@@ -414,8 +414,8 @@ testParseExplicitTypeApplicationExpression =
   assertRight
     "explicit type application parse"
     (parseSurfaceProgram """
-    value = id @Int 1.
-    value.
+    result = id @Int 1.
+    result.
     """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
@@ -428,8 +428,8 @@ testLowerExplicitTypeApplicationExpression =
   assertRight
     "explicit type application lowering"
     (parseSurfaceProgram """
-    value = id @Int 1.
-    value.
+    result = id @Int 1.
+    result.
     """)
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
@@ -442,8 +442,8 @@ testLoweredExplicitTypeApplicationIsCanonical =
   assertRight
     "parse + canonical lower explicit type application"
     (parseSurfaceProgram """
-    value = id @Int 1.
-    value.
+    result = id @Int 1.
+    result.
     """)
     ( \surfaceProgram ->
         assertEqual
@@ -455,10 +455,10 @@ testLoweredExplicitTypeApplicationIsCanonical =
     expectedProgram =
       EBlock
         [ SLet
-            "value"
+            "result"
             (SourceSpan 1 1)
-            (EApply (ETypeApplication (EVar "id") (SourceSpan 1 12) TypeInt) (ELit (LInt 1))),
-          SExpr (SourceSpan 2 1) (EVar "value")
+            (EApply (ETypeApplication (EVar "id") (SourceSpan 1 13) TypeInt) (ELit (LInt 1))),
+          SExpr (SourceSpan 2 1) (EVar "result")
         ]
 
 testLowerTupleLiteralAndSignatureProgram :: IO ()

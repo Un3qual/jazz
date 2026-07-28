@@ -206,6 +206,7 @@ renderExpectedTokenKind expectedKind =
     TImport -> "'import'"
     TAs -> "'as'"
     TData -> "'data'"
+    TValue -> "'value'"
     TIf -> "'if'"
     TThen -> "'then'"
     TElse -> "'else'"

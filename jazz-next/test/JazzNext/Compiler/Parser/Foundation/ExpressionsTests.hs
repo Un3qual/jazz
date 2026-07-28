@@ -299,13 +299,13 @@ testParsesOperatorKeywordAsBindingName =
     ( Right
         ( SEBlock
             [ SSLet "operator" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSLet "value" (SourceSpan 2 1) (SEVar "operator")
+              SSLet "result" (SourceSpan 2 1) (SEVar "operator")
             ]
         )
     )
     (parseSurfaceProgram """
     operator = 1.
-    value = operator.
+    result = operator.
     """)
 
 testParsesOperatorKeywordAsNestedBlockBindingName :: IO ()
