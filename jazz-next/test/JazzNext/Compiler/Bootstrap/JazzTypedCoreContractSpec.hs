@@ -659,7 +659,11 @@ testPrimitiveInstantiationEntailment =
       TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [3] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
+        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0))),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [7] [0, 0])
+        TypedBindingValueMismatch
+        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0)))
     ]
     (validateTypedProgram unentailedPrimitiveInstantiationProgram)
 
@@ -1599,6 +1603,10 @@ unentailedPrimitiveInstantiationProgram =
     entailedNumericOuterOwner = binder modulePath [4] entailedNumericOuterName
     entailedEqualityOuterName = fixtureValueName "entailedEqualityOuter"
     entailedEqualityOuterOwner = binder modulePath [5] entailedEqualityOuterName
+    integralName = fixtureValueName "integral"
+    integralOwner = binder modulePath [6] integralName
+    arithmeticOuterName = fixtureValueName "arithmeticOuter"
+    arithmeticOuterOwner = binder modulePath [7] arithmeticOuterName
     statements =
       [ TypedLetStatement
           numericOwner
@@ -1645,7 +1653,25 @@ unentailedPrimitiveInstantiationProgram =
               (TypedStrictEqualityPrimitiveConstraint parameterType)
           )
           (outerExpression 5 equalityOwner equalityName),
-        expressionStatement 6 trueExpr
+        TypedLetStatement
+          integralOwner
+          integralName
+          span1
+          ( constrainedScheme
+              integralOwner
+              (TypedNumericPrimitiveConstraint TypedIntegralNumericConstraint parameterType)
+          )
+          trueExpr,
+        TypedLetStatement
+          arithmeticOuterOwner
+          arithmeticOuterName
+          span1
+          ( constrainedOuterScheme
+              arithmeticOuterOwner
+              (TypedNumericPrimitiveConstraint TypedRuntimeArithmeticNumericConstraint parameterType)
+          )
+          (outerExpression 7 integralOwner integralName),
+        expressionStatement 8 trueExpr
       ]
 
 generatedClassMethodName :: TypedCoreName
@@ -3900,7 +3926,7 @@ testPhantomDataEquality =
 testSameScopeValueRebinding :: IO ()
 testSameScopeValueRebinding =
   assertEqual
-    "ordinary value rebinding remains valid and last-wins"
+    "signed value rebinding remains valid and last-wins"
     []
     (validateTypedProgram sameScopeValueRebindingProgram)
 
@@ -4453,7 +4479,7 @@ testMalformedGeneratedNames =
         0
         TypedUnresolvedName
         ( TypedNameDetail
-            (TypedGeneratedName (TypedLambdaPatternArgument (-1)))
+            (TypedGeneratedName (TypedLambdaPatternArgument 0))
         ),
       statementFailure
         "review-malformed-generated-names"
@@ -5875,7 +5901,7 @@ malformedGeneratedNamesProgram =
     fixture = "review-malformed-generated-names"
     modulePath = (fixtureModulePath fixture)
     invalidLambdaName =
-      TypedGeneratedName (TypedLambdaPatternArgument (-1))
+      TypedGeneratedName (TypedLambdaPatternArgument 0)
     invalidLambda =
       TypedLambdaExpr
         boolToBoolInfo
@@ -8322,21 +8348,29 @@ sameScopeValueRebindingProgram =
     fixture = "review-same-scope-value-rebinding"
     modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "value"
-    firstOwner = binder modulePath [0] valueName
-    secondOwner = binder modulePath [1] valueName
+    firstSignatureOwner = binder modulePath [0] valueName
+    firstOwner = binder modulePath [1] valueName
+    secondSignatureOwner = binder modulePath [2] valueName
+    secondOwner = binder modulePath [3] valueName
+    firstSignatureScheme =
+      TypedScheme firstSignatureOwner [] [] [] TypedBoolType TypedBoolRecipe
     firstScheme =
       TypedScheme firstOwner [] [] [] TypedBoolType TypedBoolRecipe
+    secondSignatureScheme =
+      TypedScheme secondSignatureOwner [] [] [] TypedTextType TypedManagedTextRecipe
     secondScheme =
       TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
     statements =
-      [ TypedLetStatement firstOwner valueName span1 firstScheme trueExpr,
+      [ TypedSignatureStatement firstSignatureOwner valueName span1 firstSignatureScheme,
+        TypedLetStatement firstOwner valueName span1 firstScheme trueExpr,
+        TypedSignatureStatement secondSignatureOwner valueName span1 secondSignatureScheme,
         TypedLetStatement
           secondOwner
           valueName
           span1
           secondScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "latest")),
-        expressionStatement 3 (TypedVariableExpr textInfo valueName)
+        expressionStatement 4 (TypedVariableExpr textInfo valueName)
       ]
 
 forwardModuleReferenceProgram :: TypedProgram
@@ -11520,7 +11554,7 @@ builtinGeneratedNamesProgram =
   where
     modulePath = (fixtureModulePath "builtin-generated-names")
     generatedNames =
-      [ TypedGeneratedName (TypedLambdaPatternArgument 0),
+      [ TypedGeneratedName (TypedLambdaPatternArgument 1),
         TypedGeneratedName (TypedOperatorBinding "$operator:%7E"),
         TypedGeneratedName TypedOperatorSectionFunction,
         TypedGeneratedName TypedOperatorSectionLeft,

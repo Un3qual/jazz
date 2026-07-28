@@ -571,14 +571,15 @@ duplicateDeclarationFailures :: ModuleContext -> [([Int], TypedStatement)] -> [T
 duplicateDeclarationFailures context statements = nameFailures <> implFailures
   where
     nameFailures = snd (foldl' step (Map.empty, []) occurrences)
-    occurrences = concatMap declarationOccurrences statements
-    declarationOccurrences (statementLocation, statement) =
+    occurrences = concat (zipWith declarationOccurrences statements nextStatements)
+    nextStatements = map (Just . snd) (drop 1 statements) <> [Nothing]
+    declarationOccurrences (statementLocation, statement) maybeNextStatement =
       [ ( statementPath,
           key,
           name,
           identity
         )
-      | (name, identity) <- duplicateCheckedDeclarations statement,
+      | (name, identity) <- duplicateCheckedDeclarations statement maybeNextStatement,
         key <- maybeToList (resolvedNameKey (moduleContextPath context) name)
       ]
       where
@@ -605,11 +606,15 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
           (seen, failures <> [failure path TypedDuplicateDeclaration (TypedImplDetail implId)])
       | otherwise = (Set.insert normalizedImplId seen, failures)
 
-duplicateCheckedDeclarations :: TypedStatement -> [(TypedCoreName, Maybe TypedBinderId)]
-duplicateCheckedDeclarations statement =
+duplicateCheckedDeclarations :: TypedStatement -> Maybe TypedStatement -> [(TypedCoreName, Maybe TypedBinderId)]
+duplicateCheckedDeclarations statement maybeNextStatement =
   case statement of
     TypedLetStatement {} -> []
-    TypedSignatureStatement binderId name _ _ -> [(name, Just binderId)]
+    TypedSignatureStatement binderId name _ _
+      | Just (TypedLetStatement _ bindingName _ _ _) <- maybeNextStatement,
+        name == bindingName ->
+          []
+      | otherwise -> [(name, Just binderId)]
     TypedDataStatement (TypedDataDeclaration _ name _ constructors) ->
       (name, Nothing)
         : [(constructorName, Just binderId) | TypedConstructorDeclaration binderId constructorName _ _ <- constructors]
@@ -4151,7 +4156,7 @@ validateCoreName path name =
       | not (validResolvedIdentifier namespace identifier) ->
           [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedGeneratedName (TypedLambdaPatternArgument index)
-      | index < 0 -> [failure path TypedUnresolvedName (TypedNameDetail name)]
+      | index < 1 -> [failure path TypedUnresolvedName (TypedNameDetail name)]
     TypedGeneratedName (TypedOperatorBinding bindingName)
       | not (validOperatorBindingName bindingName) ->
           [failure path TypedUnresolvedName (TypedNameDetail name)]

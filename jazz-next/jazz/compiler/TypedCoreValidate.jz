@@ -643,7 +643,7 @@ module TypedCoreValidate (
       if validResolvedIdentifier namespace identifier then [] else [failure path TypedUnresolvedName (TypedNameDetail name)]
     | TypedGeneratedName generated -> case generated {
       | TypedLambdaPatternArgument index ->
-        if index < 0 then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
+        if index < 1 then [failure path TypedUnresolvedName (TypedNameDetail name)] else []
       | TypedOperatorBinding bindingName ->
         if textStartsWith "$operator:" bindingName then
           if validOperatorBindingSuffix (textDrop (textLength "$operator:") bindingName) then [] else [failure path TypedUnresolvedName (TypedNameDetail name)]
@@ -4854,11 +4854,15 @@ module TypedCoreValidate (
       (constructorDeclarationEntries modulePath rest)
   }.
 
-  statementDeclarationEntries :: Bool -> [Text] -> TypedStatement -> [DeclarationEntry].
-  statementDeclarationEntries = \(includeNames, modulePath, statement) -> case statement {
+  statementDeclarationEntries :: Bool -> [Text] -> TypedStatement -> [TypedStatement] -> [DeclarationEntry].
+  statementDeclarationEntries = \(includeNames, modulePath, statement, remainingStatements) -> case statement {
     | TypedLetStatement binder name span scheme expression -> []
     | TypedSignatureStatement binder name span scheme ->
-      if includeNames then declarationEntryForName modulePath name (Just binder) else []
+      if includeNames then case remainingStatements {
+        | [TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression | rest] ->
+          if coreNameEqual name bindingName then [] else declarationEntryForName modulePath name (Just binder)
+        | other -> declarationEntryForName modulePath name (Just binder)
+      } else []
     | TypedDataStatement declaration -> case declaration {
       | TypedDataDeclaration span name parameters constructors ->
         if includeNames then listAppend
@@ -4923,7 +4927,7 @@ module TypedCoreValidate (
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, []) -> []
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> {
       nestedPath = nestedStatementLocation statementLocation expressionPath blockIndex.
-      case duplicateDeclarationsAt (TypedStatementPath modulePath nestedPath) (statementDeclarationEntries includeNames modulePath first) seen {
+      case duplicateDeclarationsAt (TypedStatementPath modulePath nestedPath) (statementDeclarationEntries includeNames modulePath first rest) seen {
         | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateBlockDeclarationFailuresFrom includeNames context statementLocation expressionPath rest (blockIndex + 1) laterSeen)
       }.
     }
@@ -5194,7 +5198,7 @@ module TypedCoreValidate (
   duplicateModuleDeclarationFailuresFrom :: Bool -> ModuleContext -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
   duplicateModuleDeclarationFailuresFrom = \(includeNames, context, statements, statementIndex, seen) -> case (context, statements) {
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, []) -> []
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> case duplicateDeclarationsAt (TypedStatementPath modulePath [statementIndex]) (statementDeclarationEntries includeNames modulePath first) seen {
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, [first | rest]) -> case duplicateDeclarationsAt (TypedStatementPath modulePath [statementIndex]) (statementDeclarationEntries includeNames modulePath first rest) seen {
       | (laterSeen, currentFailures) -> listAppend currentFailures (duplicateModuleDeclarationFailuresFrom includeNames context rest (statementIndex + 1) laterSeen)
     }
   }.
