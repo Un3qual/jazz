@@ -73,7 +73,12 @@ data DataContract = DataContract [TypedTypeParameterId] [[TypedType]]
 data CapabilityContract = CapabilityContract [TypedTypeParameterId] (Map Text TypedScheme)
   deriving (Eq)
 
-data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedPrimitiveConstraint]
+data InstantiationContract
+  = InstantiationContract
+      TypedBinderId
+      [TypedTypeParameterId]
+      [TypedEvidenceParameter]
+      [TypedPrimitiveConstraint]
 
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
@@ -2653,14 +2658,16 @@ validateExpressionInstantiationOwners parentExplicitSpan context path expression
     TypedTypeApplicationExpr _ function _ _ ->
       let allowedOwners = bindingExpressionInstantiationOwners context function
        in [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
-          | TypedInstantiation owner _ _ <- nodeInfoInstantiations (expressionInfo expression),
-            _ <- maybeToList (lookupInstantiationContract context owner),
+          | TypedInstantiation owner arguments _ <- nodeInfoInstantiations (expressionInfo expression),
+            contract <- maybeToList (lookupInstantiationContract context owner),
+            instantiationContractAcceptsArguments arguments contract,
             Set.notMember owner allowedOwners
           ]
     _ ->
       [ failure path TypedInstantiationMismatch (TypedBinderDetail owner)
-      | TypedInstantiation owner _ maybeSpan <- nodeInfoInstantiations (expressionInfo expression),
-        _ <- maybeToList (lookupInstantiationContract context owner),
+      | TypedInstantiation owner arguments maybeSpan <- nodeInfoInstantiations (expressionInfo expression),
+        contract <- maybeToList (lookupInstantiationContract context owner),
+        instantiationContractAcceptsArguments arguments contract,
         Set.notMember owner (expressionInstantiationOwners context expression)
           || case maybeSpan of
             Just explicitSpan -> parentExplicitSpan /= Just explicitSpan
@@ -3110,6 +3117,22 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
       case expressionInfo function of
         TypedNodeInfo _ _ _ selections -> selections
     candidateProgressionFailures =
+      missingCandidateProgressionFailures <> invalidCandidateSelectionFailures
+    missingCandidateProgressionFailures =
+      [ failure path TypedMissingEvidence (TypedTextDetail (capabilityConstraintLabel constraint))
+      | TypedEvidenceCandidates constraint candidates <- functionSelections,
+        not (any (progressesCandidateObligation constraint candidates) resultSelections)
+      ]
+    progressesCandidateObligation constraint candidates selection =
+      case selection of
+        TypedEvidenceCandidates resultConstraint resultCandidates ->
+          resultConstraint == constraint
+            && length resultCandidates == length candidates
+            && all (`elem` resultCandidates) candidates
+        TypedSelectedEvidence (TypedEvidenceUse Nothing resultConstraint _ _) ->
+          resultConstraint == constraint
+        _ -> False
+    invalidCandidateSelectionFailures =
       [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
       | TypedSelectedEvidence
           (TypedEvidenceUse Nothing constraint selectedImpl maybeSelectedMethod) <-
@@ -3482,23 +3505,22 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
   maybe [] (validateSpan path) maybeSpan
     <> case lookupInstantiationContract context owner of
       Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-      Just (InstantiationContract contractOwner parameters primitiveConstraints) ->
-        if map typeArgumentParameter arguments == parameters
-          then
+      Just contract@(InstantiationContract contractOwner _ _ primitiveConstraints)
+        | not (instantiationContractAcceptsArguments arguments contract) ->
+            [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+        | otherwise ->
             concatMap
               (\argument -> validateType path parameterScope (typeArgumentType argument) <> validateDataTypeApplications context path (typeArgumentType argument))
               arguments
               <> concatMap
                 (validateInstantiatedPrimitiveConstraint context path parameterScope . instantiatePrimitiveConstraint contractOwner substitutions)
                 primitiveConstraints
-          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
   where
     substitutions =
       Map.fromList
         [ (parameterId, typeValue)
         | TypedTypeArgument parameterId typeValue <- arguments
         ]
-    typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
     typeArgumentType (TypedTypeArgument _ typeValue) = typeValue
     instantiatePrimitiveConstraint schemeOwner typeSubstitutions primitiveConstraint =
       case primitiveConstraint of
@@ -3513,6 +3535,13 @@ validateInstantiation context path parameterScope (TypedInstantiation owner argu
         qualifiedType
           | ownerPath == moduleContextPath context = typeValue
           | otherwise = qualifyExternalType ownerPath typeValue
+
+instantiationContractAcceptsArguments :: [TypedTypeArgument] -> InstantiationContract -> Bool
+instantiationContractAcceptsArguments arguments (InstantiationContract _ parameters evidenceParameters _) =
+  map typeArgumentParameter arguments == parameters
+    && (not (null parameters) || not (null evidenceParameters))
+  where
+    typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
 
 validateInstantiatedPrimitiveConstraint :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedPrimitiveConstraint -> [TypedCoreValidationFailure]
 validateInstantiatedPrimitiveConstraint context path scope constraint =
@@ -3575,12 +3604,12 @@ numericConstraintEntails provided required =
 lookupInstantiationContract :: ModuleContext -> TypedBinderId -> Maybe InstantiationContract
 lookupInstantiationContract context owner =
   case Map.lookup owner (moduleContextSchemes context) of
-    Just (TypedScheme schemeOwner parameters _ primitiveConstraints _ _) ->
-      Just (InstantiationContract schemeOwner parameters primitiveConstraints)
+    Just (TypedScheme schemeOwner parameters evidenceParameters primitiveConstraints _ _) ->
+      Just (InstantiationContract schemeOwner parameters evidenceParameters primitiveConstraints)
     Nothing ->
       case lookupConstructorContractByOwner context owner of
         Just (ConstructorContract constructorOwner _ parameters _) ->
-          Just (InstantiationContract constructorOwner parameters [])
+          Just (InstantiationContract constructorOwner parameters [] [])
         Nothing -> Nothing
 
 lookupConstructorContractByOwner :: ModuleContext -> TypedBinderId -> Maybe ConstructorContract
@@ -3800,6 +3829,7 @@ capabilityConstraintLabel (TypedCapabilityConstraint capability maybeMethod _) =
 validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceUse -> [TypedCoreValidationFailure]
 validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
   validateCapabilityConstraintTarget path scope targetType
+    <> validateEvidenceCapability
     <> validateEvidenceImpl implId
     <> capabilityOriginFailures
     <> capabilityFailures
@@ -3808,6 +3838,14 @@ validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapab
     <> methodFailures
   where
     scope = moduleContextTypeScope context
+    validateEvidenceCapability
+      | TypedImplId _ implCapability _ <- implId,
+        implCapability == capability =
+          []
+      | maybeParameterRef == Nothing =
+          validateCapabilityName context path capability
+      | otherwise =
+          validateRetainedCapabilityName context path capability
     capabilityOriginFailures =
       case maybeParameterRef >>= (`Map.lookup` moduleContextEvidenceCapabilities context) of
         Nothing -> []

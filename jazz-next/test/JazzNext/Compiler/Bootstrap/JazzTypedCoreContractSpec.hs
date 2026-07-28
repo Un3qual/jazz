@@ -438,7 +438,10 @@ reviewRegressionGroups =
     (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram]),
     (("rejects deferred evidence after the target argument", testAppliedTargetCandidateDeferral), [appliedTargetCandidateDeferralProgram]),
     (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram]),
-    (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram])
+    (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram]),
+    (("preserves deferred evidence across applications", testDroppedDeferredEvidence), [droppedDeferredEvidenceProgram]),
+    (("validates evidence capability identities", testForgedEvidenceCapability), [forgedEvidenceCapabilityProgram]),
+    (("rejects empty monomorphic instantiations", testEmptyMonomorphicInstantiation), [emptyMonomorphicInstantiationProgram])
   ]
 
 reviewRegressionPrograms :: [TypedProgram]
@@ -815,6 +818,171 @@ testStructuralIdentityRegressions =
         )
       ]
 
+testDroppedDeferredEvidence :: IO ()
+testDroppedDeferredEvidence =
+  assertEqual
+    "application nodes cannot drop unresolved callee evidence"
+    [ expressionFailureAt
+        "review-dropped-deferred-evidence"
+        2
+        TypedMissingEvidence
+        (TypedTextDetail "Build.build")
+    ]
+    (validateTypedProgram droppedDeferredEvidenceProgram)
+
+testForgedEvidenceCapability :: IO ()
+testForgedEvidenceCapability =
+  assertEqual
+    "evidence constraints reject imported-self capability identities"
+    [ expressionFailureAt
+        "review-forged-evidence-capability"
+        2
+        TypedInvisibleName
+        (TypedNameDetail forgedEvidenceCapabilityName)
+    ]
+    (validateTypedProgram forgedEvidenceCapabilityProgram)
+
+testEmptyMonomorphicInstantiation :: IO ()
+testEmptyMonomorphicInstantiation =
+  assertEqual
+    "empty instantiations require a generalized or evidence-constrained owner"
+    [ expressionFailureAt
+        "review-empty-monomorphic-instantiation"
+        2
+        TypedInstantiationMismatch
+        (TypedBinderDetail emptyMonomorphicValueOwner),
+      expressionFailureAt
+        "review-empty-monomorphic-instantiation"
+        3
+        TypedInstantiationMismatch
+        (TypedBinderDetail emptyMonomorphicConstructorOwner)
+    ]
+    (validateTypedProgram emptyMonomorphicInstantiationProgram)
+
+droppedDeferredEvidenceProgram :: TypedProgram
+droppedDeferredEvidenceProgram =
+  targetCandidateApplicationProgram
+    "review-dropped-deferred-evidence"
+    False
+
+forgedEvidenceCapabilityName :: TypedCoreName
+forgedEvidenceCapabilityName =
+  resolved
+    (TypedImportedModule (fixtureModulePath "review-forged-evidence-capability"))
+    TypedCapabilityNamespace
+    "Check"
+
+forgedEvidenceCapabilityProgram :: TypedProgram
+forgedEvidenceCapabilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-forged-evidence-capability"
+    modulePath = fixtureModulePath fixture
+    capabilityName =
+      resolved TypedCurrentModule TypedCapabilityNamespace "Check"
+    methodName =
+      resolved TypedCurrentModule TypedValueNamespace "check"
+    methodOwner = binder modulePath [0, 0] methodName
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [TypedTypeParameterId 0]
+        [TypedMethodSignature methodName span1 (monoScheme methodOwner)]
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "check")
+        (binder modulePath [1, 0] methodName)
+        methodName
+        span1
+        trueExpr
+    constraint =
+      TypedCapabilityConstraint
+        forgedEvidenceCapabilityName
+        (Just "Check::check")
+        TypedBoolType
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        constraint
+        implId
+        (Just (TypedMethodId implId "check"))
+    expression =
+      TypedVariableExpr
+        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBuiltinName "Check::check")
+    statements =
+      [ TypedClassStatement classDeclaration,
+        TypedImplStatement
+          (TypedImplDeclaration span1 implId [methodDefinition]),
+        expressionStatement 2 expression,
+        expressionStatement 3 trueExpr
+      ]
+
+emptyMonomorphicValueOwner :: TypedBinderId
+emptyMonomorphicValueOwner =
+  binder
+    (fixtureModulePath "review-empty-monomorphic-instantiation")
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "value")
+
+emptyMonomorphicConstructorOwner :: TypedBinderId
+emptyMonomorphicConstructorOwner =
+  binder
+    (fixtureModulePath "review-empty-monomorphic-instantiation")
+    [1, 0]
+    (resolved TypedCurrentModule TypedConstructorNamespace "Flag")
+
+emptyMonomorphicInstantiationProgram :: TypedProgram
+emptyMonomorphicInstantiationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-empty-monomorphic-instantiation"
+    modulePath = fixtureModulePath fixture
+    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueInfo =
+      TypedNodeInfo
+        TypedBoolType
+        TypedBoolRecipe
+        [TypedInstantiation emptyMonomorphicValueOwner [] Nothing]
+        []
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Flag"
+    constructorType = TypedDataType dataName []
+    constructorInfo =
+      TypedNodeInfo
+        constructorType
+        (TypedManagedVariantRecipe dataName [])
+        [TypedInstantiation emptyMonomorphicConstructorOwner [] Nothing]
+        []
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            emptyMonomorphicConstructorOwner
+            constructorName
+            []
+            []
+        ]
+    statements =
+      [ TypedLetStatement
+          emptyMonomorphicValueOwner
+          valueName
+          span1
+          (monoScheme emptyMonomorphicValueOwner)
+          trueExpr,
+        TypedDataStatement declaration,
+        expressionStatement 2 (TypedVariableExpr valueInfo valueName),
+        expressionStatement
+          3
+          (TypedVariableExpr constructorInfo constructorName),
+        expressionStatement 4 trueExpr
+      ]
+
 retainedClassMetadataFailure :: Text -> TypedCoreValidationFailure
 retainedClassMetadataFailure fixture =
   TypedCoreValidationFailure
@@ -968,9 +1136,14 @@ wrongConstructorNamespaceProgram =
 
 appliedTargetCandidateDeferralProgram :: TypedProgram
 appliedTargetCandidateDeferralProgram =
+  targetCandidateApplicationProgram
+    "review-applied-target-candidate-deferral"
+    True
+
+targetCandidateApplicationProgram :: Text -> Bool -> TypedProgram
+targetCandidateApplicationProgram fixture retainCandidate =
   singleModuleProgram fixture relativeSource [] statements emptyInterface resultInfo modulePath
   where
-    fixture = "review-applied-target-candidate-deferral"
     modulePath = fixtureModulePath fixture
     parameter = TypedTypeParameterId 0
     parameterType = TypedTypeParameterType parameter
@@ -1029,7 +1202,11 @@ appliedTargetCandidateDeferralProgram =
     functionInfo =
       TypedNodeInfo specializedMethodType specializedMethodRecipe [] [selection]
     resultInfo =
-      TypedNodeInfo boolToBoolType boolToBoolRecipe [] [selection]
+      TypedNodeInfo
+        boolToBoolType
+        boolToBoolRecipe
+        []
+        (if retainCandidate then [selection] else [])
     expression =
       TypedApplyExpr
         resultInfo
@@ -3789,11 +3966,11 @@ testModulePathIdentifierSegments =
 testModuleMetadataIdentity :: IO ()
 testModuleMetadataIdentity =
   assertEqual
-    "module metadata exactly matches the terminal expression metadata"
+    "module metadata rejects source-impossible instantiation metadata"
     [ moduleFailure
         "review-module-metadata-identity"
-        TypedModuleResultMismatch
-        TypedNoValidationDetail
+        TypedInstantiationMismatch
+        (TypedBinderDetail moduleMetadataIdentityOwner)
     ]
     (validateTypedProgram moduleMetadataIdentityProgram)
 
@@ -6814,6 +6991,13 @@ modulePathFixtureProgram modulePath =
     ]
     modulePath
 
+moduleMetadataIdentityOwner :: TypedBinderId
+moduleMetadataIdentityOwner =
+  binder
+    (fixtureModulePath "review-module-metadata-identity")
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "value")
+
 moduleMetadataIdentityProgram :: TypedProgram
 moduleMetadataIdentityProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface moduleInfo modulePath
@@ -6821,7 +7005,7 @@ moduleMetadataIdentityProgram =
     fixture = "review-module-metadata-identity"
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "value"
-    owner = binder modulePath [0] valueName
+    owner = moduleMetadataIdentityOwner
     scheme = monoScheme owner
     moduleInfo =
       TypedNodeInfo

@@ -26,7 +26,7 @@ module TypedCoreValidate (
 
   data CapabilityContract = CapabilityContract [TypedTypeParameterId] [MethodContract].
 
-  data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedPrimitiveConstraint].
+  data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint].
 
   data ValueContract = ValueContract TypedType TypedRepresentationRecipe.
 
@@ -1754,8 +1754,15 @@ module TypedCoreValidate (
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedEvidenceUse parameterId constraint implId maybeMethod) -> case (constraint, implId) {
       | (TypedCapabilityConstraint capability constraintMethod targetType, TypedImplId implPath capabilityName targetTypes) -> {
         retainedCapability = case parameterId { | Nothing -> False | Just parameterRef -> True }.
+        constraintCapabilityFailures =
+          if coreNameEqual capability capabilityName then []
+          else if retainedCapability then
+            validateRetainedCapabilityName context path capability
+          else
+            validateCapabilityName context path capability.
         listConcat
         [ validateCapabilityConstraint path typeScope constraint,
+          constraintCapabilityFailures,
           if retainedCapability then validateEvidenceImplId context path typeScope implId else validateImplId context path typeScope implId,
           case parameterId {
             | Nothing -> []
@@ -2268,15 +2275,23 @@ module TypedCoreValidate (
   lookupInstantiationContract = \(owner, schemes, dataEntries) -> case lookupScheme owner schemes {
     | Just scheme -> case scheme {
       | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe ->
-        Just (InstantiationContract schemeOwner parameters primitive)
+        Just (InstantiationContract schemeOwner parameters evidence primitive)
     }
     | Nothing -> case lookupConstructorContractByOwner owner dataEntries {
       | Just constructorContract -> case constructorContract {
         | ConstructorContract constructorOwner dataPath dataIdentifier parameters fields ->
-          Just (InstantiationContract constructorOwner parameters [])
+          Just (InstantiationContract constructorOwner parameters [] [])
       }
       | Nothing -> Nothing
     }
+  }.
+
+  instantiationContractAcceptsArguments :: [TypedTypeArgument] -> InstantiationContract -> Bool.
+  instantiationContractAcceptsArguments = \(arguments, contract) -> case contract {
+    | InstantiationContract contractOwner parameters evidence primitive ->
+      if typeParameterIdListEqual (typeArgumentIds arguments) parameters then
+        if listLength parameters == 0 then listLength evidence > 0 else True
+      else False
   }.
 
   validateInstantiation :: ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedInstantiation -> [TypedCoreValidationFailure].
@@ -2288,12 +2303,12 @@ module TypedCoreValidate (
       })
       (case lookupInstantiationContract owner schemes dataEntries {
         | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-        | Just contract -> case contract {
-          | InstantiationContract contractOwner parameters primitive -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then listAppend
-            (validateTypeArguments context path scope arguments)
-            (validateInstantiatedPrimitiveConstraints context path scope modulePath contractOwner (typeArgumentSubstitutions arguments) primitive)
-          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-        }
+        | Just contract ->
+          if instantiationContractAcceptsArguments arguments contract then case contract {
+            | InstantiationContract contractOwner parameters evidence primitive -> listAppend
+                (validateTypeArguments context path scope arguments)
+                (validateInstantiatedPrimitiveConstraints context path scope modulePath contractOwner (typeArgumentSubstitutions arguments) primitive)
+          } else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       })
   }.
 
@@ -2820,6 +2835,41 @@ module TypedCoreValidate (
     | [first | rest] -> candidateAllowedByMatchingEvidenceSets constraint candidate rest
   }.
 
+  evidenceCandidateSetsMatch :: [TypedEvidenceCandidate] -> [TypedEvidenceCandidate] -> Bool.
+  evidenceCandidateSetsMatch = \(left, right) ->
+    if listLength left == listLength right then
+      listAll (\(candidate) -> evidenceCandidateMember candidate right) left
+    else False.
+
+  applicationEvidenceObligationProgresses :: TypedCapabilityConstraint -> [TypedEvidenceCandidate] -> [TypedEvidenceSelection] -> Bool.
+  applicationEvidenceObligationProgresses = \(constraint, candidates, selections) -> case selections {
+    | [] -> False
+    | [TypedEvidenceCandidates resultConstraint resultCandidates | rest] ->
+      if capabilityConstraintEqual constraint resultConstraint then
+        if evidenceCandidateSetsMatch candidates resultCandidates then True else
+          applicationEvidenceObligationProgresses constraint candidates rest
+      else applicationEvidenceObligationProgresses constraint candidates rest
+    | [TypedSelectedEvidence evidenceUse | rest] -> case evidenceUse {
+      | TypedEvidenceUse maybeParameter resultConstraint implId maybeMethod -> case maybeParameter {
+        | Nothing ->
+          if capabilityConstraintEqual constraint resultConstraint then True else
+            applicationEvidenceObligationProgresses constraint candidates rest
+        | Just parameter ->
+          applicationEvidenceObligationProgresses constraint candidates rest
+      }
+    }
+  }.
+
+  missingApplicationEvidenceObligations :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
+  missingApplicationEvidenceObligations = \(path, resultSelections, functionSelections) -> case functionSelections {
+    | [] -> []
+    | [TypedEvidenceCandidates constraint candidates | rest] -> listAppend
+      (if applicationEvidenceObligationProgresses constraint candidates resultSelections then [] else
+        [failure path TypedMissingEvidence (TypedTextDetail (capabilityConstraintLabel constraint))])
+      (missingApplicationEvidenceObligations path resultSelections rest)
+    | [first | rest] -> missingApplicationEvidenceObligations path resultSelections rest
+  }.
+
   validateApplicationCandidateProgressionFrom :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
   validateApplicationCandidateProgressionFrom = \(path, resultSelections, functionSelections) -> case resultSelections {
     | [] -> []
@@ -2842,14 +2892,20 @@ module TypedCoreValidate (
   }.
 
   validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
-  validateApplication = \(path, resultInfo, function, argument) -> listAppend
-    (case nodeType (expressionInfo function) {
-      | TypedFunctionType expectedArgument expectedResult -> listAppend
-        (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
-        (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
-      | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
-    })
-    (validateApplicationCandidateProgressionFrom path (nodeEvidenceSelections resultInfo) (nodeEvidenceSelections (expressionInfo function))).
+  validateApplication = \(path, resultInfo, function, argument) -> {
+    resultSelections = nodeEvidenceSelections resultInfo.
+    functionSelections = nodeEvidenceSelections (expressionInfo function).
+    listConcat
+      [ case nodeType (expressionInfo function) {
+          | TypedFunctionType expectedArgument expectedResult -> listAppend
+            (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
+            (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
+          | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
+        },
+        missingApplicationEvidenceObligations path resultSelections functionSelections,
+        validateApplicationCandidateProgressionFrom path resultSelections functionSelections
+      ].
+  }.
 
   validateConditional :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
   validateConditional = \(path, resultInfo, condition, thenExpression, elseExpression) -> {
@@ -3639,15 +3695,17 @@ module TypedCoreValidate (
       (case lookupInstantiationContract owner schemes dataEntries {
         | Nothing -> []
         | Just contract ->
-          if binderIdMember owner allowedOwners then
-            if allowAnyExplicitSpan then [] else case maybeSpan {
-              | Nothing -> []
-              | Just explicitSpan -> case parentExplicitSpan {
-                | Just expectedSpan -> if spanEqual expectedSpan explicitSpan then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-                | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          if instantiationContractAcceptsArguments arguments contract then
+            if binderIdMember owner allowedOwners then
+              if allowAnyExplicitSpan then [] else case maybeSpan {
+                | Nothing -> []
+                | Just explicitSpan -> case parentExplicitSpan {
+                  | Just expectedSpan -> if spanEqual expectedSpan explicitSpan then [] else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+                  | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+                }
               }
-            }
-          else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+            else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          else []
       })
       (validateInstantiationOwnersFrom context path allowAnyExplicitSpan parentExplicitSpan allowedOwners rest)
   }.
