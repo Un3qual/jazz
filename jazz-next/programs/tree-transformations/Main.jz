@@ -5,13 +5,13 @@ module Main {
   sourceTree = buildTree 7 1.
 
   mappedTree :: Tree(Int).
-  mappedTree = mapTree (\(value) -> value + 1) sourceTree.
+  mappedTree = mapTree (\(item) -> item + 1) sourceTree.
 
   leafCount :: Int.
-  leafCount = foldTree (\(value) -> 1) (\(left, right) -> left + right) mappedTree.
+  leafCount = foldTree (\(item) -> 1) (\(left, right) -> left + right) mappedTree.
 
   total :: Int.
-  total = foldTree (\(value) -> value) (\(left, right) -> left + right) mappedTree.
+  total = foldTree (\(item) -> item) (\(left, right) -> left + right) mappedTree.
 
   (leafCount, total).
 }

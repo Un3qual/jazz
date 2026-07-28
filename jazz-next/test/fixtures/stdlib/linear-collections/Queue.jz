@@ -8,7 +8,7 @@ module Stdlib::LinearCollections::Queue {
   all = queueEnqueueAll firstVersion ["b", "c"].
   dequeueView = \(result) -> case result {
     | Nothing -> Nothing
-    | Just (value, remaining) -> Just (value, queueToList remaining)
+    | Just (item, remaining) -> Just (item, queueToList remaining)
   }.
   pairs = queueFromList [(1, "x"), (2, "y")].
   (queueToList empty, queueSize empty, queueIsEmpty empty,
@@ -16,6 +16,6 @@ module Stdlib::LinearCollections::Queue {
    queuePeek secondVersion, dequeueView (queueDequeue secondVersion),
    queueToList firstVersion, queueToList all,
    queueToList (queueMap pairs (\(pair) -> pair)),
-   queueFoldLeft all "" (\(result, value) -> textAppend result value),
-   queueFoldRight all "" (\(value, result) -> textAppend value result)).
+   queueFoldLeft all "" (\(result, item) -> textAppend result item),
+   queueFoldRight all "" (\(item, result) -> textAppend item result)).
 }

@@ -1,5 +1,5 @@
 # Jazz syntax-highlighting fixture.
-module Editor::Representative (type Choice(Empty, Chosen), class Matches, value compare!, value sample) {
+module Editor::Representative (type Choice(Empty, Chosen), class Matches, item compare!, item sample) {
   import Text as TextTools.
 
   operator %% precedence 25 right.
@@ -22,6 +22,6 @@ module Editor::Representative (type Choice(Empty, Chosen), class Matches, value 
 
   sample = case Chosen 42i16 {
     | Empty -> (0, '\n', "empty")
-    | Chosen value -> (value %% 1, '\u{266B}', "Jazz \\u{1F3B7}")
+    | Chosen item -> (item %% 1, '\u{266B}', "Jazz \\u{1F3B7}")
   }.
 }

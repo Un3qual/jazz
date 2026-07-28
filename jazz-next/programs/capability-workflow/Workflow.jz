@@ -19,7 +19,7 @@ module Workflow {
   }.
 
   describeAny :: @{Describable(a)}: a -> Text.
-  describeAny = \(value) -> Describable::describe value.
+  describeAny = \(item) -> Describable::describe item.
 
   describeAllReversed :: [WorkItem] -> [Text] -> [Text].
   describeAllReversed = \(items, reversed) -> case items {

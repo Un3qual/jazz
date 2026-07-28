@@ -16,6 +16,7 @@ module ParserDeclaration (
     ImportKeyword,
     AsKeyword,
     DataKeyword,
+    ValueKeyword,
     PunctuationKind,
     ArrowPunctuation,
     EqualsPunctuation,
@@ -32,12 +33,13 @@ module ParserDeclaration (
     CommaPunctuation
   ).
   import Char (charIsLower, charIsUpper).
-  import List (listAll, listLast, listLength, listPrepend, listReverse).
+  import List (listAll, listFoldLeft, listLast, listLength, listPrepend, listReverse).
   import Maybe.
   import NonEmpty.
   import ParserContext.
   import ParserOperator.
-  import ParserSignature (parseSignaturePayload, parseSignatureTypes).
+  import ParserPattern (parseFunctionHeadPattern).
+  import ParserSignature (parseSignaturePayload, parseSignatureType, parseSignatureTypes).
   import Set.
   import ParserToken (
     TokenParser,
@@ -281,6 +283,31 @@ module ParserDeclaration (
   isReservedLiteralName :: Text -> Bool.
   isReservedLiteralName = \(name) -> if name == "True" then True else name == "False".
 
+  looksLikeFunctionEquationFrom :: Bool -> [CanonicalToken] -> Bool.
+  looksLikeFunctionEquationFrom = \(sawPattern, tokens) -> case tokens {
+    | [] -> False
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind EqualsPunctuation -> sawPattern
+      | PunctuationKind DotPunctuation -> False
+      | PunctuationKind DoubleColonPunctuation -> False
+      | PunctuationKind LeftBracePunctuation -> False
+      | PunctuationKind RightBracePunctuation -> False
+      | other -> looksLikeFunctionEquationFrom True rest
+    }
+  }.
+
+  looksLikeFunctionEquation :: [CanonicalToken] -> Bool.
+  looksLikeFunctionEquation = \(tokens) -> looksLikeFunctionEquationFrom False tokens.
+
+  startsMatchingBindingOrFunction :: [CanonicalToken] -> Bool.
+  startsMatchingBindingOrFunction = \(tokens) -> case tokens {
+    | [first | rest] -> case canonicalTokenKind first {
+      | PunctuationKind EqualsPunctuation -> True
+      | other -> looksLikeFunctionEquation tokens
+    }
+    | [] -> False
+  }.
+
   nextStatementStartsMatchingBinding :: Text -> TokenParser(()).
   nextStatementStartsMatchingBinding = \(name) -> tokenKeepRight
     (tokenPunctuation DotPunctuation)
@@ -291,9 +318,12 @@ module ParserDeclaration (
           | other -> False
         })
         "matching binding name")
-      (tokenKeepRight
-        (tokenPunctuation EqualsPunctuation)
-        (tokenSucceed ()))).
+      (tokenAndThen
+        (\(remaining) -> if startsMatchingBindingOrFunction remaining then
+          tokenSucceed ()
+          else tokenFailAt Nothing
+            (ExpectedSyntax "matching binding or function equation" ImplicitBoundary))
+        tokenRemaining)).
 
   parenthesizedBareTypeName :: () -> TokenParser(Text).
   parenthesizedBareTypeName = \() -> tokenKeepRight
@@ -553,6 +583,113 @@ module ParserDeclaration (
     })
     tokenIdentifier.
 
+  parseFunctionClausePatterns :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> CanonicalToken -> [SurfacePattern] -> TokenParser(SurfaceFunctionClause).
+  parseFunctionClausePatterns = \(parseExpression, context, nameToken, reversedPatterns) -> tokenAndThen
+    (\(current) -> case current {
+      | Just token -> case canonicalTokenKind token {
+        | PunctuationKind EqualsPunctuation -> case listReverse reversedPatterns {
+          | [] -> tokenFailAtSpan
+            (canonicalTokenSpan nameToken)
+            (ExpectedSyntax "function head pattern" (AtToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+          | patterns -> tokenKeepRight
+            (tokenPunctuation EqualsPunctuation)
+            (tokenAndThen
+              (\(body) -> tokenKeepRight
+                (tokenPunctuation DotPunctuation)
+                (tokenSucceed
+                  (SurfaceFunctionClause (canonicalTokenSpan nameToken) patterns body)))
+              (parseExpression context))
+        }
+        | other -> tokenAndThen
+          (\(pattern) -> parseFunctionClausePatterns
+            parseExpression
+            context
+            nameToken
+            (listPrepend pattern reversedPatterns))
+          parseFunctionHeadPattern
+      }
+      | Nothing -> tokenFailAtSpan
+        (canonicalTokenSpan nameToken)
+        (ExpectedSyntax "'='" (EndOfInputIn "function equation"))
+    })
+    tokenPeek.
+
+  parseFunctionClauseAfterName :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> CanonicalToken -> TokenParser(SurfaceFunctionClause).
+  parseFunctionClauseAfterName = \(parseExpression, context, nameToken) ->
+    parseFunctionClausePatterns parseExpression context nameToken [].
+
+  functionClauseArity :: SurfaceFunctionClause -> Int.
+  functionClauseArity = \(clause) -> case clause {
+    | SurfaceFunctionClause span patterns body -> listLength patterns
+  }.
+
+  canonicalTokenSpanFromClause :: SurfaceFunctionClause -> CanonicalSpan.
+  canonicalTokenSpanFromClause = \(clause) -> case clause {
+    | SurfaceFunctionClause span patterns body -> span
+  }.
+
+  collectFunctionClauses :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> Text -> Int -> SurfaceFunctionClause -> [SurfaceFunctionClause] -> TokenParser(SurfaceStatement).
+  collectFunctionClauses = \(parseExpression, context, functionName, expectedArity, firstClause, reversedClauses) -> tokenAndThen
+    (\(remaining) -> case remaining {
+      | [nextNameToken | afterName] -> case canonicalTokenKind nextNameToken {
+        | IdentifierKind nextName -> if nextName == functionName then
+          if looksLikeFunctionEquation afterName then tokenKeepRight
+            tokenIdentifier
+            (tokenAndThen
+              (\(nextClause) -> {
+                actualArity = functionClauseArity nextClause.
+                if actualArity == expectedArity then collectFunctionClauses
+                  parseExpression
+                  context
+                  functionName
+                  expectedArity
+                  firstClause
+                  (listPrepend nextClause reversedClauses)
+                else tokenFailAtSpan
+                  (canonicalTokenSpan nextNameToken)
+                  (DeclarationFailure
+                    (FunctionClauseArityMismatch functionName expectedArity actualArity)).
+              })
+              (parseFunctionClauseAfterName parseExpression context nextNameToken))
+            else tokenSucceed
+              (FunctionStatement
+                functionName
+                (canonicalTokenSpanFromClause firstClause)
+                (NonEmpty firstClause (listReverse reversedClauses)))
+          else tokenSucceed
+            (FunctionStatement
+              functionName
+              (canonicalTokenSpanFromClause firstClause)
+              (NonEmpty firstClause (listReverse reversedClauses)))
+        | other -> tokenSucceed
+          (FunctionStatement
+            functionName
+            (canonicalTokenSpanFromClause firstClause)
+            (NonEmpty firstClause (listReverse reversedClauses)))
+      }
+      | [] -> tokenSucceed
+        (FunctionStatement
+          functionName
+          (canonicalTokenSpanFromClause firstClause)
+          (NonEmpty firstClause (listReverse reversedClauses)))
+    })
+    tokenRemaining.
+
+  parseFunctionEquation :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(SurfaceStatement).
+  parseFunctionEquation = \(parseExpression, context) -> tokenAndThen
+    (\(nameToken) -> case canonicalTokenKind nameToken {
+      | IdentifierKind functionName -> tokenAndThen
+        (\(firstClause) -> collectFunctionClauses
+          parseExpression
+          context
+          functionName
+          (functionClauseArity firstClause)
+          firstClause
+          [])
+        (parseFunctionClauseAfterName parseExpression context nameToken)
+    })
+    tokenIdentifier.
+
   parseExpressionStatement :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(SurfaceStatement).
   parseExpressionStatement = \(parseExpression, context) -> tokenAndThen
     (\(current) -> case current {
@@ -687,47 +824,32 @@ module ParserDeclaration (
     })
     tokenPeek.
 
-  balancedCloserTag :: CanonicalToken -> Maybe(Int).
-  balancedCloserTag = \(token) -> case canonicalTokenKind token {
-    | PunctuationKind RightParenPunctuation -> Just 0
-    | PunctuationKind RightBracketPunctuation -> Just 1
-    | other -> Nothing
+  surfaceSignatureTypeVariables :: SurfaceSignatureType -> Set(Text).
+  surfaceSignatureTypeVariables = \(signatureType) -> case signatureType {
+    | IntType -> setEmpty
+    | FloatType -> setEmpty
+    | NumericType numericType -> setEmpty
+    | BoolType -> setEmpty
+    | CharType -> setEmpty
+    | TextType -> setEmpty
+    | TypeVariable name -> setSingleton name
+    | NamedType name -> setEmpty
+    | AppliedType name arguments -> listFoldLeft
+      (\(names, argument) -> setUnion names (surfaceSignatureTypeVariables argument))
+      setEmpty
+      arguments
+    | ListType elementType -> surfaceSignatureTypeVariables elementType
+    | TupleType elementTypes -> listFoldLeft
+      (\(names, elementType) -> setUnion names (surfaceSignatureTypeVariables elementType))
+      setEmpty
+      elementTypes
+    | FunctionType argumentType resultType ->
+      setUnion
+        (surfaceSignatureTypeVariables argumentType)
+        (surfaceSignatureTypeVariables resultType)
   }.
 
-  consumeBalancedDataGroup :: [Int] -> TokenParser(()).
-  consumeBalancedDataGroup = \(expectedClosers) -> tokenAndThen
-    (\(current) -> case current {
-      | Nothing -> tokenFailAt Nothing
-        (ExpectedSyntax "constructor argument to close" (EndOfInputIn "data declaration"))
-      | Just token -> case canonicalTokenKind token {
-        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
-          anyToken
-          (consumeBalancedDataGroup (listPrepend 0 expectedClosers))
-        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
-          anyToken
-          (consumeBalancedDataGroup (listPrepend 1 expectedClosers))
-        | other -> case balancedCloserTag token {
-          | Just closer -> case expectedClosers {
-            | [] -> tokenFailAtSpan
-              (canonicalTokenSpan token)
-              (DeclarationFailure (ConstructorArgumentDelimiterMismatch (canonicalTokenLexeme token)))
-            | [expected | remaining] -> if closer == expected then tokenKeepRight
-              anyToken
-              (case remaining {
-                | [] -> tokenSucceed ()
-                | [next | rest] -> consumeBalancedDataGroup remaining
-              })
-              else tokenFailAtSpan
-                (canonicalTokenSpan token)
-                (DeclarationFailure (ConstructorArgumentDelimiterMismatch (canonicalTokenLexeme token)))
-          }
-          | Nothing -> tokenKeepRight anyToken (consumeBalancedDataGroup expectedClosers)
-        }
-      }
-    })
-    tokenPeek.
-
-  parseDataConstructorArguments :: Text -> Set(Text) -> [SurfaceDataConstructorArgument] -> TokenParser([SurfaceDataConstructorArgument]).
+  parseDataConstructorArguments :: Text -> Set(Text) -> [SurfaceSignatureType] -> TokenParser([SurfaceSignatureType]).
   parseDataConstructorArguments = \(typeName, typeParameters, reversed) -> tokenAndThen
     (\(current) -> case current {
       | Nothing -> tokenSucceed (listReverse reversed)
@@ -737,48 +859,18 @@ module ParserDeclaration (
           tokenFailAtSpan
             (canonicalTokenSpan token)
             (ExpectedSyntax "constructor argument" (canonicalTokenEncountered current))
-        | IdentifierKind argumentName -> if setIsEmpty typeParameters then
-          tokenKeepRight
-            tokenIdentifier
-            (parseDataConstructorArguments
+        | other -> tokenAndThen
+          (\(fieldType) -> case setToList
+            (setDifference (surfaceSignatureTypeVariables fieldType) typeParameters) {
+            | [undeclared | rest] -> tokenFailAtSpan
+              (canonicalTokenSpan token)
+              (DeclarationFailure (UndeclaredConstructorTypeParameter undeclared typeName))
+            | [] -> parseDataConstructorArguments
               typeName
               typeParameters
-              (listPrepend (NamedConstructorArgument argumentName) reversed))
-          else if identifierStartsLower argumentName then
-            if setContains typeParameters argumentName then tokenKeepRight
-              tokenIdentifier
-              (parseDataConstructorArguments
-                typeName
-                typeParameters
-                (listPrepend (NamedConstructorArgument argumentName) reversed))
-              else tokenFailAtSpan
-                (canonicalTokenSpan token)
-                (DeclarationFailure (UndeclaredConstructorTypeParameter argumentName typeName))
-            else tokenKeepRight
-              tokenIdentifier
-              (parseDataConstructorArguments
-                typeName
-                typeParameters
-                (listPrepend (NamedConstructorArgument argumentName) reversed))
-        | PunctuationKind LeftParenPunctuation -> tokenKeepRight
-          (tokenPunctuation LeftParenPunctuation)
-          (tokenKeepRight
-            (consumeBalancedDataGroup [0])
-            (parseDataConstructorArguments
-              typeName
-              typeParameters
-              (listPrepend OpaqueConstructorArgument reversed)))
-        | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
-          (tokenPunctuation LeftBracketPunctuation)
-          (tokenKeepRight
-            (consumeBalancedDataGroup [1])
-            (parseDataConstructorArguments
-              typeName
-              typeParameters
-              (listPrepend OpaqueConstructorArgument reversed)))
-        | other -> tokenFailAtSpan
-          (canonicalTokenSpan token)
-          (ExpectedSyntax "constructor argument" (canonicalTokenEncountered current))
+              (listPrepend fieldType reversed)
+          })
+          parseSignatureType
       }
     })
     tokenPeek.
@@ -1608,6 +1700,24 @@ module ParserDeclaration (
     (\(current) -> case current {
       | Nothing -> tokenFailAt Nothing (ExpectedSyntax "module export name" EndOfInput)
       | Just first -> case canonicalTokenKind first {
+        | KeywordKind ValueKeyword -> tokenKeepRight
+          (tokenKeyword ValueKeyword)
+          (tokenAndThen
+            (\(exportToken) -> case canonicalTokenKind exportToken {
+              | IdentifierKind exportName -> tokenSucceed
+                ( NamedExportSelector (Just ValueName) exportName,
+                  canonicalTokenSpan exportToken
+                )
+              | other -> tokenFailAtSpan
+                (canonicalTokenSpan exportToken)
+                (ExpectedSyntax "module export name" (canonicalTokenEncountered (Just exportToken)))
+            })
+            (tokenTakeIf
+              (\(candidate) -> case canonicalTokenKind candidate {
+                | IdentifierKind name -> True
+                | other -> False
+              })
+              "module export name"))
         | IdentifierKind firstName -> tokenKeepRight
           tokenIdentifier
           (tokenAndThen
@@ -1859,9 +1969,9 @@ module ParserDeclaration (
           (EndOfInputIn "operator declaration"))
       | Just token -> case canonicalTokenKind token {
         | IntegerKind digits -> case operatorIntegerValue digits {
-          | Just value -> case (case fixity {
-            | TierFixity -> operatorForTier symbol value
-            | PrecedenceFixity -> operatorForPrecedence symbol value
+          | Just item -> case (case fixity {
+            | TierFixity -> operatorForTier symbol item
+            | PrecedenceFixity -> operatorForPrecedence symbol item
           }) {
             | Just info -> tokenKeepRight tokenInteger (tokenSucceed info)
             | Nothing -> tokenFailAtSpan
@@ -2139,6 +2249,11 @@ module ParserDeclaration (
     (\(statement) -> ([statement], context))
     (parseBinding parseExpression context).
 
+  parseFunctionWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
+  parseFunctionWithContext = \(parseExpression, context) -> tokenTransform
+    (\(statement) -> ([statement], context))
+    (parseFunctionEquation parseExpression context).
+
   parseNonBindingWithContext :: (ParserContext -> TokenParser(SurfaceExpr)) -> (ParserContext -> TokenParser([SurfaceStatement])) -> ParserContext -> TokenParser(([SurfaceStatement], ParserContext)).
   parseNonBindingWithContext = \(parseExpression, parseStatements, context) -> tokenTransform
     (\(statement) -> ([statement], context))
@@ -2151,7 +2266,9 @@ module ParserDeclaration (
         | IdentifierKind name -> case afterToken {
           | [separator | rest] -> case canonicalTokenKind separator {
             | PunctuationKind EqualsPunctuation -> parseBindingWithContext parseExpression context
-            | other -> if name == "operator" then tokenAndThen
+            | other -> if looksLikeFunctionEquation afterToken then
+              parseFunctionWithContext parseExpression context
+              else if name == "operator" then tokenAndThen
               (\(operatorStart) -> case operatorStart {
                 | Just candidate -> parseOperatorDeclaration context
                 | Nothing -> parseNonBindingWithContext parseExpression parseStatements context

@@ -19,7 +19,7 @@ module NonEmpty (
   data NonEmpty a = NonEmpty a [a].
 
   nonEmptySingleton :: a -> NonEmpty(a).
-  nonEmptySingleton = \(value) -> NonEmpty value [].
+  nonEmptySingleton = \(item) -> NonEmpty item [].
 
   nonEmptyFromList :: [a] -> Maybe(NonEmpty(a)).
   nonEmptyFromList = \(values) -> case values {
@@ -46,12 +46,12 @@ module NonEmpty (
   nonEmptyLast = \(nonEmpty) -> case nonEmpty {
     | NonEmpty first rest -> case listLast rest {
       | Nothing -> first
-      | Just value -> value
+      | Just item -> item
     }
   }.
 
   nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
-  nonEmptyPrepend = \(value, nonEmpty) -> NonEmpty value (nonEmptyToList nonEmpty).
+  nonEmptyPrepend = \(item, nonEmpty) -> NonEmpty item (nonEmptyToList nonEmpty).
 
   nonEmptyAppendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
   nonEmptyAppendList = \(nonEmpty, suffix) -> case nonEmpty {

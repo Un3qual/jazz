@@ -9,8 +9,8 @@ module Stdlib::OrderedCollections::Set {
    setToList (setIntersection start (setFromList [2, 4])),
    setToList (setDifference start (setFromList [2, 4])),
    setIsSubset (setFromList [1, 2]) start, setIsSubset start (setFromList [1, 2]),
-   setToList (setFilter start (\(value) -> value > 1)),
-   setToList (setMap start (\(value) -> if value < 3 then 0 else 1)),
-   setFoldLeft start "" (\(result, value) -> textAppend result (Showable::show value)),
-   setFoldRight start "" (\(value, result) -> textAppend (Showable::show value) result)).
+   setToList (setFilter start (\(item) -> item > 1)),
+   setToList (setMap start (\(item) -> if item < 3 then 0 else 1)),
+   setFoldLeft start "" (\(result, item) -> textAppend result (Showable::show item)),
+   setFoldRight start "" (\(item, result) -> textAppend (Showable::show item) result)).
 }

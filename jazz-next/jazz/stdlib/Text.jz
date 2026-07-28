@@ -147,7 +147,7 @@ module Text (
 
   textSplit :: Text -> Text -> [Text].
   textSplit = \(delimiter, text) -> if textIsEmpty delimiter
-    then listMap (\(value) -> textFromChars [value]) (textToChars text)
+    then listMap (\(item) -> textFromChars [item]) (textToChars text)
     else textSplitFrom delimiter (textLength delimiter) text [] [].
 
   textLinesFrom :: Text -> [Char] -> [Text] -> [Text].

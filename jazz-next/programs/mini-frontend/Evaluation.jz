@@ -7,12 +7,12 @@ module Evaluation {
   lookupName :: Text -> [(Text, Int)] -> EvaluationResult.
   lookupName = \(name, environment) -> case environment {
     | [] -> UnboundName name
-    | [(candidate, value) | rest] -> if candidate == name then Evaluated value else lookupName name rest
+    | [(candidate, item) | rest] -> if candidate == name then Evaluated item else lookupName name rest
   }.
 
   evaluate :: [(Text, Int)] -> Expression(Int) -> EvaluationResult.
   evaluate = \(environment, expression) -> case expression {
-    | Literal value -> Evaluated value
+    | Literal item -> Evaluated item
     | Add left right -> case evaluate environment left {
       | UnboundName name -> UnboundName name
       | Evaluated leftValue -> case evaluate environment right {
@@ -21,7 +21,7 @@ module Evaluation {
       }
     }
     | Reference name -> lookupName name environment
-    | LetExpression name value body -> case evaluate environment value {
+    | LetExpression name item body -> case evaluate environment item {
       | UnboundName missing -> UnboundName missing
       | Evaluated result -> evaluate (listPrepend (name, result) environment) body
     }

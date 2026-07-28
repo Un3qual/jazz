@@ -54,10 +54,10 @@ tests =
     ("preserves landed binding and expression statement dispatch", testFoundationalDispatch),
     ("constructs the recursive signature parser lazily", testDirectSignatureType),
     ("matches stage 0 signature type and fallback behavior", testSignatureParity),
-    ("rejects empty spaced signatures with stage 0 diagnostics", assertStage0Parity "empty spaced signature payload" "value :: ."),
+    ("rejects empty spaced signatures with stage 0 diagnostics", assertStage0Parity "empty spaced signature payload" "item :: ."),
     ("classifies qualified type variables by terminal member", assertStage0Parity "qualified signature type variable" "qualified :: Alias::a."),
     ("matches stage 0 explicit type application behavior", testExplicitTypeApplicationParity),
-    ("classifies qualified explicit type variables by terminal member", assertStage0Parity "qualified explicit type variable" "value = id @Alias::a item."),
+    ("classifies qualified explicit type variables by terminal member", assertStage0Parity "qualified explicit type variable" "item = id @Alias::a item."),
     ("matches stage 0 data, class, and impl declarations", testTypeDeclarationParity),
     ("rejects operator signatures in class bodies", assertStage0Parity "operator class method" "class Eq(a) { operator :: Int. }."),
     ("rejects operator bindings in impl bodies", assertStage0Parity "operator impl method" "impl Eq(Int) { operator = 1. }."),
@@ -71,19 +71,19 @@ tests =
     ("requires matching bindings for parenthesized qualified constructor payloads", assertStage0Parity "unmatched parenthesized qualified constructor payload" "Result::(Alias::a)."),
     ("accepts parenthesized qualified constructor payloads before matching bindings", assertStage0Parity "matched parenthesized qualified constructor payload" "Result::(Alias::a). Result = 1."),
     ("accepts parenthesized qualified concrete constructor payloads", assertStage0Parity "parenthesized qualified concrete constructor payload" "Result::(Alias::Int)."),
-    ("preserves compact integer payloads before matching bindings", assertStage0Parity "matched unsupported integer payload" "value::1. value = 0."),
-    ("preserves compact operator payloads before matching bindings", assertStage0Parity "matched unsupported operator payload" "value::+. value = 0."),
-    ("rejects unmatched compact integer payloads like stage 0", assertStage0Parity "unmatched unsupported integer payload" "value::1."),
-    ("rejects unmatched compact operator payloads like stage 0", assertStage0Parity "unmatched unsupported operator payload" "value::+."),
-    ("does not treat a leading extra separator as signature syntax", assertStage0Parity "unsupported extra separator payload" "value::::A."),
-    ("preserves later syntax evidence after a leading extra separator", assertStage0Parity "unsupported extra separator payload with syntax evidence" "value::::A -> B."),
-    ("anchors parenthesized operator binding boundaries at the opener", assertStage0Parity "parenthesized operator binding boundary" "value :: Int (+) = 1."),
-    ("anchors parenthesized operator signature boundaries at the opener", assertStage0Parity "parenthesized operator signature boundary" "value :: Int (+) :: Int."),
-    ("rejects unmatched multiply-qualified payloads like stage 0", assertStage0Parity "unmatched multiply-qualified payload" "value::A::B::C."),
+    ("preserves compact integer payloads before matching bindings", assertStage0Parity "matched unsupported integer payload" "item::1. item = 0."),
+    ("preserves compact operator payloads before matching bindings", assertStage0Parity "matched unsupported operator payload" "item::+. item = 0."),
+    ("rejects unmatched compact integer payloads like stage 0", assertStage0Parity "unmatched unsupported integer payload" "item::1."),
+    ("rejects unmatched compact operator payloads like stage 0", assertStage0Parity "unmatched unsupported operator payload" "item::+."),
+    ("does not treat a leading extra separator as signature syntax", assertStage0Parity "unsupported extra separator payload" "item::::A."),
+    ("preserves later syntax evidence after a leading extra separator", assertStage0Parity "unsupported extra separator payload with syntax evidence" "item::::A -> B."),
+    ("anchors parenthesized operator binding boundaries at the opener", assertStage0Parity "parenthesized operator binding boundary" "item :: Int (+) = 1."),
+    ("anchors parenthesized operator signature boundaries at the opener", assertStage0Parity "parenthesized operator signature boundary" "item :: Int (+) :: Int."),
+    ("rejects unmatched multiply-qualified payloads like stage 0", assertStage0Parity "unmatched multiply-qualified payload" "item::A::B::C."),
     ("rejects unmatched constructor multiply-qualified payloads like stage 0", assertStage0Parity "unmatched constructor multiply-qualified payload" "Result::Alias::Member::Extra."),
-    ("preserves syntax evidence after extra qualification", assertStage0Parity "multiply-qualified payload with syntax evidence" "value::A::B::C -> D."),
+    ("preserves syntax evidence after extra qualification", assertStage0Parity "multiply-qualified payload with syntax evidence" "item::A::B::C -> D."),
     ("keeps constructor extra qualification at the statement boundary despite later syntax", assertStage0Parity "constructor multiply-qualified payload with later syntax" "Result::Alias::Member::Extra -> D."),
-    ("preserves multiply-qualified payloads before matching bindings", assertStage0Parity "matched multiply-qualified payload" "value::A::B::C. value = 0."),
+    ("preserves multiply-qualified payloads before matching bindings", assertStage0Parity "matched multiply-qualified payload" "item::A::B::C. item = 0."),
     ("keeps constructor extra qualification at the statement boundary before matching bindings", assertStage0Parity "constructor multiply-qualified payload before matching binding" "Result::Alias::Member::Extra. Result = 0."),
     ("rejects reserved compact signature names before alias routing", assertStage0Parity "reserved signature name before alias" "True::x. import M as True."),
     ("preserves data-header EOF context after the keyword", assertStage0Parity "data header EOF after keyword" "data"),
@@ -91,7 +91,7 @@ tests =
     ("preserves data-header EOF context after type parameters", assertStage0Parity "data header EOF after type parameters" "data Box a"),
     ("preserves data-constructor EOF context after equals", assertStage0Parity "data constructor EOF after equals" "data Maybe ="),
     ("preserves data-constructor EOF context after a pipe", assertStage0Parity "data constructor EOF after pipe" "data Maybe = Just |"),
-    ("reports missing signature terminators as dots", assertStage0Parity "signature terminator EOF" "value :: Int"),
+    ("reports missing signature terminators as dots", assertStage0Parity "signature terminator EOF" "item :: Int"),
     ("preserves empty constructor-export EOF context", assertStage0Parity "empty constructor export EOF" "module M(type Box("),
     ("anchors incomplete all-constructor exports at the second dot", assertStage0Parity "all-constructor export EOF" "module M(type Box(.."),
     ("anchors malformed all-constructor exports at the second dot", assertStage0Parity "all-constructor export following token" "module M(type Box(..Other"),
@@ -110,11 +110,11 @@ testTokenRemaining =
           (\\(taken) -> tokenTransform (\\(after) -> (before, taken, after)) tokenRemaining)
           tokenIdentifier)
         tokenRemaining)
-      [ CanonicalToken (IdentifierKind "value") "value" (CanonicalSpan 1 1)
+      [ CanonicalToken (IdentifierKind "item") "item" (CanonicalSpan 1 1)
       , CanonicalToken (PunctuationKind DotPunctuation) "." (CanonicalSpan 1 6)
       ]
     """
-    "ParserSucceeded(([CanonicalToken(IdentifierKind(\"value\"), \"value\", CanonicalSpan(1, 1)), CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))], CanonicalToken(IdentifierKind(\"value\"), \"value\", CanonicalSpan(1, 1)), [CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))]), ParserCursor([CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))], 1), Consumed)"
+    "ParserSucceeded(([CanonicalToken(IdentifierKind(\"item\"), \"item\", CanonicalSpan(1, 1)), CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))], CanonicalToken(IdentifierKind(\"item\"), \"item\", CanonicalSpan(1, 1)), [CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))]), ParserCursor([CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 6))], 1), Consumed)"
 
 testContextTransitions :: IO ()
 testContextTransitions =
@@ -141,20 +141,20 @@ testContextAwareExpression =
     """
     tokenRunComplete
       (parseFoundationalExpressionWithContext parserContextInitial (tokenSucceed []))
-      (expressionTokens "value")
+      (expressionTokens "item")
     """
-    "TokenParseSucceeded(VariableExpression(\"value\"))"
+    "TokenParseSucceeded(VariableExpression(\"item\"))"
 
 testFoundationalDispatch :: IO ()
 testFoundationalDispatch =
   assertJazzOutput
     "foundational dispatch"
     """
-    ( parseSource componentPath "value = 1. value."
+    ( parseSource componentPath "item = 1. item."
     , parseSource componentPath "{} ."
     )
     """
-    "(CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/types-declarations-modules.jz\"), BlockExpression([LetStatement(\"value\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 12), VariableExpression(\"value\"))])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/types-declarations-modules.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([]))])))"
+    "(CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/types-declarations-modules.jz\"), BlockExpression([LetStatement(\"item\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 11), VariableExpression(\"item\"))])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/types-declarations-modules.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([]))])))"
 
 testDirectSignatureType :: IO ()
 testDirectSignatureType =
@@ -189,13 +189,13 @@ testSignatureParity =
         "x :: Int x = 1."
       ),
       ( "compact and nested signature integration",
-        "value::Int. { nested::Maybe(Int). }."
+        "item::Int. { nested::Maybe(Int). }."
       ),
       ( "matching binding disambiguates constructor-shaped signature",
-        "Result::value. Result = 1."
+        "Result::item. Result = 1."
       ),
       ( "unmatched constructor-shaped payload remains a qualified expression",
-        "Result::value. Other = 1."
+        "Result::item. Other = 1."
       ),
       ( "statement boundary inside compact signature",
         "Result::a Other = 0. Result = 1."
@@ -206,12 +206,12 @@ testExplicitTypeApplicationParity :: IO ()
 testExplicitTypeApplicationParity =
   mapM_
     (uncurry assertStage0Parity)
-    [ ("primitive type application", "value = id @Int 1. value."),
-      ("applied type application", "value = id @Maybe(Int) value. value."),
-      ("chained type application", "value = id @Maybe(Int) @List(Text) value. value."),
-      ("spaced application delimiter", "value = id @Maybe (Int). value."),
-      ("missing type application argument", "value = id @ 1. value."),
-      ("empty applied type argument list", "value = id @Maybe(). value.")
+    [ ("primitive type application", "item = id @Int 1. item."),
+      ("applied type application", "item = id @Maybe(Int) item. item."),
+      ("chained type application", "item = id @Maybe(Int) @List(Text) item. item."),
+      ("spaced application delimiter", "item = id @Maybe (Int). item."),
+      ("missing type application argument", "item = id @ 1. item."),
+      ("empty applied type argument list", "item = id @Maybe(). item.")
     ]
 
 testTypeDeclarationParity :: IO ()
@@ -316,7 +316,7 @@ testModuleDeclarationParity = do
   mapM_
     (uncurry assertStage0Parity)
     [ ( "registers duplicate aliases idempotently",
-        "import A as Alias. import B as Alias. Alias::value."
+        "import A as Alias. import B as Alias. Alias::item."
       ),
       ( "pre-collects aliases in a module body and inherits them in nested blocks",
         "module App { result = { Math::answer. }. import Lib::Math as Math. }"

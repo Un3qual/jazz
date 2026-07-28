@@ -53,11 +53,17 @@ module LoweredIRTypes {
 
   data LoweredSwitchDefault = LoweredSwitchDefault LoweredBlockId [LoweredOperand].
 
-  data LoweredTerminator = LoweredReturn LoweredOperand | LoweredJump LoweredBlockId [LoweredOperand] | LoweredBranch LoweredOperand LoweredBlockId [LoweredOperand] LoweredBlockId [LoweredOperand] | LoweredSwitch LoweredOperand [LoweredSwitchCase] (Maybe(LoweredSwitchDefault)) | LoweredDirectTailCall LoweredFunctionId [LoweredOperand] | LoweredClosureTailCall LoweredOperand [LoweredOperand].
+  data LoweredTerminator
+    = LoweredReturn LoweredOperand
+    | LoweredJump LoweredBlockId [LoweredOperand]
+    | LoweredBranch LoweredOperand LoweredBlockId [LoweredOperand] LoweredBlockId [LoweredOperand]
+    | LoweredSwitch LoweredOperand [LoweredSwitchCase] Maybe(LoweredSwitchDefault)
+    | LoweredDirectTailCall LoweredFunctionId [LoweredOperand]
+    | LoweredClosureTailCall LoweredOperand [LoweredOperand].
 
-  data LoweredBlock = LoweredBlock LoweredBlockId [LoweredParameter] [LoweredInstruction] (Maybe(LoweredTerminator)).
+  data LoweredBlock = LoweredBlock LoweredBlockId [LoweredParameter] [LoweredInstruction] Maybe(LoweredTerminator).
 
-  data LoweredFunction = LoweredFunction LoweredFunctionId (Maybe(LoweredParameter)) [LoweredParameter] LoweredRepresentation [LoweredBlock] LoweredBlockId.
+  data LoweredFunction = LoweredFunction LoweredFunctionId Maybe(LoweredParameter) [LoweredParameter] LoweredRepresentation [LoweredBlock] LoweredBlockId.
 
   data LoweredProgram = LoweredProgram LoweredIRVersion [LoweredLayout] [LoweredRuntimeService] [LoweredFunction] LoweredFunctionId.
 

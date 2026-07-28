@@ -196,6 +196,7 @@ coreInventory =
     EVar (sourceName (mkIdentifier "value")),
     EVar (qualifiedName (mkIdentifier "Alias") (mkIdentifier "member")),
     EVar (generatedName (LambdaPatternArgument 2)),
+    EVar (generatedName (FunctionEquationArgument 2)),
     EVar (generatedName (OperatorBinding "$operator:2B")),
     ELambda (sourceName (mkIdentifier "argument")) (EVar (sourceName (mkIdentifier "argument"))),
     EOperatorValue "+",
@@ -237,7 +238,12 @@ statementInventory =
       span1
       (sourceName (mkIdentifier "Box"))
       [sourceName (mkIdentifier "a")]
-      [DataConstructor (sourceName (mkIdentifier "Box")) [DataConstructorArgumentName (sourceName (mkIdentifier "a")), DataConstructorArgumentOpaque]],
+      [ DataConstructor
+          (sourceName (mkIdentifier "Box"))
+          [ TypeVariable (sourceName (mkIdentifier "a")),
+            TypeList TypeText
+          ]
+      ],
     SClass
       span1
       (sourceName (mkIdentifier "Eq"))
@@ -338,6 +344,7 @@ expectedConstructors =
     "CoreQualifiedName",
     "CoreGeneratedName",
     "CoreLambdaPatternArgument",
+    "CoreFunctionEquationArgument",
     "CoreOperatorBinding",
     "CoreSpan",
     "CoreLambdaExpression",
@@ -371,8 +378,6 @@ expectedConstructors =
     "CoreImportStatement",
     "CoreExpressionStatement",
     "CoreDataConstructor",
-    "CoreNamedConstructorArgument",
-    "CoreOpaqueConstructorArgument",
     "CoreClassMethodSignature",
     "CoreImplMethod",
     "CoreTypeSignature",

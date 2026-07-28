@@ -162,8 +162,7 @@ testSurfaceInventory = do
           "OrPattern",
           "IdentifierParameter",
           "PatternParameter",
-          "NamedConstructorArgument",
-          "OpaqueConstructorArgument",
+          "SurfaceFunctionClause",
           "LiteralExpression",
           "VariableExpression",
           "QualifiedVariableExpression",
@@ -190,6 +189,7 @@ testSurfaceInventory = do
           "SurfaceClassMethodSignature",
           "SurfaceImplMethod",
           "LetStatement",
+          "FunctionStatement",
           "SignatureStatement",
           "DataStatement",
           "ClassStatement",
@@ -215,6 +215,10 @@ surfaceInventory :: SurfaceExpr
 surfaceInventory =
   SEBlock
     [ SSLet "allExpressions" span1 (SEList allExpressions),
+      SSFunction
+        "identity"
+        span1
+        (SurfaceFunctionClause span1 [SPVariable "item"] (SEVar "item") :| []),
       SSSignature "plain" span1 (SurfaceSignatureType SurfaceTypeInt),
       SSSignature
         "constrained"
@@ -230,7 +234,7 @@ surfaceInventory =
         ["a"]
         [ SurfaceDataConstructor
             "Thing"
-            [SurfaceDataConstructorArgumentName "a", SurfaceDataConstructorArgumentOpaque]
+            [SurfaceTypeVariable "a", SurfaceTypeList SurfaceTypeText]
         ],
       SSClass
         span1
@@ -360,17 +364,17 @@ testNumericFidelity = do
     "IntegerLiteral(\"9223372036854775808\")"
   assertRenderedSourceContains
     "fractional leading and trailing zeroes"
-    "value = 1.0010."
+    "item = 1.0010."
     "FractionalLiteral(\"1\", \"0010\", Nothing)"
   mapM_
     ( \(suffix, expectedType) ->
         assertRenderedSourceContains
           ("fractional suffix " <> suffix)
-          ("value = 1.50" <> suffix <> ".")
+          ("item = 1.50" <> suffix <> ".")
           ("FractionalLiteral(\"1\", \"50\", Just(" <> expectedType <> "))")
     )
     [("f16", "Float16Type"), ("f32", "Float32Type"), ("f64", "Float64Type")]
-  let overflowSource = "value = " <> Text.replicate 400 "9" <> ".0."
+  let overflowSource = "item = " <> Text.replicate 400 "9" <> ".0."
   case detailedSourceResult overflowSource of
     Right (Left failure) ->
       assertContains
@@ -457,6 +461,7 @@ declarationFailureInventory =
     ("ClassSupportsExactlyOneParameter", ClassSupportsExactlyOneParameter),
     ("ClassParameterMustBeLowercase", ClassParameterMustBeLowercase),
     ("UndeclaredConstructorTypeParameter", UndeclaredConstructorTypeParameter "b" "Thing"),
+    ("FunctionClauseArityMismatch", FunctionClauseArityMismatch "pick" 1 2),
     ("ConstructorArgumentDelimiterMismatch", ConstructorArgumentDelimiterMismatch ","),
     ("ConstructorExportGroupRequiresAll", ConstructorExportGroupRequiresAll),
     ("ModuleMustBeFirstTopLevelForm", ModuleMustBeFirstTopLevelForm)
@@ -466,7 +471,7 @@ testSourceResultPhases :: IO ()
 testSourceResultPhases = do
   path <- normalizedPath "fixtures/parser/phases.jz"
   let cases =
-        [ ("success", "CanonicalSourceSuccess", "value = 42."),
+        [ ("success", "CanonicalSourceSuccess", "item = 42."),
           ("lexical failure", "CanonicalSourceLexicalFailure", "`"),
           ("parser failure", "CanonicalSourceParserFailure", "if")
         ]
@@ -941,7 +946,7 @@ testCanonicalizesProgram :: IO ()
 testCanonicalizesProgram = do
   sourcePath <- normalizedPath "fixtures/parser/basic.jz"
   tokens <-
-    case tokenizeDetailed "value = 42." of
+    case tokenizeDetailed "item = 42." of
       Left failure -> failTest ("expected lexical success, got " <> showText failure)
       Right values -> pure values
   assertContains

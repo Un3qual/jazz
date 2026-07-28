@@ -193,7 +193,7 @@ testRendersCanonicalTokens = do
     "canonical token rendering"
     ( "CanonicalLexSuccess(CanonicalSourcePath(\"fixtures/parser/basic.jz\"), "
         <> "[CanonicalToken(KeywordKind(ModuleKeyword), \"module\", CanonicalSpan(1, 1)), "
-        <> "CanonicalToken(IdentifierKind(\"value\"), \"value\", CanonicalSpan(1, 8)), "
+        <> "CanonicalToken(KeywordKind(ValueKeyword), \"value\", CanonicalSpan(1, 8)), "
         <> "CanonicalToken(PunctuationKind(EqualsPunctuation), \"=\", CanonicalSpan(1, 14)), "
         <> "CanonicalToken(IntegerKind(\"42\"), \"00042\", CanonicalSpan(1, 16)), "
         <> "CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 21))])"
@@ -214,13 +214,14 @@ testMapsEveryTokenConstructor = do
   path <- normalizedPath "fixtures/parser/all-tokens.jz"
   result <-
     detailedResult
-      "module import as data if then else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\""
+      "module import as data value if then else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\""
   let rendered = renderCanonicalLexResult (canonicalizeLexResult path result)
       expectedKinds =
         [ "KeywordKind(ModuleKeyword)",
           "KeywordKind(ImportKeyword)",
           "KeywordKind(AsKeyword)",
           "KeywordKind(DataKeyword)",
+          "KeywordKind(ValueKeyword)",
           "KeywordKind(IfKeyword)",
           "KeywordKind(ThenKeyword)",
           "KeywordKind(ElseKeyword)",

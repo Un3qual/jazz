@@ -6,18 +6,18 @@ module Analysis {
 
   nodeCount :: Expression(a) -> Int.
   nodeCount = \(expression) -> case expression {
-    | Literal value -> 1
+    | Literal item -> 1
     | Add left right -> 1 + nodeCount left + nodeCount right
     | Reference name -> 1
-    | LetExpression name value body -> 1 + nodeCount value + nodeCount body
+    | LetExpression name item body -> 1 + nodeCount item + nodeCount body
   }.
 
   collectReferences :: Expression(a) -> [Text] -> [Text].
   collectReferences = \(expression, reversed) -> case expression {
-    | Literal value -> reversed
+    | Literal item -> reversed
     | Add left right -> collectReferences right (collectReferences left reversed)
     | Reference name -> listPrepend name reversed
-    | LetExpression name value body -> collectReferences body (collectReferences value reversed)
+    | LetExpression name item body -> collectReferences body (collectReferences item reversed)
   }.
 
   analyze :: Expression(a) -> Summary.

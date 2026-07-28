@@ -18,60 +18,60 @@ module Result (
   resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
   resultMap = \(transform, result) -> case result {
     | Err error -> Err error
-    | Ok value -> Ok (transform value)
+    | Ok item -> Ok (transform item)
   }.
 
   resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
   resultMapError = \(transform, result) -> case result {
     | Err error -> Err (transform error)
-    | Ok value -> Ok value
+    | Ok item -> Ok item
   }.
 
   resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
   resultAndThen = \(transform, result) -> case result {
     | Err error -> Err error
-    | Ok value -> transform value
+    | Ok item -> transform item
   }.
 
   resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
   resultRecover = \(recover, result) -> case result {
     | Err error -> recover error
-    | Ok value -> Ok value
+    | Ok item -> Ok item
   }.
 
   resultWithDefault :: a -> Result(e, a) -> a.
   resultWithDefault = \(defaultValue, result) -> case result {
     | Err error -> defaultValue
-    | Ok value -> value
+    | Ok item -> item
   }.
 
   resultIsOk :: Result(e, a) -> Bool.
   resultIsOk = \(result) -> case result {
     | Err error -> False
-    | Ok value -> True
+    | Ok item -> True
   }.
 
   resultIsErr :: Result(e, a) -> Bool.
   resultIsErr = \(result) -> case result {
     | Err error -> True
-    | Ok value -> False
+    | Ok item -> False
   }.
 
   resultToMaybe :: Result(e, a) -> Maybe(a).
   resultToMaybe = \(result) -> case result {
     | Err error -> Nothing
-    | Ok value -> Just value
+    | Ok item -> Just item
   }.
 
   resultErrorToMaybe :: Result(e, a) -> Maybe(e).
   resultErrorToMaybe = \(result) -> case result {
     | Err error -> Just error
-    | Ok value -> Nothing
+    | Ok item -> Nothing
   }.
 
   resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
   resultFromMaybe = \(error, maybeValue) -> case maybeValue {
     | Nothing -> Err error
-    | Just value -> Ok value
+    | Just item -> Ok item
   }.
 }

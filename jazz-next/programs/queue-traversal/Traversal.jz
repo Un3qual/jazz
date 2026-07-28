@@ -5,11 +5,11 @@ module Traversal (value breadthFirst) {
 
   breadthFirstFrom = \(pending, reversedVisited) -> case queueDequeue pending {
     | Nothing -> listReverse reversedVisited
-    | Just (value, remaining) -> if value >= 8
-      then breadthFirstFrom remaining (listPrepend value reversedVisited)
+    | Just (item, remaining) -> if item >= 8
+      then breadthFirstFrom remaining (listPrepend item reversedVisited)
       else breadthFirstFrom
-        (queueEnqueueAll remaining [value * 2, value * 2 + 1])
-        (listPrepend value reversedVisited)
+        (queueEnqueueAll remaining [item * 2, item * 2 + 1])
+        (listPrepend item reversedVisited)
   }.
 
   breadthFirst = \(root) -> breadthFirstFrom (queueSingleton root) [].

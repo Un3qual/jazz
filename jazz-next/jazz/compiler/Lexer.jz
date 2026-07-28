@@ -19,31 +19,31 @@ module Lexer (value lexSource) {
   nextTabStop = \(stop, column) -> if stop > column then stop else nextTabStop (stop + 8) column.
 
   advanceLine :: Char -> Int -> Int.
-  advanceLine = \(value, line) -> if value == '\n' then line + 1 else line.
+  advanceLine = \(item, line) -> if item == '\n' then line + 1 else line.
 
   advanceColumn :: Char -> Int -> Int.
-  advanceColumn = \(value, column) -> if value == '\n' then
+  advanceColumn = \(item, column) -> if item == '\n' then
     1
-    else if value == '\t' then
+    else if item == '\t' then
       nextTabStop 1 column
       else column + 1.
 
   isIdentifierStart :: Char -> Bool.
-  isIdentifierStart = \(value) -> if (charIsAlpha value) then True else value == '_'.
+  isIdentifierStart = \(item) -> if (charIsAlpha item) then True else item == '_'.
 
   isIdentifierContinuation :: Char -> Bool.
-  isIdentifierContinuation = \(value) -> if (charIsAlphaNum value) then
+  isIdentifierContinuation = \(item) -> if (charIsAlphaNum item) then
     True
-    else if value == '_' then
+    else if item == '_' then
       True
-      else if value == '\'' then
+      else if item == '\'' then
         True
-        else value == '!'.
+        else item == '!'.
 
   isSourceDigit :: Char -> Bool.
-  isSourceDigit = \(value) -> if (charToUInt32 value) < (charToUInt32 '0') then
+  isSourceDigit = \(item) -> if (charToUInt32 item) < (charToUInt32 '0') then
     False
-    else (charToUInt32 value) <= (charToUInt32 '9').
+    else (charToUInt32 item) <= (charToUInt32 '9').
 
   keywordKinds :: Dictionary(Text, CanonicalTokenKind).
   keywordKinds = dictionaryFromList [
@@ -51,6 +51,7 @@ module Lexer (value lexSource) {
     ("import", KeywordKind ImportKeyword),
     ("as", KeywordKind AsKeyword),
     ("data", KeywordKind DataKeyword),
+    ("value", KeywordKind ValueKeyword),
     ("if", KeywordKind IfKeyword),
     ("then", KeywordKind ThenKeyword),
     ("else", KeywordKind ElseKeyword),
@@ -70,7 +71,7 @@ module Lexer (value lexSource) {
   operatorSymbols = ['!', '%', '&', '*', '+', '-', '/', '<', '>', '?', '^', '|', '~'].
 
   isOperatorSymbol :: Char -> Bool.
-  isOperatorSymbol = \(value) -> listContains value operatorSymbols.
+  isOperatorSymbol = \(item) -> listContains item operatorSymbols.
 
   allHexDigits :: Text -> Bool.
   allHexDigits = \(digits) -> case textUncons digits {
@@ -93,9 +94,9 @@ module Lexer (value lexSource) {
       else (charToUInt32 digit) - (charToUInt32 'a') + 10.
 
   parseHex :: Text -> UInt32 -> UInt32.
-  parseHex = \(digits, value) -> case textUncons digits {
-    | Nothing -> value
-    | Just (first, rest) -> parseHex rest (value * 16 + (hexDigitValue first))
+  parseHex = \(digits, item) -> case textUncons digits {
+    | Nothing -> item
+    | Just (first, rest) -> parseHex rest (item * 16 + (hexDigitValue first))
   }.
 
   lexicalFailure :: CanonicalLexErrorReason -> Int -> Int -> ScanResult.
@@ -219,7 +220,7 @@ module Lexer (value lexSource) {
   finishQuoted = \(literalKind, reversedRaw, reversedDecoded, count, remaining, line, startColumn, nextColumn) -> case literalKind {
     | CharacterLiteral -> if count == 1 then
       case textUncons (textFromReversedChars reversedDecoded) {
-        | Just (value, _) -> Scanned (CanonicalToken (CharacterKind value) (textFromReversedChars reversedRaw) (CanonicalSpan line startColumn)) remaining line nextColumn
+        | Just (item, _) -> Scanned (CanonicalToken (CharacterKind item) (textFromReversedChars reversedRaw) (CanonicalSpan line startColumn)) remaining line nextColumn
         | Nothing -> lexicalFailure (InvalidCharacterLength count) line startColumn
       }
       else lexicalFailure (InvalidCharacterLength count) line startColumn
@@ -266,7 +267,7 @@ module Lexer (value lexSource) {
         if (validUnicodeDigits digits) then
           case charFromUInt32 (parseHex digits zeroUInt32) {
             | Nothing -> lexicalFailure (NonScalarUnicodeEscape digits) line startColumn
-            | Just value -> scanQuoted QuoteNormal literalKind delimiter rest (listPrepend current reversedRaw) (listPrepend value reversedDecoded) (count + 1) line startColumn (currentColumn + 1)
+            | Just item -> scanQuoted QuoteNormal literalKind delimiter rest (listPrepend current reversedRaw) (listPrepend item reversedDecoded) (count + 1) line startColumn (currentColumn + 1)
           }
           else lexicalFailure (MalformedUnicodeEscape digits) line startColumn
         else scanQuoted (QuoteUnicodeDigits (textAppendChar digits current)) literalKind delimiter rest (listPrepend current reversedRaw) reversedDecoded count line startColumn (currentColumn + 1)

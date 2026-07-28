@@ -17,7 +17,7 @@ import Data.Char (isAlpha)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( DataConstructorArgument (DataConstructorArgumentOpaque),
+  ( SignatureType (TypeName),
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -76,8 +76,10 @@ canonicalConstructor name arguments =
     (sourceName (mkIdentifier name))
     []
     (sourceName (mkIdentifier name))
-    (replicate (length arguments) DataConstructorArgumentOpaque)
+    (replicate (length arguments) canonicalFieldType)
     arguments
+  where
+    canonicalFieldType = TypeName (sourceName (mkIdentifier "$canonical-field"))
 
 runtimeIntValue :: Int -> RuntimeValue
 runtimeIntValue value = VInt (fromIntegral value) untypedIntMetadata

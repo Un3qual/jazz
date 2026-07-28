@@ -126,10 +126,10 @@ module List (
   listConcat = \(lists) -> listFoldRight listAppend [] lists.
 
   listRepeatFrom :: Int -> a -> [a] -> [a].
-  listRepeatFrom = \(count, value, reversed) -> if count <= 0 then listReverse reversed else listRepeatFrom (count - 1) value (listPrepend value reversed).
+  listRepeatFrom = \(count, item, reversed) -> if count <= 0 then listReverse reversed else listRepeatFrom (count - 1) item (listPrepend item reversed).
 
   listRepeat :: Int -> a -> [a].
-  listRepeat = \(count, value) -> listRepeatFrom count value [].
+  listRepeat = \(count, item) -> listRepeatFrom count item [].
 
   listIntersperseFrom :: a -> [a] -> [a] -> [a].
   listIntersperseFrom = \(separator, items, reversed) -> case items {
@@ -169,7 +169,7 @@ module List (
     | [] -> listReverse reversed
     | [first | rest] -> case transform first {
       | Nothing -> listFilterMapFrom transform rest reversed
-      | Just value -> listFilterMapFrom transform rest (listPrepend value reversed)
+      | Just item -> listFilterMapFrom transform rest (listPrepend item reversed)
     }
   }.
 

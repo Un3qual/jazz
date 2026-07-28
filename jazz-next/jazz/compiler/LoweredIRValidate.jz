@@ -10,7 +10,7 @@ module LoweredIRValidate (
 
   data FunctionContext = FunctionContext ProgramContext LoweredFunction.
 
-  data OperationValidation = OperationValidation [LoweredIRValidationFailure] (Maybe(LoweredRepresentation)).
+  data OperationValidation = OperationValidation [LoweredIRValidationFailure] Maybe(LoweredRepresentation).
 
   failure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure.
   failure = LoweredIRValidationFailure.
@@ -20,32 +20,32 @@ module LoweredIRValidate (
 
   layoutIdText :: LoweredLayoutId -> Text.
   layoutIdText = \(layoutId) -> case layoutId {
-    | LoweredLayoutId value -> value
+    | LoweredLayoutId item -> item
   }.
 
   serviceIdText :: LoweredRuntimeServiceId -> Text.
   serviceIdText = \(serviceId) -> case serviceId {
-    | LoweredRuntimeServiceId value -> value
+    | LoweredRuntimeServiceId item -> item
   }.
 
   functionIdText :: LoweredFunctionId -> Text.
   functionIdText = \(functionId) -> case functionId {
-    | LoweredFunctionId value -> value
+    | LoweredFunctionId item -> item
   }.
 
   blockIdText :: LoweredBlockId -> Text.
   blockIdText = \(blockId) -> case blockId {
-    | LoweredBlockId value -> value
+    | LoweredBlockId item -> item
   }.
 
   temporaryIdText :: LoweredTemporaryId -> Text.
   temporaryIdText = \(temporaryId) -> case temporaryId {
-    | LoweredTemporaryId value -> value
+    | LoweredTemporaryId item -> item
   }.
 
   parameterIdText :: LoweredParameterId -> Text.
   parameterIdText = \(parameterId) -> case parameterId {
-    | LoweredParameterId value -> value
+    | LoweredParameterId item -> item
   }.
 
   layoutIdEqual :: LoweredLayoutId -> LoweredLayoutId -> Bool.
@@ -444,11 +444,11 @@ module LoweredIRValidate (
   immediateRepresentation :: LoweredImmediate -> LoweredRepresentation.
   immediateRepresentation = \(immediate) -> case immediate {
     | LoweredUnitImmediate -> LoweredUnitRepresentation
-    | LoweredBoolImmediate value -> LoweredBoolRepresentation
-    | LoweredSignedIntegerImmediate width value -> LoweredSignedIntegerRepresentation width
-    | LoweredUnsignedIntegerImmediate width value -> LoweredUnsignedIntegerRepresentation width
-    | LoweredFloatImmediate width value -> LoweredFloatRepresentation width
-    | LoweredCharImmediate value -> LoweredCharRepresentation
+    | LoweredBoolImmediate item -> LoweredBoolRepresentation
+    | LoweredSignedIntegerImmediate width item -> LoweredSignedIntegerRepresentation width
+    | LoweredUnsignedIntegerImmediate width item -> LoweredUnsignedIntegerRepresentation width
+    | LoweredFloatImmediate width item -> LoweredFloatRepresentation width
+    | LoweredCharImmediate item -> LoweredCharRepresentation
   }.
 
   integerRangeFailures :: LoweredIRValidationPath -> LoweredRepresentation -> Int -> Int -> Int -> [LoweredIRValidationFailure].
@@ -468,22 +468,22 @@ module LoweredIRValidate (
   }.
 
   validateUnsignedImmediate :: LoweredIRValidationPath -> LoweredIntegerWidth -> Int -> [LoweredIRValidationFailure].
-  validateUnsignedImmediate = \(path, width, value) -> case width {
-    | LoweredIntegerWidth8 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 255 value
-    | LoweredIntegerWidth16 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 65535 value
-    | LoweredIntegerWidth32 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 4294967295 value
-    | LoweredIntegerWidth64 -> if value < 0 then
+  validateUnsignedImmediate = \(path, width, item) -> case width {
+    | LoweredIntegerWidth8 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 255 item
+    | LoweredIntegerWidth16 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 65535 item
+    | LoweredIntegerWidth32 -> integerRangeFailures path (LoweredUnsignedIntegerRepresentation width) 0 4294967295 item
+    | LoweredIntegerWidth64 -> if item < 0 then
       [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (LoweredUnsignedIntegerRepresentation width))]
       else []
   }.
 
   validateImmediate :: LoweredIRValidationPath -> LoweredImmediate -> [LoweredIRValidationFailure].
   validateImmediate = \(path, immediate) -> case immediate {
-    | LoweredSignedIntegerImmediate width value -> case signedIntegerBounds width {
-      | (minimumValue, maximumValue) -> integerRangeFailures path (LoweredSignedIntegerRepresentation width) minimumValue maximumValue value
+    | LoweredSignedIntegerImmediate width item -> case signedIntegerBounds width {
+      | (minimumValue, maximumValue) -> integerRangeFailures path (LoweredSignedIntegerRepresentation width) minimumValue maximumValue item
     }
-    | LoweredUnsignedIntegerImmediate width value -> validateUnsignedImmediate path width value
-    | LoweredCharImmediate value -> if charToUInt32 value < 55296 then [] else if charToUInt32 value > 57343 then [] else
+    | LoweredUnsignedIntegerImmediate width item -> validateUnsignedImmediate path width item
+    | LoweredCharImmediate item -> if charToUInt32 item < 55296 then [] else if charToUInt32 item > 57343 then [] else
       [failure path LoweredImmediateOutOfRange (LoweredImmediateRangeDetail LoweredCharRepresentation)]
     | other -> []
   }.

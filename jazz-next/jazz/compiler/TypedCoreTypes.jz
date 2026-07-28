@@ -33,7 +33,7 @@ module TypedCoreTypes {
 
   data TypedPrimitiveConstraint = TypedNumericPrimitiveConstraint TypedNumericConstraint TypedType | TypedStrictEqualityPrimitiveConstraint TypedType.
 
-  data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe Text) TypedType.
+  data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName Maybe(Text) TypedType.
 
   data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint.
 
@@ -41,25 +41,25 @@ module TypedCoreTypes {
 
   data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType.
 
-  data TypedInstantiation = TypedInstantiation TypedBinderId [TypedTypeArgument] (Maybe TypedSpan).
+  data TypedInstantiation = TypedInstantiation TypedBinderId [TypedTypeArgument] Maybe(TypedSpan).
 
   data TypedImplId = TypedImplId [Text] TypedCoreName [TypedType].
 
   data TypedMethodId = TypedMethodId TypedImplId Text.
 
-  data TypedEvidenceUse = TypedEvidenceUse (Maybe TypedEvidenceParameterRef) TypedCapabilityConstraint TypedImplId (Maybe TypedMethodId).
+  data TypedEvidenceUse = TypedEvidenceUse Maybe(TypedEvidenceParameterRef) TypedCapabilityConstraint TypedImplId Maybe(TypedMethodId).
 
-  data TypedEvidenceCandidate = TypedEvidenceCandidate TypedImplId (Maybe TypedMethodId).
+  data TypedEvidenceCandidate = TypedEvidenceCandidate TypedImplId Maybe(TypedMethodId).
 
   data TypedEvidenceSelection = TypedSelectedEvidence TypedEvidenceUse | TypedEvidenceCandidates TypedCapabilityConstraint [TypedEvidenceCandidate].
 
   data TypedNodeInfo = TypedNodeInfo TypedType TypedRepresentationRecipe [TypedInstantiation] [TypedEvidenceSelection].
 
-  data TypedLiteral = TypedIntegerLiteral Text | TypedFractionalLiteral Text Text (Maybe TypedNumericType) | TypedBooleanLiteral Bool | TypedCharacterLiteral Char | TypedTextLiteral Text.
+  data TypedLiteral = TypedIntegerLiteral Text | TypedFractionalLiteral Text Text Maybe(TypedNumericType) | TypedBooleanLiteral Bool | TypedCharacterLiteral Char | TypedTextLiteral Text.
 
   data TypedPattern = TypedWildcardPattern TypedNodeInfo | TypedVariablePattern TypedNodeInfo TypedBinderId TypedCoreName | TypedLiteralPattern TypedNodeInfo TypedLiteral | TypedConstructorPattern TypedNodeInfo TypedCoreName [TypedPattern] | TypedListPattern TypedNodeInfo [TypedPattern] | TypedConsListPattern TypedNodeInfo TypedPattern TypedPattern | TypedTuplePattern TypedNodeInfo [TypedPattern] | TypedAsPattern TypedNodeInfo TypedBinderId TypedCoreName TypedPattern | TypedOrPattern TypedNodeInfo [TypedPattern].
 
-  data TypedCaseArm = TypedCaseArm TypedPattern (Maybe TypedExpr) TypedExpr.
+  data TypedCaseArm = TypedCaseArm TypedPattern Maybe(TypedExpr) TypedExpr.
 
   data TypedExpr = TypedLiteralExpr TypedNodeInfo TypedLiteral | TypedVariableExpr TypedNodeInfo TypedCoreName | TypedLambdaExpr TypedNodeInfo TypedBinderId TypedCoreName TypedExpr | TypedOperatorValueExpr TypedNodeInfo TypedOperatorRef | TypedListExpr TypedNodeInfo [TypedExpr] | TypedTupleExpr TypedNodeInfo [TypedExpr] | TypedApplyExpr TypedNodeInfo TypedExpr TypedExpr | TypedTypeApplicationExpr TypedNodeInfo TypedExpr TypedSpan TypedType | TypedIfExpr TypedNodeInfo TypedExpr TypedExpr TypedExpr | TypedPatternCaseExpr TypedNodeInfo TypedExpr [TypedCaseArm] | TypedBinaryExpr TypedNodeInfo TypedOperatorRef TypedExpr TypedExpr | TypedLeftSectionExpr TypedNodeInfo TypedExpr TypedOperatorRef | TypedRightSectionExpr TypedNodeInfo TypedOperatorRef TypedExpr | TypedBlockExpr TypedNodeInfo [TypedStatement].
 
@@ -77,7 +77,7 @@ module TypedCoreTypes {
 
   data TypedStatement = TypedLetStatement TypedBinderId TypedCoreName TypedSpan TypedScheme TypedExpr | TypedSignatureStatement TypedBinderId TypedCoreName TypedSpan TypedScheme | TypedDataStatement TypedDataDeclaration | TypedClassStatement TypedClassDeclaration | TypedImplStatement TypedImplDeclaration | TypedExpressionStatement TypedSpan TypedExpr.
 
-  data TypedResolvedImport = TypedResolvedImport TypedSpan [Text] (Maybe Text) (Maybe [Text]).
+  data TypedResolvedImport = TypedResolvedImport TypedSpan [Text] Maybe(Text) Maybe([Text]).
 
   data TypedModuleExport = TypedModuleExport TypedNameNamespace Text.
 
@@ -93,7 +93,7 @@ module TypedCoreTypes {
 
   data TypedModule = TypedModule [Text] TypedSourcePath [TypedResolvedImport] [TypedModuleExport] TypedModuleInterface [TypedStatement] TypedNodeInfo.
 
-  data TypedProgram = TypedProgram (Maybe TypedModule) [TypedModule] [Text].
+  data TypedProgram = TypedProgram Maybe(TypedModule) [TypedModule] [Text].
 
   data TypedCoreValidationPath = TypedProgramPath | TypedPreludePath | TypedModulePath [Text] | TypedInterfacePath [Text] | TypedStatementPath [Text] [Int] | TypedExpressionPath [Text] [Int] [Int] | TypedPatternPath [Text] [Int] [Int].
 

@@ -7,7 +7,7 @@ module CoreLower (
 ) {
   import CoreTypes.
   import LexerTypes (CanonicalSourcePath, CanonicalSpan).
-  import List (listPrepend, listReverse).
+  import List (listLength, listPrepend, listReverse).
   import Maybe.
   import NonEmpty (NonEmpty).
   import ParserTypes.
@@ -15,7 +15,7 @@ module CoreLower (
 
   data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile | SignaturesDeclarationsOperatorsProfile | ModulesCorpusClosureProfile.
 
-  data CollectedModuleDeclaration = CollectedModuleDeclaration CoreModuleDeclaration (Maybe([CoreModuleExportSelector])).
+  data CollectedModuleDeclaration = CollectedModuleDeclaration CoreModuleDeclaration Maybe([CoreModuleExportSelector]).
 
   profileAllows :: LoweringProfile -> LoweringProfile -> Bool.
   profileAllows = \(available, required) -> case available {
@@ -61,12 +61,12 @@ module CoreLower (
 
   lowerFoundationLiteral :: SurfaceLiteral -> CoreLiteral.
   lowerFoundationLiteral = \(literal) -> case literal {
-    | IntegerLiteral value -> CoreIntegerLiteral value
+    | IntegerLiteral item -> CoreIntegerLiteral item
     | FractionalLiteral whole fractional maybeWidth ->
       CoreFractionalLiteral whole fractional (lowerFoundationOptionalNumericType maybeWidth)
-    | BooleanLiteral value -> CoreBooleanLiteral value
-    | CharacterLiteral value -> CoreCharacterLiteral value
-    | TextLiteral value -> CoreTextLiteral value
+    | BooleanLiteral item -> CoreBooleanLiteral item
+    | CharacterLiteral item -> CoreCharacterLiteral item
+    | TextLiteral item -> CoreTextLiteral item
   }.
 
   lowerFoundationSpan :: CanonicalSpan -> CoreSpan.
@@ -131,7 +131,7 @@ module CoreLower (
   lowerSignatureToken :: SurfaceSignatureToken -> CoreSignatureToken.
   lowerSignatureToken = \(token) -> case token {
     | SignatureNameToken name -> CoreSignatureNameToken (CoreSourceName name)
-    | SignatureIntegerToken value -> CoreSignatureIntegerToken value
+    | SignatureIntegerToken item -> CoreSignatureIntegerToken item
     | SignatureArrowToken -> CoreSignatureArrowToken
     | SignatureAtToken -> CoreSignatureAtToken
     | SignatureColonToken -> CoreSignatureColonToken
@@ -143,7 +143,7 @@ module CoreLower (
     | SignatureRightBracketToken -> CoreSignatureRightBracketToken
     | SignatureCommaToken -> CoreSignatureCommaToken
     | SignatureOperatorToken symbol -> CoreSignatureOperatorToken symbol
-    | SignatureOtherToken value -> CoreSignatureOtherToken value
+    | SignatureOtherToken item -> CoreSignatureOtherToken item
   }.
 
   lowerSignatureTokensFrom :: [SurfaceSignatureToken] -> [CoreSignatureToken] -> [CoreSignatureToken].
@@ -172,26 +172,10 @@ module CoreLower (
   lowerSourceNames :: [Text] -> [CoreName].
   lowerSourceNames = \(names) -> lowerSourceNamesFrom names [].
 
-  lowerDataConstructorArgument :: SurfaceDataConstructorArgument -> CoreDataConstructorArgument.
-  lowerDataConstructorArgument = \(argument) -> case argument {
-    | NamedConstructorArgument name -> CoreNamedConstructorArgument (CoreSourceName name)
-    | OpaqueConstructorArgument -> CoreOpaqueConstructorArgument
-  }.
-
-  lowerDataConstructorArgumentsFrom :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument] -> [CoreDataConstructorArgument].
-  lowerDataConstructorArgumentsFrom = \(arguments, reversed) -> case arguments {
-    | [] -> listReverse reversed
-    | [first | rest] ->
-      lowerDataConstructorArgumentsFrom rest (listPrepend (lowerDataConstructorArgument first) reversed)
-  }.
-
-  lowerDataConstructorArguments :: [SurfaceDataConstructorArgument] -> [CoreDataConstructorArgument].
-  lowerDataConstructorArguments = \(arguments) -> lowerDataConstructorArgumentsFrom arguments [].
-
   lowerDataConstructor :: SurfaceDataConstructor -> CoreDataConstructor.
   lowerDataConstructor = \(constructor) -> case constructor {
     | SurfaceDataConstructor name arguments ->
-      CoreDataConstructor (CoreSourceName name) (lowerDataConstructorArguments arguments)
+      CoreDataConstructor (CoreSourceName name) (lowerSignatureTypes arguments)
   }.
 
   lowerDataConstructorsFrom :: [SurfaceDataConstructor] -> [CoreDataConstructor] -> [CoreDataConstructor].
@@ -251,6 +235,107 @@ module CoreLower (
   lowerExpressions :: [SurfaceExpr] -> (LoweringProfile, [CoreExpr]).
   lowerExpressions = \(expressions) -> lowerExpressionsFrom expressions [] FoundationProfile.
 
+  lowerPattern :: SurfacePattern -> CorePattern.
+  lowerPattern = \(pattern) -> case pattern {
+    | WildcardPattern -> CoreWildcardPattern
+    | VariablePattern name -> CoreVariablePattern (CoreSourceName name)
+    | LiteralPattern literal -> CoreLiteralPattern (lowerFoundationLiteral literal)
+    | ConstructorPattern name patterns ->
+      CoreConstructorPattern (CoreSourceName name) (lowerPatterns patterns)
+    | ListPattern patterns -> CoreListPattern (lowerPatterns patterns)
+    | ConsListPattern headPattern tailPattern ->
+      CoreConsListPattern (lowerPattern headPattern) (lowerPattern tailPattern)
+    | TuplePattern patterns -> CoreTuplePattern (lowerPatterns patterns)
+    | AsPattern name nested -> CoreAsPattern (CoreSourceName name) (lowerPattern nested)
+    | OrPattern patterns -> CoreOrPattern (lowerPatterns patterns)
+  }.
+
+  lowerPatternsFrom :: [SurfacePattern] -> [CorePattern] -> [CorePattern].
+  lowerPatternsFrom = \(patterns, reversed) -> case patterns {
+    | [] -> listReverse reversed
+    | [first | rest] -> lowerPatternsFrom rest (listPrepend (lowerPattern first) reversed)
+  }.
+
+  lowerPatterns :: [SurfacePattern] -> [CorePattern].
+  lowerPatterns = \(patterns) -> lowerPatternsFrom patterns [].
+
+  functionArgumentNamesFrom :: Int -> Int -> [CoreName] -> [CoreName].
+  functionArgumentNamesFrom = \(index, remaining, reversed) -> if remaining == 0 then
+    listReverse reversed
+    else functionArgumentNamesFrom
+      (index + 1)
+      (remaining - 1)
+      (listPrepend (CoreGeneratedName (CoreFunctionEquationArgument index)) reversed).
+
+  functionArgumentNames :: Int -> [CoreName].
+  functionArgumentNames = \(arity) -> functionArgumentNamesFrom 1 arity [].
+
+  functionArgumentExpressionsFrom :: [CoreName] -> [CoreExpr] -> [CoreExpr].
+  functionArgumentExpressionsFrom = \(names, reversed) -> case names {
+    | [] -> listReverse reversed
+    | [first | rest] -> functionArgumentExpressionsFrom
+      rest
+      (listPrepend (CoreVariableExpression first) reversed)
+  }.
+
+  functionScrutinee :: [CoreName] -> CoreExpr.
+  functionScrutinee = \(names) -> case names {
+    | [single] -> CoreVariableExpression single
+    | other -> CoreTupleExpression (functionArgumentExpressionsFrom names [])
+  }.
+
+  functionClausePattern :: [SurfacePattern] -> CorePattern.
+  functionClausePattern = \(patterns) -> case patterns {
+    | [single] -> lowerPattern single
+    | other -> CoreTuplePattern (lowerPatterns patterns)
+  }.
+
+  lowerFunctionClause :: SurfaceFunctionClause -> (LoweringProfile, CoreCaseArm).
+  lowerFunctionClause = \(clause) -> case clause {
+    | SurfaceFunctionClause span patterns body -> case lowerProfiledExpression body {
+      | (bodyRequired, loweredBody) ->
+        ( maximumProfile ControlFlowPatternsProfile bodyRequired,
+          CoreCaseArm (functionClausePattern patterns) Nothing loweredBody
+        )
+    }
+  }.
+
+  lowerFunctionClausesFrom :: [SurfaceFunctionClause] -> [CoreCaseArm] -> LoweringProfile -> (LoweringProfile, [CoreCaseArm]).
+  lowerFunctionClausesFrom = \(clauses, reversed, required) -> case clauses {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerFunctionClause first {
+      | (clauseRequired, lowered) -> lowerFunctionClausesFrom
+        rest
+        (listPrepend lowered reversed)
+        (maximumProfile required clauseRequired)
+    }
+  }.
+
+  wrapFunctionArguments :: [CoreName] -> CoreExpr -> CoreExpr.
+  wrapFunctionArguments = \(names, body) -> case names {
+    | [] -> body
+    | [first | rest] -> CoreLambdaExpression first (wrapFunctionArguments rest body)
+  }.
+
+  lowerFunctionEquation :: NonEmpty(SurfaceFunctionClause) -> (LoweringProfile, CoreExpr).
+  lowerFunctionEquation = \(clauses) -> case clauses {
+    | NonEmpty first rest -> case first {
+      | SurfaceFunctionClause span patterns body -> {
+        argumentNames = functionArgumentNames (listLength patterns).
+        case lowerFunctionClausesFrom (listPrepend first rest) [] ControlFlowPatternsProfile {
+          | (required, loweredClauses) ->
+            ( required,
+              wrapFunctionArguments
+                argumentNames
+                (CorePatternCaseExpression
+                  (functionScrutinee argumentNames)
+                  loweredClauses)
+            )
+        }.
+      }
+    }
+  }.
+
   lowerStatement :: SurfaceStatement -> (LoweringProfile, CoreStatement).
   lowerStatement = \(statement) -> case statement {
     | LetStatement name span expression -> case lowerProfiledExpression expression {
@@ -260,6 +345,10 @@ module CoreLower (
         else expressionRequired.
         (required, CoreLetStatement (lowerBindingName name) (lowerFoundationSpan span) lowered).
       }
+    }
+    | FunctionStatement name span clauses -> case lowerFunctionEquation clauses {
+      | (required, lowered) ->
+        (required, CoreLetStatement (lowerBindingName name) (lowerFoundationSpan span) lowered)
     }
     | SignatureStatement name span payload ->
       ( SignaturesDeclarationsOperatorsProfile,
@@ -312,30 +401,6 @@ module CoreLower (
 
   lowerStatements :: [SurfaceStatement] -> (LoweringProfile, [CoreStatement]).
   lowerStatements = \(statements) -> lowerStatementsFrom statements [] FoundationProfile.
-
-  lowerPattern :: SurfacePattern -> CorePattern.
-  lowerPattern = \(pattern) -> case pattern {
-    | WildcardPattern -> CoreWildcardPattern
-    | VariablePattern name -> CoreVariablePattern (CoreSourceName name)
-    | LiteralPattern literal -> CoreLiteralPattern (lowerFoundationLiteral literal)
-    | ConstructorPattern name patterns ->
-      CoreConstructorPattern (CoreSourceName name) (lowerPatterns patterns)
-    | ListPattern patterns -> CoreListPattern (lowerPatterns patterns)
-    | ConsListPattern headPattern tailPattern ->
-      CoreConsListPattern (lowerPattern headPattern) (lowerPattern tailPattern)
-    | TuplePattern patterns -> CoreTuplePattern (lowerPatterns patterns)
-    | AsPattern name nested -> CoreAsPattern (CoreSourceName name) (lowerPattern nested)
-    | OrPattern patterns -> CoreOrPattern (lowerPatterns patterns)
-  }.
-
-  lowerPatternsFrom :: [SurfacePattern] -> [CorePattern] -> [CorePattern].
-  lowerPatternsFrom = \(patterns, reversed) -> case patterns {
-    | [] -> listReverse reversed
-    | [first | rest] -> lowerPatternsFrom rest (listPrepend (lowerPattern first) reversed)
-  }.
-
-  lowerPatterns :: [SurfacePattern] -> [CorePattern].
-  lowerPatterns = \(patterns) -> lowerPatternsFrom patterns [].
 
   lowerOptionalExpression :: Maybe(SurfaceExpr) -> (LoweringProfile, Maybe(CoreExpr)).
   lowerOptionalExpression = \(maybeExpression) -> case maybeExpression {

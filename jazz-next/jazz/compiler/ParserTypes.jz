@@ -3,8 +3,8 @@ module ParserTypes (
   type SurfacePattern(..),
   type SurfaceCaseArm(..),
   type SurfaceLambdaParameter(..),
-  type SurfaceDataConstructorArgument(..),
   type SurfaceDataConstructor(..),
+  type SurfaceFunctionClause(..),
   type SurfaceExpr(..),
   type SurfaceNumericType(..),
   type SurfaceSignaturePayload(..),
@@ -37,19 +37,20 @@ module ParserTypes (
   import Maybe.
   import NonEmpty.
 
-  data SurfaceLiteral = IntegerLiteral Text | FractionalLiteral Text Text (Maybe SurfaceNumericType) | BooleanLiteral Bool | CharacterLiteral Char | TextLiteral Text.
+  data SurfaceLiteral = IntegerLiteral Text | FractionalLiteral Text Text Maybe(SurfaceNumericType) | BooleanLiteral Bool | CharacterLiteral Char | TextLiteral Text.
 
   data SurfacePattern = WildcardPattern | VariablePattern Text | LiteralPattern SurfaceLiteral | ConstructorPattern Text [SurfacePattern] | ListPattern [SurfacePattern] | ConsListPattern SurfacePattern SurfacePattern | TuplePattern [SurfacePattern] | AsPattern Text SurfacePattern | OrPattern [SurfacePattern].
 
-  data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceExpr.
+  data SurfaceCaseArm = SurfaceCaseArm SurfacePattern Maybe(SurfaceExpr) SurfaceExpr.
 
   data SurfaceLambdaParameter = IdentifierParameter Text | PatternParameter SurfacePattern.
 
-  data SurfaceDataConstructorArgument = NamedConstructorArgument Text | OpaqueConstructorArgument.
+  data SurfaceDataConstructor = SurfaceDataConstructor Text [SurfaceSignatureType].
 
-  data SurfaceDataConstructor = SurfaceDataConstructor Text [SurfaceDataConstructorArgument].
+  data SurfaceFunctionClause
+    = SurfaceFunctionClause CanonicalSpan [SurfacePattern] SurfaceExpr.
 
-  data SurfaceExpr = LiteralExpression SurfaceLiteral | VariableExpression Text | QualifiedVariableExpression Text Text | LambdaExpression (NonEmpty SurfaceLambdaParameter) SurfaceExpr | OperatorValueExpression Text | ListExpression [SurfaceExpr] | TupleExpression [SurfaceExpr] | ApplyExpression SurfaceExpr SurfaceExpr | TypeApplicationExpression SurfaceExpr CanonicalSpan SurfaceSignatureType | IfExpression SurfaceExpr SurfaceExpr SurfaceExpr | CaseExpression SurfaceExpr [SurfaceCaseArm] | BinaryExpression Text SurfaceExpr SurfaceExpr | LeftSectionExpression SurfaceExpr Text | RightSectionExpression Text SurfaceExpr | BlockExpression [SurfaceStatement].
+  data SurfaceExpr = LiteralExpression SurfaceLiteral | VariableExpression Text | QualifiedVariableExpression Text Text | LambdaExpression NonEmpty(SurfaceLambdaParameter) SurfaceExpr | OperatorValueExpression Text | ListExpression [SurfaceExpr] | TupleExpression [SurfaceExpr] | ApplyExpression SurfaceExpr SurfaceExpr | TypeApplicationExpression SurfaceExpr CanonicalSpan SurfaceSignatureType | IfExpression SurfaceExpr SurfaceExpr SurfaceExpr | CaseExpression SurfaceExpr [SurfaceCaseArm] | BinaryExpression Text SurfaceExpr SurfaceExpr | LeftSectionExpression SurfaceExpr Text | RightSectionExpression Text SurfaceExpr | BlockExpression [SurfaceStatement].
 
   data SurfaceNumericType = Int8Type | Int16Type | Int32Type | Int64Type | UInt8Type | UInt16Type | UInt32Type | UInt64Type | Float16Type | Float32Type | Float64Type.
 
@@ -65,17 +66,26 @@ module ParserTypes (
 
   data SurfaceImplMethod = SurfaceImplMethod Text CanonicalSpan SurfaceExpr.
 
-  data SurfaceStatement = LetStatement Text CanonicalSpan SurfaceExpr | SignatureStatement Text CanonicalSpan SurfaceSignaturePayload | DataStatement CanonicalSpan Text [Text] [SurfaceDataConstructor] | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature] | ImplStatement CanonicalSpan Text [SurfaceSignatureType] [SurfaceImplMethod] | ModuleStatement CanonicalSpan [Text] (Maybe [SurfaceModuleExportSelector]) | ImportStatement CanonicalSpan [Text] (Maybe Text) (Maybe [Text]) | ExpressionStatement CanonicalSpan SurfaceExpr.
+  data SurfaceStatement
+    = LetStatement Text CanonicalSpan SurfaceExpr
+    | FunctionStatement Text CanonicalSpan NonEmpty(SurfaceFunctionClause)
+    | SignatureStatement Text CanonicalSpan SurfaceSignaturePayload
+    | DataStatement CanonicalSpan Text [Text] [SurfaceDataConstructor]
+    | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature]
+    | ImplStatement CanonicalSpan Text [SurfaceSignatureType] [SurfaceImplMethod]
+    | ModuleStatement CanonicalSpan [Text] Maybe([SurfaceModuleExportSelector])
+    | ImportStatement CanonicalSpan [Text] Maybe(Text) Maybe([Text])
+    | ExpressionStatement CanonicalSpan SurfaceExpr.
 
   data SurfaceNameNamespace = ValueName | ConstructorName | TypeName | CapabilityName.
 
   data SurfaceLocatedExportName = SurfaceLocatedExportName Text CanonicalSpan.
 
-  data SurfaceTypeConstructorSelector = AbstractTypeSelector | AllConstructorsSelector CanonicalSpan | SelectedConstructorsSelector (NonEmpty SurfaceLocatedExportName).
+  data SurfaceTypeConstructorSelector = AbstractTypeSelector | AllConstructorsSelector CanonicalSpan | SelectedConstructorsSelector NonEmpty(SurfaceLocatedExportName).
 
-  data SurfaceModuleExportSelector = NamedExportSelector (Maybe SurfaceNameNamespace) Text | TypeExportSelector Text CanonicalSpan SurfaceTypeConstructorSelector.
+  data SurfaceModuleExportSelector = NamedExportSelector Maybe(SurfaceNameNamespace) Text | TypeExportSelector Text CanonicalSpan SurfaceTypeConstructorSelector.
 
-  data ParserEncountered = EndOfInput | EndOfInputAfter Text | EndOfInputIn Text | FoundToken CanonicalTokenKind Text | AtToken CanonicalTokenKind Text | BeforeToken CanonicalTokenKind Text (Maybe Text) | BeforeBoundary Text | ImplicitBoundary.
+  data ParserEncountered = EndOfInput | EndOfInputAfter Text | EndOfInputIn Text | FoundToken CanonicalTokenKind Text | AtToken CanonicalTokenKind Text | BeforeToken CanonicalTokenKind Text Maybe(Text) | BeforeBoundary Text | ImplicitBoundary.
 
   data ParserOperatorUse = ExpressionOperatorUse | BindingOperatorUse | SignatureOperatorUse.
 
@@ -91,13 +101,38 @@ module ParserTypes (
 
   data ParserPatternFailure = ConsLikeListPatternHeadCount.
 
-  data ParserDeclarationFailure = BuiltinOperatorCannotBeRedeclared Text | BuiltinOperatorCannotBeBound Text | BuiltinOperatorCannotBeSigned Text | ReservedOperatorSymbol Text | DuplicateOperatorDeclaration Text | InvalidOperatorSymbol Text | OperatorTierOutOfRange | OperatorPrecedenceOutOfRange | ReservedLiteralName ParserNameRole Text | DeclarationOutsideAllowedScope ParserDeclarationKind | ImportAliasCombinedWithSymbolList | ImplRequiresConcreteTarget | DuplicateName ParserDuplicateNameRole Text ParserDeclarationKind | DuplicateListItem ParserListKind Text | ExpectedOrdinaryImplMethodBinding Text | ClassRequiresExplicitParameterList | ClassRequiresLowercaseParameter | DuplicateClassParameter Text | ClassSupportsExactlyOneParameter | ClassParameterMustBeLowercase | UndeclaredConstructorTypeParameter Text Text | ConstructorArgumentDelimiterMismatch Text | ConstructorExportGroupRequiresAll | ModuleMustBeFirstTopLevelForm.
+  data ParserDeclarationFailure
+    = BuiltinOperatorCannotBeRedeclared Text
+    | BuiltinOperatorCannotBeBound Text
+    | BuiltinOperatorCannotBeSigned Text
+    | ReservedOperatorSymbol Text
+    | DuplicateOperatorDeclaration Text
+    | InvalidOperatorSymbol Text
+    | OperatorTierOutOfRange
+    | OperatorPrecedenceOutOfRange
+    | ReservedLiteralName ParserNameRole Text
+    | DeclarationOutsideAllowedScope ParserDeclarationKind
+    | ImportAliasCombinedWithSymbolList
+    | ImplRequiresConcreteTarget
+    | DuplicateName ParserDuplicateNameRole Text ParserDeclarationKind
+    | DuplicateListItem ParserListKind Text
+    | ExpectedOrdinaryImplMethodBinding Text
+    | ClassRequiresExplicitParameterList
+    | ClassRequiresLowercaseParameter
+    | DuplicateClassParameter Text
+    | ClassSupportsExactlyOneParameter
+    | ClassParameterMustBeLowercase
+    | UndeclaredConstructorTypeParameter Text Text
+    | FunctionClauseArityMismatch Text Int Int
+    | ConstructorArgumentDelimiterMismatch Text
+    | ConstructorExportGroupRequiresAll
+    | ModuleMustBeFirstTopLevelForm.
 
   data ParserInternalInvariant = TokenStreamParseFailure | ExpectedOperatorToken ParserOperatorUse | ExpectedSignatureSeparator | ExpectedBindingEquals.
 
   data ParserFailureReason = ExpectedSyntax Text ParserEncountered | UnexpectedSyntax ParserEncountered Text | UnexpectedSyntaxIn ParserEncountered Text | UnexpectedSyntaxAfter ParserEncountered Text | UnsupportedSyntax ParserUnsupportedFeature | InvalidFractionalLiteral Text | NonAssociativeOperatorChain Text | UndeclaredOperator Text ParserOperatorUse | DeclarationFailure ParserDeclarationFailure | PatternFailure ParserPatternFailure | InternalParserFailure ParserInternalInvariant.
 
-  data ParserFailure = ParserFailure Text (Maybe CanonicalSpan) ParserFailureReason.
+  data ParserFailure = ParserFailure Text Maybe(CanonicalSpan) ParserFailureReason.
 
   data CanonicalParserResult = CanonicalParserSuccess CanonicalSourcePath SurfaceExpr | CanonicalParserFailure CanonicalSourcePath ParserFailure.
 

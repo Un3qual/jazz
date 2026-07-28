@@ -499,7 +499,7 @@ completeExpressions =
           span1
           ( SEBlock
               [ SSImport span2 ["Core", "List"] Nothing Nothing,
-                SSExpr span3 (SEVar "value")
+                SSExpr span3 (SEVar "item")
               ]
           ),
         SSExpr span3 (SEVar "nested")
@@ -586,7 +586,7 @@ mixedFullSurfaceSource =
     class Eq(a) { equals :: a -> a -> Bool. }.
     impl Eq(Int) { equals = \\(left, right) -> left == right. }.
     main = case Some 1 {
-      | Some value if True -> if False then 0 else value %% 2
+      | Some item if True -> if False then 0 else item %% 2
       | _ -> 0
     }.
   }
@@ -638,7 +638,7 @@ directModuleFixtures =
       ( moduleBlock
           ( Just
               [ ModuleExportSelector Nothing "legacy",
-                ModuleExportSelector (Just ValueNamespace) "value",
+                ModuleExportSelector (Just ValueNamespace) "item",
                 ModuleExportSelector (Just ConstructorNamespace) "Some",
                 ModuleExportSelector (Just TypeNamespace) "Maybe",
                 ModuleExportSelector (Just CapabilityNamespace) "Eq"
@@ -737,7 +737,7 @@ completeSpanExpression =
       SSImport span2 ["Core", "Text"] Nothing (Just ["length"]),
       SSLet "typed" span3 (SETypeApplication (SEVar "identity") span4 SurfaceTypeInt),
       SSSignature "typed" span4 (SurfaceSignatureType SurfaceTypeInt),
-      SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [SurfaceDataConstructorArgumentName "a"]],
+      SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [SurfaceTypeVariable "a"]],
       SSClass
         span2
         "Eq"

@@ -53,6 +53,7 @@ data CanonicalKeyword
   | ImportKeyword
   | AsKeyword
   | DataKeyword
+  | ValueKeyword
   | IfKeyword
   | ThenKeyword
   | ElseKeyword
@@ -137,6 +138,7 @@ canonicalizeTokenKind tokenKindValue =
     TImport -> KeywordKind ImportKeyword
     TAs -> KeywordKind AsKeyword
     TData -> KeywordKind DataKeyword
+    TValue -> KeywordKind ValueKeyword
     TIf -> KeywordKind IfKeyword
     TThen -> KeywordKind ThenKeyword
     TElse -> KeywordKind ElseKeyword

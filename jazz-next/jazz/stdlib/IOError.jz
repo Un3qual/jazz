@@ -15,5 +15,5 @@ module IOError (
 
   data IOErrorCategory = NotFound | PermissionDenied | AlreadyExists | InvalidData | ResourceExhausted | Interrupted | Unsupported | Other.
 
-  data IOError = IOError IOErrorCategory (Maybe(Text)) Text.
+  data IOError = IOError IOErrorCategory Maybe(Text) Text.
 }

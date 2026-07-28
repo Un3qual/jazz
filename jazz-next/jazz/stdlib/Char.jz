@@ -20,7 +20,7 @@ module Char (
   charFromUInt32 :: UInt32 -> Maybe(Char).
   charFromUInt32 = \(scalar) -> case __kernel_charFromUInt32Raw scalar {
     | [] -> Nothing
-    | [value] -> Just value
+    | [item] -> Just item
   }.
 
   charIsAlpha :: Char -> Bool.
@@ -51,5 +51,5 @@ module Char (
   charToUpper = __kernel_charToUpper.
 
   charIsNewline :: Char -> Bool.
-  charIsNewline = \(value) -> if value == '\n' then True else value == '\r'.
+  charIsNewline = \(item) -> if item == '\n' then True else item == '\r'.
 }

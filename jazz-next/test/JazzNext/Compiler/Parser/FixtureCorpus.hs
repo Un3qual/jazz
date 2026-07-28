@@ -537,7 +537,7 @@ focusedLexerFixtures =
   [ ParserFixture
       { parserFixtureName = "lexer-leading-zero-integer",
         parserFixturePath = "fixtures/lexer/leading-zero-integer.jz",
-        parserFixtureSource = "value = 00042.",
+        parserFixtureSource = "item = 00042.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -657,7 +657,7 @@ focusedLexerFixtures =
     ParserFixture
       { parserFixtureName = "lexer-unexpected-character",
         parserFixturePath = "fixtures/lexer/unexpected-character.jz",
-        parserFixtureSource = "value ` 42.",
+        parserFixtureSource = "item ` 42.",
         parserFixtureExpectation = ParserRejected
       }
   ]
@@ -868,7 +868,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0033",
         parserFixturePath = "fixtures/parser/parser-corpus-0033.jz",
-        parserFixtureSource = Text.pack "Alias::value [1, 2] (3, 4).",
+        parserFixtureSource = Text.pack "Alias::item [1, 2] (3, 4).",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -955,7 +955,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0046",
         parserFixturePath = "fixtures/parser/parser-corpus-0046.jz",
-        parserFixtureSource = Text.pack "case value { | 0 -> 1 | _ -> 2 }.",
+        parserFixtureSource = Text.pack "case item { | 0 -> 1 | _ -> 2 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1041,7 +1041,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0057",
         parserFixturePath = "fixtures/parser/parser-corpus-0057.jz",
-        parserFixtureSource = Text.pack "class Eq(a) { equals = \\value -> value. }.",
+        parserFixtureSource = Text.pack "class Eq(a) { equals = \\item -> item. }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1092,25 +1092,25 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0065",
         parserFixturePath = "fixtures/parser/parser-corpus-0065.jz",
-        parserFixtureSource = Text.pack "data Maybe = Just value | .",
+        parserFixtureSource = Text.pack "data Maybe = Just Int | .",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0066",
         parserFixturePath = "fixtures/parser/parser-corpus-0066.jz",
-        parserFixtureSource = Text.pack "data Maybe = Just value | Nothing",
+        parserFixtureSource = Text.pack "data Maybe = Just Int | Nothing",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0067",
         parserFixturePath = "fixtures/parser/parser-corpus-0067.jz",
-        parserFixtureSource = Text.pack "data Maybe = Just value | Nothing.",
+        parserFixtureSource = Text.pack "data Maybe = Just Int | Nothing.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0068",
         parserFixturePath = "fixtures/parser/parser-corpus-0068.jz",
-        parserFixtureSource = Text.pack "data Maybe = Nothing | Nothing value.",
+        parserFixtureSource = Text.pack "data Maybe = Nothing | Nothing Int.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1184,7 +1184,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0078.jz",
         parserFixtureSource = Text.pack """
         f :: @{}: Int.
-        f = value.
+        f = item.
         """,
         parserFixtureExpectation = ParserAccepted
       },
@@ -1647,7 +1647,7 @@ observedParserFixtures =
         parserFixtureSource = Text.pack """
         module App::Core {
         operator = 1.
-        value = operator.
+        item = operator.
         }
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1739,7 +1739,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0150.jz",
         parserFixtureSource = Text.pack """
         module Lib::Box (type Box, constructor Box) {
-        data Box = Box value.
+        data Box = Box Int.
         }
         """,
         parserFixtureExpectation = ParserAccepted
@@ -1759,7 +1759,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0152.jz",
         parserFixtureSource = Text.pack """
         module Lib::Box (type Box, type Box) {
-        data Box = Box value.
+        data Box = Box Int.
         }
         """,
         parserFixtureExpectation = ParserRejected
@@ -1768,7 +1768,7 @@ observedParserFixtures =
       { parserFixtureName = "parser-corpus-0153",
         parserFixturePath = "fixtures/parser/parser-corpus-0153.jz",
         parserFixtureSource = Text.pack """
-        module Lib::Keywords (value, constructor, type, class) {
+        module Lib::Keywords (value answer, constructor Box, type Box, class Printable) {
         answer = 1.
         }
         """,
@@ -2014,7 +2014,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0182.jz",
         parserFixtureSource = Text.pack """
         operator = 1.
-        value = operator.
+        item = operator.
         """,
         parserFixtureExpectation = ParserAccepted
       },
@@ -2032,7 +2032,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0184.jz",
         parserFixtureSource = Text.pack """
         operator ?> precedence 1 nonassoc.
-        x = case value { | _ -> 1 $ 2 ?> 3 }.
+        x = case item { | _ -> 1 $ 2 ?> 3 }.
         """,
         parserFixtureExpectation = ParserRejected
       },
@@ -2041,7 +2041,7 @@ observedParserFixtures =
         parserFixturePath = "fixtures/parser/parser-corpus-0185.jz",
         parserFixtureSource = Text.pack """
         operator ?> precedence 1 nonassoc.
-        x = case value { | _ if 1 $ 2 ?> 3 -> 1 }.
+        x = case item { | _ if 1 $ 2 ?> 3 -> 1 }.
         """,
         parserFixtureExpectation = ParserRejected
       },
@@ -2202,14 +2202,14 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0206",
         parserFixturePath = "fixtures/parser/parser-corpus-0206.jz",
-        parserFixtureSource = Text.pack "value 42.",
+        parserFixtureSource = Text.pack "item 42.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0207",
         parserFixturePath = "fixtures/parser/parser-corpus-0207.jz",
         parserFixtureSource = Text.pack """
-        value :: Maybe(Char).
+        item :: Maybe(Char).
         map :: (a -> b) -> List(a) -> [b].
         """,
         parserFixtureExpectation = ParserAccepted
@@ -2218,23 +2218,23 @@ observedParserFixtures =
       { parserFixtureName = "parser-corpus-0208",
         parserFixturePath = "fixtures/parser/parser-corpus-0208.jz",
         parserFixtureSource = Text.pack """
-        value :: a.
-        value = 1.
+        item :: a.
+        item = 1.
         """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0209",
         parserFixturePath = "fixtures/parser/parser-corpus-0209.jz",
-        parserFixtureSource = Text.pack "value = 42.",
+        parserFixtureSource = Text.pack "item = 42.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0210",
         parserFixturePath = "fixtures/parser/parser-corpus-0210.jz",
         parserFixtureSource = Text.pack """
-        value = id @ 1.
-        value.
+        item = id @ 1.
+        item.
         """,
         parserFixtureExpectation = ParserRejected
       },
@@ -2242,8 +2242,8 @@ observedParserFixtures =
       { parserFixtureName = "parser-corpus-0211",
         parserFixturePath = "fixtures/parser/parser-corpus-0211.jz",
         parserFixtureSource = Text.pack """
-        value = id @Int 1.
-        value.
+        item = id @Int 1.
+        item.
         """,
         parserFixtureExpectation = ParserAccepted
       },
@@ -2251,28 +2251,28 @@ observedParserFixtures =
       { parserFixtureName = "parser-corpus-0212",
         parserFixturePath = "fixtures/parser/parser-corpus-0212.jz",
         parserFixtureSource = Text.pack """
-        value = id @Maybe().
-        value.
+        item = id @Maybe().
+        item.
         """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0213",
         parserFixturePath = "fixtures/parser/parser-corpus-0213.jz",
-        parserFixtureSource = Text.pack "value ` 42.",
+        parserFixtureSource = Text.pack "item ` 42.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0214",
         parserFixturePath = "fixtures/parser/parser-corpus-0214.jz",
-        parserFixtureSource = Text.pack "value.",
+        parserFixtureSource = Text.pack "item.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0215",
         parserFixturePath = "fixtures/parser/parser-corpus-0215.jz",
         parserFixtureSource = Text.pack """
-        value::Int.
+        item::Int.
         other = 1.
         """,
         parserFixtureExpectation = ParserAccepted
@@ -2281,8 +2281,8 @@ observedParserFixtures =
       { parserFixtureName = "parser-corpus-0216",
         parserFixturePath = "fixtures/parser/parser-corpus-0216.jz",
         parserFixtureSource = Text.pack """
-        value::Int.
-        value = 1.
+        item::Int.
+        item = 1.
         """,
         parserFixtureExpectation = ParserAccepted
       },
@@ -2652,139 +2652,139 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0271",
         parserFixturePath = "fixtures/parser/parser-corpus-0271.jz",
-        parserFixtureSource = Text.pack "x = case value { | 0 -> 0 | item if left | right -> 1 }.",
+        parserFixtureSource = Text.pack "x = case item { | 0 -> 0 | item if left | right -> 1 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0272",
         parserFixturePath = "fixtures/parser/parser-corpus-0272.jz",
-        parserFixtureSource = Text.pack "x = case value { | 0 -> 1 | _ False }.",
+        parserFixtureSource = Text.pack "x = case item { | 0 -> 1 | _ False }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0273",
         parserFixturePath = "fixtures/parser/parser-corpus-0273.jz",
-        parserFixtureSource = Text.pack "x = case value { | 0 -> 1 | _ y }.",
+        parserFixtureSource = Text.pack "x = case item { | 0 -> 1 | _ y }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0274",
         parserFixturePath = "fixtures/parser/parser-corpus-0274.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just Nothing -> 1 | _ -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just Nothing -> 1 | _ -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0275",
         parserFixturePath = "fixtures/parser/parser-corpus-0275.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just [head | tail] -> head | _ -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just [head | tail] -> head | _ -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0276",
         parserFixturePath = "fixtures/parser/parser-corpus-0276.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item -> 1 | 2 | Nothing -> 3 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item -> 1 | 2 | Nothing -> 3 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0277",
         parserFixturePath = "fixtures/parser/parser-corpus-0277.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item -> item | Nothing -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item -> item | Nothing -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0278",
         parserFixturePath = "fixtures/parser/parser-corpus-0278.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item if item > 0 -> item | _ -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item if item > 0 -> item | _ -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0279",
         parserFixturePath = "fixtures/parser/parser-corpus-0279.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item | -> item }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item | -> item }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0280",
         parserFixturePath = "fixtures/parser/parser-corpus-0280.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item | Also item -> item | f | Nothing -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item | Also item -> item | f | Nothing -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0281",
         parserFixturePath = "fixtures/parser/parser-corpus-0281.jz",
-        parserFixtureSource = Text.pack "x = case value { | Just item | Also item if item > 0 -> item | Nothing -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Just item | Also item if item > 0 -> item | Nothing -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0282",
         parserFixturePath = "fixtures/parser/parser-corpus-0282.jz",
-        parserFixtureSource = Text.pack "x = case value { | Pair Nothing item -> item | _ -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Pair Nothing item -> item | _ -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0283",
         parserFixturePath = "fixtures/parser/parser-corpus-0283.jz",
-        parserFixtureSource = Text.pack "x = case value { | Pair whole @ Nothing item -> item | _ -> 0 }.",
+        parserFixtureSource = Text.pack "x = case item { | Pair whole @ Nothing item -> item | _ -> 0 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0284",
         parserFixturePath = "fixtures/parser/parser-corpus-0284.jz",
-        parserFixtureSource = Text.pack "x = case value { | _ -> 1 | 2 | 3 -> 4 }.",
+        parserFixtureSource = Text.pack "x = case item { | _ -> 1 | 2 | 3 -> 4 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0285",
         parserFixturePath = "fixtures/parser/parser-corpus-0285.jz",
-        parserFixtureSource = Text.pack "x = case value { | _ -> 1 | Just a b }.",
+        parserFixtureSource = Text.pack "x = case item { | _ -> 1 | Just a b }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0286",
         parserFixturePath = "fixtures/parser/parser-corpus-0286.jz",
-        parserFixtureSource = Text.pack "x = case value { | _ -> 1 | Nothing }.",
+        parserFixtureSource = Text.pack "x = case item { | _ -> 1 | Nothing }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0287",
         parserFixturePath = "fixtures/parser/parser-corpus-0287.jz",
-        parserFixtureSource = Text.pack "x = case value { | _ -> 1 | [2] }.",
+        parserFixtureSource = Text.pack "x = case item { | _ -> 1 | [2] }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0288",
         parserFixturePath = "fixtures/parser/parser-corpus-0288.jz",
-        parserFixtureSource = Text.pack "x = case value { | _ -> 1 | f \\(y) -> y }.",
+        parserFixtureSource = Text.pack "x = case item { | _ -> 1 | f \\(y) -> y }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0289",
         parserFixturePath = "fixtures/parser/parser-corpus-0289.jz",
-        parserFixtureSource = Text.pack "x = case value { | item -> item }.",
+        parserFixtureSource = Text.pack "x = case item { | item -> item }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0290",
         parserFixturePath = "fixtures/parser/parser-corpus-0290.jz",
-        parserFixtureSource = Text.pack "x = case value { | item if -> item }.",
+        parserFixtureSource = Text.pack "x = case item { | item if -> item }.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0291",
         parserFixturePath = "fixtures/parser/parser-corpus-0291.jz",
-        parserFixtureSource = Text.pack "x = case value { | item if left == right | True -> 1 }.",
+        parserFixtureSource = Text.pack "x = case item { | item if left == right | True -> 1 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0292",
         parserFixturePath = "fixtures/parser/parser-corpus-0292.jz",
-        parserFixtureSource = Text.pack "x = case value { | item if left | True -> 1 | other if left | Nothing -> 2 }.",
+        parserFixtureSource = Text.pack "x = case item { | item if left | True -> 1 | other if left | Nothing -> 2 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0293",
         parserFixturePath = "fixtures/parser/parser-corpus-0293.jz",
-        parserFixtureSource = Text.pack "x = case value { | whole @ Just item -> whole | _ -> value }.",
+        parserFixtureSource = Text.pack "x = case item { | whole @ Just item -> whole | _ -> item }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2958,13 +2958,13 @@ expressionFoundationFixtures =
     fixture
       "parenthesized-signature-statement-boundary"
       """
-      Result::(value) Other = 0. Result = 1.
+      Result::(item) Other = 0. Result = 1.
       """
       ParserRejected,
     fixture
       "signature-syntax-statement-boundary"
       """
-      value::Int -> Other = 0. value = 1.
+      item::Int -> Other = 0. item = 1.
       """
       ParserRejected,
     fixture "empty-program" "" ParserAccepted,
@@ -2977,7 +2977,7 @@ expressionFoundationFixtures =
     fixture
       "grouped-name"
       """
-      (value).
+      (item).
       """
       ParserAccepted,
     fixture
@@ -3025,19 +3025,19 @@ expressionFoundationFixtures =
     fixture
       "binding-missing-rhs"
       """
-      value = .
+      item = .
       """
       ParserRejected,
     fixture
       "binding-missing-dot"
       """
-      value = 1
+      item = 1
       """
       ParserRejected,
     fixture
       "expression-missing-dot"
       """
-      value
+      item
       """
       ParserRejected,
     fixture
@@ -3046,7 +3046,7 @@ expressionFoundationFixtures =
       Alias::.
       """
       ParserRejected,
-    fixture "qualified-whitespace" "value = Alias:: value." ParserRejected,
+    fixture "qualified-whitespace" "item = Alias:: item." ParserRejected,
     fixture
       "dot-without-expression"
       """
@@ -3085,8 +3085,8 @@ typesDeclarationsModulesFixtures =
     fixture
       "applied-explicit-type-application"
       """
-      value = id @Maybe(Int) value.
-      value.
+      item = id @Maybe(Int) item.
+      item.
       """
   ]
   where
@@ -3102,7 +3102,7 @@ controlFlowPatternsFixtures :: [ParserFixture]
 controlFlowPatternsFixtures =
   [ fixture
       "guarded-or-pattern"
-      "x = case value { | Just item | Also item if ok -> item | Nothing -> 0 }."
+      "x = case item { | Just item | Also item if ok -> item | Nothing -> 0 }."
       ParserAccepted,
     fixture
       "lambda-guard-rejected"
@@ -3110,7 +3110,7 @@ controlFlowPatternsFixtures =
       ParserRejected,
     fixture
       "recursive-block"
-      "x = { loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
+      "x = { loop = \\(item) -> case item { | Just next -> loop next | _ -> if False then item else item }. loop. }."
       ParserAccepted
   ]
   where

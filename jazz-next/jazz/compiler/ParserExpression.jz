@@ -72,14 +72,14 @@ module ParserExpression (
   import Text (textLength, textUncons, textAppend).
 
   # This FIRST set intentionally mirrors parsePrimary. Classifying into an
-  # intermediate value adds allocation and evaluator work at every application
+  # intermediate item adds allocation and evaluator work at every application
   # boundary in the hosted parser.
   startsPrimary :: CanonicalToken -> Bool.
   startsPrimary = \(token) -> case canonicalTokenKind token {
     | IdentifierKind name -> True
-    | IntegerKind value -> True
-    | CharacterKind value -> True
-    | TextKind value -> True
+    | IntegerKind item -> True
+    | CharacterKind item -> True
+    | TextKind item -> True
     | KeywordKind IfKeyword -> True
     | KeywordKind CaseKeyword -> True
     | PunctuationKind LeftBracePunctuation -> True
@@ -516,7 +516,7 @@ module ParserExpression (
   startsCasePatternTokens :: [CanonicalToken] -> Bool.
   startsCasePatternTokens = \(tokens) -> case tokens {
     | [first | rest] -> case canonicalTokenKind first {
-      | IntegerKind value -> True
+      | IntegerKind item -> True
       | IdentifierKind name -> True
       | PunctuationKind LeftBracketPunctuation -> True
       | PunctuationKind LeftParenPunctuation -> True
@@ -1131,12 +1131,12 @@ module ParserExpression (
           | IntegerKind whole -> tokenAndThen
             (\(wholeToken) -> parseNumeric wholeToken whole)
             tokenInteger
-          | CharacterKind value -> tokenKeepRight
+          | CharacterKind item -> tokenKeepRight
             tokenCharacter
-            (tokenSucceed (LiteralExpression (CharacterLiteral value)))
-          | TextKind value -> tokenKeepRight
+            (tokenSucceed (LiteralExpression (CharacterLiteral item)))
+          | TextKind item -> tokenKeepRight
             tokenText
-            (tokenSucceed (LiteralExpression (TextLiteral value)))
+            (tokenSucceed (LiteralExpression (TextLiteral item)))
           | KeywordKind IfKeyword -> tokenAndThen
             (\(ifToken) -> parseConditional parseExpressionUntil stop parseBlock ifToken)
             (tokenKeyword IfKeyword)
@@ -1180,12 +1180,12 @@ module ParserExpression (
         | IntegerKind whole -> tokenAndThen
           (\(wholeToken) -> parseNumeric wholeToken whole)
           tokenInteger
-        | CharacterKind value -> tokenKeepRight
+        | CharacterKind item -> tokenKeepRight
           tokenCharacter
-          (tokenSucceed (LiteralExpression (CharacterLiteral value)))
-        | TextKind value -> tokenKeepRight
+          (tokenSucceed (LiteralExpression (CharacterLiteral item)))
+        | TextKind item -> tokenKeepRight
           tokenText
-          (tokenSucceed (LiteralExpression (TextLiteral value)))
+          (tokenSucceed (LiteralExpression (TextLiteral item)))
         | KeywordKind IfKeyword -> parsePrimary context parseExpressionUntil neverStops parseBlock
         | KeywordKind CaseKeyword -> parsePrimary context parseExpressionUntil neverStops parseBlock
         | IdentifierKind "True" -> tokenKeepRight
