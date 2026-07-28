@@ -359,7 +359,7 @@ reviewRegressionGroups =
     (("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds), [malformedLiteralConstraintBoundsProgram]),
     (("preserves instantiated evidence order", testEvidenceSelectionOrder), [evidenceSelectionOrderProgram]),
     (("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility), [privateCapabilityMetadataVisibilityProgram]),
-    (("matches module-qualified method keys at the final separator", testModuleQualifiedMethodKey), [moduleQualifiedMethodKeyProgram]),
+    (("matches module-qualified method keys to their full capability origin", testModuleQualifiedMethodKey), [moduleQualifiedMethodKeyProgram, forgedModuleQualifiedMethodKeyProgram]),
     (("retains imported data dependencies through exported schemes", testImportedDataDependencyMetadata), [importedDataDependencyProgram]),
     (("closes selected data contracts over field metadata", testTransitiveDataContractDependency), [transitiveDataContractDependencyProgram]),
     (("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency), [importedCapabilityDependencyProgram]),
@@ -441,6 +441,8 @@ reviewRegressionGroups =
     (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram]),
     (("preserves deferred evidence across applications", testDroppedDeferredEvidence), [droppedDeferredEvidenceProgram]),
     (("preserves deferred candidate order across applications", testReorderedDeferredEvidence), [reorderedDeferredEvidenceProgram]),
+    (("preserves selected evidence across applications", testSelectedEvidenceProgression), [selectedEvidenceProgressionProgram]),
+    (("keeps explicit instantiations consistent with their callees", testExplicitInstantiationProgression), [mismatchedExplicitInstantiationProgram]),
     (("validates evidence capability identities", testForgedEvidenceCapability), [forgedEvidenceCapabilityProgram]),
     (("rejects empty monomorphic instantiations", testEmptyMonomorphicInstantiation), [emptyMonomorphicInstantiationProgram])
   ]
@@ -479,7 +481,7 @@ testDenseImportDag = do
     "small converging import graph is acyclic"
     []
     (validateTypedProgram (denseImportDagProgram 10))
-  result <- timeout 2000000 (evaluate (length (validateTypedProgram (denseImportDagProgram 27))))
+  result <- timeout 2000000 (evaluate (length (validateTypedProgram (denseImportDagProgram 160))))
   case result of
     Nothing -> failTest "large converging import graph exceeded the two-second validation budget"
     Just failureCount -> assertEqual "large converging import graph failures" 0 failureCount
@@ -838,9 +840,38 @@ testReorderedDeferredEvidence =
     [ TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-reordered-deferred-evidence") [1] [0, 0])
         TypedMissingEvidence
-        (TypedTextDetail "Build::build")
+        ( TypedTextDetail
+            ( Text.intercalate
+                "::"
+                (fixtureLibraryPath "ReorderedDeferredEvidence" <> ["Build", "build"])
+            )
+        )
     ]
     (validateTypedProgram reorderedDeferredEvidenceProgram)
+
+testSelectedEvidenceProgression :: IO ()
+testSelectedEvidenceProgression =
+  assertEqual
+    "application nodes preserve an already selected method body"
+    [ expressionFailureAt
+        "review-selected-evidence-progression"
+        1
+        TypedMethodSelectionMismatch
+        (TypedImplDetail selectedEvidenceProgressionOriginalImpl)
+    ]
+    (validateTypedProgram selectedEvidenceProgressionProgram)
+
+testExplicitInstantiationProgression :: IO ()
+testExplicitInstantiationProgression =
+  assertEqual
+    "explicit type applications preserve the callee specialization"
+    [ expressionFailureAt
+        "review-mismatched-explicit-instantiation"
+        1
+        TypedInstantiationMismatch
+        (TypedBinderDetail mismatchedExplicitInstantiationOwner)
+    ]
+    (validateTypedProgram mismatchedExplicitInstantiationProgram)
 
 testForgedEvidenceCapability :: IO ()
 testForgedEvidenceCapability =
@@ -997,8 +1028,10 @@ reorderedDeferredEvidenceProgram =
     constraint =
       TypedCapabilityConstraint
         importedCapabilityName
-        (Just "Build::build")
+        (Just qualifiedMethodKey)
         TypedTextType
+    qualifiedMethodKey =
+      Text.intercalate "::" (providerPath <> ["Build", "build"])
     candidates =
       [ TypedEvidenceCandidate
           importedProviderImpl
@@ -1037,7 +1070,7 @@ reorderedDeferredEvidenceProgram =
         intermediateInfo
         ( TypedVariableExpr
             functionInfo
-            (TypedBuiltinName "Build::build")
+            (TypedBuiltinName qualifiedMethodKey)
         )
         trueExpr
     expression =
@@ -1081,8 +1114,10 @@ forgedEvidenceCapabilityProgram =
     constraint =
       TypedCapabilityConstraint
         forgedEvidenceCapabilityName
-        (Just "Check::check")
+        (Just qualifiedMethodKey)
         TypedBoolType
+    qualifiedMethodKey =
+      Text.intercalate "::" (modulePath <> ["Check", "check"])
     evidenceUse =
       TypedEvidenceUse
         Nothing
@@ -1092,7 +1127,7 @@ forgedEvidenceCapabilityProgram =
     expression =
       TypedVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
-        (TypedBuiltinName "Check::check")
+        (TypedBuiltinName qualifiedMethodKey)
     statements =
       [ TypedClassStatement classDeclaration,
         TypedImplStatement
@@ -2007,6 +2042,86 @@ deferredCandidateSelectionProgram =
     ]
   where
     fixture = "review-deferred-candidate-selection"
+
+selectedEvidenceProgressionOriginalImpl :: TypedImplId
+selectedEvidenceProgressionOriginalImpl =
+  fixtureRenderImpl ["Prelude"]
+
+selectedEvidenceProgressionProgram :: TypedProgram
+selectedEvidenceProgressionProgram =
+  qualifiedMapDispatchProgram
+    fixture
+    [selected selectedEvidenceProgressionOriginalImpl]
+    [selected (fixtureRenderImpl (fixtureModulePath fixture))]
+  where
+    fixture = "review-selected-evidence-progression"
+    selected implId =
+      TypedSelectedEvidence
+        ( TypedEvidenceUse
+            Nothing
+            fixtureRenderConstraint
+            implId
+            (Just (TypedMethodId implId "map"))
+        )
+
+mismatchedExplicitInstantiationOwner :: TypedBinderId
+mismatchedExplicitInstantiationOwner =
+  binder
+    (fixtureModulePath "review-mismatched-explicit-instantiation")
+    [0]
+    (resolved TypedCurrentModule TypedValueNamespace "identity")
+
+mismatchedExplicitInstantiationProgram :: TypedProgram
+mismatchedExplicitInstantiationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface outerInfo modulePath
+  where
+    fixture = "review-mismatched-explicit-instantiation"
+    modulePath = fixtureModulePath fixture
+    name = resolved TypedCurrentModule TypedValueNamespace "identity"
+    owner = mismatchedExplicitInstantiationOwner
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    scheme =
+      TypedScheme
+        owner
+        [parameter]
+        []
+        []
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    instantiate typeArgument =
+      TypedInstantiation
+        owner
+        [TypedTypeArgument parameter typeArgument]
+        (Just span1)
+    outerInfo =
+      TypedNodeInfo
+        boolToBoolType
+        boolToBoolRecipe
+        [instantiate TypedBoolType]
+        []
+    calleeInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedCharType TypedCharType)
+        (TypedClosureRecipe [TypedCharRecipe] TypedCharRecipe)
+        [instantiate TypedCharType]
+        []
+    expression =
+      TypedTypeApplicationExpr
+        outerInfo
+        (TypedVariableExpr calleeInfo name)
+        span1
+        TypedBoolType
+    statements =
+      [ TypedLetStatement
+          owner
+          name
+          span1
+          scheme
+          (polymorphicIdentityExpression modulePath [0] parameter),
+        expressionStatement 1 expression
+      ]
 
 nestedPathProgram :: TypedProgram
 nestedPathProgram =
@@ -3703,11 +3818,23 @@ testPrivateCapabilityMetadataVisibility =
     (validateTypedProgram privateCapabilityMetadataVisibilityProgram)
 
 testModuleQualifiedMethodKey :: IO ()
-testModuleQualifiedMethodKey =
+testModuleQualifiedMethodKey = do
   assertEqual
-    "module-qualified capability names use the final method separator"
+    "module-qualified capability names use their complete imported origin"
     []
     (validateTypedProgram moduleQualifiedMethodKeyProgram)
+  assertEqual
+    "module-qualified method keys reject a foreign capability origin"
+    [ expressionFailure
+        "review-forged-module-qualified-method-key"
+        TypedMethodSelectionMismatch
+        (TypedTextDetail "Other::Make::make"),
+      expressionFailure
+        "review-forged-module-qualified-method-key"
+        TypedInvisibleName
+        (TypedNameDetail (TypedBuiltinName "Other::Make::make"))
+    ]
+    (validateTypedProgram forgedModuleQualifiedMethodKeyProgram)
 
 testImportedDataDependencyMetadata :: IO ()
 testImportedDataDependencyMetadata =
@@ -7493,7 +7620,7 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
     constraint =
       TypedCapabilityConstraint
         importedCapabilityName
-        (Just "Display::display")
+        (Just (Text.intercalate "::" (libraryPath <> ["Display", "display"])))
         TypedBoolType
     selectedEvidence =
       TypedSelectedEvidence
@@ -7774,17 +7901,28 @@ privateCapabilityMetadataVisibilityProgram =
 
 moduleQualifiedMethodKeyProgram :: TypedProgram
 moduleQualifiedMethodKeyProgram =
-  TypedProgram (Just preludeModule) [entryModule] entryPath
+  importedModuleQualifiedMethodKeyProgram
+    "review-module-qualified-method-key"
+    "Lib::Api::Make::make"
+
+forgedModuleQualifiedMethodKeyProgram :: TypedProgram
+forgedModuleQualifiedMethodKeyProgram =
+  importedModuleQualifiedMethodKeyProgram
+    "review-forged-module-qualified-method-key"
+    "Other::Make::make"
+
+importedModuleQualifiedMethodKeyProgram :: Text -> Text -> TypedProgram
+importedModuleQualifiedMethodKeyProgram fixture qualifiedMethod =
+  TypedProgram Nothing [providerModule, entryModule] entryPath
   where
-    preludePath = ["Prelude"]
-    entryPath = (fixtureModulePath "review-module-qualified-method-key")
+    providerPath = ["Lib", "Api"]
+    entryPath = fixtureModulePath fixture
     capabilityIdentifier = "Make"
-    qualifiedMethod = "Lib::Api::Make::make"
     parameter = TypedTypeParameterId 0
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace capabilityIdentifier
     methodName = resolved TypedCurrentModule TypedValueNamespace "make"
-    methodOwner = binder preludePath [0, 0] methodName
+    methodOwner = binder providerPath [0, 0] methodName
     methodScheme = monoScheme methodOwner
     classDeclaration =
       TypedClassDeclaration
@@ -7792,18 +7930,18 @@ moduleQualifiedMethodKeyProgram =
         capabilityName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId preludePath capabilityName [TypedBoolType]
+    implId = TypedImplId providerPath capabilityName [TypedBoolType]
     methodDefinition =
       TypedMethodDefinition
         (TypedMethodId implId "make")
-        (binder preludePath [1, 0] methodName)
+        (binder providerPath [1, 0] methodName)
         methodName
         span1
         trueExpr
-    preludeModule =
+    providerModule =
       typedModule
-        preludePath
-        (TypedSourcePath "src/Prelude.jz")
+        providerPath
+        (TypedSourcePath "src/Lib/Api.jz")
         []
         [TypedModuleExport TypedCapabilityNamespace capabilityIdentifier]
         ( TypedModuleInterface
@@ -7817,18 +7955,18 @@ moduleQualifiedMethodKeyProgram =
         ]
         unitInfo
     importedCapabilityName =
-      resolved TypedAmbientPrelude TypedCapabilityNamespace capabilityIdentifier
+      resolved
+        (TypedImportedModule providerPath)
+        TypedCapabilityNamespace
+        capabilityIdentifier
+    importedImplId =
+      TypedImplId providerPath importedCapabilityName [TypedBoolType]
     evidenceUse =
       TypedEvidenceUse
         Nothing
         (TypedCapabilityConstraint importedCapabilityName (Just qualifiedMethod) TypedBoolType)
-        (TypedImplId preludePath importedCapabilityName [TypedBoolType])
-        ( Just
-            ( TypedMethodId
-                (TypedImplId preludePath importedCapabilityName [TypedBoolType])
-                "make"
-            )
-        )
+        importedImplId
+        (Just (TypedMethodId importedImplId "make"))
     expression =
       TypedVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
@@ -7837,7 +7975,7 @@ moduleQualifiedMethodKeyProgram =
       typedModule
         entryPath
         relativeSource
-        []
+        [TypedResolvedImport span1 providerPath Nothing Nothing]
         []
         emptyInterface
         [expressionStatement 1 expression]
@@ -8358,7 +8496,7 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
     constraint =
       TypedCapabilityConstraint
         importedClassName
-        (Just "Render::render")
+        (Just (Text.intercalate "::" (libraryPath <> ["Render", "render"])))
         TypedBoolType
     selectedEvidence =
       TypedSelectedEvidence

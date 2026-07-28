@@ -10,6 +10,7 @@ module JazzNext.Compiler.TypedCore.Validate
 where
 
 import Data.Char (isAlpha, isAlphaNum, isUpper, ord)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -128,8 +129,30 @@ importCycleFailures moduleTable modules =
       (TypedTextDetail (renderModulePath importPath))
   | TypedModule modulePath _ imports _ _ _ _ <- modules,
     importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
-    modulePathReachable moduleTable Set.empty importPath modulePath
+    pathsShareCyclicComponent modulePath importPath
   ]
+  where
+    cyclicComponentByPath =
+      Map.fromList
+        [ (modulePath, componentIndex)
+        | (componentIndex, CyclicSCC componentPaths) <-
+            zip [0 :: Int ..] (stronglyConnComp graphNodes),
+          modulePath <- componentPaths
+        ]
+    graphNodes =
+      [ (modulePath, modulePath, knownImports imports)
+      | TypedModule modulePath _ imports _ _ _ _ <- Map.elems moduleTable
+      ]
+    knownImports imports =
+      nub
+        [ importPath
+        | TypedResolvedImport _ importPath _ _ <- imports,
+          Map.member importPath moduleTable
+        ]
+    pathsShareCyclicComponent leftPath rightPath =
+      case (Map.lookup leftPath cyclicComponentByPath, Map.lookup rightPath cyclicComponentByPath) of
+        (Just leftComponent, Just rightComponent) -> leftComponent == rightComponent
+        _ -> False
 
 modulePathReachable :: Map [Text] TypedModule -> Set [Text] -> [Text] -> [Text] -> Bool
 modulePathReachable moduleTable initialSeen currentPath targetPath =
@@ -757,7 +780,22 @@ qualifyExternalScheme modulePath (TypedScheme owner parameters evidence primitiv
     qualifyEvidence (TypedEvidenceParameter parameterId (TypedCapabilityConstraint capability method targetType)) =
       TypedEvidenceParameter
         parameterId
-        (TypedCapabilityConstraint (qualifyExternalName modulePath capability) method targetType)
+        ( TypedCapabilityConstraint
+            (qualifyExternalName modulePath capability)
+            (qualifyExternalMethodKey modulePath capability method)
+            targetType
+        )
+
+qualifyExternalMethodKey :: [Text] -> TypedCoreName -> Maybe Text -> Maybe Text
+qualifyExternalMethodKey modulePath capability maybeMethod =
+  case maybeMethod of
+    Just method
+      | Just (Just qualifier, methodName) <- methodKeyParts method,
+        capabilityMethodQualifier capability == Just qualifier,
+        Just externalQualifier <-
+          capabilityMethodQualifier (qualifyExternalName modulePath capability) ->
+          Just (externalQualifier <> "::" <> methodName)
+    _ -> maybeMethod
 
 qualifyExternalClassDeclaration :: [Text] -> TypedClassDeclaration -> TypedClassDeclaration
 qualifyExternalClassDeclaration modulePath (TypedClassDeclaration spanValue name parameters methods) =
@@ -2165,13 +2203,13 @@ validateCapabilityConstraintWith validateCapability context path scope (TypedCap
       key <- resolvedNameKey (moduleContextPath context) capability
       Map.lookup key (moduleContextCapabilityContracts context)
     methodFailures =
-      case (coreNameIdentifier capability, maybeMethod, capabilityContract) of
-        (_, Nothing, _) -> []
-        (Just identifier, Just method, Just (CapabilityContract _ methods))
-          | any (methodKeyMatches identifier method) (Map.keys methods) -> []
-        (_, Just method, Just _) ->
+      case (maybeMethod, capabilityContract) of
+        (Nothing, _) -> []
+        (Just method, Just (CapabilityContract _ methods))
+          | any (methodKeyMatches capability method) (Map.keys methods) -> []
+        (Just method, Just _) ->
           [failure path TypedMethodSelectionMismatch (TypedTextDetail method)]
-        _ -> []
+        (Just _, Nothing) -> []
 
 validateCapabilityConstraintTarget :: TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedType -> [TypedCoreValidationFailure]
 validateCapabilityConstraintTarget path scope = validateType path scope
@@ -2537,21 +2575,27 @@ validateTupleShape path info expressions =
 validateExplicitTypeApplication :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedSpan -> TypedType -> [TypedCoreValidationFailure]
 validateExplicitTypeApplication context path info function explicitSpan typeArgument =
   case function of
-    TypedVariableExpr _ name ->
+    TypedVariableExpr functionInfo name ->
       case lookupSchemeByName context name of
-        Just scheme -> validateSchemeApplication (Just scheme)
+        Just scheme -> validateSchemeApplication functionInfo (Just scheme)
         Nothing ->
           case name of
             TypedBuiltinName methodKey -> validateQualifiedMethodApplication methodKey
             _ -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
-    TypedOperatorValueExpr _ (TypedResolvedOperator name _) -> validateSchemeApplication (lookupSchemeByName context name)
+    TypedOperatorValueExpr functionInfo (TypedResolvedOperator name _) ->
+      validateSchemeApplication functionInfo (lookupSchemeByName context name)
     _ -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
   where
     instantiations = nodeInfoInstantiations info
-    validateSchemeApplication maybeScheme =
+    validateSchemeApplication functionInfo maybeScheme =
       case maybeScheme of
         Just scheme@(TypedScheme owner (firstParameter : _) _ _ _ _)
-          | any (matchingExplicitInstantiation owner firstParameter) instantiations ->
+          | any
+              ( \instantiation ->
+                  matchingExplicitInstantiation owner firstParameter instantiation
+                    && instantiation `elem` nodeInfoInstantiations functionInfo
+              )
+              instantiations ->
               validateInstantiatedResult scheme
           | otherwise -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
         Just (TypedScheme owner [] _ _ _ _) ->
@@ -2598,14 +2642,13 @@ qualifiedMethodApplicationContracts context methodKey typeArgument (TypedNodeInf
     targetTypes == [targetType],
     capabilityKey <- maybeToList (resolvedNameKey (moduleContextPath context) capability),
     resolvedNameKey (moduleContextPath context) capabilityName == Just capabilityKey,
-    capabilityIdentifier <- maybeToList (coreNameIdentifier capability),
-    methodKeyMatches capabilityIdentifier constraintMethod methodKey,
-    methodKeyMatches capabilityIdentifier selectedMethod methodKey,
+    methodKeyMatches capability constraintMethod methodKey,
+    methodKeyMatches capability selectedMethod methodKey,
     Set.member capabilityKey (moduleContextVisibleNames context),
     CapabilityContract [classParameter] methods <-
       maybeToList (Map.lookup capabilityKey (moduleContextCapabilityContracts context)),
     (contractMethod, TypedScheme owner _ _ _ resultType resultRecipe) <- Map.toList methods,
-    methodKeyMatches capabilityIdentifier contractMethod methodKey,
+    methodKeyMatches capability contractMethod methodKey,
     let substitutions = Map.singleton classParameter typeArgument,
     let ownerPath = binderModulePath owner,
     let qualifiedType =
@@ -2697,15 +2740,15 @@ qualifiedMethodEvidenceTarget context methodKey (TypedNodeInfo _ _ _ evidenceSel
         TypedSelectedEvidence (TypedEvidenceUse _ constraint _ _) -> constraintMatches constraint
         TypedEvidenceCandidates constraint _ -> constraintMatches constraint
     constraintMatches (TypedCapabilityConstraint capability (Just constraintMethod) _) =
-      case (resolvedNameKey (moduleContextPath context) capability, coreNameIdentifier capability) of
-        (Just key, Just identifier) ->
-          methodKeyMatches identifier constraintMethod methodKey
+      case resolvedNameKey (moduleContextPath context) capability of
+        Just key ->
+          methodKeyMatches capability constraintMethod methodKey
             && Set.member key (moduleContextVisibleNames context)
             && case Map.lookup key (moduleContextCapabilityContracts context) of
               Just (CapabilityContract _ methods) ->
-                any (\contractMethod -> methodKeyMatches identifier contractMethod methodKey) (Map.keys methods)
+                any (\contractMethod -> methodKeyMatches capability contractMethod methodKey) (Map.keys methods)
               Nothing -> False
-        _ -> False
+        Nothing -> False
     constraintMatches _ = False
 
 qualifiedMethodValueContracts :: ModuleContext -> Text -> TypedNodeInfo -> [ValueContract]
@@ -2746,12 +2789,11 @@ qualifiedMethodConstraintContract context methodKey constraint =
       | Just method <- [constraintMethod],
         key <- maybeToList (resolvedNameKey (moduleContextPath context) capability),
         Set.member key (moduleContextVisibleNames context),
-        capabilityIdentifier <- maybeToList (coreNameIdentifier capability),
-        methodKeyMatches capabilityIdentifier method methodKey,
+        methodKeyMatches capability method methodKey,
         CapabilityContract [classParameter] methods <-
           maybeToList (Map.lookup key (moduleContextCapabilityContracts context)),
         (contractMethod, scheme) <- Map.toList methods,
-        methodKeyMatches capabilityIdentifier contractMethod methodKey
+        methodKeyMatches capability contractMethod methodKey
       ]
 
 validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedCoreValidationFailure]
@@ -3117,7 +3159,9 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
       case expressionInfo function of
         TypedNodeInfo _ _ _ selections -> selections
     candidateProgressionFailures =
-      missingCandidateProgressionFailures <> invalidCandidateSelectionFailures
+      missingCandidateProgressionFailures
+        <> selectedEvidenceProgressionFailures
+        <> invalidCandidateSelectionFailures
     missingCandidateProgressionFailures =
       [ failure path TypedMissingEvidence (TypedTextDetail (capabilityConstraintLabel constraint))
       | TypedEvidenceCandidates constraint candidates <- functionSelections,
@@ -3131,6 +3175,11 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
         TypedSelectedEvidence (TypedEvidenceUse Nothing resultConstraint _ _) ->
           resultConstraint == constraint
         _ -> False
+    selectedEvidenceProgressionFailures =
+      [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
+      | selection@(TypedSelectedEvidence (TypedEvidenceUse _ _ selectedImpl _)) <- functionSelections,
+        selection `notElem` resultSelections
+      ]
     invalidCandidateSelectionFailures =
       [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
       | TypedSelectedEvidence
@@ -3648,12 +3697,11 @@ candidateConstraintCanDefer context methodKey suppliedArgumentCount constraint =
       [ (classParameter, scheme)
       | TypedCapabilityConstraint capability (Just constraintMethod) _ <- [constraint],
         key <- maybeToList (resolvedNameKey (moduleContextPath context) capability),
-        capabilityIdentifier <- maybeToList (coreNameIdentifier capability),
-        methodKeyMatches capabilityIdentifier constraintMethod methodKey,
+        methodKeyMatches capability constraintMethod methodKey,
         CapabilityContract [classParameter] methods <-
           maybeToList (Map.lookup key (moduleContextCapabilityContracts context)),
         (contractMethod, scheme) <- Map.toList methods,
-        methodKeyMatches capabilityIdentifier contractMethod methodKey
+        methodKeyMatches capability contractMethod methodKey
       ]
 
 targetArgumentRemains :: TypedTypeParameterId -> Int -> TypedType -> Bool
@@ -3707,8 +3755,8 @@ validateEvidenceSelections context path requireSelectedConsumer selectedMethodKe
               (TypedTextDetail (capabilityConstraintLabel constraint))
           ]
     qualifiedMethodCandidates capability constraintMethod expressionMethod =
-      case (coreNameIdentifier capability, constraintMethod, expressionMethod) of
-        (Just identifier, Just expectedMethod, Just actualMethod) -> methodKeyMatches identifier expectedMethod actualMethod
+      case (constraintMethod, expressionMethod) of
+        (Just expectedMethod, Just actualMethod) -> methodKeyMatches capability expectedMethod actualMethod
         _ -> False
 
 duplicateEvidenceCandidateFailures :: TypedCoreValidationPath -> [TypedEvidenceCandidate] -> [TypedCoreValidationFailure]
@@ -3890,10 +3938,9 @@ validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapab
         (Just expectedMethod, Just methodId@(TypedMethodId methodImplId methodName)) ->
           validateEvidenceMethod methodId
             <> (if methodImplId == implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImplId)])
-            <> ( case coreNameIdentifier capability of
-                   Just identifier
-                     | methodKeyMatches identifier expectedMethod methodName -> []
-                   _ -> [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
+            <> ( if methodKeyMatches capability expectedMethod methodName
+                   then []
+                   else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
                )
             <> capabilityMethodFailures methodName
             <> implMethodFailures methodName
@@ -3915,7 +3962,7 @@ validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapab
           | Set.member methodName methods -> []
           | otherwise -> [failure path TypedMethodSelectionMismatch (TypedTextDetail methodName)]
 
-methodKeyMatches :: Text -> Text -> Text -> Bool
+methodKeyMatches :: TypedCoreName -> Text -> Text -> Bool
 methodKeyMatches capability expected actual =
   case (methodKeyParts expected, methodKeyParts actual) of
     (Just (expectedQualifier, expectedMethod), Just (actualQualifier, actualMethod)) ->
@@ -3925,14 +3972,19 @@ methodKeyMatches capability expected actual =
     _ -> False
   where
     qualifierMatchesCapability qualifier =
-      qualifier == capability
-        || case reverse qualifierSegments of
-          finalSegment : _ ->
-            all validSourceIdentifier qualifierSegments
-              && finalSegment == capability
-          [] -> False
-      where
-        qualifierSegments = Text.splitOn "::" qualifier
+      capabilityMethodQualifier capability == Just qualifier
+
+capabilityMethodQualifier :: TypedCoreName -> Maybe Text
+capabilityMethodQualifier capability =
+  case capability of
+    TypedResolvedName origin TypedCapabilityNamespace identifier ->
+      Just
+        ( case origin of
+            TypedImportedModule modulePath ->
+              Text.intercalate "::" (modulePath <> [identifier])
+            _ -> identifier
+        )
+    _ -> Nothing
 
 methodKeyParts :: Text -> Maybe (Maybe Text, Text)
 methodKeyParts methodKey

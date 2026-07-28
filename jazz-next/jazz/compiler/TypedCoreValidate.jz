@@ -12,6 +12,8 @@ module TypedCoreValidate (
 
   data StatementDependencies = StatementDependencies Int [Int] [Int].
 
+  data ModuleReachability = ModuleReachability [Text] [[Text]].
+
   data NameEntry = NameEntry [Text] TypedNameNamespace Text | GeneratedNameEntry TypedGeneratedNameKind.
 
   data MethodContract = MethodContract Text TypedScheme.
@@ -961,25 +963,30 @@ module TypedCoreValidate (
     | qualifiedParts -> qualifiedMethodKeyParts qualifiedParts []
   }.
 
-  methodQualifierMatchesCapability :: Text -> Text -> Bool.
-  methodQualifierMatchesCapability = \(capability, qualifier) ->
-    if qualifier == capability then True else {
-      qualifierParts = textSplit "::" qualifier.
-      if validResolvedIdentifierSegments qualifierParts then case listReverse qualifierParts {
-        | [] -> False
-        | [finalPart | rest] -> finalPart == capability
-      } else False.
-    }.
+  capabilityMethodQualifier :: TypedCoreName -> Maybe(Text).
+  capabilityMethodQualifier = \(capability) -> case capability {
+    | TypedResolvedName origin TypedCapabilityNamespace identifier -> case origin {
+      | TypedImportedModule modulePath -> Just (textJoin "::" (listAppend modulePath [identifier]))
+      | other -> Just identifier
+    }
+    | other -> Nothing
+  }.
 
   methodKeyMatches :: Text -> Text -> Text -> Bool.
   methodKeyMatches = \(capability, expected, actual) -> case (methodKeyParts expected, methodKeyParts actual) {
     | (Just (expectedQualifier, expectedMethod), Just (actualQualifier, actualMethod)) ->
       if expectedMethod == actualMethod then
-        if case expectedQualifier { | Nothing -> True | Just qualifier -> methodQualifierMatchesCapability capability qualifier } then
-          case actualQualifier { | Nothing -> True | Just qualifier -> methodQualifierMatchesCapability capability qualifier }
+        if case expectedQualifier { | Nothing -> True | Just qualifier -> qualifier == capability } then
+          case actualQualifier { | Nothing -> True | Just qualifier -> qualifier == capability }
         else False
       else False
     | other -> False
+  }.
+
+  capabilityMethodKeyMatches :: TypedCoreName -> Text -> Text -> Bool.
+  capabilityMethodKeyMatches = \(capability, expected, actual) -> case capabilityMethodQualifier capability {
+    | Nothing -> False
+    | Just qualifier -> methodKeyMatches qualifier expected actual
   }.
 
   methodContractMatches :: Text -> Text -> [MethodContract] -> Bool.
@@ -1738,10 +1745,7 @@ module TypedCoreValidate (
         | TypedMethodId methodImpl methodName -> listConcat
           [ if retainedCapability then validateEvidenceMethodId context path typeScope methodId else validateMethodId context path typeScope methodId,
             if implIdEqual methodImpl implId then [] else [failure path TypedMethodSelectionMismatch (TypedImplDetail methodImpl)],
-            case coreNameIdentifier capability {
-              | Just identifier -> if methodKeyMatches identifier expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
-              | Nothing -> [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)]
-            },
+            if capabilityMethodKeyMatches capability expectedMethod methodName then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail expectedMethod)],
             capabilityMethodExistenceFailures context path implId methodName,
             implMethodExistenceFailures context path implId methodName
           ]
@@ -1859,10 +1863,7 @@ module TypedCoreValidate (
 
   qualifiedMethodCandidates :: TypedCoreName -> Maybe(Text) -> Maybe(Text) -> Bool.
   qualifiedMethodCandidates = \(capability, constraintMethod, expressionMethod) -> case (constraintMethod, expressionMethod) {
-    | (Just expectedMethod, Just actualMethod) -> case coreNameIdentifier capability {
-      | Just identifier -> methodKeyMatches identifier expectedMethod actualMethod
-      | Nothing -> False
-    }
+    | (Just expectedMethod, Just actualMethod) -> capabilityMethodKeyMatches capability expectedMethod actualMethod
     | other -> False
   }.
 
@@ -2037,12 +2038,31 @@ module TypedCoreValidate (
     | other -> other
   }.
 
+  qualifyExternalMethodKey :: [Text] -> TypedCoreName -> Maybe(Text) -> Maybe(Text).
+  qualifyExternalMethodKey = \(modulePath, capability, maybeMethod) -> case maybeMethod {
+    | Nothing -> Nothing
+    | Just method -> case (methodKeyParts method, capabilityMethodQualifier capability, capabilityMethodQualifier (qualifyExternalName modulePath capability)) {
+      | (Just (Just qualifier, methodName), Just localQualifier, Just externalQualifier) ->
+        if qualifier == localQualifier then
+          Just (textAppend externalQualifier (textAppend "::" methodName))
+        else maybeMethod
+      | other -> maybeMethod
+    }
+  }.
+
   qualifyExternalEvidenceParameters :: [Text] -> [TypedEvidenceParameter] -> [TypedEvidenceParameter].
   qualifyExternalEvidenceParameters = \(modulePath, parameters) -> case parameters {
     | [] -> []
     | [TypedEvidenceParameter parameterId constraint | rest] -> case constraint {
       | TypedCapabilityConstraint capability method targetType -> listPrepend
-        (TypedEvidenceParameter parameterId (TypedCapabilityConstraint (qualifyExternalName modulePath capability) method targetType))
+        ( TypedEvidenceParameter
+            parameterId
+            ( TypedCapabilityConstraint
+                (qualifyExternalName modulePath capability)
+                (qualifyExternalMethodKey modulePath capability method)
+                targetType
+            )
+        )
         (qualifyExternalEvidenceParameters modulePath rest)
     }
   }.
@@ -2465,13 +2485,13 @@ module TypedCoreValidate (
   candidateConstraintCanDefer = \(context, methodKey, suppliedArgumentCount, constraint) -> case (context, constraint) {
     | (ModuleContext currentModulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> case maybeMethod {
       | Nothing -> False
-      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
-        | (Just identifier, Just entry) ->
-          if methodKeyMatches identifier constraintMethod methodKey then case entry {
+      | Just constraintMethod -> case (capabilityMethodQualifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just qualifier, Just entry) ->
+          if methodKeyMatches qualifier constraintMethod methodKey then case entry {
             | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
               | Just contract -> case contract {
                 | CapabilityContract [classParameter] methods ->
-                  candidateMethodTargetRemains identifier methodKey classParameter suppliedArgumentCount methods
+                  candidateMethodTargetRemains qualifier methodKey classParameter suppliedArgumentCount methods
                 | other -> False
               }
               | Nothing -> False
@@ -2874,6 +2894,50 @@ module TypedCoreValidate (
     | [first | rest] -> missingApplicationEvidenceObligations path resultSelections rest
   }.
 
+  maybeEvidenceParameterRefEqual :: Maybe(TypedEvidenceParameterRef) -> Maybe(TypedEvidenceParameterRef) -> Bool.
+  maybeEvidenceParameterRefEqual = \(left, right) -> case (left, right) {
+    | (Nothing, Nothing) -> True
+    | (Just leftRef, Just rightRef) -> evidenceParameterRefEqual leftRef rightRef
+    | other -> False
+  }.
+
+  maybeMethodIdEqual :: Maybe(TypedMethodId) -> Maybe(TypedMethodId) -> Bool.
+  maybeMethodIdEqual = \(left, right) -> case (left, right) {
+    | (Nothing, Nothing) -> True
+    | (Just leftMethod, Just rightMethod) -> methodIdEqual leftMethod rightMethod
+    | other -> False
+  }.
+
+  evidenceUseEqual :: TypedEvidenceUse -> TypedEvidenceUse -> Bool.
+  evidenceUseEqual = \(left, right) -> case (left, right) {
+    | (TypedEvidenceUse leftParameter leftConstraint leftImpl leftMethod, TypedEvidenceUse rightParameter rightConstraint rightImpl rightMethod) ->
+      if maybeEvidenceParameterRefEqual leftParameter rightParameter then
+        if capabilityConstraintEqual leftConstraint rightConstraint then
+          if implIdEqual leftImpl rightImpl then maybeMethodIdEqual leftMethod rightMethod else False
+        else False
+      else False
+  }.
+
+  selectedEvidenceUsePresent :: TypedEvidenceUse -> [TypedEvidenceSelection] -> Bool.
+  selectedEvidenceUsePresent = \(selectedUse, selections) -> case selections {
+    | [] -> False
+    | [TypedSelectedEvidence resultUse | rest] ->
+      if evidenceUseEqual selectedUse resultUse then True else selectedEvidenceUsePresent selectedUse rest
+    | [first | rest] -> selectedEvidenceUsePresent selectedUse rest
+  }.
+
+  missingSelectedApplicationEvidence :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
+  missingSelectedApplicationEvidence = \(path, resultSelections, functionSelections) -> case functionSelections {
+    | [] -> []
+    | [TypedSelectedEvidence selectedUse | rest] -> case selectedUse {
+      | TypedEvidenceUse parameter constraint selectedImpl maybeMethod -> listAppend
+        (if selectedEvidenceUsePresent selectedUse resultSelections then [] else
+          [failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)])
+        (missingSelectedApplicationEvidence path resultSelections rest)
+    }
+    | [first | rest] -> missingSelectedApplicationEvidence path resultSelections rest
+  }.
+
   validateApplicationCandidateProgressionFrom :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure].
   validateApplicationCandidateProgressionFrom = \(path, resultSelections, functionSelections) -> case resultSelections {
     | [] -> []
@@ -2907,6 +2971,7 @@ module TypedCoreValidate (
           | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
         },
         missingApplicationEvidenceObligations path resultSelections functionSelections,
+        missingSelectedApplicationEvidence path resultSelections functionSelections,
         validateApplicationCandidateProgressionFrom path resultSelections functionSelections
       ].
   }.
@@ -3482,13 +3547,13 @@ module TypedCoreValidate (
   qualifiedMethodConstraintMatches = \(currentModulePath, methodKey, visibleNames, dataEntries, constraint) -> case constraint {
     | TypedCapabilityConstraint capability maybeMethod targetType -> case maybeMethod {
       | Nothing -> False
-      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
-        | (Just identifier, Just entry) ->
-          if methodKeyMatches identifier constraintMethod methodKey then
+      | Just constraintMethod -> case (capabilityMethodQualifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just qualifier, Just entry) ->
+          if methodKeyMatches qualifier constraintMethod methodKey then
             if nameEntryMember entry visibleNames then case entry {
               | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
                 | Just contract -> case contract {
-                  | CapabilityContract parameters methods -> methodContractMatches identifier constraintMethod methods
+                  | CapabilityContract parameters methods -> methodContractMatches qualifier constraintMethod methods
                 }
                 | Nothing -> False
               }
@@ -3530,13 +3595,13 @@ module TypedCoreValidate (
   qualifiedMethodConstraintValueContract = \(context, methodKey, constraint) -> case (context, constraint) {
     | (ModuleContext currentModulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedCapabilityConstraint capability maybeMethod targetType) -> case maybeMethod {
       | Nothing -> Nothing
-      | Just constraintMethod -> case (coreNameIdentifier capability, resolvedNameEntry currentModulePath capability) {
-        | (Just identifier, Just entry) ->
-          if methodKeyMatches identifier constraintMethod methodKey then
+      | Just constraintMethod -> case (capabilityMethodQualifier capability, resolvedNameEntry currentModulePath capability) {
+        | (Just qualifier, Just entry) ->
+          if methodKeyMatches qualifier constraintMethod methodKey then
             if nameEntryMember entry visibleNames then case entry {
               | NameEntry capabilityPath TypedCapabilityNamespace capabilityIdentifier -> case lookupCapabilityContract capabilityPath capabilityIdentifier dataEntries {
                 | Just contract -> case contract {
-                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey identifier methodKey methods {
+                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey qualifier methodKey methods {
                     | Just scheme -> case scheme {
                       | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
                         ownerPath = binderModulePathValue owner.
@@ -3631,13 +3696,50 @@ module TypedCoreValidate (
     } else False
   }.
 
-  anyExplicitInstantiationMatches :: TypedBinderId -> TypedTypeParameterId -> TypedSpan -> TypedType -> [TypedInstantiation] -> Bool.
-  anyExplicitInstantiationMatches = \(owner, firstParameter, explicitSpan, typeArgument, instantiations) -> case instantiations {
+  typeArgumentEqual :: TypedTypeArgument -> TypedTypeArgument -> Bool.
+  typeArgumentEqual = \(left, right) -> case (left, right) {
+    | (TypedTypeArgument leftParameter leftType, TypedTypeArgument rightParameter rightType) ->
+      if typeParameterIdEqual leftParameter rightParameter then typeEqual leftType rightType else False
+  }.
+
+  typeArgumentListEqual :: [TypedTypeArgument] -> [TypedTypeArgument] -> Bool.
+  typeArgumentListEqual = \(left, right) -> case (left, right) {
+    | ([], []) -> True
+    | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
+      if typeArgumentEqual leftFirst rightFirst then typeArgumentListEqual leftRest rightRest else False
+    | other -> False
+  }.
+
+  maybeSpanEqual :: Maybe(TypedSpan) -> Maybe(TypedSpan) -> Bool.
+  maybeSpanEqual = \(left, right) -> case (left, right) {
+    | (Nothing, Nothing) -> True
+    | (Just leftSpan, Just rightSpan) -> spanEqual leftSpan rightSpan
+    | other -> False
+  }.
+
+  instantiationEqual :: TypedInstantiation -> TypedInstantiation -> Bool.
+  instantiationEqual = \(left, right) -> case (left, right) {
+    | (TypedInstantiation leftOwner leftArguments leftSpan, TypedInstantiation rightOwner rightArguments rightSpan) ->
+      if binderIdEqual leftOwner rightOwner then
+        if typeArgumentListEqual leftArguments rightArguments then maybeSpanEqual leftSpan rightSpan else False
+      else False
+  }.
+
+  instantiationMember :: TypedInstantiation -> [TypedInstantiation] -> Bool.
+  instantiationMember = \(candidate, instantiations) -> case instantiations {
+    | [] -> False
+    | [first | rest] ->
+      if instantiationEqual candidate first then True else instantiationMember candidate rest
+  }.
+
+  matchingExplicitInstantiationInCallee :: TypedBinderId -> TypedTypeParameterId -> TypedSpan -> TypedType -> [TypedInstantiation] -> [TypedInstantiation] -> Bool.
+  matchingExplicitInstantiationInCallee = \(owner, firstParameter, explicitSpan, typeArgument, outerInstantiations, calleeInstantiations) -> case outerInstantiations {
     | [] -> False
     | [first | rest] ->
       if explicitInstantiationMatches owner firstParameter explicitSpan typeArgument first then
-        True
-      else anyExplicitInstantiationMatches owner firstParameter explicitSpan typeArgument rest
+        if instantiationMember first calleeInstantiations then True else
+          matchingExplicitInstantiationInCallee owner firstParameter explicitSpan typeArgument rest calleeInstantiations
+      else matchingExplicitInstantiationInCallee owner firstParameter explicitSpan typeArgument rest calleeInstantiations
   }.
 
   schemeOwner :: TypedScheme -> TypedBinderId.
@@ -3735,14 +3837,14 @@ module TypedCoreValidate (
     | Just contract -> validateTypeApplicationValueContract path info contract
   }.
 
-  validateExplicitSchemeApplication :: [Text] -> [SchemeEntry] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedSpan -> TypedType -> Maybe(TypedScheme) -> [TypedCoreValidationFailure].
-  validateExplicitSchemeApplication = \(modulePath, schemes, path, info, explicitSpan, typeArgument, maybeScheme) -> case maybeScheme {
+  validateExplicitSchemeApplication :: [Text] -> [SchemeEntry] -> TypedCoreValidationPath -> TypedNodeInfo -> [TypedInstantiation] -> TypedSpan -> TypedType -> Maybe(TypedScheme) -> [TypedCoreValidationFailure].
+  validateExplicitSchemeApplication = \(modulePath, schemes, path, info, functionInstantiations, explicitSpan, typeArgument, maybeScheme) -> case maybeScheme {
     | Nothing -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
     | Just scheme -> case scheme {
       | TypedScheme owner parameters evidence primitive resultType resultRecipe -> case parameters {
         | [] -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
         | [firstParameter | remainingParameters] ->
-          if anyExplicitInstantiationMatches owner firstParameter explicitSpan typeArgument (nodeInstantiations info) then validateTypeApplicationResultContract modulePath path info scheme else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          if matchingExplicitInstantiationInCallee owner firstParameter explicitSpan typeArgument (nodeInstantiations info) functionInstantiations then validateTypeApplicationResultContract modulePath path info scheme else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       }
     }
   }.
@@ -3754,18 +3856,18 @@ module TypedCoreValidate (
         | Nothing -> Nothing
         | Just constraintMethod -> case implId {
           | TypedImplId implPath capabilityName targetTypes -> case (targetTypes, maybeMethodId) {
-            | ([implTarget], Just methodId) -> case (resolvedNameEntry currentModulePath capability, resolvedNameEntry currentModulePath capabilityName, coreNameIdentifier capability, methodId) {
-              | (Just capabilityEntry, Just implCapabilityEntry, Just capabilityIdentifier, TypedMethodId methodImpl selectedMethod) ->
+            | ([implTarget], Just methodId) -> case (resolvedNameEntry currentModulePath capability, resolvedNameEntry currentModulePath capabilityName, capabilityMethodQualifier capability, methodId) {
+              | (Just capabilityEntry, Just implCapabilityEntry, Just capabilityQualifier, TypedMethodId methodImpl selectedMethod) ->
                 if implIdEqual methodImpl implId then
                   if nameEntryEqual capabilityEntry implCapabilityEntry then
                     if typeEqual targetType typeArgument then
                       if typeEqual implTarget targetType then
-                        if methodKeyMatches capabilityIdentifier constraintMethod methodKey then
-                          if methodKeyMatches capabilityIdentifier selectedMethod methodKey then
+                        if methodKeyMatches capabilityQualifier constraintMethod methodKey then
+                          if methodKeyMatches capabilityQualifier selectedMethod methodKey then
                             if nameEntryMember capabilityEntry visibleNames then case capabilityEntry {
                               | NameEntry capabilityPath TypedCapabilityNamespace contractIdentifier -> case lookupCapabilityContract capabilityPath contractIdentifier dataEntries {
                                 | Just contract -> case contract {
-                                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capabilityIdentifier methodKey methods {
+                                  | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capabilityQualifier methodKey methods {
                                     | Just scheme -> case scheme {
                                       | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
                                         ownerPath = binderModulePathValue owner.
@@ -3822,14 +3924,14 @@ module TypedCoreValidate (
   validateExplicitTypeApplication = \(context, path, info, function, explicitSpan, typeArgument) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case function {
       | TypedVariableExpr functionInfo name -> case lookupSchemeByName modulePath name schemes {
-        | Just scheme -> validateExplicitSchemeApplication modulePath schemes path info explicitSpan typeArgument (Just scheme)
+        | Just scheme -> validateExplicitSchemeApplication modulePath schemes path info (nodeInstantiations functionInfo) explicitSpan typeArgument (Just scheme)
         | Nothing -> case name {
           | TypedBuiltinName methodKey -> validateQualifiedMethodApplication context path info methodKey typeArgument
           | other -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
         }
       }
       | TypedOperatorValueExpr functionInfo operator -> case operator {
-        | TypedResolvedOperator name symbol -> validateExplicitSchemeApplication modulePath schemes path info explicitSpan typeArgument (lookupSchemeByName modulePath name schemes)
+        | TypedResolvedOperator name symbol -> validateExplicitSchemeApplication modulePath schemes path info (nodeInstantiations functionInfo) explicitSpan typeArgument (lookupSchemeByName modulePath name schemes)
         | TypedBuiltinOperator builtin -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
       }
       | other -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
@@ -6063,80 +6165,99 @@ module TypedCoreValidate (
     | TypedModule modulePath sourcePath imports exports interface statements info -> imports
   }.
 
-  modulePathReachableFrom :: [TypedModule] -> [[Text]] -> [[Text]] -> [Text] -> Bool.
-  modulePathReachableFrom = \(completeModules, seen, pendingPaths, targetPath) -> case pendingPaths {
-    | [] -> False
+  reachableModulePathsFrom :: [TypedModule] -> [[Text]] -> [[Text]] -> [[Text]].
+  reachableModulePathsFrom = \(completeModules, seen, pendingPaths) -> case pendingPaths {
+    | [] -> seen
     | [currentPath | rest] ->
-      if textListEqual currentPath targetPath then True else
-        if modulePathMember currentPath seen then modulePathReachableFrom completeModules seen rest targetPath else {
-          nextPaths = case findModule currentPath completeModules {
-            | Nothing -> []
-            | Just moduleValue -> resolvedImportPaths (typedModuleImports moduleValue)
-          }.
-          modulePathReachableFrom completeModules (listPrepend currentPath seen) (listAppend nextPaths rest) targetPath.
-        }
+      if modulePathMember currentPath seen then reachableModulePathsFrom completeModules seen rest else {
+        nextPaths = case findModule currentPath completeModules {
+          | Nothing -> []
+          | Just moduleValue -> resolvedImportPaths (typedModuleImports moduleValue)
+        }.
+        reachableModulePathsFrom completeModules (listPrepend currentPath seen) (listAppend nextPaths rest).
+      }
   }.
 
-  modulePathReachable :: [TypedModule] -> [[Text]] -> [Text] -> [Text] -> Bool.
-  modulePathReachable = \(completeModules, seen, currentPath, targetPath) ->
-    modulePathReachableFrom completeModules seen [currentPath] targetPath.
+  moduleReachabilityFrom :: [TypedModule] -> [TypedModule] -> [ModuleReachability].
+  moduleReachabilityFrom = \(completeModules, remainingModules) -> case remainingModules {
+    | [] -> []
+    | [first | rest] -> {
+      modulePath = typedModulePath first.
+      listPrepend
+        (ModuleReachability modulePath (reachableModulePathsFrom completeModules [] [modulePath]))
+        (moduleReachabilityFrom completeModules rest).
+    }
+  }.
 
-  importCycleFailuresForImports :: [TypedModule] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
-  importCycleFailuresForImports = \(completeModules, modulePath, imports, seenImports) -> case imports {
+  moduleReachability :: [TypedModule] -> [ModuleReachability].
+  moduleReachability = \(completeModules) ->
+    moduleReachabilityFrom completeModules completeModules.
+
+  modulePathReaches :: [ModuleReachability] -> [Text] -> [Text] -> Bool.
+  modulePathReaches = \(reachability, sourcePath, targetPath) -> case reachability {
+    | [] -> False
+    | [ModuleReachability modulePath reachablePaths | rest] ->
+      if textListEqual sourcePath modulePath then
+        modulePathMember targetPath reachablePaths
+      else modulePathReaches rest sourcePath targetPath
+  }.
+
+  importCycleFailuresForImports :: [ModuleReachability] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
+  importCycleFailuresForImports = \(reachability, modulePath, imports, seenImports) -> case imports {
     | [] -> []
     | [TypedResolvedImport span importPath alias names | rest] ->
       if modulePathMember importPath seenImports then
-        importCycleFailuresForImports completeModules modulePath rest seenImports
+        importCycleFailuresForImports reachability modulePath rest seenImports
       else
         listAppend
-          (if modulePathReachable completeModules [] importPath modulePath then
+          (if modulePathReaches reachability importPath modulePath then
             [failure (TypedModulePath modulePath) TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
           else
             [])
-          (importCycleFailuresForImports completeModules modulePath rest (listPrepend importPath seenImports))
+          (importCycleFailuresForImports reachability modulePath rest (listPrepend importPath seenImports))
   }.
 
-  importCycleFailuresFrom :: [TypedModule] -> [TypedModule] -> [TypedCoreValidationFailure].
-  importCycleFailuresFrom = \(completeModules, remainingModules) -> case remainingModules {
+  importCycleFailuresFrom :: [ModuleReachability] -> [TypedModule] -> [TypedCoreValidationFailure].
+  importCycleFailuresFrom = \(reachability, remainingModules) -> case remainingModules {
     | [] -> []
     | [first | rest] -> listAppend
-      (importCycleFailuresForImports completeModules (typedModulePath first) (typedModuleImports first) [])
-      (importCycleFailuresFrom completeModules rest)
+      (importCycleFailuresForImports reachability (typedModulePath first) (typedModuleImports first) [])
+      (importCycleFailuresFrom reachability rest)
   }.
 
-  importCycleFailures :: [TypedModule] -> [TypedCoreValidationFailure].
-  importCycleFailures = \(completeModules) ->
-    importCycleFailuresFrom completeModules completeModules.
+  importCycleFailures :: [ModuleReachability] -> [TypedModule] -> [TypedCoreValidationFailure].
+  importCycleFailures = \(reachability, completeModules) ->
+    importCycleFailuresFrom reachability completeModules.
 
-  moduleOrderFailuresForImports :: [TypedModule] -> [[Text]] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
-  moduleOrderFailuresForImports = \(completeModules, precedingPaths, modulePath, imports, seenImports) -> case imports {
+  moduleOrderFailuresForImports :: [ModuleReachability] -> [TypedModule] -> [[Text]] -> [Text] -> [TypedResolvedImport] -> [[Text]] -> [TypedCoreValidationFailure].
+  moduleOrderFailuresForImports = \(reachability, completeModules, precedingPaths, modulePath, imports, seenImports) -> case imports {
     | [] -> []
     | [TypedResolvedImport span importPath alias names | rest] ->
       if modulePathMember importPath seenImports then
-        moduleOrderFailuresForImports completeModules precedingPaths modulePath rest seenImports
+        moduleOrderFailuresForImports reachability completeModules precedingPaths modulePath rest seenImports
       else
         listAppend
           (case findModule importPath completeModules {
             | Nothing -> []
             | Just importedModule ->
               if modulePathMember importPath precedingPaths then [] else
-                if modulePathReachable completeModules [] importPath modulePath then [] else
+                if modulePathReaches reachability importPath modulePath then [] else
                   [failure (TypedModulePath modulePath) TypedModuleInterfaceMismatch (TypedTextDetail (modulePathText importPath))]
           })
-          (moduleOrderFailuresForImports completeModules precedingPaths modulePath rest (listPrepend importPath seenImports))
+          (moduleOrderFailuresForImports reachability completeModules precedingPaths modulePath rest (listPrepend importPath seenImports))
   }.
 
-  moduleOrderFailuresFrom :: [TypedModule] -> [[Text]] -> [TypedModule] -> [TypedCoreValidationFailure].
-  moduleOrderFailuresFrom = \(completeModules, precedingPaths, remainingModules) -> case remainingModules {
+  moduleOrderFailuresFrom :: [ModuleReachability] -> [TypedModule] -> [[Text]] -> [TypedModule] -> [TypedCoreValidationFailure].
+  moduleOrderFailuresFrom = \(reachability, completeModules, precedingPaths, remainingModules) -> case remainingModules {
     | [] -> []
     | [first | rest] -> listAppend
-      (moduleOrderFailuresForImports completeModules precedingPaths (typedModulePath first) (typedModuleImports first) [])
-      (moduleOrderFailuresFrom completeModules (listPrepend (typedModulePath first) precedingPaths) rest)
+      (moduleOrderFailuresForImports reachability completeModules precedingPaths (typedModulePath first) (typedModuleImports first) [])
+      (moduleOrderFailuresFrom reachability completeModules (listPrepend (typedModulePath first) precedingPaths) rest)
   }.
 
-  moduleOrderFailures :: [TypedModule] -> [TypedCoreValidationFailure].
-  moduleOrderFailures = \(completeModules) ->
-    moduleOrderFailuresFrom completeModules [] completeModules.
+  moduleOrderFailures :: [ModuleReachability] -> [TypedModule] -> [TypedCoreValidationFailure].
+  moduleOrderFailures = \(reachability, completeModules) ->
+    moduleOrderFailuresFrom reachability completeModules [] completeModules.
 
   selectedImportNamePresentInExports :: Text -> TypedModuleInterface -> [TypedModuleExport] -> Bool.
   selectedImportNamePresentInExports = \(selectedName, interface, exports) -> case exports {
@@ -6802,65 +6923,12 @@ module TypedCoreValidate (
     }
   }.
 
-  typeArgumentEqual :: TypedTypeArgument -> TypedTypeArgument -> Bool.
-  typeArgumentEqual = \(left, right) -> case (left, right) {
-    | (TypedTypeArgument leftParameter leftType, TypedTypeArgument rightParameter rightType) ->
-      if typeParameterIdEqual leftParameter rightParameter then typeEqual leftType rightType else False
-  }.
-
-  typeArgumentListEqual :: [TypedTypeArgument] -> [TypedTypeArgument] -> Bool.
-  typeArgumentListEqual = \(left, right) -> case (left, right) {
-    | ([], []) -> True
-    | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
-      if typeArgumentEqual leftFirst rightFirst then typeArgumentListEqual leftRest rightRest else False
-    | other -> False
-  }.
-
-  maybeSpanEqual :: Maybe(TypedSpan) -> Maybe(TypedSpan) -> Bool.
-  maybeSpanEqual = \(left, right) -> case (left, right) {
-    | (Nothing, Nothing) -> True
-    | (Just leftSpan, Just rightSpan) -> spanEqual leftSpan rightSpan
-    | other -> False
-  }.
-
-  instantiationEqual :: TypedInstantiation -> TypedInstantiation -> Bool.
-  instantiationEqual = \(left, right) -> case (left, right) {
-    | (TypedInstantiation leftOwner leftArguments leftSpan, TypedInstantiation rightOwner rightArguments rightSpan) ->
-      if binderIdEqual leftOwner rightOwner then
-        if typeArgumentListEqual leftArguments rightArguments then maybeSpanEqual leftSpan rightSpan else False
-      else False
-  }.
-
   instantiationListEqual :: [TypedInstantiation] -> [TypedInstantiation] -> Bool.
   instantiationListEqual = \(left, right) -> case (left, right) {
     | ([], []) -> True
     | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
       if instantiationEqual leftFirst rightFirst then instantiationListEqual leftRest rightRest else False
     | other -> False
-  }.
-
-  maybeEvidenceParameterRefEqual :: Maybe(TypedEvidenceParameterRef) -> Maybe(TypedEvidenceParameterRef) -> Bool.
-  maybeEvidenceParameterRefEqual = \(left, right) -> case (left, right) {
-    | (Nothing, Nothing) -> True
-    | (Just leftRef, Just rightRef) -> evidenceParameterRefEqual leftRef rightRef
-    | other -> False
-  }.
-
-  maybeMethodIdEqual :: Maybe(TypedMethodId) -> Maybe(TypedMethodId) -> Bool.
-  maybeMethodIdEqual = \(left, right) -> case (left, right) {
-    | (Nothing, Nothing) -> True
-    | (Just leftMethod, Just rightMethod) -> methodIdEqual leftMethod rightMethod
-    | other -> False
-  }.
-
-  evidenceUseEqual :: TypedEvidenceUse -> TypedEvidenceUse -> Bool.
-  evidenceUseEqual = \(left, right) -> case (left, right) {
-    | (TypedEvidenceUse leftParameter leftConstraint leftImpl leftMethod, TypedEvidenceUse rightParameter rightConstraint rightImpl rightMethod) ->
-      if maybeEvidenceParameterRefEqual leftParameter rightParameter then
-        if capabilityConstraintEqual leftConstraint rightConstraint then
-          if implIdEqual leftImpl rightImpl then maybeMethodIdEqual leftMethod rightMethod else False
-        else False
-      else False
   }.
 
   evidenceCandidateEqual :: TypedEvidenceCandidate -> TypedEvidenceCandidate -> Bool.
@@ -7008,10 +7076,11 @@ module TypedCoreValidate (
     | TypedProgram prelude modules entryModule -> {
       completeModules = allModules prelude modules.
       paths = modulePaths completeModules.
+      reachability = moduleReachability completeModules.
       listConcat
         [ duplicateModuleFailuresFrom completeModules [] [],
-          importCycleFailures completeModules,
-          moduleOrderFailures completeModules,
+          importCycleFailures reachability completeModules,
+          moduleOrderFailures reachability completeModules,
           validatePreludePath prelude,
           regularPreludePathFailures modules,
           if modulePathMember entryModule paths then [] else [failure TypedProgramPath TypedUnknownEntryModule (TypedTextDetail (modulePathText entryModule))],
