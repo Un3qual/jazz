@@ -10,21 +10,55 @@ module LexerTypes (type CanonicalKeyword, constructor ModuleKeyword, constructor
     | ElseKeyword
     | CaseKeyword.
 
-  data CanonicalPunctuation = ArrowPunctuation | AtPunctuation | EqualsPunctuation | ColonPunctuation | DoubleColonPunctuation | DotPunctuation | LeftBracePunctuation | RightBracePunctuation | LeftParenPunctuation | RightParenPunctuation | LeftBracketPunctuation | RightBracketPunctuation | CommaPunctuation | LambdaPunctuation.
+  data CanonicalPunctuation
+    = ArrowPunctuation
+    | AtPunctuation
+    | EqualsPunctuation
+    | ColonPunctuation
+    | DoubleColonPunctuation
+    | DotPunctuation
+    | LeftBracePunctuation
+    | RightBracePunctuation
+    | LeftParenPunctuation
+    | RightParenPunctuation
+    | LeftBracketPunctuation
+    | RightBracketPunctuation
+    | CommaPunctuation
+    | LambdaPunctuation.
 
   data CanonicalLiteralKind = CharacterLiteral | TextLiteral.
 
-  data CanonicalLexErrorReason = UnexpectedCharacter Char | UnexpectedEndOfInput | InvalidCharacterLength Int | UnterminatedLiteral CanonicalLiteralKind | RawNewline CanonicalLiteralKind | InvalidEscape Char | UnterminatedUnicodeEscape | MalformedUnicodeEscape Text | NonScalarUnicodeEscape Text | InvalidLiteralCharacter CanonicalLiteralKind Char | InvalidIntegerLiteral Text.
+  data CanonicalLexErrorReason
+    = UnexpectedCharacter Char
+    | UnexpectedEndOfInput
+    | InvalidCharacterLength Int
+    | UnterminatedLiteral CanonicalLiteralKind
+    | RawNewline CanonicalLiteralKind
+    | InvalidEscape Char
+    | UnterminatedUnicodeEscape
+    | MalformedUnicodeEscape Text
+    | NonScalarUnicodeEscape Text
+    | InvalidLiteralCharacter CanonicalLiteralKind Char
+    | InvalidIntegerLiteral Text.
 
   data CanonicalSourcePath = CanonicalSourcePath Text.
 
   data CanonicalSpan = CanonicalSpan Int Int.
 
-  data CanonicalTokenKind = IdentifierKind Text | KeywordKind CanonicalKeyword | IntegerKind Text | CharacterKind Char | TextKind Text | OperatorKind Text | PunctuationKind CanonicalPunctuation.
+  data CanonicalTokenKind
+    = IdentifierKind Text
+    | KeywordKind CanonicalKeyword
+    | IntegerKind Text
+    | CharacterKind Char
+    | TextKind Text
+    | OperatorKind Text
+    | PunctuationKind CanonicalPunctuation.
 
   data CanonicalToken = CanonicalToken CanonicalTokenKind Text CanonicalSpan.
 
   data CanonicalLexError = CanonicalLexError Text CanonicalLexErrorReason CanonicalSpan.
 
-  data CanonicalLexResult = CanonicalLexSuccess CanonicalSourcePath [CanonicalToken] | CanonicalLexFailure CanonicalSourcePath CanonicalLexError.
+  data CanonicalLexResult
+    = CanonicalLexSuccess CanonicalSourcePath [CanonicalToken]
+    | CanonicalLexFailure CanonicalSourcePath CanonicalLexError.
 }

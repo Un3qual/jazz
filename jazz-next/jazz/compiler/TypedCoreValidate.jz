@@ -14,33 +14,53 @@ module TypedCoreValidate (
 
   data ModuleReachability = ModuleReachability [Text] [[Text]].
 
-  data NameEntry = NameEntry [Text] TypedNameNamespace Text | GeneratedNameEntry TypedGeneratedNameKind.
+  data NameEntry
+    = NameEntry [Text] TypedNameNamespace Text
+    | GeneratedNameEntry TypedGeneratedNameKind.
 
   data MethodContract = MethodContract Text TypedScheme.
 
-  data DataEntry = DataEntry [Text] Text Int | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]] | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType] | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract] | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text | ImplMethodEntry TypedImplId [Text] | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe | PrimitiveConstraintEntry TypedPrimitiveConstraint | UnqualifiedCapabilityEntry [Text] Text.
+  data DataEntry
+    = DataEntry [Text] Text Int
+    | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]]
+    | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType]
+    | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract]
+    | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text
+    | ImplMethodEntry TypedImplId [Text]
+    | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe
+    | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe
+    | PrimitiveConstraintEntry TypedPrimitiveConstraint
+    | UnqualifiedCapabilityEntry [Text] Text.
 
   data DataMetadataDeclaration = DataMetadataDeclaration [Text] TypedDataDeclaration.
 
-  data ConstructorContract = ConstructorContract TypedBinderId [Text] Text [TypedTypeParameterId] [TypedType].
+  data ConstructorContract
+    = ConstructorContract TypedBinderId [Text] Text [TypedTypeParameterId] [TypedType].
 
   data DataContract = DataContract [TypedTypeParameterId] [[TypedType]].
 
   data CapabilityContract = CapabilityContract [TypedTypeParameterId] [MethodContract].
 
-  data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint].
+  data InstantiationContract
+    = InstantiationContract
+      TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint].
 
   data ValueContract = ValueContract TypedType TypedRepresentationRecipe.
 
-  data DeclarationEntry = DeclarationEntry NameEntry TypedCoreName Maybe(TypedBinderId) | ImplDeclarationEntry TypedImplId TypedImplId.
+  data DeclarationEntry
+    = DeclarationEntry NameEntry TypedCoreName Maybe(TypedBinderId)
+    | ImplDeclarationEntry TypedImplId TypedImplId.
 
   data VisibleModule = VisibleModule Maybe([Text]) TypedModule.
 
   data ImportNameOrigin = ImportNameOrigin Text [Text].
 
-  data ModuleContext = ModuleContext [Text] [[Text]] [SchemeEntry] [NameEntry] [TypedImplId] [DataEntry] [TypedTypeParameterId].
+  data ModuleContext
+    = ModuleContext
+      [Text] [[Text]] [SchemeEntry] [NameEntry] [TypedImplId] [DataEntry] [TypedTypeParameterId].
 
-  data PatternBinderContract = PatternBinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
+  data PatternBinderContract
+    = PatternBinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
 
   data BinderOccurrence = BinderOccurrence TypedCoreValidationPath TypedBinderId.
 

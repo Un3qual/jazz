@@ -104,7 +104,10 @@ module ParserToken (
 
   data TokenParser item = TokenParser Parser(CanonicalToken, ParserGrammarFailure, item).
 
-  data TokenParseResult item = TokenParseSucceeded item | TokenParseRejected ParserGrammarFailure | TokenParseInvariantFailure ParserGrammarFailure.
+  data TokenParseResult item
+    = TokenParseSucceeded item
+    | TokenParseRejected ParserGrammarFailure
+    | TokenParseInvariantFailure ParserGrammarFailure.
 
   canonicalTokenKind = \(token) -> case token {
     | CanonicalToken kind lexeme span -> kind

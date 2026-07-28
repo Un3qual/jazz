@@ -13,9 +13,14 @@ module CoreLower (
   import ParserTypes.
   import Text (textIsEmpty, textSplit, textStartsWith).
 
-  data LoweringProfile = FoundationProfile | ControlFlowPatternsProfile | SignaturesDeclarationsOperatorsProfile | ModulesCorpusClosureProfile.
+  data LoweringProfile
+    = FoundationProfile
+    | ControlFlowPatternsProfile
+    | SignaturesDeclarationsOperatorsProfile
+    | ModulesCorpusClosureProfile.
 
-  data CollectedModuleDeclaration = CollectedModuleDeclaration CoreModuleDeclaration Maybe([CoreModuleExportSelector]).
+  data CollectedModuleDeclaration
+    = CollectedModuleDeclaration CoreModuleDeclaration Maybe([CoreModuleExportSelector]).
 
   profileAllows :: LoweringProfile -> LoweringProfile -> Bool.
   profileAllows = \(available, required) -> case available {

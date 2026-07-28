@@ -9,15 +9,43 @@ module CoreTypes {
     | CoreFunctionEquationArgument Int
     | CoreOperatorBinding Text.
 
-  data CoreName = CoreSourceName Text | CoreQualifiedName Text Text | CoreGeneratedName CoreGeneratedNameKind.
+  data CoreName
+    = CoreSourceName Text
+    | CoreQualifiedName Text Text
+    | CoreGeneratedName CoreGeneratedNameKind.
 
   data CoreSpan = CoreSpan Maybe(CanonicalSourcePath) Int Int.
 
-  data CoreNumericType = CoreInt8Type | CoreInt16Type | CoreInt32Type | CoreInt64Type | CoreUInt8Type | CoreUInt16Type | CoreUInt32Type | CoreUInt64Type | CoreFloat16Type | CoreFloat32Type | CoreFloat64Type.
+  data CoreNumericType
+    = CoreInt8Type
+    | CoreInt16Type
+    | CoreInt32Type
+    | CoreInt64Type
+    | CoreUInt8Type
+    | CoreUInt16Type
+    | CoreUInt32Type
+    | CoreUInt64Type
+    | CoreFloat16Type
+    | CoreFloat32Type
+    | CoreFloat64Type.
 
-  data CoreLiteral = CoreIntegerLiteral Text | CoreFractionalLiteral Text Text Maybe(CoreNumericType) | CoreBooleanLiteral Bool | CoreCharacterLiteral Char | CoreTextLiteral Text.
+  data CoreLiteral
+    = CoreIntegerLiteral Text
+    | CoreFractionalLiteral Text Text Maybe(CoreNumericType)
+    | CoreBooleanLiteral Bool
+    | CoreCharacterLiteral Char
+    | CoreTextLiteral Text.
 
-  data CorePattern = CoreWildcardPattern | CoreVariablePattern CoreName | CoreLiteralPattern CoreLiteral | CoreConstructorPattern CoreName [CorePattern] | CoreListPattern [CorePattern] | CoreConsListPattern CorePattern CorePattern | CoreTuplePattern [CorePattern] | CoreAsPattern CoreName CorePattern | CoreOrPattern [CorePattern].
+  data CorePattern
+    = CoreWildcardPattern
+    | CoreVariablePattern CoreName
+    | CoreLiteralPattern CoreLiteral
+    | CoreConstructorPattern CoreName [CorePattern]
+    | CoreListPattern [CorePattern]
+    | CoreConsListPattern CorePattern CorePattern
+    | CoreTuplePattern [CorePattern]
+    | CoreAsPattern CoreName CorePattern
+    | CoreOrPattern [CorePattern].
 
   data CoreCaseArm = CoreCaseArm CorePattern Maybe(CoreExpr) CoreExpr.
 
@@ -25,39 +53,103 @@ module CoreTypes {
 
   data CoreSignatureConstraint = CoreSignatureConstraint CoreName [CoreSignatureType].
 
-  data CoreSignatureType = CoreIntType | CoreFloatType | CoreNumericType CoreNumericType | CoreBoolType | CoreCharType | CoreTextType | CoreTypeVariable CoreName | CoreNamedType CoreName | CoreAppliedType CoreName [CoreSignatureType] | CoreListType CoreSignatureType | CoreTupleType [CoreSignatureType] | CoreFunctionType CoreSignatureType CoreSignatureType.
+  data CoreSignatureType
+    = CoreIntType
+    | CoreFloatType
+    | CoreNumericType CoreNumericType
+    | CoreBoolType
+    | CoreCharType
+    | CoreTextType
+    | CoreTypeVariable CoreName
+    | CoreNamedType CoreName
+    | CoreAppliedType CoreName [CoreSignatureType]
+    | CoreListType CoreSignatureType
+    | CoreTupleType [CoreSignatureType]
+    | CoreFunctionType CoreSignatureType CoreSignatureType.
 
-  data CoreSignatureToken = CoreSignatureNameToken CoreName | CoreSignatureIntegerToken Text | CoreSignatureArrowToken | CoreSignatureAtToken | CoreSignatureColonToken | CoreSignatureLeftParenToken | CoreSignatureRightParenToken | CoreSignatureLeftBraceToken | CoreSignatureRightBraceToken | CoreSignatureLeftBracketToken | CoreSignatureRightBracketToken | CoreSignatureCommaToken | CoreSignatureOperatorToken Text | CoreSignatureOtherToken Text.
+  data CoreSignatureToken
+    = CoreSignatureNameToken CoreName
+    | CoreSignatureIntegerToken Text
+    | CoreSignatureArrowToken
+    | CoreSignatureAtToken
+    | CoreSignatureColonToken
+    | CoreSignatureLeftParenToken
+    | CoreSignatureRightParenToken
+    | CoreSignatureLeftBraceToken
+    | CoreSignatureRightBraceToken
+    | CoreSignatureLeftBracketToken
+    | CoreSignatureRightBracketToken
+    | CoreSignatureCommaToken
+    | CoreSignatureOperatorToken Text
+    | CoreSignatureOtherToken Text.
 
-  data CoreSignaturePayload = CoreTypeSignature CoreSignatureType | CoreConstrainedSignature [CoreSignatureConstraint] CoreSignatureType | CoreUnsupportedSignature [CoreSignatureToken].
+  data CoreSignaturePayload
+    = CoreTypeSignature CoreSignatureType
+    | CoreConstrainedSignature [CoreSignatureConstraint] CoreSignatureType
+    | CoreUnsupportedSignature [CoreSignatureToken].
 
   data CoreClassMethodSignature = CoreClassMethodSignature CoreName CoreSpan CoreSignaturePayload.
 
   data CoreImplMethod = CoreImplMethod CoreName CoreSpan CoreExpr.
 
-  data CoreExpr = CoreLiteralExpression CoreLiteral | CoreVariableExpression CoreName | CoreLambdaExpression CoreName CoreExpr | CoreOperatorValueExpression Text | CoreListExpression [CoreExpr] | CoreTupleExpression [CoreExpr] | CoreApplyExpression CoreExpr CoreExpr | CoreTypeApplicationExpression CoreExpr CoreSpan CoreSignatureType | CoreIfExpression CoreExpr CoreExpr CoreExpr | CorePatternCaseExpression CoreExpr [CoreCaseArm] | CoreBinaryExpression Text CoreExpr CoreExpr | CoreLeftSectionExpression CoreExpr Text | CoreRightSectionExpression Text CoreExpr | CoreBlockExpression [CoreStatement].
+  data CoreExpr
+    = CoreLiteralExpression CoreLiteral
+    | CoreVariableExpression CoreName
+    | CoreLambdaExpression CoreName CoreExpr
+    | CoreOperatorValueExpression Text
+    | CoreListExpression [CoreExpr]
+    | CoreTupleExpression [CoreExpr]
+    | CoreApplyExpression CoreExpr CoreExpr
+    | CoreTypeApplicationExpression CoreExpr CoreSpan CoreSignatureType
+    | CoreIfExpression CoreExpr CoreExpr CoreExpr
+    | CorePatternCaseExpression CoreExpr [CoreCaseArm]
+    | CoreBinaryExpression Text CoreExpr CoreExpr
+    | CoreLeftSectionExpression CoreExpr Text
+    | CoreRightSectionExpression Text CoreExpr
+    | CoreBlockExpression [CoreStatement].
 
-  data CoreStatement = CoreLetStatement CoreName CoreSpan CoreExpr | CoreSignatureStatement CoreName CoreSpan CoreSignaturePayload | CoreDataStatement CoreSpan CoreName [CoreName] [CoreDataConstructor] | CoreClassStatement CoreSpan CoreName [CoreName] [CoreClassMethodSignature] | CoreImplStatement CoreSpan CoreName [CoreSignatureType] [CoreImplMethod] | CoreModuleStatement CoreSpan [Text] | CoreImportStatement CoreSpan [Text] Maybe(Text) Maybe([Text]) | CoreExpressionStatement CoreSpan CoreExpr.
+  data CoreStatement
+    = CoreLetStatement CoreName CoreSpan CoreExpr
+    | CoreSignatureStatement CoreName CoreSpan CoreSignaturePayload
+    | CoreDataStatement CoreSpan CoreName [CoreName] [CoreDataConstructor]
+    | CoreClassStatement CoreSpan CoreName [CoreName] [CoreClassMethodSignature]
+    | CoreImplStatement CoreSpan CoreName [CoreSignatureType] [CoreImplMethod]
+    | CoreModuleStatement CoreSpan [Text]
+    | CoreImportStatement CoreSpan [Text] Maybe(Text) Maybe([Text])
+    | CoreExpressionStatement CoreSpan CoreExpr.
 
   data CoreNameNamespace = CoreValueName | CoreConstructorName | CoreTypeName | CoreCapabilityName.
 
   data CoreLocatedExportName = CoreLocatedExportName Text CoreSpan.
 
-  data CoreTypeConstructorSelector = CoreAbstractType | CoreAllConstructors CoreSpan | CoreSelectedConstructors NonEmpty(CoreLocatedExportName).
+  data CoreTypeConstructorSelector
+    = CoreAbstractType
+    | CoreAllConstructors CoreSpan
+    | CoreSelectedConstructors NonEmpty(CoreLocatedExportName).
 
-  data CoreModuleExportSelector = CoreNamedExportSelector Maybe(CoreNameNamespace) Text | CoreTypeExportSelector Text CoreSpan CoreTypeConstructorSelector.
+  data CoreModuleExportSelector
+    = CoreNamedExportSelector Maybe(CoreNameNamespace) Text
+    | CoreTypeExportSelector Text CoreSpan CoreTypeConstructorSelector.
 
   data CoreDeclaredModuleExports = CoreDeclaredModuleExports CoreSpan [CoreModuleExportSelector].
 
   data CoreResolvedImport = CoreResolvedImport CoreSpan [Text] Maybe(Text) Maybe([Text]).
 
-  data CoreModule = CoreModule Maybe([Text]) Maybe(CoreDeclaredModuleExports) [CoreResolvedImport] CoreExpr.
+  data CoreModule
+    = CoreModule Maybe([Text]) Maybe(CoreDeclaredModuleExports) [CoreResolvedImport] CoreExpr.
 
   data CoreModuleDeclaration = CoreModuleDeclaration CoreSpan [Text].
 
-  data CoreModuleLoweringFailure = CoreMultipleModuleDeclarationsFailure CanonicalSourcePath [CoreModuleDeclaration] | CoreModulePathMismatchFailure CanonicalSourcePath [Text] CoreModuleDeclaration.
+  data CoreModuleLoweringFailure
+    = CoreMultipleModuleDeclarationsFailure CanonicalSourcePath [CoreModuleDeclaration]
+    | CoreModulePathMismatchFailure CanonicalSourcePath [Text] CoreModuleDeclaration.
 
-  data CoreModuleLoweringResult = CoreModuleLowered CoreModule | CoreModuleLoweringFailed CoreModuleLoweringFailure.
+  data CoreModuleLoweringResult
+    = CoreModuleLowered CoreModule
+    | CoreModuleLoweringFailed CoreModuleLoweringFailure.
 
-  data CanonicalCoreSourceResult = CanonicalCoreSourceLexicalFailure CanonicalSourcePath CanonicalLexError | CanonicalCoreSourceParserFailure CanonicalSourcePath ParserFailure | CanonicalCoreSourceModuleResult CoreModuleLoweringResult.
+  data CanonicalCoreSourceResult
+    = CanonicalCoreSourceLexicalFailure CanonicalSourcePath CanonicalLexError
+    | CanonicalCoreSourceParserFailure CanonicalSourcePath ParserFailure
+    | CanonicalCoreSourceModuleResult CoreModuleLoweringResult.
 }

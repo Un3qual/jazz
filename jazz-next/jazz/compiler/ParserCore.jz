@@ -38,9 +38,12 @@ module ParserCore (
 
   data ParserFailure problem = ParserFailure Int ParserConsumption ParserProblem(problem).
 
-  data ParserReply token problem item = ParserSucceeded item ParserCursor(token) ParserConsumption | ParserFailed ParserFailure(problem).
+  data ParserReply token problem item
+    = ParserSucceeded item ParserCursor(token) ParserConsumption
+    | ParserFailed ParserFailure(problem).
 
-  data Parser token problem item = Parser (ParserCursor(token) -> ParserReply(token, problem, item)).
+  data Parser token problem item
+    = Parser (ParserCursor(token) -> ParserReply(token, problem, item)).
 
   parserRunAt :: Parser(token, problem, item) -> ParserCursor(token) -> ParserReply(token, problem, item).
   parserRunAt = \(parser, cursor) -> case parser {

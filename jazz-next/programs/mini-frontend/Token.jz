@@ -1,7 +1,13 @@
 module Token {
   import List.
 
-  data Token = LetToken | NameToken Text | EqualsToken | IntegerToken Int | PlusToken | UnknownToken Text.
+  data Token
+    = LetToken
+    | NameToken Text
+    | EqualsToken
+    | IntegerToken Int
+    | PlusToken
+    | UnknownToken Text.
 
   classifyToken :: Text -> Token.
   classifyToken = \(text) -> if text == "let" then

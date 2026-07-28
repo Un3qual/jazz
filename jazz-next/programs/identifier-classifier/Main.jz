@@ -3,7 +3,11 @@ module Main {
   import Maybe.
   import Text.
 
-  data IdentifierKind = Keyword Text | TypeIdentifier Text | ValueIdentifier Text | InvalidIdentifier Text.
+  data IdentifierKind
+    = Keyword Text
+    | TypeIdentifier Text
+    | ValueIdentifier Text
+    | InvalidIdentifier Text.
 
   isKeyword :: Text -> Bool.
   isKeyword = \(name) -> if name == "module" then

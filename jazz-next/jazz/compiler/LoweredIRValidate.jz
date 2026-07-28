@@ -10,7 +10,8 @@ module LoweredIRValidate (
 
   data FunctionContext = FunctionContext ProgramContext LoweredFunction.
 
-  data OperationValidation = OperationValidation [LoweredIRValidationFailure] Maybe(LoweredRepresentation).
+  data OperationValidation
+    = OperationValidation [LoweredIRValidationFailure] Maybe(LoweredRepresentation).
 
   failure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure.
   failure = LoweredIRValidationFailure.
