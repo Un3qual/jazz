@@ -237,9 +237,10 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
     bindingNamesByStatement = collectBindingNames indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
-    (bindingSeedsByStatement, seededState) =
+    (bindingSeedsByStatement, bindingSeededState) =
       allocateBindingSeeds indexedStatements initialState
-    stateAfterBindingSeeds = seededState
+    (predeclaredDataTypeNames, stateAfterBindingSeeds) =
+      predeclareScopeDataTypes indexedStatements bindingSeededState
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
     go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
@@ -279,7 +280,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
-                    registerDataConstructors spanValue typeName typeParameters constructors env state
+                    registerDataConstructors predeclaredDataTypeNames spanValue typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
@@ -918,6 +919,34 @@ allocateBindingSeeds indexedStatements initialState =
            in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
         _ -> (bindingSeeds, state)
 
+predeclareScopeDataTypes ::
+  [(Int, Statement)] ->
+  InferState ->
+  (Set Text, InferState)
+predeclareScopeDataTypes indexedStatements initialState =
+  foldl' step (Set.empty, initialState) indexedStatements
+  where
+    step (predeclaredNames, state) (_, statement) =
+      case statement of
+        SData _ typeName typeParameters _
+          | Map.notMember typeNameText (inferDataTypes state) ->
+              ( Set.insert typeNameText predeclaredNames,
+                modifyDeclarationState
+                  ( \declarations ->
+                      declarations
+                        { declarationDataTypes =
+                            Map.insert
+                              typeNameText
+                              (DataTypeBinding typeParameters [])
+                              (inferDataTypes state)
+                        }
+                  )
+                  state
+              )
+          where
+            typeNameText = identifierText typeName
+        _ -> (predeclaredNames, state)
+
 -- Seed self-recursion before branch typing so mixed wrappers like
 -- `if True \(x) -> f x else 0` do not skip recursive calls just because only
 -- one branch exposes a function value.
@@ -1378,29 +1407,39 @@ concreteFloatNumericType expressionType =
     TNumericType NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
-registerDataConstructors :: SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
-registerDataConstructors spanValue typeName typeParameters constructors env initialState =
+registerDataConstructors :: Set Text -> SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors predeclaredDataTypeNames spanValue typeName typeParameters constructors env initialState =
   case Map.lookup typeNameText (inferDataTypes initialState) of
+    Just (DataTypeBinding existingParameters existingConstructors)
+      | Set.member typeNameText predeclaredDataTypeNames,
+        existingParameters == typeParameters,
+        null existingConstructors ->
+          registerInto initialState
     Just _ ->
       ( env,
         addTypeError
           initialState
           (mkDuplicateDataTypeDeclarationError typeNameText spanValue)
       )
-    Nothing ->
-      let stateWithProvisionalDataType =
-            modifyDeclarationState
-              ( \declarations ->
-                  declarations
-                    { declarationDataTypes =
-                        Map.insert
-                          typeNameText
-                          (DataTypeBinding typeParameters [])
-                          (inferDataTypes initialState)
-                    }
-              )
-              initialState
-          (nextEnv, nextState, constructorPayloadsRev) =
+    Nothing -> registerInto (insertProvisionalDataType initialState)
+  where
+    typeNameText = identifierText typeName
+
+    insertProvisionalDataType state =
+      modifyDeclarationState
+        ( \declarations ->
+            declarations
+              { declarationDataTypes =
+                  Map.insert
+                    typeNameText
+                    (DataTypeBinding typeParameters [])
+                    (inferDataTypes state)
+              }
+        )
+        state
+
+    registerInto stateWithProvisionalDataType =
+      let (nextEnv, nextState, constructorPayloadsRev) =
             foldl' register (env, stateWithProvisionalDataType, []) constructors
        in
         ( nextEnv,
@@ -1416,8 +1455,6 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
             )
             nextState
         )
-  where
-    typeNameText = identifierText typeName
 
     register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =

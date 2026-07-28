@@ -106,6 +106,9 @@ tests =
     ( "source pipeline types recursive generic constructor fields",
       testSourcePipelineTypesRecursiveGenericConstructorFields
     ),
+    ( "source pipeline types mutually recursive constructor fields",
+      testSourcePipelineTypesMutuallyRecursiveConstructorFields
+    ),
     ( "source pipeline rejects recursive generic constructor field mismatches",
       testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches
     ),
@@ -448,6 +451,20 @@ testSourcePipelineTypesRecursiveGenericConstructorFields = do
       answer = leftmost (Branch (Leaf True) (Leaf False)).
       """
   assertCompiles "recursive generic constructor fields" result
+
+testSourcePipelineTypesMutuallyRecursiveConstructorFields :: IO ()
+testSourcePipelineTypesMutuallyRecursiveConstructorFields = do
+  result <-
+    compileSource defaultWarningSettings
+      """
+      data Expression
+        = Literal Int
+        | Block [Statement].
+      data Statement
+        = ExpressionStatement Expression.
+      program = Block [ExpressionStatement (Literal 42)].
+      """
+  assertCompiles "mutually recursive constructor fields" result
 
 testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches :: IO ()
 testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches = do
