@@ -7,8 +7,8 @@
     {"include": "#characters"},
     {"include": "#numbers"},
     {"include": "#data-declarations"},
-    {"include": "#keywords"},
     {"include": "#exports"},
+    {"include": "#keywords"},
     {"include": "#builtins"},
     {"include": "#purity"},
     {"include": "#types"},
@@ -90,6 +90,10 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.other.reserved.jazz",
+          "match": "\\bvalue\\b"
+        },
+        {
           "name": "keyword.control.jazz",
           "match": "\\b(?:if|then|else|case)\\b"
         },
@@ -100,6 +104,17 @@
       ]
     },
     "exports": {
+      "name": "meta.module.exports.jazz",
+      "begin": "\\b(module)\\s+([A-Z][A-Za-z0-9_']*(?:::[A-Z][A-Za-z0-9_']*)*)\\s*(\\()",
+      "beginCaptures": {
+        "1": {"name": "keyword.declaration.jazz"},
+        "2": {"name": "entity.name.namespace.jazz"},
+        "3": {"name": "punctuation.section.group.begin.jazz"}
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {"name": "punctuation.section.group.end.jazz"}
+      },
       "patterns": [
         {
           "name": "meta.export.type.grouped.jazz",
@@ -136,7 +151,9 @@
         {
           "name": "storage.modifier.export.jazz",
           "match": "\\b(?:value|constructor|type|class)\\b"
-        }
+        },
+        {"include": "#comments"},
+        {"include": "#punctuation"}
       ]
     },
     "builtins": {

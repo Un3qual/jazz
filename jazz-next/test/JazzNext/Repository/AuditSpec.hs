@@ -444,6 +444,18 @@ testEditorPackageMetadata =
             jsonArray
             (jsonPath ["repository", "data-declarations", "patterns"] grammar)
         constructorPattern = firstValue dataDeclarationPatterns
+        keywordPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "keywords", "patterns"] grammar)
+        reservedValuePattern =
+          firstValue
+            [ patternValue
+            | patternValue <- keywordPatterns,
+              jsonPath ["match"] patternValue == Just (String "\\bvalue\\b")
+            ]
+        exportRegionBegin = jsonPath ["repository", "exports", "begin"] grammar
         exportPatterns =
           maybe
             []
@@ -492,6 +504,14 @@ testEditorPackageMetadata =
       (Just (String "entity.name.function.constructor.jazz"))
       (constructorPattern >>= jsonPath ["captures", "2", "name"])
     assertEqual
+      "value is globally highlighted as a reserved keyword"
+      (Just (String "keyword.other.reserved.jazz"))
+      (reservedValuePattern >>= jsonPath ["name"])
+    assertEqual
+      "exports are scoped to a module-header region"
+      (Just (String "\\b(module)\\s+([A-Z][A-Za-z0-9_']*(?:::[A-Z][A-Za-z0-9_']*)*)\\s*(\\()"))
+      exportRegionBegin
+    assertEqual
       "grouped exports scope the exported type name"
       (Just (String "entity.name.type.jazz"))
       (groupedTypeExportPattern >>= jsonPath ["beginCaptures", "2", "name"])
@@ -499,6 +519,17 @@ testEditorPackageMetadata =
       "grouped exports scope selected constructors independently"
       (Just (String "entity.name.function.constructor.jazz"))
       (groupedConstructorPattern >>= jsonPath ["name"])
+    assertEqual
+      "export modifiers are nested inside the module-header region"
+      True
+      ( any
+          ( \patternValue ->
+              jsonPath ["name"] patternValue == Just (String "storage.modifier.export.jazz")
+                && jsonPath ["match"] patternValue
+                  == Just (String "\\b(?:value|constructor|type|class)\\b")
+          )
+          exportPatterns
+      )
     assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True
