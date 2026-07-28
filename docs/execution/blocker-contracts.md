@@ -135,17 +135,25 @@ Each blocked item should answer these questions:
   mirrored Haskell/Jazz CFG contract with explicit closures, calls,
   representations, layout requests, structured validation, and canonical
   parity while preserving canonical core as interpreter input.
-- Smallest unblocker: none currently. A typed-core elaboration design must
-  define per-node resolved types, capability evidence, names, and
-  representation ownership before an implementation child can be promoted.
-- Decision needed: no typed-core elaboration design is accepted yet.
+- Accepted decision: the typed-core elaboration contract is
+  `2026-07-22-jazz-next-typed-core-elaboration-design.md`. It selects a
+  separate structurally aligned typed tree with final semantic types,
+  representation recipes, instantiations, evidence, and resolved identities
+  while preserving canonical core and the interpreter boundary.
+- Smallest unblocker: design the first typed-core expression-production and
+  closed-scalar/direct-call lowering child against the landed contracts.
+- Decision needed: accept the exact producer/lowerer boundary, target paths,
+  fixture inventory, and verification contract before promotion.
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
-- Candidate child: none. Do not infer a typed-core implementation batch from
-  the completed IR contract.
-- Target paths: none until a reviewed typed-core design names concrete owners.
-- Verification: not applicable until that design and child plan exist.
+- Candidate child: none. `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`
+  completed on `2026-07-22`; `Ready Now` and `Next Curation Target` are empty.
+- Target paths: must be fixed by the next reviewed producer/lowerer design; do
+  not infer them from the contract-foundation modules alone.
+- Verification: the completed foundation used exact focused parity,
+  warning-clean development build, routine bounded Cabal `all`, package,
+  queue/docs, and whitespace checks.
 - Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.

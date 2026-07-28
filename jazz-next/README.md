@@ -167,6 +167,29 @@ core remains the reference-interpreter input. Typed-core elaboration,
 core-to-IR lowering, LLVM emission, object generation/linking, and a native
 runtime remain separate design gates.
 
+### Typed core
+
+`JazzNext.Compiler.TypedCore` owns the stage-0 semantic typed-core schema:
+stable resolved names and binder/evidence identities, final semantic types,
+representation recipes, schemes, instantiations, capability evidence, typed
+patterns and expressions, declarations, interfaces, modules, programs, and
+structured validation results. `JazzNext.Compiler.TypedCore.Validate` performs
+complete structural and annotation validation into stable ordered failures.
+The ordinary Jazz mirrors are `TypedCoreTypes.jz` and
+`TypedCoreValidate.jz`; they use ordinary ADTs and list traversal without host
+callbacks.
+
+`jazz-typed-core-contract-spec` audits exactly 16 valid and 28 invalid fixed
+fixtures. All 44 run through both validators twice with exact complete program
+and ordered-failure parity. Its checked comparison adapter rejects unknown
+constructors, wrong arity, wrong field categories, malformed identities, and
+host-specific values rather than guessing defaults.
+
+This is a contract and validation boundary. Inference does not yet produce
+typed core, and no typed-core-to-lowered-IR entry point exists. Typed-core
+expression production plus closed-scalar/direct-call lowering is the next
+design gate; canonical-core interpretation remains unchanged.
+
 ## Editor support
 
 The dependency-free [`editors/vscode-jazz`](editors/vscode-jazz/README.md)

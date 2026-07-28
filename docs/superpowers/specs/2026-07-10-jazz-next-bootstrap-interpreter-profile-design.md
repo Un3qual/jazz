@@ -16,7 +16,11 @@ fixed stage-0 fixtures exactly. Hosted canonical core completed on `2026-07-21`
 with exact repeated parity for every accepted parser fixture. The
 backend-neutral lowered-IR contract foundation also completed on `2026-07-21`:
 matching Haskell/Jazz schemas and validators have exact repeated parity over 10
-valid and 31 invalid fixtures. Typed-core elaboration, core-to-IR lowering,
+valid and 31 invalid fixtures. The typed-core contract foundation completed on
+`2026-07-22`: matching Haskell/Jazz schemas and complete validators have exact
+repeated parity over 16 valid and 28 invalid fixtures. Inference does not yet
+produce typed core, and no core-to-IR lowerer exists. Typed-core expression
+production plus closed-scalar/direct-call lowering is the next design gate;
 LLVM, object/link, and native-runtime stages remain separate unpromoted gates.
 
 ## Goal
@@ -472,9 +476,18 @@ are complete. `JazzNext.Compiler.LoweredIR` and
 `JazzNext.Compiler.LoweredIR.Validate` own the stage-0 schema and validator;
 `LoweredIRTypes.jz` and `LoweredIRValidate.jz` own their ordinary Jazz mirrors.
 The bounded 10-valid / 31-invalid corpus matches complete ordered results twice,
-and the checked adapter rejects malformed result shapes. Typed-core elaboration
-is the next design gate. No core-to-IR lowering, LLVM, object/link, or
-native-runtime implementation child is currently promoted.
+and the checked adapter rejects malformed result shapes. The typed-core
+contract foundation is also complete: `JazzNext.Compiler.TypedCore`
+(`jazz-next/src/JazzNext/Compiler/TypedCore.hs`) and
+`JazzNext.Compiler.TypedCore.Validate`
+(`jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`) own the stage-0 schema
+and validator; `jazz-next/jazz/compiler/TypedCoreTypes.jz` and
+`jazz-next/jazz/compiler/TypedCoreValidate.jz` own the ordinary Jazz mirrors.
+Its checked adapter and 16-valid / 28-invalid fixed corpus prove exact complete
+ordered parity for all 44 fixtures twice. Inference does not yet produce typed
+core, and no core-to-IR lowerer exists. Typed-core expression production plus
+closed-scalar/direct-call lowering is the next design gate; LLVM, object/link,
+and native-runtime implementation remain unpromoted.
 
 ## Non-Goals
 
