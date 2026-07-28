@@ -109,6 +109,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceImplMethod (..),
+    SurfaceFunctionClause (..),
     SurfaceLambdaParameter (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
@@ -660,6 +661,8 @@ collectModuleExportInventory surfaceExpr =
         SSLet bindingName _ _
           | not (isOperatorBindingIdentifierText (identifierText bindingName)) ->
               [ModuleExport ValueNamespace (identifierText bindingName)]
+        SSFunction bindingName _ _ ->
+          [ModuleExport ValueNamespace (identifierText bindingName)]
         SSData _ typeName _ constructors ->
           ModuleExport TypeNamespace (identifierText typeName)
             : [ ModuleExport ConstructorNamespace (identifierText constructorName)
@@ -1103,7 +1106,12 @@ collectBlockReferences boundNames statements =
         boundNames
         ( Set.fromList
             [ identifierText bindingName
-              | SSLet bindingName _ _ <- statements
+              | statement <- statements,
+                bindingName <-
+                  case statement of
+                    SSLet name _ _ -> [name]
+                    SSFunction name _ _ -> [name]
+                    _ -> []
             ]
         )
 
@@ -1111,6 +1119,11 @@ collectBlockReferences boundNames statements =
       case statement of
         SSLet _ _ valueExpr ->
           collectExprReferences blockBoundNames valueExpr
+        SSFunction _ _ clauses ->
+          Set.unions
+            [ collectFunctionClauseReferences blockBoundNames clause
+              | clause <- NonEmpty.toList clauses
+            ]
         SSExpr _ expr ->
           collectExprReferences blockBoundNames expr
         SSSignature {} -> Set.empty
@@ -1123,6 +1136,11 @@ collectBlockReferences boundNames statements =
             ]
         SSModule {} -> Set.empty
         SSImport {} -> Set.empty
+
+    collectFunctionClauseReferences enclosingNames (SurfaceFunctionClause _ patterns body) =
+      collectExprReferences
+        (Set.union enclosingNames (Set.unions (map collectPatternBinders patterns)))
+        body
 
 collectCaseArmReferences :: Set Text -> SurfaceCaseArm -> Set Text
 collectCaseArmReferences boundNames (SurfaceCaseArm patternValue guard body) =
@@ -1242,6 +1260,11 @@ collectQualifiedStatementReferences statement =
   case statement of
     SSLet _ _ valueExpr ->
       collectQualifiedReferences valueExpr
+    SSFunction _ _ clauses ->
+      Set.unions
+        [ collectQualifiedReferences body
+          | SurfaceFunctionClause _ _ body <- NonEmpty.toList clauses
+        ]
     SSExpr _ expr ->
       collectQualifiedReferences expr
     SSSignature {} -> Set.empty
@@ -1305,6 +1328,11 @@ collectQualifiedStatementTypeReferences :: SurfaceStatement -> Set (Text, Text)
 collectQualifiedStatementTypeReferences statement =
   case statement of
     SSLet _ _ valueExpr -> collectQualifiedTypeReferences valueExpr
+    SSFunction _ _ clauses ->
+      Set.unions
+        [ collectQualifiedTypeReferences body
+          | SurfaceFunctionClause _ _ body <- NonEmpty.toList clauses
+        ]
     SSSignature _ _ payload -> collectQualifiedSignaturePayloadReferences payload
     SSData _ _ _ constructors ->
       Set.unions (map collectQualifiedDataConstructorTypeReferences constructors)

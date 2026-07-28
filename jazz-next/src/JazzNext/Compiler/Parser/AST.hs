@@ -7,6 +7,7 @@ module JazzNext.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceFunctionClause (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
@@ -59,6 +60,10 @@ data SurfacePattern
 
 -- | One parser-surface pattern-match arm.
 data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceExpr
+  deriving (Eq, Show)
+
+-- | One ordered equation in a surface function definition.
+data SurfaceFunctionClause = SurfaceFunctionClause SourceSpan [SurfacePattern] SurfaceExpr
   deriving (Eq, Show)
 
 -- | Lambda parameters preserve ordinary identifier parameters separately from
@@ -167,6 +172,7 @@ data SurfaceImplMethod = SurfaceImplMethod Identifier SourceSpan SurfaceExpr
 -- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
+  | SSFunction Identifier SourceSpan (NonEmpty SurfaceFunctionClause)
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]

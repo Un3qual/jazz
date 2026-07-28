@@ -78,6 +78,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceFunctionClause (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
@@ -212,6 +213,10 @@ forceSurfaceStatement :: SurfaceStatement -> ()
 forceSurfaceStatement statement =
   case statement of
     SSLet name sourceSpan value -> name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceExpr value
+    SSFunction name sourceSpan clauses ->
+      name `seq`
+        forceSourceSpan sourceSpan `seq`
+          forceListWith forceSurfaceFunctionClause (NonEmpty.toList clauses)
     SSSignature name sourceSpan payload ->
       name `seq` forceSourceSpan sourceSpan `seq` forceSurfaceSignaturePayload payload
     SSData sourceSpan name parameters constructors ->
@@ -239,6 +244,12 @@ forceSurfaceStatement statement =
           alias `seq`
             forceMaybeWith forceListWhnf symbols
     SSExpr sourceSpan value -> forceSourceSpan sourceSpan `seq` forceSurfaceExpr value
+
+forceSurfaceFunctionClause :: SurfaceFunctionClause -> ()
+forceSurfaceFunctionClause (SurfaceFunctionClause sourceSpan patterns body) =
+  forceSourceSpan sourceSpan `seq`
+    forceListWith forceSurfacePattern patterns `seq`
+      forceSurfaceExpr body
 
 forceSurfaceDataConstructor :: SurfaceDataConstructor -> ()
 forceSurfaceDataConstructor (SurfaceDataConstructor name fieldTypes) =
