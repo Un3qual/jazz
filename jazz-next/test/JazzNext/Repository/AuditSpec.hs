@@ -68,6 +68,9 @@ tests =
     ("rejects a missing final closing brace", testMissingClosingBrace),
     ("rejects blank lines after the final closing brace", testTrailingBlankLines),
     ("rejects odd or shallow body indentation", testBodyIndentation),
+    ("accepts canonical multiline data declarations", testCanonicalMultilineDataDeclaration),
+    ("rejects overlong data declaration lines", testOverlongDataDeclarationLine),
+    ("rejects shallow data payload continuations", testDataContinuationIndent),
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
@@ -256,6 +259,55 @@ testBodyIndentation =
         module Bad {
          shallow = 1.
            odd = 2.
+        }
+        """
+    )
+
+testCanonicalMultilineDataDeclaration :: IO ()
+testCanonicalMultilineDataDeclaration =
+  assertEqual
+    "canonical multiline data declaration"
+    []
+    ( validateJazzModule
+        "jazz/stdlib/Good.jz"
+        """
+        module Good {
+          data TypedLiteral
+            = TypedIntegerLiteral Text
+            | TypedFractionalLiteral Text Text Maybe(TypedNumericType)
+            | TypedBooleanLiteral Bool.
+        }
+        """
+    )
+
+testOverlongDataDeclarationLine :: IO ()
+testOverlongDataDeclarationLine =
+  assertEqual
+    "overlong data declaration line"
+    [OverlongDataDeclarationLine "jazz/stdlib/Bad.jz" 2 101]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
+        ( "module Bad {\n"
+            <> "  data X = X "
+            <> Text.replicate 87 "A"
+            <> "."
+            <> "\n}\n"
+        )
+    )
+
+testDataContinuationIndent :: IO ()
+testDataContinuationIndent =
+  assertEqual
+    "shallow data payload continuation"
+    [InvalidDataContinuationIndent "jazz/stdlib/Bad.jz" 4]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
+        """
+        module Bad {
+          data TypedFunction
+            = TypedFunction
+            TypedFunctionId
+              [TypedBlock].
         }
         """
     )
