@@ -3,11 +3,11 @@
 module Main (main) where
 
 import JazzNext.Compiler.AST
-  ( DataConstructorArgument (..),
-    DataConstructor (..),
+  ( DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    SignatureType (TypeInt),
     Statement (..)
   )
 import JazzNext.Compiler.Analyzer
@@ -497,6 +497,6 @@ selfReferentialUnusedProgram =
 letRebindsConstructorProgram :: Expr
 letRebindsConstructorProgram =
   EBlock
-    [ SData (SourceSpan 1 1) "Maybe" [] [DataConstructor "Just" [DataConstructorArgumentName "value"]],
+    [ SData (SourceSpan 1 1) "Maybe" [] [DataConstructor "Just" [TypeInt]],
       SLet "Just" (SourceSpan 2 1) (ELit (LInt 1))
     ]

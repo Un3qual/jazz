@@ -452,7 +452,7 @@ explicitCapabilitySources =
         equals = \\(left, right) -> True.
         }.
         impl Hidden(Int) {
-        secret = \\(value) -> False.
+        secret = \\(item) -> False.
         }.
         }
         """
@@ -502,7 +502,7 @@ testModuleExportIdentityPreservesNamespaces = do
     shadowingSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe a = Just a. Just = 1. }")
         ]
 
 testNamespaceAwareRuntimeExportPublishesValueOnly :: IO ()
@@ -522,7 +522,7 @@ testNamespaceAwareRuntimeExportPublishesValueOnly = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe a = Just a. Just = 1. }")
         ]
 
 testNamespaceAwareRuntimeExportPublishesConstructorOnly :: IO ()
@@ -542,7 +542,7 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe a = Just a. Just = 1. }")
         ]
 
 testGroupedExportsPublishSelectedConstructor :: IO ()
@@ -584,7 +584,7 @@ testGroupedExportsPublishSelectedConstructor = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. First 1. }"),
-          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice a = First a | Second a. }")
         ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()
@@ -663,8 +663,8 @@ simpleSources =
 dependencyExpressionSources :: Map.Map FilePath Text
 dependencyExpressionSources =
   Map.fromList
-    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
-      ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")
+    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
+      ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
     ]
 
 testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
@@ -706,8 +706,8 @@ testDependencyExpressionContract = do
   where
     localDependencyExpressionSources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
-          ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
+          ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
         ]
 
 testAliasIsolationContract :: IO ()

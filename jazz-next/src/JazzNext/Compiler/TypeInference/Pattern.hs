@@ -19,7 +19,7 @@ import JazzNext.Compiler.Pattern
   ( commonPatternBinderNames, patternBinderNames )
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Solver
-  ( combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
+  ( applySubstitution, combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
 import JazzNext.Compiler.TypeInference.State
   ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev, modifyInferenceOutput )
 import JazzNext.Compiler.TypeInference.Types
@@ -673,6 +673,17 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
                 ( freshArgumentType : argumentTypesRev,
                   addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
                 )
+        ConstructorArgumentStructured parameterVariables expressionType ->
+          let parameterSubstitution =
+                Map.fromList
+                  [ (placeholder, parameterType)
+                    | (parameterName, placeholder) <- Map.toList parameterVariables,
+                      Just parameterType <- [Map.lookup parameterName typeParameterBindings]
+                  ]
+           in
+            ( resolveType stateAcc (applySubstitution parameterSubstitution expressionType) : argumentTypesRev,
+              stateAcc
+            )
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)

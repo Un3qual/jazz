@@ -56,6 +56,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkTypeSchemeStrictEqualityConstraintError,
     mkUnknownConstructorPatternError,
     mkUnknownConstructorPayloadTypeError,
+    mkInvalidConstructorPayloadTypeError,
     mkUnsupportedOperatorValueError,
     mkUnsupportedSectionOperatorError,
     renderSignaturePayload,
@@ -290,6 +291,10 @@ mkImplMethodTypeMismatchError key spanValue declaredType inferredType = withSubj
 
 mkUnknownConstructorPayloadTypeError :: Name -> Diagnostic
 mkUnknownConstructorPayloadTypeError name = mkErrorDiagnostic E2013 CompilationOrigin ("unknown constructor payload type '" <> identifierText name <> "' in generic data declaration")
+
+mkInvalidConstructorPayloadTypeError :: Text -> Diagnostic
+mkInvalidConstructorPayloadTypeError detail =
+  mkErrorDiagnostic E2013 CompilationOrigin ("invalid constructor payload type: " <> detail)
 
 mkMissingConstructorTypeParameterBindingError :: Text -> Diagnostic
 mkMissingConstructorTypeParameterBindingError name = mkErrorDiagnostic E2013 CompilationOrigin ("internal constructor scheme error: missing binding for type parameter '" <> name <> "'")

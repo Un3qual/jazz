@@ -31,7 +31,6 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     SignatureType (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -79,7 +78,7 @@ overAppliedConstructorExpr =
         (SourceSpan 1 1)
         "Maybe"
         []
-        [DataConstructor "Just" [DataConstructorArgumentName "value"]],
+        [DataConstructor "Just" [TypeInt]],
       SExpr
         (SourceSpan 1 20)
         (EApply (EApply (EVar "Just") (ELit (LInt 1))) (ELit (LInt 2)))
@@ -154,12 +153,12 @@ runtimePickStatements =
       (SourceSpan 3 1)
       "RuntimePick"
       [TypeInt]
-      [ImplMethod "pick" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
+      [ImplMethod "pick" (SourceSpan 4 1) (ELambda "itemValue" (ELit (LBool True)))],
     SImpl
       (SourceSpan 5 1)
       "RuntimePick"
       [TypeNumeric NumericUInt8]
-      [ImplMethod "pick" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))]
+      [ImplMethod "pick" (SourceSpan 6 1) (ELambda "itemValue" (ELit (LBool False)))]
   ]
 
 ambiguousQualifiedMethodRuntimeExpr :: Expr
@@ -181,12 +180,12 @@ ambiguousQualifiedMethodRuntimeExpr =
         (SourceSpan 3 1)
         "RuntimePick"
         [TypeInt]
-        [ImplMethod "choose" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
+        [ImplMethod "choose" (SourceSpan 4 1) (ELambda "itemValue" (ELit (LBool True)))],
       SImpl
         (SourceSpan 5 1)
         "RuntimePick"
         [TypeBool]
-        [ImplMethod "choose" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))],
+        [ImplMethod "choose" (SourceSpan 6 1) (ELambda "itemValue" (ELit (LBool False)))],
       SExpr
         (SourceSpan 7 1)
         (EApply (EVar (qualifiedName "RuntimePick" "choose")) (ELit (LInt 1)))
@@ -214,7 +213,7 @@ runtimeExpr expr =
 
 closureValue :: Expr
 closureValue =
-  ELambda "value" (EVar "value")
+  ELambda "itemValue" (EVar "itemValue")
 
 builtinValue :: Expr
 builtinValue =

@@ -835,6 +835,7 @@ freeTypeVariablesInConstructorArgument state argumentType =
     ConstructorArgumentMonomorphic expressionType ->
       freeTypeVariables (resolveType state expressionType)
     ConstructorArgumentParameter {} -> Set.empty
+    ConstructorArgumentStructured {} -> Set.empty
     ConstructorArgumentFresh -> Set.empty
 
 applyTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> InferState -> InferState
@@ -1637,6 +1638,8 @@ constructorArgumentExpressionHasExactEvidence env typeParameterBindings construc
         Nothing ->
           True
     ConstructorArgumentMonomorphic {} ->
+      True
+    ConstructorArgumentStructured {} ->
       True
     ConstructorArgumentFresh ->
       True

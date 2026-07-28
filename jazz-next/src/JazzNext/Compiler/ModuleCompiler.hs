@@ -308,6 +308,10 @@ rebaseConstructorArgument origin dataTypeNames argument =
     ConstructorArgumentMonomorphic expressionType ->
       ConstructorArgumentMonomorphic (rebaseExpressionType origin dataTypeNames expressionType)
     ConstructorArgumentParameter {} -> argument
+    ConstructorArgumentStructured parameterVariables expressionType ->
+      ConstructorArgumentStructured
+        parameterVariables
+        (rebaseExpressionType origin dataTypeNames expressionType)
     ConstructorArgumentFresh -> argument
 
 rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> ExpressionType -> ExpressionType

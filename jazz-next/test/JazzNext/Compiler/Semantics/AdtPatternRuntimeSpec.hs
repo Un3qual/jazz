@@ -32,6 +32,7 @@ tests =
     ("runtime uses wildcard fallback when literals do not match", testRuntimeUsesWildcardFallback),
     ("runtime binds nullary data constructor values", testRuntimeBindsNullaryDataConstructor),
     ("runtime applies data constructors", testRuntimeAppliesDataConstructor),
+    ("runtime preserves recursive generic constructor field hints", testRuntimePreservesRecursiveGenericConstructorFieldHints),
     ("runtime matches constructor patterns", testRuntimeMatchesConstructorPatterns),
     ("runtime matches nullary constructor patterns", testRuntimeMatchesNullaryConstructorPatterns),
     ("runtime matches list patterns", testRuntimeMatchesListPatterns),
@@ -81,17 +82,36 @@ testRuntimeBindsNullaryDataConstructor = do
 
 testRuntimeAppliesDataConstructor :: IO ()
 testRuntimeAppliesDataConstructor = do
-  result <- runSource defaultWarningSettings "data Maybe = Just value. x = Just 1. x."
+  result <- runSource defaultWarningSettings "data Maybe a = Just a. x = Just 1. x."
   assertSuccessfulRuntime "constructor application" (Just "Just(1)") result
+
+testRuntimePreservesRecursiveGenericConstructorFieldHints :: IO ()
+testRuntimePreservesRecursiveGenericConstructorFieldHints = do
+  result <-
+    runSource defaultWarningSettings
+      """
+      data Tree a
+        = Leaf a
+        | Branch Tree(a) Tree(a).
+      leftmost :: Tree(Bool) -> Bool.
+      leftmost = \\(tree) ->
+        case tree {
+          | Leaf item -> item
+          | Branch left _ -> leftmost left
+        }.
+      answer = leftmost (Branch (Leaf True) (Leaf False)).
+      answer.
+      """
+  assertSuccessfulRuntime "recursive generic constructor runtime hints" (Just "True") result
 
 testRuntimeMatchesConstructorPatterns :: IO ()
 testRuntimeMatchesConstructorPatterns = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. case value { | Just item -> item + 1 | Nothing -> 0 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 41. case subject { | Just item -> item + 1 | Nothing -> 0 }."
   assertSuccessfulRuntime "constructor pattern match" (Just "42") result
 
 testRuntimeMatchesNullaryConstructorPatterns :: IO ()
 testRuntimeMatchesNullaryConstructorPatterns = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. case value { | Just item -> item | Nothing -> 7 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Nothing. case subject { | Just item -> item | Nothing -> 7 }."
   assertSuccessfulRuntime "nullary constructor pattern match" (Just "7") result
 
 testRuntimeMatchesListPatterns :: IO ()
@@ -131,7 +151,7 @@ testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch = do
 
 testRuntimeBindsAsPatternAfterInnerMatch :: IO ()
 testRuntimeBindsAsPatternAfterInnerMatch = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. case value { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 41. case subject { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
   assertSuccessfulRuntime "as-pattern whole binding" (Just "82") result
 
 testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch :: IO ()
@@ -146,12 +166,12 @@ testRuntimeSupportsAsPatternLambdaParameters = do
 
 testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
 testRuntimeComparesConstructorValuesInsidePatternArms = do
-  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. value = Just 41. case value { | whole @ Just item -> whole == Just item | Nothing -> False }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 41. case subject { | whole @ Just item -> whole == Just item | Nothing -> False }."
   assertSuccessfulRuntime "constructor equality in pattern arm" (Just "True") result
 
 testRuntimeSelectsFirstMatchingOrPatternAlternative :: IO ()
 testRuntimeSelectsFirstMatchingOrPatternAlternative = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Also 41. case subject { | Just item | Also item -> item + 1 | Nothing -> 0 }."
   assertSuccessfulRuntime "or-pattern alternative match" (Just "42") result
 
 testRuntimeUsesFirstMatchingOrPatternAlternativeBindings :: IO ()
@@ -181,7 +201,7 @@ testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody = do
 
 testRuntimeFallsThroughWhenOrPatternGuardIsFalse :: IO ()
 testRuntimeFallsThroughWhenOrPatternGuardIsFalse = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 2. case value { | Just item | Also item if item > 3 -> 1 | _ -> 0 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Also 2. case subject { | Just item | Also item if item > 3 -> 1 | _ -> 0 }."
   assertSuccessfulRuntime "or-pattern false guard fallback" (Just "0") result
 
 testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches :: IO ()
@@ -200,7 +220,7 @@ testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches = do
 
 testRuntimeFallsThroughWhenPatternGuardIsFalse :: IO ()
 testRuntimeFallsThroughWhenPatternGuardIsFalse = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. case value { | Just item if item > 1 -> item | Just item -> item + 1 | Nothing -> 0 }."
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. case subject { | Just item if item > 1 -> item | Just item -> item + 1 | Nothing -> 0 }."
   assertSuccessfulRuntime "pattern guard false fallback" (Just "2") result
 
 testRuntimeSkipsPatternGuardWhenPatternFails :: IO ()

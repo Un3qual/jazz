@@ -47,6 +47,7 @@ data ExpressionType
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
   | ConstructorArgumentParameter Text
+  | ConstructorArgumentStructured (Map Text Int) ExpressionType
   | ConstructorArgumentFresh
   deriving (Eq, Show)
 

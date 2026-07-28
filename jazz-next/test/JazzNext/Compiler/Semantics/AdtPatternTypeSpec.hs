@@ -103,6 +103,12 @@ tests =
     ( "source pipeline links repeated generic constructor payload parameters",
       testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters
     ),
+    ( "source pipeline types recursive generic constructor fields",
+      testSourcePipelineTypesRecursiveGenericConstructorFields
+    ),
+    ( "source pipeline rejects recursive generic constructor field mismatches",
+      testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches
+    ),
     ( "source pipeline instantiates generic constructor values independently",
       testSourcePipelineInstantiatesGenericConstructorValuesIndependently
     ),
@@ -237,11 +243,11 @@ testSourcePipelineRejectsFractionalLiteralPatterns = do
 testSourcePipelineAcceptsDataConstructorValues :: IO ()
 testSourcePipelineAcceptsDataConstructorValues = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just. x = Nothing."
-  assertCompiles "data constructor value" result
+  assertCompiles "data constructor subject" result
 
 testSourcePipelineAcceptsDataConstructorApplication :: IO ()
 testSourcePipelineAcceptsDataConstructorApplication = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. x = Just 1."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. x = Just 1."
   assertCompiles "data constructor application" result
 
 testSourcePipelineRejectsOverAppliedNullaryConstructor :: IO ()
@@ -258,12 +264,12 @@ testSourcePipelineRejectsOverAppliedNullaryConstructor = do
 
 testSourcePipelineAcceptsDataConstructorPatterns :: IO ()
 testSourcePipelineAcceptsDataConstructorPatterns = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | Just item -> item + 1 | Nothing -> 0 }."
   assertCompiles "data constructor pattern" result
 
 testSourcePipelineTypesConstructorPatternBinders :: IO ()
 testSourcePipelineTypesConstructorPatternBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just True. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just True. x = case subject { | Just item -> item + 1 | Nothing -> 0 }."
   assertSingleDiagnosticCode
     "constructor pattern binder type error code"
     "E2003"
@@ -275,19 +281,19 @@ testSourcePipelineTypesConstructorPatternBinders = do
 
 testSourcePipelineRejectsConstructorPatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsConstructorPatternScrutineeMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just item -> item | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = 1. x = case subject { | Just item -> item | _ -> 0 }."
   assertSingleDiagnosticCode
     "constructor pattern scrutinee mismatch code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
     "constructor pattern scrutinee mismatch text"
-    "case pattern of type Maybe does not match scrutinee type Int"
+    "does not match scrutinee type Int64"
     (compileErrors result)
 
 testSourcePipelineRejectsUnknownConstructorPatterns :: IO ()
 testSourcePipelineRejectsUnknownConstructorPatterns = do
-  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> item + 1 | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "subject = [1]. x = case subject { | Just item -> item + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
     "unknown constructor pattern error code"
     "E2011"
@@ -299,7 +305,7 @@ testSourcePipelineRejectsUnknownConstructorPatterns = do
 
 testSourcePipelineRejectsConstructorPatternArityMismatch :: IO ()
 testSourcePipelineRejectsConstructorPatternArityMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just -> 1 | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | Just -> 1 | Nothing -> 0 }."
   assertSingleDiagnosticCode
     "constructor pattern arity mismatch code"
     "E2011"
@@ -311,19 +317,19 @@ testSourcePipelineRejectsConstructorPatternArityMismatch = do
 
 testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch :: IO ()
 testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just True -> 0 | _ -> 0 }. y = Just 1."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = 1. x = case subject { | Just True -> 0 | _ -> 0 }. y = Just 1."
   assertSingleDiagnosticCode
     "constructor subpattern skip code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
     "constructor subpattern skip text"
-    "case pattern of type Maybe does not match scrutinee type Int"
+    "does not match scrutinee type Int64"
     (compileErrors result)
 
 testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch :: IO ()
 testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch = do
-  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair 1 []. x = case seed { | Pair True [False] -> 0 | _ -> 0 }. ok = Pair 1 [1]."
+  result <- compileSource defaultWarningSettings "data Pair a b = Pair a b. seed = Pair 1 []. x = case seed { | Pair True [False] -> 0 | _ -> 0 }. ok = Pair 1 [1]."
   assertSingleDiagnosticCode
     "constructor payload mismatch short-circuit code"
     "E2011"
@@ -335,7 +341,7 @@ testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch = do
 
 testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch :: IO ()
 testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch = do
-  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair [] 1. x = case seed { | Pair [False] True -> 0 | _ -> 0 }. ok = Pair [1] 1."
+  result <- compileSource defaultWarningSettings "data Pair a b = Pair a b. seed = Pair [] 1. x = case seed { | Pair [False] True -> 0 | _ -> 0 }. ok = Pair [1] 1."
   assertSingleDiagnosticCode
     "constructor payload rollback code"
     "E2011"
@@ -347,7 +353,7 @@ testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch = d
 
 testSourcePipelineRejectsConstructorBranchMismatch :: IO ()
 testSourcePipelineRejectsConstructorBranchMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> 1 | Nothing -> False }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | Just item -> 1 | Nothing -> False }."
   assertSingleDiagnosticCode
     "constructor branch mismatch code"
     "E2012"
@@ -381,7 +387,7 @@ testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes = do
   result <- compileSource defaultWarningSettings """
     data Status = Ready.
     data Box a = Box Status.
-    value = Box Ready.
+    subject = Box Ready.
     """
   assertCompiles "earlier local named generic constructor payload type" result
 
@@ -390,7 +396,7 @@ testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTyp
   result <- compileSource defaultWarningSettings """
     data Status = Ready.
     data Box a = Box Status.
-    value = Box 1.
+    subject = Box 1.
     """
   assertSingleDiagnosticCode
     "earlier local named generic constructor payload mismatch code"
@@ -403,7 +409,7 @@ testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTyp
 
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames :: IO ()
 testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames = do
-  result <- compileSource defaultWarningSettings "data Box a = Box Foo. value = Box 1."
+  result <- compileSource defaultWarningSettings "data Box a = Box Foo. subject = Box 1."
   assertSingleDiagnosticCode
     "unknown generic constructor payload code"
     "E2013"
@@ -425,6 +431,44 @@ testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters = do
     "cannot apply function of type Int -> Pair"
     (compileErrors result)
 
+testSourcePipelineTypesRecursiveGenericConstructorFields :: IO ()
+testSourcePipelineTypesRecursiveGenericConstructorFields = do
+  result <-
+    compileSource defaultWarningSettings
+      """
+      data Tree a
+        = Leaf a
+        | Branch Tree(a) Tree(a).
+      leftmost :: Tree(Bool) -> Bool.
+      leftmost = \\(tree) ->
+        case tree {
+          | Leaf item -> item
+          | Branch left _ -> leftmost left
+        }.
+      answer = leftmost (Branch (Leaf True) (Leaf False)).
+      """
+  assertCompiles "recursive generic constructor fields" result
+
+testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches :: IO ()
+testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches = do
+  result <-
+    compileSource defaultWarningSettings
+      """
+      data Tree a
+        = Leaf a
+        | Branch Tree(a) Tree(a).
+      bad :: Tree(Bool).
+      bad = Branch (Leaf 1) (Leaf False).
+      """
+  assertSingleDiagnosticCode
+    "recursive generic constructor field mismatch code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "recursive generic constructor field mismatch text"
+    "cannot apply function"
+    (compileErrors result)
+
 testSourcePipelineInstantiatesGenericConstructorValuesIndependently :: IO ()
 testSourcePipelineInstantiatesGenericConstructorValuesIndependently = do
   result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True then Box else Box. makeBool = if False then Box else Box. first = makeInt 1. second = makeBool True."
@@ -437,7 +481,7 @@ testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors = do
 
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do
-  result <- compileSource defaultWarningSettings "data Box = Box value. first = Box 1. second = Box True."
+  result <- compileSource defaultWarningSettings "data Box = Box Int. first = Box 1. second = Box True."
   assertSingleDiagnosticCode
     "monomorphic constructor payload code"
     "E2006"
@@ -466,17 +510,17 @@ testSourcePipelineTypesListPatternBinders = do
 
 testSourcePipelineAcceptsAsPatternBinders :: IO ()
 testSourcePipelineAcceptsAsPatternBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. x = case value { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 41. x = case subject { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
   assertCompiles "as-pattern binder types" result
 
 testSourcePipelineAcceptsPatternGuardBinders :: IO ()
 testSourcePipelineAcceptsPatternGuardBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item if item > 0 -> item | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | Just item if item > 0 -> item | _ -> 0 }."
   assertCompiles "pattern guard binder result" result
 
 testSourcePipelineRejectsNonBoolPatternGuards :: IO ()
 testSourcePipelineRejectsNonBoolPatternGuards = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item if item -> item | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | Just item if item -> item | _ -> 0 }."
   assertSingleDiagnosticContains
     "non-Bool pattern guard text"
     "case guard must have type Bool"
@@ -484,7 +528,7 @@ testSourcePipelineRejectsNonBoolPatternGuards = do
 
 testSourcePipelineRejectsDuplicateAsPatternBinders :: IO ()
 testSourcePipelineRejectsDuplicateAsPatternBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | item @ Just item -> item | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Just 1. x = case subject { | item @ Just item -> item | Nothing -> 0 }."
   assertSingleDiagnosticCode
     "duplicate as-pattern binder code"
     "E2011"
@@ -496,22 +540,22 @@ testSourcePipelineRejectsDuplicateAsPatternBinders = do
 
 testSourcePipelineAcceptsOrPatternCommonBinders :: IO ()
 testSourcePipelineAcceptsOrPatternCommonBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. x = case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Also 41. x = case subject { | Just item | Also item -> item + 1 | Nothing -> 0 }."
   assertCompiles "or-pattern common binder result" result
 
 testSourcePipelineAcceptsLambdaOrPatternCommonBinders :: IO ()
 testSourcePipelineAcceptsLambdaOrPatternCommonBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. choose = \\(Just item | Also item) -> item + 1. x = choose (Also 41)."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. choose = \\(Just item | Also item) -> item + 1. x = choose (Also 41)."
   assertCompiles "lambda or-pattern common binder result" result
 
 testSourcePipelineAcceptsOrPatternGuardBinders :: IO ()
 testSourcePipelineAcceptsOrPatternGuardBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Just 4. x = case value { | Just item | Also item if item > 0 -> item | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Just 4. x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 }."
   assertCompiles "or-pattern guard binder result" result
 
 testSourcePipelineRejectsOrPatternBinderSetMismatch :: IO ()
 testSourcePipelineRejectsOrPatternBinderSetMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. x = case value { | Just item | Nothing -> 0 | _ -> 1 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Nothing. x = case subject { | Just item | Nothing -> 0 | _ -> 1 }."
   assertSingleDiagnosticCode
     "or-pattern binder mismatch code"
     "E2011"
@@ -523,7 +567,7 @@ testSourcePipelineRejectsOrPatternBinderSetMismatch = do
 
 testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch :: IO ()
 testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. choose = \\(Just item | Nothing) -> 0. x = choose Nothing."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. choose = \\(Just item | Nothing) -> 0. x = choose Nothing."
   assertSingleDiagnosticCode
     "lambda or-pattern binder mismatch code"
     "E2011"
@@ -535,7 +579,7 @@ testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch = do
 
 testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies :: IO ()
 testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies = do
-  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. x = case value { | Just item | Nothing -> item | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a. subject = Nothing. x = case subject { | Just item | Nothing -> item | _ -> 0 }."
   assertContainsDiagnosticCode
     "one-sided or-pattern binder body scope"
     "E1001"
@@ -640,7 +684,7 @@ testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern = do
 
 testSourcePipelineRejectsListPatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsListPatternScrutineeMismatch = do
-  result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head] -> head | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "subject = 1. x = case subject { | [head] -> head | _ -> 0 }."
   assertSingleDiagnosticCode
     "list pattern scrutinee mismatch code"
     "E2011"
@@ -652,7 +696,7 @@ testSourcePipelineRejectsListPatternScrutineeMismatch = do
 
 testSourcePipelineStopsListElementChecksAfterPayloadMismatch :: IO ()
 testSourcePipelineStopsListElementChecksAfterPayloadMismatch = do
-  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [1, Box False] -> 0 | _ -> 0 }. ok = Box 1."
+  result <- compileSource defaultWarningSettings "data Box a = Empty | Box a. seed = [Empty]. x = case seed { | [1, Box False] -> 0 | _ -> 0 }. ok = Box 1."
   assertSingleDiagnosticCode
     "list element mismatch short-circuit code"
     "E2011"
@@ -664,7 +708,7 @@ testSourcePipelineStopsListElementChecksAfterPayloadMismatch = do
 
 testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch :: IO ()
 testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch = do
-  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [Box False, 1] -> 0 | _ -> 0 }. ok = Box 1."
+  result <- compileSource defaultWarningSettings "data Box a = Empty | Box a. seed = [Empty]. x = case seed { | [Box False, 1] -> 0 | _ -> 0 }. ok = Box 1."
   assertSingleDiagnosticCode
     "list element rollback code"
     "E2011"
@@ -717,7 +761,7 @@ testSourcePipelineTypesConsLikeTailBinders = do
 
 testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch = do
-  result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head | tail] -> head | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "subject = 1. x = case subject { | [head | tail] -> head | _ -> 0 }."
   assertSingleDiagnosticCode
     "cons-like list pattern scrutinee mismatch code"
     "E2011"
@@ -746,7 +790,7 @@ testSourcePipelineTypesTuplePatternBinders = do
 
 testSourcePipelineRejectsTuplePatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsTuplePatternScrutineeMismatch = do
-  result <- compileSource defaultWarningSettings "value = 1. x = case value { | (left, right) -> left | _ -> 0 }."
+  result <- compileSource defaultWarningSettings "subject = 1. x = case subject { | (left, right) -> left | _ -> 0 }."
   assertSingleDiagnosticCode
     "tuple pattern scrutinee mismatch code"
     "E2011"
@@ -782,7 +826,7 @@ testSourcePipelineRejectsDuplicatePatternBinders = do
 
 testSourcePipelineRollsBackDuplicateBinderPatternConstraints :: IO ()
 testSourcePipelineRollsBackDuplicateBinderPatternConstraints = do
-  result <- compileSource defaultWarningSettings "data Pair = Empty | Pair left right. seed = Empty. x = case seed { | Pair [item] item -> 0 | _ -> 0 }. ok = Pair 1 1."
+  result <- compileSource defaultWarningSettings "data Pair a b = Empty | Pair a b. seed = Empty. x = case seed { | Pair [item] item -> 0 | _ -> 0 }. ok = Pair 1 1."
   assertSingleDiagnosticCode
     "duplicate binder rollback code"
     "E2011"

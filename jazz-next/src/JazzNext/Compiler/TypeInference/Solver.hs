@@ -407,7 +407,19 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
             (Map.lookup parameterName typeParameterBindings)
+        ConstructorArgumentStructured parameterVariables expressionType ->
+          supportsRuntimeEqualityTypeWith
+            nextSeenDataTypes
+            state
+            (applySubstitution (constructorParameterSubstitution parameterVariables typeParameterBindings) expressionType)
         ConstructorArgumentFresh -> False
+
+    constructorParameterSubstitution parameterVariables typeParameterBindings =
+      Map.fromList
+        [ (placeholder, expressionType)
+          | (parameterName, placeholder) <- Map.toList parameterVariables,
+            Just expressionType <- [Map.lookup parameterName typeParameterBindings]
+        ]
 
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
 supportsDeferredEqualityOperandType state expressionType =

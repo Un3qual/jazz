@@ -1388,8 +1388,20 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
           (mkDuplicateDataTypeDeclarationError typeNameText spanValue)
       )
     Nothing ->
-      let (nextEnv, nextState, constructorPayloadsRev) =
-            foldl' register (env, initialState, []) constructors
+      let stateWithProvisionalDataType =
+            modifyDeclarationState
+              ( \declarations ->
+                  declarations
+                    { declarationDataTypes =
+                        Map.insert
+                          typeNameText
+                          (DataTypeBinding typeParameters [])
+                          (inferDataTypes initialState)
+                    }
+              )
+              initialState
+          (nextEnv, nextState, constructorPayloadsRev) =
+            foldl' register (env, stateWithProvisionalDataType, []) constructors
        in
         ( nextEnv,
           modifyDeclarationState
@@ -1420,29 +1432,36 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
         )
 
 constructorArgumentTypes :: [Name] -> [SignatureType] -> InferState -> ([ConstructorArgumentType], InferState)
-constructorArgumentTypes typeParameters fieldTypes state =
-  foldl' collectField ([], state) fieldTypes
+constructorArgumentTypes typeParameters fieldTypes initialState =
+  foldl' collectField ([], stateWithParameters) fieldTypes
   where
-    typeParameterNames = Set.fromList (map identifierText typeParameters)
+    (parameterTypes, stateWithParameters) =
+      freshTypeVars (length typeParameters) initialState
+    signatureVariables =
+      Map.fromList (zip (map identifierText typeParameters) parameterTypes)
+    parameterVariables =
+      Map.fromList
+        [ (identifierText parameterName, placeholder)
+          | (parameterName, TVarType placeholder) <- zip typeParameters parameterTypes
+        ]
 
     collectField (argumentTypes, stateAcc) fieldType =
-      case fieldType of
-        TypeVariable parameterName
-          | Set.member (identifierText parameterName) typeParameterNames ->
-              (argumentTypes ++ [ConstructorArgumentParameter (identifierText parameterName)], stateAcc)
-        TypeName payloadName
-          | Just payloadType <- namedConstructorPayloadType stateAcc payloadName ->
-              (argumentTypes ++ [ConstructorArgumentMonomorphic payloadType], stateAcc)
-        TypeName payloadName ->
+      case Signature.signatureTypeToExpressionType stateAcc signatureVariables fieldType of
+        Right expressionType ->
+          ( argumentTypes
+              ++ [ConstructorArgumentStructured parameterVariables expressionType],
+            stateAcc
+          )
+        Left (Signature.UnknownNamedType payloadName) ->
           ( argumentTypes ++ [ConstructorArgumentFresh],
             addTypeError stateAcc (mkUnknownConstructorPayloadTypeError payloadName)
           )
-        _ ->
-          (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
-
-namedConstructorPayloadType :: InferState -> Name -> Maybe ExpressionType
-namedConstructorPayloadType state name =
-  Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty (TypeName name)
+        Left failure ->
+          ( argumentTypes ++ [ConstructorArgumentFresh],
+            addTypeError
+              stateAcc
+              (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure))
+          )
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share

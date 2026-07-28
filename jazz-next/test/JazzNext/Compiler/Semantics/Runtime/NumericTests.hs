@@ -40,7 +40,7 @@ numericTests =
     , ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess)
     , ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess)
     , ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion)
-    , ("Float16 signature converts from rounded runtime value", testFloat16SignatureConvertsFromRoundedRuntimeValue)
+    , ("Float16 signature converts from rounded runtime itemValue", testFloat16SignatureConvertsFromRoundedRuntimeValue)
     , ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError)
     , ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess)
     , ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess)
@@ -126,9 +126,9 @@ testDefaultIntegerConversionAliasRuntimeSuccess = do
 testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
 testFloat64SignaturePreservesSourceExactIntegralConversion = do
   result <- runSource defaultWarningSettings """
-  value :: Float64.
-  value = 9223372036854775807.0.
-  toInt64 value.
+  itemValue :: Float64.
+  itemValue = 9223372036854775807.0.
+  toInt64 itemValue.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -137,9 +137,9 @@ testFloat64SignaturePreservesSourceExactIntegralConversion = do
 testFloat16SignatureConvertsFromRoundedRuntimeValue :: IO ()
 testFloat16SignatureConvertsFromRoundedRuntimeValue = do
   result <- runSource defaultWarningSettings """
-  value :: Float16.
-  value = 2049.0.
-  toInt64 value.
+  itemValue :: Float16.
+  itemValue = 2049.0.
+  toInt64 itemValue.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -148,8 +148,8 @@ testFloat16SignatureConvertsFromRoundedRuntimeValue = do
 testWidthSpecificIntegerArithmeticBoundsRuntimeError :: IO ()
 testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
   result <- runSource defaultWarningSettings """
-  value = toUInt8 255.
-  value + 1.
+  itemValue = toUInt8 255.
+  itemValue + 1.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
@@ -179,8 +179,8 @@ testDefaultFloatConversionAliasRuntimeSuccess = do
 testDynamicIntegerToFloat64OverflowRuntimeError :: IO ()
 testDynamicIntegerToFloat64OverflowRuntimeError = do
   let justAboveFloat64MaxInteger = show ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
-      -- Explicit fragments are intentional: this program embeds a generated boundary value.
-      source = Text.pack ("id = \\(value) -> value.\ntoFloat64 (id " <> justAboveFloat64MaxInteger <> ").")
+      -- Explicit fragments are intentional: this program embeds a generated boundary itemValue.
+      source = Text.pack ("id = \\(itemValue) -> itemValue.\ntoFloat64 (id " <> justAboveFloat64MaxInteger <> ").")
   result <- runSource defaultWarningSettings source
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
@@ -296,10 +296,10 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
 testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic :: IO ()
 testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic = do
   case evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))) of
-    Right (Just (VFloat value _)) ->
-      assertEqual "runtime fallback typed Int64 plus Float64" 2.0 value
+    Right (Just (VFloat itemValue _)) ->
+      assertEqual "runtime fallback typed Int64 plus Float64" 2.0 itemValue
     Right otherValue ->
-      failTest ("expected Float64-domain runtime value, got " <> Text.pack (show otherValue))
+      failTest ("expected Float64-domain runtime itemValue, got " <> Text.pack (show otherValue))
     Left runtimeError ->
       failTest ("expected Float64-domain runtime success, got " <> renderDiagnostic runtimeError)
   assertRuntimeErrorContains
@@ -387,7 +387,7 @@ testFloat16ArithmeticOverflowRuntimeError = do
 testFloat64ArithmeticOverflowRuntimeError :: IO ()
 testFloat64ArithmeticOverflowRuntimeError = do
   let hugeInteger = "1" <> replicate 200 '0'
-      -- Explicit fragments are intentional: this program embeds a generated stress value.
+      -- Explicit fragments are intentional: this program embeds a generated stress itemValue.
       source =
         Text.pack
           ( "left = toFloat64 "
@@ -563,8 +563,8 @@ testTypedNumericSectionPreservesCapturedOperandFlexibility = do
 testDefaultedIntegerBindingHintRejectsOutsideInt64Range :: IO ()
 testDefaultedIntegerBindingHintRejectsOutsideInt64Range = do
   result <- runSource defaultWarningSettings """
-  value = 18446744073709551616.
-  value.
+  itemValue = 18446744073709551616.
+  itemValue.
   """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains

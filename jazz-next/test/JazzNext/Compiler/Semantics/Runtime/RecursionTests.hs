@@ -80,8 +80,8 @@ recursionTests =
     , ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError)
     , ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer)
     , ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess)
-    , ("recursive declared user operator value alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError)
-    , ("indirect recursive declared user operator value alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError)
+    , ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError)
+    , ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError)
     , ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals)
     , ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
@@ -141,7 +141,7 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
           [ SLet
               "collect"
               (SourceSpan 1 1)
-              (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) recurse)),
+              (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
             SExpr
               (SourceSpan 3 1)
               (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
@@ -225,7 +225,7 @@ mixedExplicitlyHintedCallable recursionDepth =
         SLet
           functionName
           (SourceSpan line 1)
-          (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) (hintedCall nextFunctionName line typeHint)))
+          (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) (hintedCall nextFunctionName line typeHint)))
    in EBlock
         [ collect "collectUInt8" 1 "collectInt" uint8,
           collect "collectInt" 2 "collectBool" TypeInt,
@@ -246,7 +246,7 @@ explicitlyHintedCallable recursionDepth =
         [ SLet
             "collect"
             (SourceSpan 1 1)
-            (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) recurse)),
+            (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
           SExpr
             (SourceSpan 3 1)
             (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
@@ -430,7 +430,7 @@ testPatternCaseBinderDoesNotAliasRecursivePeer = do
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 1 { | 0 if (\\(value) -> True) 0 -> 0 | _ -> x }. x.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 1 { | 0 if (\\(itemValue) -> True) 0 -> 0 | _ -> x }. x.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected pattern-case guard-lambda recursion to terminate with a runtime diagnostic, but evaluation timed out"
@@ -558,17 +558,17 @@ testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
       )
   case maybeResult of
     Nothing ->
-      failTest "expected declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+      failTest "expected declared operator itemValue alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
     Just (Left err) ->
-      failTest ("expected deterministic runtime diagnostic for declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+      failTest ("expected deterministic runtime diagnostic for declared operator itemValue alias cycle, but evaluation raised " <> Text.pack (show err))
     Just (Right result) -> do
       assertEqual "compile errors" [] (runCompileErrors result)
       assertSingleDiagnosticContains
-        "declared operator value alias cycle runtime code"
+        "declared operator itemValue alias cycle runtime code"
         "E3021"
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
-        "declared operator value alias cycle runtime text"
+        "declared operator itemValue alias cycle runtime text"
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
@@ -589,17 +589,17 @@ testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
       )
   case maybeResult of
     Nothing ->
-      failTest "expected indirect declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+      failTest "expected indirect declared operator itemValue alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
     Just (Left err) ->
-      failTest ("expected deterministic runtime diagnostic for indirect declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+      failTest ("expected deterministic runtime diagnostic for indirect declared operator itemValue alias cycle, but evaluation raised " <> Text.pack (show err))
     Just (Right result) -> do
       assertEqual "compile errors" [] (runCompileErrors result)
       assertSingleDiagnosticContains
-        "indirect declared operator value alias cycle runtime code"
+        "indirect declared operator itemValue alias cycle runtime code"
         "E3021"
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
-        "indirect declared operator value alias cycle runtime text"
+        "indirect declared operator itemValue alias cycle runtime text"
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

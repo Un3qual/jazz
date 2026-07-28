@@ -12,7 +12,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( SignatureType (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -65,7 +64,7 @@ renderingTests =
     , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
     , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
-    , ("private value rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
+    , ("private itemValue rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
     , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
     , ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess)
     , ("Unicode case and bulk text primitives evaluate", testUnicodeCaseAndBulkTextRuntimeSuccess)
@@ -76,15 +75,15 @@ renderingTests =
     , ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates)
     , ("block wrapper with eager statement before alias terminal produces runtime unbound diagnostic", testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates)
     , ("constructor over-application produces arity runtime diagnostic", testConstructorOverApplicationRuntimeError)
-    , ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess)
-    , ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess)
-    , ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess)
+    , ("bare dollar operator itemValue applies at runtime", testDollarOperatorValueRuntimeSuccess)
+    , ("bare operator itemValue applies at runtime", testBareOperatorValueRuntimeSuccess)
+    , ("explicit partial application of bare operator itemValue applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess)
     , ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess)
     , ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess)
     , ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess)
     , ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess)
     , ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess)
-    , ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess)
+    , ("declared user operator itemValue applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess)
     , ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess)
     , ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess)
     , ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess)
@@ -101,7 +100,7 @@ renderingTests =
     , ("runtime fallback rejects kernel filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate)
     , ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection)
     , ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool)
-    , ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument)
+    , ("print! returns evaluated argument itemValue", testPrintBuiltinReturnsArgument)
     , ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess)
     , ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess)
     , ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess)
@@ -157,7 +156,7 @@ testPrivateTextTraversalRuntimeSuccess = do
 testPrivateValueRenderingRuntimeSuccess :: IO ()
 testPrivateValueRenderingRuntimeSuccess =
   assertEqual
-    "private value renderer"
+    "private itemValue renderer"
     (Right (Just (VText "('a', \"\\n\")")))
     ( evaluateRuntimeExpr
         ( runtimeExpr
@@ -716,9 +715,9 @@ testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
         [ SData
             (SourceSpan 1 1)
             "Maybe"
-            []
+            ["a"]
             [ DataConstructor "Nothing" [],
-              DataConstructor "Just" [DataConstructorArgumentName "value"]
+              DataConstructor "Just" [TypeVariable "a"]
             ],
           SExpr
             (SourceSpan 2 1)

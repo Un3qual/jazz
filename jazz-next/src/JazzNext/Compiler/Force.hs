@@ -504,6 +504,9 @@ forceConstructorArgumentType argumentType =
   case argumentType of
     ConstructorArgumentMonomorphic expressionType -> forceExpressionType expressionType
     ConstructorArgumentParameter name -> name `seq` ()
+    ConstructorArgumentStructured parameterVariables expressionType ->
+      forceMapWith (\placeholder -> placeholder `seq` ()) parameterVariables
+        `seq` forceExpressionType expressionType
     ConstructorArgumentFresh -> ()
 
 forceIntegerLiteralRange :: IntegerLiteralRange -> ()
