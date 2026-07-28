@@ -13,56 +13,39 @@ module Maybe (
   data Maybe a = Nothing | Just a.
 
   maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
-  maybeMap = \(transform, maybeValue) -> case maybeValue {
-    | Nothing -> Nothing
-    | Just item -> Just (transform item)
-  }.
+  maybeMap _ Nothing = Nothing.
+  maybeMap transform (Just item) = Just (transform item).
 
   maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
-  maybeAndThen = \(transform, maybeValue) -> case maybeValue {
-    | Nothing -> Nothing
-    | Just item -> transform item
-  }.
+  maybeAndThen _ Nothing = Nothing.
+  maybeAndThen transform (Just item) = transform item.
 
   maybeWithDefault :: a -> Maybe(a) -> a.
-  maybeWithDefault = \(defaultValue, maybeValue) -> case maybeValue {
-    | Nothing -> defaultValue
-    | Just item -> item
-  }.
+  maybeWithDefault defaultValue Nothing = defaultValue.
+  maybeWithDefault _ (Just item) = item.
 
   maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
-  maybeOrElse = \(fallback, maybeValue) -> case maybeValue {
-    | Nothing -> fallback
-    | Just item -> Just item
-  }.
+  maybeOrElse fallback Nothing = fallback.
+  maybeOrElse _ (Just item) = Just item.
 
   maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
-  maybeFilter = \(predicate, maybeValue) -> case maybeValue {
-    | Nothing -> Nothing
-    | Just item -> if predicate item then Just item else Nothing
-  }.
+  maybeFilter _ Nothing = Nothing.
+  maybeFilter predicate (Just item) =
+    if predicate item then Just item else Nothing.
 
   maybeIsJust :: Maybe(a) -> Bool.
-  maybeIsJust = \(maybeValue) -> case maybeValue {
-    | Nothing -> False
-    | Just item -> True
-  }.
+  maybeIsJust Nothing = False.
+  maybeIsJust (Just _) = True.
 
   maybeIsNothing :: Maybe(a) -> Bool.
-  maybeIsNothing = \(maybeValue) -> case maybeValue {
-    | Nothing -> True
-    | Just item -> False
-  }.
+  maybeIsNothing Nothing = True.
+  maybeIsNothing (Just _) = False.
 
   maybeToList :: Maybe(a) -> [a].
-  maybeToList = \(maybeValue) -> case maybeValue {
-    | Nothing -> []
-    | Just item -> [item]
-  }.
+  maybeToList Nothing = [].
+  maybeToList (Just item) = [item].
 
   maybeFromList :: [a] -> Maybe(a).
-  maybeFromList = \(values) -> case values {
-    | [] -> Nothing
-    | [first | rest] -> Just first
-  }.
+  maybeFromList [] = Nothing.
+  maybeFromList [first | _] = Just first.
 }

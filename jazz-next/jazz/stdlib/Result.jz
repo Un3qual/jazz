@@ -16,62 +16,42 @@ module Result (
   data Result e a = Err e | Ok a.
 
   resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
-  resultMap = \(transform, result) -> case result {
-    | Err error -> Err error
-    | Ok item -> Ok (transform item)
-  }.
+  resultMap _ (Err error) = Err error.
+  resultMap transform (Ok item) = Ok (transform item).
 
   resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
-  resultMapError = \(transform, result) -> case result {
-    | Err error -> Err (transform error)
-    | Ok item -> Ok item
-  }.
+  resultMapError transform (Err error) = Err (transform error).
+  resultMapError _ (Ok item) = Ok item.
 
   resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
-  resultAndThen = \(transform, result) -> case result {
-    | Err error -> Err error
-    | Ok item -> transform item
-  }.
+  resultAndThen _ (Err error) = Err error.
+  resultAndThen transform (Ok item) = transform item.
 
   resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
-  resultRecover = \(recover, result) -> case result {
-    | Err error -> recover error
-    | Ok item -> Ok item
-  }.
+  resultRecover recover (Err error) = recover error.
+  resultRecover _ (Ok item) = Ok item.
 
   resultWithDefault :: a -> Result(e, a) -> a.
-  resultWithDefault = \(defaultValue, result) -> case result {
-    | Err error -> defaultValue
-    | Ok item -> item
-  }.
+  resultWithDefault defaultValue (Err _) = defaultValue.
+  resultWithDefault _ (Ok item) = item.
 
   resultIsOk :: Result(e, a) -> Bool.
-  resultIsOk = \(result) -> case result {
-    | Err error -> False
-    | Ok item -> True
-  }.
+  resultIsOk (Err _) = False.
+  resultIsOk (Ok _) = True.
 
   resultIsErr :: Result(e, a) -> Bool.
-  resultIsErr = \(result) -> case result {
-    | Err error -> True
-    | Ok item -> False
-  }.
+  resultIsErr (Err _) = True.
+  resultIsErr (Ok _) = False.
 
   resultToMaybe :: Result(e, a) -> Maybe(a).
-  resultToMaybe = \(result) -> case result {
-    | Err error -> Nothing
-    | Ok item -> Just item
-  }.
+  resultToMaybe (Err _) = Nothing.
+  resultToMaybe (Ok item) = Just item.
 
   resultErrorToMaybe :: Result(e, a) -> Maybe(e).
-  resultErrorToMaybe = \(result) -> case result {
-    | Err error -> Just error
-    | Ok item -> Nothing
-  }.
+  resultErrorToMaybe (Err error) = Just error.
+  resultErrorToMaybe (Ok _) = Nothing.
 
   resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
-  resultFromMaybe = \(error, maybeValue) -> case maybeValue {
-    | Nothing -> Err error
-    | Just item -> Ok item
-  }.
+  resultFromMaybe error Nothing = Err error.
+  resultFromMaybe _ (Just item) = Ok item.
 }
