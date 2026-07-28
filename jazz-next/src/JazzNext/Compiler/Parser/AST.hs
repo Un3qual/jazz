@@ -5,7 +5,6 @@
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceImplMethod (..),
@@ -70,16 +69,8 @@ data SurfaceLambdaParameter
   | SurfaceLambdaPattern SurfacePattern
   deriving (Eq, Show)
 
--- | Parser-owned constructor payload metadata for top-level `data`
--- declarations. Opaque payloads preserve current arity-only behavior for
--- grouped forms until constructor type schemes own those surfaces.
-data SurfaceDataConstructorArgument
-  = SurfaceDataConstructorArgumentName Identifier
-  | SurfaceDataConstructorArgumentOpaque
-  deriving (Eq, Show)
-
 -- | Parser-owned constructor metadata for top-level `data` declarations.
-data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceDataConstructorArgument]
+data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceSignatureType]
   deriving (Eq, Show)
 
 -- | Parser-facing expression tree. This remains separate from the core AST so

@@ -17,7 +17,6 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -33,7 +32,6 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceImplMethod (..),
@@ -465,16 +463,8 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
     SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
 
 lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
-lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArguments) =
-  DataConstructor (sourceName constructorName) (map lowerSurfaceDataConstructorArgument constructorArguments)
-
-lowerSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> DataConstructorArgument
-lowerSurfaceDataConstructorArgument surfaceArgument =
-  case surfaceArgument of
-    SurfaceDataConstructorArgumentName argumentName ->
-      DataConstructorArgumentName (sourceName argumentName)
-    SurfaceDataConstructorArgumentOpaque ->
-      DataConstructorArgumentOpaque
+lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName fieldTypes) =
+  DataConstructor (sourceName constructorName) (map lowerSurfaceSignatureType fieldTypes)
 
 lowerBindingName :: Identifier -> Name
 lowerBindingName name

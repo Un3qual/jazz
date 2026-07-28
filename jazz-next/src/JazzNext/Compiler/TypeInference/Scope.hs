@@ -20,7 +20,6 @@ import JazzNext.Compiler.AST
     ClassMethodSignature (..),
     SignatureType (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -1420,28 +1419,25 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
           argumentTypes : constructorPayloadsAcc
         )
 
-constructorArgumentTypes :: [Name] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
-constructorArgumentTypes typeParameters constructorArguments state
-  | null typeParameters =
-      let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) state
-       in (map ConstructorArgumentMonomorphic argumentTypes, nextState)
-  | otherwise =
-      foldl' collectArgument ([], state) constructorArguments
+constructorArgumentTypes :: [Name] -> [SignatureType] -> InferState -> ([ConstructorArgumentType], InferState)
+constructorArgumentTypes typeParameters fieldTypes state =
+  foldl' collectField ([], state) fieldTypes
   where
     typeParameterNames = Set.fromList (map identifierText typeParameters)
 
-    collectArgument (argumentTypes, stateAcc) constructorArgument =
-      case constructorArgument of
-        DataConstructorArgumentName argumentName
-          | Set.member (identifierText argumentName) typeParameterNames ->
-              (argumentTypes ++ [ConstructorArgumentParameter (identifierText argumentName)], stateAcc)
-          | Just payloadType <- namedConstructorPayloadType stateAcc argumentName ->
+    collectField (argumentTypes, stateAcc) fieldType =
+      case fieldType of
+        TypeVariable parameterName
+          | Set.member (identifierText parameterName) typeParameterNames ->
+              (argumentTypes ++ [ConstructorArgumentParameter (identifierText parameterName)], stateAcc)
+        TypeName payloadName
+          | Just payloadType <- namedConstructorPayloadType stateAcc payloadName ->
               (argumentTypes ++ [ConstructorArgumentMonomorphic payloadType], stateAcc)
-          | otherwise ->
-              ( argumentTypes ++ [ConstructorArgumentFresh],
-                addTypeError stateAcc (mkUnknownConstructorPayloadTypeError argumentName)
-              )
-        DataConstructorArgumentOpaque ->
+        TypeName payloadName ->
+          ( argumentTypes ++ [ConstructorArgumentFresh],
+            addTypeError stateAcc (mkUnknownConstructorPayloadTypeError payloadName)
+          )
+        _ ->
           (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
 
 namedConstructorPayloadType :: InferState -> Name -> Maybe ExpressionType

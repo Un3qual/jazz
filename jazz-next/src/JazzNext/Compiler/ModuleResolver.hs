@@ -50,7 +50,6 @@ import JazzNext.Compiler.AST
     ClassMethodSignature (..),
     SignatureType (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Pattern (..),
@@ -108,7 +107,6 @@ import JazzNext.Compiler.RecursiveBindings
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
@@ -978,16 +976,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
         SImport spanValue path alias symbols -> SImport spanValue path alias symbols
         SExpr spanValue value -> SExpr spanValue (resolveExpr boundValues value)
 
-    resolveDataConstructor (DataConstructor name arguments) =
+    resolveDataConstructor (DataConstructor name fieldTypes) =
       DataConstructor
         (resolveBinder ConstructorNamespace name)
-        (map resolveDataConstructorArgument arguments)
-
-    resolveDataConstructorArgument argument =
-      case argument of
-        DataConstructorArgumentName name ->
-          DataConstructorArgumentName (resolveName Set.empty TypeNamespace name)
-        DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
+        (map resolveSignatureType fieldTypes)
 
     resolveClassMethod (ClassMethodSignature name spanValue payload) =
       ClassMethodSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
@@ -1334,11 +1326,8 @@ collectQualifiedStatementTypeReferences statement =
     SSExpr _ expr -> collectQualifiedTypeReferences expr
 
 collectQualifiedDataConstructorTypeReferences :: SurfaceDataConstructor -> Set (Text, Text)
-collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ arguments) =
-  Set.unions
-    [ collectQualifiedIdentifierReference name
-      | SurfaceDataConstructorArgumentName name <- arguments
-    ]
+collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ fieldTypes) =
+  Set.unions (map collectQualifiedSignatureTypeReferences fieldTypes)
 
 collectQualifiedCaseArmTypeReferences :: SurfaceCaseArm -> Set (Text, Text)
 collectQualifiedCaseArmTypeReferences (SurfaceCaseArm _ guard body) =

@@ -25,6 +25,9 @@ invalidSyntaxTests =
     , ("rejects duplicate constructor names in one data declaration", testRejectsDuplicateConstructorsInDataDeclaration)
     , ("rejects duplicate data type parameters", testRejectsDuplicateDataTypeParameters)
     , ("rejects undeclared generic constructor payload names", testRejectsUndeclaredGenericConstructorPayloadNames)
+    , ("rejects undeclared nested constructor payload names", testRejectsUndeclaredNestedConstructorPayloadNames)
+    , ("rejects empty named constructor field applications", testRejectsEmptyNamedConstructorFieldApplications)
+    , ("rejects unterminated grouped constructor field types", testRejectsUnterminatedGroupedConstructorFieldTypes)
     , ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement)
     , ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator)
     , ("rejects malformed parenthesized list-like patterns without tuple diagnostic", testRejectsMalformedParenthesizedListLikePattern)
@@ -95,7 +98,7 @@ testRejectsDuplicateConstructorsInDataDeclaration =
   assertLeftDiagnosticContains
     "duplicate data constructor"
     "duplicate constructor declaration 'Nothing'"
-    (parseSurfaceProgram "data Maybe = Nothing | Nothing value.")
+    (parseSurfaceProgram "data Maybe = Nothing | Nothing Int.")
 
 testRejectsDuplicateDataTypeParameters :: IO ()
 testRejectsDuplicateDataTypeParameters =
@@ -111,19 +114,40 @@ testRejectsUndeclaredGenericConstructorPayloadNames =
     "constructor payload type parameter 'b' is not declared in data type 'Maybe'"
     (parseSurfaceProgram "data Maybe a = Just b.")
 
+testRejectsUndeclaredNestedConstructorPayloadNames :: IO ()
+testRejectsUndeclaredNestedConstructorPayloadNames =
+  assertLeftDiagnosticContains
+    "undeclared nested constructor payload diagnostic"
+    "constructor payload type parameter 'missing' is not declared in data type 'Tree'"
+    (parseSurfaceProgram "data Tree a = Branch Tree(missing) Tree(a).")
+
+testRejectsEmptyNamedConstructorFieldApplications :: IO ()
+testRejectsEmptyNamedConstructorFieldApplications =
+  assertLeftDiagnosticContains
+    "empty named constructor field application"
+    "expected"
+    (parseSurfaceProgram "data Tree a = Branch Tree().")
+
+testRejectsUnterminatedGroupedConstructorFieldTypes :: IO ()
+testRejectsUnterminatedGroupedConstructorFieldTypes =
+  assertLeftDiagnosticContains
+    "unterminated grouped constructor field type"
+    "expected ')'"
+    (parseSurfaceProgram "data Callback a b = Callback (a -> b.")
+
 testRejectsDataDeclarationWithMalformedPipePlacement :: IO ()
 testRejectsDataDeclarationWithMalformedPipePlacement =
   assertLeftDiagnosticContains
     "malformed constructor separator"
     "expected constructor declaration"
-    (parseSurfaceProgram "data Maybe = Just value | .")
+    (parseSurfaceProgram "data Maybe = Just Int | .")
 
 testRejectsDataDeclarationMissingTerminator :: IO ()
 testRejectsDataDeclarationMissingTerminator =
   assertLeftDiagnosticContains
     "missing data declaration terminator"
     "expected '.'"
-    (parseSurfaceProgram "data Maybe = Just value | Nothing")
+    (parseSurfaceProgram "data Maybe = Just Int | Nothing")
 
 testRejectsMalformedParenthesizedListLikePattern :: IO ()
 testRejectsMalformedParenthesizedListLikePattern =
@@ -151,11 +175,11 @@ testRejectsMalformedGuardExpression =
   assertLeftDiagnosticContains
     "malformed guard expression"
     "expected guard expression"
-    (parseSurfaceProgram "x = case value { | item if -> item }.")
+    (parseSurfaceProgram "x = case subject { | item if -> item }.")
 
 testRejectsMalformedOrPatternAlternative :: IO ()
 testRejectsMalformedOrPatternAlternative =
   assertLeftDiagnosticContains
     "malformed or-pattern alternative"
     "expected case pattern"
-    (parseSurfaceProgram "x = case value { | Just item | -> item }.")
+    (parseSurfaceProgram "x = case subject { | Just item | -> item }.")

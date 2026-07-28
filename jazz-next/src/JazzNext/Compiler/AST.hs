@@ -5,7 +5,6 @@
 module JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -54,16 +53,8 @@ data Pattern
 data CaseArm = CaseArm Pattern (Maybe Expr) Expr
   deriving (Eq, Show)
 
--- | Core constructor payload metadata lowered from parser-owned `data`
--- declarations. Opaque payloads preserve current arity-only behavior for
--- grouped forms until constructor type schemes own those surfaces.
-data DataConstructorArgument
-  = DataConstructorArgumentName Name
-  | DataConstructorArgumentOpaque
-  deriving (Eq, Show)
-
 -- | Core constructor metadata lowered from parser-owned `data` declarations.
-data DataConstructor = DataConstructor Name [DataConstructorArgument]
+data DataConstructor = DataConstructor Name [SignatureType]
   deriving (Eq, Show)
 
 -- | Core expressions after surface syntax has been lowered into the stable
