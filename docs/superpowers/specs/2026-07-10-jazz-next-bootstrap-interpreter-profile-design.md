@@ -477,9 +477,12 @@ are complete. `JazzNext.Compiler.LoweredIR` and
 `LoweredIRTypes.jz` and `LoweredIRValidate.jz` own their ordinary Jazz mirrors.
 The bounded 10-valid / 31-invalid corpus matches complete ordered results twice,
 and the checked adapter rejects malformed result shapes. The typed-core
-contract foundation is also complete: `JazzNext.Compiler.TypedCore` and
-`JazzNext.Compiler.TypedCore.Validate` own the stage-0 schema and validator;
-`TypedCoreTypes.jz` and `TypedCoreValidate.jz` own the ordinary Jazz mirrors.
+contract foundation is also complete: `JazzNext.Compiler.TypedCore`
+(`jazz-next/src/JazzNext/Compiler/TypedCore.hs`) and
+`JazzNext.Compiler.TypedCore.Validate`
+(`jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`) own the stage-0 schema
+and validator; `jazz-next/jazz/compiler/TypedCoreTypes.jz` and
+`jazz-next/jazz/compiler/TypedCoreValidate.jz` own the ordinary Jazz mirrors.
 Its checked adapter and 16-valid / 28-invalid fixed corpus prove exact complete
 ordered parity for all 44 fixtures twice. Inference does not yet produce typed
 core, and no core-to-IR lowerer exists. Typed-core expression production plus
