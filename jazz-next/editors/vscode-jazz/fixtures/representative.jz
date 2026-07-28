@@ -1,5 +1,5 @@
 # Jazz syntax-highlighting fixture.
-module Editor::Representative (type Choice(Empty, Chosen), class Matches, item compare!, item sample) {
+module Editor::Representative (type Choice(Empty, Chosen), class Matches, value compare!, value sample) {
   import Text as TextTools.
 
   operator %% precedence 25 right.

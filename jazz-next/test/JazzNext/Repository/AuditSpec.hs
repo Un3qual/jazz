@@ -27,6 +27,7 @@ import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.Compiler.SignatureRendering
   ( renderSignatureType,
   )
+import qualified JazzNext.Repository.AuthoredSources as AuthoredSources
 import JazzNext.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
     renderJazzSourceFormatViolation,
@@ -60,7 +61,8 @@ main = runTestSuite "RepositoryAudit" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("accepts a valid Jazz source module", testValidJazzModule),
+  [ ("discovers the complete authored Jazz source set", testAuthoredSourceInventory),
+    ("accepts a valid Jazz source module", testValidJazzModule),
     ("accepts a multiline module export header", testMultilineModuleHeader),
     ("rejects a missing module header", testMissingModuleHeader),
     ("rejects a missing final closing brace", testMissingClosingBrace),
@@ -82,6 +84,91 @@ tests =
     ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
     ("documents the shared program corpus and performance workflows", testPerformanceDocumentation)
   ]
+
+testAuthoredSourceInventory :: IO ()
+testAuthoredSourceInventory =
+  withPackageRoot $ \packageRoot -> do
+    sources <- AuthoredSources.readAuthoredSources packageRoot
+    assertEqual
+      "authored source paths"
+      expectedAuthoredSourcePaths
+      (map AuthoredSources.authoredRelativePath sources)
+    assertEqual
+      "authored source roles"
+      [ AuthoredSources.StandardLibrarySource,
+        AuthoredSources.CompilerSource,
+        AuthoredSources.ProgramSource,
+        AuthoredSources.EditorFixtureSource
+      ]
+      (sort (uniqueValues (map AuthoredSources.authoredRole sources)))
+
+expectedAuthoredSourcePaths :: [FilePath]
+expectedAuthoredSourcePaths =
+  [ "editors/vscode-jazz/fixtures/representative.jz",
+    "jazz/compiler/Core.jz",
+    "jazz/compiler/CoreLower.jz",
+    "jazz/compiler/CoreTypes.jz",
+    "jazz/compiler/Lexer.jz",
+    "jazz/compiler/LexerTypes.jz",
+    "jazz/compiler/LoweredIRTypes.jz",
+    "jazz/compiler/LoweredIRValidate.jz",
+    "jazz/compiler/Parser.jz",
+    "jazz/compiler/ParserContext.jz",
+    "jazz/compiler/ParserCore.jz",
+    "jazz/compiler/ParserDeclaration.jz",
+    "jazz/compiler/ParserExpression.jz",
+    "jazz/compiler/ParserOperator.jz",
+    "jazz/compiler/ParserPattern.jz",
+    "jazz/compiler/ParserProgram.jz",
+    "jazz/compiler/ParserSignature.jz",
+    "jazz/compiler/ParserToken.jz",
+    "jazz/compiler/ParserTypes.jz",
+    "jazz/compiler/TypedCoreTypes.jz",
+    "jazz/compiler/TypedCoreValidate.jz",
+    "jazz/stdlib/Char.jz",
+    "jazz/stdlib/Dictionary.jz",
+    "jazz/stdlib/IO.jz",
+    "jazz/stdlib/IOError.jz",
+    "jazz/stdlib/List.jz",
+    "jazz/stdlib/Map.jz",
+    "jazz/stdlib/Maybe.jz",
+    "jazz/stdlib/NonEmpty.jz",
+    "jazz/stdlib/Prelude.jz",
+    "jazz/stdlib/Queue.jz",
+    "jazz/stdlib/Result.jz",
+    "jazz/stdlib/Set.jz",
+    "jazz/stdlib/Text.jz",
+    "programs/capability-workflow/Main.jz",
+    "programs/capability-workflow/Workflow.jz",
+    "programs/collection-boundaries/Collections.jz",
+    "programs/collection-boundaries/Main.jz",
+    "programs/dependency-planner/Graph.jz",
+    "programs/dependency-planner/Main.jz",
+    "programs/expression-evaluator/Expression.jz",
+    "programs/expression-evaluator/Main.jz",
+    "programs/identifier-classifier/Main.jz",
+    "programs/mini-frontend/Analysis.jz",
+    "programs/mini-frontend/Evaluation.jz",
+    "programs/mini-frontend/Main.jz",
+    "programs/mini-frontend/Syntax.jz",
+    "programs/mini-frontend/Token.jz",
+    "programs/queue-traversal/Main.jz",
+    "programs/queue-traversal/Traversal.jz",
+    "programs/sorted-index/Index.jz",
+    "programs/sorted-index/Main.jz",
+    "programs/text-processing/Main.jz",
+    "programs/tree-transformations/Main.jz",
+    "programs/tree-transformations/Tree.jz",
+    "programs/word-frequency/Main.jz"
+  ]
+
+uniqueValues :: (Eq value) => [value] -> [value]
+uniqueValues values =
+  case values of
+    [] -> []
+    value : rest
+      | value `elem` rest -> uniqueValues rest
+      | otherwise -> value : uniqueValues rest
 
 validJazzSource :: Text
 validJazzSource =
