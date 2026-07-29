@@ -1639,10 +1639,35 @@ constructorArgumentExpressionHasExactEvidence env typeParameterBindings construc
           True
     ConstructorArgumentMonomorphic {} ->
       True
-    ConstructorArgumentStructured {} ->
-      True
+    ConstructorArgumentStructured fieldType ->
+      constraintSignatureExpressionHasExactEvidence
+        env
+        (substituteConstructorFieldSignatureType typeParameterBindings fieldType)
+        argumentExpr
     ConstructorArgumentFresh ->
       True
+
+substituteConstructorFieldSignatureType ::
+  Map Text SignatureType ->
+  SignatureType ->
+  SignatureType
+substituteConstructorFieldSignatureType typeParameterBindings fieldType =
+  case fieldType of
+    TypeVariable name ->
+      Map.findWithDefault fieldType (identifierText name) typeParameterBindings
+    TypeApplication name arguments ->
+      TypeApplication
+        name
+        (map (substituteConstructorFieldSignatureType typeParameterBindings) arguments)
+    TypeList elementType ->
+      TypeList (substituteConstructorFieldSignatureType typeParameterBindings elementType)
+    TypeTuple elementTypes ->
+      TypeTuple (map (substituteConstructorFieldSignatureType typeParameterBindings) elementTypes)
+    TypeFunction argumentType resultType ->
+      TypeFunction
+        (substituteConstructorFieldSignatureType typeParameterBindings argumentType)
+        (substituteConstructorFieldSignatureType typeParameterBindings resultType)
+    _ -> fieldType
 
 constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> SignatureType -> ExpressionType -> Bool
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =

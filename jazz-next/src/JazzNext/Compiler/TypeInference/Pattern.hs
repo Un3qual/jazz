@@ -12,14 +12,17 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( CaseArm (..), Expr, Literal (..), Pattern (..) )
-import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode)
+  ( CaseArm (..), Expr, Literal (..), Pattern (..), SignatureType (..) )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode,
+    numericTypeFromName
+  )
 import JazzNext.Compiler.Name (Name, identifierText)
 import JazzNext.Compiler.Pattern
   ( commonPatternBinderNames, patternBinderNames )
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Solver
-  ( applySubstitution, combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
+  ( combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
 import JazzNext.Compiler.TypeInference.State
   ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev, modifyInferenceOutput )
 import JazzNext.Compiler.TypeInference.Types
@@ -673,20 +676,59 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
                 ( freshArgumentType : argumentTypesRev,
                   addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
                 )
-        ConstructorArgumentStructured parameterVariables expressionType ->
-          let parameterSubstitution =
-                Map.fromList
-                  [ (placeholder, parameterType)
-                    | (parameterName, placeholder) <- Map.toList parameterVariables,
-                      Just parameterType <- [Map.lookup parameterName typeParameterBindings]
-                  ]
-           in
-            ( resolveType stateAcc (applySubstitution parameterSubstitution expressionType) : argumentTypesRev,
-              stateAcc
-            )
+        ConstructorArgumentStructured fieldType ->
+          case instantiateConstructorFieldType typeParameterBindings fieldType of
+            Just expressionType ->
+              (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
+            Nothing ->
+              let (freshArgumentType, nextState) = freshTypeVar stateAcc
+               in
+                ( freshArgumentType : argumentTypesRev,
+                  addTypeError
+                    nextState
+                    (mkInvalidConstructorPayloadTypeError "missing structured constructor type-parameter binding")
+                )
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)
+
+instantiateConstructorFieldType ::
+  Map Text ExpressionType ->
+  SignatureType ->
+  Maybe ExpressionType
+instantiateConstructorFieldType typeParameterBindings fieldType =
+  case fieldType of
+    TypeInt -> Just TIntType
+    TypeFloat -> Just TFloatType
+    TypeNumeric numericType -> Just (TNumericType numericType)
+    TypeBool -> Just TBoolType
+    TypeChar -> Just TCharType
+    TypeText -> Just TTextType
+    TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
+    TypeName name ->
+      Just
+        ( case identifierText name of
+            "Int" -> TIntType
+            "Float" -> TFloatType
+            "Bool" -> TBoolType
+            "Char" -> TCharType
+            "Text" -> TTextType
+            namedTypeText ->
+              maybe
+                (TDataType name [])
+                TNumericType
+                (numericTypeFromName namedTypeText)
+        )
+    TypeApplication name arguments ->
+      TDataType name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
+    TypeList elementType ->
+      TListType <$> instantiateConstructorFieldType typeParameterBindings elementType
+    TypeTuple elementTypes ->
+      TTupleType <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
+    TypeFunction argumentType resultType ->
+      TFunctionType
+        <$> instantiateConstructorFieldType typeParameterBindings argumentType
+        <*> instantiateConstructorFieldType typeParameterBindings resultType
 
 mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 mergedUnifiedType state leftType rightType =
