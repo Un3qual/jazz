@@ -104,7 +104,9 @@ or-patterns have landed as pattern-matching extensions.
 Canonical shape example:
 
 ```jz
-data Maybe = Just value | Nothing.
+data Maybe a
+  = Nothing
+  | Just a.
 
 some = Just 1.
 none = Nothing.
@@ -115,6 +117,9 @@ Generic declaration shape:
 ```jz
 data Maybe a = Nothing | Just a.
 data Pair a b = Pair a b.
+data Tree a
+  = Leaf a
+  | Branch Tree(a) Tree(a).
 ```
 
 In a generic `data` declaration, lowercase identifiers after the type
@@ -127,6 +132,11 @@ single constructor application. Binding a generic constructor value to a user
 name remains a direct constructor alias and does not generalize that alias;
 eligible non-alias ordinary bindings follow the active binding-scheme
 semantics.
+
+Constructor payload positions use the same structured signature-type grammar
+as signatures. A bare `a` is a declared type parameter; `Tree(a)` is named type
+application. Parentheses are grouping only, so legacy-looking
+`(Tree(a))` is redundant and not a different field form.
 
 ## Staged First Slice
 

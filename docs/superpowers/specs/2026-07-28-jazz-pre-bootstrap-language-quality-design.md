@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved in discussion on `2026-07-28`.
+Implemented on `2026-07-28`.
 
 This design defines the language, source-quality, benchmark, and bootstrap
 hardening pass that must complete before the next typed-core/bootstrap batch.
@@ -75,6 +75,18 @@ The plans execute in that order. The source audit depends on the language
 surface, and the new programs deliberately dogfood both earlier workstreams.
 The next bootstrap milestone remains blocked until all three plans pass their
 individual gates and the combined final matrix.
+
+## Bootstrap Audit Outcome
+
+Starting the hosted bootstrap was not an architectural mistake: the Haskell
+stage-0 compiler remains the executable semantic authority, and differential
+Jazz-authored lexer/parser/core modules continue to expose real portability
+gaps. Advancing the next bootstrap milestone before stabilizing the source
+surface would have been premature. This pass therefore paused forward
+typed-core/backend work, synchronized both frontend implementations, and made
+the authored-source audit a gate. Once the combined verification matrix is
+green, the existing bootstrap architecture may continue; no rollback or
+parallel replacement compiler is warranted.
 
 ## Approaches Considered
 

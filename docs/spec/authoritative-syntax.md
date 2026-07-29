@@ -28,6 +28,11 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Optional type signature form: `name :: Type.` directly above its binding.
    - Lambda form: `\(args) -> expr`; arguments may be identifiers or active
      pattern forms.
+   - Named functions may instead use contiguous ordered equations:
+     `name pattern1 pattern2 = expr.` Every clause in one group has the same
+     arity, clauses are tested top-to-bottom, and the group remains curried.
+     Group constructor arguments when needed, as in
+     `maybeMap transform (Just item) = Just (transform item).`
    - Unit-lambda form: `\() -> expr`, equivalent to the unary pattern form
      `\(()) -> expr` and invoked as `function ()`.
 
@@ -71,6 +76,8 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Dot-separated root forms remain canonical: `expr.`
    - Whitespace application remains canonical: `f x y`
    - `$` remains canonical low-precedence right-associative application.
+   - `value` is globally reserved. It is a contextual export selector in a
+     module header, never an ordinary binding or parameter name.
 
 ## Legacy Compatibility and Migration Notes
 

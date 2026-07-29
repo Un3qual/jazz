@@ -36,6 +36,21 @@ cases eligible for benchmark smoke coverage; it does not weaken correctness
 coverage. See [`programs/README.md`](programs/README.md) for the manifest and
 budget authoring contract.
 
+The full corpus includes six algorithmic profile anchors with deliberately
+different runtime shapes:
+
+- `n-queens` is branch- and pattern-heavy backtracking;
+- `merge-sort` emphasizes recursive split/merge traversal and list allocation;
+- `prime-sieve` is a long numeric/filtering workload;
+- `fannkuch` emphasizes permutation allocation and prefix-reversal stacks;
+- `tak` isolates recursive application and continuation depth; and
+- `symbolic-differentiation` exercises recursive ADT construction,
+  transformation, simplification, and evaluation.
+
+All six participate in every benchmark boundary. Their manifest ceilings come
+from deterministic runtime observations with bounded headroom; they are full
+workloads and therefore do not lengthen the default fast smoke selection.
+
 ### Hosted parser scale tiers
 
 Hosted-parser scale correctness has two deterministic semantic-budget tiers:

@@ -73,6 +73,12 @@ Desugaring invariants:
 3. If condition evaluates to `False`, evaluate only `elseExpr`.
 4. The non-selected branch is not evaluated.
 
+`if` is therefore syntax rather than an ordinary Jazz function. In Jazz's
+strict application model, a normal three-argument function would receive
+already-evaluated branch arguments and could not preserve rule 4. The surface
+construct lowers to existing boolean pattern control flow, so it does not
+require a second runtime conditional primitive.
+
 ## Valid Examples
 
 ```jz

@@ -120,6 +120,11 @@ verifier-backed child rows.
    targets reject with deterministic `E2017`. The construct has no runtime
    evidence representation; runtime evaluation erases it to the wrapped
    expression.
+   For a generalized constructor, `Just @Bool` means “instantiate the first
+   quantified type parameter of `Just` as `Bool`”; it is still a constructor
+   function and needs its payload, for example `Just @Bool True`. This is
+   unrelated to the pattern syntax `whole @ pattern`, which binds the complete
+   matched value to `whole`.
 9. Compiler-owned runtime evidence records exist for selected concrete
    class/impl method candidates. Evidence records identify the class, concrete
    impl target, and method key; qualified method dispatch consumes them
