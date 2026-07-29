@@ -45,7 +45,7 @@ import JazzNext.ProgramCorpus.Types
     ProgramCorpus (..),
     ProgramCorpusViolation (..),
     ProgramPathField (..),
-    WorkloadClass,
+    WorkloadClass (..),
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -86,6 +86,7 @@ tests =
     ("rejects a source symlink that escapes the corpus root", testSymlinkEscape),
     ("loads and runs the checked-in identifier classifier", testIdentifierClassifier),
     ("covers the production-shaped corpus contract", testCheckedInCorpusCoverage),
+    ("registers the full algorithmic workloads", testAlgorithmicWorkloads),
     ("documents every checked-in corpus case", testCheckedInCorpusDocumentation),
     ("budget upper limits accept equal and lower work", testBudgetUpperLimits),
     ("optional budgets are enforced and violations are stably accumulated", testOptionalBudgetViolations),
@@ -332,10 +333,20 @@ testCheckedInCorpusCoverage = do
           "sorted-index",
           "queue-traversal",
           "text-processing",
-          "collection-boundaries"
+          "collection-boundaries",
+          "fannkuch",
+          "merge-sort",
+          "n-queens",
+          "prime-sieve",
+          "symbolic-differentiation",
+          "tak"
         ]
     )
     (Set.fromList (map programCaseIdentifier cases))
+  assertEqual
+    "lexicographically ordered corpus cases"
+    (sort (map programCaseIdentifier cases))
+    (map programCaseIdentifier cases)
   assertEqual
     "feature tag coverage"
     (Set.fromList ([minBound .. maxBound] :: [FeatureTag]))
@@ -352,6 +363,33 @@ testCheckedInCorpusCoverage = do
   if any (> 1) sourceCounts
     then pure ()
     else failTest "expected at least one multi-module corpus case"
+
+testAlgorithmicWorkloads :: IO ()
+testAlgorithmicWorkloads = do
+  corpus <- loadCheckedInCorpus
+  forM_ algorithmicCaseIdentifiers $ \identifier -> do
+    programCase <-
+      case programCaseById identifier corpus of
+        Nothing -> failTest ("missing algorithmic corpus case " <> identifier)
+        Just value -> pure value
+    assertEqual
+      (identifier <> " workload")
+      FullWorkload
+      (programCaseWorkload programCase)
+    assertEqual
+      (identifier <> " benchmark groups")
+      (Set.fromList ([minBound .. maxBound] :: [BenchmarkGroup]))
+      (Set.fromList (programCaseBenchmarks programCase))
+
+algorithmicCaseIdentifiers :: [Text]
+algorithmicCaseIdentifiers =
+  [ "fannkuch",
+    "merge-sort",
+    "n-queens",
+    "prime-sieve",
+    "symbolic-differentiation",
+    "tak"
+  ]
 
 testCheckedInCorpusDocumentation :: IO ()
 testCheckedInCorpusDocumentation = do

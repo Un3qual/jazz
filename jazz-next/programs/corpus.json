@@ -2,6 +2,210 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "capability-workflow",
+      "directory": "capability-workflow",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "capabilities",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 600,
+        "applications": 70,
+        "maxContinuationDepth": 8,
+        "forcedValues": 100,
+        "operatorApplications": 0,
+        "closuresCreated": 15,
+        "bindingsCaptured": 45,
+        "maximumCaptureWidth": 6,
+        "listCellsConstructed": 20,
+        "tuplesConstructed": 0,
+        "saturatedAdtValuesConstructed": 8,
+        "patternAttempts": 30,
+        "builtinCalls": 15,
+        "deferredCacheMisses": 15
+      }
+    },
+    {
+      "id": "collection-boundaries",
+      "directory": "collection-boundaries",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "dictionaries",
+        "ordered-collections",
+        "queues",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 8500,
+        "applications": 1050,
+        "maxContinuationDepth": 28,
+        "forcedValues": 1500,
+        "operatorApplications": 155,
+        "closuresCreated": 370,
+        "bindingsCaptured": 1700,
+        "maximumCaptureWidth": 12,
+        "listCellsConstructed": 55,
+        "tuplesConstructed": 32,
+        "saturatedAdtValuesConstructed": 48,
+        "patternAttempts": 350,
+        "builtinCalls": 35,
+        "deferredCacheMisses": 65
+      }
+    },
+    {
+      "id": "dependency-planner",
+      "directory": "dependency-planner",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 3000,
+        "applications": 350,
+        "maxContinuationDepth": 16,
+        "forcedValues": 550,
+        "operatorApplications": 50,
+        "closuresCreated": 140,
+        "bindingsCaptured": 600,
+        "maximumCaptureWidth": 12,
+        "listCellsConstructed": 40,
+        "tuplesConstructed": 10,
+        "saturatedAdtValuesConstructed": 20,
+        "patternAttempts": 150,
+        "builtinCalls": 20,
+        "deferredCacheMisses": 15
+      }
+    },
+    {
+      "id": "expression-evaluator",
+      "directory": "expression-evaluator",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 600,
+        "applications": 70,
+        "maxContinuationDepth": 8,
+        "forcedValues": 110,
+        "operatorApplications": 10,
+        "closuresCreated": 30,
+        "bindingsCaptured": 140,
+        "maximumCaptureWidth": 10,
+        "listCellsConstructed": 5,
+        "tuplesConstructed": 5,
+        "saturatedAdtValuesConstructed": 20,
+        "patternAttempts": 60,
+        "builtinCalls": 5,
+        "deferredCacheMisses": 10
+      }
+    },
+    {
+      "id": "fannkuch",
+      "directory": "fannkuch",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 20000000,
+        "applications": 2500000,
+        "maxContinuationDepth": 30,
+        "forcedValues": 3400000,
+        "operatorApplications": 440000,
+        "closuresCreated": 920000,
+        "bindingsCaptured": 2800000,
+        "maximumCaptureWidth": 8,
+        "listCellsConstructed": 570000,
+        "tuplesConstructed": 62000,
+        "saturatedAdtValuesConstructed": 0,
+        "patternAttempts": 760000,
+        "builtinCalls": 320000,
+        "deferredCacheMisses": 30
+      }
+    },
+    {
       "id": "identifier-classifier",
       "directory": "identifier-classifier",
       "entrySource": "Main.jz",
@@ -43,43 +247,8 @@
       }
     },
     {
-      "id": "expression-evaluator",
-      "directory": "expression-evaluator",
-      "entrySource": "Main.jz",
-      "moduleRoot": ".",
-      "expectedTermination": "success",
-      "expectedStdout": "expected.stdout",
-      "workload": "fast",
-      "features": [
-        "modules",
-        "patterns",
-        "recursion",
-        "inference",
-        "text",
-        "lists",
-        "deterministic-runtime"
-      ],
-      "benchmarks": ["analysis", "runtime", "whole-program"],
-      "budgets": {
-        "steps": 600,
-        "applications": 70,
-        "maxContinuationDepth": 8,
-        "forcedValues": 110,
-        "operatorApplications": 10,
-        "closuresCreated": 30,
-        "bindingsCaptured": 140,
-        "maximumCaptureWidth": 10,
-        "listCellsConstructed": 5,
-        "tuplesConstructed": 5,
-        "saturatedAdtValuesConstructed": 20,
-        "patternAttempts": 60,
-        "builtinCalls": 5,
-        "deferredCacheMisses": 10
-      }
-    },
-    {
-      "id": "tree-transformations",
-      "directory": "tree-transformations",
+      "id": "merge-sort",
+      "directory": "merge-sort",
       "entrySource": "Main.jz",
       "moduleRoot": ".",
       "expectedTermination": "success",
@@ -87,109 +256,34 @@
       "workload": "full",
       "features": [
         "modules",
-        "generic-adts",
         "patterns",
         "recursion",
         "inference",
+        "lists",
         "deterministic-runtime"
       ],
       "benchmarks": [
+        "parse-lower",
         "analysis",
         "module-preparation",
         "runtime",
         "whole-program"
       ],
       "budgets": {
-        "steps": 50000,
-        "applications": 7000,
-        "maxContinuationDepth": 25,
-        "forcedValues": 9000,
-        "operatorApplications": 1300,
-        "closuresCreated": 2300,
-        "bindingsCaptured": 6500,
+        "steps": 240000,
+        "applications": 26000,
+        "maxContinuationDepth": 160,
+        "forcedValues": 47000,
+        "operatorApplications": 9000,
+        "closuresCreated": 5000,
+        "bindingsCaptured": 12000,
         "maximumCaptureWidth": 6,
-        "listCellsConstructed": 0,
-        "tuplesConstructed": 2,
-        "saturatedAdtValuesConstructed": 650,
-        "patternAttempts": 1500,
-        "builtinCalls": 0,
-        "deferredCacheMisses": 10
-      }
-    },
-    {
-      "id": "dependency-planner",
-      "directory": "dependency-planner",
-      "entrySource": "Main.jz",
-      "moduleRoot": ".",
-      "expectedTermination": "success",
-      "expectedStdout": "expected.stdout",
-      "workload": "fast",
-      "features": [
-        "modules",
-        "patterns",
-        "recursion",
-        "inference",
-        "text",
-        "lists",
-        "deterministic-runtime"
-      ],
-      "benchmarks": ["parse-lower", "analysis", "runtime", "whole-program"],
-      "budgets": {
-        "steps": 3000,
-        "applications": 350,
-        "maxContinuationDepth": 16,
-        "forcedValues": 550,
-        "operatorApplications": 50,
-        "closuresCreated": 140,
-        "bindingsCaptured": 600,
-        "maximumCaptureWidth": 12,
-        "listCellsConstructed": 40,
-        "tuplesConstructed": 10,
-        "saturatedAdtValuesConstructed": 20,
-        "patternAttempts": 150,
-        "builtinCalls": 20,
-        "deferredCacheMisses": 15
-      }
-    },
-    {
-      "id": "capability-workflow",
-      "directory": "capability-workflow",
-      "entrySource": "Main.jz",
-      "moduleRoot": ".",
-      "expectedTermination": "success",
-      "expectedStdout": "expected.stdout",
-      "workload": "fast",
-      "features": [
-        "modules",
-        "patterns",
-        "recursion",
-        "inference",
-        "capabilities",
-        "text",
-        "lists",
-        "deterministic-runtime"
-      ],
-      "benchmarks": [
-        "analysis",
-        "module-preparation",
-        "runtime",
-        "whole-program"
-      ],
-      "budgets": {
-        "steps": 600,
-        "applications": 70,
-        "maxContinuationDepth": 8,
-        "forcedValues": 100,
-        "operatorApplications": 0,
-        "closuresCreated": 15,
-        "bindingsCaptured": 45,
-        "maximumCaptureWidth": 6,
-        "listCellsConstructed": 20,
-        "tuplesConstructed": 0,
-        "saturatedAdtValuesConstructed": 8,
-        "patternAttempts": 30,
-        "builtinCalls": 15,
-        "deferredCacheMisses": 15
+        "listCellsConstructed": 3000,
+        "tuplesConstructed": 5500,
+        "saturatedAdtValuesConstructed": 0,
+        "patternAttempts": 11000,
+        "builtinCalls": 3000,
+        "deferredCacheMisses": 20
       }
     },
     {
@@ -235,57 +329,83 @@
       }
     },
     {
-      "id": "word-frequency",
-      "directory": "word-frequency",
+      "id": "n-queens",
+      "directory": "n-queens",
       "entrySource": "Main.jz",
       "moduleRoot": ".",
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
-      "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "dictionaries", "deterministic-runtime"],
-      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "workload": "full",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 12000,
-        "applications": 1400,
-        "maxContinuationDepth": 10,
-        "forcedValues": 2200,
-        "operatorApplications": 55,
-        "closuresCreated": 500,
-        "bindingsCaptured": 2800,
-        "maximumCaptureWidth": 12,
-        "listCellsConstructed": 300,
-        "tuplesConstructed": 170,
-        "saturatedAdtValuesConstructed": 90,
-        "patternAttempts": 550,
-        "builtinCalls": 280,
-        "deferredCacheMisses": 40
+        "steps": 7800000,
+        "applications": 900000,
+        "maxContinuationDepth": 60,
+        "forcedValues": 1410000,
+        "operatorApplications": 260000,
+        "closuresCreated": 320000,
+        "bindingsCaptured": 1030000,
+        "maximumCaptureWidth": 10,
+        "listCellsConstructed": 80000,
+        "tuplesConstructed": 74000,
+        "saturatedAdtValuesConstructed": 0,
+        "patternAttempts": 263000,
+        "builtinCalls": 66000,
+        "deferredCacheMisses": 25
       }
     },
     {
-      "id": "sorted-index",
-      "directory": "sorted-index",
+      "id": "prime-sieve",
+      "directory": "prime-sieve",
       "entrySource": "Main.jz",
       "moduleRoot": ".",
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
-      "workload": "fast",
-      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "lists", "ordered-collections", "deterministic-runtime"],
-      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "workload": "full",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 22000,
-        "applications": 2800,
-        "maxContinuationDepth": 26,
-        "forcedValues": 3800,
-        "operatorApplications": 470,
-        "closuresCreated": 750,
-        "bindingsCaptured": 3800,
-        "maximumCaptureWidth": 12,
-        "listCellsConstructed": 220,
-        "tuplesConstructed": 200,
-        "saturatedAdtValuesConstructed": 80,
-        "patternAttempts": 1100,
-        "builtinCalls": 520,
-        "deferredCacheMisses": 90
+        "steps": 87000000,
+        "applications": 9200000,
+        "maxContinuationDepth": 2400,
+        "forcedValues": 18100000,
+        "operatorApplications": 4400000,
+        "closuresCreated": 2400000,
+        "bindingsCaptured": 5000000,
+        "maximumCaptureWidth": 6,
+        "listCellsConstructed": 112000,
+        "tuplesConstructed": 2200000,
+        "saturatedAdtValuesConstructed": 0,
+        "patternAttempts": 2400000,
+        "builtinCalls": 58000,
+        "deferredCacheMisses": 20
       }
     },
     {
@@ -296,8 +416,21 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "lists", "queues", "deterministic-runtime"],
-      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "lists",
+        "queues",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
         "steps": 5500,
         "applications": 700,
@@ -316,6 +449,128 @@
       }
     },
     {
+      "id": "sorted-index",
+      "directory": "sorted-index",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "lists",
+        "ordered-collections",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 22000,
+        "applications": 2800,
+        "maxContinuationDepth": 26,
+        "forcedValues": 3800,
+        "operatorApplications": 470,
+        "closuresCreated": 750,
+        "bindingsCaptured": 3800,
+        "maximumCaptureWidth": 12,
+        "listCellsConstructed": 220,
+        "tuplesConstructed": 200,
+        "saturatedAdtValuesConstructed": 80,
+        "patternAttempts": 1100,
+        "builtinCalls": 520,
+        "deferredCacheMisses": 90
+      }
+    },
+    {
+      "id": "symbolic-differentiation",
+      "directory": "symbolic-differentiation",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 20000,
+        "applications": 2200,
+        "maxContinuationDepth": 45,
+        "forcedValues": 4000,
+        "operatorApplications": 400,
+        "closuresCreated": 400,
+        "bindingsCaptured": 1200,
+        "maximumCaptureWidth": 8,
+        "listCellsConstructed": 0,
+        "tuplesConstructed": 350,
+        "saturatedAdtValuesConstructed": 320,
+        "patternAttempts": 2400,
+        "builtinCalls": 0,
+        "deferredCacheMisses": 20
+      }
+    },
+    {
+      "id": "tak",
+      "directory": "tak",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 3400000,
+        "applications": 350000,
+        "maxContinuationDepth": 65,
+        "forcedValues": 660000,
+        "operatorApplications": 130000,
+        "closuresCreated": 150000,
+        "bindingsCaptured": 370000,
+        "maximumCaptureWidth": 4,
+        "listCellsConstructed": 0,
+        "tuplesConstructed": 74000,
+        "saturatedAdtValuesConstructed": 0,
+        "patternAttempts": 74000,
+        "builtinCalls": 0,
+        "deferredCacheMisses": 5
+      }
+    },
+    {
       "id": "text-processing",
       "directory": "text-processing",
       "entrySource": "Main.jz",
@@ -323,8 +578,22 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
-      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
         "steps": 50000,
         "applications": 5200,
@@ -343,30 +612,84 @@
       }
     },
     {
-      "id": "collection-boundaries",
-      "directory": "collection-boundaries",
+      "id": "tree-transformations",
+      "directory": "tree-transformations",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
+      "budgets": {
+        "steps": 50000,
+        "applications": 7000,
+        "maxContinuationDepth": 25,
+        "forcedValues": 9000,
+        "operatorApplications": 1300,
+        "closuresCreated": 2300,
+        "bindingsCaptured": 6500,
+        "maximumCaptureWidth": 6,
+        "listCellsConstructed": 0,
+        "tuplesConstructed": 2,
+        "saturatedAdtValuesConstructed": 650,
+        "patternAttempts": 1500,
+        "builtinCalls": 0,
+        "deferredCacheMisses": 10
+      }
+    },
+    {
+      "id": "word-frequency",
+      "directory": "word-frequency",
       "entrySource": "Main.jz",
       "moduleRoot": ".",
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "text", "lists", "dictionaries", "ordered-collections", "queues", "deterministic-runtime"],
-      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "dictionaries",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 8500,
-        "applications": 1050,
-        "maxContinuationDepth": 28,
-        "forcedValues": 1500,
-        "operatorApplications": 155,
-        "closuresCreated": 370,
-        "bindingsCaptured": 1700,
+        "steps": 12000,
+        "applications": 1400,
+        "maxContinuationDepth": 10,
+        "forcedValues": 2200,
+        "operatorApplications": 55,
+        "closuresCreated": 500,
+        "bindingsCaptured": 2800,
         "maximumCaptureWidth": 12,
-        "listCellsConstructed": 55,
-        "tuplesConstructed": 32,
-        "saturatedAdtValuesConstructed": 48,
-        "patternAttempts": 350,
-        "builtinCalls": 35,
-        "deferredCacheMisses": 65
+        "listCellsConstructed": 300,
+        "tuplesConstructed": 170,
+        "saturatedAdtValuesConstructed": 90,
+        "patternAttempts": 550,
+        "builtinCalls": 280,
+        "deferredCacheMisses": 40
       }
     }
   ]
