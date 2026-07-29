@@ -6,6 +6,11 @@ module Editor::Representative (type Choice(Empty, Chosen), class Matches, value 
   (%%) :: Int -> Int -> Int.
   (%%) = \(left, right) -> left + right.
 
+  adder = (+).
+  addOne = (+ 1).
+  tenPlus = (10 +).
+  defaultFlag = Nothing @Bool.
+
   data Choice a = Empty | Chosen a.
   data Point = XYPoint Int Int.
 
@@ -23,5 +28,10 @@ module Editor::Representative (type Choice(Empty, Chosen), class Matches, value 
   sample = case Chosen 42i16 {
     | Empty -> (0, '\n', "empty")
     | Chosen item -> (item %% 1, '\u{266B}', "Jazz \\u{1F3B7}")
+  }.
+
+  patternSample = case Chosen 1 {
+    | whole @ Chosen 1 if True -> whole
+    | Empty | Chosen _ -> Empty
   }.
 }

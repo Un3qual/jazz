@@ -791,6 +791,7 @@ test-suite repository-audit-spec
       aeson >= 2.2 && < 2.3
   other-modules:
       JazzNext.Repository.AuthoredSources
+      JazzNext.Repository.FeatureInventory
       JazzNext.Repository.JazzSourceFormat
       JazzNext.Repository.PackagePolicy
       JazzNext.Repository.Root
