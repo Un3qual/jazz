@@ -212,7 +212,7 @@ testSourcePipelineAcceptsStructuralAdtEquality :: IO ()
 testSourcePipelineAcceptsStructuralAdtEquality = do
   assertCompiles
     """
-    data Maybe = Nothing | Just value.
+    data Maybe = Nothing | Just Int.
     left = Just 1.
     right = Just 1.
     same = left == right.
@@ -238,7 +238,7 @@ testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
       ( compileSource
           defaultWarningSettings
           """
-          data IntList = Nil | Cons value rest.
+          data IntList = Nil | Cons Int IntList.
           left = Cons 1 Nil.
           right = Cons 1 Nil.
           same = left == right.
@@ -382,9 +382,9 @@ testSourcePipelineAcceptsDeferredDirectEquality :: IO ()
 testSourcePipelineAcceptsDeferredDirectEquality =
   assertCompilesWithBundledPrelude
     """
-    value = hd [].
-    same = value == value.
-    sum = value + 1.
+    candidate = hd [].
+    same = candidate == candidate.
+    sum = candidate + 1.
     sum.
     """
 

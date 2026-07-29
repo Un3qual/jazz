@@ -274,7 +274,7 @@ testConsLikeListPatternLambdaParameterRuntime = do
 
 testConstructorPatternLambdaParameterRuntime :: IO ()
 testConstructorPatternLambdaParameterRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. get = \\(Just item) -> item. get (Just 41)."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int. get = \\(Just item) -> item. get (Just 41)."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -282,7 +282,7 @@ testConstructorPatternLambdaParameterRuntime = do
 
 testOrPatternLambdaParameterRuntime :: IO ()
 testOrPatternLambdaParameterRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get (Also 41)."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int | Also Int. get = \\(Just item | Also item) -> item. get (Also 41)."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -309,7 +309,7 @@ testPatternLambdaParameterNoMatchRuntime = do
 
 testOrPatternLambdaParameterNoMatchRuntime :: IO ()
 testOrPatternLambdaParameterNoMatchRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get Nothing."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int | Also Int. get = \\(Just item | Also item) -> item. get Nothing."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode

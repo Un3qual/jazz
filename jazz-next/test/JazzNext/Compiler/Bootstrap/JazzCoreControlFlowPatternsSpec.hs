@@ -233,18 +233,18 @@ composedSources :: [Text.Text]
 composedSources =
   [ "if True then 1 else 0.",
     "if outer then if inner then 1 else 2 else 3.",
-    "if cond then { value = 1. value. } else { value = 2. value. }.",
-    "case value { | Just item -> item | Nothing -> 0 }.",
-    "case value { | Just item if keep -> item | Nothing -> 0 }.",
-    "case value { | _ -> 0 | name -> 1 | 2 -> 2 | 'x' -> 3 | \"x\" -> 4 | True -> 5 | Just item -> 6 | [head, tail] -> 7 | [head | tail] -> 8 | () -> 9 | (left, right) -> 10 | whole@Nothing -> 11 | Just item | Nothing -> 12 }.",
+    "if cond then { result = 1. result. } else { result = 2. result. }.",
+    "case subject { | Just item -> item | Nothing -> 0 }.",
+    "case subject { | Just item if keep -> item | Nothing -> 0 }.",
+    "case subject { | _ -> 0 | name -> 1 | 2 -> 2 | 'x' -> 3 | \"x\" -> 4 | True -> 5 | Just item -> 6 | [head, tail] -> 7 | [head | tail] -> 8 | () -> 9 | (left, right) -> 10 | whole@Nothing -> 11 | Just item | Nothing -> 12 }.",
     "case if cond then left else right { | _ -> 0 }.",
     "case outer { | Just item -> case item { | _ -> 1 } | Nothing -> 0 }.",
-    "\\(value) -> value.",
+    "\\(subject) -> subject.",
     "\\(left, right) -> left.",
     "\\([head | tail]) -> head.",
     "\\(Just item | Nothing) -> item.",
     "\\(first, Just second, third) -> second.",
-    "{ loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
+    "{ loop = \\(subject) -> case subject { | Just next -> loop next | _ -> if False then subject else subject }. loop. }."
   ]
 
 expectedUnsupportedFixtureNames :: [Text.Text]

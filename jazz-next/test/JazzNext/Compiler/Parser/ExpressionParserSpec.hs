@@ -127,12 +127,12 @@ testDeclaredOperatorPrecedence = do
 
 testQualifiedVariablesListsAndTuples :: IO ()
 testQualifiedVariablesListsAndTuples = do
-  tokens <- lexSource "Alias::value [1, 2] (3, 4)."
+  tokens <- lexSource "Alias::member [1, 2] (3, 4)."
   assertExpression
     "qualified variable list and tuple application"
     ( SEApply
         ( SEApply
-            (SEQualifiedVar "Alias" "value")
+            (SEQualifiedVar "Alias" "member")
             (SEList [SELit (SLInt 1), SELit (SLInt 2)])
         )
         (SETuple [SELit (SLInt 3), SELit (SLInt 4)])
@@ -165,11 +165,11 @@ testControlFlowAndBlockExpressionStarters = do
     [TDot]
     (parseExpressionTokens Set.empty [] ifTokens)
 
-  caseTokens <- lexSource "case value { | 0 -> 1 | _ -> 2 }."
+  caseTokens <- lexSource "case subject { | 0 -> 1 | _ -> 2 }."
   assertExpression
     "case expression starter"
     ( SECase
-        (SEVar "value")
+        (SEVar "subject")
         [ SurfaceCaseArm (SPLiteral (SLInt 0)) Nothing (SELit (SLInt 1)),
           SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 2))
         ]
@@ -241,10 +241,10 @@ testFractionalLiteralSuffix = do
 
 testDetailedMissingCaseBody :: IO ()
 testDetailedMissingCaseBody = do
-  tokens <- lexSource "case value."
+  tokens <- lexSource "case subject."
   case parseExpressionTokensDetailed Set.empty [] tokens of
     Left failure -> do
-      assertEqual "missing case body span" (Just (SourceSpan 1 11)) (parserFailureSpan failure)
+      assertEqual "missing case body span" (Just (SourceSpan 1 13)) (parserFailureSpan failure)
       assertEqual
         "missing case body reason"
         (ExpectedSyntax "'{'" (ParserFoundToken TDot "."))

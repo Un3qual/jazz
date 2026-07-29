@@ -106,11 +106,11 @@ testParsesIfApplicationConditionBoundary =
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SEIf (SEApply (SEVar "predicate") (SEVar "value")) (SEVar "yes") (SEVar "no"))
+                (SEIf (SEApply (SEVar "predicate") (SEVar "subject")) (SEVar "yes") (SEVar "no"))
             ]
         )
     )
-    (parseSurfaceProgram "x = if predicate value then yes else no.")
+    (parseSurfaceProgram "x = if predicate subject then yes else no.")
 
 testRejectsMissingThen :: IO ()
 testRejectsMissingThen =

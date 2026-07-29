@@ -69,7 +69,7 @@ testSourceInstantiatesSignedGenericAdtSchemesPerUse =
     ( """
     data Box a = Box a.
     keep :: Box(a) -> Box(a).
-    keep = \\(value) -> value.
+    keep = \\(candidate) -> candidate.
     intBox = keep (Box 1).
     boolBox = keep (Box True).
     """
@@ -123,8 +123,8 @@ testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
   impl Eq(Int) { }.
   id :: @{Eq(a)}: a -> a.
   id = \\(x) -> x.
-  value = id @Int 1.
-  value.
+  candidate = id @Int 1.
+  candidate.
   """
 
 testSourceAppliesExplicitNamedTypeApplication :: IO ()
@@ -133,8 +133,8 @@ testSourceAppliesExplicitNamedTypeApplication =
     """
     data Box a = Box a.
     identity :: a -> a.
-    identity = \\(value) -> value.
-    value = identity @Box(Char) (Box 'x').
+    identity = \\(candidate) -> candidate.
+    result = identity @Box(Char) (Box 'x').
     """
 
 testSourceAppliesNestedExplicitNamedTypeApplication :: IO ()
@@ -144,8 +144,8 @@ testSourceAppliesNestedExplicitNamedTypeApplication =
     data IOError = IOError.
     data Result a b = Ok a | Err b.
     identity :: a -> a.
-    identity = \\(value) -> value.
-    value = identity @Result(IOError, Text) (Err \"bad\").
+    identity = \\(candidate) -> candidate.
+    result = identity @Result(IOError, Text) (Err \"bad\").
     """
     )
 
@@ -156,8 +156,8 @@ testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
   impl Eq(Int) { }.
   choose :: @{Eq(b)}: b -> a -> b.
   choose = \\(x, y) -> x.
-  value = choose @Int 1 True.
-  value.
+  candidate = choose @Int 1 True.
+  candidate.
   """
 
 testSourceAppliesExplicitTypeApplicationToInferredTypeOrder :: IO ()
@@ -168,8 +168,8 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
       Nothing
       ( """
       flip = \\(f, x, y) -> f y x.
-      value = flip @Int (\\(left, right) -> left + 1) True 2.
-      value.
+      candidate = flip @Int (\\(left, right) -> left + 1) True 2.
+      candidate.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -194,7 +194,7 @@ testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding =
     """
     inc :: Int -> Int.
     inc = \\(x) -> x + 1.
-    value = inc @Int 1.
+    candidate = inc @Int 1.
     """
     "explicit type application target must be a generalized binding"
 
@@ -206,7 +206,7 @@ testSourceRejectsExtraExplicitTypeApplicationArgument =
     impl Eq(Int) { }.
     id :: @{Eq(a)}: a -> a.
     id = \\(x) -> x.
-    value = id @Int @Bool 1.
+    candidate = id @Int @Bool 1.
     """
     "explicit type application target must be a generalized binding"
 

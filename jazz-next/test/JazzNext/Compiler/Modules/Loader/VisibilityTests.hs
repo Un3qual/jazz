@@ -341,7 +341,7 @@ testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
         x.
         """),
           ("src/Lib/Maybe.jz", """
-          data Maybe = Just value.
+          data Maybe = Just Int.
           x = 1.
           Just 1.
           """)
@@ -399,7 +399,7 @@ testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
         1.
         """),
           ("src/Lib/Maybe.jz", """
-          data Maybe = Just value.
+          data Maybe = Just Int.
           x = Just 1.
           """)
         ]
@@ -508,7 +508,7 @@ testRunModuleGraphVisibleExportRewritesHiddenConstructorDependency = do
         x.
         """),
           ("src/Lib/Maybe.jz", """
-          data Maybe = Just value.
+          data Maybe = Just Int.
           x = Just 1.
           """)
         ]
@@ -608,7 +608,7 @@ testRunModuleGraphQualifiedAliasDataConstructorLookup = do
         import Lib::Maybe as Maybe.
         Maybe::Just 1.
         """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+          ("src/Lib/Maybe.jz", "data Maybe = Just Int | Nothing.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -654,9 +654,9 @@ testRunModuleGraphResolvesAliasQualifiedTypesInSignatures = do
             """
             module App::Main {
             import Lib::Box as B.
-            value :: B::Box(Int).
-            value = B::Box 1.
-            value.
+            boxed :: B::Box(Int).
+            boxed = B::Box 1.
+            boxed.
             }
             """
           ),
@@ -726,9 +726,9 @@ testRunModuleGraphResolvesLowercaseAliasZeroArityType = do
             """
             module App::Main {
             import Lib::Token as t.
-            value :: t::Token.
-            value = t::Token.
-            value.
+            token :: t::Token.
+            token = t::Token.
+            token.
             }
             """
           ),
@@ -765,7 +765,7 @@ testRunModuleGraphAcceptsLowercaseAliasImplTarget = do
             mark :: a -> Bool.
             }.
             impl Marker(t::Token) {
-            mark = \\(value) -> True.
+            mark = \\(ignored) -> True.
             }.
             Marker::mark t::Token.
             }
@@ -800,9 +800,9 @@ testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath = do
             """
             module App::Main {
             import lib::Types.
-            value :: Box(Int).
-            value = Box 1.
-            value.
+            boxed :: Box(Int).
+            boxed = Box 1.
+            boxed.
             }
             """
           ),
@@ -846,7 +846,7 @@ testRunModuleGraphTransportsSignedGenericNamedSchemes = do
             module Lib::Box {
             data Box a = Box a.
             keep :: Box(a) -> Box(a).
-            keep = \\(value) -> value.
+            keep = \\(box) -> box.
             }
             """
           )
@@ -871,14 +871,14 @@ testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
         [ ("src/App/Main.jz", """
         import App::UsesMaybe.
         import Lib::Maybe (Just).
-        data Pair = Just left right.
+        data Pair = Just Int Int.
         Just 1 2.
         """),
           ("src/App/UsesMaybe.jz", """
           import Lib::Maybe as Maybe.
           use = 0.
           """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value.")
+          ("src/Lib/Maybe.jz", "data Maybe = Just Int.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -930,9 +930,9 @@ testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge = do
         Maybe::fromDefault.
         """),
           ("src/Lib/Maybe.jz", """
-          data Maybe = Just value | Nothing.
+          data Maybe = Just Int | Nothing.
           default = Just 7.
-          fromDefault = case default { | Just value -> value | Nothing -> 0 }.
+          fromDefault = case default { | Just item -> item | Nothing -> 0 }.
           """)
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -954,12 +954,12 @@ testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
       Map.fromList
         [ ("src/App/Main.jz", """
         import Lib::Maybe.
-        value = Also 41.
-        case value { | Just item | Also item -> item + 1 | Nothing -> 0 }.
+        selected = Also 41.
+        case selected { | Just item | Also item -> item + 1 | Nothing -> 0 }.
         """),
           ("src/Lib/Maybe.jz", """
           module Lib::Maybe {
-          data Maybe = Nothing | Just value | Also value.
+          data Maybe = Nothing | Just Int | Also Int.
           }
           """)
         ]
@@ -987,7 +987,7 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
         """),
           ("src/Lib/Maybe.jz", """
           module Lib::Maybe {
-          data Maybe = Nothing | Just value | Also value.
+          data Maybe = Nothing | Just Int | Also Int.
           }
           """)
         ]
@@ -1255,7 +1255,7 @@ testRunModuleGraphOrdinaryBindingShadowsLocalConstructor = do
       Map.fromList
         [ ("src/App/Main.jz", """
         module App::Main {
-        data Maybe = Just value.
+        data Maybe = Just Int.
         Just = 1.
         Just.
         }
@@ -1286,7 +1286,7 @@ testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor = do
         """),
           ("src/Lib/Maybe.jz", """
           module Lib::Maybe {
-          data Maybe = Just value.
+          data Maybe = Just Int.
           Just = 1.
           }
           """)
@@ -1357,7 +1357,7 @@ testCompileModuleGraphSupportsOpaqueExportedType = do
         use :: a -> Bool.
         }.
         impl Use(Box) {
-        use = \\(value) -> True.
+        use = \\(ignored) -> True.
         }.
         Use::use boxed.
         }
@@ -1380,8 +1380,8 @@ testRunModuleGraphImportsSelectedGroupedConstructor = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. value = First 41. case value { | First item -> item | _ -> 0 }. }"),
-          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. selected = First 41. case selected { | First item -> item | _ -> 0 }. }"),
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First Int | Second Int. }")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1395,7 +1395,7 @@ testCompileModuleGraphHidesUnselectedGroupedConstructor = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. Second 41. }"),
-          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First Int | Second Int. }")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

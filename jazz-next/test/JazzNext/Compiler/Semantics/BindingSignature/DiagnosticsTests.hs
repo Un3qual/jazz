@@ -199,8 +199,8 @@ testSourceRejectsUnknownNamedSignatureType :: IO ()
 testSourceRejectsUnknownNamedSignatureType =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    value :: Unknown.
-    value = 1.
+    candidate :: Unknown.
+    candidate = 1.
     """
     "unknown named type 'Unknown'"
 
@@ -209,8 +209,8 @@ testSourceRejectsNamedSignatureTypeArityMismatch =
   assertSourceSingleErrorContainsWithoutPrelude
     """
     data Box a = Box a.
-    value :: Box(Int, Bool).
-    value = Box 1.
+    candidate :: Box(Int, Bool).
+    candidate = Box 1.
     """
     "type 'Box' expects 1 argument(s), found 2"
 
@@ -219,8 +219,8 @@ testSourceRejectsPartialNamedSignatureType =
   assertSourceSingleErrorContainsWithoutPrelude
     """
     data Box a = Box a.
-    value :: Box.
-    value = Box 1.
+    candidate :: Box.
+    candidate = Box 1.
     """
     "type 'Box' expects 1 argument(s), found 0"
 
@@ -228,8 +228,8 @@ testSourcePreservesLocalTypeDeclarationOrder :: IO ()
 testSourcePreservesLocalTypeDeclarationOrder =
   assertSourceSingleErrorContainsWithoutPrelude
     """
-    value :: Box(Int).
-    value = 1.
+    candidate :: Box(Int).
+    candidate = 1.
     data Box a = Box a.
     """
     "unknown named type 'Box'"
@@ -490,7 +490,7 @@ testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding :: IO ()
 testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding =
   assertSourceSingleErrorContains """
   x :: Int.
-  id = \\(value) -> value.
+  id = \\(candidate) -> candidate.
   intValue = id 1.
   boolValue = id True.
   """ "E1003"

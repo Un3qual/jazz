@@ -162,8 +162,8 @@ testSourceTypesRecursiveGuardsAgainstPriorRebinding =
   assertSourceOk """
   f = \\(x) -> x.
   f = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.
-  value = f 1.
-  value.
+  candidate = f 1.
+  candidate.
   """
 
 testSourceDefersPartialRecursivePreviewsPastInterveningDependencies :: IO ()
