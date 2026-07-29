@@ -1,0 +1,54 @@
+module MergeSort (value mergeSort, value mergeSortSummary) {
+  import List.
+
+  splitAlternating [] = ([], []).
+  splitAlternating [item] = ([item], []).
+  splitAlternating [left | [right | rest]] =
+    case splitAlternating rest {
+      | (lefts, rights) ->
+        (listPrepend left lefts, listPrepend right rights)
+    }.
+
+  merge [] rights = rights.
+  merge lefts [] = lefts.
+  merge [left | lefts] [right | rights] =
+    if left <= right then
+      listPrepend left $ merge lefts (listPrepend right rights)
+    else
+      listPrepend right $ merge (listPrepend left lefts) rights.
+
+  mergeSort [] = [].
+  mergeSort [item] = [item].
+  mergeSort items =
+    case splitAlternating items {
+      | (lefts, rights) -> merge (mergeSort lefts) (mergeSort rights)
+    }.
+
+  remainder number divisor =
+    if number < divisor then number else remainder (number - divisor) divisor.
+
+  nextItem index = remainder (index * 73 + 19) 211.
+
+  generateFrom index upper =
+    if index > upper then
+      []
+    else
+      listPrepend (nextItem index) $ generateFrom (index + 1) upper.
+
+  firstItem [item | _] = item.
+  lastItem [item] = item.
+  lastItem [_ | rest] = lastItem rest.
+
+  weightedChecksumFrom _ [] total = total.
+  weightedChecksumFrom index [item | rest] total =
+    weightedChecksumFrom (index + 1) rest (total + index * item).
+
+  mergeSortSummary =
+    case mergeSort (generateFrom 1 128) {
+      | sorted ->
+        ( listLength sorted,
+          firstItem sorted,
+          lastItem sorted,
+          weightedChecksumFrom 1 sorted 0 )
+    }.
+}
