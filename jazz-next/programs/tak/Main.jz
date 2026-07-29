@@ -1,0 +1,5 @@
+module Main {
+  import Tak.
+
+  tak 12 6 0.
+}
