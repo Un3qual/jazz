@@ -315,7 +315,7 @@ validModulePathSegment segment =
     && validIdentifierSpelling segment
   where
     moduleKeywords =
-      ["module", "import", "as", "data", "if", "then", "else", "case"]
+      ["module", "import", "as", "data", "value", "if", "then", "else", "case"]
 
 validIdentifierSpelling :: Text -> Bool
 validIdentifierSpelling identifier =
@@ -4207,6 +4207,7 @@ validSourceIdentifier identifier =
         "import",
         "as",
         "data",
+        "value",
         "if",
         "then",
         "else",

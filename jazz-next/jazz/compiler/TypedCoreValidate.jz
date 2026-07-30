@@ -575,11 +575,11 @@ module TypedCoreValidate (
 
   validSourceIdentifier :: Text -> Bool.
   validSourceIdentifier = \(identifier) ->
-    if listContains identifier ["module", "import", "as", "data", "if", "then", "else", "case", "True", "False"] then False else validIdentifierSpelling identifier.
+    if listContains identifier ["module", "import", "as", "data", "value", "if", "then", "else", "case", "True", "False"] then False else validIdentifierSpelling identifier.
 
   validModuleIdentifier :: Text -> Bool.
   validModuleIdentifier = \(identifier) ->
-    if listContains identifier ["module", "import", "as", "data", "if", "then", "else", "case"] then False else validIdentifierSpelling identifier.
+    if listContains identifier ["module", "import", "as", "data", "value", "if", "then", "else", "case"] then False else validIdentifierSpelling identifier.
 
   validSpan :: TypedSpan -> Bool.
   validSpan = \(span) -> case span {
