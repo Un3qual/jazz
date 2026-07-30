@@ -3,6 +3,7 @@ module ParserTypes (
   type SurfacePattern(..),
   type SurfaceCaseArm(..),
   type SurfaceLambdaParameter(..),
+  type SurfacePatternLambdaClause(..),
   type SurfaceDataConstructor(..),
   type SurfaceExpr(..),
   type SurfaceNumericType(..),
@@ -58,6 +59,9 @@ module ParserTypes (
 
   data SurfaceLambdaParameter = IdentifierParameter Text | PatternParameter SurfacePattern.
 
+  data SurfacePatternLambdaClause =
+    SurfacePatternLambdaClause CanonicalSpan NonEmpty(SurfacePattern) SurfaceExpr.
+
   data SurfaceDataConstructor = SurfaceDataConstructor Text [SurfaceSignatureType].
 
   data SurfaceExpr
@@ -65,6 +69,7 @@ module ParserTypes (
     | VariableExpression Text
     | QualifiedVariableExpression Text Text
     | LambdaExpression NonEmpty(SurfaceLambdaParameter) SurfaceExpr
+    | PatternLambdaExpression NonEmpty(SurfacePatternLambdaClause)
     | OperatorValueExpression Text
     | ListExpression [SurfaceExpr]
     | TupleExpression [SurfaceExpr]
@@ -194,7 +199,9 @@ module ParserTypes (
     | DeclarationHeaderArguments ParserDeclarationKind
     | AbstractionSyntax Text.
 
-  data ParserPatternFailure = ConsLikeListPatternHeadCount.
+  data ParserPatternFailure
+    = ConsLikeListPatternHeadCount
+    | PatternLambdaClauseArityMismatch Int Int.
 
   data ParserDeclarationFailure
     = BuiltinOperatorCannotBeRedeclared Text

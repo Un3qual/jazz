@@ -348,7 +348,7 @@ data ParserPatternFailure
   | PatternLambdaClauseArityMismatch Int Int.
 ```
 
-- [ ] **Step 1: Add parity failures first**
+- [x] **Step 1: Add parity failures first**
 
 In `JazzParserControlFlowPatternsSpec`, register:
 
@@ -370,7 +370,7 @@ Add `PatternLambdaExpression`, `SurfacePatternLambdaClause`, and
 `PatternLambdaClauseArityMismatch` to
 `CanonicalParserComparisonSpec`'s complete schema/failure inventories.
 
-- [ ] **Step 2: Run RED parity tests**
+- [x] **Step 2: Run RED parity tests**
 
 Run:
 
@@ -386,7 +386,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 Expected: FAIL because the Jazz schema/parser/lowerer cannot construct or
 lower the new surface expression.
 
-- [ ] **Step 3: Mirror the schema and canonical adapters**
+- [x] **Step 3: Mirror the schema and canonical adapters**
 
 Add the exact Jazz types above to `ParserTypes.jz`. Update the Haskell runtime
 value adapters in `CanonicalParserComparison.hs`, `JazzParserParity.hs`, and
@@ -402,7 +402,7 @@ Preserve clause order, source spans, parameter order, and body structure.
 Update all complete constructor and failure inventories rather than adding
 fallback rendering.
 
-- [ ] **Step 4: Implement Jazz-authored parsing**
+- [x] **Step 4: Implement Jazz-authored parsing**
 
 In `ParserExpression.jz`, mirror the hosted helpers:
 
@@ -418,7 +418,7 @@ In `ParserExpression.jz`, mirror the hosted helpers:
 Reuse existing token-parser combinators and boundary scanners. Do not parse
 named declarations or add an equation statement.
 
-- [ ] **Step 5: Implement Jazz-authored lowering**
+- [x] **Step 5: Implement Jazz-authored lowering**
 
 In `CoreLower.jz`, add helpers that:
 
@@ -434,13 +434,13 @@ Update profile accounting and qualification traversal for
 `PatternLambdaExpression`. Keep the result in
 `ControlFlowPatternsProfile`.
 
-- [ ] **Step 6: Run GREEN parity tests**
+- [x] **Step 6: Run GREEN parity tests**
 
 Run the same command from Step 2.
 
 Expected: PASS with exact repeated hosted/Jazz-authored results.
 
-- [ ] **Step 7: Run adjacent bootstrap suites**
+- [x] **Step 7: Run adjacent bootstrap suites**
 
 Run:
 
@@ -455,7 +455,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit the Jazz-authored mirror**
+- [x] **Step 8: Commit the Jazz-authored mirror**
 
 ```bash
 git add jazz-next/jazz/compiler \

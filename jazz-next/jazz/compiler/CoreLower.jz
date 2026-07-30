@@ -7,7 +7,7 @@ module CoreLower (
 ) {
   import CoreTypes.
   import LexerTypes (CanonicalSourcePath, CanonicalSpan).
-  import List (listPrepend, listReverse).
+  import List (listLength, listPrepend, listReverse).
   import Maybe.
   import NonEmpty (NonEmpty).
   import ParserTypes.
@@ -385,6 +385,83 @@ module CoreLower (
       lowerLambdaParameter 1 first (lowerLambdaParameterTail 2 rest loweredBody)
   }.
 
+  patternLambdaClausePattern :: NonEmpty(SurfacePattern) -> CorePattern.
+  patternLambdaClausePattern = \(patterns) -> case patterns {
+    | NonEmpty first rest -> case rest {
+      | [] -> lowerPattern first
+      | other -> CoreTuplePattern (lowerPatterns (listPrepend first rest))
+    }
+  }.
+
+  patternLambdaArgumentNamesFrom :: Int -> Int -> [CoreName].
+  patternLambdaArgumentNamesFrom = \(index, remaining) ->
+    if remaining == 0 then [] else
+      listPrepend
+        (CoreGeneratedName (CoreLambdaPatternArgument index))
+        (patternLambdaArgumentNamesFrom (index + 1) (remaining - 1)).
+
+  lowerPatternLambdaArguments :: [CoreName] -> [CoreExpr].
+  lowerPatternLambdaArguments = \(argumentNames) -> case argumentNames {
+    | [] -> []
+    | [first | rest] ->
+      listPrepend
+        (CoreVariableExpression first)
+        (lowerPatternLambdaArguments rest)
+  }.
+
+  patternLambdaScrutinee :: [CoreName] -> CoreExpr.
+  patternLambdaScrutinee = \(argumentNames) -> case argumentNames {
+    | [only] -> CoreVariableExpression only
+    | other -> CoreTupleExpression (lowerPatternLambdaArguments argumentNames)
+  }.
+
+  wrapPatternLambdaArguments :: [CoreName] -> CoreExpr -> CoreExpr.
+  wrapPatternLambdaArguments = \(argumentNames, body) -> case argumentNames {
+    | [] -> body
+    | [first | rest] ->
+      CoreLambdaExpression first (wrapPatternLambdaArguments rest body)
+  }.
+
+  lowerPatternLambdaClause :: SurfacePatternLambdaClause -> (LoweringProfile, CoreCaseArm).
+  lowerPatternLambdaClause = \(clause) -> case clause {
+    | SurfacePatternLambdaClause span patterns body -> case lowerProfiledExpression body {
+      | (required, loweredBody) ->
+        (required, CoreCaseArm (patternLambdaClausePattern patterns) Nothing loweredBody)
+    }
+  }.
+
+  lowerPatternLambdaClausesFrom :: [SurfacePatternLambdaClause] -> [CoreCaseArm] -> LoweringProfile -> (LoweringProfile, [CoreCaseArm]).
+  lowerPatternLambdaClausesFrom = \(clauses, reversed, required) -> case clauses {
+    | [] -> (required, listReverse reversed)
+    | [first | rest] -> case lowerPatternLambdaClause first {
+      | (clauseRequired, lowered) ->
+        lowerPatternLambdaClausesFrom
+          rest
+          (listPrepend lowered reversed)
+          (maximumProfile required clauseRequired)
+    }
+  }.
+
+  lowerPatternLambda :: NonEmpty(SurfacePatternLambdaClause) -> (LoweringProfile, CoreExpr).
+  lowerPatternLambda = \(clauses) -> case clauses {
+    | NonEmpty first rest -> case first {
+      | SurfacePatternLambdaClause span patterns body -> {
+        arity = case patterns { | NonEmpty firstPattern remainingPatterns -> 1 + listLength remainingPatterns }.
+        argumentNames = patternLambdaArgumentNamesFrom 1 arity.
+        case lowerPatternLambdaClausesFrom (listPrepend first rest) [] FoundationProfile {
+          | (required, loweredClauses) ->
+            ( maximumProfile ControlFlowPatternsProfile required,
+              wrapPatternLambdaArguments
+                argumentNames
+                (CorePatternCaseExpression
+                  (patternLambdaScrutinee argumentNames)
+                  loweredClauses)
+            )
+        }.
+      }
+    }
+  }.
+
   lowerProfiledExpression :: SurfaceExpr -> (LoweringProfile, CoreExpr).
   lowerProfiledExpression = \(expression) -> case expression {
     | LiteralExpression literal ->
@@ -399,6 +476,7 @@ module CoreLower (
           lowerLambdaParameters parameters loweredBody
         )
     }
+    | PatternLambdaExpression clauses -> lowerPatternLambda clauses
     | OperatorValueExpression symbol ->
       (FoundationProfile, CoreOperatorValueExpression symbol)
     | ListExpression elements -> case lowerExpressions elements {

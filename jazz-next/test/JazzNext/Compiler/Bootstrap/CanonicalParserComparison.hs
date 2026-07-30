@@ -31,6 +31,7 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
     canonicalSourcePathRuntimeValue,
     canonicalSpanRuntimeValue,
     canonicalizeSpan,
+    runtimeIntValue,
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
@@ -170,6 +171,15 @@ surfaceLambdaParameterRuntimeValue parameter =
     SurfaceLambdaIdentifier name -> canonicalConstructor "IdentifierParameter" [identifierRuntimeValue name]
     SurfaceLambdaPattern patternValue -> canonicalConstructor "PatternParameter" [surfacePatternRuntimeValue patternValue]
 
+surfacePatternLambdaClauseRuntimeValue :: SurfacePatternLambdaClause -> RuntimeValue
+surfacePatternLambdaClauseRuntimeValue (SurfacePatternLambdaClause spanValue patterns body) =
+  canonicalConstructor
+    "SurfacePatternLambdaClause"
+    [ canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
+      nonEmptyRuntimeValue surfacePatternRuntimeValue patterns,
+      surfaceExprRuntimeValue body
+    ]
+
 surfaceDataConstructorRuntimeValue :: SurfaceDataConstructor -> RuntimeValue
 surfaceDataConstructorRuntimeValue (SurfaceDataConstructor name arguments) =
   canonicalConstructor
@@ -189,6 +199,10 @@ surfaceExprRuntimeValue expression =
       canonicalConstructor
         "LambdaExpression"
         [nonEmptyRuntimeValue surfaceLambdaParameterRuntimeValue parameters, surfaceExprRuntimeValue body]
+    SEPatternLambda clauses ->
+      canonicalConstructor
+        "PatternLambdaExpression"
+        [nonEmptyRuntimeValue surfacePatternLambdaClauseRuntimeValue clauses]
     SEOperatorValue symbol -> canonicalConstructor "OperatorValueExpression" [VText symbol]
     SEList elements -> canonicalConstructor "ListExpression" [listRuntimeValue surfaceExprRuntimeValue elements]
     SETuple elements -> canonicalConstructor "TupleExpression" [listRuntimeValue surfaceExprRuntimeValue elements]
@@ -538,8 +552,14 @@ parserUnsupportedFeatureRuntimeValue feature =
     AbstractionSyntax syntax -> canonicalConstructor "AbstractionSyntax" [VText syntax]
 
 parserPatternFailureRuntimeValue :: ParserPatternFailure -> RuntimeValue
-parserPatternFailureRuntimeValue ConsLikeListPatternHeadCount =
-  canonicalNullaryConstructor "ConsLikeListPatternHeadCount"
+parserPatternFailureRuntimeValue failure =
+  case failure of
+    ConsLikeListPatternHeadCount ->
+      canonicalNullaryConstructor "ConsLikeListPatternHeadCount"
+    PatternLambdaClauseArityMismatch expected actual ->
+      canonicalConstructor
+        "PatternLambdaClauseArityMismatch"
+        [runtimeIntValue expected, runtimeIntValue actual]
 
 parserDeclarationFailureRuntimeValue :: ParserDeclarationFailure -> RuntimeValue
 parserDeclarationFailureRuntimeValue failure =

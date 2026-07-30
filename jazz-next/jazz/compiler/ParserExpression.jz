@@ -29,7 +29,7 @@ module ParserExpression (
     DotPunctuation,
     AtPunctuation
   ).
-  import List (listAll, listAny, listFoldLeft, listPrepend, listReverse).
+  import List (listAll, listAny, listFoldLeft, listLength, listMap, listPrepend, listReverse).
   import Maybe.
   import NonEmpty (NonEmpty).
   import ParserContext.
@@ -1084,6 +1084,124 @@ module ParserExpression (
     })
     tokenPeek.
 
+  lambdaParameterPattern :: SurfaceLambdaParameter -> SurfacePattern.
+  lambdaParameterPattern = \(parameter) -> case parameter {
+    | IdentifierParameter name -> VariablePattern name
+    | PatternParameter pattern -> pattern
+  }.
+
+  lambdaParameterPatterns :: NonEmpty(SurfaceLambdaParameter) -> NonEmpty(SurfacePattern).
+  lambdaParameterPatterns = \(parameters) -> case parameters {
+    | NonEmpty first rest ->
+      NonEmpty (lambdaParameterPattern first) (listMap lambdaParameterPattern rest)
+  }.
+
+  nonEmptyLength :: NonEmpty(item) -> Int.
+  nonEmptyLength = \(items) -> case items {
+    | NonEmpty first rest -> 1 + listLength rest
+  }.
+
+  patternLambdaHeadEndsAtArrowFrom :: [CanonicalToken] -> Int -> Bool.
+  patternLambdaHeadEndsAtArrowFrom = \(tokens, depth) -> case tokens {
+    | [] -> False
+    | [token | rest] -> case canonicalTokenKind token {
+      | PunctuationKind LeftParenPunctuation ->
+        patternLambdaHeadEndsAtArrowFrom rest (depth + 1)
+      | PunctuationKind RightParenPunctuation -> if depth == 1 then case rest {
+        | [next | remaining] -> case canonicalTokenKind next {
+          | PunctuationKind ArrowPunctuation -> True
+          | other -> False
+        }
+        | [] -> False
+      } else patternLambdaHeadEndsAtArrowFrom rest (depth - 1)
+      | other -> patternLambdaHeadEndsAtArrowFrom rest depth
+    }
+  }.
+
+  patternLambdaClauseStarts :: [CanonicalToken] -> Bool.
+  patternLambdaClauseStarts = \(tokens) -> case tokens {
+    | [pipe | afterPipe] -> case canonicalTokenKind pipe {
+      | OperatorKind symbol -> if symbol == "|" then case afterPipe {
+        | [leftParen | afterLeftParen] -> case canonicalTokenKind leftParen {
+          | PunctuationKind LeftParenPunctuation ->
+            patternLambdaHeadEndsAtArrowFrom afterLeftParen 1
+          | other -> False
+        }
+        | [] -> False
+      } else False
+      | other -> False
+    }
+    | [] -> False
+  }.
+
+  patternLambdaStop :: ([CanonicalToken] -> Bool) -> [CanonicalToken] -> Bool.
+  patternLambdaStop = \(outerStop, tokens) ->
+    if outerStop tokens then True else patternLambdaClauseStarts tokens.
+
+  parsePatternLambdaClause :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser(SurfacePatternLambdaClause).
+  parsePatternLambdaClause = \(parseExpressionUntil, stop) -> tokenAndThen
+    (\(pipeToken) -> tokenAndThen
+      (\(current) -> case current {
+        | Just token -> case canonicalTokenKind token {
+          | PunctuationKind LeftParenPunctuation -> tokenKeepRight
+            (tokenPunctuation LeftParenPunctuation)
+            (tokenAndThen
+              (\(parameters) -> tokenKeepRight
+                (consumeCaseArrow (EndOfInputAfter "pattern-lambda clause head"))
+                (tokenAndThen
+                  (\(body) -> tokenSucceed
+                    (SurfacePatternLambdaClause
+                      (canonicalTokenSpan pipeToken)
+                      (lambdaParameterPatterns parameters)
+                      body))
+                  (parseExpressionUntil (\(tokens) -> patternLambdaStop stop tokens))))
+              parseLambdaParameters)
+          | other -> tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax "'('" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
+        }
+        | Nothing -> tokenFailAtSpan
+          (canonicalTokenSpan pipeToken)
+          (ExpectedSyntax "'('" (EndOfInputAfter "pattern-lambda clause introducer"))
+      })
+      tokenPeek)
+    tokenOperator.
+
+  collectPatternLambdaClauses :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> Int -> SurfacePatternLambdaClause -> [SurfacePatternLambdaClause] -> TokenParser(SurfaceExpr).
+  collectPatternLambdaClauses = \(parseExpressionUntil, stop, expectedArity, first, reversed) -> tokenAndThen
+    (\(remaining) -> if patternLambdaClauseStarts remaining then tokenAndThen
+      (\(next) -> case next {
+        | SurfacePatternLambdaClause span patterns body -> {
+          actualArity = nonEmptyLength patterns.
+          if actualArity == expectedArity then
+            collectPatternLambdaClauses
+              parseExpressionUntil
+              stop
+              expectedArity
+              first
+              (listPrepend next reversed)
+          else tokenFailAtSpan
+            span
+            (PatternFailure (PatternLambdaClauseArityMismatch expectedArity actualArity)).
+        }
+      })
+      (parsePatternLambdaClause parseExpressionUntil stop)
+    else tokenSucceed (PatternLambdaExpression (NonEmpty first (listReverse reversed))))
+    tokenRemaining.
+
+  parsePatternLambda :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr).
+  parsePatternLambda = \(parseExpressionUntil, stop) -> tokenAndThen
+    (\(first) -> case first {
+      | SurfacePatternLambdaClause span patterns body ->
+        collectPatternLambdaClauses
+          parseExpressionUntil
+          stop
+          (nonEmptyLength patterns)
+          first
+          []
+    })
+    (parsePatternLambdaClause parseExpressionUntil stop).
+
   parseLambdaBody :: (([CanonicalToken] -> Bool) -> TokenParser(SurfaceExpr)) -> ([CanonicalToken] -> Bool) -> TokenParser([SurfaceStatement]) -> CanonicalToken -> NonEmpty(SurfaceLambdaParameter) -> TokenParser(SurfaceExpr).
   parseLambdaBody = \(parseExpressionUntil, stop, parseBlock, lambdaToken, parameters) -> tokenAndThen
     (\(current) -> case current {
@@ -1107,6 +1225,11 @@ module ParserExpression (
   parseLambda = \(parseExpressionUntil, stop, parseBlock, lambdaToken) -> tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
+        | OperatorKind symbol -> if symbol == "|" then
+          parsePatternLambda parseExpressionUntil stop
+          else tokenFailAtSpan
+            (canonicalTokenSpan token)
+            (ExpectedSyntax "'(' after lambda introducer" (AtToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
         | PunctuationKind LeftParenPunctuation -> tokenKeepRight
           (tokenPunctuation LeftParenPunctuation)
           (tokenAndThen

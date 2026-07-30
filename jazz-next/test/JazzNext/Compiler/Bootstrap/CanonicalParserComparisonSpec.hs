@@ -162,10 +162,12 @@ testSurfaceInventory = do
           "OrPattern",
           "IdentifierParameter",
           "PatternParameter",
+          "SurfacePatternLambdaClause",
           "LiteralExpression",
           "VariableExpression",
           "QualifiedVariableExpression",
           "LambdaExpression",
+          "PatternLambdaExpression",
           "OperatorValueExpression",
           "ListExpression",
           "TupleExpression",
@@ -259,6 +261,17 @@ allExpressions =
     SEVar "value",
     SEQualifiedVar "Text" "length",
     SELambda (SurfaceLambdaIdentifier "value" :| [SurfaceLambdaPattern SPWildcard]) (SEVar "value"),
+    SEPatternLambda
+      ( SurfacePatternLambdaClause
+          span1
+          (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
+          (SEVar "fallback")
+          :| [ SurfacePatternLambdaClause
+                 span2
+                 (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
+                 (SEVar "item")
+             ]
+      ),
     SEOperatorValue "+",
     SEList [seInt 1],
     SETuple [seInt 1, seInt 2],
@@ -412,7 +425,8 @@ parserFailureInventory =
     ("ExpressionOperatorUse", UndeclaredOperator "+" OperatorUseInExpression),
     ("BindingOperatorUse", UndeclaredOperator "+" OperatorUseInBinding),
     ("SignatureOperatorUse", UndeclaredOperator "+" OperatorUseInSignature),
-    ("ConsLikeListPatternHeadCount", PatternFailure ConsLikeListPatternHeadCount)
+    ("ConsLikeListPatternHeadCount", PatternFailure ConsLikeListPatternHeadCount),
+    ("PatternLambdaClauseArityMismatch", PatternFailure (PatternLambdaClauseArityMismatch 1 2))
   ]
     <> [(expected, DeclarationFailure failure) | (expected, failure) <- declarationFailureInventory]
     <> [ ("TokenStreamParseFailure", InternalParserFailure TokenStreamParseFailure),
