@@ -163,7 +163,10 @@ Each blocked item should answer these questions:
 - Target paths: the ordered frontmatter list names every existing concrete
   ownership path. The plan's file/responsibility map and owning tasks fix the
   four exact new module/test paths, which the queue validator cannot list
-  before creation. Do not widen either set without a reviewed design amendment.
+  before creation. The approved forward signed-function visibility amendment
+  also owns the existing mirrored Haskell/Jazz typed-core validators and
+  contract spec named in frontmatter. Do not widen either set without a
+  reviewed design amendment.
 - Verification:
   `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures`;
   warning-clean serialized development build; serialized routine Cabal `all`;

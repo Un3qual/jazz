@@ -245,6 +245,15 @@ The producer treats the canonical root `EBlock` as the module scope. Nested
 Leading curried lambdas become one ordered lowered parameter list. Every
 parameter and result must have a concrete scalar type and recipe.
 
+Permanent typed-core validation predeclares a later same-module function only
+when a prior matching concrete monomorphic signature is present and the
+binding value has one or more leading typed lambdas. This narrow mirrored
+Haskell/Jazz amendment permits the required source-ordered forward acyclic
+call graph without exposing later scalar values, unsigned functions,
+generalized/evidence-bearing functions, or unrelated declarations. The fixed
+16-valid / 28-invalid typed-core contract manifest remains unchanged; one
+valid and two invalid supplemental visibility cases prove exact parity twice.
+
 A supported function:
 
 - is named by a resolved current-module value name;
@@ -405,6 +414,8 @@ Production changes are limited to:
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs` (new);
+- `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`;
+- `jazz-next/jazz/compiler/TypedCoreValidate.jz`;
 - `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs` (new); and
 - `jazz-next/jazz-next.cabal`.
 
@@ -413,7 +424,8 @@ Test ownership is limited to:
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
   (new); and
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
-  (new).
+  (new);
+- `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`.
 
 Coordination and status paths are:
 
@@ -427,9 +439,10 @@ Coordination and status paths are:
 - `jazz-next/README.md`.
 
 The implementation must not modify the permanent constructors in
-`TypedCore.hs` or `LoweredIR.hs`. A contract defect discovered during
-implementation stops the child for a reviewed design amendment rather than
-silently widening these target paths.
+`TypedCore.hs` or `LoweredIR.hs`. The reviewed forward signed-function
+visibility defect authorizes only the mirrored validator and supplemental
+parity paths named above. Any other contract defect stops the child for a
+reviewed design amendment rather than silently widening these target paths.
 
 No `.jz` compiler implementation is added in this child. Any Jazz source used
 as a fixture must use the canonical language surface already implemented; no

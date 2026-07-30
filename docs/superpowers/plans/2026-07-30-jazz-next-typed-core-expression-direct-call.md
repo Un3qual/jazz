@@ -22,6 +22,9 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs
+  - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
+  - jazz-next/jazz/compiler/TypedCoreValidate.jz
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all --jobs=1
@@ -579,11 +582,26 @@ syntax rule for any future fixture support.
 
 ### Task 3: Produce monomorphic functions and fully saturated direct calls
 
+> **Approved validator amendment (`2026-07-30`):** The permanent typed-core
+> validator previously validated acyclic statements from only the visible
+> source prefix, so an earlier signed function could not reference a later
+> signed function even though inference and the producer support forward
+> acyclic calls. Both permanent validators may now predeclare only a later
+> `TypedLetStatement` when it has a prior matching concrete monomorphic
+> `TypedSignatureStatement` and one or more leading `TypedLambdaExpr` nodes.
+> Later scalar values, unsigned functions, generalized/evidence-bearing
+> functions, and unrelated declarations remain source-order invisible.
+> Haskell and Jazz behavior plus supplemental parity fixtures must land
+> together; no permanent constructor changes are authorized.
+
 **Files:**
 
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs`
+- Modify: `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`
+- Modify: `jazz-next/jazz/compiler/TypedCoreValidate.jz`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
 
@@ -599,6 +617,52 @@ syntax rule for any future fixture support.
 - Rejects: callable values, partial/over-application, captures, recursion,
   generalized/evidence-bearing functions, imported calls, declared
   user-defined operator calls, and unsupported exports.
+
+- [ ] **Step 0: Lock mirrored forward signed-function visibility**
+
+  Add a supplemental three-case validator family outside the permanent fixed
+  16-valid / 28-invalid manifest:
+
+  ```text
+  forward-signed-function-visibility
+  forward-signed-scalar-invisibility
+  forward-unsigned-function-invisibility
+  ```
+
+  The valid case contains a prior concrete monomorphic signature for the later
+  function plus a leading lambda value. The two invalid cases prove that a
+  later signed scalar and a later function without a prior matching signature
+  still produce exact `TypedInvisibleName` failures.
+
+  Run the permanent typed-core suite before implementation:
+
+  ```bash
+  nix --extra-experimental-features 'nix-command flakes' develop -c \
+    cabal test --project-dir=jazz-next \
+      jazz-typed-core-contract-spec \
+      --jobs=1 --test-show-details=failures
+  ```
+
+  Expected: RED because both validators still reject the valid forward signed
+  function case.
+
+  Update `TypedCore/Validate.hs` and `TypedCoreValidate.jz` together. Derive
+  the eligible predeclarations from source-ordered statements; lookup indexes
+  may not determine output order. Preserve duplicate binder/declaration,
+  instantiation, evidence, interface, recursion, and ordinary source-order
+  checks. The three supplemental cases must compare complete Haskell/Jazz
+  results twice without changing the fixed 16/28 manifest counts.
+
+  Re-run the command. Expected: GREEN with exact mirrored results.
+
+  Commit:
+
+  ```bash
+  git add jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs \
+    jazz-next/jazz/compiler/TypedCoreValidate.jz \
+    jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
+  git commit -m "fix: validate forward signed function references"
+  ```
 
 - [ ] **Step 1: Add the eight remaining accepted fixtures**
 
@@ -724,6 +788,9 @@ syntax rule for any future fixture support.
   git add jazz-next/src/JazzNext/Compiler/TypeInference.hs \
     jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs \
     jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs \
+    jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs \
+    jazz-next/jazz/compiler/TypedCoreValidate.jz \
+    jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs \
     jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs \
     jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   git commit -m "feat: elaborate direct-call functions"
