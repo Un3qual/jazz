@@ -140,20 +140,25 @@ Each blocked item should answer these questions:
   separate structurally aligned typed tree with final semantic types,
   representation recipes, instantiations, evidence, and resolved identities
   while preserving canonical core and the interpreter boundary.
-- Smallest unblocker: design the first typed-core expression-production and
-  closed-scalar/direct-call lowering child against the landed contracts.
-- Decision needed: accept the exact producer/lowerer boundary, target paths,
-  fixture inventory, and verification contract before promotion.
+- Smallest unblocker: review and approve
+  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, whose
+  architecture and bounded first profile were approved in discussion on
+  `2026-07-30`.
+- Decision needed: accept the complete written producer/lowerer boundary, exact
+  target paths, fixed 16-accepted / 20-rejected fixture inventory, non-goals,
+  and verification contract before implementation planning and promotion.
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001`.
-  The contract
-  foundation and pre-bootstrap language-quality gate are complete; this
-  candidate is design-only until the producer/lowerer boundary, exact target
-  paths, fixture inventory, and focused verification are approved.
-- Target paths: must be fixed by the next reviewed producer/lowerer design; do
-  not infer them from the contract-foundation modules alone.
+  The contract foundation and pre-bootstrap language-quality gate are complete.
+  The written design now fixes an opt-in single-pass stage-0 producer, one
+  resolved-module scalar/direct-call profile, structured unsupported outcomes,
+  exact target paths, fixtures, and verification. It remains design-only until
+  written review.
+- Target paths: fixed by
+  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`; do not
+  widen them during implementation without a reviewed design amendment.
 - Verification: the completed foundation used exact focused parity,
   warning-clean development build, routine bounded Cabal `all`, package,
   queue/docs, and whitespace checks.

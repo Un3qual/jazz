@@ -17,9 +17,11 @@ algorithmic workloads. Haskell-style function equations were removed from both
 frontend implementations and the authored corpus.
 `Ready Now` remains empty. Typed-core expression production plus
 closed-scalar/direct-call lowering is still the next design and implementation
-gate and the sole `Next Curation Target`; inference production, core-to-IR
-lowering, LLVM, object/link, and native-runtime implementation remain
-unpromoted.
+gate and the sole `Next Curation Target`. Its architecture and first-profile
+boundary were approved in discussion on `2026-07-30`; the complete written
+design is awaiting review before implementation planning or promotion.
+Inference production, core-to-IR lowering, LLVM, object/link, and
+native-runtime implementation remain unpromoted.
 
 ## Next Curation Target
 
@@ -34,7 +36,7 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001` | `docs` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The typed-core and lowered-IR schemas plus the pre-bootstrap language-quality gate are complete; the next bounded step is to lock how typed expressions are produced and how the first closed-scalar/direct-call slice lowers. | `docs/superpowers/specs/2026-07-22-jazz-next-typed-core-elaboration-design.md`, `docs/superpowers/specs/2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md`, planned typed-core expression/direct-call design | `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh` | Write and obtain approval for one design that fixes the producer/lowerer boundary, exact target paths, fixture inventory, non-goals, and focused verification before promoting implementation. |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001` | `docs` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The typed-core and lowered-IR schemas plus the pre-bootstrap language-quality gate are complete. The architecture and bounded first profile are approved; written review is the remaining gate before implementation planning. | `docs/superpowers/specs/2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`, `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md` | `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh`; `git diff --check` | Obtain written approval, create the exact implementation plan named by the design, and promote only `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`. |
 
 ## Blocked
 

@@ -20,7 +20,9 @@ valid and 31 invalid fixtures. The typed-core contract foundation completed on
 `2026-07-22`: matching Haskell/Jazz schemas and complete validators have exact
 repeated parity over 16 valid and 28 invalid fixtures. Inference does not yet
 produce typed core, and no core-to-IR lowerer exists. Typed-core expression
-production plus closed-scalar/direct-call lowering is the next design gate;
+production plus closed-scalar/direct-call lowering is the next design gate.
+Its opt-in single-pass architecture and bounded first profile were approved in
+discussion on `2026-07-30`; the complete written design is awaiting review.
 LLVM, object/link, and native-runtime stages remain separate unpromoted gates.
 
 ## Goal
@@ -486,8 +488,12 @@ and validator; `jazz-next/jazz/compiler/TypedCoreTypes.jz` and
 Its checked adapter and 16-valid / 28-invalid fixed corpus prove exact complete
 ordered parity for all 44 fixtures twice. Inference does not yet produce typed
 core, and no core-to-IR lowerer exists. Typed-core expression production plus
-closed-scalar/direct-call lowering is the next design gate; LLVM, object/link,
-and native-runtime implementation remain unpromoted.
+closed-scalar/direct-call lowering is the next design gate. The proposed
+`2026-07-30-jazz-next-typed-core-expression-direct-call-design.md` selects an
+opt-in single-pass stage-0 producer and one resolved-module scalar/direct-call
+lowerer without changing normal compile/run behavior; written review remains
+required before implementation planning. LLVM, object/link, and native-runtime
+implementation remain unpromoted.
 
 ## Non-Goals
 
