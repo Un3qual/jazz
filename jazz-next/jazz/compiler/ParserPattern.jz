@@ -1,7 +1,6 @@
 module ParserPattern (
   value parseCasePattern,
   value parseCaseArmPattern,
-  value parseFunctionHeadPattern,
   value parseLambdaParameter
 ) {
   import Char (charIsUpper).
@@ -280,23 +279,6 @@ module ParserPattern (
           (ExpectedSyntax "case pattern" (FoundToken (canonicalTokenKind token) (canonicalTokenLexeme token)))
       }
       | Nothing -> tokenFailAt Nothing (ExpectedSyntax "case pattern" EndOfInput)
-    })
-    tokenPeek.
-
-  parseFunctionHeadPattern :: TokenParser(SurfacePattern).
-  parseFunctionHeadPattern = tokenAndThen
-    (\(current) -> case current {
-      | Just token -> case canonicalTokenKind token {
-        | IdentifierKind name -> if identifierStartsUpper name then
-          if name == "True" then parseCasePattern
-          else if name == "False" then parseCasePattern
-          else tokenKeepRight
-            tokenIdentifier
-            (tokenSucceed (ConstructorPattern name []))
-          else parseCasePattern
-        | other -> parseCasePattern
-      }
-      | Nothing -> parseCasePattern
     })
     tokenPeek.
 

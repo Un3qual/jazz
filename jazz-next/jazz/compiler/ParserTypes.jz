@@ -4,7 +4,6 @@ module ParserTypes (
   type SurfaceCaseArm(..),
   type SurfaceLambdaParameter(..),
   type SurfaceDataConstructor(..),
-  type SurfaceFunctionClause(..),
   type SurfaceExpr(..),
   type SurfaceNumericType(..),
   type SurfaceSignaturePayload(..),
@@ -60,9 +59,6 @@ module ParserTypes (
   data SurfaceLambdaParameter = IdentifierParameter Text | PatternParameter SurfacePattern.
 
   data SurfaceDataConstructor = SurfaceDataConstructor Text [SurfaceSignatureType].
-
-  data SurfaceFunctionClause
-    = SurfaceFunctionClause CanonicalSpan [SurfacePattern] SurfaceExpr.
 
   data SurfaceExpr
     = LiteralExpression SurfaceLiteral
@@ -138,7 +134,6 @@ module ParserTypes (
 
   data SurfaceStatement
     = LetStatement Text CanonicalSpan SurfaceExpr
-    | FunctionStatement Text CanonicalSpan NonEmpty(SurfaceFunctionClause)
     | SignatureStatement Text CanonicalSpan SurfaceSignaturePayload
     | DataStatement CanonicalSpan Text [Text] [SurfaceDataConstructor]
     | ClassStatement CanonicalSpan Text [Text] [SurfaceClassMethodSignature]
@@ -223,7 +218,6 @@ module ParserTypes (
     | ClassSupportsExactlyOneParameter
     | ClassParameterMustBeLowercase
     | UndeclaredConstructorTypeParameter Text Text
-    | FunctionClauseArityMismatch Text Int Int
     | ConstructorArgumentDelimiterMismatch Text
     | ConstructorExportGroupRequiresAll
     | ModuleMustBeFirstTopLevelForm.

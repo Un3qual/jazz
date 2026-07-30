@@ -31,7 +31,6 @@ import JazzNext.Compiler.Bootstrap.CanonicalValue
     canonicalSourcePathRuntimeValue,
     canonicalSpanRuntimeValue,
     canonicalizeSpan,
-    runtimeIntValue,
   )
 import JazzNext.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
@@ -176,15 +175,6 @@ surfaceDataConstructorRuntimeValue (SurfaceDataConstructor name arguments) =
   canonicalConstructor
     "SurfaceDataConstructor"
     [identifierRuntimeValue name, listRuntimeValue surfaceSignatureTypeRuntimeValue arguments]
-
-surfaceFunctionClauseRuntimeValue :: SurfaceFunctionClause -> RuntimeValue
-surfaceFunctionClauseRuntimeValue (SurfaceFunctionClause spanValue patterns body) =
-  canonicalConstructor
-    "SurfaceFunctionClause"
-    [ canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
-      listRuntimeValue surfacePatternRuntimeValue patterns,
-      surfaceExprRuntimeValue body
-    ]
 
 surfaceExprRuntimeValue :: SurfaceExpr -> RuntimeValue
 surfaceExprRuntimeValue expression =
@@ -337,13 +327,6 @@ surfaceStatementRuntimeValue statement =
         [ identifierRuntimeValue name,
           canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
           surfaceExprRuntimeValue expression
-        ]
-    SSFunction name spanValue clauses ->
-      canonicalConstructor
-        "FunctionStatement"
-        [ identifierRuntimeValue name,
-          canonicalSpanRuntimeValue (canonicalizeSpan spanValue),
-          nonEmptyRuntimeValue surfaceFunctionClauseRuntimeValue clauses
         ]
     SSSignature name spanValue payload ->
       canonicalConstructor
@@ -592,10 +575,6 @@ parserDeclarationFailureRuntimeValue failure =
     ClassParameterMustBeLowercase -> canonicalNullaryConstructor "ClassParameterMustBeLowercase"
     UndeclaredConstructorTypeParameter parameterName typeName ->
       canonicalConstructor "UndeclaredConstructorTypeParameter" [VText parameterName, VText typeName]
-    FunctionClauseArityMismatch functionName expectedArity actualArity ->
-      canonicalConstructor
-        "FunctionClauseArityMismatch"
-        [VText functionName, runtimeIntValue expectedArity, runtimeIntValue actualArity]
     ConstructorArgumentDelimiterMismatch lexeme -> unaryText "ConstructorArgumentDelimiterMismatch" lexeme
     ConstructorExportGroupRequiresAll -> canonicalNullaryConstructor "ConstructorExportGroupRequiresAll"
     ModuleMustBeFirstTopLevelForm -> canonicalNullaryConstructor "ModuleMustBeFirstTopLevelForm"

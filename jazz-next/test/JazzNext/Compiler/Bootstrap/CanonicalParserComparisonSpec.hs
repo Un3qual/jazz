@@ -162,7 +162,6 @@ testSurfaceInventory = do
           "OrPattern",
           "IdentifierParameter",
           "PatternParameter",
-          "SurfaceFunctionClause",
           "LiteralExpression",
           "VariableExpression",
           "QualifiedVariableExpression",
@@ -189,7 +188,6 @@ testSurfaceInventory = do
           "SurfaceClassMethodSignature",
           "SurfaceImplMethod",
           "LetStatement",
-          "FunctionStatement",
           "SignatureStatement",
           "DataStatement",
           "ClassStatement",
@@ -215,10 +213,10 @@ surfaceInventory :: SurfaceExpr
 surfaceInventory =
   SEBlock
     [ SSLet "allExpressions" span1 (SEList allExpressions),
-      SSFunction
+      SSLet
         "identity"
         span1
-        (SurfaceFunctionClause span1 [SPVariable "item"] (SEVar "item") :| []),
+        (SELambda (SurfaceLambdaPattern (SPVariable "item") :| []) (SEVar "item")),
       SSSignature "plain" span1 (SurfaceSignatureType SurfaceTypeInt),
       SSSignature
         "constrained"
@@ -461,7 +459,6 @@ declarationFailureInventory =
     ("ClassSupportsExactlyOneParameter", ClassSupportsExactlyOneParameter),
     ("ClassParameterMustBeLowercase", ClassParameterMustBeLowercase),
     ("UndeclaredConstructorTypeParameter", UndeclaredConstructorTypeParameter "b" "Thing"),
-    ("FunctionClauseArityMismatch", FunctionClauseArityMismatch "pick" 1 2),
     ("ConstructorArgumentDelimiterMismatch", ConstructorArgumentDelimiterMismatch ","),
     ("ConstructorExportGroupRequiresAll", ConstructorExportGroupRequiresAll),
     ("ModuleMustBeFirstTopLevelForm", ModuleMustBeFirstTopLevelForm)

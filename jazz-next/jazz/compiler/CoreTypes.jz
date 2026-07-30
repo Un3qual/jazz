@@ -6,7 +6,6 @@ module CoreTypes {
 
   data CoreGeneratedNameKind
     = CoreLambdaPatternArgument Int
-    | CoreFunctionEquationArgument Int
     | CoreOperatorBinding Text.
 
   data CoreName

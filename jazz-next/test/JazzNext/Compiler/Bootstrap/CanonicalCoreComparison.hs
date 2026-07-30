@@ -370,8 +370,6 @@ coreGeneratedNameKindRuntimeValue generated =
   case generated of
     LambdaPatternArgument parameterIndex ->
       pure (constructor1 "CoreLambdaPatternArgument" (runtimeIntValue parameterIndex))
-    FunctionEquationArgument parameterIndex ->
-      pure (constructor1 "CoreFunctionEquationArgument" (runtimeIntValue parameterIndex))
     OperatorBinding storageName -> pure (constructor1 "CoreOperatorBinding" (VText storageName))
     OperatorSectionFunction -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
     OperatorSectionLeft -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
