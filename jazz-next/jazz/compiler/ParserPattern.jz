@@ -148,7 +148,7 @@ module ParserPattern (
                   (tokenSucceed first)
                 | other -> tokenFailAtSpan
                   (canonicalTokenSpan separator)
-                  (ExpectedSyntax "')'" (FoundToken (canonicalTokenKind separator) (canonicalTokenLexeme separator)))
+                  (ExpectedSyntax "',' or ')'" (FoundToken (canonicalTokenKind separator) (canonicalTokenLexeme separator)))
               }
               | Nothing -> tokenFailAtSpan
                 (canonicalTokenSpan leftParenToken)

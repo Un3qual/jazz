@@ -25,13 +25,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( NumericType (..),
-    SignatureType (..)
-  )
+import JazzNext.Compiler.AST (NumericType (..))
 import JazzNext.Compiler.BuiltinCatalog
-  ( numericTypeFromName,
-    numericTypeIntegerBounds,
+  ( numericTypeIntegerBounds,
     numericTypeIsIntegral,
     numericTypeSupportsRuntimeArithmetic,
     numericTypeSupportsRuntimeComparison
@@ -52,7 +48,8 @@ import JazzNext.Compiler.TypeInference.Types
     DataTypeBinding (..),
     ExpressionType (..),
     IntegerLiteralRange (..),
-    NumericConstraint (..)
+    NumericConstraint (..),
+    instantiateConstructorFieldType
   )
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
@@ -415,42 +412,8 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
           maybe
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
-            (constructorFieldExpressionType typeParameterBindings fieldType)
+            (instantiateConstructorFieldType typeParameterBindings fieldType)
         ConstructorArgumentFresh -> False
-
-    constructorFieldExpressionType typeParameterBindings fieldType =
-      case fieldType of
-        TypeInt -> Just TIntType
-        TypeFloat -> Just TFloatType
-        TypeNumeric numericType -> Just (TNumericType numericType)
-        TypeBool -> Just TBoolType
-        TypeChar -> Just TCharType
-        TypeText -> Just TTextType
-        TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
-        TypeName name ->
-          Just
-            ( case identifierText name of
-                "Int" -> TIntType
-                "Float" -> TFloatType
-                "Bool" -> TBoolType
-                "Char" -> TCharType
-                "Text" -> TTextType
-                namedTypeText ->
-                  maybe
-                    (TDataType name [])
-                    TNumericType
-                    (numericTypeFromName namedTypeText)
-            )
-        TypeApplication name arguments ->
-          TDataType name <$> traverse (constructorFieldExpressionType typeParameterBindings) arguments
-        TypeList elementType ->
-          TListType <$> constructorFieldExpressionType typeParameterBindings elementType
-        TypeTuple elementTypes ->
-          TTupleType <$> traverse (constructorFieldExpressionType typeParameterBindings) elementTypes
-        TypeFunction argumentType resultType ->
-          TFunctionType
-            <$> constructorFieldExpressionType typeParameterBindings argumentType
-            <*> constructorFieldExpressionType typeParameterBindings resultType
 
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
 supportsDeferredEqualityOperandType state expressionType =

@@ -142,7 +142,7 @@ parseTuplePattern leftParenToken = do
         Just token ->
           failTokenParserAt
             (tokenSpan token)
-            (ExpectedSyntax "')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+            (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do
