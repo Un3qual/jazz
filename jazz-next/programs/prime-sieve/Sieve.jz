@@ -1,22 +1,32 @@
 module Sieve (value primeSummary) {
   import List.
 
-  integerRangeFrom current upper =
-    if current > upper then
-      []
-    else
-      listPrepend current $ integerRangeFrom (current + 1) upper.
+  integerRangeFrom =
+    \(current, upper) ->
+      if current > upper then
+        []
+      else
+        listPrepend current $ integerRangeFrom (current + 1) upper.
 
-  remainder number divisor =
-    if number < divisor then number else remainder (number - divisor) divisor.
+  remainder =
+    \(number, divisor) ->
+      if number < divisor then number else remainder (number - divisor) divisor.
 
-  sieve [] = [].
-  sieve [prime | rest] =
-    listPrepend prime $
-      sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest.
+  sieve =
+    \(items) ->
+      case items {
+        | [] -> []
+        | [prime | rest] ->
+          listPrepend prime $
+            sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest
+      }.
 
-  lastItem [item] = item.
-  lastItem [_ | rest] = lastItem rest.
+  lastItem =
+    \(items) ->
+      case items {
+        | [item] -> item
+        | [_ | rest] -> lastItem rest
+      }.
 
   sumItems = listFoldLeft (+) 0.
 

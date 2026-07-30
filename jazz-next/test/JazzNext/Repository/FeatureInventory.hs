@@ -31,8 +31,10 @@ data SurfaceFeature
   | NumericWidthFeature
   | OrdinaryBindingFeature
   | CompactLambdaFeature
-  | FunctionEquationFeature
-  | MultiClauseFunctionFeature
+  | PatternLambdaFeature
+  | MultiParameterLambdaFeature
+  | LambdaOrPatternFeature
+  | MultiArmCaseFeature
   | PartialApplicationFeature
   | ListFeature
   | TupleFeature
@@ -110,10 +112,15 @@ inventoryExpr expression =
     SEVar _ -> Set.empty
     SEQualifiedVar _ _ -> Set.singleton QualifiedMethodFeature
     SELambda parameters body ->
-      Set.insert CompactLambdaFeature
-        ( Set.unions
-            (inventoryExpr body : map inventoryLambdaParameter (NonEmpty.toList parameters))
-        )
+      let parameterList = NonEmpty.toList parameters
+       in Set.fromList
+            ( [CompactLambdaFeature]
+                <> [PatternLambdaFeature | any lambdaParameterIsPattern parameterList]
+                <> [MultiParameterLambdaFeature | length parameterList > 1]
+                <> [LambdaOrPatternFeature | any lambdaParameterIsOrPattern parameterList]
+            )
+            <> Set.unions
+              (inventoryExpr body : map inventoryLambdaParameter parameterList)
     SEOperatorValue _ -> Set.singleton OperatorValueFeature
     SEList items ->
       Set.insert ListFeature (Set.unions (map inventoryExpr items))
@@ -135,12 +142,12 @@ inventoryExpr expression =
       Set.insert ConditionalFeature
         (Set.unions (map inventoryExpr [condition, thenBranch, elseBranch]))
     SECase scrutinee arms ->
-      Set.insert
-        GuardedCaseFeature
-        ( inventoryExpr scrutinee
-            <> Set.unions (map inventoryCaseArm arms)
+      Set.fromList
+        ( [MultiArmCaseFeature | length arms > 1]
+            <> [GuardedCaseFeature | any armHasGuard arms]
         )
-        `onlyWhen` any armHasGuard arms
+        <> inventoryExpr scrutinee
+        <> Set.unions (map inventoryCaseArm arms)
     SEBinary _ left right ->
       inventoryExpr left <> inventoryExpr right
     SESectionLeft left _ ->
@@ -160,9 +167,15 @@ inventoryExpr expression =
         Nothing -> False
         Just _ -> True
 
-    onlyWhen features condition
-      | condition = features
-      | otherwise = Set.delete GuardedCaseFeature features
+    lambdaParameterIsPattern parameter =
+      case parameter of
+        SurfaceLambdaIdentifier _ -> False
+        SurfaceLambdaPattern _ -> True
+
+    lambdaParameterIsOrPattern parameter =
+      case parameter of
+        SurfaceLambdaPattern (SPOr _) -> True
+        _ -> False
 
 inventoryStatement :: SurfaceStatement -> Set SurfaceFeature
 inventoryStatement statement =
@@ -170,13 +183,6 @@ inventoryStatement statement =
     SSLet name _ expression ->
       Set.insert OrdinaryBindingFeature
         (inventoryIdentifier name <> inventoryExpr expression <> operatorBindingFeature name)
-    SSFunction name _ clauses ->
-      Set.fromList
-        ( FunctionEquationFeature
-            : [MultiClauseFunctionFeature | NonEmpty.length clauses > 1]
-        )
-        <> inventoryIdentifier name
-        <> Set.unions (map inventoryFunctionClause (NonEmpty.toList clauses))
     SSSignature name _ payload ->
       Set.insert SignatureFeature
         (inventoryIdentifier name <> inventorySignaturePayload payload)
@@ -214,10 +220,6 @@ inventoryStatement statement =
       case maybeValue of
         Nothing -> False
         Just _ -> True
-
-inventoryFunctionClause :: SurfaceFunctionClause -> Set SurfaceFeature
-inventoryFunctionClause (SurfaceFunctionClause _ patterns body) =
-  Set.unions (inventoryExpr body : map inventoryPattern patterns)
 
 inventoryLambdaParameter :: SurfaceLambdaParameter -> Set SurfaceFeature
 inventoryLambdaParameter parameter =

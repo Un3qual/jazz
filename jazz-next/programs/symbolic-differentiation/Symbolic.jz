@@ -6,85 +6,119 @@ module Symbolic (value differentiationSummary) {
     | Multiply Expression Expression
     | Power Expression Int.
 
-  differentiate _ (Constant _) = Constant 0.
-  differentiate target variable@(Variable name) =
-    if name == target then Constant 1 else Constant 0.
-  differentiate target (Add left right) =
-    Add (differentiate target left) (differentiate target right).
-  differentiate target (Multiply left right) =
-    Add
-      (Multiply (differentiate target left) right)
-      (Multiply left (differentiate target right)).
-  differentiate target (Power base exponent) =
-    if exponent == 0 then
-      Constant 0
-    else
-      Multiply
-        (Multiply (Constant exponent) (Power base (exponent - 1)))
-        (differentiate target base).
+  differentiate =
+    \(target, expression) ->
+      case expression {
+        | Constant _ -> Constant 0
+        | Variable name ->
+          if name == target then Constant 1 else Constant 0
+        | Add left right ->
+          Add (differentiate target left) (differentiate target right)
+        | Multiply left right ->
+          Add
+            (Multiply (differentiate target left) right)
+            (Multiply left (differentiate target right))
+        | Power base exponent ->
+          if exponent == 0 then
+            Constant 0
+          else
+            Multiply
+              (Multiply (Constant exponent) (Power base (exponent - 1)))
+              (differentiate target base)
+      }.
 
-  simplifyAdd (Constant 0) right = right.
-  simplifyAdd left (Constant 0) = left.
-  simplifyAdd (Constant left) (Constant right) = Constant (left + right).
-  simplifyAdd left right = Add left right.
+  simplifyAdd =
+    \(leftExpression, rightExpression) ->
+      case (leftExpression, rightExpression) {
+        | (Constant 0, right) -> right
+        | (left, Constant 0) -> left
+        | (Constant left, Constant right) -> Constant (left + right)
+        | (left, right) -> Add left right
+      }.
 
-  simplifyMultiply (Constant 0) _ = Constant 0.
-  simplifyMultiply _ (Constant 0) = Constant 0.
-  simplifyMultiply (Constant 1) right = right.
-  simplifyMultiply left (Constant 1) = left.
-  simplifyMultiply (Constant left) (Constant right) =
-    Constant (left * right).
-  simplifyMultiply left right = Multiply left right.
+  simplifyMultiply =
+    \(leftExpression, rightExpression) ->
+      case (leftExpression, rightExpression) {
+        | (Constant 0, _) -> Constant 0
+        | (_, Constant 0) -> Constant 0
+        | (Constant 1, right) -> right
+        | (left, Constant 1) -> left
+        | (Constant left, Constant right) -> Constant (left * right)
+        | (left, right) -> Multiply left right
+      }.
 
-  simplify expression@(Constant _) = expression.
-  simplify expression@(Variable _) = expression.
-  simplify (Add left right) =
-    simplifyAdd (simplify left) (simplify right).
-  simplify (Multiply left right) =
-    simplifyMultiply (simplify left) (simplify right).
-  simplify (Power base exponent) =
-    if exponent == 0 then
-      Constant 1
-    else if exponent == 1 then
-      simplify base
-    else
-      Power (simplify base) exponent.
+  simplify =
+    \(expression) ->
+      case expression {
+        | expressionValue@(Constant _) -> expressionValue
+        | expressionValue@(Variable _) -> expressionValue
+        | Add left right ->
+          simplifyAdd (simplify left) (simplify right)
+        | Multiply left right ->
+          simplifyMultiply (simplify left) (simplify right)
+        | Power base exponent ->
+          if exponent == 0 then
+            Constant 1
+          else if exponent == 1 then
+            simplify base
+          else
+            Power (simplify base) exponent
+      }.
 
-  integerPower _ 0 = 1.
-  integerPower base exponent =
-    base * integerPower base (exponent - 1).
+  integerPower =
+    \(base, exponent) ->
+      case exponent {
+        | 0 -> 1
+        | _ -> base * integerPower base (exponent - 1)
+      }.
 
-  evaluate _ (Constant scalar) = scalar.
-  evaluate target (Variable name) =
-    if name == "x" then target else 0.
-  evaluate target (Add left right) =
-    evaluate target left + evaluate target right.
-  evaluate target (Multiply left right) =
-    evaluate target left * evaluate target right.
-  evaluate target (Power base exponent) =
-    integerPower (evaluate target base) exponent.
+  evaluate =
+    \(target, expression) ->
+      case expression {
+        | Constant scalar -> scalar
+        | Variable name ->
+          if name == "x" then target else 0
+        | Add left right ->
+          evaluate target left + evaluate target right
+        | Multiply left right ->
+          evaluate target left * evaluate target right
+        | Power base exponent ->
+          integerPower (evaluate target base) exponent
+      }.
 
-  nodeCount (Constant _) = 1.
-  nodeCount (Variable _) = 1.
-  nodeCount (Add left right) = 1 + nodeCount left + nodeCount right.
-  nodeCount (Multiply left right) = 1 + nodeCount left + nodeCount right.
-  nodeCount (Power base _) = 1 + nodeCount base.
+  nodeCount =
+    \(expression) ->
+      case expression {
+        | Constant _ | Variable _ -> 1
+        | Add left right -> 1 + nodeCount left + nodeCount right
+        | Multiply left right -> 1 + nodeCount left + nodeCount right
+        | Power base _ -> 1 + nodeCount base
+      }.
 
-  maximum left right = if left > right then left else right.
+  maximum =
+    \(left, right) ->
+      if left > right then left else right.
 
-  expressionDepth (Constant _) = 1.
-  expressionDepth (Variable _) = 1.
-  expressionDepth (Add left right) =
-    1 + maximum (expressionDepth left) (expressionDepth right).
-  expressionDepth (Multiply left right) =
-    1 + maximum (expressionDepth left) (expressionDepth right).
-  expressionDepth (Power base _) = 1 + expressionDepth base.
+  expressionDepth =
+    \(expression) ->
+      case expression {
+        | Constant _ | Variable _ -> 1
+        | Add left right ->
+          1 + maximum (expressionDepth left) (expressionDepth right)
+        | Multiply left right ->
+          1 + maximum (expressionDepth left) (expressionDepth right)
+        | Power base _ -> 1 + expressionDepth base
+      }.
 
-  polynomial 0 = Constant 1.
-  polynomial degree =
-    Add
-      (Power (Variable "x") degree)
-      (Multiply (Constant degree) (polynomial (degree - 1))).
+  polynomial =
+    \(degree) ->
+      case degree {
+        | 0 -> Constant 1
+        | _ ->
+          Add
+            (Power (Variable "x") degree)
+            (Multiply (Constant degree) (polynomial (degree - 1)))
+      }.
 
   differentiationSummary =
     case simplify (differentiate "x" (polynomial 9)) {

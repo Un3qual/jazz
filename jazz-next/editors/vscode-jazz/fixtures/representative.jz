@@ -14,6 +14,10 @@ module Editor::Representative (type Choice(Empty, Chosen), class Matches, value 
   data Choice a = Empty | Chosen a.
   data Point = XYPoint Int Int.
 
+  ignoreChoice =
+    \(Empty | Chosen _, fallback) ->
+      fallback.
+
   class Matches(a) {
     matches :: a -> a -> Bool.
   }.
