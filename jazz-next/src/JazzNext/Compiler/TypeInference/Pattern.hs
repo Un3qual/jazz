@@ -23,7 +23,13 @@ import JazzNext.Compiler.TypeInference.Solver
 import JazzNext.Compiler.TypeInference.State
   ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev, modifyInferenceOutput )
 import JazzNext.Compiler.TypeInference.Types
-  ( ConstructorArgumentType (..), ExpressionType (..), IntegerLiteralRange (..), TypeBinding (..), TypeEnv )
+  ( ConstructorArgumentType (..),
+    ExpressionType (..),
+    IntegerLiteralRange (..),
+    TypeBinding (..),
+    TypeEnv,
+    instantiateConstructorFieldType
+  )
 
 inferPatternCaseType ::
   InferExprFn ->
@@ -672,6 +678,18 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
                in
                 ( freshArgumentType : argumentTypesRev,
                   addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
+                )
+        ConstructorArgumentStructured fieldType ->
+          case instantiateConstructorFieldType typeParameterBindings fieldType of
+            Just expressionType ->
+              (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
+            Nothing ->
+              let (freshArgumentType, nextState) = freshTypeVar stateAcc
+               in
+                ( freshArgumentType : argumentTypesRev,
+                  addTypeError
+                    nextState
+                    (mkInvalidConstructorPayloadTypeError "missing structured constructor type-parameter binding")
                 )
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc

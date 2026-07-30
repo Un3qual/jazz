@@ -147,8 +147,8 @@ testBootstrapMaybeAndResultModules = do
       maybeValue = Just 41.
       resultValue :: Result(Text, Int).
       resultValue = Ok 1.
-      maybeNumber = case maybeValue { | Nothing -> 0 | Just value -> value }.
-      resultNumber = case resultValue { | Err message -> 0 | Ok value -> value }.
+      maybeNumber = case maybeValue { | Nothing -> 0 | Just item -> item }.
+      resultNumber = case resultValue { | Err message -> 0 | Ok item -> item }.
       (maybeNumber, resultNumber).
       }
       """

@@ -60,7 +60,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
-    DataConstructorArgument (..),
     Expr,
     Literal (..),
     NumericType (..),
@@ -203,12 +202,8 @@ runtimeDefinitionOrigin modulePath =
     [] -> AmbientPrelude
     _ -> ImportedModule modulePath
 
-runtimeConstructorArgument :: Maybe [Text] -> DataConstructorArgument -> DataConstructorArgument
-runtimeConstructorArgument maybeModulePath argument =
-  case argument of
-    DataConstructorArgumentName name ->
-      DataConstructorArgumentName (runtimeTypeName maybeModulePath name)
-    DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
+runtimeConstructorArgument :: Maybe [Text] -> SignatureType -> SignatureType
+runtimeConstructorArgument = runtimeConstraintType
 
 runtimeConstraintType :: Maybe [Text] -> SignatureType -> SignatureType
 runtimeConstraintType maybeModulePath signatureType =
@@ -391,34 +386,30 @@ runtimeTypeHintAtLeastAsSpecific _ _ = False
 
 applyConstructorArgumentRuntimeHint ::
   Map Text SignatureType ->
-  DataConstructorArgument ->
+  SignatureType ->
   RuntimeValue ->
   Either Diagnostic RuntimeValue
-applyConstructorArgumentRuntimeHint typeParameterHints constructorArgument runtimeValue =
-  case constructorArgument of
-    DataConstructorArgumentName argumentName ->
-      attachRuntimeTypeHint (constructorArgumentRuntimeHint typeParameterHints argumentName) runtimeValue
-    DataConstructorArgumentOpaque ->
-      Right runtimeValue
+applyConstructorArgumentRuntimeHint typeParameterHints fieldType runtimeValue =
+  attachRuntimeTypeHint
+    (Just (substituteConstructorFieldType typeParameterHints fieldType))
+    runtimeValue
 
-constructorArgumentRuntimeHint :: Map Text SignatureType -> Name -> Maybe SignatureType
-constructorArgumentRuntimeHint typeParameterHints argumentName =
-  case Map.lookup (identifierText argumentName) typeParameterHints of
-    Just hintedType -> Just hintedType
-    Nothing -> concreteConstructorPayloadRuntimeHint argumentName
-
-concreteConstructorPayloadRuntimeHint :: Name -> Maybe SignatureType
-concreteConstructorPayloadRuntimeHint argumentName
-  | identifierText argumentName == "Int" = Just TypeInt
-  | identifierText argumentName == "Float" = Just TypeFloat
-  | Just numericType <- constraintTypeNameNumericTarget argumentName =
-      Just (TypeNumeric numericType)
-  | identifierText argumentName == "Bool" =
-      Just TypeBool
-  | identifierText argumentName == "Char" = Just TypeChar
-  | identifierText argumentName == "Text" = Just TypeText
-  | otherwise =
-      Nothing
+substituteConstructorFieldType :: Map Text SignatureType -> SignatureType -> SignatureType
+substituteConstructorFieldType typeParameterHints fieldType =
+  case fieldType of
+    TypeVariable name ->
+      Map.findWithDefault fieldType (identifierText name) typeParameterHints
+    TypeApplication name arguments ->
+      TypeApplication name (map (substituteConstructorFieldType typeParameterHints) arguments)
+    TypeList elementType ->
+      TypeList (substituteConstructorFieldType typeParameterHints elementType)
+    TypeTuple elementTypes ->
+      TypeTuple (map (substituteConstructorFieldType typeParameterHints) elementTypes)
+    TypeFunction argumentType resultType ->
+      TypeFunction
+        (substituteConstructorFieldType typeParameterHints argumentType)
+        (substituteConstructorFieldType typeParameterHints resultType)
+    _ -> fieldType
 
 constraintTypeNameNumericTarget :: Name -> Maybe NumericType
 constraintTypeNameNumericTarget typeName =
@@ -952,29 +943,17 @@ runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValu
                 )
     _ -> False
 
-runtimeValueMatchesConstructorArgument :: Map Text SignatureType -> DataConstructorArgument -> RuntimeValue -> Bool
-runtimeValueMatchesConstructorArgument typeParameterBindings constructorArgument runtimeValue =
-  case constructorArgument of
-    DataConstructorArgumentName argumentName ->
-      case constructorArgumentRuntimeHint typeParameterBindings argumentName of
-        Just concreteArgumentType ->
-          runtimeValueMatchesConstraint concreteArgumentType runtimeValue
-        Nothing ->
-          True
-    DataConstructorArgumentOpaque ->
-      True
+runtimeValueMatchesConstructorArgument :: Map Text SignatureType -> SignatureType -> RuntimeValue -> Bool
+runtimeValueMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
+  runtimeValueMatchesConstraint
+    (substituteConstructorFieldType typeParameterBindings fieldType)
+    runtimeValue
 
-runtimeValueExactlyMatchesConstructorArgument :: Map Text SignatureType -> DataConstructorArgument -> RuntimeValue -> Bool
-runtimeValueExactlyMatchesConstructorArgument typeParameterBindings constructorArgument runtimeValue =
-  case constructorArgument of
-    DataConstructorArgumentName argumentName ->
-      case Map.lookup (identifierText argumentName) typeParameterBindings of
-        Just concreteArgumentType ->
-          runtimeValueExactlyMatchesConstraint concreteArgumentType runtimeValue
-        Nothing ->
-          True
-    DataConstructorArgumentOpaque ->
-      True
+runtimeValueExactlyMatchesConstructorArgument :: Map Text SignatureType -> SignatureType -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
+  runtimeValueExactlyMatchesConstraint
+    (substituteConstructorFieldType typeParameterBindings fieldType)
+    runtimeValue
 
 runtimeIntMatchesIntAlias :: RuntimeValue -> Bool
 runtimeIntMatchesIntAlias runtimeValue =
@@ -1040,10 +1019,10 @@ isRuntimeText runtimeValue =
 
 -- | Constructor values are curried like builtins until their declared arity is
 -- saturated; extra applications are runtime errors.
-applyConstructor :: Name -> [Name] -> Name -> [DataConstructorArgument] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-applyConstructor typeName typeParameters constructorName constructorArguments arguments
+applyConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyConstructor typeName typeParameters constructorName fieldTypes arguments
   | length arguments <= constructorArity =
-      Right (VConstructor typeName typeParameters constructorName constructorArguments arguments)
+      Right (VConstructor typeName typeParameters constructorName fieldTypes arguments)
   | otherwise =
       Left
         ( runtimeDiagnostic
@@ -1057,7 +1036,7 @@ applyConstructor typeName typeParameters constructorName constructorArguments ar
             )
         )
   where
-    constructorArity = length constructorArguments
+    constructorArity = length fieldTypes
 
 renderArityCount :: Int -> Text
 renderArityCount count =

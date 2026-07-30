@@ -164,7 +164,7 @@ testResolvedModuleAuditIgnoresGenericTypeVariables = do
             """
             module App::Main {
             id :: a -> a.
-            id = \\(value) -> value.
+            id = \\(item) -> item.
             id 1.
             }
             """
@@ -285,7 +285,7 @@ testNamespaceAwareExportsSelectExactEntries = do
         "src/Lib/Box.jz"
         """
         module Lib::Box (type Box, value Box) {
-        data Box = Box payload.
+        data Box a = Box a.
         Box = 1.
         }
         """
@@ -371,7 +371,7 @@ testGroupedTypeExportsExpandFlatInventory = do
         module Lib::Types (type Opaque, type Choice(..), type Pair(Pair), constructor Pair, constructor Unit) {
         data Opaque = Hidden.
         data Choice = First | Second.
-        data Pair = Pair value | Unit.
+        data Pair a = Pair a | Unit.
         }
         """
     lookupSource path = pure (Map.lookup path sources)
@@ -1013,7 +1013,7 @@ testImplMethodRejectsHiddenUnqualifiedReference = do
             """
             import Lib::Value (answer).
             class Use(a) { use :: a -> Int. }.
-            impl Use(Int) { use = \\(value) -> helper. }.
+            impl Use(Int) { use = \\(item) -> helper. }.
             main = answer.
             """
           ),
@@ -1036,7 +1036,7 @@ testImplMethodRejectsHiddenQualifiedReference = do
             """
             import Lib::Value as Value.
             class Use(a) { use :: a -> Int. }.
-            impl Use(Int) { use = \\(value) -> Value::helper. }.
+            impl Use(Int) { use = \\(item) -> Value::helper. }.
             main = 1.
             """
           ),
@@ -1125,7 +1125,7 @@ testAcceptsDataConstructorImportSymbolList =
         import Lib::Maybe (Just).
         main = Just 1.
         """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+          ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
     expectedModules =
       [ ResolvedModule
@@ -1155,8 +1155,8 @@ testAcceptsTypeApplicationsWhileCollectingModuleReferences =
         main = Util::id @Int 1.
         """),
           ("src/Lib/Util.jz", """
-          id = \\(value) -> value.
-          value = id @Int 1.
+          id = \\(item) -> item.
+          result = id @Int 1.
           """)
         ]
     expectedModules =
@@ -1417,9 +1417,9 @@ testReportsHiddenExplicitImportConstructorPatternReference = do
       Map.fromList
         [ ("src/App/Main.jz", """
         import Lib::Maybe (Nothing).
-        main = case Nothing { | Just value -> value | _ -> 0 }.
+        main = case Nothing { | Just item -> item | _ -> 0 }.
         """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+          ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
 
 testReportsUnqualifiedAliasImportReference :: IO ()
@@ -1470,9 +1470,9 @@ testReportsHiddenAliasImportConstructorPatternReference = do
       Map.fromList
         [ ("src/App/Main.jz", """
         import Lib::Maybe as Maybe.
-        main = case Maybe::Nothing { | Just value -> value | _ -> 0 }.
+        main = case Maybe::Nothing { | Just item -> item | _ -> 0 }.
         """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+          ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
 
 testAcceptsQualifiedAliasReferenceBeforeImport :: IO ()
@@ -1586,7 +1586,7 @@ testAcceptsQualifiedAliasDataConstructorReference =
         import Lib::Maybe as Maybe.
         main = Maybe::Just 1.
         """),
-          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+          ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
     expectedModules =
       [ ResolvedModule
@@ -1745,8 +1745,8 @@ testReportsTypeImportCollision = do
             """
             import A::Types.
             import B::Types.
-            value :: Box(Int).
-            value = ABox 1.
+            result :: Box(Int).
+            result = ABox 1.
             """
           ),
           ("src/A/Types.jz", "data Box a = ABox a."),

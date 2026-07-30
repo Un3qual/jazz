@@ -14,11 +14,10 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( DataConstructorArgument (DataConstructorArgumentOpaque),
-    Expr (ELit),
+  ( Expr (ELit),
     Literal (LInt),
     SignaturePayload (SignatureType),
-    SignatureType (TypeList),
+    SignatureType (TypeInt, TypeList),
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import JazzNext.Compiler.Force
@@ -253,7 +252,7 @@ testRuntimeResultForcingFollowsRendering = do
                   "Container"
                   []
                   "Partial"
-                  [DataConstructorArgumentOpaque, DataConstructorArgumentOpaque]
+                  [TypeInt, TypeInt]
                   [unrenderedPartialArgument]
               )
           )

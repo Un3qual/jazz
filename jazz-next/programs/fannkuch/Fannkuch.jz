@@ -1,0 +1,51 @@
+module Fannkuch (value maximumFlips) {
+  import List.
+
+  integerRangeFrom =
+    \(current, upper) ->
+      if current > upper then
+        []
+      else
+        listPrepend current $ integerRangeFrom (current + 1) upper.
+
+  insertionsFrom =
+    \|(item, reversedPrefix, []) ->
+      [listAppend (listReverse reversedPrefix) [item]]
+     |(item, reversedPrefix, remaining@[first | rest]) ->
+      listPrepend
+        (listAppend (listReverse reversedPrefix) (listPrepend item remaining)) $
+        insertionsFrom item (listPrepend first reversedPrefix) rest.
+
+  insertEverywhere =
+    \(item, items) ->
+      insertionsFrom item [] items.
+
+  permutations =
+    \|([]) -> [[]]
+     |([first | rest]) ->
+      listConcat $ listMap (insertEverywhere first) $ permutations rest.
+
+  reversePrefix =
+    \(count, items) ->
+      listAppend (listReverse (listTake count items)) (listDrop count items).
+
+  flipCountFrom =
+    \|([], count) -> count
+     |([1 | _], count) -> count
+     |(permutationValue@[first | _], count) ->
+      flipCountFrom (reversePrefix first permutationValue) (count + 1).
+
+  flipCount =
+    \(permutation) ->
+      flipCountFrom permutation 0.
+
+  maximumFrom =
+    \|(current, []) -> current
+     |(current, [item | rest]) ->
+      maximumFrom (if item > current then item else current) rest.
+
+  maximumFlips =
+    \(size) ->
+      maximumFrom 0 $
+        listMap flipCount $ permutations $ integerRangeFrom 1 size.
+}

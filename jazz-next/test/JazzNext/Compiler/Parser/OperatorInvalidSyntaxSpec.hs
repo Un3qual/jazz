@@ -196,7 +196,7 @@ testRejectsCaseArmBodySamePrecedenceNonAssociativeChain =
     "non-associative operator '?>' cannot be chained without parentheses"
     (parseSurfaceProgram """
     operator ?> precedence 1 nonassoc.
-    x = case value { | _ -> 1 $ 2 ?> 3 }.
+    x = case subject { | _ -> 1 $ 2 ?> 3 }.
     """)
 
 testRejectsCaseGuardSamePrecedenceNonAssociativeChain :: IO ()
@@ -207,7 +207,7 @@ testRejectsCaseGuardSamePrecedenceNonAssociativeChain =
     "non-associative operator '?>' cannot be chained without parentheses"
     (parseSurfaceProgram """
     operator ?> precedence 1 nonassoc.
-    x = case value { | _ if 1 $ 2 ?> 3 -> 1 }.
+    x = case subject { | _ if 1 $ 2 ?> 3 -> 1 }.
     """)
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()

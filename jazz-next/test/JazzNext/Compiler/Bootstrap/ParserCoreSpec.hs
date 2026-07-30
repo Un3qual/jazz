@@ -72,7 +72,7 @@ testCursorViews =
     """
     { reply = parserRun (parserTakeIf (\\(token) -> token == 1) "one") [1, 2].
       case reply {
-        | ParserSucceeded value cursor consumption -> (parserCursorRemaining cursor, parserCursorOffset cursor)
+        | ParserSucceeded result cursor consumption -> (parserCursorRemaining cursor, parserCursorOffset cursor)
         | ParserFailed failure -> ([], 0)
       }.
     }

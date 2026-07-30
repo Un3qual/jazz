@@ -165,7 +165,7 @@ testReportsMissingTuplePatternComma = do
     Left diagnostic -> do
       assertContains
         "missing tuple-pattern comma diagnostic"
-        "expected ',', found 'right'"
+        "expected ',' or ')', found 'right'"
         (renderDiagnostic diagnostic)
       assertEqual
         "missing tuple-pattern comma span"

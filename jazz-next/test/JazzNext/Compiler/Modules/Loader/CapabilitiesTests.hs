@@ -862,7 +862,7 @@ testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             }
             """
@@ -873,7 +873,7 @@ testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch = do
             import Lib::Api (Choice).
             val = 0.
             impl Choice(UInt8) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             }
             """
@@ -911,7 +911,7 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             foo = Choice::pick 1.
             }
@@ -956,7 +956,7 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled.
             }.
             }
             """
@@ -1006,7 +1006,7 @@ testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> Flag::enabled.
+            pick = \\(candidate) -> Flag::enabled.
             }.
             }
             """
@@ -1045,7 +1045,7 @@ testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> helper.
+            pick = \\(candidate) -> helper.
             }.
             }
             """
@@ -1147,10 +1147,10 @@ testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped = do
             pick :: a -> Bool.
             }.
             impl RuntimePick(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             impl RuntimePick(UInt8) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             picked = {
             x = if True then 1 else __kernel_toUInt8 2.
@@ -1192,10 +1192,10 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
             pick :: a -> Bool.
             }.
             impl RuntimePick(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             impl RuntimePick(UInt8) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             picked = {
             x = if True then 1 else __kernel_toUInt8 2.
@@ -1209,10 +1209,10 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
             pick :: a -> Bool.
             }.
             impl RuntimePick(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             impl RuntimePick(UInt8) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             picked = {
             x = 1.
@@ -1251,7 +1251,7 @@ testRunModuleGraphRebasesExplicitGenericAdtApplicationHints = do
             impl RuntimeFlag(Box([Bool])) {
             flag = \\(box) -> False.
             }.
-            identity = \\(value) -> value.
+            identity = \\(candidate) -> candidate.
             result = RuntimeFlag::flag (identity @Box([Int]) (Box [])).
             result.
             }
@@ -1289,7 +1289,7 @@ testRunModuleGraphRebasesFallbackExplicitGenericAdtHints = do
             flag = \\(box) -> False.
             }.
             use :: a -> b -> a.
-            use = \\(value, ignored) -> value.
+            use = \\(candidate, ignored) -> candidate.
             result = Flag::flag (use @Box([Int]) (Box []) True).
             result.
             }
@@ -1321,7 +1321,7 @@ testRunModuleGraphRebasesClassMethodArgumentSignatures = do
             check :: Token(Int) -> a -> Bool.
             }.
             impl Check(Int) {
-            check = \\(token, value) -> True.
+            check = \\(token, candidate) -> True.
             }.
             result = Check::check (Token 1) 1.
             result.
@@ -1400,7 +1400,7 @@ testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             pickedA = Choice::pick 1.
             }
@@ -1413,7 +1413,7 @@ testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             pickedB = Choice::pick 1.
             }
@@ -1453,7 +1453,7 @@ testRunModuleGraphNamespacesAliasRetainedLocalCapabilities = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> True.
+            pick = \\(candidate) -> True.
             }.
             pickedA = Choice::pick 1.
             }
@@ -1466,7 +1466,7 @@ testRunModuleGraphNamespacesAliasRetainedLocalCapabilities = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            pick = \\(value) -> False.
+            pick = \\(candidate) -> False.
             }.
             pickedB = Choice::pick 1.
             }
@@ -1507,8 +1507,8 @@ testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing = do
             pick :: a -> Bool.
             }.
             impl Choice(Int) {
-            flag = \\(value) -> True.
-            pick = \\(value) -> Choice::flag value.
+            flag = \\(candidate) -> True.
+            pick = \\(candidate) -> Choice::flag candidate.
             }.
             picked = Choice::pick 1.
             }
@@ -1663,7 +1663,7 @@ testRunModuleGraphRebasesDependencyClassMethodResultHints = do
             """
             module App::Main {
             import Lib::Factory.
-            (\\(Box value) -> value + 255) (Make::make 0).
+            (\\(Box item) -> item + 255) (Make::make 0).
             }
             """
           ),
@@ -1675,7 +1675,7 @@ testRunModuleGraphRebasesDependencyClassMethodResultHints = do
             make :: a -> Box.
             }.
             impl Make(Int) {
-            make = \\(value) -> Box 1.
+            make = \\(candidate) -> Box 1.
             }.
             }
             """
@@ -1711,9 +1711,9 @@ testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin = do
             module App::Main {
             import Lib::Api.
             impl Make(Int) {
-            make = \\(value) -> Box 1.
+            make = \\(candidate) -> Box 1.
             }.
-            (\\(Box value) -> value + 255) (Make::make 0).
+            (\\(Box item) -> item + 255) (Make::make 0).
             }
             """
           ),

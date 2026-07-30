@@ -54,7 +54,7 @@ testLargeListTraversal = do
           | _ -> build (remaining - 1) (listPrepend remaining values)
         }.
         values = build 50000 [].
-        listLength (listMap (\\(value) -> value + 1) values).
+        listLength (listMap (\\(item) -> item + 1) values).
       }
       """
   assertSuccessfulStdlibOutput "50000" result

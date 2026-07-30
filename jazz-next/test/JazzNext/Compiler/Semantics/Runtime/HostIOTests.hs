@@ -161,10 +161,10 @@ testHostAwareEvaluatorPreservesPureExpressions = do
   where
     expressions =
       [ EBinary "+" (ELit (LInt 20)) (ELit (LInt 22)),
-        EApply (ELambda "value" (EBinary "+" (EVar "value") (ELit (LInt 2)))) (ELit (LInt 40)),
+        EApply (ELambda "itemValue" (EBinary "+" (EVar "itemValue") (ELit (LInt 2)))) (ELit (LInt 40)),
         EBlock
-          [ SLet "value" (SourceSpan 1 1) (ELit (LInt 40)),
-            SExpr (SourceSpan 2 1) (EBinary "+" (EVar "value") (ELit (LInt 2)))
+          [ SLet "itemValue" (SourceSpan 1 1) (ELit (LInt 40)),
+            SExpr (SourceSpan 2 1) (EBinary "+" (EVar "itemValue") (ELit (LInt 2)))
           ]
       ]
 
@@ -257,7 +257,7 @@ testHostEffectsExecuteAtSelectedExpressionDepth :: IO ()
 testHostEffectsExecuteAtSelectedExpressionDepth = do
   let expressions =
         [ EApply
-            (ELambda "value" (hostCall "__kernel_writeStdoutRaw!" [EVar "value"]))
+            (ELambda "itemValue" (hostCall "__kernel_writeStdoutRaw!" [EVar "itemValue"]))
             (ELit (LText "closure")),
           EIf
             (ELit (LBool False))
@@ -308,18 +308,18 @@ testHostDependentFunctionSelector = do
 
 testHostScopePreservesMutualRecursion :: IO ()
 testHostScopePreservesMutualRecursion = do
-  let decrement name = EApply (EVar name) (EBinary "-" (EVar "value") (ELit (LInt 1)))
-      isZero = EBinary "==" (EVar "value") (ELit (LInt 0))
+  let decrement name = EApply (EVar name) (EBinary "-" (EVar "itemValue") (ELit (LInt 1)))
+      isZero = EBinary "==" (EVar "itemValue") (ELit (LInt 0))
       expression =
         EBlock
           [ SLet
               "even"
               (SourceSpan 1 1)
-              (ELambda "value" (EIf isZero (ELit (LBool True)) (decrement "odd"))),
+              (ELambda "itemValue" (EIf isZero (ELit (LBool True)) (decrement "odd"))),
             SLet
               "odd"
               (SourceSpan 2 1)
-              (ELambda "value" (EIf isZero (ELit (LBool False)) (decrement "even"))),
+              (ELambda "itemValue" (EIf isZero (ELit (LBool False)) (decrement "even"))),
             SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
             SExpr (SourceSpan 4 1) (EApply (EVar "even") (ELit (LInt 4)))
           ]
@@ -329,15 +329,15 @@ testHostScopePreservesMutualRecursion = do
 
 testHostScopePreservesHostfulRecursivePeers :: IO ()
 testHostScopePreservesHostfulRecursivePeers = do
-  let decrement name = EApply (EVar name) (EBinary "-" (EVar "value") (ELit (LInt 1)))
-      isZero = EBinary "==" (EVar "value") (ELit (LInt 0))
+  let decrement name = EApply (EVar name) (EBinary "-" (EVar "itemValue") (ELit (LInt 1)))
+      isZero = EBinary "==" (EVar "itemValue") (ELit (LInt 0))
       expression =
         EBlock
           [ SLet
               "even!"
               (SourceSpan 1 1)
               ( ELambda
-                  "value"
+                  "itemValue"
                   ( EIf
                       isZero
                       (ELit (LBool True))
@@ -351,7 +351,7 @@ testHostScopePreservesHostfulRecursivePeers = do
             SLet
               "odd!"
               (SourceSpan 4 1)
-              (ELambda "value" (EIf isZero (ELit (LBool False)) (decrement "even!"))),
+              (ELambda "itemValue" (EIf isZero (ELit (LBool False)) (decrement "even!"))),
             SExpr (SourceSpan 5 1) (EApply (EVar "even!") (ELit (LInt 2)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
@@ -401,20 +401,20 @@ testHostScopePreservesBindingSignatureHints :: IO ()
 testHostScopePreservesBindingSignatureHints = do
   let expression =
         EBlock
-          [ SSignature "value" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
-            SLet "value" (SourceSpan 2 1) (ELit (LInt 1)),
+          [ SSignature "itemValue" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
+            SLet "itemValue" (SourceSpan 2 1) (ELit (LInt 1)),
             SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
-            SExpr (SourceSpan 4 1) (EVar "value")
+            SExpr (SourceSpan 4 1) (EVar "itemValue")
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertEqual "signature host call" [WriteStdoutCall "once"] calls
   case result of
-    Right (Just value) ->
+    Right (Just itemValue) ->
       assertEqual
         "host scope keeps Int8 runtime hint"
         True
-        (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericInt8) value)
-    _ -> assertEqual "host scope produces signed value" True False
+        (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericInt8) itemValue)
+    _ -> assertEqual "host scope produces signed itemValue" True False
 
 testHostDependencyScopeKeepsUnusedBindingLazy :: IO ()
 testHostDependencyScopeKeepsUnusedBindingLazy = do
@@ -636,11 +636,11 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
             { runtimeClosureEnvironment = Map.empty,
               runtimeClosureEnvironmentMayReachHostCells = False,
               runtimeClosureLambdaCaptureHints = [],
-              runtimeClosureParameter = "value",
-              runtimeClosureBody = EVar "value",
+              runtimeClosureParameter = "itemValue",
+              runtimeClosureBody = EVar "itemValue",
               runtimeClosureTypeHint = Nothing,
               runtimeClosureModulePath = Nothing,
-              runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "value"
+              runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "itemValue"
             }
       stackedFunction =
         VTyped
@@ -667,16 +667,16 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
-        Just value -> do
+        Just itemValue -> do
           assertEqual
             "outer result hint applies after inner result hint"
             True
-            (runtimeValueExactlyMatchesConstraint TypeInt value)
+            (runtimeValueExactlyMatchesConstraint TypeInt itemValue)
           assertEqual
             "inner result hint does not escape the outer result hint"
             False
-            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) value)
-        Nothing -> assertEqual "stacked result obligations produce a value" True False
+            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) itemValue)
+        Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
 testHostDependencyBindingRetainsRuntimeHints :: IO ()
@@ -687,7 +687,7 @@ testHostDependencyBindingRetainsRuntimeHints = do
           (explicitTypeApplicationRuntimeHintKeyInModule (Just ["Dependency"]) typeArgumentSpan)
           (TypeFunction (TypeNumeric NumericUInt8) (TypeNumeric NumericUInt8))
       dependencyStatements =
-        [ SLet "identity" (SourceSpan 1 1) (ELambda "value" (EVar "value")),
+        [ SLet "identity" (SourceSpan 1 1) (ELambda "itemValue" (EVar "itemValue")),
           SLet
             "token!"
             (SourceSpan 2 1)
@@ -723,12 +723,12 @@ testHostDependencyBindingRetainsRuntimeHints = do
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
-        Just value ->
+        Just itemValue ->
           assertEqual
             "dependency keeps UInt8 runtime hint"
             True
-            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) value)
-        Nothing -> assertEqual "dependency produces a hinted value" True False
+            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) itemValue)
+        Nothing -> assertEqual "dependency produces a hinted itemValue" True False
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()
@@ -746,7 +746,7 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
               "capture!"
               (SourceSpan 1 1)
               ( ELambda
-                  "value"
+                  "itemValue"
                   ( EBlock
                       [ SLet
                           "local!"
@@ -754,8 +754,8 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
                           ( EBlock
                               [ SExpr
                                   (SourceSpan 3 1)
-                                  (hostCall "__kernel_writeStdoutRaw!" [EVar "value"]),
-                                SExpr (SourceSpan 4 1) (EVar "value")
+                                  (hostCall "__kernel_writeStdoutRaw!" [EVar "itemValue"]),
+                                SExpr (SourceSpan 4 1) (EVar "itemValue")
                               ]
                           ),
                         SExpr (SourceSpan 5 1) (EVar "local!")

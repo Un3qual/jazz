@@ -1,0 +1,4 @@
+# This intentionally invalid Jazz fragment exists only for TextMate highlighting checks.
+value = 1.
+data Box value
+  = Box value.

@@ -15,7 +15,6 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Pattern (..),
@@ -135,14 +134,8 @@ statementNames statement =
     SExpr _ value -> exprNames value
 
 dataConstructorNames :: DataConstructor -> [Name]
-dataConstructorNames (DataConstructor name arguments) =
-  name : concatMap dataConstructorArgumentNames arguments
-
-dataConstructorArgumentNames :: DataConstructorArgument -> [Name]
-dataConstructorArgumentNames argument =
-  case argument of
-    DataConstructorArgumentName name -> [name]
-    DataConstructorArgumentOpaque -> []
+dataConstructorNames (DataConstructor name fieldTypes) =
+  name : concatMap signatureTypeNames fieldTypes
 
 classMethodNames :: ClassMethodSignature -> [Name]
 classMethodNames (ClassMethodSignature name _ payload) =

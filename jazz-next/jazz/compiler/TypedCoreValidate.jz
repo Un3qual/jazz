@@ -14,33 +14,53 @@ module TypedCoreValidate (
 
   data ModuleReachability = ModuleReachability [Text] [[Text]].
 
-  data NameEntry = NameEntry [Text] TypedNameNamespace Text | GeneratedNameEntry TypedGeneratedNameKind.
+  data NameEntry
+    = NameEntry [Text] TypedNameNamespace Text
+    | GeneratedNameEntry TypedGeneratedNameKind.
 
   data MethodContract = MethodContract Text TypedScheme.
 
-  data DataEntry = DataEntry [Text] Text Int | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]] | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType] | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract] | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text | ImplMethodEntry TypedImplId [Text] | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe | PrimitiveConstraintEntry TypedPrimitiveConstraint | UnqualifiedCapabilityEntry [Text] Text.
+  data DataEntry
+    = DataEntry [Text] Text Int
+    | DataContractEntry [Text] Text [TypedTypeParameterId] [[TypedType]]
+    | ConstructorEntry [Text] Text TypedBinderId Text [TypedTypeParameterId] [TypedType]
+    | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract]
+    | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text
+    | ImplMethodEntry TypedImplId [Text]
+    | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe
+    | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe
+    | PrimitiveConstraintEntry TypedPrimitiveConstraint
+    | UnqualifiedCapabilityEntry [Text] Text.
 
   data DataMetadataDeclaration = DataMetadataDeclaration [Text] TypedDataDeclaration.
 
-  data ConstructorContract = ConstructorContract TypedBinderId [Text] Text [TypedTypeParameterId] [TypedType].
+  data ConstructorContract
+    = ConstructorContract TypedBinderId [Text] Text [TypedTypeParameterId] [TypedType].
 
   data DataContract = DataContract [TypedTypeParameterId] [[TypedType]].
 
   data CapabilityContract = CapabilityContract [TypedTypeParameterId] [MethodContract].
 
-  data InstantiationContract = InstantiationContract TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint].
+  data InstantiationContract
+    = InstantiationContract
+      TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint].
 
   data ValueContract = ValueContract TypedType TypedRepresentationRecipe.
 
-  data DeclarationEntry = DeclarationEntry NameEntry TypedCoreName (Maybe(TypedBinderId)) | ImplDeclarationEntry TypedImplId TypedImplId.
+  data DeclarationEntry
+    = DeclarationEntry NameEntry TypedCoreName Maybe(TypedBinderId)
+    | ImplDeclarationEntry TypedImplId TypedImplId.
 
-  data VisibleModule = VisibleModule (Maybe([Text])) TypedModule.
+  data VisibleModule = VisibleModule Maybe([Text]) TypedModule.
 
   data ImportNameOrigin = ImportNameOrigin Text [Text].
 
-  data ModuleContext = ModuleContext [Text] [[Text]] [SchemeEntry] [NameEntry] [TypedImplId] [DataEntry] [TypedTypeParameterId].
+  data ModuleContext
+    = ModuleContext
+      [Text] [[Text]] [SchemeEntry] [NameEntry] [TypedImplId] [DataEntry] [TypedTypeParameterId].
 
-  data PatternBinderContract = PatternBinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
+  data PatternBinderContract
+    = PatternBinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
 
   data BinderOccurrence = BinderOccurrence TypedCoreValidationPath TypedBinderId.
 
@@ -134,7 +154,7 @@ module TypedCoreValidate (
 
   typeParameterIdValue :: TypedTypeParameterId -> Int.
   typeParameterIdValue = \(parameterId) -> case parameterId {
-    | TypedTypeParameterId value -> value
+    | TypedTypeParameterId item -> item
   }.
 
   typeParameterIdEqual :: TypedTypeParameterId -> TypedTypeParameterId -> Bool.
@@ -142,7 +162,7 @@ module TypedCoreValidate (
 
   evidenceParameterIdValue :: TypedEvidenceParameterId -> Int.
   evidenceParameterIdValue = \(parameterId) -> case parameterId {
-    | TypedEvidenceParameterId value -> value
+    | TypedEvidenceParameterId item -> item
   }.
 
   evidenceParameterIdEqual :: TypedEvidenceParameterId -> TypedEvidenceParameterId -> Bool.
@@ -555,11 +575,11 @@ module TypedCoreValidate (
 
   validSourceIdentifier :: Text -> Bool.
   validSourceIdentifier = \(identifier) ->
-    if listContains identifier ["module", "import", "as", "data", "if", "then", "else", "case", "True", "False"] then False else validIdentifierSpelling identifier.
+    if listContains identifier ["module", "import", "as", "data", "value", "if", "then", "else", "case", "True", "False"] then False else validIdentifierSpelling identifier.
 
   validModuleIdentifier :: Text -> Bool.
   validModuleIdentifier = \(identifier) ->
-    if listContains identifier ["module", "import", "as", "data", "if", "then", "else", "case"] then False else validIdentifierSpelling identifier.
+    if listContains identifier ["module", "import", "as", "data", "value", "if", "then", "else", "case"] then False else validIdentifierSpelling identifier.
 
   validSpan :: TypedSpan -> Bool.
   validSpan = \(span) -> case span {
@@ -1142,7 +1162,7 @@ module TypedCoreValidate (
     } else False else False.
 
   decimalValueParts :: Text -> Maybe((Bool, [Char])).
-  decimalValueParts = \(value) -> case textToChars value {
+  decimalValueParts = \(item) -> case textToChars item {
     | [] -> Nothing
     | ['-' | digits] -> if decimalDigitsValid digits then {
       negative = if decimalDigitsZero digits then False else True.
@@ -1161,8 +1181,8 @@ module TypedCoreValidate (
   }.
 
   decimalValueWithin :: Text -> Text -> Text -> Bool.
-  decimalValueWithin = \(minimumValue, value, maximumValue) ->
-    if decimalValueAtMost minimumValue value then decimalValueAtMost value maximumValue else False.
+  decimalValueWithin = \(minimumValue, item, maximumValue) ->
+    if decimalValueAtMost minimumValue item then decimalValueAtMost item maximumValue else False.
 
   floatingNumericMaximumWholeDigits :: TypedNumericType -> Maybe([Char]).
   floatingNumericMaximumWholeDigits = \(numericType) -> case numericType {
@@ -1186,17 +1206,17 @@ module TypedCoreValidate (
   }.
 
   integralLiteralTextFitsType :: Text -> TypedType -> Bool.
-  integralLiteralTextFitsType = \(value, typeValue) -> case typeValue {
-    | TypedIntType -> decimalValueWithin "-9223372036854775808" value "9223372036854775807"
+  integralLiteralTextFitsType = \(item, typeValue) -> case typeValue {
+    | TypedIntType -> decimalValueWithin "-9223372036854775808" item "9223372036854775807"
     | TypedNumericType numericType -> case numericType {
-      | TypedInt8Type -> decimalValueWithin "-128" value "127"
-      | TypedInt16Type -> decimalValueWithin "-32768" value "32767"
-      | TypedInt32Type -> decimalValueWithin "-2147483648" value "2147483647"
-      | TypedInt64Type -> decimalValueWithin "-9223372036854775808" value "9223372036854775807"
-      | TypedUInt8Type -> decimalValueWithin "0" value "255"
-      | TypedUInt16Type -> decimalValueWithin "0" value "65535"
-      | TypedUInt32Type -> decimalValueWithin "0" value "4294967295"
-      | TypedUInt64Type -> decimalValueWithin "0" value "18446744073709551615"
+      | TypedInt8Type -> decimalValueWithin "-128" item "127"
+      | TypedInt16Type -> decimalValueWithin "-32768" item "32767"
+      | TypedInt32Type -> decimalValueWithin "-2147483648" item "2147483647"
+      | TypedInt64Type -> decimalValueWithin "-9223372036854775808" item "9223372036854775807"
+      | TypedUInt8Type -> decimalValueWithin "0" item "255"
+      | TypedUInt16Type -> decimalValueWithin "0" item "65535"
+      | TypedUInt32Type -> decimalValueWithin "0" item "4294967295"
+      | TypedUInt64Type -> decimalValueWithin "0" item "18446744073709551615"
       | TypedFloat16Type -> False
       | TypedFloat32Type -> False
       | TypedFloat64Type -> False
@@ -2544,23 +2564,23 @@ module TypedCoreValidate (
 
   literalType :: TypedLiteral -> TypedType.
   literalType = \(literal) -> case literal {
-    | TypedIntegerLiteral value -> TypedIntType
+    | TypedIntegerLiteral item -> TypedIntType
     | TypedFractionalLiteral whole fractional suffix -> case suffix {
       | Nothing -> TypedFloatType
       | Just numericType -> TypedNumericType numericType
     }
-    | TypedBooleanLiteral value -> TypedBoolType
-    | TypedCharacterLiteral value -> TypedCharType
-    | TypedTextLiteral value -> TypedTextType
+    | TypedBooleanLiteral item -> TypedBoolType
+    | TypedCharacterLiteral item -> TypedCharType
+    | TypedTextLiteral item -> TypedTextType
   }.
 
   integerLiteralFitsType :: Text -> TypedType -> Bool.
-  integerLiteralFitsType = \(value, typeValue) -> integralLiteralTextFitsType value typeValue.
+  integerLiteralFitsType = \(item, typeValue) -> integralLiteralTextFitsType item typeValue.
 
   literalMatchesType :: TypedLiteral -> TypedType -> Bool.
   literalMatchesType = \(literal, typeValue) -> case (literal, typeValue) {
-    | (TypedIntegerLiteral value, TypedIntType) -> integerLiteralFitsType value typeValue
-    | (TypedIntegerLiteral value, TypedNumericType numericType) -> if numericTypeIsFloat numericType then False else integerLiteralFitsType value typeValue
+    | (TypedIntegerLiteral item, TypedIntType) -> integerLiteralFitsType item typeValue
+    | (TypedIntegerLiteral item, TypedNumericType numericType) -> if numericTypeIsFloat numericType then False else integerLiteralFitsType item typeValue
     | (TypedFractionalLiteral whole fractional suffix, TypedFloatType) -> case suffix {
       | Nothing -> fractionalLiteralFitsNumericType whole fractional TypedFloat64Type
       | Just expectedType -> False
@@ -2569,20 +2589,20 @@ module TypedCoreValidate (
       | Nothing -> if numericTypeIsFloat actualType then fractionalLiteralFitsNumericType whole fractional actualType else False
       | Just expectedType -> if numericTypeEqual expectedType actualType then if numericTypeIsFloat actualType then fractionalLiteralFitsNumericType whole fractional actualType else False else False
     }
-    | (TypedBooleanLiteral value, TypedBoolType) -> True
-    | (TypedCharacterLiteral value, TypedCharType) -> True
-    | (TypedTextLiteral value, TypedTextType) -> True
+    | (TypedBooleanLiteral item, TypedBoolType) -> True
+    | (TypedCharacterLiteral item, TypedCharType) -> True
+    | (TypedTextLiteral item, TypedTextType) -> True
     | other -> False
   }.
 
   characterIsUnicodeScalar :: Char -> Bool.
-  characterIsUnicodeScalar = \(value) ->
-    if charToUInt32 value < 55296 then True else charToUInt32 value > 57343.
+  characterIsUnicodeScalar = \(item) ->
+    if charToUInt32 item < 55296 then True else charToUInt32 item > 57343.
 
   validateLiteral :: TypedCoreValidationPath -> TypedNodeInfo -> TypedLiteral -> [TypedCoreValidationFailure].
   validateLiteral = \(path, info, literal) -> case literal {
-    | TypedCharacterLiteral value ->
-      if characterIsUnicodeScalar value then
+    | TypedCharacterLiteral item ->
+      if characterIsUnicodeScalar item then
         if literalMatchesType literal (nodeType info) then [] else [failure path TypedLiteralTypeMismatch (TypedTypeDetail (literalType literal) (nodeType info))]
       else [failure path TypedLiteralTypeMismatch (TypedTextDetail "non-scalar character")]
     | other -> if literalMatchesType literal (nodeType info) then [] else [failure path TypedLiteralTypeMismatch (TypedTypeDetail (literalType literal) (nodeType info))]
@@ -4325,7 +4345,7 @@ module TypedCoreValidate (
   maybeExpressionReferencesName :: ModuleContext -> NameEntry -> [NameEntry] -> Maybe(TypedExpr) -> Bool.
   maybeExpressionReferencesName = \(context, target, boundNames, expression) -> case expression {
     | Nothing -> False
-    | Just value -> expressionReferencesName context target boundNames value
+    | Just item -> expressionReferencesName context target boundNames item
   }.
 
   caseArmsReferenceName :: ModuleContext -> NameEntry -> [NameEntry] -> [TypedCaseArm] -> Bool.
@@ -4467,7 +4487,7 @@ module TypedCoreValidate (
   maybeExpressionAliasSummary :: ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> Maybe(TypedExpr) -> AliasSummary.
   maybeExpressionAliasSummary = \(context, target, boundNames, scopeBindings, visitedBindings, expression) -> case expression {
     | Nothing -> emptyAliasSummary
-    | Just value -> expressionAliasSummary False context target boundNames scopeBindings visitedBindings value
+    | Just item -> expressionAliasSummary False context target boundNames scopeBindings visitedBindings item
   }.
 
   caseArmsAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> [TypedCaseArm] -> AliasSummary.
@@ -5413,7 +5433,7 @@ module TypedCoreValidate (
   implMethodContext :: ModuleContext -> TypedImplId -> Text -> ModuleContext.
   implMethodContext = \(context, implId, methodName) -> case implMethodScheme context implId methodName {
     | Nothing -> context
-    | Just value -> case value {
+    | Just item -> case item {
       | (parameters, scheme) -> withSchemeScope scheme context
     }
   }.

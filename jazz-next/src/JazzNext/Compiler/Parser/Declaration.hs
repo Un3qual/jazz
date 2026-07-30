@@ -48,7 +48,6 @@ import JazzNext.Compiler.Name
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
     SurfaceSignaturePayload (..),
@@ -94,6 +93,7 @@ import JazzNext.Compiler.Parser.Operator
   )
 import JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
+    parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
     splitTopLevelCommaTokensDetailed,
   )
@@ -1403,9 +1403,9 @@ parseDataConstructor typeName typeParameterNames tokens =
 parseDataConstructorArguments ::
   Identifier ->
   Set Text ->
-  [SurfaceDataConstructorArgument] ->
+  [SurfaceSignatureType] ->
   [Token] ->
-  Either ParserFailure ([SurfaceDataConstructorArgument], [Token])
+  Either ParserFailure ([SurfaceSignatureType], [Token])
 parseDataConstructorArguments typeName typeParameterNames revArguments allTokens =
   case allTokens of
     Token {tokenKind = TOperator "|"} : _ ->
@@ -1414,71 +1414,41 @@ parseDataConstructorArguments typeName typeParameterNames revArguments allTokens
       Right (reverse revArguments, allTokens)
     [] ->
       Right (reverse revArguments, allTokens)
-    _ -> do
-      (constructorArgument, remaining) <- parseDataConstructorArgument typeName typeParameterNames allTokens
-      parseDataConstructorArguments typeName typeParameterNames (constructorArgument : revArguments) remaining
-
-parseDataConstructorArgument :: Identifier -> Set Text -> [Token] -> Either ParserFailure (SurfaceDataConstructorArgument, [Token])
-parseDataConstructorArgument typeName typeParameterNames tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier argumentName, tokenSpan = argumentSpan} : rest
-      | not (Set.null typeParameterNames)
-          && isTypeParameterIdentifierText argumentName
-          && Set.notMember argumentName typeParameterNames ->
+    firstToken : _ -> do
+      let fieldSpan = tokenSpan firstToken
+      (fieldType, remaining) <- parseSignatureTypePrefixDetailed allTokens
+      case Set.toList (surfaceSignatureTypeVariables fieldType `Set.difference` typeParameterNames) of
+        undeclaredName : _ ->
           Left
             ( parserFailureAt
-                argumentSpan
+                fieldSpan
                 ( DeclarationFailure
-                    (UndeclaredConstructorTypeParameter argumentName (identifierText typeName))
+                    (UndeclaredConstructorTypeParameter undeclaredName (identifierText typeName))
                 )
             )
-      | otherwise ->
-          Right (SurfaceDataConstructorArgumentName (mkIdentifier argumentName), rest)
-    Token {tokenKind = TLParen} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRParen] rest)
-    Token {tokenKind = TLBracket} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRBracket] rest)
-    [] ->
-      Left (parserFailure (ExpectedSyntax "constructor argument" (ParserEndOfInputIn "data declaration")))
-    token : _ ->
-      Left
-        ( parserFailureAt
-            (tokenSpan token)
-            (ExpectedSyntax "constructor argument" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-        )
+        [] ->
+          parseDataConstructorArguments typeName typeParameterNames (fieldType : revArguments) remaining
 
-consumeBalancedDataConstructorGroup :: [TokenKind] -> [Token] -> Either ParserFailure [Token]
-consumeBalancedDataConstructorGroup expectedClosers tokens =
-  case tokens of
-    [] ->
-      Left
-        ( parserFailure
-            (ExpectedSyntax "constructor argument to close" (ParserEndOfInputIn "data declaration"))
-        )
-    token : rest ->
-      case tokenKind token of
-        TLParen ->
-          consumeBalancedDataConstructorGroup (TRParen : expectedClosers) rest
-        TLBracket ->
-          consumeBalancedDataConstructorGroup (TRBracket : expectedClosers) rest
-        closer@TRParen -> consumeDataConstructorCloser closer token rest
-        closer@TRBracket -> consumeDataConstructorCloser closer token rest
-        _ ->
-          consumeBalancedDataConstructorGroup expectedClosers rest
-  where
-    consumeDataConstructorCloser closer token rest =
-      case expectedClosers of
-        expected : remainingClosers
-          | closer == expected ->
-              if null remainingClosers
-                then Right rest
-                else consumeBalancedDataConstructorGroup remainingClosers rest
-        _ ->
-          Left
-            ( parserFailureAt
-                (tokenSpan token)
-                (DeclarationFailure (ConstructorArgumentDelimiterMismatch (tokenLexeme token)))
-            )
+surfaceSignatureTypeVariables :: SurfaceSignatureType -> Set Text
+surfaceSignatureTypeVariables signatureType =
+  case signatureType of
+    SurfaceTypeInt -> Set.empty
+    SurfaceTypeFloat -> Set.empty
+    SurfaceTypeNumeric _ -> Set.empty
+    SurfaceTypeBool -> Set.empty
+    SurfaceTypeChar -> Set.empty
+    SurfaceTypeText -> Set.empty
+    SurfaceTypeVariable name -> Set.singleton (identifierText name)
+    SurfaceTypeName _ -> Set.empty
+    SurfaceTypeApplication _ arguments ->
+      Set.unions (map surfaceSignatureTypeVariables arguments)
+    SurfaceTypeList elementType ->
+      surfaceSignatureTypeVariables elementType
+    SurfaceTypeTuple elementTypes ->
+      Set.unions (map surfaceSignatureTypeVariables elementTypes)
+    SurfaceTypeFunction argumentType resultType ->
+      surfaceSignatureTypeVariables argumentType
+        `Set.union` surfaceSignatureTypeVariables resultType
 
 parseModulePath :: [Token] -> Either ParserFailure ([Text], [Token])
 parseModulePath tokens =
@@ -1598,6 +1568,14 @@ parseNonEmptyUniqueList listKind listDescription renderItem parseItem tokens = d
 parseModuleExport :: [Token] -> Either ParserFailure (ModuleExportSelector, SourceSpan, [Token])
 parseModuleExport tokens =
   case tokens of
+    Token {tokenKind = TValue}
+      : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan}
+      : rest ->
+        Right
+          ( ModuleExportSelector (Just ValueNamespace) exportName,
+            exportSpan,
+            rest
+          )
     Token {tokenKind = TIdentifier prefix} : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest
       | Just TypeNamespace <- moduleExportNamespacePrefix prefix ->
           parseTypeModuleExport exportName exportSpan rest
@@ -1680,7 +1658,6 @@ parseLocatedModuleExportName tokens =
 moduleExportNamespacePrefix :: Text -> Maybe NameNamespace
 moduleExportNamespacePrefix prefix =
   case prefix of
-    "value" -> Just ValueNamespace
     "constructor" -> Just ConstructorNamespace
     "type" -> Just TypeNamespace
     "class" -> Just CapabilityNamespace

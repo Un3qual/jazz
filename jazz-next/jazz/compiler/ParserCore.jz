@@ -36,24 +36,27 @@ module ParserCore (
 
   data ParserProblem problem = RejectedProblem problem | ZeroProgressProblem.
 
-  data ParserFailure problem = ParserFailure Int ParserConsumption (ParserProblem problem).
+  data ParserFailure problem = ParserFailure Int ParserConsumption ParserProblem(problem).
 
-  data ParserReply token problem value = ParserSucceeded value (ParserCursor token) ParserConsumption | ParserFailed (ParserFailure problem).
+  data ParserReply token problem item
+    = ParserSucceeded item ParserCursor(token) ParserConsumption
+    | ParserFailed ParserFailure(problem).
 
-  data Parser token problem value = Parser (ParserCursor token -> ParserReply(token, problem, value)).
+  data Parser token problem item
+    = Parser (ParserCursor(token) -> ParserReply(token, problem, item)).
 
-  parserRunAt :: Parser(token, problem, value) -> ParserCursor(token) -> ParserReply(token, problem, value).
+  parserRunAt :: Parser(token, problem, item) -> ParserCursor(token) -> ParserReply(token, problem, item).
   parserRunAt = \(parser, cursor) -> case parser {
     | Parser run -> run cursor
   }.
 
-  parserRun :: Parser(token, problem, value) -> [token] -> ParserReply(token, problem, value).
+  parserRun :: Parser(token, problem, item) -> [token] -> ParserReply(token, problem, item).
   parserRun = \(parser, tokens) -> parserRunAt parser (ParserCursor tokens 0).
 
-  parserSucceed :: value -> Parser(token, problem, value).
-  parserSucceed = \(value) -> Parser (\(cursor) -> ParserSucceeded value cursor Unconsumed).
+  parserSucceed :: item -> Parser(token, problem, item).
+  parserSucceed = \(item) -> Parser (\(cursor) -> ParserSucceeded item cursor Unconsumed).
 
-  parserFail :: problem -> Parser(token, problem, value).
+  parserFail :: problem -> Parser(token, problem, item).
   parserFail = \(problem) -> Parser (\(cursor) -> case cursor {
     | ParserCursor remaining offset -> ParserFailed (ParserFailure offset Unconsumed (RejectedProblem problem))
   }).
@@ -87,13 +90,13 @@ module ParserCore (
   parserTransform :: (a -> b) -> Parser(token, problem, a) -> Parser(token, problem, b).
   parserTransform = \(transform, parser) -> Parser (\(cursor) -> case parserRunAt parser cursor {
     | ParserFailed failure -> ParserFailed failure
-    | ParserSucceeded value nextCursor consumption -> ParserSucceeded (transform value) nextCursor consumption
+    | ParserSucceeded item nextCursor consumption -> ParserSucceeded (transform item) nextCursor consumption
   }).
 
   parserAndThen :: (a -> Parser(token, problem, b)) -> Parser(token, problem, a) -> Parser(token, problem, b).
   parserAndThen = \(next, parser) -> Parser (\(cursor) -> case parserRunAt parser cursor {
     | ParserFailed failure -> ParserFailed failure
-    | ParserSucceeded value nextCursor earlierConsumption -> case parserRunAt (next value) nextCursor {
+    | ParserSucceeded item nextCursor earlierConsumption -> case parserRunAt (next item) nextCursor {
       | ParserFailed failure -> ParserFailed (parserFailureWithEarlierConsumption earlierConsumption failure)
       | ParserSucceeded nextValue finalCursor laterConsumption -> ParserSucceeded nextValue finalCursor (consumptionAppend earlierConsumption laterConsumption)
     }
@@ -121,38 +124,38 @@ module ParserCore (
     }
   }.
 
-  parserChoice :: Parser(token, problem, value) -> Parser(token, problem, value) -> Parser(token, problem, value).
+  parserChoice :: Parser(token, problem, item) -> Parser(token, problem, item) -> Parser(token, problem, item).
   parserChoice = \(earlier, later) -> Parser (\(cursor) -> case parserRunAt earlier cursor {
-    | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
+    | ParserSucceeded item nextCursor consumption -> ParserSucceeded item nextCursor consumption
     | ParserFailed earlierFailure -> case earlierFailure {
       | ParserFailure earlierOffset Consumed earlierProblem -> ParserFailed earlierFailure
       | ParserFailure earlierOffset Unconsumed earlierProblem -> case earlierProblem {
         | ZeroProgressProblem -> ParserFailed earlierFailure
         | RejectedProblem rejected -> case parserRunAt later cursor {
-          | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
+          | ParserSucceeded item nextCursor consumption -> ParserSucceeded item nextCursor consumption
           | ParserFailed laterFailure -> ParserFailed (fartherFailure earlierFailure laterFailure)
         }
       }
     }
   }).
 
-  parserAttempt :: Parser(token, problem, value) -> Parser(token, problem, value).
+  parserAttempt :: Parser(token, problem, item) -> Parser(token, problem, item).
   parserAttempt = \(parser) -> Parser (\(cursor) -> case parserRunAt parser cursor {
-    | ParserSucceeded value nextCursor consumption -> ParserSucceeded value nextCursor consumption
+    | ParserSucceeded item nextCursor consumption -> ParserSucceeded item nextCursor consumption
     | ParserFailed failure -> case failure {
       | ParserFailure offset consumption problem -> ParserFailed (ParserFailure offset Unconsumed problem)
     }
   }).
 
-  parserLookAhead :: Parser(token, problem, value) -> Parser(token, problem, value).
+  parserLookAhead :: Parser(token, problem, item) -> Parser(token, problem, item).
   parserLookAhead = \(parser) -> Parser (\(cursor) -> case parserRunAt parser cursor {
-    | ParserSucceeded value nextCursor consumption -> ParserSucceeded value cursor Unconsumed
+    | ParserSucceeded item nextCursor consumption -> ParserSucceeded item cursor Unconsumed
     | ParserFailed failure -> case failure {
       | ParserFailure offset consumption problem -> ParserFailed (ParserFailure offset Unconsumed problem)
     }
   }).
 
-  parserOptional :: Parser(token, problem, value) -> Parser(token, problem, Maybe(value)).
+  parserOptional :: Parser(token, problem, item) -> Parser(token, problem, Maybe(item)).
   parserOptional = \(parser) -> parserChoice (parserTransform Just parser) (parserSucceed Nothing).
 
   parserCursorRemaining :: ParserCursor(token) -> [token].
@@ -165,7 +168,7 @@ module ParserCore (
     | ParserCursor remaining offset -> offset
   }.
 
-  parserManyFrom :: Parser(token, problem, value) -> ParserCursor(token) -> [value] -> ParserConsumption -> ParserReply(token, problem, [value]).
+  parserManyFrom :: Parser(token, problem, item) -> ParserCursor(token) -> [item] -> ParserConsumption -> ParserReply(token, problem, [item]).
   parserManyFrom = \(parser, cursor, reversed, consumption) -> case parserRunAt parser cursor {
     | ParserFailed failure -> case failure {
       | ParserFailure offset failureConsumption problem -> case problem {
@@ -176,18 +179,18 @@ module ParserCore (
         | ZeroProgressProblem -> ParserFailed (ParserFailure offset (consumptionAppend consumption failureConsumption) problem)
       }
     }
-    | ParserSucceeded value nextCursor stepConsumption -> if parserCursorOffset nextCursor == parserCursorOffset cursor then
+    | ParserSucceeded item nextCursor stepConsumption -> if parserCursorOffset nextCursor == parserCursorOffset cursor then
       ParserFailed (ParserFailure (parserCursorOffset cursor) (consumptionAppend consumption stepConsumption) ZeroProgressProblem)
-    else parserManyFrom parser nextCursor (listPrepend value reversed) (consumptionAppend consumption stepConsumption)
+    else parserManyFrom parser nextCursor (listPrepend item reversed) (consumptionAppend consumption stepConsumption)
   }.
 
-  parserMany :: Parser(token, problem, value) -> Parser(token, problem, [value]).
+  parserMany :: Parser(token, problem, item) -> Parser(token, problem, [item]).
   parserMany = \(parser) -> Parser (\(cursor) -> parserManyFrom parser cursor [] Unconsumed).
 
-  parserOneOrMore :: Parser(token, problem, value) -> Parser(token, problem, NonEmpty(value)).
+  parserOneOrMore :: Parser(token, problem, item) -> Parser(token, problem, NonEmpty(item)).
   parserOneOrMore = \(parser) -> parserAndThen (\(first) -> parserTransform (\(rest) -> NonEmpty first rest) (parserMany parser)) parser.
 
-  parserSeparatedBy :: Parser(token, problem, value) -> Parser(token, problem, separator) -> Parser(token, problem, [value]).
+  parserSeparatedBy :: Parser(token, problem, item) -> Parser(token, problem, separator) -> Parser(token, problem, [item]).
   parserSeparatedBy = \(item, separator) -> parserChoice
     (parserAndThen (\(first) -> parserTransform (\(rest) -> listPrepend first rest) (parserMany (parserKeepRight separator item))) item)
     (parserSucceed []).

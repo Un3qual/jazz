@@ -28,6 +28,16 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Optional type signature form: `name :: Type.` directly above its binding.
    - Lambda form: `\(args) -> expr`; arguments may be identifiers or active
      pattern forms.
+   - Ordered alternatives with distinct bodies use an expression-level
+     pattern lambda:
+     `\|(pattern1, pattern2) -> expr |(other1, other2) -> expr`.
+     Every clause has the same arity, clauses are tested top-to-bottom, clause
+     binders are scoped to their own body, and the lambda remains curried and
+     partially applicable.
+   - Same-body alternatives remain one ordinary lambda or-pattern:
+     `\(Just item | Also item) -> item`.
+   - Haskell-style named equations such as `name pattern = expr.` are not part
+     of the grammar.
    - Unit-lambda form: `\() -> expr`, equivalent to the unary pattern form
      `\(()) -> expr` and invoked as `function ()`.
 
@@ -71,6 +81,8 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Dot-separated root forms remain canonical: `expr.`
    - Whitespace application remains canonical: `f x y`
    - `$` remains canonical low-precedence right-associative application.
+   - `value` is globally reserved. It is a contextual export selector in a
+     module header, never an ordinary binding or parameter name.
 
 ## Legacy Compatibility and Migration Notes
 

@@ -132,14 +132,17 @@ parseTuplePattern leftParenToken = do
           tuplePatterns <- parseTuplePatternElements [firstPattern]
           void (parseToken TRParen)
           pure (SPTuple tuplePatterns)
+        Just Token {tokenKind = TRParen} -> do
+          void parseAnyToken
+          pure firstPattern
         Nothing ->
           failTokenParserAt
             (tokenSpan leftParenToken)
-            (ExpectedSyntax "','" (ParserEndOfInputIn "tuple pattern"))
+            (ExpectedSyntax "',' or ')'" (ParserEndOfInputIn "grouped or tuple pattern"))
         Just token ->
           failTokenParserAt
             (tokenSpan token)
-            (ExpectedSyntax "','" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+            (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseTuplePatternElements :: [SurfacePattern] -> Parser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do

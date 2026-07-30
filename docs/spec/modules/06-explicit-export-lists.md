@@ -8,8 +8,9 @@ Status: active explicit module export contract
 constructor Constructor, value binding, class Class) { ... }` is an allowlist.
 An omitted list exports every owned declaration. `()` exports none.
 
-`value`, `constructor`, `type`, and `class` are contextual prefixes inside an
-export list. They remain ordinary identifiers elsewhere.
+`value` is globally reserved and acts as an export selector inside an export
+list. `constructor`, `type`, and `class` are contextual export prefixes and
+remain ordinary identifiers elsewhere.
 
 ## Namespace Rules
 

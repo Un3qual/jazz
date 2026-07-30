@@ -346,6 +346,7 @@ reviewRegressionGroups =
     (("enforces latest bot-reviewed typed-core contracts", testLatestBotReviewRegressions), [nestedStrictEqualityConstraintProgram, canonicalQualifiedMethodKeyProgram, wrongQualifiedMethodKeyProgram, builtinValueContractProgram, missingInterfaceMetadataProgram, unterminatedBlockProgram, constrainedMonomorphicUseProgram, unrelatedKnownInstantiationProgram]),
     (("enforces newest bot-reviewed typed-core contracts", testNewestBotReviewRegressions), [explicitHeadParameterProgram, classArityProgram, classMethodSchemeShapeProgram, duplicateImplDeclarationProgram, emptyOrPatternProgram, nonBindingTypeApplicationProgram, mismatchedResolvedOperatorProgram, dataInterfaceDependencyProgram, classMethodInterfaceDependencyProgram]),
     (("enforces post-newest bot-reviewed typed-core contracts", testPostNewestBotReviewRegressions), [instantiatedPrimitiveConstraintProgram, typeApplicationExtraOwnerProgram, constrainedResolvedOperatorProgram, missingModuleResultProgram, emptyDataDeclarationProgram, laterOrPatternBinderCollisionProgram, concreteIntegerBoundsProgram, incompleteImplProgram, duplicateInstantiationProgram]),
+    (("rejects globally reserved typed-core names", testReservedValueTypedCoreBoundary), [reservedValueIdentifierProgram, reservedValueModulePathProgram]),
     (("checks fractional literals against their selected floating widths", testFractionalLiteralBounds), [fractionalLiteralBoundsProgram]),
     (("rejects local classes that collide with visible classes", testVisibleClassCollisions), [visibleClassCollisionProgram]),
     (("retains method data metadata across selective class facades", testSelectedClassDataDependency), [selectedClassDataDependencyProgram]),
@@ -1145,7 +1146,7 @@ emptyMonomorphicValueOwner =
   binder
     (fixtureModulePath "review-empty-monomorphic-instantiation")
     [0]
-    (resolved TypedCurrentModule TypedValueNamespace "value")
+    (resolved TypedCurrentModule TypedValueNamespace "item")
 
 emptyMonomorphicConstructorOwner :: TypedBinderId
 emptyMonomorphicConstructorOwner =
@@ -1160,7 +1161,7 @@ emptyMonomorphicInstantiationProgram =
   where
     fixture = "review-empty-monomorphic-instantiation"
     modulePath = fixtureModulePath fixture
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueInfo =
       TypedNodeInfo
         TypedBoolType
@@ -1321,7 +1322,7 @@ wrongDataNamespaceProgram =
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     declaration =
       dataDeclarationWithNullaryConstructor modulePath [0, 0] dataName []
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     owner = binder modulePath [1] valueName
     invalidType = TypedDataType wrongDataNamespaceName []
     invalidRecipe = TypedManagedVariantRecipe wrongDataNamespaceName []
@@ -2547,7 +2548,7 @@ bindingValueProgram =
   where
     fixture = "review-binding-value"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
     value = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "wrong")
 
@@ -2618,7 +2619,7 @@ schemeDataTypeProgram =
   where
     fixture = "review-scheme-data-type"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
     resultType = TypedDataType missingSchemeDataName []
     scheme = TypedScheme valueBinder [] [] [] resultType (TypedManagedVariantRecipe missingSchemeDataName [])
@@ -3666,6 +3667,26 @@ testPostNewestBotReviewRegressions = do
         (TypedBinderDetail duplicateInstantiationOwner)
     ]
     (validateTypedProgram duplicateInstantiationProgram)
+
+testReservedValueTypedCoreBoundary :: IO ()
+testReservedValueTypedCoreBoundary = do
+  assertEqual
+    "typed-core source identifiers reject the globally reserved value keyword"
+    [ statementFailure
+        "review-reserved-value-identifier"
+        0
+        TypedUnresolvedName
+        (TypedNameDetail reservedValueIdentifierName)
+    ]
+    (validateTypedProgram reservedValueIdentifierProgram)
+  assertEqual
+    "typed-core module paths reject the globally reserved value keyword"
+    [ TypedCoreValidationFailure
+        (TypedModulePath reservedValueModulePath)
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "Fixture::value")
+    ]
+    (validateTypedProgram reservedValueModulePathProgram)
 
 testFractionalLiteralBounds :: IO ()
 testFractionalLiteralBounds =
@@ -5054,7 +5075,7 @@ duplicateEvidenceConstraintProgram =
   withFixturePrelude (signatureProgram fixture valueOwner valueName valueScheme)
   where
     fixture = "review-duplicate-evidence-constraint"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueOwner = fixtureBinder fixture 0 valueName
     constraint =
       TypedCapabilityConstraint
@@ -5249,7 +5270,7 @@ bareSignatureVisibilityProgram =
 
 activeRebindingExportName :: TypedCoreName
 activeRebindingExportName =
-  resolved TypedCurrentModule TypedValueNamespace "value"
+  resolved TypedCurrentModule TypedValueNamespace "item"
 
 activeRebindingExportProgram :: TypedProgram
 activeRebindingExportProgram =
@@ -5262,7 +5283,7 @@ activeRebindingExportProgram =
     firstScheme = monoScheme firstOwner
     secondScheme =
       TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
-    exports = [TypedModuleExport TypedValueNamespace "value"]
+    exports = [TypedModuleExport TypedValueNamespace "item"]
     statements =
       [ TypedLetStatement firstOwner activeRebindingExportName span1 firstScheme trueExpr,
         TypedLetStatement
@@ -5708,7 +5729,7 @@ importedCurrentOriginName =
   resolved
     (TypedImportedModule (fixtureModulePath "review-imported-current-origin"))
     TypedValueNamespace
-    "value"
+    "item"
 
 importedCurrentOriginProgram :: TypedProgram
 importedCurrentOriginProgram =
@@ -5716,7 +5737,7 @@ importedCurrentOriginProgram =
   where
     fixture = "review-imported-current-origin"
     modulePath = (fixtureModulePath fixture)
-    localName = resolved TypedCurrentModule TypedValueNamespace "value"
+    localName = resolved TypedCurrentModule TypedValueNamespace "item"
     owner = binder modulePath [0] localName
     statements =
       [ TypedLetStatement owner localName span1 (monoScheme owner) trueExpr,
@@ -6554,7 +6575,7 @@ aliasShapedSelfRecursionProgram =
   where
     fixture = "review-alias-shaped-self-recursion"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     owner = binder modulePath [0] valueName
     expression =
       TypedPatternCaseExpr
@@ -6570,7 +6591,7 @@ aliasShapedSelfRecursionProgram =
 
 eagerSelfReferenceName :: TypedCoreName
 eagerSelfReferenceName =
-  resolved TypedCurrentModule TypedValueNamespace "value"
+  resolved TypedCurrentModule TypedValueNamespace "item"
 
 eagerSelfReferenceProgram :: TypedProgram
 eagerSelfReferenceProgram =
@@ -6671,7 +6692,7 @@ syntheticBinderShadowingProgram =
   where
     fixture = "review-synthetic-binder-shadowing"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     earlierOwner = binder modulePath [99] valueName
     laterOwner = binder modulePath [0] valueName
     earlierScheme = monoScheme earlierOwner
@@ -7330,7 +7351,7 @@ moduleMetadataIdentityOwner =
   binder
     (fixtureModulePath "review-module-metadata-identity")
     [0]
-    (resolved TypedCurrentModule TypedValueNamespace "value")
+    (resolved TypedCurrentModule TypedValueNamespace "item")
 
 moduleMetadataIdentityProgram :: TypedProgram
 moduleMetadataIdentityProgram =
@@ -7338,7 +7359,7 @@ moduleMetadataIdentityProgram =
   where
     fixture = "review-module-metadata-identity"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     owner = moduleMetadataIdentityOwner
     scheme = monoScheme owner
     moduleInfo =
@@ -7445,7 +7466,7 @@ lexicalSchemeShadowingProgram =
   where
     fixture = "review-lexical-scheme-shadowing"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     outerOwner = binder modulePath [0] valueName
     innerOwner = binder modulePath [1, 0] valueName
     innerUse = TypedVariableExpr textInfo valueName
@@ -8347,7 +8368,7 @@ sameScopeValueRebindingProgram =
   where
     fixture = "review-same-scope-value-rebinding"
     modulePath = (fixtureModulePath fixture)
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     firstSignatureOwner = binder modulePath [0] valueName
     firstOwner = binder modulePath [1] valueName
     secondSignatureOwner = binder modulePath [2] valueName
@@ -9864,7 +9885,7 @@ missingModuleResultProgram =
     (fixtureModulePath fixture)
   where
     fixture = "review-missing-module-result"
-    name = fixtureValueName "value"
+    name = fixtureValueName "item"
     owner = fixtureBinder fixture 0 name
 
 emptyDataDeclarationProgram :: TypedProgram
@@ -9980,7 +10001,7 @@ duplicateInstantiationOwner =
   fixtureBinder
     "review-duplicate-instantiation"
     0
-    (fixtureValueName "value")
+    (fixtureValueName "item")
 
 duplicateInstantiationProgram :: TypedProgram
 duplicateInstantiationProgram =
@@ -9988,7 +10009,7 @@ duplicateInstantiationProgram =
   where
     fixture = "review-duplicate-instantiation"
     modulePath = (fixtureModulePath fixture)
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     parameter = TypedTypeParameterId 0
     scheme =
       TypedScheme
@@ -10229,7 +10250,7 @@ selectedClassDataDependencyProgram =
       resolved TypedCurrentModule TypedValueNamespace "roundTrip"
     methodBinder = binder entryPath [0, 0] localMethodName
     parameterName =
-      resolved TypedCurrentModule TypedValueNamespace "value"
+      resolved TypedCurrentModule TypedValueNamespace "item"
     parameterBinder = binder entryPath [0, 0, 0] parameterName
     body =
       TypedVariableExpr
@@ -10510,7 +10531,7 @@ invalidNumericPrimitiveConstraintProgram =
   signatureProgram fixture valueBinder valueName scheme
   where
     fixture = "review-invalid-numeric-primitive-constraint"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     scheme =
       TypedScheme
@@ -10564,7 +10585,7 @@ expressionDuplicateBinder =
   binder
     (fixtureModulePath "review-expression-duplicate-binder")
     [0]
-    (resolved TypedCurrentModule TypedValueNamespace "value")
+    (resolved TypedCurrentModule TypedValueNamespace "item")
 
 expressionDuplicateBinderProgram :: TypedProgram
 expressionDuplicateBinderProgram =
@@ -10572,7 +10593,7 @@ expressionDuplicateBinderProgram =
   where
     fixture = "review-expression-duplicate-binder"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     scheme = monoScheme expressionDuplicateBinder
     lambda = TypedLambdaExpr boolToBoolInfo expressionDuplicateBinder valueName (TypedVariableExpr boolInfo valueName)
     statements = [TypedLetStatement expressionDuplicateBinder valueName span1 scheme trueExpr, expressionStatement 2 lambda]
@@ -10662,7 +10683,7 @@ explicitTypeApplicationOwner =
   binder
     (fixtureModulePath "review-explicit-type-application-contract")
     [0]
-    (resolved TypedCurrentModule TypedValueNamespace "value")
+    (resolved TypedCurrentModule TypedValueNamespace "item")
 
 explicitTypeApplicationContractProgram :: TypedProgram
 explicitTypeApplicationContractProgram =
@@ -10670,7 +10691,7 @@ explicitTypeApplicationContractProgram =
   where
     fixture = "review-explicit-type-application-contract"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     scheme = monoScheme explicitTypeApplicationOwner
     expression = TypedTypeApplicationExpr boolInfo (TypedVariableExpr boolInfo valueName) span1 TypedBoolType
     statements = [TypedLetStatement explicitTypeApplicationOwner valueName span1 scheme trueExpr, expressionStatement 2 expression]
@@ -10681,7 +10702,7 @@ variableSchemeContractProgram =
   where
     fixture = "review-variable-scheme-contract"
     modulePath = (fixtureModulePath fixture)
-    valueName = resolved TypedCurrentModule TypedValueNamespace "value"
+    valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
     statements =
       [ TypedLetStatement valueBinder valueName span1 (monoScheme valueBinder) trueExpr,
@@ -11292,6 +11313,44 @@ localDeclarationOriginProgram =
           trueExpr
       ]
 
+reservedValueIdentifierName :: TypedCoreName
+reservedValueIdentifierName =
+  resolved TypedCurrentModule TypedValueNamespace "value"
+
+reservedValueIdentifierProgram :: TypedProgram
+reservedValueIdentifierProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-reserved-value-identifier"
+    modulePath = fixtureModulePath fixture
+    valueBinder = binder modulePath [0] reservedValueIdentifierName
+    statements =
+      [ TypedLetStatement
+          valueBinder
+          reservedValueIdentifierName
+          span1
+          (monoScheme valueBinder)
+          trueExpr
+      ]
+
+reservedValueModulePath :: [Text]
+reservedValueModulePath = ["Fixture", "value"]
+
+reservedValueModulePathProgram :: TypedProgram
+reservedValueModulePathProgram =
+  TypedProgram
+    Nothing
+    [ typedModule
+        reservedValueModulePath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+    ]
+    reservedValueModulePath
+
 expressionFixtureProgram :: Text -> TypedExpr -> TypedProgram
 expressionFixtureProgram fixture expression =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 expression] emptyInterface (expressionInfoForFixture expression) (fixtureModulePath fixture)
@@ -11882,7 +11941,7 @@ patternsBindersProgram =
     fixture = "patterns-binders"
     modulePath = (fixtureModulePath fixture)
     variablePattern index =
-      let name = resolved TypedCurrentModule TypedValueNamespace ("value" <> Text.pack (show index))
+      let name = resolved TypedCurrentModule TypedValueNamespace ("item" <> Text.pack (show index))
        in TypedVariablePattern boolInfo (binder modulePath [index] name) name
     asName = resolved TypedCurrentModule TypedValueNamespace "asValue"
     asPattern = TypedAsPattern boolInfo (binder modulePath [6] asName) asName (TypedWildcardPattern boolInfo)
@@ -12179,7 +12238,7 @@ denseBindingDagProgram bindingCount =
       [ resolved
           TypedCurrentModule
           TypedValueNamespace
-          ("value" <> Text.pack (show index))
+          ("item" <> Text.pack (show index))
       | index <- [0 .. bindingCount - 1]
       ]
     bindings =
@@ -12560,7 +12619,7 @@ unresolvedQualifiedNameFixture =
     (TypedVariableExpr boolInfo unresolvedName)
     [expressionFailure "unresolved-qualified-name" TypedUnresolvedName (TypedNameDetail unresolvedName)]
   where
-    unresolvedName = TypedUnresolvedQualifiedName "Missing" "value"
+    unresolvedName = TypedUnresolvedQualifiedName "Missing" "item"
 
 absoluteSourcePathFixture :: InvalidFixture
 absoluteSourcePathFixture =
@@ -12596,7 +12655,7 @@ duplicateBinderFixture =
   InvalidFixture fixture program [statementFailure fixture 1 TypedDuplicateBinder (TypedBinderDetail valueBinder)]
   where
     fixture = "duplicate-binder"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     scheme = monoScheme valueBinder
     statement = TypedLetStatement valueBinder valueName span1 scheme trueExpr
@@ -12607,7 +12666,7 @@ unknownBinderFixture =
   InvalidFixture fixture program [statementFailure fixture 0 TypedUnknownBinder (TypedBinderDetail schemeBinder)]
   where
     fixture = "unknown-binder"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     statementBinder = fixtureBinder fixture 0 valueName
     schemeBinder = fixtureBinder fixture 1 valueName
     statement = TypedLetStatement statementBinder valueName span1 (monoScheme schemeBinder) trueExpr
@@ -12618,7 +12677,7 @@ duplicateTypeParameterFixture =
   InvalidFixture fixture program failures
   where
     fixture = "duplicate-or-noncanonical-type-parameter"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameters = [TypedTypeParameterId 0, TypedTypeParameterId 0, TypedTypeParameterId 3]
     scheme = TypedScheme valueBinder parameters [] [] TypedBoolType TypedBoolRecipe
@@ -12634,7 +12693,7 @@ freeTypeParameterFixture =
   InvalidFixture fixture program [statementFailure fixture 0 TypedUnboundTypeParameter (TypedTypeParameterDetail parameterId)]
   where
     fixture = "free-type-parameter"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameterId = TypedTypeParameterId 0
     scheme = TypedScheme valueBinder [] [] [] (TypedTypeParameterType parameterId) TypedBoolRecipe
@@ -12645,7 +12704,7 @@ freeRepresentationParameterFixture =
   InvalidFixture fixture program [statementFailure fixture 0 TypedUnboundRepresentationParameter (TypedTypeParameterDetail parameterId)]
   where
     fixture = "free-representation-parameter"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameterId = TypedTypeParameterId 0
     scheme = TypedScheme valueBinder [] [] [] TypedBoolType (TypedRepresentationParameterRecipe parameterId)
@@ -12783,7 +12842,7 @@ duplicateEvidenceParameterFixture =
   InvalidFixture fixture program failures
   where
     fixture = "duplicate-or-noncanonical-evidence-parameter"
-    valueName = fixtureValueName "value"
+    valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence =

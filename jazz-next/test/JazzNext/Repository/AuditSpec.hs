@@ -9,6 +9,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString as ByteString
 import Data.Foldable (toList)
 import Data.List (sort)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -24,8 +25,15 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Diagnostics.Render (renderDiagnostic)
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
+import qualified JazzNext.Compiler.Parser.AST as Surface
 import JazzNext.Compiler.SignatureRendering
   ( renderSignatureType,
+  )
+import qualified JazzNext.Repository.AuthoredSources as AuthoredSources
+import JazzNext.Repository.FeatureInventory
+  ( SurfaceFeature (..),
+    inventorySurface,
+    requiredAuthoredFeatures,
   )
 import JazzNext.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
@@ -60,12 +68,19 @@ main = runTestSuite "RepositoryAudit" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("accepts a valid Jazz source module", testValidJazzModule),
+  [ ("discovers the complete authored Jazz source set", testAuthoredSourceInventory),
+    ("covers the implemented Jazz surface across authored sources", testAuthoredFeatureInventory),
+    ("distinguishes partial applications from saturated calls", testPartialApplicationInventory),
+    ("covers every public standard-library module family", testStandardLibraryModuleInventory),
+    ("accepts a valid Jazz source module", testValidJazzModule),
     ("accepts a multiline module export header", testMultilineModuleHeader),
     ("rejects a missing module header", testMissingModuleHeader),
     ("rejects a missing final closing brace", testMissingClosingBrace),
     ("rejects blank lines after the final closing brace", testTrailingBlankLines),
     ("rejects odd or shallow body indentation", testBodyIndentation),
+    ("accepts canonical multiline data declarations", testCanonicalMultilineDataDeclaration),
+    ("rejects overlong data declaration lines", testOverlongDataDeclarationLine),
+    ("rejects shallow data payload continuations", testDataContinuationIndent),
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
@@ -82,6 +97,208 @@ tests =
     ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
     ("documents the shared program corpus and performance workflows", testPerformanceDocumentation)
   ]
+
+testAuthoredSourceInventory :: IO ()
+testAuthoredSourceInventory =
+  withPackageRoot $ \packageRoot -> do
+    sources <- AuthoredSources.readAuthoredSources packageRoot
+    assertEqual
+      "authored source paths"
+      expectedAuthoredSourcePaths
+      (map AuthoredSources.authoredRelativePath sources)
+    assertEqual
+      "authored source roles"
+      [ AuthoredSources.StandardLibrarySource,
+        AuthoredSources.CompilerSource,
+        AuthoredSources.ProgramSource,
+        AuthoredSources.EditorFixtureSource
+      ]
+      (sort (uniqueValues (map AuthoredSources.authoredRole sources)))
+
+testAuthoredFeatureInventory :: IO ()
+testAuthoredFeatureInventory =
+  withPackageRoot $ \packageRoot -> do
+    sources <- AuthoredSources.readAuthoredSources packageRoot
+    let observed =
+          Set.unions
+            [ inventorySurface
+                (AuthoredSources.authoredText source)
+                (AuthoredSources.authoredSurface source)
+            | source <- sources
+            ]
+        missing = requiredAuthoredFeatures `Set.difference` observed
+    unless (Set.null missing) $
+      failTest
+        ( "authored Jazz sources do not exercise: "
+            <> Text.pack (show (Set.toAscList missing))
+        )
+
+testPartialApplicationInventory :: IO ()
+testPartialApplicationInventory = do
+  saturatedFeatures <- inventoryParsedSource saturatedApplicationSource
+  partialFeatures <- inventoryParsedSource partialApplicationSource
+  assertEqual
+    "saturated multi-argument call is not partial"
+    False
+    (PartialApplicationFeature `Set.member` saturatedFeatures)
+  assertEqual
+    "under-applied multi-argument function is partial"
+    True
+    (PartialApplicationFeature `Set.member` partialFeatures)
+
+inventoryParsedSource :: Text -> IO (Set.Set SurfaceFeature)
+inventoryParsedSource source =
+  case parseSurfaceProgram source of
+    Left diagnostic ->
+      failTest
+        ( "could not parse feature-inventory fixture: "
+            <> renderDiagnostic diagnostic
+        )
+    Right surface -> pure (inventorySurface source surface)
+
+saturatedApplicationSource :: Text
+saturatedApplicationSource =
+  """
+  combine = \\(left, right) -> left + right.
+  result = combine 1 2.
+  """
+
+partialApplicationSource :: Text
+partialApplicationSource =
+  """
+  combine = \\(left, right) -> left + right.
+  addOne = combine 1.
+  """
+
+testStandardLibraryModuleInventory :: IO ()
+testStandardLibraryModuleInventory =
+  withPackageRoot $ \packageRoot -> do
+    sources <- AuthoredSources.readAuthoredSources packageRoot
+    let stdlibSources =
+          filter
+            ((== AuthoredSources.StandardLibrarySource) . AuthoredSources.authoredRole)
+            sources
+        publicModulePaths =
+          Set.unions
+            [ surfaceModulePaths (AuthoredSources.authoredSurface source)
+            | source <- stdlibSources,
+              AuthoredSources.authoredRelativePath source /= "jazz/stdlib/Prelude.jz"
+            ]
+        expectedModulePaths =
+          Set.fromList
+            [ ["Char"],
+              ["Dictionary"],
+              ["IO"],
+              ["IOError"],
+              ["List"],
+              ["Map"],
+              ["Maybe"],
+              ["NonEmpty"],
+              ["Queue"],
+              ["Result"],
+              ["Set"],
+              ["Text"]
+            ]
+        preludeSources =
+          filter
+            ((== "jazz/stdlib/Prelude.jz") . AuthoredSources.authoredRelativePath)
+            stdlibSources
+    assertEqual "public standard-library module paths" expectedModulePaths publicModulePaths
+    assertEqual "one ambient Prelude source" 1 (length preludeSources)
+    assertEqual
+      "ambient Prelude has no module wrapper"
+      Set.empty
+      (Set.unions (map (surfaceModulePaths . AuthoredSources.authoredSurface) preludeSources))
+
+surfaceModulePaths :: Surface.SurfaceExpr -> Set.Set [Text]
+surfaceModulePaths expression =
+  case expression of
+    Surface.SEBlock statements ->
+      Set.fromList
+        [ modulePath
+        | Surface.SSModule _ modulePath _ <- statements
+        ]
+    _ -> Set.empty
+
+expectedAuthoredSourcePaths :: [FilePath]
+expectedAuthoredSourcePaths =
+  [ "editors/vscode-jazz/fixtures/representative.jz",
+    "jazz/compiler/Core.jz",
+    "jazz/compiler/CoreLower.jz",
+    "jazz/compiler/CoreTypes.jz",
+    "jazz/compiler/Lexer.jz",
+    "jazz/compiler/LexerTypes.jz",
+    "jazz/compiler/LoweredIRTypes.jz",
+    "jazz/compiler/LoweredIRValidate.jz",
+    "jazz/compiler/Parser.jz",
+    "jazz/compiler/ParserContext.jz",
+    "jazz/compiler/ParserCore.jz",
+    "jazz/compiler/ParserDeclaration.jz",
+    "jazz/compiler/ParserExpression.jz",
+    "jazz/compiler/ParserOperator.jz",
+    "jazz/compiler/ParserPattern.jz",
+    "jazz/compiler/ParserProgram.jz",
+    "jazz/compiler/ParserSignature.jz",
+    "jazz/compiler/ParserToken.jz",
+    "jazz/compiler/ParserTypes.jz",
+    "jazz/compiler/TypedCoreTypes.jz",
+    "jazz/compiler/TypedCoreValidate.jz",
+    "jazz/stdlib/Char.jz",
+    "jazz/stdlib/Dictionary.jz",
+    "jazz/stdlib/IO.jz",
+    "jazz/stdlib/IOError.jz",
+    "jazz/stdlib/List.jz",
+    "jazz/stdlib/Map.jz",
+    "jazz/stdlib/Maybe.jz",
+    "jazz/stdlib/NonEmpty.jz",
+    "jazz/stdlib/Prelude.jz",
+    "jazz/stdlib/Queue.jz",
+    "jazz/stdlib/Result.jz",
+    "jazz/stdlib/Set.jz",
+    "jazz/stdlib/Text.jz",
+    "programs/capability-workflow/Main.jz",
+    "programs/capability-workflow/Workflow.jz",
+    "programs/collection-boundaries/Collections.jz",
+    "programs/collection-boundaries/Main.jz",
+    "programs/dependency-planner/Graph.jz",
+    "programs/dependency-planner/Main.jz",
+    "programs/expression-evaluator/Expression.jz",
+    "programs/expression-evaluator/Main.jz",
+    "programs/fannkuch/Fannkuch.jz",
+    "programs/fannkuch/Main.jz",
+    "programs/identifier-classifier/Main.jz",
+    "programs/merge-sort/Main.jz",
+    "programs/merge-sort/MergeSort.jz",
+    "programs/mini-frontend/Analysis.jz",
+    "programs/mini-frontend/Evaluation.jz",
+    "programs/mini-frontend/Main.jz",
+    "programs/mini-frontend/Syntax.jz",
+    "programs/mini-frontend/Token.jz",
+    "programs/n-queens/Main.jz",
+    "programs/n-queens/Queens.jz",
+    "programs/prime-sieve/Main.jz",
+    "programs/prime-sieve/Sieve.jz",
+    "programs/queue-traversal/Main.jz",
+    "programs/queue-traversal/Traversal.jz",
+    "programs/sorted-index/Index.jz",
+    "programs/sorted-index/Main.jz",
+    "programs/symbolic-differentiation/Main.jz",
+    "programs/symbolic-differentiation/Symbolic.jz",
+    "programs/tak/Main.jz",
+    "programs/tak/Tak.jz",
+    "programs/text-processing/Main.jz",
+    "programs/tree-transformations/Main.jz",
+    "programs/tree-transformations/Tree.jz",
+    "programs/word-frequency/Main.jz"
+  ]
+
+uniqueValues :: (Eq value) => [value] -> [value]
+uniqueValues values =
+  case values of
+    [] -> []
+    value : rest
+      | value `elem` rest -> uniqueValues rest
+      | otherwise -> value : uniqueValues rest
 
 validJazzSource :: Text
 validJazzSource =
@@ -169,6 +386,55 @@ testBodyIndentation =
         module Bad {
          shallow = 1.
            odd = 2.
+        }
+        """
+    )
+
+testCanonicalMultilineDataDeclaration :: IO ()
+testCanonicalMultilineDataDeclaration =
+  assertEqual
+    "canonical multiline data declaration"
+    []
+    ( validateJazzModule
+        "jazz/stdlib/Good.jz"
+        """
+        module Good {
+          data TypedLiteral
+            = TypedIntegerLiteral Text
+            | TypedFractionalLiteral Text Text Maybe(TypedNumericType)
+            | TypedBooleanLiteral Bool.
+        }
+        """
+    )
+
+testOverlongDataDeclarationLine :: IO ()
+testOverlongDataDeclarationLine =
+  assertEqual
+    "overlong data declaration line"
+    [OverlongDataDeclarationLine "jazz/stdlib/Bad.jz" 2 101]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
+        ( "module Bad {\n"
+            <> "  data X = X "
+            <> Text.replicate 87 "A"
+            <> "."
+            <> "\n}\n"
+        )
+    )
+
+testDataContinuationIndent :: IO ()
+testDataContinuationIndent =
+  assertEqual
+    "shallow data payload continuation"
+    [InvalidDataContinuationIndent "jazz/stdlib/Bad.jz" 4]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
+        """
+        module Bad {
+          data TypedFunction
+            = TypedFunction
+            TypedFunctionId
+              [TypedBlock].
         }
         """
     )
@@ -304,7 +570,24 @@ testEditorPackageMetadata =
             []
             jsonArray
             (jsonPath ["repository", "data-declarations", "patterns"] grammar)
+        dataDeclarationIncludes =
+          [ includeName
+          | patternValue <- dataDeclarationPatterns,
+            Just (String includeName) <- [jsonPath ["include"] patternValue]
+          ]
         constructorPattern = firstValue dataDeclarationPatterns
+        keywordPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "keywords", "patterns"] grammar)
+        reservedValuePattern =
+          firstValue
+            [ patternValue
+            | patternValue <- keywordPatterns,
+              jsonPath ["match"] patternValue == Just (String "\\bvalue\\b")
+            ]
+        exportRegionBegin = jsonPath ["repository", "exports", "begin"] grammar
         exportPatterns =
           maybe
             []
@@ -321,6 +604,12 @@ testEditorPackageMetadata =
             (jsonPath ["repository", "operators", "patterns"] grammar)
         operatorPattern = firstValue operatorPatterns
         operatorMatch = operatorPattern >>= jsonPath ["match"]
+        lambdaPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "lambdas", "patterns"] grammar)
+        patternLambdaIntroducer = firstValue lambdaPatterns
     assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
     assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
     assertEqual
@@ -349,9 +638,21 @@ testEditorPackageMetadata =
       True
       ("#data-declarations" `elem` rootGrammarIncludes)
     assertEqual
+      "data declarations retain global reserved-keyword highlighting"
+      True
+      ("#keywords" `elem` dataDeclarationIncludes)
+    assertEqual
       "data constructors have a distinct grammar scope"
       (Just (String "entity.name.function.constructor.jazz"))
       (constructorPattern >>= jsonPath ["captures", "2", "name"])
+    assertEqual
+      "value is globally highlighted as a reserved keyword"
+      (Just (String "keyword.other.reserved.jazz"))
+      (reservedValuePattern >>= jsonPath ["name"])
+    assertEqual
+      "exports are scoped to a module-header region"
+      (Just (String "\\b(module)\\s+([A-Z][A-Za-z0-9_']*(?:::[A-Z][A-Za-z0-9_']*)*)\\s*(\\()"))
+      exportRegionBegin
     assertEqual
       "grouped exports scope the exported type name"
       (Just (String "entity.name.type.jazz"))
@@ -361,12 +662,31 @@ testEditorPackageMetadata =
       (Just (String "entity.name.function.constructor.jazz"))
       (groupedConstructorPattern >>= jsonPath ["name"])
     assertEqual
+      "export modifiers are nested inside the module-header region"
+      True
+      ( any
+          ( \patternValue ->
+              jsonPath ["name"] patternValue == Just (String "storage.modifier.export.jazz")
+                && jsonPath ["match"] patternValue
+                  == Just (String "\\b(?:value|constructor|type|class)\\b")
+          )
+          exportPatterns
+      )
+    assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True
       ( case operatorMatch of
           Just (String patternText) -> ":=@!]" `Text.isInfixOf` patternText
           _ -> False
       )
+    assertEqual
+      "pattern lambda introducer has the lambda scope"
+      (Just (String "keyword.operator.lambda.jazz"))
+      (patternLambdaIntroducer >>= jsonPath ["name"])
+    assertEqual
+      "pattern lambda introducer is matched before standalone operators"
+      (Just (String "\\\\\\|"))
+      (patternLambdaIntroducer >>= jsonPath ["match"])
 
 testEditorFixtureParses :: IO ()
 testEditorFixtureParses =
@@ -411,6 +731,7 @@ requiredEditorSyntax =
     ("capability requirement", "@{"),
     ("type signature", "::"),
     ("lambda", "\\("),
+    ("pattern lambda clauses", "\\|("),
     ("function arrow", "->"),
     ("case expression", "case"),
     ("conditional", "if"),

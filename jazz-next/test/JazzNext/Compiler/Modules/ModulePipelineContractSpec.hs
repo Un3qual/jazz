@@ -15,6 +15,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -76,12 +77,15 @@ import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnl
 import JazzNext.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    identifierText,
     mkIdentifier,
     resolvedImportedName,
     resolvedLocalName
   )
 import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (TTextType),
+  ( ConstructorArgumentType (..),
+    DataTypeBinding (..),
+    ExpressionType (TTextType),
     TypeBinding (PlainTypeBinding)
   )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
@@ -108,6 +112,7 @@ tests =
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
+    ("compiled generic constructor fields remain module-stable", testCompiledGenericConstructorFieldsRemainModuleStable),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
@@ -118,6 +123,35 @@ tests =
     ("module diagnostics retain source paths", testSourcePathContract),
     ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
   ]
+
+testCompiledGenericConstructorFieldsRemainModuleStable :: IO ()
+testCompiledGenericConstructorFieldsRemainModuleStable = do
+  compiled <- compileFixtureProgram sources
+  case lookupCompiledModule ["Lib", "Box"] compiled of
+    Nothing -> fail "missing compiled Lib::Box module"
+    Just boxModule ->
+      case Map.lookup "Box" (interfaceDataTypes (compiledModuleInterface boxModule)) of
+        Just
+          ( DataTypeBinding
+              [_]
+              [[ConstructorArgumentStructured (TypeList (TypeVariable parameterName))]]
+            ) ->
+              assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
+        binding ->
+          fail ("unexpected compiled Box constructor metadata: " <> show binding)
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      assertEqual
+        "cross-module structured constructor output"
+        (Just "Box([1])")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Box. Box [1]. }"),
+          ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box [a]. }")
+        ]
 
 testDuplicateCompiledModulePathsPreserveFirstMatch :: IO ()
 testDuplicateCompiledModulePathsPreserveFirstMatch =
@@ -452,7 +486,7 @@ explicitCapabilitySources =
         equals = \\(left, right) -> True.
         }.
         impl Hidden(Int) {
-        secret = \\(value) -> False.
+        secret = \\(item) -> False.
         }.
         }
         """
@@ -502,7 +536,7 @@ testModuleExportIdentityPreservesNamespaces = do
     shadowingSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe a = Just a. Just = 1. }")
         ]
 
 testNamespaceAwareRuntimeExportPublishesValueOnly :: IO ()
@@ -522,7 +556,7 @@ testNamespaceAwareRuntimeExportPublishesValueOnly = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe a = Just a. Just = 1. }")
         ]
 
 testNamespaceAwareRuntimeExportPublishesConstructorOnly :: IO ()
@@ -542,7 +576,7 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
-          ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe = Just value. Just = 1. }")
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe a = Just a. Just = 1. }")
         ]
 
 testGroupedExportsPublishSelectedConstructor :: IO ()
@@ -584,7 +618,7 @@ testGroupedExportsPublishSelectedConstructor = do
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Choice. First 1. }"),
-          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice = First value | Second value. }")
+          ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice a = First a | Second a. }")
         ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()
@@ -663,8 +697,8 @@ simpleSources =
 dependencyExpressionSources :: Map.Map FilePath Text
 dependencyExpressionSources =
   Map.fromList
-    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
-      ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")
+    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
+      ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
     ]
 
 testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
@@ -706,8 +740,8 @@ testDependencyExpressionContract = do
   where
     localDependencyExpressionSources =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
-          ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. result. }"),
+          ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
         ]
 
 testAliasIsolationContract :: IO ()

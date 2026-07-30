@@ -15,7 +15,6 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     SignatureType (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -124,7 +123,7 @@ capabilityTests =
     , ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection)
     , ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral)
     , ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral)
-    , ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection)
+    , ("qualified method dispatch uses structured constructor payloads for exact selection", testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection)
     , ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64)
     , ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature)
     , ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature)
@@ -159,7 +158,7 @@ capabilityTests =
     , ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped)
     , ("nested binding hints retain their enclosing source unit", testNestedBindingHintsRetainEnclosingSourceUnit)
     , ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime)
-    , ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue)
+    , ("qualified zero-argument method dispatch returns itemValue", testQualifiedZeroArgumentMethodDispatchReturnsValue)
     , ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias)
     , ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias)
     , ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias)
@@ -219,9 +218,9 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
         (Text.pack (show methodValue))
       assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
     Right otherValue ->
-      failTest ("expected qualified method runtime value, got " <> Text.pack (show otherValue))
+      failTest ("expected qualified method runtime itemValue, got " <> Text.pack (show otherValue))
     Left runtimeError ->
-      failTest ("expected qualified method runtime value, got " <> renderDiagnostic runtimeError)
+      failTest ("expected qualified method runtime itemValue, got " <> renderDiagnostic runtimeError)
   where
     qualifiedMethodEvidenceExpr =
       EBlock
@@ -385,7 +384,7 @@ testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
       equals = \\(left, right) -> False.
       }.
       id :: @{RuntimeEq(a)}: a -> a.
-      id = \\(value) -> value.
+      id = \\(itemValue) -> itemValue.
       result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).
       result.
       """
@@ -431,9 +430,9 @@ testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
       impl RuntimeDefault(Bool) {
       defaultValue = True.
       }.
-      value :: Int.
-      value = RuntimeDefault::defaultValue.
-      value.
+      itemValue :: Int.
+      itemValue = RuntimeDefault::defaultValue.
+      itemValue.
       """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -454,7 +453,7 @@ testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = d
       impl RuntimeEq((UInt8, Bool)) {
       equals = \\(left, right) -> False.
       }.
-      pair = \\(value) -> (value, True).
+      pair = \\(itemValue) -> (itemValue, True).
       result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).
       result.
       """
@@ -479,7 +478,7 @@ testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
       equals = \\(left, right) -> False.
       }.
       select :: @{RuntimeEq(b)}: Int16 -> b -> b.
-      select = \\(width, value) -> value.
+      select = \\(width, itemValue) -> itemValue.
       result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).
       result.
       """
@@ -498,13 +497,13 @@ testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int32) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       use :: @{RuntimeFlag(a)}: a -> b -> Bool.
-      use = \\(value, ignored) -> RuntimeFlag::flag value.
+      use = \\(itemValue, ignored) -> RuntimeFlag::flag itemValue.
       use @Int32 1 True.
       """
       )
@@ -528,7 +527,7 @@ testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
       equals = \\(left, right) -> False.
       }.
       id8 :: UInt8 -> UInt8.
-      id8 = \\(value) -> value.
+      id8 = \\(itemValue) -> itemValue.
       left :: UInt8.
       left = id8 1.
       right :: UInt8.
@@ -556,7 +555,7 @@ testQualifiedMethodDispatchPreservesDirectClosureResultSignature = do
       equals = \\(left, right) -> False.
       }.
       id8 :: UInt8 -> UInt8.
-      id8 = \\(value) -> value.
+      id8 = \\(itemValue) -> itemValue.
       left = id8 1.
       right = id8 2.
       RuntimeEq::equals left right.
@@ -576,10 +575,10 @@ testQualifiedMethodDispatchPreservesTupleBindingSignature = do
       pick :: a -> Bool.
       }.
       impl RuntimePick((Int, Int)) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick((UInt8, UInt8)) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
       pair :: (UInt8, UInt8).
       pair = (1, 2).
@@ -600,10 +599,10 @@ testQualifiedMethodDispatchPreservesTupleExactSignature = do
       pick :: a -> Bool.
       }.
       impl RuntimePick((Int, Int)) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick((Int64, Int64)) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
       pair :: (Int64, Int64).
       pair = (1, 2).
@@ -671,14 +670,14 @@ testQualifiedMethodDispatchPrefersFloatAliasBody = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Float) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Float64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
-      value :: Float.
-      value = 1.5.
-      RuntimeFlag::flag value.
+      itemValue :: Float.
+      itemValue = 1.5.
+      RuntimeFlag::flag itemValue.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -695,10 +694,10 @@ testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Float) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Float64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       left :: Float64.
       left = toFloat64 1.
@@ -721,10 +720,10 @@ testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Float) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Float64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       floating :: Float64.
       floating = toFloat64 2.
@@ -869,15 +868,15 @@ testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       asInt :: Int.
       asInt = 1.
       asInt64 :: Int64 -> Int64.
-      asInt64 = \\(value) -> value.
+      asInt64 = \\(itemValue) -> itemValue.
       (RuntimeFlag::flag) (asInt64 asInt).
       """
       )
@@ -895,14 +894,14 @@ testQualifiedMethodDispatchPrefersIntAliasBody = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
-      value :: Int.
-      value = 1.
-      RuntimeFlag::flag value.
+      itemValue :: Int.
+      itemValue = 1.
+      RuntimeFlag::flag itemValue.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -919,10 +918,10 @@ testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       RuntimeFlag::flag 1.
       """
@@ -987,10 +986,10 @@ testRawListPrependRehintsHeadToConcreteTailElementType = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       headValue :: Int.
       headValue = 1.
@@ -1068,7 +1067,7 @@ testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
   let expr =
         EBlock
           [ SSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 2 1) (ELambda "value" (EVar "value")),
+            SLet "identity" (SourceSpan 2 1) (ELambda "itemValue" (EVar "itemValue")),
             SExpr (SourceSpan 3 1) (EVar "identity")
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
@@ -1084,9 +1083,9 @@ testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
       boxCharType = TypeApplication "Box" [TypeChar]
       expr =
         EBlock
-          [ SData (SourceSpan 1 1) "Box" ["a"] [DataConstructor "Box" [DataConstructorArgumentName "a"]],
+          [ SData (SourceSpan 1 1) "Box" ["a"] [DataConstructor "Box" [TypeVariable "a"]],
             SSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 3 1) (ELambda "value" (EVar "value")),
+            SLet "identity" (SourceSpan 3 1) (ELambda "itemValue" (EVar "itemValue")),
             SExpr (SourceSpan 4 1) (ETypeApplication (EVar "identity") typeArgumentSpan boxCharType)
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
@@ -1156,8 +1155,8 @@ testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection :: IO ()
-testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection = do
+testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection :: IO ()
+testQualifiedMethodDispatchUsesStructuredConstructorPayloadForExactSelection = do
   result <-
     runSource
       defaultWarningSettings
@@ -1172,7 +1171,9 @@ testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection
       impl RuntimeFlag(Wrap(Int64)) {
       flag = \\(wrap) -> False.
       }.
-      (RuntimeFlag::flag) (Wrap 1 1).
+      wrapped :: Wrap(Int).
+      wrapped = Wrap 1 1.
+      (RuntimeFlag::flag) wrapped.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1189,10 +1190,10 @@ testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
       (RuntimeFlag::flag) ((\\(x) -> x) 1).
       """
@@ -1217,7 +1218,7 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
       apply = \\(fn) -> False.
       }.
       idInt :: Int -> Int.
-      idInt = \\(value) -> value.
+      idInt = \\(itemValue) -> itemValue.
       RuntimeApply::apply idInt.
       """
       )
@@ -1241,7 +1242,7 @@ testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
       apply = \\(fn) -> False.
       }.
       id64 :: Int64 -> Int64.
-      id64 = \\(value) -> value.
+      id64 = \\(itemValue) -> itemValue.
       RuntimeApply::apply id64.
       """
       )
@@ -1264,7 +1265,7 @@ testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
       impl RuntimeApply(Int64) {
       apply = \\(fn) -> False.
       }.
-      (RuntimeApply::apply) (\\(value) -> value + 1).
+      (RuntimeApply::apply) (\\(itemValue) -> itemValue + 1).
       """
       )
   assertSingleDiagnosticContains
@@ -1284,10 +1285,10 @@ testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
       pick :: Int -> a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(index, value) -> False.
+      pick = \\(index, itemValue) -> False.
       }.
       impl RuntimePick(Bool) {
-      pick = \\(index, value) -> True.
+      pick = \\(index, itemValue) -> True.
       }.
       one :: Int.
       one = 1.
@@ -1309,7 +1310,7 @@ testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
       id :: a -> a.
       }.
       impl Id(Int) {
-      id = \\(value) -> value.
+      id = \\(itemValue) -> itemValue.
       }.
       class RuntimeApply(a) {
       apply :: (a -> a) -> Bool.
@@ -1352,7 +1353,7 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           ( runtimeTypedCallableArgumentHintExpr
-              (ELambda "value" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "value")))
+              (ELambda "itemValue" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue")))
           )
   assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
 
@@ -1366,12 +1367,12 @@ testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
       pick :: a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick(UInt8) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
-      f = \\(value) -> 1.
+      f = \\(itemValue) -> 1.
       result = RuntimePick::pick (f True).
       result.
       """
@@ -1542,7 +1543,7 @@ testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
       pick = \\(values) -> False.
       }.
       id8 :: UInt8 -> UInt8.
-      id8 = \\(value) -> value.
+      id8 = \\(itemValue) -> itemValue.
       values :: [UInt8].
       values = [].
       mapped = map id8 values.
@@ -1570,7 +1571,7 @@ testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature = do
       }.
       values :: [UInt8].
       values = [].
-      mapped = map (\\(value) -> value) values.
+      mapped = map (\\(itemValue) -> itemValue) values.
       RuntimePick::pick mapped.
       """
       )
@@ -1669,7 +1670,7 @@ testQualifiedMethodDispatchNormalizesHintedFunctionAliases = do
       apply = \\(fn) -> False.
       }.
       idInt :: Int -> Int.
-      idInt = \\(value) -> value.
+      idInt = \\(itemValue) -> itemValue.
       RuntimeApply::apply idInt.
       """
       )
@@ -1687,13 +1688,13 @@ testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
       pick :: a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick(UInt8) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
-      value = 1.
-      RuntimePick::pick value.
+      itemValue = 1.
+      RuntimePick::pick itemValue.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1710,13 +1711,13 @@ testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates =
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
-      value = 1.
-      RuntimeFlag::flag value.
+      itemValue = 1.
+      RuntimeFlag::flag itemValue.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1733,12 +1734,12 @@ testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Int) {
-      flag = \\(value) -> True.
+      flag = \\(itemValue) -> True.
       }.
       impl RuntimeFlag(Int64) {
-      flag = \\(value) -> False.
+      flag = \\(itemValue) -> False.
       }.
-      result = (\\(value) -> RuntimeFlag::flag value) 1.
+      result = (\\(itemValue) -> RuntimeFlag::flag itemValue) 1.
       result.
       """
       )
@@ -1756,13 +1757,13 @@ testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do
       pick :: a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick(UInt8) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
-      value = if True then 1 else toUInt8 2.
-      RuntimePick::pick value.
+      itemValue = if True then 1 else toUInt8 2.
+      RuntimePick::pick itemValue.
       """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1844,7 +1845,7 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
                   (SourceSpan 1 1)
                   "Box"
                   ["a"]
-                  [DataConstructor "Box" [DataConstructorArgumentName "Float32", DataConstructorArgumentName "a"]],
+                  [DataConstructor "Box" [TypeNumeric NumericFloat32, TypeVariable "a"]],
                 SClass
                   (SourceSpan 2 1)
                   "RuntimePick"
@@ -1882,7 +1883,7 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                     (SourceSpan 1 1)
                     "Token"
                     []
-                    [DataConstructor "Token" [DataConstructorArgumentName "UInt8"]]
+                    [DataConstructor "Token" [TypeNumeric NumericUInt8]]
                 ]
                   ++ runtimePickStatements
                   ++ [ SLet
@@ -1894,9 +1895,9 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                          ( EPatternCase
                              (EVar "token")
                              [ CaseArm
-                                 (PConstructor "Token" [PVariable "value"])
+                                 (PConstructor "Token" [PVariable "itemValue"])
                                  Nothing
-                                 (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "value"))
+                                 (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue"))
                              ]
                          )
                      ]
@@ -1915,7 +1916,7 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
                   (SourceSpan 1 1)
                   "Box"
                   ["a"]
-                  [DataConstructor "Box" [DataConstructorArgumentName "value", DataConstructorArgumentName "a"]],
+                  [DataConstructor "Box" [TypeVariable "missing", TypeVariable "a"]],
                 SClass
                   (SourceSpan 2 1)
                   "RuntimePick"
@@ -1958,10 +1959,10 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
       pick :: a -> Bool.
       }.
       impl RuntimePick(Int) {
-      pick = \\(value) -> True.
+      pick = \\(itemValue) -> True.
       }.
       impl RuntimePick(UInt8) {
-      pick = \\(value) -> False.
+      pick = \\(itemValue) -> False.
       }.
       RuntimePick::pick z.
       """
@@ -1979,8 +1980,8 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
             SExpr
               (SourceSpan 2 1)
               ( EBlock
-                  [ SLet "value" bindingSpan (ELit (LInt 1)),
-                    SExpr (SourceSpan 6 3) (EVar "value")
+                  [ SLet "itemValue" bindingSpan (ELit (LInt 1)),
+                    SExpr (SourceSpan 6 3) (EVar "itemValue")
                   ]
               )
           ]
@@ -1996,14 +1997,14 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
     "nested binding hint source-unit path"
     (Just (TypeNumeric NumericInt64))
     ( Map.lookup
-        (bindingRuntimeHintKeyInModule Nothing "value" bindingSpan)
+        (bindingRuntimeHintKeyInModule Nothing "itemValue" bindingSpan)
         (inferredRuntimeTypeHints inference)
     )
   assertEqual
     "nested binding hint does not reuse the prelude path"
     Nothing
     ( Map.lookup
-        (bindingRuntimeHintKeyInModule (Just []) "value" bindingSpan)
+        (bindingRuntimeHintKeyInModule (Just []) "itemValue" bindingSpan)
         (inferredRuntimeTypeHints inference)
     )
 
@@ -2013,7 +2014,7 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
         evaluateRuntimeExpr
           ( runtimeExpr
               ( EBlock
-                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "value" (ELit (LBool True))),
+                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "itemValue" (ELit (LBool True))),
                     SClass
                       (SourceSpan 2 1)
                       "Eq"
@@ -2030,7 +2031,7 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
                       (SourceSpan 4 1)
                       "Eq"
                       [TypeInt]
-                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "value" (ELit (LBool False)))],
+                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "itemValue" (ELit (LBool False)))],
                     SExpr
                       (SourceSpan 6 1)
                       (EApply (EVar "Eq::helper") (ELit (LInt 1)))
@@ -2220,9 +2221,9 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints
       off :: Bool.
       }.
       impl RuntimeChoice(Int) {
-      enabled = { value :: [[Int64]].
-      value = [[1], []].
-      target = if ((RuntimeFlag::flag) value) then RuntimeChoice::on else RuntimeChoice::off.
+      enabled = { itemValue :: [[Int64]].
+      itemValue = [[1], []].
+      target = if ((RuntimeFlag::flag) itemValue) then RuntimeChoice::on else RuntimeChoice::off.
       target.
       }.
       on = True.

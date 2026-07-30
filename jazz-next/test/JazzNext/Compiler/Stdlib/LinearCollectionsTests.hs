@@ -47,7 +47,7 @@ testDictionaryModelTrace = do
         (dictionarySize dictionary,
          dictionaryLookup dictionary 1, dictionaryLookup dictionary 150,
          dictionaryLookup dictionary 151, dictionaryLookup dictionary 300,
-         dictionaryFoldLeft dictionary 0 (\\(total, key, value) -> total + key + value)).
+         dictionaryFoldLeft dictionary 0 (\\(total, key, entry) -> total + key + entry)).
       }
       """
   assertSuccessfulStdlibOutput expectedDictionaryModel result
@@ -67,7 +67,7 @@ testQueueModelTrace = do
         }.
         drain = \\(queue, count, total) -> case queueDequeue queue {
           | Nothing -> (count, total)
-          | Just (value, remaining) -> drain remaining (count + 1) (total + value)
+          | Just (item, remaining) -> drain remaining (count + 1) (total + item)
         }.
         drain (build 50000 queueEmpty) 0 0.
       }

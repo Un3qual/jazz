@@ -4,7 +4,7 @@ module Main (main) where
 
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import JazzNext.Compiler.Driver
   ( CompileResult,
@@ -14,10 +14,10 @@ import JazzNext.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runSource,
-    runWarnings
+    runWarnings,
   )
 import JazzNext.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -25,7 +25,7 @@ import JazzNext.TestHarness
     assertEqual,
     assertSingleDiagnosticCode,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -56,7 +56,14 @@ tests =
     ("tuple-pattern lambda parameter runs", testTuplePatternLambdaParameterRuntime),
     ("cons-like list lambda parameter runs", testConsLikeListPatternLambdaParameterRuntime),
     ("constructor-pattern lambda parameter runs", testConstructorPatternLambdaParameterRuntime),
+    ("multiple pattern-shaped lambda parameters run", testMultiplePatternLambdaParametersRuntime),
     ("or-pattern lambda parameter runs", testOrPatternLambdaParameterRuntime),
+    ("or-pattern lambda head followed by another parameter runs", testMultiParameterOrPatternLambdaRuntime),
+    ("ordered pattern-lambda clauses run", testPatternLambdaClauseOrderRuntime),
+    ("pattern-lambda clauses preserve partial application", testPatternLambdaClausePartialApplicationRuntime),
+    ("recursive pattern-lambda clauses run", testRecursivePatternLambdaClausesRuntime),
+    ("pattern-lambda clauses report no match at runtime", testPatternLambdaClausesNoMatchRuntime),
+    ("explicit case dispatch inside an ordinary function runs", testExplicitCaseDispatchRuntime),
     ("wildcard lambda parameter runs", testWildcardPatternLambdaParameterRuntime),
     ("pattern lambda parameter reports no match at runtime", testPatternLambdaParameterNoMatchRuntime),
     ("or-pattern lambda parameter reports no match at runtime", testOrPatternLambdaParameterNoMatchRuntime),
@@ -274,19 +281,94 @@ testConsLikeListPatternLambdaParameterRuntime = do
 
 testConstructorPatternLambdaParameterRuntime :: IO ()
 testConstructorPatternLambdaParameterRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. get = \\(Just item) -> item. get (Just 41)."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int. get = \\(Just item) -> item. get (Just 41)."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
 
+testMultiplePatternLambdaParametersRuntime :: IO ()
+testMultiplePatternLambdaParametersRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "data Maybe = Nothing | Just Int. add = \\([head | _], Just item) -> head + item. add [1, 2] (Just 41)."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+
 testOrPatternLambdaParameterRuntime :: IO ()
 testOrPatternLambdaParameterRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get (Also 41)."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int | Also Int. get = \\(Just item | Also item) -> item. get (Also 41)."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
+
+testMultiParameterOrPatternLambdaRuntime :: IO ()
+testMultiParameterOrPatternLambdaRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "data Maybe = Nothing | Just Int | Also Int. add = \\(Just item | Also item, extra) -> item + extra. add (Also 40) 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+
+testPatternLambdaClauseOrderRuntime :: IO ()
+testPatternLambdaClauseOrderRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "pick = \\|(0) -> 10 |(_) -> 20. (pick 0, pick 1)."
+  assertSuccessfulPatternLambdaRuntime "ordered pattern lambda clauses" (Just "(10, 20)") result
+
+testPatternLambdaClausePartialApplicationRuntime :: IO ()
+testPatternLambdaClausePartialApplicationRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "data Maybe = Nothing | Just Int. choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item. keep = choose (Just 42). keep 0."
+  assertSuccessfulPatternLambdaRuntime "partial pattern lambda application" (Just "42") result
+
+testRecursivePatternLambdaClausesRuntime :: IO ()
+testRecursivePatternLambdaClausesRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "length = \\|([]) -> 0 |([_ | rest]) -> 1 + length rest. length [1, 2, 3, 4]."
+  assertSuccessfulPatternLambdaRuntime "recursive pattern lambda clauses" (Just "4") result
+
+testPatternLambdaClausesNoMatchRuntime :: IO ()
+testPatternLambdaClausesNoMatchRuntime = do
+  result <- runSource defaultWarningSettings "onlyZero = \\|(0) -> 1. onlyZero 1."
+  assertEqual "non-exhaustive compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticCode
+    "pattern lambda clause no-match code"
+    "E3022"
+    (runRuntimeErrors result)
+  assertEqual "non-exhaustive runtime output" Nothing (runOutput result)
+
+testExplicitCaseDispatchRuntime :: IO ()
+testExplicitCaseDispatchRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      length =
+        \\(items) ->
+          case items {
+            | [] -> 0
+            | [_ | rest] -> 1 + length rest
+          }.
+      length [1, 2, 3].
+      """
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testWildcardPatternLambdaParameterRuntime :: IO ()
 testWildcardPatternLambdaParameterRuntime = do
@@ -309,7 +391,7 @@ testPatternLambdaParameterNoMatchRuntime = do
 
 testOrPatternLambdaParameterNoMatchRuntime :: IO ()
 testOrPatternLambdaParameterNoMatchRuntime = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get Nothing."
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just Int | Also Int. get = \\(Just item | Also item) -> item. get Nothing."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode
@@ -396,20 +478,26 @@ testBlockReturnedLambdaAliasTypeMismatch = do
 
 testLambdaEqualityRejected :: IO ()
 testLambdaEqualityRejected = do
-  result <- compileSource defaultWarningSettings """
-  f = \\(x) -> x.
-  g = \\(x) -> x.
-  same = f == g.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      f = \\(x) -> x.
+      g = \\(x) -> x.
+      same = f == g.
+      """
   assertCallableEqualityDiagnostic "lambda equality" result
 
 testLambdaInequalityRejected :: IO ()
 testLambdaInequalityRejected = do
-  result <- compileSource defaultWarningSettings """
-  f = \\(x) -> x.
-  g = \\(x) -> x.
-  different = f != g.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      f = \\(x) -> x.
+      g = \\(x) -> x.
+      different = f != g.
+      """
   assertCallableEqualityDiagnostic "lambda inequality" result
 
 testRejectsNonCallableApplication :: IO ()
@@ -427,6 +515,13 @@ testRejectsNonCallableApplication = do
         "apply error text"
         "cannot apply function"
         (renderDiagnostic compileError)
+
+assertSuccessfulPatternLambdaRuntime :: Text -> Maybe Text -> RunResult -> IO ()
+assertSuccessfulPatternLambdaRuntime label expectedOutput result = do
+  assertEqual (label <> " warnings") [] (runWarnings result)
+  assertEqual (label <> " compile errors") [] (runCompileErrors result)
+  assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+  assertEqual (label <> " output") expectedOutput (runOutput result)
 
 assertCallableEqualityDiagnostic :: Text -> CompileResult -> IO ()
 assertCallableEqualityDiagnostic label result =

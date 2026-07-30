@@ -24,7 +24,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceDataConstructor (..),
-    SurfaceDataConstructorArgument (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..),
   )
 import JazzNext.Compiler.Parser.Declaration
@@ -57,12 +57,13 @@ main = runTestSuite "DeclarationParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
+  [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
+    ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
     ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
     ("rejects crossed bracket then parenthesis constructor payload", testRejectsCrossedBracketParenPayload),
-    ("accepts correctly nested opaque constructor payloads", testAcceptsNestedOpaquePayloads),
+    ("accepts correctly nested constructor field types", testAcceptsNestedConstructorFieldTypes),
     ("reports nested imports as structured scope failures", testDetailedNestedImport),
     ("reports nested data declarations at the declaration span", testRejectsNestedData),
     ("preserves duplicate data parameter spans", testDetailedDuplicateDataTypeParameter),
@@ -71,6 +72,18 @@ tests =
     ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
     ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
   ]
+
+testRejectsFunctionEquations :: IO ()
+testRejectsFunctionEquations =
+  case
+      parseSurfaceProgram
+        """
+        length [] = 0.
+        length [_ | rest] = 1 + length rest.
+        """
+    of
+      Left _ -> pure ()
+      Right _ -> failTest "expected Haskell-style function equations to be rejected"
 
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList = do
@@ -101,11 +114,14 @@ testParsesDataConstructors = do
             [ SurfaceDataConstructor (mkIdentifier "None") [],
               SurfaceDataConstructor
                 (mkIdentifier "Some")
-                [SurfaceDataConstructorArgumentName (mkIdentifier "a")],
+                [SurfaceTypeVariable (mkIdentifier "a")],
               SurfaceDataConstructor
                 (mkIdentifier "Pair")
-                [ SurfaceDataConstructorArgumentOpaque,
-                  SurfaceDataConstructorArgumentOpaque
+                [ SurfaceTypeTuple
+                    [ SurfaceTypeVariable (mkIdentifier "a"),
+                      SurfaceTypeVariable (mkIdentifier "a")
+                    ],
+                  SurfaceTypeList (SurfaceTypeVariable (mkIdentifier "a"))
                 ]
             ],
           []
@@ -118,7 +134,7 @@ testRejectsCrossedParenBracketPayload = do
   tokens <- lexSource "data Box = Box ([)]."
   assertLeftDiagnosticContains
     "crossed parenthesis then bracket payload"
-    "unexpected ')'"
+    "expected '(', found ')'"
     (parseDataStatementTokens tokens)
 
 testRejectsCrossedBracketParenPayload :: IO ()
@@ -126,20 +142,20 @@ testRejectsCrossedBracketParenPayload = do
   tokens <- lexSource "data Box = Box [(])."
   assertLeftDiagnosticContains
     "crossed bracket then parenthesis payload"
-    "unexpected ']'"
+    "expected '(', found ']'"
     (parseDataStatementTokens tokens)
 
-testAcceptsNestedOpaquePayloads :: IO ()
-testAcceptsNestedOpaquePayloads = do
+testAcceptsNestedConstructorFieldTypes :: IO ()
+testAcceptsNestedConstructorFieldTypes = do
   tokens <- lexSource "data Box = Box ([()]) [(())]."
   case parseDataStatementTokens tokens of
     Right _ -> pure ()
-    Left diagnostic -> failTest ("expected nested opaque payloads to parse, got " <> diagnosticSummary diagnostic)
+    Left diagnostic -> failTest ("expected nested constructor field types to parse, got " <> diagnosticSummary diagnostic)
 
 testRejectsNestedImport :: IO ()
 testRejectsNestedImport =
   -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
-  case parseSurfaceProgram "main = {\n  import Lib::Value.\n  value.\n}." of
+  case parseSurfaceProgram "main = {\n  import Lib::Value.\n  result.\n}." of
     Left diagnostic -> do
       assertEqual "nested import code" "E0001" (diagnosticCodeText (diagnosticCode diagnostic))
       assertEqual "nested import span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
@@ -152,7 +168,7 @@ testDetailedNestedImport = do
       """
       main = {
         import Lib::Value.
-        value.
+        result.
       }.
       """
   case parseSurfaceProgramTokensDetailed tokens of
@@ -207,7 +223,7 @@ testDetailedUndeclaredConstructorTypeParameter = do
 
 testCapabilityCallbackDiagnostic :: IO ()
 testCapabilityCallbackDiagnostic = do
-  tokens <- lexSource "impl Show(Int) { show = value. }."
+  tokens <- lexSource "impl Show(Int) { show = item. }."
   let expectedDiagnostic = mkErrorDiagnostic E0001 CompilationOrigin "callback failure"
   assertEqual
     "capability callback diagnostic"
@@ -220,7 +236,7 @@ testAcceptsModuleBodyImport =
     """
     module App::Main {
       import Lib::Value.
-      value.
+      result.
     }
     """ of
     Right _ -> pure ()

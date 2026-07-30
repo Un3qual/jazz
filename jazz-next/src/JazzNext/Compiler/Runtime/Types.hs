@@ -57,8 +57,7 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import Data.Word (Word64)
 import JazzNext.Compiler.AST
-  ( DataConstructorArgument,
-    Expr,
+  ( Expr,
     NumericType,
     SignaturePayload,
     SignatureType
@@ -153,7 +152,7 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VConstructor Name [Name] Name [DataConstructorArgument] [RuntimeValue]
+  | VConstructor Name [Name] Name [SignatureType] [RuntimeValue]
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
   | VTyped SignatureType RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
@@ -328,6 +327,6 @@ data ModuleEvaluationMode
   | EvaluateEntryModule
   deriving (Eq, Show)
 
-constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
-constructorIsSaturated constructorArguments capturedArgs =
-  length capturedArgs >= length constructorArguments
+constructorIsSaturated :: [SignatureType] -> [RuntimeValue] -> Bool
+constructorIsSaturated fieldTypes capturedArgs =
+  length capturedArgs >= length fieldTypes

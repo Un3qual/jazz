@@ -956,12 +956,12 @@ testBootstrapModulesStayOutsideBundledPrelude =
   where
     unavailableCases =
       [ ("Maybe", """
-      value :: Maybe(Int).
-      value = 1.
+      candidate :: Maybe(Int).
+      candidate = 1.
       """, "E2009"),
         ("Result", """
-        value :: Result(Text, Int).
-        value = 1.
+        candidate :: Result(Text, Int).
+        candidate = 1.
         """, "E2009"),
         ("Nothing", "Nothing.", "E1001"),
         ("Just", "Just 1.", "E1001"),
@@ -972,12 +972,12 @@ testBootstrapModulesStayOutsideBundledPrelude =
         ("textIsEmpty", "textIsEmpty \"\".", "E1001"),
         ("textUncons", "textUncons \"Jazz\".", "E1001"),
         ("IOErrorCategory", """
-        value :: IOErrorCategory.
-        value = 1.
+        candidate :: IOErrorCategory.
+        candidate = 1.
         """, "E2009"),
         ("IOError", """
-        value :: IOError.
-        value = 1.
+        candidate :: IOError.
+        candidate = 1.
         """, "E2009"),
         ("NotFound", "NotFound.", "E1001"),
         ("PermissionDenied", "PermissionDenied.", "E1001"),

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Internal type model shared by inference subsystems.
 module JazzNext.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -13,7 +15,8 @@ module JazzNext.Compiler.TypeInference.Types
     TypeScheme (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
+    instantiateConstructorFieldType
   ) where
 
 import Data.Map.Strict (Map)
@@ -22,12 +25,18 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( SignatureType,
-    NumericType,
-    SignaturePayload
+  ( NumericType,
+    SignaturePayload,
+    SignatureType (..)
   )
-import JazzNext.Compiler.BuiltinCatalog (BuiltinSymbol)
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinSymbol,
+    numericTypeFromName
+  )
+import JazzNext.Compiler.Name
+  ( Name,
+    identifierText
+  )
 
 data ExpressionType
   = TIntType
@@ -47,8 +56,47 @@ data ExpressionType
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
   | ConstructorArgumentParameter Text
+  | ConstructorArgumentStructured SignatureType
   | ConstructorArgumentFresh
   deriving (Eq, Show)
+
+instantiateConstructorFieldType ::
+  Map Text ExpressionType ->
+  SignatureType ->
+  Maybe ExpressionType
+instantiateConstructorFieldType typeParameterBindings fieldType =
+  case fieldType of
+    TypeInt -> Just TIntType
+    TypeFloat -> Just TFloatType
+    TypeNumeric numericType -> Just (TNumericType numericType)
+    TypeBool -> Just TBoolType
+    TypeChar -> Just TCharType
+    TypeText -> Just TTextType
+    TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
+    TypeName name ->
+      Just
+        ( case identifierText name of
+            "Int" -> TIntType
+            "Float" -> TFloatType
+            "Bool" -> TBoolType
+            "Char" -> TCharType
+            "Text" -> TTextType
+            namedTypeText ->
+              maybe
+                (TDataType name [])
+                TNumericType
+                (numericTypeFromName namedTypeText)
+        )
+    TypeApplication name arguments ->
+      TDataType name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
+    TypeList elementType ->
+      TListType <$> instantiateConstructorFieldType typeParameterBindings elementType
+    TypeTuple elementTypes ->
+      TTupleType <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
+    TypeFunction argumentType resultType ->
+      TFunctionType
+        <$> instantiateConstructorFieldType typeParameterBindings argumentType
+        <*> instantiateConstructorFieldType typeParameterBindings resultType
 
 data IntegerLiteralRange = IntegerLiteralRange Integer Integer
   deriving (Eq, Show)

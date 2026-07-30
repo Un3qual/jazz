@@ -4,15 +4,17 @@ module JazzNext.Compiler.Parser.Foundation.InvalidSyntaxTests
   ( invalidSyntaxTests
   ) where
 
+import Control.Monad (forM_)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
+import JazzNext.Compiler.Parser.Foundation.Shared
 import JazzNext.TestHarness
   ( NamedTest,
-    assertLeftDiagnosticContains
+    assertLeftDiagnosticContains,
+    failTest
   )
-import JazzNext.Compiler.Parser.Foundation.Shared
 
 invalidSyntaxTests :: [NamedTest]
 invalidSyntaxTests =
@@ -42,7 +44,30 @@ invalidSyntaxTests =
     , ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax)
     , ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax)
     , ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
+    , ("rejects value in every ordinary identifier position", testRejectsReservedValueIdentifiers)
   ]
+
+testRejectsReservedValueIdentifiers :: IO ()
+testRejectsReservedValueIdentifiers =
+  forM_ invalidSources $ \(label, source) ->
+    case parseSurfaceProgram source of
+      Left _ -> pure ()
+      Right parsed ->
+        failTest
+          ( label
+              <> ": expected reserved value rejection, got "
+              <> Text.pack (show parsed)
+          )
+  where
+    invalidSources =
+      [ ("binding name", "value = 1."),
+        ("signature name", "value :: Int."),
+        ("lambda parameter", "identity = \\value -> value."),
+        ("pattern binder", "identity = case 1 { | value -> value }."),
+        ("data type parameter", "data Box value = Box value."),
+        ("module path", "module value { answer = 1. }."),
+        ("module alias", "import Example as value.")
+      ]
 
 testRejectsNonFiniteFractionalLiteral :: IO ()
 testRejectsNonFiniteFractionalLiteral =
@@ -78,8 +103,8 @@ testRejectsUnsupportedExplicitTypeApplicationArgument =
     "unsupported explicit type application argument"
     "unsupported explicit type application argument after '@'"
     (parseSurfaceProgram """
-    value = id @ 1.
-    value.
+    result = id @ 1.
+    result.
     """)
 
 testRejectsEmptyNamedExplicitTypeApplicationArguments :: IO ()
@@ -88,8 +113,8 @@ testRejectsEmptyNamedExplicitTypeApplicationArguments =
     "empty named explicit type application arguments"
     "unsupported explicit type application argument after '@'"
     (parseSurfaceProgram """
-    value = id @Maybe().
-    value.
+    result = id @Maybe().
+    result.
     """)
 
 testRejectsMissingDotTerminator :: IO ()
@@ -152,7 +177,7 @@ testRejectsClassMethodBodySyntax =
   assertLeftDiagnosticContains
     "class method body syntax"
     "method body/default syntax"
-    (parseSurfaceProgram "class Eq(a) { equals = \\value -> value. }.")
+    (parseSurfaceProgram "class Eq(a) { equals = \\item -> item. }.")
 
 testRejectsDuplicateClassMethodSignatures :: IO ()
 testRejectsDuplicateClassMethodSignatures =

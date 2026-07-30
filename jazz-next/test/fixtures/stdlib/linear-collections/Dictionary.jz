@@ -8,7 +8,7 @@ module Stdlib::LinearCollections::Dictionary {
   reinserted = dictionaryInsert removed "first" 30.
   updated = dictionaryUpdate reinserted "second" (\(current) -> case current {
     | Nothing -> Nothing
-    | Just value -> Just (value + 1)
+    | Just item -> Just (item + 1)
   }).
   insertedByUpdate = dictionaryUpdate updated "third" (\(current) -> Just 40).
   unchanged = dictionaryUpdate insertedByUpdate "missing" (\(current) -> Nothing).
@@ -23,8 +23,8 @@ module Stdlib::LinearCollections::Dictionary {
    maybeMap dictionaryToList replacedPresent, replacedMissing,
    dictionaryToList removed, dictionaryToList reinserted, dictionaryToList removedByUpdate,
    dictionaryKeys start, dictionaryValues start,
-   dictionaryToList (dictionaryMapValues start (\(value) -> value * 10)),
-   dictionaryToList (dictionaryFilter start (\(key, value) -> value > 2)),
-   dictionaryFoldLeft start "" (\(result, key, value) -> textAppend result key),
-   dictionaryFoldRight start "" (\(key, value, result) -> textAppend key result)).
+   dictionaryToList (dictionaryMapValues start (\(item) -> item * 10)),
+   dictionaryToList (dictionaryFilter start (\(key, item) -> item > 2)),
+   dictionaryFoldLeft start "" (\(result, key, item) -> textAppend result key),
+   dictionaryFoldRight start "" (\(key, item, result) -> textAppend key result)).
 }

@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm and lambda-parameter or-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm and lambda-parameter or-pattern typing and runtime matching, ordered multi-body pattern-lambda clauses, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -19,7 +19,8 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 The active ADT/pattern rebase is closed for the monomorphic
 constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
 `jazz-next`, with top-level or-patterns implemented for `case` arms and
-pattern-shaped lambda parameters.
+pattern-shaped lambda parameters and ordered multi-body pattern-lambda
+clauses.
 
 Future ADT typing work beyond the landed generic constructor value/application
 scheme slice remains blocked on separate contracts. The generic
@@ -45,7 +46,8 @@ or-patterns have landed as pattern-matching extensions.
 4. The active parser/core path accepts constructor, bracketed-list,
    cons-like list, tuple, `name @ pattern` as-patterns, and top-level
    case-arm or-patterns plus single `if` guards in `case` arms, accepts
-   top-level lambda-parameter or-patterns, and lowers them into `EPatternCase`.
+   top-level lambda-parameter or-patterns plus ordered `\|` clause lambdas,
+   and lowers them into `EPatternCase`.
 5. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
@@ -81,6 +83,10 @@ or-patterns have landed as pattern-matching extensions.
     alternative typechecks against the same scrutinee, alternatives must bind
     the same names, common binder types must unify, runtime tries alternatives
     left-to-right, and guards/bodies see only compatible common binders.
+16. Ordered pattern-lambda clauses are active: every clause has the same
+    source arity, matching proceeds top-to-bottom, binders are clause-local,
+    and lowering preserves currying by wrapping one ordered pattern case in
+    generated unary lambdas.
 
 ## ADT Contract
 
@@ -104,7 +110,9 @@ or-patterns have landed as pattern-matching extensions.
 Canonical shape example:
 
 ```jz
-data Maybe = Just value | Nothing.
+data Maybe a
+  = Nothing
+  | Just a.
 
 some = Just 1.
 none = Nothing.
@@ -115,6 +123,9 @@ Generic declaration shape:
 ```jz
 data Maybe a = Nothing | Just a.
 data Pair a b = Pair a b.
+data Tree a
+  = Leaf a
+  | Branch Tree(a) Tree(a).
 ```
 
 In a generic `data` declaration, lowercase identifiers after the type
@@ -127,6 +138,11 @@ single constructor application. Binding a generic constructor value to a user
 name remains a direct constructor alias and does not generalize that alias;
 eligible non-alias ordinary bindings follow the active binding-scheme
 semantics.
+
+Constructor payload positions use the same structured signature-type grammar
+as signatures. A bare `a` is a declared type parameter; `Tree(a)` is named type
+application. Parentheses are grouping only, so legacy-looking
+`(Tree(a))` is redundant and not a different field form.
 
 ## Staged First Slice
 

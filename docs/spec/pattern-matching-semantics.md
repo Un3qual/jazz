@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next`; lambda-parameter guards and nested/grouped or-patterns remain out of scope)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, ordered multi-body pattern-lambda clauses, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next`; Haskell-style function equations, lambda-parameter guards, and nested/grouped or-patterns are out of scope)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -25,6 +25,26 @@ case <scrutinee> {
   | <pattern> -> <expr>
 }
 ```
+
+Pattern-shaped function heads use ordinary bindings to lambdas:
+
+```jz
+first = \([item | _]) -> item.
+choose = \(Just item | Also item, fallback) -> item.
+```
+
+Alternatives with different bodies use ordered pattern-lambda clauses:
+
+```jz
+length =
+  \|([]) -> 0
+   |([_ | rest]) -> 1 + length rest.
+```
+
+Every clause has the same source arity. The clauses are attempted in source
+order, and each clause's binders are visible only in that clause body.
+Explicit `case` remains canonical for computed scrutinees, matching after
+setup work, and nested value inspection.
 
 Current parser/core invariants:
 
@@ -69,7 +89,7 @@ Current parser/core invariants:
    representation used after `if` desugaring.
 8. Tuple values and fixed-arity tuple case patterns are active core runtime
    features, including `()` as the zero-element Unit value and pattern.
-9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
+9. Ordinary lambda parameter patterns lower to unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
    reuses the same binder, type, runtime matching, and no-match diagnostic
    contract as `case` patterns. Top-level lambda-parameter or-patterns lower
@@ -77,9 +97,18 @@ Current parser/core invariants:
    rejected.
    The shorthand `\()` lowers through this rule as one `PTuple []` parameter,
    equivalent to `\(())`; it is not a nullary lambda.
+   Ordered `\|` clauses lower to the same core machinery: generated unary
+   lambda arguments wrap one ordered `EPatternCase`. A one-parameter clause
+   uses its pattern directly; a multi-parameter clause uses a tuple scrutinee
+   and tuple pattern. Currying and partial application are preserved.
 10. Pattern guards are optional case-arm expressions introduced by `if`.
     They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
     and do not participate in arm-result agreement.
+11. Functions are ordinary value bindings whose values are lambdas.
+    Pattern-shaped lambda parameters, multiple parameters, and top-level
+    lambda-parameter or-patterns are active. Ordered alternatives with
+    distinct bodies use `\|(patterns) -> body |(patterns) -> body`.
+    Haskell-style `name pattern... = body.` equations are rejected.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -122,19 +151,22 @@ Examples:
 
 ```jz
 flag = case n { | 0 -> True | _ -> False }.
-copy = case value { | item -> item }.
-maybeValue = case value { | Just item -> item | Nothing -> 0 }.
+copy = case input { | item -> item }.
+maybeValue = case input { | Just item -> item | Nothing -> 0 }.
 firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
 headPlusNext = case values { | [head | tail] -> head + hd tail | [] -> 0 }.
 sumPair = case pair { | (left, right) -> left + right }.
 sumPairFn = \((left, right)) -> left + right.
 choose = \(Just item | Also item) -> item.
-sameValue = case value { | whole @ Just item -> whole | _ -> value }.
-positive = case value {
+chooseBody =
+  \|(Nothing, fallback) -> fallback
+   |(Just item, _) -> item.
+sameValue = case input { | whole @ Just item -> whole | _ -> input }.
+positive = case input {
   | Just item if item > 0 -> item
   | _ -> 0
 }.
-positiveAlt = case value {
+positiveAlt = case input {
   | Just item | Also item if item > 0 -> item
   | Nothing -> 0
 }.
@@ -152,7 +184,9 @@ positiveAlt = case value {
    guarded case arms.
 3. Pattern-shaped lambda parameters lower to internal single-arm pattern cases
    and reuse the same binder, type, runtime matching, and no-match diagnostic
-   behavior, including top-level `POr` alternatives.
+   behavior, including top-level `POr` alternatives. Ordered pattern-lambda
+   clauses lower to curried generated arguments around one ordered pattern
+   case and reuse the same `E3022` no-match behavior.
 4. Declared constructor patterns typecheck against the scrutinee ADT type,
    bind payload variables in arm bodies, reject unknown constructor names or
    arity mismatches with deterministic `E2011` diagnostics, and participate
@@ -194,7 +228,7 @@ Or-patterns are a single pattern form, not multiple arms or parameters. In
 case arms they stay inside one arm:
 
 ```jz
-case value {
+case input {
   | Just item | Also item if item > 0 -> item
   | Nothing -> 0
 }
@@ -254,7 +288,7 @@ Pattern guards are not a new pattern node; they are optional boolean
 expressions attached to a case arm after the pattern and before `->`:
 
 ```jz
-case value {
+case input {
   | Just item if item > 0 -> item
   | _ -> 0
 }

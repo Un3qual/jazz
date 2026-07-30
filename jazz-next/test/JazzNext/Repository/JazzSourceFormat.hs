@@ -16,12 +16,23 @@ data JazzSourceFormatViolation
   = InvalidModuleHeader FilePath
   | MissingFinalClosingBrace FilePath
   | InvalidBodyIndentation FilePath Int
+  | OverlongDataDeclarationLine FilePath Int Int
+  | InvalidDataContinuationIndent FilePath Int
   deriving (Eq, Show)
+
+data DataDeclarationRegion = DataDeclarationRegion
+  { dataDeclarationIndent :: Int,
+    dataConstructorIndent :: Maybe Int
+  }
 
 validateJazzModule :: FilePath -> Text -> [JazzSourceFormatViolation]
 validateJazzModule path source
-  | takeFileName path == "Prelude.jz" = []
-  | otherwise = headerViolations <> closingViolations <> indentationViolations
+  | takeFileName path == "Prelude.jz" = dataDeclarationViolations
+  | otherwise =
+      headerViolations
+        <> closingViolations
+        <> indentationViolations
+        <> dataDeclarationViolations
   where
     numberedLines = zip [1 ..] (Text.lines source)
     finalLine =
@@ -77,6 +88,85 @@ validateJazzModule path source
             (\(lineNumber, _) -> lineNumber > headerEndLineNumber && lineNumber < closingLineNumber)
             numberedLines
         _ -> []
+    dataDeclarationViolations =
+      validateDataDeclarations path numberedLines
+
+validateDataDeclarations :: FilePath -> [(Int, Text)] -> [JazzSourceFormatViolation]
+validateDataDeclarations path = go Nothing
+  where
+    go _ [] = []
+    go maybeRegion ((lineNumber, line) : rest) =
+      case maybeRegion of
+        Nothing
+          | isDataDeclarationStart line ->
+              lineLengthViolations lineNumber line
+                <> go
+                  ( if dataDeclarationEnds line
+                      then Nothing
+                      else
+                        Just
+                          DataDeclarationRegion
+                            { dataDeclarationIndent = leadingSpaces line,
+                              dataConstructorIndent =
+                                if "=" `Text.isInfixOf` codeBeforeComment line
+                                  then Just (leadingSpaces line + 2)
+                                  else Nothing
+                            }
+                  )
+                  rest
+        Nothing -> go Nothing rest
+        Just region ->
+          lineLengthViolations lineNumber line
+            <> indentationViolations region lineNumber line
+            <> go (nextRegion region line) rest
+
+    lineLengthViolations lineNumber line
+      | columns > 100 = [OverlongDataDeclarationLine path lineNumber columns]
+      | otherwise = []
+      where
+        columns = Text.length line
+
+    indentationViolations region lineNumber line
+      | Text.null trimmed = []
+      | "#" `Text.isPrefixOf` trimmed = []
+      | isConstructorLine trimmed,
+        leadingSpaces line /= dataDeclarationIndent region + 2 =
+          [InvalidDataContinuationIndent path lineNumber]
+      | isConstructorLine trimmed = []
+      | leadingSpaces line /= expectedContinuationIndent region =
+          [InvalidDataContinuationIndent path lineNumber]
+      | otherwise = []
+      where
+        trimmed = Text.strip line
+
+    nextRegion region line
+      | dataDeclarationEnds line = Nothing
+      | isConstructorLine (Text.strip line) =
+          Just region {dataConstructorIndent = Just (leadingSpaces line)}
+      | otherwise = Just region
+
+isDataDeclarationStart :: Text -> Bool
+isDataDeclarationStart =
+  Text.isPrefixOf "data " . Text.stripStart
+
+isConstructorLine :: Text -> Bool
+isConstructorLine line =
+  "=" `Text.isPrefixOf` line || "|" `Text.isPrefixOf` line
+
+expectedContinuationIndent :: DataDeclarationRegion -> Int
+expectedContinuationIndent region =
+  case dataConstructorIndent region of
+    Just constructorIndent -> constructorIndent + 2
+    Nothing -> dataDeclarationIndent region + 4
+
+leadingSpaces :: Text -> Int
+leadingSpaces = Text.length . Text.takeWhile (== ' ')
+
+dataDeclarationEnds :: Text -> Bool
+dataDeclarationEnds = Text.isInfixOf "." . codeBeforeComment
+
+codeBeforeComment :: Text -> Text
+codeBeforeComment = Text.takeWhile (/= '#')
 
 renderJazzSourceFormatViolation :: JazzSourceFormatViolation -> Text
 renderJazzSourceFormatViolation violation =
@@ -90,3 +180,15 @@ renderJazzSourceFormatViolation violation =
         <> ":"
         <> Text.pack (show lineNumber)
         <> ": must use two-space indentation levels"
+    OverlongDataDeclarationLine path lineNumber columns ->
+      Text.pack path
+        <> ":"
+        <> Text.pack (show lineNumber)
+        <> ": data declaration line has "
+        <> Text.pack (show columns)
+        <> " columns; maximum is 100"
+    InvalidDataContinuationIndent path lineNumber ->
+      Text.pack path
+        <> ":"
+        <> Text.pack (show lineNumber)
+        <> ": data constructor payload continuation must be indented two spaces"

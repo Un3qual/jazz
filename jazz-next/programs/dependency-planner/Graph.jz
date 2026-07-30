@@ -6,7 +6,7 @@ module Graph {
   containsText :: Text -> [Text] -> Bool.
   containsText = \(target, values) -> case values {
     | [] -> False
-    | [value | rest] -> if value == target then True else containsText target rest
+    | [item | rest] -> if item == target then True else containsText target rest
   }.
 
   dependenciesFor :: Text -> [(Text, [Text])] -> [Text].

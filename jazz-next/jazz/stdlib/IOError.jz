@@ -13,7 +13,15 @@ module IOError (
 ) {
   import Maybe.
 
-  data IOErrorCategory = NotFound | PermissionDenied | AlreadyExists | InvalidData | ResourceExhausted | Interrupted | Unsupported | Other.
+  data IOErrorCategory
+    = NotFound
+    | PermissionDenied
+    | AlreadyExists
+    | InvalidData
+    | ResourceExhausted
+    | Interrupted
+    | Unsupported
+    | Other.
 
-  data IOError = IOError IOErrorCategory (Maybe(Text)) Text.
+  data IOError = IOError IOErrorCategory Maybe(Text) Text.
 }

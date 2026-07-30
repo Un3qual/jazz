@@ -1,14 +1,20 @@
 module Expression {
   import List.
 
-  data Expression = Literal Int | Add Expression Expression | Multiply Expression Expression | Negate Expression | Variable Text | Let Text Expression Expression.
+  data Expression
+    = Literal Int
+    | Add Expression Expression
+    | Multiply Expression Expression
+    | Negate Expression
+    | Variable Text
+    | Let Text Expression Expression.
 
   data EvaluationResult = Evaluated Int | UnknownVariable Text.
 
   lookupVariable :: Text -> [(Text, Int)] -> EvaluationResult.
   lookupVariable = \(name, environment) -> case environment {
     | [] -> UnknownVariable name
-    | [(candidate, value) | rest] -> if candidate == name then Evaluated value else lookupVariable name rest
+    | [(candidate, item) | rest] -> if candidate == name then Evaluated item else lookupVariable name rest
   }.
 
   evaluateBinary :: (Int -> Int -> Int) -> [(Text, Int)] -> Expression -> Expression -> EvaluationResult.
@@ -22,15 +28,15 @@ module Expression {
 
   evaluate :: [(Text, Int)] -> Expression -> EvaluationResult.
   evaluate = \(environment, expression) -> case expression {
-    | Literal value -> Evaluated value
+    | Literal item -> Evaluated item
     | Add left right -> evaluateBinary (\(leftValue, rightValue) -> leftValue + rightValue) environment left right
     | Multiply left right -> evaluateBinary (\(leftValue, rightValue) -> leftValue * rightValue) environment left right
-    | Negate value -> case evaluate environment value {
+    | Negate item -> case evaluate environment item {
       | UnknownVariable name -> UnknownVariable name
       | Evaluated result -> Evaluated (0 - result)
     }
     | Variable name -> lookupVariable name environment
-    | Let name value body -> case evaluate environment value {
+    | Let name item body -> case evaluate environment item {
       | UnknownVariable missing -> UnknownVariable missing
       | Evaluated result -> evaluate (listPrepend (name, result) environment) body
     }

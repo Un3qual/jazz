@@ -7,17 +7,17 @@ module JazzNext.Compiler.Parser.Lower
     ModuleLoweringFailure (..),
     lowerSurfaceExpr,
     lowerSurfaceModuleDetailed,
-    lowerSurfaceModule
-  ) where
+    lowerSurfaceModule,
+  )
+where
 
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Text as Text
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -28,24 +28,25 @@ import JazzNext.Compiler.AST
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
-import JazzNext.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
-    SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
-    SurfaceDataConstructor (..),
-    SurfaceExpr (..),
-    SurfaceImplMethod (..),
-    SurfaceLambdaParameter (..),
-    SurfaceLiteral (..),
-    SurfaceNumericType (..),
-    SurfacePattern (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
+  )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    DiagnosticOrigin (..),
+    SourceSpan,
+    mkErrorDiagnostic,
+    qualifySourceSpan,
+  )
+import JazzNext.Compiler.ModuleExports
+  ( qualifyModuleExportSelectorSpans,
+  )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (..),
+    DeclaredModuleExports (..),
+    ResolvedImport (..),
   )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
@@ -57,26 +58,25 @@ import JazzNext.Compiler.Name
     mkIdentifier,
     operatorBindingNameFromIdentifier,
     qualifiedName,
+    sourceName,
     splitQualifiedIdentifierText,
-    sourceName
   )
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    DiagnosticOrigin (..),
-    SourceSpan,
-    mkErrorDiagnostic,
-    qualifySourceSpan
-  )
-import JazzNext.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
-  )
-import JazzNext.Compiler.ModuleGraph
-  ( CoreModule (..),
-    DeclaredModuleExports (..),
-    ResolvedImport (..)
-  )
-import JazzNext.Compiler.ModuleExports
-  ( qualifyModuleExportSelectorSpans,
+import JazzNext.Compiler.Parser.AST
+  ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
+    SurfaceDataConstructor (..),
+    SurfaceExpr (..),
+    SurfaceImplMethod (..),
+    SurfaceLambdaParameter (..),
+    SurfaceLiteral (..),
+    SurfaceNumericType (..),
+    SurfacePattern (..),
+    SurfacePatternLambdaClause (..),
+    SurfaceSignatureConstraint (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
+    SurfaceStatement (..),
   )
 
 -- | The declaration inputs retained when module validation fails. Keeping
@@ -126,7 +126,7 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
 
     declarations =
       [ (ModuleDeclaration spanValue modulePath, moduleExports)
-        | SSModule spanValue modulePath moduleExports <- statements
+      | SSModule spanValue modulePath moduleExports <- statements
       ]
 
     imports =
@@ -136,16 +136,16 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
             resolvedImportAlias = alias,
             resolvedImportSymbols = importedSymbols
           }
-        | SSImport spanValue modulePath alias importedSymbols <- statements
+      | SSImport spanValue modulePath alias importedSymbols <- statements
       ]
 
     executableStatements =
       [ statement
-        | statement <- statements,
-          case statement of
-            SSModule {} -> False
-            SSImport {} -> False
-            _ -> True
+      | statement <- statements,
+        case statement of
+          SSModule {} -> False
+          SSImport {} -> False
+          _ -> True
       ]
 
     loweredBody =
@@ -258,6 +258,8 @@ lowerSurfaceExprWithoutCostCentre surfaceExpr =
       EVar (qualifiedName qualifier member)
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda parameters bodyExpr
+    SEPatternLambda clauses ->
+      lowerSurfacePatternLambda clauses
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     SEList elements ->
       EList (map lowerSurfaceExprWithoutCostCentre elements)
@@ -310,6 +312,35 @@ lowerSurfaceLambda parameters bodyExpr =
                 (EVar parameterName)
                 [CaseArm (lowerSurfacePattern parameterPattern) Nothing loweredBody]
             )
+
+lowerSurfacePatternLambda :: NonEmpty SurfacePatternLambdaClause -> Expr
+lowerSurfacePatternLambda clauses =
+  foldr
+    ELambda
+    ( EPatternCase
+        scrutinee
+        (map lowerClause (NonEmpty.toList clauses))
+    )
+    argumentNames
+  where
+    SurfacePatternLambdaClause _ firstPatterns _ = NonEmpty.head clauses
+    argumentNames =
+      map
+        (generatedName . LambdaPatternArgument)
+        [1 .. NonEmpty.length firstPatterns]
+    scrutinee =
+      case argumentNames of
+        [argumentName] -> EVar argumentName
+        _ -> ETuple (map EVar argumentNames)
+    lowerClause (SurfacePatternLambdaClause _ patterns bodyExpr) =
+      CaseArm
+        (lowerClausePattern patterns)
+        Nothing
+        (lowerSurfaceExprWithoutCostCentre bodyExpr)
+    lowerClausePattern patterns =
+      case NonEmpty.toList patterns of
+        [patternValue] -> lowerSurfacePattern patternValue
+        patternValues -> PTuple (map lowerSurfacePattern patternValues)
 
 -- | Lower literal syntax without changing the value domain available to later
 -- semantic phases.
@@ -465,16 +496,8 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
     SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
 
 lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
-lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArguments) =
-  DataConstructor (sourceName constructorName) (map lowerSurfaceDataConstructorArgument constructorArguments)
-
-lowerSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> DataConstructorArgument
-lowerSurfaceDataConstructorArgument surfaceArgument =
-  case surfaceArgument of
-    SurfaceDataConstructorArgumentName argumentName ->
-      DataConstructorArgumentName (sourceName argumentName)
-    SurfaceDataConstructorArgumentOpaque ->
-      DataConstructorArgumentOpaque
+lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName fieldTypes) =
+  DataConstructor (sourceName constructorName) (map lowerSurfaceSignatureType fieldTypes)
 
 lowerBindingName :: Identifier -> Name
 lowerBindingName name

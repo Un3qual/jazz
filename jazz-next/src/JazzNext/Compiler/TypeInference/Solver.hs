@@ -48,7 +48,8 @@ import JazzNext.Compiler.TypeInference.Types
     DataTypeBinding (..),
     ExpressionType (..),
     IntegerLiteralRange (..),
-    NumericConstraint (..)
+    NumericConstraint (..),
+    instantiateConstructorFieldType
   )
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
@@ -407,6 +408,11 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
             False
             (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
             (Map.lookup parameterName typeParameterBindings)
+        ConstructorArgumentStructured fieldType ->
+          maybe
+            False
+            (supportsRuntimeEqualityTypeWith nextSeenDataTypes state)
+            (instantiateConstructorFieldType typeParameterBindings fieldType)
         ConstructorArgumentFresh -> False
 
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool

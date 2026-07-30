@@ -13,10 +13,10 @@ import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignatureType (TypeInt),
     Statement (..),
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -219,7 +219,7 @@ testConstructorApplication = do
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [DataConstructorArgumentName "value"]],
+              [DataConstructor "Box" [TypeInt]],
             SExpr
               (SourceSpan 2 1)
               (EApply (EVar "Box") (ELit (LInt 1)))
@@ -294,7 +294,7 @@ testSourceConstructions = do
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [DataConstructorArgumentName "value"]],
+              [DataConstructor "Box" [TypeInt]],
             SExpr
               (SourceSpan 2 1)
               ( ETuple

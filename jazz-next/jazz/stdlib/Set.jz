@@ -21,17 +21,17 @@ module Set (
   import List.
   import Map.
 
-  data Set a = Set (Map a ()).
+  data Set a = Set Map(a, ()).
 
   setEmpty :: Set(a).
   setEmpty = Set mapEmpty.
 
   setSingleton :: a -> Set(a).
-  setSingleton = \(value) -> Set (mapSingleton value ()).
+  setSingleton = \(item) -> Set (mapSingleton item ()).
 
   setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
-  setInsert = \(set, value) -> case set {
-    | Set map -> Set (mapInsert map value ())
+  setInsert = \(set, item) -> case set {
+    | Set map -> Set (mapInsert map item ())
   }.
 
   setFromList :: @{Ord(a)}: [a] -> Set(a).
@@ -51,13 +51,13 @@ module Set (
   setIsEmpty = \(set) -> setSize set == 0.
 
   setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
-  setContains = \(set, value) -> case set {
-    | Set map -> mapContainsKey map value
+  setContains = \(set, item) -> case set {
+    | Set map -> mapContainsKey map item
   }.
 
   setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
-  setRemove = \(set, value) -> case set {
-    | Set map -> Set (mapRemove map value)
+  setRemove = \(set, item) -> case set {
+    | Set map -> Set (mapRemove map item)
   }.
 
   setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
@@ -71,7 +71,7 @@ module Set (
   }.
 
   setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setUnion = \(left, right) -> setFoldLeft right left (\(result, value) -> setInsert result value).
+  setUnion = \(left, right) -> setFoldLeft right left (\(result, item) -> setInsert result item).
 
   setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
   setFilter = \(set, predicate) -> case set {
@@ -79,16 +79,16 @@ module Set (
   }.
 
   setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setIntersection = \(left, right) -> setFilter left (\(value) -> setContains right value).
+  setIntersection = \(left, right) -> setFilter left (\(item) -> setContains right item).
 
   setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
-  setDifference = \(left, right) -> setFilter left (\(value) -> if setContains right value then False else True).
+  setDifference = \(left, right) -> setFilter left (\(item) -> if setContains right item then False else True).
 
   setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
-  setIsSubset = \(subset, superset) -> setFoldLeft subset True (\(result, value) ->
-    if result then setContains superset value else False
+  setIsSubset = \(subset, superset) -> setFoldLeft subset True (\(result, item) ->
+    if result then setContains superset item else False
   ).
 
   setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
-  setMap = \(set, transform) -> setFoldLeft set setEmpty (\(result, value) -> setInsert result (transform value)).
+  setMap = \(set, transform) -> setFoldLeft set setEmpty (\(result, item) -> setInsert result (transform item)).
 }

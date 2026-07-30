@@ -5,34 +5,35 @@
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
+    SurfacePatternLambdaClause (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
-    SurfaceStatement (..)
-  ) where
+    SurfaceStatement (..),
+  )
+where
 
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan
+  ( SourceSpan,
   )
 import JazzNext.Compiler.FractionalLiteral
-  ( FractionalLiteralSource
+  ( FractionalLiteralSource,
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector
+  ( ModuleExportSelector,
   )
 import JazzNext.Compiler.Name
-  ( Identifier
+  ( Identifier,
   )
 
 -- | Literals as they appear in parsed source before lowering.
@@ -70,16 +71,15 @@ data SurfaceLambdaParameter
   | SurfaceLambdaPattern SurfacePattern
   deriving (Eq, Show)
 
--- | Parser-owned constructor payload metadata for top-level `data`
--- declarations. Opaque payloads preserve current arity-only behavior for
--- grouped forms until constructor type schemes own those surfaces.
-data SurfaceDataConstructorArgument
-  = SurfaceDataConstructorArgumentName Identifier
-  | SurfaceDataConstructorArgumentOpaque
+-- | One ordered head/body pair in a multi-body pattern lambda. Unlike an
+-- ordinary lambda parameter list, every head item is a pattern because clause
+-- selection is performed by one shared pattern case after lowering.
+data SurfacePatternLambdaClause
+  = SurfacePatternLambdaClause SourceSpan (NonEmpty SurfacePattern) SurfaceExpr
   deriving (Eq, Show)
 
 -- | Parser-owned constructor metadata for top-level `data` declarations.
-data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceDataConstructorArgument]
+data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceSignatureType]
   deriving (Eq, Show)
 
 -- | Parser-facing expression tree. This remains separate from the core AST so
@@ -89,6 +89,7 @@ data SurfaceExpr
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
   | SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr
+  | SEPatternLambda (NonEmpty SurfacePatternLambdaClause)
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
   | SETuple [SurfaceExpr]

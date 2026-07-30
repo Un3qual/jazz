@@ -219,7 +219,7 @@ details.
 
 `IO` exports `readText!`, `writeText!`, `readStdin!`, `writeStdout!`,
 `writeStderr!`, `arguments!`, and `exit!`. Recoverable file and stream
-operations return `Result(IOError, value)`, use strict UTF-8, and attach paths
+operations return `Result(IOError, a)`, use strict UTF-8, and attach paths
 only to file operations. `arguments!` preserves process argument order.
 `exit!` terminates through the installed runtime host. I/O cost is host- and
 payload-dependent and is not covered by collection complexity promises.

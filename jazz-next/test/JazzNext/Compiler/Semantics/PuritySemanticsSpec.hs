@@ -93,7 +93,7 @@ testPureBindingCannotCallImpureQualifiedMethod = do
       run! :: a -> a.
       }.
       impl Effect(Int) {
-      run! = \\(value) -> value.
+      run! = \\(candidate) -> candidate.
       }.
       x = Effect::run! 1.
       x.
@@ -112,7 +112,7 @@ testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication = do
       class Need(a) { }.
       impl Need(Int) { }.
       f! :: @{Need(a)}: a -> a.
-      f! = \\(value) -> value.
+      f! = \\(candidate) -> candidate.
       x = f! @Int 1.
       x.
       """
@@ -132,7 +132,7 @@ testPureImplMethodCannotCallImpureCallee = do
       }.
       inc! = (+ 1).
       impl Runner(Int) {
-      run = \\(value) -> inc! value.
+      run = \\(candidate) -> inc! candidate.
       }.
       Runner::run 1.
       """
@@ -160,7 +160,7 @@ testImpureImplMethodCanCallImpureCallee = do
       }.
       inc! = (+ 1).
       impl Runner(Int) {
-      run! = \\(value) -> inc! value.
+      run! = \\(candidate) -> inc! candidate.
       }.
       Runner::run! 1.
       """

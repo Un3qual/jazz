@@ -261,13 +261,7 @@ coreDataConstructorRuntimeValue :: DataConstructor -> Either Text RuntimeValue
 coreDataConstructorRuntimeValue (DataConstructor name arguments) =
   constructor2 "CoreDataConstructor"
     <$> coreNameRuntimeValue name
-    <*> listRuntimeValue coreDataConstructorArgumentRuntimeValue arguments
-
-coreDataConstructorArgumentRuntimeValue :: DataConstructorArgument -> Either Text RuntimeValue
-coreDataConstructorArgumentRuntimeValue argument =
-  case argument of
-    DataConstructorArgumentName name -> constructor1 "CoreNamedConstructorArgument" <$> coreNameRuntimeValue name
-    DataConstructorArgumentOpaque -> pure (canonicalNullaryConstructor "CoreOpaqueConstructorArgument")
+    <*> listRuntimeValue coreSignatureTypeRuntimeValue arguments
 
 coreClassMethodRuntimeValue :: ClassMethodSignature -> Either Text RuntimeValue
 coreClassMethodRuntimeValue (ClassMethodSignature name spanValue payload) =

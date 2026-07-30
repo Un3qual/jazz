@@ -1,0 +1,55 @@
+module Queens (value solutionCount, value solutionProfile) {
+  import List.
+
+  absolute =
+    \(number) ->
+      if number < 0 then 0 - number else number.
+
+  safe =
+    \|(column, distance, []) -> True
+     |(column, distance, [placed | rest]) ->
+      if column == placed then
+        False
+      else if absolute (column - placed) == distance then
+        False
+      else
+        safe column (distance + 1) rest.
+
+  integerRangeFrom =
+    \(current, upper) ->
+      if current > upper then
+        []
+      else
+        listPrepend current $ integerRangeFrom (current + 1) upper.
+
+  integerRange =
+    \(lower, upper) ->
+      integerRangeFrom lower upper.
+
+  place =
+    \|(upper, 0, placed) -> [placed]
+     |(upper, remaining, placed) ->
+      listConcat $
+        listMap
+          (\(column) ->
+            if safe column 1 placed then
+              place upper (remaining - 1) (listPrepend column placed)
+            else
+              [])
+          (integerRange 1 upper).
+
+  solutionCount =
+    \(size) ->
+      listLength $ place size size [].
+
+  placedQueenCount =
+    listFoldLeft
+      (\(total, placement) -> total + listLength placement)
+      0.
+
+  solutionProfile =
+    \(size) ->
+      case place size size [] {
+        | placements -> (listLength placements, placedQueenCount placements)
+      }.
+}

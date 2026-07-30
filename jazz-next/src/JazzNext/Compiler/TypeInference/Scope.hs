@@ -20,7 +20,6 @@ import JazzNext.Compiler.AST
     ClassMethodSignature (..),
     SignatureType (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -238,9 +237,11 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
     bindingNamesByStatement = collectBindingNames indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
-    (bindingSeedsByStatement, seededState) =
+    (bindingSeedsByStatement, bindingSeededState) =
       allocateBindingSeeds indexedStatements initialState
-    stateAfterBindingSeeds = seededState
+    predeclaredDataTypes =
+      predeclareScopeDataTypes indexedStatements bindingSeededState
+    stateAfterBindingSeeds = bindingSeededState
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
     go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
@@ -280,7 +281,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
-                    registerDataConstructors spanValue typeName typeParameters constructors env state
+                    registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
@@ -919,6 +920,26 @@ allocateBindingSeeds indexedStatements initialState =
            in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
         _ -> (bindingSeeds, state)
 
+predeclareScopeDataTypes ::
+  [(Int, Statement)] ->
+  InferState ->
+  Map Text DataTypeBinding
+predeclareScopeDataTypes indexedStatements initialState =
+  foldl' step Map.empty indexedStatements
+  where
+    step predeclaredDataTypes (_, statement) =
+      case statement of
+        SData _ typeName typeParameters _
+          | Map.notMember typeNameText (inferDataTypes initialState),
+            Map.notMember typeNameText predeclaredDataTypes ->
+              Map.insert
+                typeNameText
+                (DataTypeBinding typeParameters [])
+                predeclaredDataTypes
+          where
+            typeNameText = identifierText typeName
+        _ -> predeclaredDataTypes
+
 -- Seed self-recursion before branch typing so mixed wrappers like
 -- `if True \(x) -> f x else 0` do not skip recursive calls just because only
 -- one branch exposes a function value.
@@ -1379,8 +1400,8 @@ concreteFloatNumericType expressionType =
     TNumericType NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
-registerDataConstructors :: SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
-registerDataConstructors spanValue typeName typeParameters constructors env initialState =
+registerDataConstructors :: Map Text DataTypeBinding -> SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env initialState =
   case Map.lookup typeNameText (inferDataTypes initialState) of
     Just _ ->
       ( env,
@@ -1388,9 +1409,13 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
           initialState
           (mkDuplicateDataTypeDeclarationError typeNameText spanValue)
       )
-    Nothing ->
+    Nothing -> registerInto initialState
+  where
+    typeNameText = identifierText typeName
+
+    registerInto stateBeforeConstructors =
       let (nextEnv, nextState, constructorPayloadsRev) =
-            foldl' register (env, initialState, []) constructors
+            foldl' register (env, stateBeforeConstructors, []) constructors
        in
         ( nextEnv,
           modifyDeclarationState
@@ -1405,12 +1430,10 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
             )
             nextState
         )
-  where
-    typeNameText = identifierText typeName
 
     register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =
-            constructorArgumentTypes typeParameters constructorArguments stateAcc
+            constructorArgumentTypes predeclaredDataTypes typeParameters constructorArguments stateAcc
        in
         ( Map.insert
             constructorName
@@ -1420,33 +1443,45 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
           argumentTypes : constructorPayloadsAcc
         )
 
-constructorArgumentTypes :: [Name] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
-constructorArgumentTypes typeParameters constructorArguments state
-  | null typeParameters =
-      let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) state
-       in (map ConstructorArgumentMonomorphic argumentTypes, nextState)
-  | otherwise =
-      foldl' collectArgument ([], state) constructorArguments
+constructorArgumentTypes :: Map Text DataTypeBinding -> [Name] -> [SignatureType] -> InferState -> ([ConstructorArgumentType], InferState)
+constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialState =
+  foldl' collectField ([], initialState) fieldTypes
   where
-    typeParameterNames = Set.fromList (map identifierText typeParameters)
+    signatureVariables =
+      Map.fromList
+        [ (identifierText parameterName, TVarType (negate position - 1))
+          | (position, parameterName) <- zip [0 :: Int ..] typeParameters
+        ]
 
-    collectArgument (argumentTypes, stateAcc) constructorArgument =
-      case constructorArgument of
-        DataConstructorArgumentName argumentName
-          | Set.member (identifierText argumentName) typeParameterNames ->
-              (argumentTypes ++ [ConstructorArgumentParameter (identifierText argumentName)], stateAcc)
-          | Just payloadType <- namedConstructorPayloadType stateAcc argumentName ->
-              (argumentTypes ++ [ConstructorArgumentMonomorphic payloadType], stateAcc)
-          | otherwise ->
-              ( argumentTypes ++ [ConstructorArgumentFresh],
-                addTypeError stateAcc (mkUnknownConstructorPayloadTypeError argumentName)
-              )
-        DataConstructorArgumentOpaque ->
-          (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
+    collectField (argumentTypes, stateAcc) fieldType =
+      case Signature.signatureTypeToExpressionType (stateWithPredeclaredDataTypes stateAcc) signatureVariables fieldType of
+        Right _ ->
+          ( argumentTypes
+              ++ [ConstructorArgumentStructured fieldType],
+            stateAcc
+          )
+        Left (Signature.UnknownNamedType payloadName) ->
+          ( argumentTypes ++ [ConstructorArgumentFresh],
+            addTypeError stateAcc (mkUnknownConstructorPayloadTypeError payloadName)
+          )
+        Left failure ->
+          ( argumentTypes ++ [ConstructorArgumentFresh],
+            addTypeError
+              stateAcc
+              (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure))
+          )
 
-namedConstructorPayloadType :: InferState -> Name -> Maybe ExpressionType
-namedConstructorPayloadType state name =
-  Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty (TypeName name)
+    stateWithPredeclaredDataTypes state =
+      modifyDeclarationState
+        ( \declarations ->
+            declarations
+              { declarationDataTypes =
+                  Map.union
+                    (inferDataTypes state)
+                    predeclaredDataTypes
+              }
+        )
+        state
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share

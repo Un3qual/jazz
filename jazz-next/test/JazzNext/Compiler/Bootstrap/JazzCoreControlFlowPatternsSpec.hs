@@ -58,6 +58,10 @@ testControlFlowParity = do
     "second pattern parameter uses index two"
     "CoreLambdaExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)), CorePatternCaseExpression(CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)))"
     expected
+  assertContains
+    "pattern lambda clauses share one ordered tuple case"
+    "CorePatternCaseExpression(CoreTupleExpression([CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(1))), CoreVariableExpression(CoreGeneratedName(CoreLambdaPatternArgument(2)))]), [CoreCaseArm(CoreTuplePattern([CoreConstructorPattern(CoreSourceName(\"Nothing\"), []), CoreVariablePattern(CoreSourceName(\"fallback\"))])"
+    expected
   first <- runJazzControlFlowPatternsBatch controlFlowExpressions
   second <- runJazzControlFlowPatternsBatch controlFlowExpressions
   assertSuccessfulOutput "control-flow parity first run" expected first
@@ -66,7 +70,7 @@ testControlFlowParity = do
 
 testComposedParity :: IO ()
 testComposedParity = do
-  assertEqual "composed fixture count" 14 (length composedSources)
+  assertEqual "composed fixture count" 15 (length composedSources)
   expected <- expectRight "composed control-flow expected values" (expectedControlFlowPatternsSourceBatchRendering composedSources)
   first <- runJazzControlFlowPatternsSourceBatch composedSources
   second <- runJazzControlFlowPatternsSourceBatch composedSources
@@ -107,6 +111,7 @@ expectedControlFlowFixtureNames =
     "lambda-pattern-or",
     "lambda-mixed-parameters",
     "lambda-two-pattern-parameters",
+    "pattern-lambda-clauses",
     "lambda-nested-control-flow",
     "block-control-flow"
   ]
@@ -186,6 +191,19 @@ controlFlowFixtures =
         )
         (SEVar "left")
     ),
+    ( "pattern-lambda-clauses",
+      SEPatternLambda
+        ( SurfacePatternLambdaClause
+            span1
+            (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
+            (SEVar "fallback")
+            :| [ SurfacePatternLambdaClause
+                   span1
+                   (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
+                   (SEVar "item")
+               ]
+        )
+    ),
     ( "lambda-nested-control-flow",
       SELambda
         (SurfaceLambdaIdentifier "value" :| [])
@@ -233,18 +251,19 @@ composedSources :: [Text.Text]
 composedSources =
   [ "if True then 1 else 0.",
     "if outer then if inner then 1 else 2 else 3.",
-    "if cond then { value = 1. value. } else { value = 2. value. }.",
-    "case value { | Just item -> item | Nothing -> 0 }.",
-    "case value { | Just item if keep -> item | Nothing -> 0 }.",
-    "case value { | _ -> 0 | name -> 1 | 2 -> 2 | 'x' -> 3 | \"x\" -> 4 | True -> 5 | Just item -> 6 | [head, tail] -> 7 | [head | tail] -> 8 | () -> 9 | (left, right) -> 10 | whole@Nothing -> 11 | Just item | Nothing -> 12 }.",
+    "if cond then { result = 1. result. } else { result = 2. result. }.",
+    "case subject { | Just item -> item | Nothing -> 0 }.",
+    "case subject { | Just item if keep -> item | Nothing -> 0 }.",
+    "case subject { | _ -> 0 | name -> 1 | 2 -> 2 | 'x' -> 3 | \"x\" -> 4 | True -> 5 | Just item -> 6 | [head, tail] -> 7 | [head | tail] -> 8 | () -> 9 | (left, right) -> 10 | whole@Nothing -> 11 | Just item | Nothing -> 12 }.",
     "case if cond then left else right { | _ -> 0 }.",
     "case outer { | Just item -> case item { | _ -> 1 } | Nothing -> 0 }.",
-    "\\(value) -> value.",
+    "\\(subject) -> subject.",
     "\\(left, right) -> left.",
     "\\([head | tail]) -> head.",
     "\\(Just item | Nothing) -> item.",
     "\\(first, Just second, third) -> second.",
-    "{ loop = \\(value) -> case value { | Just next -> loop next | _ -> if False then value else value }. loop. }."
+    "\\|(Nothing, fallback) -> fallback |(Just item, _) -> item.",
+    "{ loop = \\(subject) -> case subject { | Just next -> loop next | _ -> if False then subject else subject }. loop. }."
   ]
 
 expectedUnsupportedFixtureNames :: [Text.Text]

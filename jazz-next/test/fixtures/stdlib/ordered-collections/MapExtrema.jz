@@ -4,7 +4,7 @@ module Stdlib::OrderedCollections::MapExtrema {
   start = mapFromList [(3, "three"), (1, "one"), (2, "TWO")].
   popView = \(result) -> case result {
     | Nothing -> Nothing
-    | Just ((key, value), remaining) -> Just ((key, value), mapToList remaining)
+    | Just ((key, item), remaining) -> Just ((key, item), mapToList remaining)
   }.
   (mapMinimum start, mapMaximum start,
    popView (mapPopMinimum start), popView (mapPopMaximum start)).

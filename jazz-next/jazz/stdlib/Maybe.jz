@@ -15,49 +15,49 @@ module Maybe (
   maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
   maybeMap = \(transform, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
-    | Just value -> Just (transform value)
+    | Just item -> Just (transform item)
   }.
 
   maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
   maybeAndThen = \(transform, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
-    | Just value -> transform value
+    | Just item -> transform item
   }.
 
   maybeWithDefault :: a -> Maybe(a) -> a.
   maybeWithDefault = \(defaultValue, maybeValue) -> case maybeValue {
     | Nothing -> defaultValue
-    | Just value -> value
+    | Just item -> item
   }.
 
   maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
   maybeOrElse = \(fallback, maybeValue) -> case maybeValue {
     | Nothing -> fallback
-    | Just value -> Just value
+    | Just item -> Just item
   }.
 
   maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
   maybeFilter = \(predicate, maybeValue) -> case maybeValue {
     | Nothing -> Nothing
-    | Just value -> if predicate value then Just value else Nothing
+    | Just item -> if predicate item then Just item else Nothing
   }.
 
   maybeIsJust :: Maybe(a) -> Bool.
   maybeIsJust = \(maybeValue) -> case maybeValue {
     | Nothing -> False
-    | Just value -> True
+    | Just item -> True
   }.
 
   maybeIsNothing :: Maybe(a) -> Bool.
   maybeIsNothing = \(maybeValue) -> case maybeValue {
     | Nothing -> True
-    | Just value -> False
+    | Just item -> False
   }.
 
   maybeToList :: Maybe(a) -> [a].
   maybeToList = \(maybeValue) -> case maybeValue {
     | Nothing -> []
-    | Just value -> [value]
+    | Just item -> [item]
   }.
 
   maybeFromList :: [a] -> Maybe(a).

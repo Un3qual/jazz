@@ -176,10 +176,10 @@ composedSources =
   ]
 
 parserRejectedSource :: Text.Text
-parserRejectedSource = "value = ."
+parserRejectedSource = "answer = ."
 
 deferredSource :: Text.Text
-deferredSource = "\\(value) -> value."
+deferredSource = "\\(subject) -> subject."
 
 span1 :: SourceSpan
 span1 = SourceSpan 1 1

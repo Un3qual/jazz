@@ -21,6 +21,7 @@ module JazzNext.Compiler.Parser.Failure
 where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (E0001),
   )
@@ -105,6 +106,7 @@ data ParserUnsupportedFeature
 
 data ParserPatternFailure
   = ConsLikeListPatternHeadCount
+  | PatternLambdaClauseArityMismatch Int Int
   deriving (Eq, Ord, Show)
 
 data ParserDeclarationFailure
@@ -226,8 +228,15 @@ renderParserFailureReason reason =
           OperatorUseInBinding -> "binding"
           OperatorUseInSignature -> "signature"
     DeclarationFailure failure -> renderDeclarationFailure failure
-    PatternFailure ConsLikeListPatternHeadCount ->
-      "cons-like list patterns require exactly one head pattern before '|'"
+    PatternFailure failure ->
+      case failure of
+        ConsLikeListPatternHeadCount ->
+          "cons-like list patterns require exactly one head pattern before '|'"
+        PatternLambdaClauseArityMismatch expected actual ->
+          "pattern-lambda clauses must all have "
+            <> Text.pack (show expected)
+            <> " parameter(s), found "
+            <> Text.pack (show actual)
     InternalParserFailure invariant -> renderInternalInvariant invariant
 
 renderUnsupportedFeature :: ParserUnsupportedFeature -> Text

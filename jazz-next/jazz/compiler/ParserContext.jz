@@ -21,7 +21,7 @@ module ParserContext (
 
   data StatementContext = TopLevelContext | ModuleBodyContext | NestedBlockContext.
 
-  data ParserContext = ParserContext StatementContext (Set(Text)) [OperatorInfo].
+  data ParserContext = ParserContext StatementContext Set(Text) [OperatorInfo].
 
   parserContextInitial :: ParserContext.
   parserContextInitial = ParserContext TopLevelContext setEmpty [].

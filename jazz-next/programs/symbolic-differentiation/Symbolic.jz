@@ -1,0 +1,101 @@
+module Symbolic (value differentiationSummary) {
+  data Expression
+    = Constant Int
+    | Variable Text
+    | Add Expression Expression
+    | Multiply Expression Expression
+    | Power Expression Int.
+
+  differentiate =
+    \|(target, Constant _) -> Constant 0
+     |(target, Variable name) ->
+      if name == target then Constant 1 else Constant 0
+     |(target, Add left right) ->
+      Add (differentiate target left) (differentiate target right)
+     |(target, Multiply left right) ->
+      Add
+        (Multiply (differentiate target left) right)
+        (Multiply left (differentiate target right))
+     |(target, Power base exponent) ->
+      if exponent == 0 then
+        Constant 0
+      else
+        Multiply
+          (Multiply (Constant exponent) (Power base (exponent - 1)))
+          (differentiate target base).
+
+  simplifyAdd =
+    \|(Constant 0, right) -> right
+     |(left, Constant 0) -> left
+     |(Constant left, Constant right) -> Constant (left + right)
+     |(left, right) -> Add left right.
+
+  simplifyMultiply =
+    \|(Constant 0, _) -> Constant 0
+     |(_, Constant 0) -> Constant 0
+     |(Constant 1, right) -> right
+     |(left, Constant 1) -> left
+     |(Constant left, Constant right) -> Constant (left * right)
+     |(left, right) -> Multiply left right.
+
+  simplify =
+    \|(expressionValue@(Constant _)) -> expressionValue
+     |(expressionValue@(Variable _)) -> expressionValue
+     |(Add left right) ->
+      simplifyAdd (simplify left) (simplify right)
+     |(Multiply left right) ->
+      simplifyMultiply (simplify left) (simplify right)
+     |(Power base exponent) ->
+      if exponent == 0 then
+        Constant 1
+      else if exponent == 1 then
+        simplify base
+      else
+        Power (simplify base) exponent.
+
+  integerPower =
+    \|(base, 0) -> 1
+     |(base, exponent) -> base * integerPower base (exponent - 1).
+
+  evaluate =
+    \|(target, Constant scalar) -> scalar
+     |(target, Variable name) ->
+      if name == "x" then target else 0
+     |(target, Add left right) ->
+      evaluate target left + evaluate target right
+     |(target, Multiply left right) ->
+      evaluate target left * evaluate target right
+     |(target, Power base exponent) ->
+      integerPower (evaluate target base) exponent.
+
+  nodeCount =
+    \|(Constant _ | Variable _) -> 1
+     |(Add left right) -> 1 + nodeCount left + nodeCount right
+     |(Multiply left right) -> 1 + nodeCount left + nodeCount right
+     |(Power base _) -> 1 + nodeCount base.
+
+  maximum =
+    \(left, right) ->
+      if left > right then left else right.
+
+  expressionDepth =
+    \|(Constant _ | Variable _) -> 1
+     |(Add left right) ->
+      1 + maximum (expressionDepth left) (expressionDepth right)
+     |(Multiply left right) ->
+      1 + maximum (expressionDepth left) (expressionDepth right)
+     |(Power base _) -> 1 + expressionDepth base.
+
+  polynomial =
+    \|(0) -> Constant 1
+     |(degree) ->
+      Add
+        (Power (Variable "x") degree)
+        (Multiply (Constant degree) (polynomial (degree - 1))).
+
+  differentiationSummary =
+    case simplify (differentiate "x" (polynomial 9)) {
+      | derivative ->
+        (nodeCount derivative, expressionDepth derivative, evaluate 3 derivative)
+    }.
+}

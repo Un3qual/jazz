@@ -313,7 +313,7 @@ testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans = do
         [ ( "src/App/Main.jz",
             """
             module App::Main {
-            id = \\(value) -> value.
+            id = \\(candidate) -> candidate.
             result = id @Unknown 1.
             result.
             }

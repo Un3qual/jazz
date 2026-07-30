@@ -379,10 +379,10 @@ testSourceResolvesInferredMethodFactsThroughAliases =
     impl Eq(Float) {
     equals = \\(left, right) -> left == right.
     }.
-    value :: Float64.
-    value = 1.5.
+    candidate :: Float64.
+    candidate = 1.5.
     same = \\(x) -> Eq::equals x x.
-    result = same value.
+    result = same candidate.
     """
     )
 
@@ -394,10 +394,10 @@ testSourceRejectsResultOnlyQualifiedMethodInference =
     make :: Int -> a.
     }.
     impl Make(Int) {
-    make = \\(value) -> value.
+    make = \\(candidate) -> candidate.
     }.
     impl Make(Bool) {
-    make = \\(value) -> True.
+    make = \\(candidate) -> True.
     }.
     x :: Int.
     x = Make::make 0.
@@ -628,10 +628,10 @@ testSourceRejectsNonTargetQualifiedMethodExactMatch =
     flag :: Int -> Bool.
     }.
     impl Flag(Int) {
-    flag = \\(value) -> True.
+    flag = \\(candidate) -> True.
     }.
     impl Flag(Bool) {
-    flag = \\(value) -> False.
+    flag = \\(candidate) -> False.
     }.
     one :: Int.
     one = 1.
@@ -891,10 +891,10 @@ testSourceSelectsQualifiedMethodBodyThroughPrefixDollar =
     pick :: a -> Bool.
     }.
     impl Choice(Int) {
-    pick = \\(value) -> True.
+    pick = \\(candidate) -> True.
     }.
     impl Choice(Bool) {
-    pick = \\(value) -> False.
+    pick = \\(candidate) -> False.
     }.
     result :: Bool.
     result = ($) Choice::pick True.
@@ -929,12 +929,12 @@ testSourceUsesImplSignaturesWhileCheckingMethodBodies =
     notCheck :: a -> Bool.
     }.
     impl Check(Int) {
-    check = \\(value) -> True.
-    notCheck = \\(value) -> Check::check value != True.
+    check = \\(candidate) -> True.
+    notCheck = \\(candidate) -> Check::check candidate != True.
     }.
     impl Check(Bool) {
-    check = \\(value) -> False.
-    notCheck = \\(value) -> Check::check value != True.
+    check = \\(candidate) -> False.
+    notCheck = \\(candidate) -> Check::check candidate != True.
     }.
     result :: Bool.
     result = Check::notCheck 1.
@@ -950,10 +950,10 @@ testSourceUsesImplSignaturesToContextualizeMethodBodyLambdas =
     n :: a -> Bool.
     }.
     impl D(Int) {
-    n = \\(value) -> True.
+    n = \\(candidate) -> True.
     }.
     impl D(Bool) {
-    n = \\(value) -> False.
+    n = \\(candidate) -> False.
     }.
     class C(a) {
     m :: a -> Bool.
@@ -1108,10 +1108,10 @@ testSourceRejectsAmbiguousQualifiedMethodBodies =
     classify :: Int -> Bool.
     }.
     impl Classify(Int) {
-    classify = \\(value) -> value == 1.
+    classify = \\(candidate) -> candidate == 1.
     }.
     impl Classify(Bool) {
-    classify = \\(value) -> value == 2.
+    classify = \\(candidate) -> candidate == 2.
     }.
     result = Classify::classify 1.
     result.
@@ -1302,7 +1302,7 @@ testSourceResolvesDeferredConstraintsInImplMethodBodies =
     id = \\(x) -> x.
     class Use(a) { use :: a -> a. }.
     impl Use(Bool) { use = id. }.
-    value = 1.
+    candidate = 1.
     """
     "missing impl fact 'Eq(Bool)'"
 

@@ -377,7 +377,7 @@ module ParserSignature (
   signatureToken :: CanonicalToken -> SurfaceSignatureToken.
   signatureToken = \(token) -> case canonicalTokenKind token {
     | IdentifierKind name -> SignatureNameToken name
-    | IntegerKind value -> SignatureIntegerToken value
+    | IntegerKind item -> SignatureIntegerToken item
     | OperatorKind symbol -> SignatureOperatorToken symbol
     | PunctuationKind ArrowPunctuation -> SignatureArrowToken
     | PunctuationKind AtPunctuation -> SignatureAtToken

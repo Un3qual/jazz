@@ -23,7 +23,7 @@ module Queue (
   queueEmpty = Queue [] [] 0.
 
   queueSingleton :: a -> Queue(a).
-  queueSingleton = \(value) -> Queue [value] [] 1.
+  queueSingleton = \(item) -> Queue [item] [] 1.
 
   queueFromList :: [a] -> Queue(a).
   queueFromList = \(values) -> Queue values [] (listLength values).
@@ -42,8 +42,8 @@ module Queue (
   queueIsEmpty = \(queue) -> queueSize queue == 0.
 
   queueEnqueue :: Queue(a) -> a -> Queue(a).
-  queueEnqueue = \(queue, value) -> case queue {
-    | Queue front reversedRear size -> Queue front (listPrepend value reversedRear) (size + 1)
+  queueEnqueue = \(queue, item) -> case queue {
+    | Queue front reversedRear size -> Queue front (listPrepend item reversedRear) (size + 1)
   }.
 
   queueEnqueueAll :: Queue(a) -> [a] -> Queue(a).

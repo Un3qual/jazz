@@ -187,12 +187,12 @@ testNameExpressions =
   assertJazzOutput
     "name expressions"
     """
-    ( parseComponentExpression "value"
+    ( parseComponentExpression "subject"
     , parseComponentExpression "Alias::member"
-    , parseComponentExpression "(value)"
+    , parseComponentExpression "(subject)"
     )
     """
-    "(TokenParseSucceeded(VariableExpression(\"value\")), TokenParseSucceeded(QualifiedVariableExpression(\"Alias\", \"member\")), TokenParseSucceeded(VariableExpression(\"value\")))"
+    "(TokenParseSucceeded(VariableExpression(\"subject\")), TokenParseSucceeded(QualifiedVariableExpression(\"Alias\", \"member\")), TokenParseSucceeded(VariableExpression(\"subject\")))"
 
 testCompositeExpressions :: IO ()
 testCompositeExpressions =
@@ -206,11 +206,11 @@ testCompositeExpressions =
     , parseComponentExpression "f 1 True"
     , parseComponentExpression "f 'x'"
     , parseComponentExpression "f \\\"text\\\""
-    , parseComponentExpression "f (value)"
+    , parseComponentExpression "f (subject)"
     , parseComponentExpression "f []"
     )
     """
-    "(TokenParseSucceeded(TupleExpression([])), TokenParseSucceeded(ListExpression([])), TokenParseSucceeded(ListExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True)), LiteralExpression(CharacterLiteral('x'))])), TokenParseSucceeded(TupleExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True))])), TokenParseSucceeded(ApplyExpression(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(IntegerLiteral(\"1\"))), LiteralExpression(BooleanLiteral(True)))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(CharacterLiteral('x')))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(TextLiteral(\"text\")))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), VariableExpression(\"value\"))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), ListExpression([]))))"
+    "(TokenParseSucceeded(TupleExpression([])), TokenParseSucceeded(ListExpression([])), TokenParseSucceeded(ListExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True)), LiteralExpression(CharacterLiteral('x'))])), TokenParseSucceeded(TupleExpression([LiteralExpression(IntegerLiteral(\"1\")), LiteralExpression(BooleanLiteral(True))])), TokenParseSucceeded(ApplyExpression(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(IntegerLiteral(\"1\"))), LiteralExpression(BooleanLiteral(True)))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(CharacterLiteral('x')))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), LiteralExpression(TextLiteral(\"text\")))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), VariableExpression(\"subject\"))), TokenParseSucceeded(ApplyExpression(VariableExpression(\"f\"), ListExpression([]))))"
 
 testExpressionFailures :: IO ()
 testExpressionFailures =
@@ -245,11 +245,11 @@ testProgramFacades =
     """
     ( parseComponentTokens ""
     , parseSource componentPath ""
-    , parseComponentTokens "value = 1. value."
-    , parseSource componentPath "value = 1. value."
+    , parseComponentTokens "answer = 1. answer."
+    , parseSource componentPath "answer = 1. answer."
     )
     """
-    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"value\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 12), VariableExpression(\"value\"))])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"value\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 12), VariableExpression(\"value\"))])))"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"answer\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 13), VariableExpression(\"answer\"))])), CanonicalSourceSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([LetStatement(\"answer\", CanonicalSpan(1, 1), LiteralExpression(IntegerLiteral(\"1\"))), ExpressionStatement(CanonicalSpan(1, 13), VariableExpression(\"answer\"))])))"
 
 testRecursiveBlocks :: IO ()
 testRecursiveBlocks =
@@ -268,13 +268,13 @@ testProgramFailures =
   assertJazzOutput
     "program failures"
     """
-    ( parseComponentTokens "value = ."
-    , parseComponentTokens "value = 1"
-    , parseComponentTokens "value"
+    ( parseComponentTokens "answer = ."
+    , parseComponentTokens "answer = 1"
+    , parseComponentTokens "answer"
     , parseComponentTokens "{"
     )
     """
-    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 9)), UnexpectedSyntax(FoundToken(PunctuationKind(DotPunctuation), \".\"), \"expression\"))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'}\\'\", EndOfInput))))"
+    "(CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 10)), UnexpectedSyntax(FoundToken(PunctuationKind(DotPunctuation), \".\"), \"expression\"))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'.\\'\", EndOfInput))), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Nothing, ExpectedSyntax(\"\\'}\\'\", EndOfInput))))"
 
 testProgramBoundaryFailures :: IO ()
 testProgramBoundaryFailures =
@@ -329,25 +329,25 @@ testSignatureBoundary =
   assertJazzOutput
     "signature boundary"
     """
-    ( parseComponentTokens "value::Int."
-    , parseComponentTokens "value :: Maybe(Int)."
-    , parseComponentTokens "{ value::[Int]. }."
+    ( parseComponentTokens "answer::Int."
+    , parseComponentTokens "answer :: Maybe(Int)."
+    , parseComponentTokens "{ answer::[Int]. }."
     , parseComponentTokens "Alias::member."
     )
     """
-    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 1), TypeSignature(IntType))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 1), TypeSignature(AppliedType(\"Maybe\", [IntType])))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([SignatureStatement(\"value\", CanonicalSpan(1, 3), TypeSignature(ListType(IntType)))]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])))"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"answer\", CanonicalSpan(1, 1), TypeSignature(IntType))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"answer\", CanonicalSpan(1, 1), TypeSignature(AppliedType(\"Maybe\", [IntType])))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), BlockExpression([SignatureStatement(\"answer\", CanonicalSpan(1, 3), TypeSignature(ListType(IntType)))]))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Alias\", \"member\"))])))"
 
 testMatchingBindingSignatureBoundary :: IO ()
 testMatchingBindingSignatureBoundary =
   assertJazzOutput
     "matching binding signature boundary"
     """
-    ( parseComponentTokens "Result::value. Result = 1."
-    , parseComponentTokens "Result::value. Other = 1."
+    ( parseComponentTokens "Result::item. Result = 1."
+    , parseComponentTokens "Result::item. Other = 1."
     , parseComponentTokens "Result::a Other = 0. Result = 1."
     )
     """
-    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"Result\", CanonicalSpan(1, 1), TypeSignature(TypeVariable(\"value\"))), LetStatement(\"Result\", CanonicalSpan(1, 16), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Result\", \"value\")), LetStatement(\"Other\", CanonicalSpan(1, 16), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 17)), ExpectedSyntax(\"\\'.\\'\", FoundToken(PunctuationKind(EqualsPunctuation), \"=\")))))"
+    "(CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([SignatureStatement(\"Result\", CanonicalSpan(1, 1), TypeSignature(TypeVariable(\"item\"))), LetStatement(\"Result\", CanonicalSpan(1, 15), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserSuccess(CanonicalSourcePath(\"fixtures/parser/component.jz\"), BlockExpression([ExpressionStatement(CanonicalSpan(1, 1), QualifiedVariableExpression(\"Result\", \"item\")), LetStatement(\"Other\", CanonicalSpan(1, 15), LiteralExpression(IntegerLiteral(\"1\")))])), CanonicalParserFailure(CanonicalSourcePath(\"fixtures/parser/component.jz\"), ParserFailure(\"E0001\", Just(CanonicalSpan(1, 17)), ExpectedSyntax(\"\\'.\\'\", FoundToken(PunctuationKind(EqualsPunctuation), \"=\")))))"
 
 assertJazzOutput :: Text.Text -> Text.Text -> Text.Text -> IO ()
 assertJazzOutput label expression expected = do

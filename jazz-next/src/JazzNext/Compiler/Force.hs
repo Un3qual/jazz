@@ -23,7 +23,6 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -78,12 +77,12 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceExpr (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternLambdaClause (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
@@ -158,6 +157,8 @@ forceSurfaceExpr expression =
     SELambda parameters body ->
       forceListWith forceSurfaceLambdaParameter (NonEmpty.toList parameters) `seq`
         forceSurfaceExpr body
+    SEPatternLambda clauses ->
+      forceListWith forceSurfacePatternLambdaClause (NonEmpty.toList clauses)
     SEOperatorValue operator -> operator `seq` ()
     SEList values -> forceListWith forceSurfaceExpr values
     SETuple values -> forceListWith forceSurfaceExpr values
@@ -190,6 +191,12 @@ forceSurfaceLambdaParameter parameter =
   case parameter of
     SurfaceLambdaIdentifier name -> name `seq` ()
     SurfaceLambdaPattern patternValue -> forceSurfacePattern patternValue
+
+forceSurfacePatternLambdaClause :: SurfacePatternLambdaClause -> ()
+forceSurfacePatternLambdaClause (SurfacePatternLambdaClause sourceSpan patterns body) =
+  forceSourceSpan sourceSpan `seq`
+    forceListWith forceSurfacePattern (NonEmpty.toList patterns) `seq`
+      forceSurfaceExpr body
 
 forceSurfacePattern :: SurfacePattern -> ()
 forceSurfacePattern patternValue =
@@ -243,14 +250,8 @@ forceSurfaceStatement statement =
     SSExpr sourceSpan value -> forceSourceSpan sourceSpan `seq` forceSurfaceExpr value
 
 forceSurfaceDataConstructor :: SurfaceDataConstructor -> ()
-forceSurfaceDataConstructor (SurfaceDataConstructor name arguments) =
-  name `seq` forceListWith forceSurfaceDataConstructorArgument arguments
-
-forceSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> ()
-forceSurfaceDataConstructorArgument argument =
-  case argument of
-    SurfaceDataConstructorArgumentName name -> name `seq` ()
-    SurfaceDataConstructorArgumentOpaque -> ()
+forceSurfaceDataConstructor (SurfaceDataConstructor name fieldTypes) =
+  name `seq` forceListWith forceSurfaceSignatureType fieldTypes
 
 forceSurfaceClassMethod :: SurfaceClassMethodSignature -> ()
 forceSurfaceClassMethod (SurfaceClassMethodSignature name sourceSpan payload) =
@@ -403,13 +404,8 @@ forceStatement statement =
     SExpr sourceSpan value -> forceSourceSpan sourceSpan `seq` forceExpr value
 
 forceDataConstructor :: DataConstructor -> ()
-forceDataConstructor (DataConstructor name arguments) = name `seq` forceListWith forceDataConstructorArgument arguments
-
-forceDataConstructorArgument :: DataConstructorArgument -> ()
-forceDataConstructorArgument argument =
-  case argument of
-    DataConstructorArgumentName name -> name `seq` ()
-    DataConstructorArgumentOpaque -> ()
+forceDataConstructor (DataConstructor name fieldTypes) =
+  name `seq` forceListWith forceSignatureType fieldTypes
 
 forceClassMethod :: ClassMethodSignature -> ()
 forceClassMethod (ClassMethodSignature name sourceSpan payload) =
@@ -517,6 +513,7 @@ forceConstructorArgumentType argumentType =
   case argumentType of
     ConstructorArgumentMonomorphic expressionType -> forceExpressionType expressionType
     ConstructorArgumentParameter name -> name `seq` ()
+    ConstructorArgumentStructured fieldType -> forceSignatureType fieldType
     ConstructorArgumentFresh -> ()
 
 forceIntegerLiteralRange :: IntegerLiteralRange -> ()

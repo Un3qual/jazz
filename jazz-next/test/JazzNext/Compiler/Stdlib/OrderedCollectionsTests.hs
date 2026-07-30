@@ -68,7 +68,7 @@ testMapModelTrace = do
         final = mapUpdate replaced 1001 (\\(current) -> Just 2002).
         (mapSize final, mapMinimum final, mapMaximum final,
          mapLookup final 500, mapLookup final 501, mapLookup final 750,
-         mapFoldLeft final 0 (\\(total, key, value) -> total + key + value)).
+         mapFoldLeft final 0 (\\(total, key, entry) -> total + key + entry)).
       }
       """
   assertSuccessfulStdlibOutput expectedMapModel result
@@ -91,7 +91,7 @@ testSetModelTrace = do
         }.
         final = setInsert (remove 500 (build 1000 setEmpty)) 1001.
         (setSize final, setContains final 500, setContains final 501,
-         setFoldLeft final 0 (\\(total, value) -> total + value)).
+         setFoldLeft final 0 (\\(total, element) -> total + element)).
       }
       """
   assertSuccessfulStdlibOutput expectedSetModel result

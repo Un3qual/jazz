@@ -9,12 +9,17 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-07-22`): the typed-core contract foundation is
-complete, and `Ready Now` is empty. There is no source-backed next curation
-target and no named candidate currently; typed-core expression production plus
-closed-scalar/direct-call lowering is the next design and implementation gate.
-Inference production, core-to-IR lowering, LLVM, object/link, and native-runtime
-implementation remain unpromoted.
+Current executor status (`2026-07-30`): the pre-bootstrap language-quality gate
+is complete, including synchronized ordinary pattern lambdas, ordered
+multi-body `\|` clauses, intentional explicit `case` dispatch, structured
+constructor fields, the authored-source feature audit, and six full
+algorithmic workloads. Haskell-style function equations were removed from both
+frontend implementations and the authored corpus.
+`Ready Now` remains empty. Typed-core expression production plus
+closed-scalar/direct-call lowering is still the next design and implementation
+gate and the sole `Next Curation Target`; inference production, core-to-IR
+lowering, LLVM, object/link, and native-runtime implementation remain
+unpromoted.
 
 ## Next Curation Target
 
@@ -29,12 +34,13 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001` | `docs` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The typed-core and lowered-IR schemas plus the pre-bootstrap language-quality gate are complete; the next bounded step is to lock how typed expressions are produced and how the first closed-scalar/direct-call slice lowers. | `docs/superpowers/specs/2026-07-22-jazz-next-typed-core-elaboration-design.md`, `docs/superpowers/specs/2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md`, planned typed-core expression/direct-call design | `bash scripts/check-docs.sh`; `bash scripts/check-execution-queue.sh` | Write and obtain approval for one design that fixes the producer/lowerer boundary, exact target paths, fixture inventory, non-goals, and focused verification before promoting implementation. |
 
 ## Blocked
 
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
-| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | Stage the hosted Jazz bootstrap interpreter profile | `Typed-core expression production plus direct-call lowering design` | The hosted lexer, parser, canonical-core, backend-neutral lowered-IR contract, and typed-core contract foundation milestones are complete. The next gate must define stage-0 typed-core expression production and closed-scalar/direct-call lowering before any implementation is promoted; LLVM, object/link, and native-runtime implementation remain unpromoted. | [2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md](../superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md) | `2026-07-22` |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | Stage the hosted Jazz bootstrap interpreter profile | `Typed-core expression production plus direct-call lowering design` | The hosted lexer, parser, canonical-core, backend-neutral lowered-IR contract, typed-core contract foundation, and pre-bootstrap language-quality gate are complete. The next gate must define stage-0 typed-core expression production and closed-scalar/direct-call lowering before any implementation is promoted; LLVM, object/link, and native-runtime implementation remain unpromoted. | [2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md](../superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md) | `2026-07-28` |
 | `JN-MODULE-REBASE-PLAN-001` | Rebase module/import execution plan onto active `jazz-next` owners | `No accepted module child after explicit export lists` | Active-path ownership is rebased onto the current resolver/compiler/runtime path. `JN-MODULE-TYPED-EXPORT-INVENTORY-001` and `JN-MODULE-EXPLICIT-EXPORT-LIST-001` landed the shared inventory plus header allowlists, local/public separation, deterministic `E4015`, compiler import filtering, and runtime publication. Re-exports, alias-qualified classes, package semantics, and further stdlib/catalog growth remain blocked behind separate contracts. | [2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md](../plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md) | `2026-07-10` |
 | `JN-USER-DEFINED-OPERATORS-PLAN-001` | Stage user-defined operator work beyond frozen v1 operators | `No accepted operator child after custom associativity` | Stage 2 fixed-tier declarations, same-source executable function bindings, operator-specific adjacent signatures, custom numeric precedence, and explicit `left`/`right`/`nonassoc` associativity are complete for parser declaration recognition, source-unit-local metadata, fixed-tier parsing, custom `precedence 1..99` parsing, diagnostics, ordinary callable `(op) = <expr>.` bindings, infix use, bare operator values, left sections, right sections, recursive local bindings, signature-constrained hidden bindings, non-associative same-precedence chain rejection, and module replay isolation without user-visible operator imports or exports. Runtime overload dispatch, cross-module operator binding APIs, and new built-in operators remain blocked until separate executable contracts exist. | [15-operator-fixity-and-sections.md](../plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md) | `2026-07-08` |
 | `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001` | Plan type-system expansion beyond rebase closure | `No accepted type-solver child after runtime evidence` | The broad type-solver coordination contract is accepted and recorded as `JN-TYPE-SOLVER-CONTRACT-001`. Ordinary-binding schemes/per-use instantiation, solver-backed variable constrained-signature schemes, inferred class constraints from strict equality and qualified method requirements, final defaulting/ambiguity diagnostics, explicit type application, and compiler-owned runtime evidence have landed. No remaining accepted child is source-backed; the umbrella stays blocked until a new concrete type-system contract names target paths and focused verification. | [2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md](../plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md) | `2026-07-08` |

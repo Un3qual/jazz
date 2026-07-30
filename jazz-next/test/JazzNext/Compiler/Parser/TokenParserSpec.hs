@@ -57,6 +57,7 @@ tests =
     ("trailing-token diagnostics preserve the offending token", testTrailingTokenDiagnostic),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("tokenizes then as a reserved keyword", testTokenizesThenKeyword),
+    ("tokenizes value as a reserved keyword", testTokenizesValueKeyword),
     ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
     ("decodes Char and Text escapes", testDecodesCharAndTextEscapes),
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
@@ -68,10 +69,10 @@ tests =
 
 testRunTokenParser :: IO ()
 testRunTokenParser = do
-  tokens <- lexSource "value = 42."
+  tokens <- lexSource "entry = 42."
   assertEqual
     "parsed token stream"
-    (Right ("value", TEquals, 42, TDot))
+    (Right ("entry", TEquals, 42, TDot))
     ( runTokenParser
         "token parser spec"
         ((,,,) <$> parseIdentifier <*> parseTokenKind TEquals <*> parseInteger <*> parseTokenKind TDot)
@@ -80,15 +81,15 @@ testRunTokenParser = do
 
 testRunTokenParserPrefixReturnsRemainder :: IO ()
 testRunTokenParserPrefixReturnsRemainder = do
-  tokens <- lexSource "value."
+  tokens <- lexSource "entry."
   assertEqual
     "prefix result"
-    (Right ("value", [TDot]))
+    (Right ("entry", [TDot]))
     (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
 
 testDetailedTokenFailure :: IO ()
 testDetailedTokenFailure = do
-  tokens <- lexSource "value 42."
+  tokens <- lexSource "entry 42."
   assertEqual
     "detailed token failure"
     ( Left
@@ -105,7 +106,7 @@ testDetailedTokenFailure = do
 
 testDetailedEndOfInputFailure :: IO ()
 testDetailedEndOfInputFailure = do
-  tokens <- lexSource "value"
+  tokens <- lexSource "entry"
   assertEqual
     "detailed end-of-input failure"
     ( Left
@@ -119,7 +120,7 @@ testDetailedEndOfInputFailure = do
 
 testDetailedTrailingTokenFailure :: IO ()
 testDetailedTrailingTokenFailure = do
-  tokens <- lexSource "value 42."
+  tokens <- lexSource "entry 42."
   assertEqual
     "detailed trailing-token failure"
     ( Left
@@ -136,7 +137,7 @@ testDetailedTrailingTokenFailure = do
 
 testTrailingTokenDiagnostic :: IO ()
 testTrailingTokenDiagnostic = do
-  tokens <- lexSource "value 42."
+  tokens <- lexSource "entry 42."
   case runTokenParser "token parser spec" parseIdentifier tokens of
     Left diagnostic -> do
       assertEqual "trailing-token diagnostic span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)
@@ -159,6 +160,14 @@ testTokenizesThenKeyword = do
   assertEqual
     "conditional keyword token kinds"
     [TIf, TIdentifier "condition", TThen, TIdentifier "yes", TElse, TIdentifier "no"]
+    (map tokenKind tokens)
+
+testTokenizesValueKeyword :: IO ()
+testTokenizesValueKeyword = do
+  tokens <- lexSource "value answer"
+  assertEqual
+    "value keyword token kinds"
+    [TValue, TIdentifier "answer"]
     (map tokenKind tokens)
 
 testTokenizesCharAndTextLiterals :: IO ()
@@ -214,7 +223,7 @@ testRejectsMalformedCharAndTextLiterals = do
 
 testTokenParserDiagnostic :: IO ()
 testTokenParserDiagnostic = do
-  tokens <- lexSource "value 42."
+  tokens <- lexSource "entry 42."
   let result = runTokenParser "token parser spec" (parseIdentifier *> parseTokenKind TEquals) tokens
   case result of
     Left diagnostic -> do
@@ -243,7 +252,7 @@ testLiteralTokenParserDiagnostics = do
 
 testInvalidCharacterLexerDiagnostic :: IO ()
 testInvalidCharacterLexerDiagnostic =
-  case tokenize "value ` 42." of
+  case tokenize "entry ` 42." of
     Left diagnostic -> do
       assertContains "lexer diagnostic" "unexpected character '`'" (renderDiagnostic diagnostic)
       assertEqual "lexer diagnostic primary span" (Just (SourceSpan 1 7)) (diagnosticPrimarySpan diagnostic)

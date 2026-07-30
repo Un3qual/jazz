@@ -1,15 +1,17 @@
 module Tree {
-  data Tree a = Leaf a | Branch (Tree(a)) (Tree(a)).
+  data Tree a
+    = Leaf a
+    | Branch Tree(a) Tree(a).
 
   mapTree :: (a -> b) -> Tree(a) -> Tree(b).
   mapTree = \(transform, tree) -> case tree {
-    | Leaf value -> Leaf (transform value)
+    | Leaf item -> Leaf (transform item)
     | Branch left right -> Branch (mapTree transform left) (mapTree transform right)
   }.
 
   foldTree :: (a -> b) -> (b -> b -> b) -> Tree(a) -> b.
   foldTree = \(fromLeaf, combine, tree) -> case tree {
-    | Leaf value -> fromLeaf value
+    | Leaf item -> fromLeaf item
     | Branch left right -> combine (foldTree fromLeaf combine left) (foldTree fromLeaf combine right)
   }.
 

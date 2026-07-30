@@ -14,7 +14,6 @@ import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
     DataConstructor (..),
-    DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -117,7 +116,7 @@ testCallableIdentities = do
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [DataConstructorArgumentName "value"]],
+              [DataConstructor "Box" [TypeInt]],
             SExpr (SourceSpan 2 1) (EApply (EVar "Box") (ELit (LInt 1)))
           ]
       )

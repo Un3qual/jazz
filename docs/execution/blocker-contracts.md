@@ -147,8 +147,11 @@ Each blocked item should answer these questions:
 - Recommended default: keep the IR independent of LLVM instruction objects,
   preserve block-local temporaries and typed block arguments, and do not add
   bytecode or a VM.
-- Candidate child: none. `JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001`
-  completed on `2026-07-22`; `Ready Now` and `Next Curation Target` are empty.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001`.
+  The contract
+  foundation and pre-bootstrap language-quality gate are complete; this
+  candidate is design-only until the producer/lowerer boundary, exact target
+  paths, fixture inventory, and focused verification are approved.
 - Target paths: must be fixed by the next reviewed producer/lowerer design; do
   not infer them from the contract-foundation modules alone.
 - Verification: the completed foundation used exact focused parity,

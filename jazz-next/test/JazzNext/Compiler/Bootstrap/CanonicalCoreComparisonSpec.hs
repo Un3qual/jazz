@@ -237,7 +237,12 @@ statementInventory =
       span1
       (sourceName (mkIdentifier "Box"))
       [sourceName (mkIdentifier "a")]
-      [DataConstructor (sourceName (mkIdentifier "Box")) [DataConstructorArgumentName (sourceName (mkIdentifier "a")), DataConstructorArgumentOpaque]],
+      [ DataConstructor
+          (sourceName (mkIdentifier "Box"))
+          [ TypeVariable (sourceName (mkIdentifier "a")),
+            TypeList TypeText
+          ]
+      ],
     SClass
       span1
       (sourceName (mkIdentifier "Eq"))
@@ -371,8 +376,6 @@ expectedConstructors =
     "CoreImportStatement",
     "CoreExpressionStatement",
     "CoreDataConstructor",
-    "CoreNamedConstructorArgument",
-    "CoreOpaqueConstructorArgument",
     "CoreClassMethodSignature",
     "CoreImplMethod",
     "CoreTypeSignature",

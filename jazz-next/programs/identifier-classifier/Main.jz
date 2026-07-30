@@ -3,7 +3,11 @@ module Main {
   import Maybe.
   import Text.
 
-  data IdentifierKind = Keyword Text | TypeIdentifier Text | ValueIdentifier Text | InvalidIdentifier Text.
+  data IdentifierKind
+    = Keyword Text
+    | TypeIdentifier Text
+    | ValueIdentifier Text
+    | InvalidIdentifier Text.
 
   isKeyword :: Text -> Bool.
   isKeyword = \(name) -> if name == "module" then
@@ -21,16 +25,16 @@ module Main {
               else name == "case".
 
   isIdentifierStart :: Char -> Bool.
-  isIdentifierStart = \(value) -> if (charIsAlpha value) then True else value == '_'.
+  isIdentifierStart = \(item) -> if (charIsAlpha item) then True else item == '_'.
 
   isIdentifierContinuation :: Char -> Bool.
-  isIdentifierContinuation = \(value) -> if (charIsAlphaNum value) then
+  isIdentifierContinuation = \(item) -> if (charIsAlphaNum item) then
     True
-    else if value == '_' then
+    else if item == '_' then
       True
-      else if value == '\'' then
+      else if item == '\'' then
         True
-        else value == '!'.
+        else item == '!'.
 
   allIdentifierContinuations :: Text -> Bool.
   allIdentifierContinuations = \(remaining) -> case textUncons remaining {
@@ -39,7 +43,7 @@ module Main {
   }.
 
   isTypeStart :: Char -> Bool.
-  isTypeStart = \(value) -> if (charIsAlpha value) then charToUInt32 value < charToUInt32 'a' else False.
+  isTypeStart = \(item) -> if (charIsAlpha item) then charToUInt32 item < charToUInt32 'a' else False.
 
   classifyIdentifier :: Text -> IdentifierKind.
   classifyIdentifier = \(name) -> if (isKeyword name) then

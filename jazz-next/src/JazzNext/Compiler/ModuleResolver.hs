@@ -12,24 +12,46 @@ module JazzNext.Compiler.ModuleResolver
     resolveModuleGraphWithLookup,
     resolveModuleGraphWithLookupAndVisibleSymbols,
     resolveProgram,
-    resolveProgramWithAmbientExports
-  ) where
+    resolveProgramWithAmbientExports,
+  )
+where
 
 import Control.Monad (foldM)
 import Data.Char (isAlpha, isAlphaNum)
 import Data.Functor.Identity
   ( Identity (..),
-    runIdentity
+    runIdentity,
   )
 import Data.List (find, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
-import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.AST
+  ( CaseArm (..),
+    ClassMethodSignature (..),
+    DataConstructor (..),
+    Expr (..),
+    ImplMethod (..),
+    Pattern (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+    Statement (..),
+  )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (..),
+    builtinNamesInMode,
+    lookupBuiltinSymbolInMode,
+  )
+import JazzNext.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
+  )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
@@ -40,29 +62,7 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticErrorCode,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
-    setDiagnosticSubject
-  )
-import JazzNext.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
-  )
-import JazzNext.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    SignatureType (..),
-    DataConstructor (..),
-    DataConstructorArgument (..),
-    Expr (..),
-    ImplMethod (..),
-    Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    builtinNamesInMode,
-    lookupBuiltinSymbolInMode
+    setDiagnosticSubject,
   )
 import JazzNext.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -81,9 +81,9 @@ import JazzNext.Compiler.ModuleExports
     moduleExportSelectorName,
     moduleExportSelectorNamespace,
     renderModuleExportSelector,
-    selectorEligibleNames,
     selectValidatedModuleExportSelectors,
-    visibleImportInventory
+    selectorEligibleNames,
+    visibleImportInventory,
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.Name
@@ -95,33 +95,33 @@ import JazzNext.Compiler.Name
     isOperatorBindingIdentifierText,
     mkIdentifier,
     renderName,
-    splitQualifiedIdentifierText
+    splitQualifiedIdentifierText,
   )
 import JazzNext.Compiler.Parser
-  ( parseSurfaceProgram
-  )
-import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
-import JazzNext.Compiler.RecursiveBindings
-  ( collectBindingNames,
-    inferRecursiveGroupsOrdered
+  ( parseSurfaceProgram,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
+    SurfaceExpr (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfacePattern (..),
+    SurfacePatternLambdaClause (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureType (..),
-    SurfaceExpr (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
+  )
+import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
+import JazzNext.Compiler.RecursiveBindings
+  ( collectBindingNames,
+    inferRecursiveGroupsOrdered,
   )
 import System.FilePath
   ( normalise,
-    (</>)
+    (</>),
   )
 
 -- | File-system lookup policy for module loading.
@@ -186,7 +186,9 @@ parseModulePathText rawModulePath
       Left (mkErrorDiagnostic E4016 CompilationOrigin "entry module path cannot be empty")
   | any Text.null segments =
       Left
-        ( mkErrorDiagnostic E4016 CompilationOrigin
+        ( mkErrorDiagnostic
+            E4016
+            CompilationOrigin
             ( "invalid entry module path '"
                 <> rawModulePath
                 <> "': empty path segment"
@@ -194,7 +196,9 @@ parseModulePathText rawModulePath
         )
   | not (all isValidSegment segments) =
       Left
-        ( mkErrorDiagnostic E4016 CompilationOrigin
+        ( mkErrorDiagnostic
+            E4016
+            CompilationOrigin
             ( "invalid entry module path '"
                 <> rawModulePath
                 <> "': segments must be identifiers"
@@ -230,7 +234,7 @@ resolveModuleGraph config sources entryModulePath =
 -- | Resolve an entry module and all of its imports using an abstract source
 -- lookup function so tests and CLI can share the same resolver logic.
 resolveModuleGraphWithLookup ::
-  Monad m =>
+  (Monad m) =>
   ModuleResolutionConfig ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
@@ -239,7 +243,7 @@ resolveModuleGraphWithLookup config =
   resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty Set.empty
 
 resolveModuleGraphWithLookupAndVisibleSymbols ::
-  Monad m =>
+  (Monad m) =>
   ModuleResolutionConfig ->
   Set Text ->
   Set Text ->
@@ -254,8 +258,8 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambie
         ResolveKernelOnly
         ( exportInventory
             ( [ ModuleExport namespace name
-                | name <- Set.toList ambientVisibleSymbols,
-                  namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+              | name <- Set.toList ambientVisibleSymbols,
+                namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
               ]
                 <> [ModuleExport CapabilityNamespace name | name <- Set.toList ambientVisibleClassNames]
             )
@@ -278,8 +282,8 @@ resolveProgram config builtinMode ambientValues ambientClasses loadSource entryM
     builtinMode
     ( exportInventory
         ( [ ModuleExport namespace (renderName name)
-            | name <- Set.toList ambientValues,
-              namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
+          | name <- Set.toList ambientValues,
+            namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
           ]
             <> [ModuleExport CapabilityNamespace (renderName name) | name <- Set.toList ambientClasses]
         )
@@ -314,7 +318,7 @@ resolveProgramWithAmbientExports config builtinMode ambientExports loadSource en
     )
 
 resolveStateWithLookupAndVisibleSymbols ::
-  Monad m =>
+  (Monad m) =>
   ModuleResolutionConfig ->
   BuiltinResolutionMode ->
   ModuleExportInventory ->
@@ -358,18 +362,17 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                   case resolvedDepsResult of
                     Left err -> pure (Left err)
                     Right stateAfterDeps ->
-                      case
-                          validateImportBindings
-                            sourcePath
-                            modulePath
-                            (parsedModuleImports parsedModule)
-                            (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
-                            (parsedModuleReferences parsedModule)
-                            (parsedModuleQualifiedReferences parsedModule)
-                            (parsedModuleQualifiedTypeReferences parsedModule)
-                            ambientVisibleSymbols
-                            ambientVisibleClassNames
-                            (resolvedExportInventoriesState stateAfterDeps) of
+                      case validateImportBindings
+                        sourcePath
+                        modulePath
+                        (parsedModuleImports parsedModule)
+                        (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
+                        (parsedModuleReferences parsedModule)
+                        (parsedModuleQualifiedReferences parsedModule)
+                        (parsedModuleQualifiedTypeReferences parsedModule)
+                        ambientVisibleSymbols
+                        ambientVisibleClassNames
+                        (resolvedExportInventoriesState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
                           let resolvedModule =
@@ -433,20 +436,22 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
               (map (normalise . appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
-          (\candidatePath -> do
-             sourceText <- {-# SCC "jazz-stage:source-loading" #-} loadSource candidatePath
-             pure (candidatePath, sourceText))
+          ( \candidatePath -> do
+              sourceText <- {-# SCC "jazz-stage:source-loading" #-} loadSource candidatePath
+              pure (candidatePath, sourceText)
+          )
           candidatePaths
       let matchingCandidates =
             [ (candidatePath, sourceText)
-              | (candidatePath, Just sourceText) <- candidatesWithContents
+            | (candidatePath, Just sourceText) <- candidatesWithContents
             ]
       pure $
         case matchingCandidates of
           [] ->
             Left
               ( mkErrorDiagnostic
-                  E4001 CompilationOrigin
+                  E4001
+                  CompilationOrigin
                   ( "unresolved import '"
                       <> renderModulePath modulePath
                       <> "'"
@@ -460,7 +465,8 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
           _ ->
             Left
               ( mkErrorDiagnostic
-                  E4002 CompilationOrigin
+                  E4002
+                  CompilationOrigin
                   ( "ambiguous import '"
                       <> renderModulePath modulePath
                       <> "'"
@@ -491,7 +497,8 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
-        ( setDiagnosticErrorCode E4004
+        ( setDiagnosticErrorCode
+            E4004
             ( prependDiagnosticSummary
                 ("module parse error at '" <> Text.pack sourcePath <> "': ")
                 (qualifyDiagnosticSpans sourcePath parseError)
@@ -540,11 +547,13 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
             Nothing -> Right (selectValidatedModuleExportSelectors constructorOwners selectors localInventory)
             Just invalidExport ->
               Left
-                ( setDiagnosticSubject (invalidExportName invalidExport)
+                ( setDiagnosticSubject
+                    (invalidExportName invalidExport)
                     ( setDiagnosticPrimarySpan
                         (invalidExportSpan invalidExport)
                         ( mkErrorDiagnostic
-                            E4015 CompilationOrigin
+                            E4015
+                            CompilationOrigin
                             ( invalidExportSummary invalidExport
                                 <> " module '"
                                 <> renderModulePath modulePath
@@ -616,7 +625,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
           renderDeclarationLabels
             [ renderModuleExportSelector
                 (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
-              | export <- Set.toAscList (exportInventoryEntries localInventory)
+            | export <- Set.toAscList (exportInventoryEntries localInventory)
             ]
 
 renderDeclarationNames :: Set Text -> Text
@@ -639,14 +648,14 @@ collectImports surfaceExpr =
   case surfaceExpr of
     SEBlock statements ->
       [ ParsedImport spanValue modulePath alias importedSymbols
-        | SSImport spanValue modulePath alias importedSymbols <- statements
+      | SSImport spanValue modulePath alias importedSymbols <- statements
       ]
     _ -> []
 
 collectImportPaths :: [ParsedImport] -> [[Text]]
 collectImportPaths imports =
   [ parsedImportModulePath importDecl
-    | importDecl <- imports
+  | importDecl <- imports
   ]
 
 collectModuleExportInventory :: SurfaceExpr -> ModuleExportInventory
@@ -665,7 +674,7 @@ collectModuleExportInventory surfaceExpr =
         SSData _ typeName _ constructors ->
           ModuleExport TypeNamespace (identifierText typeName)
             : [ ModuleExport ConstructorNamespace (identifierText constructorName)
-                | SurfaceDataConstructor constructorName _ <- constructors
+              | SurfaceDataConstructor constructorName _ <- constructors
               ]
         SSClass _ className _ _ ->
           [ModuleExport CapabilityNamespace (identifierText className)]
@@ -683,7 +692,7 @@ collectModuleConstructorOwners surfaceExpr =
           [ ( identifierText typeName,
               Set.fromList
                 [ identifierText constructorName
-                  | SurfaceDataConstructor constructorName _ <- constructors
+                | SurfaceDataConstructor constructorName _ <- constructors
                 ]
             )
           ]
@@ -713,44 +722,44 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
     aliasPaths =
       Map.fromList
         [ (aliasName, parsedImportModulePath importDecl)
-          | importDecl <- imports,
-            Just aliasName <- [parsedImportAlias importDecl]
+        | importDecl <- imports,
+          Just aliasName <- [parsedImportAlias importDecl]
         ]
 
     visibleValueOrigins =
       Map.fromList
         [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
+        | importDecl <- imports,
+          parsedImportAlias importDecl == Nothing,
+          let modulePath = parsedImportModulePath importDecl,
+          name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleConstructorOrigins =
       Map.fromList
         [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
+        | importDecl <- imports,
+          parsedImportAlias importDecl == Nothing,
+          let modulePath = parsedImportModulePath importDecl,
+          name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleTypeOrigins =
       Map.fromList
         [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
+        | importDecl <- imports,
+          parsedImportAlias importDecl == Nothing,
+          let modulePath = parsedImportModulePath importDecl,
+          name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleClassOrigins =
       Map.fromList
         [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
+        | importDecl <- imports,
+          parsedImportAlias importDecl == Nothing,
+          let modulePath = parsedImportModulePath importDecl,
+          name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleDependencyInventory importDecl =
@@ -905,9 +914,9 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
         recursivePeerBoundValues statementIndex =
           Set.fromList
             [ peerNameText
-              | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-                Just peerName <- [Map.lookup peerIndex bindingNamesByStatement],
-                Just peerNameText <- [sourceNameText peerName]
+            | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+              Just peerName <- [Map.lookup peerIndex bindingNamesByStatement],
+              Just peerNameText <- [sourceNameText peerName]
             ]
 
     referenceNamespace boundValues name =
@@ -978,16 +987,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
         SImport spanValue path alias symbols -> SImport spanValue path alias symbols
         SExpr spanValue value -> SExpr spanValue (resolveExpr boundValues value)
 
-    resolveDataConstructor (DataConstructor name arguments) =
+    resolveDataConstructor (DataConstructor name fieldTypes) =
       DataConstructor
         (resolveBinder ConstructorNamespace name)
-        (map resolveDataConstructorArgument arguments)
-
-    resolveDataConstructorArgument argument =
-      case argument of
-        DataConstructorArgumentName name ->
-          DataConstructorArgumentName (resolveName Set.empty TypeNamespace name)
-        DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
+        (map resolveSignatureType fieldTypes)
 
     resolveClassMethod (ClassMethodSignature name spanValue payload) =
       ClassMethodSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
@@ -1068,6 +1071,9 @@ collectExprReferences boundNames surfaceExpr =
                 (Set.union boundNames (Set.unions (map collectLambdaParameterBinders parameterList)))
                 body
             )
+    SEPatternLambda clauses ->
+      Set.unions
+        (map (collectPatternLambdaClauseReferences boundNames) (NonEmpty.toList clauses))
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map (collectExprReferences boundNames) items)
@@ -1111,7 +1117,11 @@ collectBlockReferences boundNames statements =
         boundNames
         ( Set.fromList
             [ identifierText bindingName
-              | SSLet bindingName _ _ <- statements
+            | statement <- statements,
+              bindingName <-
+                case statement of
+                  SSLet name _ _ -> [name]
+                  _ -> []
             ]
         )
 
@@ -1127,7 +1137,7 @@ collectBlockReferences boundNames statements =
         SSImpl _ _ _ methods ->
           Set.unions
             [ collectExprReferences blockBoundNames body
-              | SurfaceImplMethod _ _ body <- methods
+            | SurfaceImplMethod _ _ body <- methods
             ]
         SSModule {} -> Set.empty
         SSImport {} -> Set.empty
@@ -1140,6 +1150,15 @@ collectCaseArmReferences boundNames (SurfaceCaseArm patternValue guard body) =
           maybe Set.empty (collectExprReferences armBoundNames) guard,
           collectExprReferences armBoundNames body
         ]
+
+collectPatternLambdaClauseReferences :: Set Text -> SurfacePatternLambdaClause -> Set Text
+collectPatternLambdaClauseReferences boundNames (SurfacePatternLambdaClause _ patterns body) =
+  let patternList = NonEmpty.toList patterns
+      clauseBoundNames =
+        Set.union boundNames (Set.unions (map collectPatternBinders patternList))
+   in Set.union
+        (Set.unions (map collectPatternReferences patternList))
+        (collectExprReferences clauseBoundNames body)
 
 collectPatternReferences :: SurfacePattern -> Set Text
 collectPatternReferences patternValue =
@@ -1213,6 +1232,11 @@ collectQualifiedReferences surfaceExpr =
       Set.singleton (identifierText qualifier, identifierText member)
     SELambda _ body ->
       collectQualifiedReferences body
+    SEPatternLambda clauses ->
+      Set.unions
+        [ collectQualifiedReferences body
+        | SurfacePatternLambdaClause _ _ body <- NonEmpty.toList clauses
+        ]
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map collectQualifiedReferences items)
@@ -1258,7 +1282,7 @@ collectQualifiedStatementReferences statement =
     SSImpl _ _ _ methods ->
       Set.unions
         [ collectQualifiedReferences body
-          | SurfaceImplMethod _ _ body <- methods
+        | SurfaceImplMethod _ _ body <- methods
         ]
     SSModule {} -> Set.empty
     SSImport {} -> Set.empty
@@ -1279,6 +1303,11 @@ collectQualifiedTypeReferences surfaceExpr =
     SEVar _ -> Set.empty
     SEQualifiedVar _ _ -> Set.empty
     SELambda _ body -> collectQualifiedTypeReferences body
+    SEPatternLambda clauses ->
+      Set.unions
+        [ collectQualifiedTypeReferences body
+        | SurfacePatternLambdaClause _ _ body <- NonEmpty.toList clauses
+        ]
     SEOperatorValue _ -> Set.empty
     SEList items -> Set.unions (map collectQualifiedTypeReferences items)
     SETuple items -> Set.unions (map collectQualifiedTypeReferences items)
@@ -1319,14 +1348,14 @@ collectQualifiedStatementTypeReferences statement =
     SSClass _ _ _ methods ->
       Set.unions
         [ collectQualifiedSignaturePayloadReferences payload
-          | SurfaceClassMethodSignature _ _ payload <- methods
+        | SurfaceClassMethodSignature _ _ payload <- methods
         ]
     SSImpl _ _ arguments methods ->
       Set.union
         (Set.unions (map collectQualifiedSignatureTypeReferences arguments))
         ( Set.unions
             [ collectQualifiedTypeReferences body
-              | SurfaceImplMethod _ _ body <- methods
+            | SurfaceImplMethod _ _ body <- methods
             ]
         )
     SSModule {} -> Set.empty
@@ -1334,11 +1363,8 @@ collectQualifiedStatementTypeReferences statement =
     SSExpr _ expr -> collectQualifiedTypeReferences expr
 
 collectQualifiedDataConstructorTypeReferences :: SurfaceDataConstructor -> Set (Text, Text)
-collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ arguments) =
-  Set.unions
-    [ collectQualifiedIdentifierReference name
-      | SurfaceDataConstructorArgumentName name <- arguments
-    ]
+collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ fieldTypes) =
+  Set.unions (map collectQualifiedSignatureTypeReferences fieldTypes)
 
 collectQualifiedCaseArmTypeReferences :: SurfaceCaseArm -> Set (Text, Text)
 collectQualifiedCaseArmTypeReferences (SurfaceCaseArm _ guard body) =
@@ -1355,7 +1381,7 @@ collectQualifiedSignaturePayloadReferences payload =
       Set.union
         ( Set.unions
             [ Set.unions (map collectQualifiedSignatureTypeReferences arguments)
-              | SurfaceSignatureConstraint _ arguments <- constraints
+            | SurfaceSignatureConstraint _ arguments <- constraints
             ]
         )
         (collectQualifiedSignatureTypeReferences signatureType)
@@ -1381,7 +1407,9 @@ collectQualifiedSignatureTypeReferences signatureType =
 
 collectQualifiedIdentifierReference :: Identifier -> Set (Text, Text)
 collectQualifiedIdentifierReference name =
-  maybe Set.empty Set.singleton
+  maybe
+    Set.empty
+    Set.singleton
     (splitQualifiedIdentifierText (identifierText name))
 
 -- | Validate alias and explicit-symbol imports after dependencies have been
@@ -1481,7 +1509,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
             Nothing ->
               Left
                 ( mkErrorDiagnostic
-                    E4010 CompilationOrigin
+                    E4010
+                    CompilationOrigin
                     ( "internal resolver error while validating imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
@@ -1495,11 +1524,10 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     case parsedImportSymbols importDecl of
                       Nothing -> Set.toAscList exportedImportSymbols
                       Just explicitSymbolNames -> explicitSymbolNames
-               in
-              foldM
-                (validateImportSymbol importDecl exportedImportSymbols)
-                seenSymbols
-                importedSymbolNames
+               in foldM
+                    (validateImportSymbol importDecl exportedImportSymbols)
+                    seenSymbols
+                    importedSymbolNames
 
     validateImportTypes :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportTypes seenTypes importDecl =
@@ -1511,7 +1539,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
             Nothing ->
               Left
                 ( mkErrorDiagnostic
-                    E4010 CompilationOrigin
+                    E4010
+                    CompilationOrigin
                     ( "internal resolver error while validating type imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
@@ -1566,7 +1595,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     Nothing ->
                       Left
                         ( mkErrorDiagnostic
-                            E4010 CompilationOrigin
+                            E4010
+                            CompilationOrigin
                             ( "internal resolver error while validating imports for '"
                                 <> renderModulePath importerPath
                                 <> "': missing exports for module '"
@@ -1597,7 +1627,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 Nothing ->
                   Left
                     ( mkErrorDiagnostic
-                        E4010 CompilationOrigin
+                        E4010
+                        CompilationOrigin
                         ( "internal resolver error while validating type imports for '"
                             <> renderModulePath importerPath
                             <> "': missing exports for module '"
@@ -1615,8 +1646,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     findAliasImport aliasName =
       firstMatch
         [ importDecl
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Just aliasName
+        | importDecl <- imports,
+          parsedImportAlias importDecl == Just aliasName
         ]
 
     validateImportSymbol ::
@@ -1652,7 +1683,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
           ( mkErrorDiagnostic
-              E4007 CompilationOrigin
+              E4007
+              CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
@@ -1674,7 +1706,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
               ( mkErrorDiagnostic
-                  E4008 CompilationOrigin
+                  E4008
+                  CompilationOrigin
                   ( "import binding collision for symbol '"
                       <> symbolName
                       <> "' in module '"
@@ -1698,7 +1731,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
               ( mkErrorDiagnostic
-                  E4008 CompilationOrigin
+                  E4008
+                  CompilationOrigin
                   ( "import type collision for '"
                       <> typeName
                       <> "' in module '"
@@ -1718,7 +1752,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     mkUnknownQualifiedAliasError aliasName symbolName =
       setDiagnosticSubject aliasName $
         mkErrorDiagnostic
-          E4013 CompilationOrigin
+          E4013
+          CompilationOrigin
           ( "qualified import alias '"
               <> aliasName
               <> "' is not declared in module '"
@@ -1738,7 +1773,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
           ( mkErrorDiagnostic
-              E4014 CompilationOrigin
+              E4014
+              CompilationOrigin
               ( "qualified import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
@@ -1766,7 +1802,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         Nothing ->
           Left
             ( mkErrorDiagnostic
-                E4010 CompilationOrigin
+                E4010
+                CompilationOrigin
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
@@ -1793,7 +1830,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         Nothing ->
           Left
             ( mkErrorDiagnostic
-                E4010 CompilationOrigin
+                E4010
+                CompilationOrigin
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
@@ -1815,27 +1853,27 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     findHiddenExplicitImportReference visibleSymbols =
       firstMatch
         [ (symbolName, importDecl)
-          | importDecl <- imports,
-            Just symbolNames <- [parsedImportSymbols importDecl],
-            Just inventory <- [dependencyInventory importDecl],
-            let exportedSymbols = valueAndConstructorNames inventory,
-            let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
-            symbolName <- Set.toList hiddenSymbols,
-            Set.member symbolName referencedNames,
-            not (Set.member symbolName visibleSymbols)
+        | importDecl <- imports,
+          Just symbolNames <- [parsedImportSymbols importDecl],
+          Just inventory <- [dependencyInventory importDecl],
+          let exportedSymbols = valueAndConstructorNames inventory,
+          let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
+          symbolName <- Set.toList hiddenSymbols,
+          Set.member symbolName referencedNames,
+          not (Set.member symbolName visibleSymbols)
         ]
 
     findHiddenAliasImportReference :: Set Text -> Maybe (Text, ParsedImport, Text)
     findHiddenAliasImportReference visibleSymbols =
       firstMatch
         [ (symbolName, importDecl, aliasName)
-          | importDecl <- imports,
-            Just aliasName <- [parsedImportAlias importDecl],
-            Just inventory <- [dependencyInventory importDecl],
-            let exportedSymbols = valueAndConstructorNames inventory,
-            symbolName <- Set.toList exportedSymbols,
-            Set.member symbolName referencedNames,
-            not (Set.member symbolName visibleSymbols)
+        | importDecl <- imports,
+          Just aliasName <- [parsedImportAlias importDecl],
+          Just inventory <- [dependencyInventory importDecl],
+          let exportedSymbols = valueAndConstructorNames inventory,
+          symbolName <- Set.toList exportedSymbols,
+          Set.member symbolName referencedNames,
+          not (Set.member symbolName visibleSymbols)
         ]
 
     firstMatch :: [a] -> Maybe a
@@ -1850,7 +1888,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
           ( mkErrorDiagnostic
-              E4011 CompilationOrigin
+              E4011
+              CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible from explicit import of module '"
@@ -1869,7 +1908,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
           ( mkErrorDiagnostic
-              E4012 CompilationOrigin
+              E4012
+              CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible unqualified from alias import of module '"
@@ -1892,7 +1932,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           ( setDiagnosticPrimarySpan
               (parsedImportSpan importDecl)
               ( mkErrorDiagnostic
-                  E4009 CompilationOrigin
+                  E4009
+                  CompilationOrigin
                   ( "import alias collision for '"
                       <> aliasName
                       <> "' in module '"
@@ -1925,7 +1966,8 @@ sortModulePaths modulePaths =
 mkCycleError :: [Text] -> [[Text]] -> Diagnostic
 mkCycleError repeatedModulePath callStack =
   mkErrorDiagnostic
-    E4003 CompilationOrigin
+    E4003
+    CompilationOrigin
     ("module import cycle detected: " <> Text.intercalate " -> " (map renderModulePath cycleTrace))
   where
     rootToLeaf = reverse callStack
@@ -1943,7 +1985,7 @@ renderModulePath segments = Text.intercalate "::" segments
 
 -- | Preserve the first occurrence of each candidate path so module-root lookup
 -- order remains stable while removing duplicates.
-dedupePreservingOrder :: Ord a => [a] -> [a]
+dedupePreservingOrder :: (Ord a) => [a] -> [a]
 dedupePreservingOrder =
   reverse . fst . foldl' step ([], Set.empty)
   where

@@ -935,7 +935,7 @@ testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =
   assertCompilesWithBundledPrelude
     """
     x = {
-    __kernel_toUInt8 = \\(value) -> value.
+    __kernel_toUInt8 = \\(candidate) -> candidate.
     alias = __kernel_toUInt8.
     alias 256.
     }.

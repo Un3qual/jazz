@@ -260,7 +260,7 @@ Implementation uses test-driven development and adds focused coverage for:
 4. checked-in `IOError.jz` exports, constructors, payloads, and generic module
    transport;
 5. checked-in `IO.jz` exports and conversion of every raw category token into
-   the corresponding `Result(IOError, value)`;
+   the corresponding `Result(IOError, a)`;
 6. successful reads, writes, stream operations, argument access, and recorded
    exit through a deterministic host;
 7. categorized failure for every recoverable operation, including unknown-token

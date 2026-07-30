@@ -67,9 +67,9 @@ module ParserPattern (
 
   startsCasePattern :: CanonicalToken -> Bool.
   startsCasePattern = \(token) -> case canonicalTokenKind token {
-    | IntegerKind value -> True
-    | CharacterKind value -> True
-    | TextKind value -> True
+    | IntegerKind item -> True
+    | CharacterKind item -> True
+    | TextKind item -> True
     | IdentifierKind name -> True
     | PunctuationKind LeftBracketPunctuation -> True
     | PunctuationKind LeftParenPunctuation -> True
@@ -143,13 +143,16 @@ module ParserPattern (
                       (tokenPunctuation RightParenPunctuation)
                       (tokenSucceed (TuplePattern elements)))
                     (parseTuplePatternElements [first]))
+                | PunctuationKind RightParenPunctuation -> tokenKeepRight
+                  (tokenPunctuation RightParenPunctuation)
+                  (tokenSucceed first)
                 | other -> tokenFailAtSpan
                   (canonicalTokenSpan separator)
-                  (ExpectedSyntax "','" (FoundToken (canonicalTokenKind separator) (canonicalTokenLexeme separator)))
+                  (ExpectedSyntax "',' or ')'" (FoundToken (canonicalTokenKind separator) (canonicalTokenLexeme separator)))
               }
               | Nothing -> tokenFailAtSpan
                 (canonicalTokenSpan leftParenToken)
-                (ExpectedSyntax "','" (EndOfInputIn "tuple pattern"))
+                (ExpectedSyntax "',' or ')'" (EndOfInputIn "grouped or tuple pattern"))
             })
             tokenPeek)
           parseCasePattern
@@ -207,11 +210,11 @@ module ParserPattern (
   parseConstructorArgumentPattern = tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
-        | IntegerKind value -> tokenAndThen
-          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken value)
+        | IntegerKind item -> tokenAndThen
+          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken item)
           tokenInteger
-        | CharacterKind value -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral value)))
-        | TextKind value -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral value)))
+        | CharacterKind item -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral item)))
+        | TextKind item -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral item)))
         | IdentifierKind "True" -> tokenKeepRight tokenIdentifier (tokenSucceed (LiteralPattern (BooleanLiteral True)))
         | IdentifierKind "False" -> tokenKeepRight tokenIdentifier (tokenSucceed (LiteralPattern (BooleanLiteral False)))
         | IdentifierKind "_" -> tokenKeepRight tokenIdentifier (tokenSucceed WildcardPattern)
@@ -259,11 +262,11 @@ module ParserPattern (
   parseCasePattern = tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
-        | IntegerKind value -> tokenAndThen
-          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken value)
+        | IntegerKind item -> tokenAndThen
+          (\(wholeToken) -> parseIntegralPatternLiteral wholeToken item)
           tokenInteger
-        | CharacterKind value -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral value)))
-        | TextKind value -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral value)))
+        | CharacterKind item -> tokenKeepRight tokenCharacter (tokenSucceed (LiteralPattern (CharacterLiteral item)))
+        | TextKind item -> tokenKeepRight tokenText (tokenSucceed (LiteralPattern (TextLiteral item)))
         | IdentifierKind name -> tokenKeepRight tokenIdentifier (parseIdentifierCasePattern name)
         | PunctuationKind LeftBracketPunctuation -> tokenKeepRight
           (tokenPunctuation LeftBracketPunctuation)
@@ -330,9 +333,9 @@ module ParserPattern (
   parseLambdaParameter = tokenAndThen
     (\(current) -> case current {
       | Just token -> case canonicalTokenKind token {
-        | IntegerKind value -> parsePatternLambdaParameter
-        | CharacterKind value -> parsePatternLambdaParameter
-        | TextKind value -> parsePatternLambdaParameter
+        | IntegerKind item -> parsePatternLambdaParameter
+        | CharacterKind item -> parsePatternLambdaParameter
+        | TextKind item -> parsePatternLambdaParameter
         | PunctuationKind LeftParenPunctuation -> parsePatternLambdaParameter
         | PunctuationKind LeftBracketPunctuation -> parsePatternLambdaParameter
         | IdentifierKind name -> if name == "_" then parsePatternLambdaParameter

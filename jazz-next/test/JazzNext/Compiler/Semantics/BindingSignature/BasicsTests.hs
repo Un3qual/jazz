@@ -143,10 +143,10 @@ testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
       flag :: a -> Bool.
       }.
       impl RuntimeFlag(Float) {
-      flag = \\(value) -> True.
+      flag = \\(candidate) -> True.
       }.
       impl RuntimeFlag(Float64) {
-      flag = \\(value) -> False.
+      flag = \\(candidate) -> False.
       }.
       left :: Float.
       left = 1.5.
@@ -169,10 +169,10 @@ testSourceUsesBindingSignaturesToContextualizeRhsLambdas =
     n :: a -> Bool.
     }.
     impl D(Int) {
-    n = \\(value) -> True.
+    n = \\(candidate) -> True.
     }.
     impl D(Bool) {
-    n = \\(value) -> False.
+    n = \\(candidate) -> False.
     }.
     f :: Int -> Bool.
     f = \\(x) -> D::n x.

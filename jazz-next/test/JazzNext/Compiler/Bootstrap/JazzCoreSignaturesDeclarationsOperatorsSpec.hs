@@ -75,8 +75,8 @@ testDirectParity = do
     "CoreSignatureOtherToken(\"forall\")"
     expected
   assertContains
-    "opaque data constructor argument"
-    "CoreDataConstructor(CoreSourceName(\"Opaque\"), [CoreOpaqueConstructorArgument])"
+    "concrete data constructor field"
+    "CoreDataConstructor(CoreSourceName(\"Opaque\"), [CoreIntType])"
     expected
   assertContains
     "class method signature payload"
@@ -181,8 +181,8 @@ directFixtures =
     ),
     ( "ordinary-binding",
       SEBlock
-        [ SSLet "value" span1 (seInt 1),
-          SSExpr span2 (SEVar "value")
+        [ SSLet "item" span1 (seInt 1),
+          SSExpr span2 (SEVar "item")
         ]
     ),
     ( "operator-binding",
@@ -288,10 +288,10 @@ directFixtures =
         [ SSData
             span1
             "Result"
-            ["error", "value"]
-            [ SurfaceDataConstructor "Failure" [SurfaceDataConstructorArgumentName "error"],
-              SurfaceDataConstructor "Success" [SurfaceDataConstructorArgumentName "value"],
-              SurfaceDataConstructor "Opaque" [SurfaceDataConstructorArgumentOpaque]
+            ["error", "item"]
+            [ SurfaceDataConstructor "Failure" [SurfaceTypeVariable "error"],
+              SurfaceDataConstructor "Success" [SurfaceTypeVariable "item"],
+              SurfaceDataConstructor "Opaque" [SurfaceTypeInt]
             ]
         ]
     ),
@@ -335,7 +335,7 @@ directFixtures =
                 ( SEIf
                     (SEVar "condition")
                     (SETypeApplication (SEVar "identity") span2 SurfaceTypeText)
-                    (SEBinary "$" (SEVar "fallback") (SEVar "value"))
+                    (SEBinary "$" (SEVar "fallback") (SEVar "item"))
                 )
             ]
         ]
@@ -343,9 +343,9 @@ directFixtures =
     ( "mixed-block",
       SEBlock
         [ SSSignature "convert" span1 (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText)),
-          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [SurfaceDataConstructorArgumentName "a"]],
+          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [SurfaceTypeVariable "a"]],
           SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SurfaceSignatureType (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeText))],
-          SSImpl span1 "Render" [SurfaceTypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "value"))],
+          SSImpl span1 "Render" [SurfaceTypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "item"))],
           SSLet "convert" span2 (SETypeApplication (SEVar "identity") span2 SurfaceTypeText),
           SSExpr span2 (SEVar "convert")
         ]
@@ -363,7 +363,7 @@ earlierChildExpressions :: [SurfaceExpr]
 earlierChildExpressions =
   [ SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
     SEBinary "$" (SEVar "function") (seInt 1),
-    SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)],
+    SEBlock [SSSignature "item" span1 (SurfaceSignatureType SurfaceTypeInt)],
     SEBlock [SSLet "$operator:%2B%2B" span1 (SEVar "combine")]
   ]
 
@@ -398,9 +398,9 @@ composedSources = map snd composedFixtures
 
 composedFixtures :: [(Text.Text, Text.Text)]
 composedFixtures =
-  [ ("explicit-type-primitive", "value = id @Int 1. value."),
-    ("explicit-type-applied-chain", "value = id @Maybe(Int) @List(Text) item. value."),
-    ("dollar-right-associated", "value = f $ g $ item. value."),
+  [ ("explicit-type-primitive", "item = id @Int 1. item."),
+    ("explicit-type-applied-chain", "item = id @Maybe(Int) @List(Text) item. item."),
+    ("dollar-right-associated", "item = f $ g $ item. item."),
     ("signature-primitives", "integer :: Int. floating :: Float. boolean :: Bool. character :: Char. text :: Text."),
     ( "signature-recursive-shapes",
       "variable :: a. named :: Result. maybe :: Maybe(Char). list :: [a]. tuple :: (Int, Bool). unit :: (). apply :: (Int -> Int) -> Text."
@@ -409,7 +409,7 @@ composedFixtures =
     ( "signature-constrained",
       "constrained :: @{Eq(a), Ord(List(a))}: a -> List(a)."
     ),
-    ("signature-unsupported-forall", "value :: forall a. value = 1."),
+    ("signature-unsupported-forall", "item :: forall a. item = 1."),
     ("data-nullary", "data Maybe = Nothing | Just."),
     ("data-parameterized", "data Maybe a = None | Some a | Pair (a, a) [a]."),
     ("class-empty", "class Marker(a) { }."),
@@ -421,7 +421,7 @@ composedFixtures =
       "impl Eq(Int) { equals = \\(left, right) -> left == right. }."
     ),
     ( "operator-signature-binding",
-      "operator %% tier 2. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left + right. value = 1 %% 2."
+      "operator %% tier 2. (%%) :: Int -> Int -> Int. (%%) = \\(left, right) -> left + right. item = 1 %% 2."
     ),
     ( "mixed-declarations-control-flow",
       "data Maybe a = Nothing | Just a. class Select(a) { select :: Bool -> a -> a -> a. }. impl Select(Int) { select = \\(condition, left, right) -> if condition then left else right. }. choose :: Int. choose = if True then id @Int 1 else 0. choose."
@@ -435,7 +435,7 @@ expectedDeferredFixtureNames =
     "module-in-if-branch",
     "import-in-case-body",
     "module-in-lambda-body",
-    "import-in-let-value",
+    "import-in-let-item",
     "module-in-impl-method",
     "import-in-operator-binding"
   ]
@@ -455,7 +455,7 @@ deferredFixtures =
     ),
     ( "import-in-case-body",
       SECase
-        (SEVar "value")
+        (SEVar "item")
         [ SurfaceCaseArm
             SPWildcard
             Nothing
@@ -464,13 +464,13 @@ deferredFixtures =
     ),
     ( "module-in-lambda-body",
       SELambda
-        (SurfaceLambdaIdentifier "value" :| [])
-        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (SEVar "value")])
+        (SurfaceLambdaIdentifier "item" :| [])
+        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (SEVar "item")])
     ),
-    ( "import-in-let-value",
+    ( "import-in-let-item",
       SEBlock
         [ SSLet
-            "value"
+            "item"
             span1
             (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)])
         ]

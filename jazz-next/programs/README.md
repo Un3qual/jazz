@@ -41,17 +41,23 @@ reviewers and benchmark users a quick map from its durable IDs to their intent.
 
 | Case ID | Workload | Purpose and principal features |
 | --- | --- | --- |
-| `identifier-classifier` | `fast` | Classifies realistic identifier text using recursion, patterns, lists, and bundled text/character utilities. |
-| `expression-evaluator` | `fast` | Evaluates a small expression ADT with environments, recursive interpretation, and multi-module inference. |
-| `tree-transformations` | `full` | Builds, maps, and folds a generic recursive tree to exercise generic ADTs and higher-order traversal. |
-| `dependency-planner` | `fast` | Computes a dependency plan over an association-list graph using modules, recursion, patterns, text, and lists. |
 | `capability-workflow` | `fast` | Processes workflow values through capability-constrained functions and multi-module dispatch. |
-| `mini-frontend` | `full` | Runs token classification, expression analysis, and evaluation across a production-shaped module graph. |
-| `word-frequency` | `fast` | Counts words with insertion-ordered `Dictionary` updates and Unicode-aware text tokenization. |
-| `sorted-index` | `fast` | Builds a persistent AVL `Map` and `Set`, then traverses their ascending views across a module boundary. |
-| `queue-traversal` | `fast` | Performs a breadth-first traversal with the persistent FIFO `Queue`. |
-| `text-processing` | `fast` | Normalizes Unicode text through lines, words, replacement, splitting, search, joining, and padding. |
 | `collection-boundaries` | `fast` | Passes abstract `Dictionary`, `Map`, `Set`, and `Queue` values between modules without exposing constructors. |
+| `dependency-planner` | `fast` | Computes a dependency plan over an association-list graph using modules, recursion, patterns, text, and lists. |
+| `expression-evaluator` | `fast` | Evaluates a small expression ADT with environments, recursive interpretation, and multi-module inference. |
+| `fannkuch` | `full` | Generates every size-seven permutation, performs prefix reversals, and reduces maximum flip count; it emphasizes list allocation and recursive callable profiles. |
+| `identifier-classifier` | `fast` | Classifies realistic identifier text using recursion, patterns, lists, and bundled text/character utilities. |
+| `merge-sort` | `full` | Stably split/merges 128 deterministic values and reports length, extrema, and a weighted checksum. |
+| `mini-frontend` | `full` | Runs token classification, expression analysis, and evaluation across a production-shaped module graph. |
+| `n-queens` | `full` | Reports all 92 eight-queen solutions and 736 placed queens using backtracking, pattern-lambda clauses, closures, and persistent lists. |
+| `prime-sieve` | `full` | Finds the 303 primes through 2000 with recursive filtering and reports count, last prime, and sum. |
+| `queue-traversal` | `fast` | Performs a breadth-first traversal with the persistent FIFO `Queue`. |
+| `sorted-index` | `fast` | Builds a persistent AVL `Map` and `Set`, then traverses their ascending views across a module boundary. |
+| `symbolic-differentiation` | `full` | Differentiates and simplifies a recursive expression ADT, then reports structural and evaluated checksums. |
+| `tak` | `full` | Runs the recursive Takeuchi benchmark with little collection noise, emphasizing application and continuation stacks. |
+| `text-processing` | `fast` | Normalizes Unicode text through lines, words, replacement, splitting, search, joining, and padding. |
+| `tree-transformations` | `full` | Builds, maps, and folds a generic recursive tree to exercise generic ADTs and higher-order traversal. |
+| `word-frequency` | `fast` | Counts words with insertion-ordered `Dictionary` updates and Unicode-aware text tokenization. |
 
 ## Workloads, features, and benchmarks
 
