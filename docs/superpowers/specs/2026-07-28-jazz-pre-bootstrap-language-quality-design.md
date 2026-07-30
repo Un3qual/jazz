@@ -4,6 +4,11 @@
 
 Implemented on `2026-07-28`.
 
+Superseded in part on `2026-07-30`: the function-equation decision and its
+related parser/lowering design are no longer active. Jazz retains
+pattern-shaped lambda parameters and explicit `case` dispatch instead. See
+`2026-07-30-jazz-remove-function-equations-design.md`.
+
 This design defines the language, source-quality, benchmark, and bootstrap
 hardening pass that must complete before the next typed-core/bootstrap batch.
 It supersedes the earlier source-ergonomics decision that ordinary bindings

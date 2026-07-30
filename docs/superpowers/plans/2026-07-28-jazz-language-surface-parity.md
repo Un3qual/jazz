@@ -1,5 +1,9 @@
 # Jazz Language Surface and Parity Implementation Plan
 
+> **Superseded in part on 2026-07-30:** Tasks and claims for function equations
+> are historical. The active surface retains pattern-lambda function heads and
+> explicit `case`; see `2026-07-30-jazz-remove-function-equations.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reserve `value`, add structured constructor-field types, and add ordered function equations while keeping the Haskell stage-0 compiler and Jazz-authored lexer/parser/core exact mirrors.

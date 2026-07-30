@@ -219,6 +219,19 @@ they reuse the same binder, type, and runtime matching rules:
 - list patterns, including cons-like forms such as `[hd | tl]`
 - constructor patterns such as `Cons(hd, _)`
 - as-patterns such as `whole @ Just item`
+- top-level or-patterns such as `Just item | Also item`
+
+Functions use ordinary bindings to lambdas. Multiple pattern-shaped parameters
+and top-level lambda-parameter alternatives remain active:
+
+```jazz
+first = \([item | _]) -> item.
+choose = \(Just item | Also item, fallback) -> item.
+```
+
+Haskell-style `name pattern... = body.` equations are not part of the active
+grammar. Functions that need different bodies for ordered alternatives use an
+explicit `case` inside the lambda.
 
 ### Parsed Declarations
 
@@ -559,7 +572,7 @@ If you need a practical baseline for continuing Jazz, use this order:
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
    - handwritten-parser parity coverage in `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`, and `OperatorSectionSpec.hs` that locks current core expression, module/import, operator/fixity, and section AST shape, span, and deterministic diagnostic behavior before any future Megaparsec/CST migration
-   - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters lower through internal pattern-case bodies while preserving ordinary unary core lambdas
+   - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters and top-level parameter or-patterns lower through internal pattern-case bodies while preserving ordinary unary core lambdas; Haskell-style equation declarations are rejected
    - application, list literals, and tuple literals
    - adjacent rank-1 signatures over primitives, lower-case variables, exact-arity named applications, nested list/tuple/function compositions, empty `@{}:` wrappers, concrete constrained signatures, and solver-backed variable constrained signatures, with fresh per-use instantiation and explicit first-variable type application
    - `if ... else ...` surface expressions retained as canonical core `EIf`
@@ -640,7 +653,13 @@ Runtime/product status:
   runtime output, and future product/runtime behavior deltas remain blocked
   until they have concrete target paths and verification.
 
-1. Keep future pattern forms such as guards, or-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, as-patterns, and lambda parameter patterns now execute as core runtime/type features.
+1. Keep future pattern forms such as pattern synonyms, nested/grouped
+   or-patterns, lambda-parameter guards, and multiple guard clauses blocked
+   until concrete binder/type/runtime contracts are planned on the active path;
+   tuple literals, concrete tuple signature types, fixed-arity tuple case
+   patterns, cons-like list case patterns, as-patterns, top-level case/lambda
+   or-patterns, single case-arm guards, and lambda parameter patterns now
+   execute as core runtime/type features.
 2. Keep future module/import work (`domain 09`) scoped to concrete product or semantic deltas beyond the closed active Phase 6 harness. The file-layout parser/resolver, resolution/import-binding, and loader/migration harnesses are complete, and the file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are published.
 3. Keep future stdlib work scoped to concrete needs with explicit public names,
    edge behavior, complexity, and runtime/backend contracts. Hash collections,

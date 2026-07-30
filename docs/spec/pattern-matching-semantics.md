@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, single `if` case-arm guards, and contiguous ordered function-head equations parse/lower, typecheck, and execute end-to-end in `jazz-next`; lambda-parameter guards and nested/grouped or-patterns remain out of scope)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next`; Haskell-style function equations, lambda-parameter guards, and nested/grouped or-patterns are out of scope)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -24,6 +24,25 @@ case <scrutinee> {
   | <pattern> [if <guard-expr>] -> <expr>
   | <pattern> -> <expr>
 }
+```
+
+Pattern-shaped function heads use ordinary bindings to lambdas:
+
+```jz
+first = \([item | _]) -> item.
+choose = \(Just item | Also item, fallback) -> item.
+```
+
+Alternatives with different bodies use an explicit `case` inside the ordinary
+function binding:
+
+```jz
+length =
+  \(items) ->
+    case items {
+      | [] -> 0
+      | [_ | rest] -> 1 + length rest
+    }.
 ```
 
 Current parser/core invariants:
@@ -80,11 +99,11 @@ Current parser/core invariants:
 10. Pattern guards are optional case-arm expressions introduced by `if`.
     They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
     and do not participate in arm-result agreement.
-11. A contiguous group of `name pattern... = body.` declarations is one
-    curried function. Every clause has the first clause's arity, clauses are
-    tried in source order, and the group lowers to generated lambda arguments
-    plus one ordinary pattern case. A signature immediately above the first
-    clause applies to the whole group.
+11. Functions are ordinary value bindings whose values are lambdas.
+    Pattern-shaped lambda parameters, multiple parameters, and top-level
+    lambda-parameter or-patterns are active. Haskell-style
+    `name pattern... = body.` equations are rejected; ordered alternatives
+    with different bodies use an explicit `case`.
 
 ## Matching Contract For The Committed Runtime Subset
 

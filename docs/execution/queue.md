@@ -9,10 +9,12 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-07-28`): the pre-bootstrap language-quality gate
-is complete, including synchronized function equations and structured
-constructor fields, the authored-source feature audit, and six full algorithmic
-workloads. `Ready Now` remains empty. Typed-core expression production plus
+Current executor status (`2026-07-30`): the pre-bootstrap language-quality gate
+is complete, including synchronized pattern-lambda function heads, explicit
+`case` dispatch, structured constructor fields, the authored-source feature
+audit, and six full algorithmic workloads. Haskell-style function equations
+were removed from both frontend implementations and the authored corpus.
+`Ready Now` remains empty. Typed-core expression production plus
 closed-scalar/direct-call lowering is still the next design and implementation
 gate and the sole `Next Curation Target`; inference production, core-to-IR
 lowering, LLVM, object/link, and native-runtime implementation remain

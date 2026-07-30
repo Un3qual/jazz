@@ -1,5 +1,9 @@
 # Jazz Algorithmic Program Corpus Implementation Plan
 
+> **Superseded in part on 2026-07-30:** The workloads remain active, but their
+> function equations were migrated to pattern lambdas and explicit `case`.
+> See `2026-07-30-jazz-remove-function-equations.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add six deterministic, computationally substantial Jazz programs that exercise functional algorithms and produce useful benchmark, statistics, and semantic-profile evidence.

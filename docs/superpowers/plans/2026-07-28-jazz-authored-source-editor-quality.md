@@ -1,5 +1,9 @@
 # Jazz Authored Source and Editor Quality Implementation Plan
 
+> **Superseded in part on 2026-07-30:** Function-equation migrations in this
+> historical plan were reversed. Authored Jazz now uses pattern lambdas and
+> explicit `case`; see `2026-07-30-jazz-remove-function-equations.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every shipped `.jz` source use the best applicable implemented Jazz syntax, enforce readable data declarations, fix `value` highlighting, and prove aggregate surface-feature coverage.
