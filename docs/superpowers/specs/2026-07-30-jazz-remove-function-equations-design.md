@@ -2,7 +2,9 @@
 
 ## Status
 
-Approved by the user's 2026-07-30 clarification:
+Implemented on `2026-07-30`.
+
+The language boundary was approved by the user's clarification:
 
 > Get rid of the Haskell-style equations, but retain multiple function-head
 > pattern matching with the old syntax.

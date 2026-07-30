@@ -56,6 +56,7 @@ tests =
     ("tuple-pattern lambda parameter runs", testTuplePatternLambdaParameterRuntime),
     ("cons-like list lambda parameter runs", testConsLikeListPatternLambdaParameterRuntime),
     ("constructor-pattern lambda parameter runs", testConstructorPatternLambdaParameterRuntime),
+    ("multiple pattern-shaped lambda parameters run", testMultiplePatternLambdaParametersRuntime),
     ("or-pattern lambda parameter runs", testOrPatternLambdaParameterRuntime),
     ("or-pattern lambda head followed by another parameter runs", testMultiParameterOrPatternLambdaRuntime),
     ("explicit case dispatch inside an ordinary function runs", testExplicitCaseDispatchRuntime),
@@ -281,6 +282,17 @@ testConstructorPatternLambdaParameterRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
+
+testMultiplePatternLambdaParametersRuntime :: IO ()
+testMultiplePatternLambdaParametersRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "data Maybe = Nothing | Just Int. add = \\([head | _], Just item) -> head + item. add [1, 2] (Just 41)."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
 
 testOrPatternLambdaParameterRuntime :: IO ()
 testOrPatternLambdaParameterRuntime = do
