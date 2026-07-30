@@ -478,7 +478,15 @@ syntax rule for any future fixture support.
   git commit -m "feat: add typed-core production foundation"
   ```
 
-### Task 2: Finalize the complete scalar expression profile
+### Task 2: Finalize the source-representable root scalar profile
+
+> **Approved ordering amendment (`2026-07-30`):** Canonical integer literals
+> are `LInt Integer` and carry no explicit width. Existing inference obtains
+> `Int8`/`UInt*` types only from an expected-type context. To avoid invented
+> syntax, fabricated semantic information, or premature application support,
+> `explicit-numeric-widths` and `user-defined-operator-call` close in Task 3,
+> where concrete signatures, bindings, and application spines are already
+> owned. The overall exact 16-accepted / 20-rejected manifest is unchanged.
 
 **Files:**
 
@@ -489,27 +497,22 @@ syntax rule for any future fixture support.
 
 **Interfaces:**
 
-- Produces: final typed unit, Bool, Char, default `Int`/`Float`, all explicit
-  numeric widths, and all 10 listed primitive operators.
+- Produces: final typed unit, Bool, Char, default `Int`/`Float`, and all 10
+  listed primitive operators.
 - Rejects: managed and structured values, control flow, patterns, nested
-  blocks, and user-defined operator calls with ordered structured failures.
+  blocks, and other unsupported root expressions with ordered structured
+  failures.
 - Preserves: ordinary inference and permanent typed-core constructors.
 
 - [ ] **Step 1: Add failing accepted scalar fixtures**
 
   Add accepted cases `bool-entry`, `char-entry`, `default-int-entry`,
-  `default-float-entry`, `explicit-numeric-widths`,
-  `arithmetic-operators`, `ordering-operators`, and `equality-operators`.
+  `default-float-entry`, `arithmetic-operators`, `ordering-operators`, and
+  `equality-operators`.
 
   The manifest audit must prove:
 
   ```haskell
-  explicitNumericTypes ==
-    [ "Int8", "Int16", "Int32", "Int64",
-      "UInt8", "UInt16", "UInt32", "UInt64",
-      "Float16", "Float32", "Float64"
-    ]
-
   admittedOperators ==
     ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
   ```
@@ -521,9 +524,9 @@ syntax rule for any future fixture support.
 - [ ] **Step 2: Add failing rejected scalar/profile fixtures**
 
   Add `text-value`, `list-value`, `non-unit-tuple`, `data-value`,
-  `conditional`, `pattern-case`, `local-block-binding`, and
-  `user-defined-operator-call`. Assert complete ordered production failures
-  including module/statement/expression paths and stable kind/detail fields.
+  `conditional`, `pattern-case`, and `local-block-binding`. Assert complete
+  ordered production failures including module/statement/expression paths and
+  stable kind/detail fields.
 
 - [ ] **Step 3: Run and confirm unsupported scalar nodes**
 
@@ -539,7 +542,6 @@ syntax rule for any future fixture support.
   - map `TIntegerLiteralType` and `TIntType` to semantic `Int` with signed
     64-bit representation;
   - map `TFloatType` to semantic `Float` with 64-bit float representation;
-  - preserve every explicit signed, unsigned, and float width;
   - map unit, Bool, and Char to their exact semantic type and recipe;
   - resolve only the listed builtin binary operator identities; and
   - reject unresolved variables, managed recipes, non-scalar structures, and
@@ -590,19 +592,37 @@ syntax rule for any future fixture support.
 
 - Produces: concrete non-capturing, nonrecursive local functions and fully
   saturated direct-call spines.
+- Produces: every explicit signed, unsigned, and floating numeric width from
+  existing concrete signature/binding expected-type contexts, without new
+  literal syntax or AST fields.
 - Produces: exact typed module interface entries selected by the resolved
   public value-export inventory.
 - Rejects: callable values, partial/over-application, captures, recursion,
-  generalized/evidence-bearing functions, imported calls, and unsupported
-  exports.
+  generalized/evidence-bearing functions, imported calls, declared
+  user-defined operator calls, and unsupported exports.
 
-- [ ] **Step 1: Add the seven remaining accepted fixtures**
+- [ ] **Step 1: Add the eight remaining accepted fixtures**
 
-  Add `scalar-parameter-return`, `single-argument-direct-call`,
-  `curried-multi-argument-direct-call`, `forward-direct-call-dag`,
-  `nested-direct-calls`, `dollar-direct-call`, and
-  `exported-direct-function`. Together with the scalar fixtures, the accepted
-  manifest must now equal the exact 16-name inventory above.
+  Add `explicit-numeric-widths`, `scalar-parameter-return`,
+  `single-argument-direct-call`, `curried-multi-argument-direct-call`,
+  `forward-direct-call-dag`, `nested-direct-calls`, `dollar-direct-call`, and
+  `exported-direct-function`. Together with the root scalar fixtures, the
+  accepted manifest must now equal the exact 16-name inventory above.
+
+  `explicit-numeric-widths` must cover exactly:
+
+  ```haskell
+  explicitNumericTypes ==
+    [ "Int8", "Int16", "Int32", "Int64",
+      "UInt8", "UInt16", "UInt32", "UInt64",
+      "Float16", "Float32", "Float64"
+    ]
+  ```
+
+  Use concrete monomorphic function signatures and pattern-lambda bindings to
+  provide the existing expected-type context for each literal. Do not add an
+  integer suffix, change `LInt`, use explicit type application/conversion, or
+  fabricate a width during finalization.
 
   Author function values only with canonical pattern lambdas:
 
@@ -616,13 +636,19 @@ syntax rule for any future fixture support.
   The `$` fixture must reach the same canonical `EApply` spine as ordinary
   application and must not receive a separate elaboration rule.
 
-- [ ] **Step 2: Add the remaining callable rejection fixtures**
+- [ ] **Step 2: Add the remaining callable/operator rejection fixtures**
 
   Add `bare-function-value`, `partial-direct-call`,
   `oversaturated-direct-call`, `capturing-function`,
   `self-recursive-function`, `mutually-recursive-functions`,
-  `polymorphic-or-evidence-function`, and `imported-direct-call`. The rejected
-  manifest must now equal the exact 20-name inventory above.
+  `polymorphic-or-evidence-function`, `imported-direct-call`, and
+  `user-defined-operator-call`. The rejected manifest must now equal the exact
+  20-name inventory above.
+
+  The operator source must declare and bind its operator with the canonical
+  implemented operator declaration plus a pattern-lambda value, so ordinary
+  analysis/inference succeeds and the producer—not an unbound-name
+  diagnostic—owns the structured rejection.
 
 - [ ] **Step 3: Run and confirm callable/profile failures**
 
@@ -645,14 +671,16 @@ syntax rule for any future fixture support.
 
   Flatten leading lambdas into ordered parameters while retaining canonical
   nested `TypedLambdaExpr` nodes. Record resolved current-module target
-  identity and application-spine argument order during existing `EApply`
-  visits.
+  identity, concrete signature expected types, and application-spine argument
+  order during existing `EApply` visits.
 
 - [ ] **Step 5: Finalize and validate callable restrictions**
 
   Before constructing the permanent tree:
 
   - require concrete monomorphic scalar parameter/result types and recipes;
+  - preserve every explicit signed, unsigned, and floating width selected by
+    the existing signature/binding expected-type path;
   - require exact full arity at every use;
   - reject functions used outside callee position;
   - compute lexical free-value captures from resolved binder identities;
