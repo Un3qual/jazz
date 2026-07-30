@@ -2,9 +2,19 @@
 
 module Main (main) where
 
+import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import JazzNext.Compiler.ModuleGraph (CoreModule (coreModuleExpr), ResolvedModule (resolvedModuleCore))
+import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
+import JazzNext.Compiler.Diagnostics (SourceSpan (..))
+import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (resolvedModuleCore))
 import JazzNext.Compiler.TypeInference
+import JazzNext.Compiler.TypeInference.Types
+  ( DataTypeBinding (..),
+    ExpressionType (TBoolType),
+    ScopeCapabilityFacts (..),
+    TypeBinding (PlainTypeBinding),
+    emptyScopeCapabilityFacts
+  )
 import JazzNext.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 
 main :: IO ()
@@ -15,7 +25,8 @@ tests =
   [ ("audits the partial foundation fixture manifest", testFixtureManifest),
     ("produces unit and preserves ordinary inference", testUnitProduction),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
-    ("reports the initial input profile failures", testInputFailures)
+    ("reports the initial input profile failures", testInputFailures),
+    ("reports every additional foundation profile failure", testAdditionalProfileFailures)
   ]
 
 testFixtureManifest :: IO ()
@@ -83,3 +94,62 @@ assertUnsupported fixture expectedFailures = do
     (fixtureName fixture <> " production status")
     (TypedCoreProductionUnsupported expectedFailures)
     (typedCoreProductionStatus result)
+
+testAdditionalProfileFailures :: IO ()
+testAdditionalProfileFailures =
+  case fixtures of
+    unitFixture : _ -> do
+      let pathMismatch =
+            unitFixture
+              { fixtureInputs = (fixtureInputs unitFixture) {inferenceCurrentModulePath = Just ["Other", "Main"]}
+              }
+          importedValue =
+            unitFixture
+              { fixtureInputs =
+                  (fixtureInputs unitFixture)
+                    { inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding TBoolType)
+                    }
+              }
+          importedData =
+            unitFixture
+              { fixtureInputs =
+                  (fixtureInputs unitFixture)
+                    { inferenceImportedDataTypes = Map.singleton "Foreign" (DataTypeBinding [] [])
+                    }
+              }
+          importedCapabilities =
+            unitFixture
+              { fixtureInputs =
+                  (fixtureInputs unitFixture)
+                    { inferenceImportedCapabilities = emptyScopeCapabilityFacts {scopeClassFacts = Map.singleton "Foreign" 0}
+                    }
+              }
+          unsupportedRoot = unitFixture {fixtureModule = withExpression (ELit (LBool True)) unitFixture}
+          leadingStatement =
+            unitFixture
+              { fixtureModule =
+                  withExpression
+                    (EBlock [SLet "ignored" (SourceSpan 1 1) (ETuple []), SExpr (SourceSpan 2 1) (ETuple [])])
+                    unitFixture
+              }
+          inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported]
+          moduleFailure = [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreUnsupportedRootExpression]
+      assertUnsupported pathMismatch [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch]
+      assertUnsupported importedValue inputFailure
+      assertUnsupported importedData inputFailure
+      assertUnsupported importedCapabilities inputFailure
+      assertUnsupported unsupportedRoot moduleFailure
+      assertUnsupported leadingStatement moduleFailure
+    [] -> failTest "unit fixture is missing"
+
+withExpression :: Expr -> Fixture -> ResolvedModule
+withExpression expression fixture =
+  let moduleValue = fixtureModule fixture
+   in moduleValue
+        { resolvedModuleCore =
+            CoreModule
+              (Just ["App", "Main"])
+              Nothing
+              []
+              expression
+        }

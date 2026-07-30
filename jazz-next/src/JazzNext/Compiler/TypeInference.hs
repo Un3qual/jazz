@@ -93,7 +93,8 @@ import JazzNext.Compiler.TypeInference.Pattern
   )
 import JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
-    inferScopeTypeRaw,
+    inferScopeType,
+    inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding
   )
 import JazzNext.Compiler.TypeInference.State
@@ -145,8 +146,8 @@ import JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionProfile (..),
     TypedCoreProductionStatus (..),
     finalizeTypedCoreExpressionDirectCall,
-    rootProvisionalTypedScope,
     InferredExpr (..),
+    ProvisionalTypedScope (..),
     TypedCoreProductionMode (..),
   )
 import JazzNext.Compiler.WarningConfig
@@ -230,14 +231,17 @@ inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices p
 
 inferExpressionWithInputsAndSourceUnitStatementsAndState :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO (InferenceResult, InferState)
 inferExpressionWithInputsAndSourceUnitStatementsAndState inputs hiddenStatementIndices preludeStatementIndices expr =
-  inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode
-    InferenceOnly
-    inputs
-    hiddenStatementIndices
-    preludeStatementIndices
-    expr
+  do
+    (inferenceResult, finalState, _) <-
+      inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode
+        InferenceOnly
+        inputs
+        hiddenStatementIndices
+        preludeStatementIndices
+        expr
+    pure (inferenceResult, finalState)
 
-inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Set Int -> Expr -> IO (InferenceResult, InferState)
+inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Set Int -> Expr -> IO (InferenceResult, InferState, InferredExpr)
 inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hiddenStatementIndices preludeStatementIndices expr =
   {-# SCC "jazz-stage:type-inference" #-}
   do
@@ -247,7 +251,7 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
       hiddenStatementIndices
       expr
   let (inferredResult, finalState) =
-        inferExprType
+        inferExprTypeWithMode
           mode
           preludeStatementIndices
           (inferenceBuiltinMode inputs)
@@ -264,7 +268,8 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
             inferredRuntimeTypeHints = runtimeTypeHints,
             inferredModuleInterface = moduleInterfaceFromState inputs expr finalState
           },
-        finalState
+        finalState,
+        inferredResult
       )
 
 inferResolvedModuleTypedCoreWithProfile ::
@@ -275,21 +280,21 @@ inferResolvedModuleTypedCoreWithProfile ::
   IO TypedCoreProductionResult
 inferResolvedModuleTypedCoreWithProfile profile inputs sourcePath resolvedModule = do
   let expression = ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)
-  (inferenceResult, finalState) <-
+  (inferenceResult, finalState, inferredResult) <-
     inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode ProduceTypedCoreExpressionDirectCall inputs Set.empty Set.empty expression
   pure
     TypedCoreProductionResult
       { typedCoreProductionInferenceResult = inferenceResult,
-        typedCoreProductionStatus = productionStatus profile inputs sourcePath resolvedModule finalState inferenceResult
+        typedCoreProductionStatus = productionStatus profile inputs sourcePath resolvedModule finalState inferenceResult inferredResult
       }
 
-productionStatus :: TypedCoreProductionProfile -> InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> TypedCoreProductionStatus
-productionStatus _profile inputs sourcePath resolvedModule finalState inferenceResult
+productionStatus :: TypedCoreProductionProfile -> InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionStatus
+productionStatus _profile inputs sourcePath resolvedModule finalState inferenceResult inferredResult
   | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = TypedCoreProductionBlockedByDiagnostics
   | not (null inputFailures) = TypedCoreProductionUnsupported inputFailures
   | otherwise =
-      case rootProvisionalTypedScope (inferredExpr inferenceResult) of
-        Just provisionalScope -> finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalScope
+      case inferredProvisionalExpr inferredResult of
+        Just provisionalExpr -> finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule finalState (ProvisionalTypedScope provisionalExpr)
         Nothing ->
           TypedCoreProductionUnsupported
             [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression]
@@ -441,7 +446,7 @@ instantiateEnvBinding binding state =
 
 -- Core expressions do not retain inner-node source spans yet, so inference
 -- reuses the enclosing statement span as the best available location metadata.
-inferExprType ::
+inferExprTypeWithMode ::
   TypedCoreProductionMode ->
   Set Int ->
   BuiltinResolutionMode ->
@@ -449,12 +454,25 @@ inferExprType ::
   InferState ->
   Expr ->
   (InferredExpr, InferState)
-inferExprType mode preludeStatementIndices builtinMode env state expr =
-  let (expressionType, finalState) =
-        inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
-   in case mode of
-        InferenceOnly -> (InferredExpr expressionType Nothing [], finalState)
-        ProduceTypedCoreExpressionDirectCall -> (InferredExpr expressionType Nothing [], finalState)
+inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
+  case expr of
+    EBlock statements ->
+      inferScopeTypeWithMode
+        preludeStatementIndices
+        (\childMode childBuiltin childEnv childState childExpr ->
+           inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
+        )
+        mode
+        builtinMode
+        env
+        state
+        statements
+    _ ->
+      let (expressionType, finalState) =
+            inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
+       in case mode of
+            InferenceOnly -> (InferredExpr expressionType Nothing [], finalState)
+            ProduceTypedCoreExpressionDirectCall -> (InferredExpr expressionType Nothing [], finalState)
 
 inferExprTypeRaw ::
   BuiltinResolutionMode ->
@@ -601,7 +619,7 @@ inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env st
             env
             state
             (declaredOperatorRightSectionExpr operatorSymbol rightExpr)
-    EBlock statements -> inferScopeTypeRaw preludeStatementIndices inferExprTypeRaw builtinMode env state statements
+    EBlock statements -> inferScopeType preludeStatementIndices inferExprTypeRaw builtinMode env state statements
   where
     inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
       let (binaryResult, _, _) =

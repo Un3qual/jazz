@@ -88,7 +88,7 @@ import JazzNext.Compiler.SignatureRendering
   ( renderSignatureType
   )
 import JazzNext.Compiler.TypeInference.Diagnostics
-  ( InferenceOnlyExprFn,
+  ( InferExprFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
@@ -478,7 +478,7 @@ qualifiedMethodClassIsVisible methodKey state =
     Nothing -> False
 
 inferQualifiedMethodApplication ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -498,7 +498,7 @@ inferQualifiedMethodApplication inferExpression builtinMode env state methodKey 
             (zip argumentExprs typedArgumentTypes)
 
 inferQualifiedMethodArguments ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -514,7 +514,7 @@ inferQualifiedMethodArguments inferExpression builtinMode env state argumentExpr
        in (argumentType : typesAcc, stateAfterArgument)
 
 checkImplMethodBodies ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -595,7 +595,7 @@ checkImplMethodBodies inferExpression builtinMode env state capabilityName argum
         ]
 
 inferExprTypeWithExpected ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->

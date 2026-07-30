@@ -13,12 +13,10 @@ module JazzNext.Compiler.TypeInference.Elaboration
     InferredExpr (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedScope (..),
-    rootProvisionalTypedScope,
     finalizeTypedCoreExpressionDirectCall,
   ) where
 
 import Data.Text (Text)
-import JazzNext.Compiler.AST (Expr (..), Statement (..))
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (..))
 import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
@@ -76,17 +74,6 @@ data ProvisionalTypedExpr
 
 newtype ProvisionalTypedScope = ProvisionalTypedScope ProvisionalTypedExpr
   deriving (Eq, Show)
-
--- | This first task intentionally retains only the root unit shape.  The
--- matcher is a producer-side selection, not another inference traversal.
-rootProvisionalTypedScope :: Expr -> Maybe ProvisionalTypedScope
-rootProvisionalTypedScope expression =
-  case expression of
-    EBlock statements ->
-      case reverse statements of
-        SExpr _ (ETuple []) : _ -> Just (ProvisionalTypedScope ProvisionalUnitExpression)
-        _ -> Nothing
-    _ -> Nothing
 
 -- | Finalize the initial unit-only root against the permanent contract.
 -- Future profile slices extend the provisional scope rather than changing the

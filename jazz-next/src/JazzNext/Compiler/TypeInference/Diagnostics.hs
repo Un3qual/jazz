@@ -3,7 +3,7 @@
 -- | Type-inference diagnostics and error-state operations.
 module JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
-    InferenceOnlyExprFn,
+    InferExprWithModeFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
@@ -127,14 +127,14 @@ import JazzNext.Compiler.TypeInference.Types
 -- opt-in elaboration data; inference-only callers project the type unchanged.
 -- The legacy alias remains the migration boundary for current helper modules.
 
-type InferenceOnlyExprFn =
+type InferExprFn =
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr ->
   (Maybe ExpressionType, InferState)
 
-type InferExprFn =
+type InferExprWithModeFn =
   TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->

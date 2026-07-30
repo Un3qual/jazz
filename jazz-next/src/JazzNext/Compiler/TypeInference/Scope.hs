@@ -6,7 +6,7 @@
 module JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferScopeType,
-    inferScopeTypeRaw,
+    inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding
   ) where
 
@@ -71,7 +71,8 @@ import JazzNext.Compiler.TypeInference.Capabilities
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Elaboration
   ( InferredExpr (..),
-    TypedCoreProductionMode
+    ProvisionalTypedExpr (..),
+    TypedCoreProductionMode (..)
   )
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
@@ -120,7 +121,7 @@ import JazzNext.Compiler.TypeInference.Types
   )
 
 inferExprTypeWithExpected ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -224,10 +225,10 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeType :: Set Int -> InferExprFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
-inferScopeType preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
-        inferScopeTypeRaw
+        inferScopeType
           preludeStatementIndices
           (\builtin env state expr ->
              let (inferredResult, nextState) = inferExpression mode builtin env state expr
@@ -237,10 +238,14 @@ inferScopeType preludeStatementIndices inferExpression mode builtinMode initialE
           initialEnv
           initialState
           statements
-   in (InferredExpr scopeType Nothing [], finalState)
+      provisionalExpr =
+        case (mode, statements) of
+          (ProduceTypedCoreExpressionDirectCall, [SExpr _ (ETuple [])]) -> Just ProvisionalUnitExpression
+          _ -> Nothing
+   in (InferredExpr scopeType provisionalExpr [], finalState)
 
-inferScopeTypeRaw :: Set Int -> InferenceOnlyExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeTypeRaw preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
+inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
@@ -1563,7 +1568,7 @@ instantiateTypeScheme typeScheme state =
        in (Map.insert typeVar freshType bindings, nextState)
 
 inferExplicitTypeApplication ::
-  InferenceOnlyExprFn ->
+  InferExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
