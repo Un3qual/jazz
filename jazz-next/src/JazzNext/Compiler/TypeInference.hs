@@ -11,6 +11,7 @@ module JazzNext.Compiler.TypeInference
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
+    TypedCoreProductionFailureDetail (..),
     TypedCoreProductionResult (..),
     inferResolvedModuleTypedCoreWithProfile,
     inferExpressionWithBuiltinsAndHiddenStatements,
@@ -142,11 +143,13 @@ import JazzNext.Compiler.TypedCore (TypedSourcePath (..))
 import JazzNext.Compiler.TypeInference.Elaboration
   ( TypedCoreProductionFailure (..),
     TypedCoreProductionFailureKind (..),
+    TypedCoreProductionFailureDetail (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionProfile (..),
     TypedCoreProductionStatus (..),
     finalizeTypedCoreExpressionDirectCall,
     InferredExpr (..),
+    ProvisionalTypedExpr (..),
     ProvisionalTypedScope (..),
     TypedCoreProductionMode (..),
   )
@@ -297,25 +300,25 @@ productionStatus _profile inputs sourcePath resolvedModule finalState inferenceR
         Just provisionalExpr -> finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule finalState (ProvisionalTypedScope provisionalExpr)
         Nothing ->
           TypedCoreProductionUnsupported
-            [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression]
+            [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
     inputFailures =
       concat
-        [ [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch
+        [ [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
           | inferenceCurrentModulePath inputs /= Just (ModuleGraph.resolvedModulePath resolvedModule)
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath
+          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
           | not (validTypedSourcePath sourcePath)
           ],
-          [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreResolvedImportsUnsupported
+          [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail
           | not (null (ModuleGraph.resolvedModuleImports resolvedModule))
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported
+          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail
           | not (Map.null (inferenceImportedTypes inputs))
               || not (Map.null (inferenceImportedDataTypes inputs))
               || inferenceImportedCapabilities inputs /= emptyScopeCapabilityFacts
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported
+          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail
           | not (Set.null (inferenceImportedClassNames inputs))
           ]
         ]
@@ -456,23 +459,126 @@ inferExprTypeWithMode ::
   (InferredExpr, InferState)
 inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
   case expr of
-    EBlock statements ->
-      inferScopeTypeWithMode
-        preludeStatementIndices
-        (\childMode childBuiltin childEnv childState childExpr ->
-           inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
-        )
-        mode
-        builtinMode
-        env
-        state
-        statements
+    EBlock statements
+      | mode == ProduceTypedCoreExpressionDirectCall,
+        not (null statements),
+        all isRootExpressionStatement statements ->
+          inferRootScalarScope builtinMode env state statements
+      | otherwise ->
+          inferScopeTypeWithMode
+            preludeStatementIndices
+            (\childMode childBuiltin childEnv childState childExpr ->
+               inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
+            )
+            mode
+            builtinMode
+            env
+            state
+            statements
     _ ->
-      let (expressionType, finalState) =
-            inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
-       in case mode of
-            InferenceOnly -> (InferredExpr expressionType Nothing [], finalState)
-            ProduceTypedCoreExpressionDirectCall -> (InferredExpr expressionType Nothing [], finalState)
+      case mode of
+        InferenceOnly ->
+          let (expressionType, finalState) =
+                inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
+           in (InferredExpr expressionType Nothing [], finalState)
+        ProduceTypedCoreExpressionDirectCall ->
+          inferScalarExprWithProduction builtinMode env state expr
+
+-- | The producer retains only values it can later lower without reconstructing
+-- the canonical AST. Unsupported nodes still use the ordinary inference path
+-- exactly once, so their children keep contributing diagnostics and solver
+-- constraints.
+inferScalarExprWithProduction ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  (InferredExpr, InferState)
+inferScalarExprWithProduction builtinMode env state expr =
+  case expr of
+    ELit literal ->
+      let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+       in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType) [], finalState)
+    ETuple [] ->
+      let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+       in (InferredExpr expressionType (Just ProvisionalUnitExpression) [], finalState)
+    EBinary operatorSymbol leftExpr rightExpr
+      | operatorSymbol `elem` scalarOperators ->
+          let (leftResult, stateAfterLeft) = inferScalarExprWithProduction builtinMode env state leftExpr
+              (rightResult, stateAfterRight) = inferScalarExprWithProduction builtinMode env stateAfterLeft rightExpr
+              (expressionType, finalState) =
+                case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
+                  (Just leftType, Just rightType) ->
+                    inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
+                  _ -> (Nothing, stateAfterRight)
+              provisionalExpr = do
+                resultType <- expressionType
+                leftProvisional <- inferredProvisionalExpr leftResult
+                rightProvisional <- inferredProvisionalExpr rightResult
+                pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
+           in (InferredExpr expressionType provisionalExpr [], finalState)
+    EBinary {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+    EIf {} -> unsupported TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+    EPatternCase {} -> unsupported TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
+    EList {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+    ETuple {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
+    EBlock statements ->
+      case filter isDataStatement statements of
+        _ : _ -> unsupported TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
+        [] -> unsupported TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+    EVar {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
+    ELambda {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+    EOperatorValue {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+    EApply {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+    ETypeApplication {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+    ESectionLeft {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+    ESectionRight {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+  where
+    unsupported failureKind failureDetail =
+      let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+       in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)) [], finalState)
+
+scalarOperators :: [Text]
+scalarOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
+
+inferRootScalarScope :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferRootScalarScope builtinMode env initialState statements =
+  let (reversedResults, finalState) =
+        foldl
+          (\(resultsAcc, state) statement ->
+             case statement of
+               SExpr spanValue expression ->
+                 let (result, nextState) = inferScalarExprWithProduction builtinMode env state expression
+                  in ((spanValue, result) : resultsAcc, nextState)
+               _ -> (resultsAcc, state)
+          )
+          ([], initialState)
+          statements
+      results = reverse reversedResults
+      scopeType =
+        case reverse results of
+          (_, result) : _ -> inferredExpressionType result
+          [] -> Nothing
+      provisionalExpressions =
+        traverse
+          (\(spanValue, result) -> fmap (\provisional -> (spanValue, provisional)) (inferredProvisionalExpr result))
+          results
+   in
+    ( InferredExpr scopeType (ProvisionalScopeExpressions <$> provisionalExpressions) [],
+      finalState
+    )
+
+isRootExpressionStatement :: Statement -> Bool
+isRootExpressionStatement statement =
+  case statement of
+    SExpr {} -> True
+    _ -> False
+
+isDataStatement :: Statement -> Bool
+isDataStatement statement =
+  case statement of
+    SData {} -> True
+    _ -> False
 
 inferExprTypeRaw ::
   BuiltinResolutionMode ->
