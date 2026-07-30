@@ -1,5 +1,5 @@
 module Main {
   import Fannkuch.
 
-  maximumFlips 7.
+  (maximumFlips 0, maximumFlips 7).
 }

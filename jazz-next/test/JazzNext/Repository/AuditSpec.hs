@@ -31,7 +31,8 @@ import JazzNext.Compiler.SignatureRendering
   )
 import qualified JazzNext.Repository.AuthoredSources as AuthoredSources
 import JazzNext.Repository.FeatureInventory
-  ( inventorySurface,
+  ( SurfaceFeature (..),
+    inventorySurface,
     requiredAuthoredFeatures,
   )
 import JazzNext.Repository.JazzSourceFormat
@@ -69,6 +70,7 @@ tests :: [NamedTest]
 tests =
   [ ("discovers the complete authored Jazz source set", testAuthoredSourceInventory),
     ("covers the implemented Jazz surface across authored sources", testAuthoredFeatureInventory),
+    ("distinguishes partial applications from saturated calls", testPartialApplicationInventory),
     ("covers every public standard-library module family", testStandardLibraryModuleInventory),
     ("accepts a valid Jazz source module", testValidJazzModule),
     ("accepts a multiline module export header", testMultilineModuleHeader),
@@ -130,6 +132,43 @@ testAuthoredFeatureInventory =
         ( "authored Jazz sources do not exercise: "
             <> Text.pack (show (Set.toAscList missing))
         )
+
+testPartialApplicationInventory :: IO ()
+testPartialApplicationInventory = do
+  saturatedFeatures <- inventoryParsedSource saturatedApplicationSource
+  partialFeatures <- inventoryParsedSource partialApplicationSource
+  assertEqual
+    "saturated multi-argument call is not partial"
+    False
+    (PartialApplicationFeature `Set.member` saturatedFeatures)
+  assertEqual
+    "under-applied multi-argument function is partial"
+    True
+    (PartialApplicationFeature `Set.member` partialFeatures)
+
+inventoryParsedSource :: Text -> IO (Set.Set SurfaceFeature)
+inventoryParsedSource source =
+  case parseSurfaceProgram source of
+    Left diagnostic ->
+      failTest
+        ( "could not parse feature-inventory fixture: "
+            <> renderDiagnostic diagnostic
+        )
+    Right surface -> pure (inventorySurface source surface)
+
+saturatedApplicationSource :: Text
+saturatedApplicationSource =
+  """
+  combine = \\(left, right) -> left + right.
+  result = combine 1 2.
+  """
+
+partialApplicationSource :: Text
+partialApplicationSource =
+  """
+  combine = \\(left, right) -> left + right.
+  addOne = combine 1.
+  """
 
 testStandardLibraryModuleInventory :: IO ()
 testStandardLibraryModuleInventory =

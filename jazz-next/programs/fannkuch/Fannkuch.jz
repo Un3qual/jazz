@@ -30,7 +30,8 @@ module Fannkuch (value maximumFlips) {
       listAppend (listReverse (listTake count items)) (listDrop count items).
 
   flipCountFrom =
-    \|([1 | _], count) -> count
+    \|([], count) -> count
+     |([1 | _], count) -> count
      |(permutationValue@[first | _], count) ->
       flipCountFrom (reversePrefix first permutationValue) (count + 1).
 

@@ -8,6 +8,8 @@ module JazzNext.Repository.FeatureInventory
 where
 
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -82,7 +84,12 @@ requiredAuthoredFeatures = Set.fromList [minBound .. maxBound]
 
 inventorySurface :: Text -> SurfaceExpr -> Set SurfaceFeature
 inventorySurface source surface =
-  inventoryExpr surface <> erasedSourceFeatures source
+  inventoryExpr surface
+    <> erasedSourceFeatures source
+    <> Set.fromList
+      [ PartialApplicationFeature
+      | containsPartialApplication Map.empty surface
+      ]
 
 erasedSourceFeatures :: Text -> Set SurfaceFeature
 erasedSourceFeatures source =
@@ -143,10 +150,7 @@ inventoryExpr expression =
         ([TupleFeature] <> [UnitFeature | null items])
         <> Set.unions (map inventoryExpr items)
     SEApply function argument ->
-      Set.fromList
-        ( ApplicationFeature
-            : [PartialApplicationFeature | isNestedApplication function]
-        )
+      Set.singleton ApplicationFeature
         <> inventoryExpr function
         <> inventoryExpr argument
     SETypeApplication function _ signatureType ->
@@ -171,11 +175,6 @@ inventoryExpr expression =
     SEBlock statements ->
       Set.unions (map inventoryStatement statements)
   where
-    isNestedApplication candidate =
-      case candidate of
-        SEApply {} -> True
-        _ -> False
-
     armHasGuard (SurfaceCaseArm _ guardExpr _) =
       case guardExpr of
         Nothing -> False
@@ -198,6 +197,143 @@ inventoryExpr expression =
       case patternValue of
         SPOr _ -> True
         _ -> False
+
+containsPartialApplication :: Map Text Int -> SurfaceExpr -> Bool
+containsPartialApplication arities expression =
+  case expression of
+    SELit _ -> False
+    SEVar _ -> False
+    SEQualifiedVar _ _ -> False
+    SELambda parameters body ->
+      containsPartialApplication
+        (removeBoundNames arities (Set.unions (map lambdaParameterBindings (NonEmpty.toList parameters))))
+        body
+    SEPatternLambda clauses ->
+      any (patternLambdaClauseContainsPartialApplication arities) clauses
+    SEOperatorValue _ -> False
+    SEList items -> any (containsPartialApplication arities) items
+    SETuple items -> any (containsPartialApplication arities) items
+    SEApply {} ->
+      let (function, arguments) = applicationSpine expression
+          appliedArity = length arguments
+          isPartial =
+            case callableArity arities function of
+              Just expectedArity ->
+                appliedArity > 0 && appliedArity < expectedArity
+              Nothing -> False
+       in isPartial
+            || containsPartialApplication arities function
+            || any (containsPartialApplication arities) arguments
+    SETypeApplication function _ _ ->
+      containsPartialApplication arities function
+    SEIf condition thenBranch elseBranch ->
+      any
+        (containsPartialApplication arities)
+        [condition, thenBranch, elseBranch]
+    SECase scrutinee arms ->
+      containsPartialApplication arities scrutinee
+        || any (caseArmContainsPartialApplication arities) arms
+    SEBinary _ left right ->
+      containsPartialApplication arities left
+        || containsPartialApplication arities right
+    SESectionLeft left _ ->
+      containsPartialApplication arities left
+    SESectionRight _ right ->
+      containsPartialApplication arities right
+    SEBlock statements ->
+      let blockArities = foldl declareStatementArity arities statements
+       in any (statementContainsPartialApplication blockArities) statements
+
+applicationSpine :: SurfaceExpr -> (SurfaceExpr, [SurfaceExpr])
+applicationSpine = go []
+  where
+    go arguments candidate =
+      case candidate of
+        SEApply function argument ->
+          go (argument : arguments) function
+        _ -> (candidate, arguments)
+
+callableArity :: Map Text Int -> SurfaceExpr -> Maybe Int
+callableArity arities expression =
+  case expression of
+    SEVar name -> Map.lookup (identifierText name) arities
+    SELambda parameters _ -> Just (NonEmpty.length parameters)
+    SEPatternLambda clauses ->
+      let SurfacePatternLambdaClause _ patterns _ = NonEmpty.head clauses
+       in Just (NonEmpty.length patterns)
+    SEOperatorValue _ -> Just 2
+    SETypeApplication function _ _ -> callableArity arities function
+    _ -> Nothing
+
+declareStatementArity :: Map Text Int -> SurfaceStatement -> Map Text Int
+declareStatementArity arities statement =
+  case statement of
+    SSLet name _ body ->
+      updateArity (identifierText name) (callableArity arities body) arities
+    SSData _ _ _ constructors ->
+      foldl declareConstructorArity arities constructors
+    _ -> arities
+
+declareConstructorArity :: Map Text Int -> SurfaceDataConstructor -> Map Text Int
+declareConstructorArity arities (SurfaceDataConstructor name fields) =
+  updateArity (identifierText name) (Just (length fields)) arities
+
+updateArity :: Text -> Maybe Int -> Map Text Int -> Map Text Int
+updateArity name maybeArity arities =
+  case maybeArity of
+    Just arity -> Map.insert name arity arities
+    Nothing -> Map.delete name arities
+
+statementContainsPartialApplication :: Map Text Int -> SurfaceStatement -> Bool
+statementContainsPartialApplication arities statement =
+  case statement of
+    SSLet _ _ body -> containsPartialApplication arities body
+    SSImpl _ _ _ methods ->
+      any (implMethodContainsPartialApplication arities) methods
+    SSExpr _ body -> containsPartialApplication arities body
+    _ -> False
+
+implMethodContainsPartialApplication :: Map Text Int -> SurfaceImplMethod -> Bool
+implMethodContainsPartialApplication arities (SurfaceImplMethod _ _ body) =
+  containsPartialApplication arities body
+
+caseArmContainsPartialApplication :: Map Text Int -> SurfaceCaseArm -> Bool
+caseArmContainsPartialApplication arities (SurfaceCaseArm patternValue guardExpr body) =
+  let armArities = removeBoundNames arities (patternBindings patternValue)
+   in maybe False (containsPartialApplication armArities) guardExpr
+        || containsPartialApplication armArities body
+
+patternLambdaClauseContainsPartialApplication ::
+  Map Text Int ->
+  SurfacePatternLambdaClause ->
+  Bool
+patternLambdaClauseContainsPartialApplication arities (SurfacePatternLambdaClause _ patterns body) =
+  containsPartialApplication
+    (removeBoundNames arities (Set.unions (map patternBindings (NonEmpty.toList patterns))))
+    body
+
+lambdaParameterBindings :: SurfaceLambdaParameter -> Set Text
+lambdaParameterBindings parameter =
+  case parameter of
+    SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
+    SurfaceLambdaPattern patternValue -> patternBindings patternValue
+
+patternBindings :: SurfacePattern -> Set Text
+patternBindings patternValue =
+  case patternValue of
+    SPVariable name -> Set.singleton (identifierText name)
+    SPConstructor _ arguments -> Set.unions (map patternBindings arguments)
+    SPList items -> Set.unions (map patternBindings items)
+    SPConsList headPattern tailPattern ->
+      patternBindings headPattern <> patternBindings tailPattern
+    SPTuple items -> Set.unions (map patternBindings items)
+    SPAs name nested ->
+      Set.insert (identifierText name) (patternBindings nested)
+    SPOr alternatives -> Set.unions (map patternBindings alternatives)
+    _ -> Set.empty
+
+removeBoundNames :: Map Text Int -> Set Text -> Map Text Int
+removeBoundNames = Set.foldr Map.delete
 
 inventoryStatement :: SurfaceStatement -> Set SurfaceFeature
 inventoryStatement statement =
