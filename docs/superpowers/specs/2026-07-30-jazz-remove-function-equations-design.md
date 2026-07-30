@@ -2,7 +2,13 @@
 
 ## Status
 
-Implemented on `2026-07-30`.
+Implemented on `2026-07-30`, then superseded in part on `2026-07-30`.
+
+The equation-removal boundary remains active, but this document's requirement
+that lambdas have only one body is superseded by
+[`2026-07-30-jazz-pattern-lambda-clauses-design.md`](2026-07-30-jazz-pattern-lambda-clauses-design.md).
+Jazz retains ordered multi-body function-head matching through the historical
+`\|` pattern-lambda clause syntax.
 
 The language boundary was approved by the user's clarification:
 
@@ -40,30 +46,23 @@ combine =
 
 Pattern-lambda parameters may contain multiple function parameters. Existing
 top-level or-pattern alternatives also remain, subject to their existing rule
-that every alternative binds the same names. Since a lambda has one body,
-alternatives with different bodies use an explicit `case`:
+that every alternative binds the same names. Ordered heads with different
+bodies use the `\|` clause-lambda syntax defined by the superseding design:
 
 ```jazz
 length =
-  \(items) ->
-    case items {
-      | [] -> 0
-      | [_ | rest] -> 1 + length rest
-    }.
+  \|([]) -> 0
+   |([_ | rest]) -> 1 + length rest.
 ```
 
-Multiple arguments can be matched independently in the lambda head when one
-body suffices, or as a tuple in `case` when alternatives need different bodies:
+Multiple arguments can be matched independently in every clause head:
 
 ```jazz
 zip =
-  \(left, right) ->
-    case (left, right) {
-      | ([], _) -> []
-      | (_, []) -> []
-      | ([leftHead | leftTail], [rightHead | rightTail]) ->
-          [(leftHead, rightHead) | zip leftTail rightTail]
-    }.
+  \|([], _) -> []
+   |(_, []) -> []
+   |([leftHead | leftTail], [rightHead | rightTail]) ->
+      [(leftHead, rightHead) | zip leftTail rightTail].
 ```
 
 Ordinary `case` expressions and all existing pattern forms remain unchanged.
@@ -84,9 +83,10 @@ Do not leave unreachable equation AST nodes as compatibility scaffolding. Jazz
 is pre-bootstrap and has no released source-compatibility requirement for this
 syntax.
 
-The existing `SurfaceLambdaPattern` path remains the sole function-head pattern
-surface. It continues lowering to ordinary lambdas and one-arm pattern cases,
-so no analyzer, inference, or runtime redesign is needed.
+The existing `SurfaceLambdaPattern` path remains active for ordinary
+single-body lambdas. The superseding clause-lambda design adds a distinct
+expression-level surface node and lowers it to ordinary lambdas around one
+ordered pattern case, so no analyzer, inference, or runtime redesign is needed.
 
 ## Source Migration
 
@@ -96,9 +96,9 @@ language:
 
 1. A single equation becomes an ordinary binding with a pattern lambda.
 2. Alternatives that share one body may use the existing lambda or-pattern.
-3. Alternatives with distinct bodies become an ordinary lambda plus `case`.
-4. Multiple equation arguments become lambda parameters; tuple matching is
-   used inside `case` when clause dispatch depends on several arguments.
+3. Alternatives with distinct bodies become one `\|` clause lambda.
+4. Multiple equation arguments become comma-separated parameters in every
+   clause head.
 5. Guards in equation clauses become existing `if` or `case` expressions.
 
 No source is migrated to identifier-only lambdas when a retained pattern-lambda
@@ -116,7 +116,7 @@ coverage for:
 - pattern-shaped lambda parameters;
 - multiple lambda parameters;
 - top-level lambda or-pattern alternatives; and
-- explicit multi-arm `case` dispatch.
+- ordered multi-body pattern-lambda clauses.
 
 ## Verification
 
@@ -125,7 +125,7 @@ Tests must prove both sides of the boundary:
 - `name pattern = body.` is rejected as declaration syntax;
 - single and multiple pattern-lambda parameters still parse and run;
 - top-level lambda or-pattern alternatives still parse and run;
-- different-body dispatch works through explicit `case`;
+- different-body dispatch works through ordered `\|` clauses;
 - hosted and Jazz-authored parser/core comparisons remain exact; and
 - the complete authored `.jz` corpus parses, compiles, and passes its existing
   semantic and benchmark expectations.
@@ -137,7 +137,7 @@ production paths and migrate the corpus.
 ## Out of Scope
 
 - Changing `if`, `case`, lambda, or pattern semantics.
-- Adding guards, `where` clauses, pattern synonyms, or a replacement
+- Adding guards, `where` clauses, pattern synonyms, or a replacement named
   multi-clause declaration form.
 - Modifying the read-only `jazz-hs/` or `jazz2/` implementations.
 - Advancing typed-core, backend, or bootstrap milestones.
