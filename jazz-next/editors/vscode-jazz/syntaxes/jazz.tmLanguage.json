@@ -82,6 +82,7 @@
           }
         },
         {"include": "#comments"},
+        {"include": "#keywords"},
         {"include": "#builtins"},
         {"include": "#types"},
         {"include": "#punctuation"}

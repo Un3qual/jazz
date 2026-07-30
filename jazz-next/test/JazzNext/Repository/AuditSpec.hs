@@ -531,6 +531,11 @@ testEditorPackageMetadata =
             []
             jsonArray
             (jsonPath ["repository", "data-declarations", "patterns"] grammar)
+        dataDeclarationIncludes =
+          [ includeName
+          | patternValue <- dataDeclarationPatterns,
+            Just (String includeName) <- [jsonPath ["include"] patternValue]
+          ]
         constructorPattern = firstValue dataDeclarationPatterns
         keywordPatterns =
           maybe
@@ -593,6 +598,10 @@ testEditorPackageMetadata =
       "data declarations have a contextual grammar rule"
       True
       ("#data-declarations" `elem` rootGrammarIncludes)
+    assertEqual
+      "data declarations retain global reserved-keyword highlighting"
+      True
+      ("#keywords" `elem` dataDeclarationIncludes)
     assertEqual
       "data constructors have a distinct grammar scope"
       (Just (String "entity.name.function.constructor.jazz"))

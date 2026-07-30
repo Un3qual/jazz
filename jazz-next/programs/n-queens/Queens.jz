@@ -1,4 +1,4 @@
-module Queens (value solutionCount) {
+module Queens (value solutionCount, value solutionProfile) {
   import List.
 
   absolute =
@@ -33,8 +33,7 @@ module Queens (value solutionCount) {
         listMap
           (\(column) ->
             if safe column 1 placed then
-              listMap (listPrepend column) $
-                place upper (remaining - 1) (listPrepend column placed)
+              place upper (remaining - 1) (listPrepend column placed)
             else
               [])
           (integerRange 1 upper).
@@ -42,4 +41,15 @@ module Queens (value solutionCount) {
   solutionCount =
     \(size) ->
       listLength $ place size size [].
+
+  placedQueenCount =
+    listFoldLeft
+      (\(total, placement) -> total + listLength placement)
+      0.
+
+  solutionProfile =
+    \(size) ->
+      case place size size [] {
+        | placements -> (listLength placements, placedQueenCount placements)
+      }.
 }

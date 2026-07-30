@@ -49,7 +49,7 @@ reviewers and benchmark users a quick map from its durable IDs to their intent.
 | `identifier-classifier` | `fast` | Classifies realistic identifier text using recursion, patterns, lists, and bundled text/character utilities. |
 | `merge-sort` | `full` | Stably split/merges 128 deterministic values and reports length, extrema, and a weighted checksum. |
 | `mini-frontend` | `full` | Runs token classification, expression analysis, and evaluation across a production-shaped module graph. |
-| `n-queens` | `full` | Counts all 92 eight-queen solutions using backtracking, equation-head patterns, closures, and persistent lists. |
+| `n-queens` | `full` | Reports all 92 eight-queen solutions and 736 placed queens using backtracking, pattern-lambda clauses, closures, and persistent lists. |
 | `prime-sieve` | `full` | Finds the 303 primes through 2000 with recursive filtering and reports count, last prime, and sum. |
 | `queue-traversal` | `fast` | Performs a breadth-first traversal with the persistent FIFO `Queue`. |
 | `sorted-index` | `fast` | Builds a persistent AVL `Map` and `Set`, then traverses their ascending views across a module boundary. |

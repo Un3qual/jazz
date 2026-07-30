@@ -253,7 +253,7 @@ opaque balanced parenthesized/bracketed group. This causes:
   types; and
 - generic constructor inference to rely on incomplete metadata.
 
-### Canonical syntax
+### Canonical constructor syntax
 
 Constructor applications remain ordinary whitespace applications:
 

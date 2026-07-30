@@ -3,7 +3,6 @@
 > **Superseded in part on 2026-07-30:** Tasks and claims for function equations
 > are historical. The active surface retains pattern-lambda function heads and
 > explicit `case`; see `2026-07-30-jazz-remove-function-equations.md`.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reserve `value`, add structured constructor-field types, and add ordered function equations while keeping the Haskell stage-0 compiler and Jazz-authored lexer/parser/core exact mirrors.
@@ -47,6 +46,7 @@
 ### Task 1: Make `value` a Real Stage-0 Keyword
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Failure.hs`
@@ -56,6 +56,7 @@
 - Modify: `jazz-next/test/fixtures/lexer/keyword-operator-inventory.jz`
 
 **Interfaces:**
+
 - Produces: `TValue :: TokenKind`.
 - Produces: module exports accepting `TValue TIdentifier` as `ValueNamespace`.
 - Preserves: contextual `TIdentifier "type"`, `"constructor"`, and `"class"` export handling.
@@ -164,6 +165,7 @@ git commit -m "feat: reserve value in the stage-0 grammar"
 ### Task 2: Replace Opaque Constructor Fields with Structured Signature Types
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/AST.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs`
@@ -176,6 +178,7 @@ git commit -m "feat: reserve value in the stage-0 grammar"
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/DeclarationParserSpec.hs`
 
 **Interfaces:**
+
 - Produces: `SurfaceDataConstructor Identifier [SurfaceSignatureType]`.
 - Produces: `DataConstructor Name [SignatureType]`.
 - Consumes: `parseSignatureTypePrefixDetailed`.
@@ -284,6 +287,7 @@ git commit -m "feat: structure data constructor field types"
 ### Task 3: Build Complete Constructor Schemes and Runtime Hints
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Signature.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime/Types.hs`
@@ -296,6 +300,7 @@ git commit -m "feat: structure data constructor field types"
 - Modify: runtime observation and capability test modules that construct `DataConstructor` values
 
 **Interfaces:**
+
 - Consumes: `[SignatureType]` from each `DataConstructor`.
 - Produces: complete `ConstructorArgumentType` values through `signatureTypeToExpressionType`.
 - Produces: `VConstructor Name [Name] Name [SignatureType] [RuntimeValue]`.
@@ -387,6 +392,7 @@ git commit -m "feat: type structured constructor payloads"
 ### Task 4: Parse Ordered Function Equations and Grouped Head Patterns
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Pattern.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs`
@@ -395,6 +401,7 @@ git commit -m "feat: type structured constructor payloads"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Produces: `SurfaceFunctionClause SourceSpan [SurfacePattern] SurfaceExpr`.
 - Produces: `SSFunction Identifier SourceSpan (NonEmpty SurfaceFunctionClause)`.
 - Produces: `parseFunctionHeadPatternParser :: Parser SurfacePattern`.
@@ -488,6 +495,7 @@ git commit -m "feat: parse function equations"
 ### Task 5: Lower Function Equations into the Existing Core
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Name.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Force.hs`
@@ -497,6 +505,7 @@ git commit -m "feat: parse function equations"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Produces: `FunctionEquationArgument Int :: GeneratedNameKind`.
 - Produces: one `SLet` with curried `ELambda` values and one ordered `EPatternCase`.
 - Preserves: existing analyzer, inference, recursion, and runtime interfaces.
@@ -604,6 +613,7 @@ git commit -m "feat: lower function equations to canonical core"
 ### Task 6: Mirror the Lexer, Parser Values, and Core Lowering in Jazz
 
 **Files:**
+
 - Modify: `jazz-next/jazz/compiler/LexerTypes.jz`
 - Modify: `jazz-next/jazz/compiler/Lexer.jz`
 - Modify: `jazz-next/jazz/compiler/ParserTypes.jz`
@@ -617,6 +627,7 @@ git commit -m "feat: lower function equations to canonical core"
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalCoreComparison.hs`
 
 **Interfaces:**
+
 - Produces: `ValueKeyword`.
 - Produces: `SurfaceFunctionClause`, `FunctionStatement`, structured `[SurfaceSignatureType]` constructor fields.
 - Produces: `CoreFunctionEquationArgument Int`.
@@ -709,6 +720,7 @@ git commit -m "feat: mirror language quality syntax in Jazz"
 ### Task 7: Extend Hosted Parity, Failure, and Scale Coverage
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs`
@@ -718,6 +730,7 @@ git commit -m "feat: mirror language quality syntax in Jazz"
 - Modify: canonical comparison specs that enumerate every constructor name
 
 **Interfaces:**
+
 - Consumes: completed stage-0 and Jazz-authored implementations.
 - Produces: exact repeated parity for successful values, failures, spans, and generated-name identity.
 
@@ -788,9 +801,11 @@ git commit -m "test: close hosted language parity coverage"
 ### Task 8: Verify the Language Workstream Boundary
 
 **Files:**
+
 - Modify only files required by failures found in this verification task.
 
 **Interfaces:**
+
 - Produces: a green language/parity gate ready for the authored-source audit.
 
 - [ ] **Step 1: Prove obsolete representations and forbidden legacy edits are absent**

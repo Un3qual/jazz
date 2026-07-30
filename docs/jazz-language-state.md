@@ -42,14 +42,15 @@ private Haskell library behind the supported `jazz-next` CLI; these internal
 boundaries do not change Jazz syntax.
 
 Active `jazz-next` module headers accept optional explicit export allowlists.
-The contextual prefixes `value`, `constructor`, `type`, and `class` select one
-exact typed namespace; bare selectors retain the compatibility behavior of
-publishing every owned same-text entry. `type Box(..)` publishes the type and
-all of its owned constructors; `type Box(Pack, Empty)` publishes the type and
-only the selected owned constructors. The grouped forms expand into the same
-flat typed inventory used by the rest of the compiler. Omitting the list
-preserves export-all behavior, while `()` publishes nothing. Resolver dependencies, compiler
-imports, and runtime publication share the validated public typed inventory;
+The globally reserved `value` keyword and the contextual `constructor`, `type`,
+and `class` prefixes select one exact typed namespace; bare selectors retain
+the compatibility behavior of publishing every owned same-text entry.
+`type Box(..)` publishes the type and all of its owned constructors;
+`type Box(Pack, Empty)` publishes the type and only the selected owned
+constructors. The grouped forms expand into the same flat typed inventory used
+by the rest of the compiler. Omitting the list preserves export-all behavior,
+while `()` publishes nothing. Resolver dependencies, compiler imports, and
+runtime publication share the validated public typed inventory;
 unlisted owned declarations remain available inside the defining module for
 resolution, inference, and evaluation. Unknown, wrong-namespace, or
 imported-only header entries report `E4015`, and re-exports remain unsupported.
@@ -79,7 +80,7 @@ Host text I/O is available through ordinary explicit imports of `IO` and
 `IOError`; neither module is part of the bundled prelude. `IO` exports exactly
 `readText!`, `writeText!`, `readStdin!`, `writeStdout!`, `writeStderr!`,
 `arguments!`, and `exit!`. Recoverable file and stream operations return
-`Result(IOError, value)`. `IOError` records one of `NotFound`,
+`Result(IOError, a)`. `IOError` records one of `NotFound`,
 `PermissionDenied`, `AlreadyExists`, `InvalidData`, `ResourceExhausted`,
 `Interrupted`, `Unsupported`, or `Other`, an optional path used only by file
 operations, and a normalized message. Seven private kernel bridges cross a

@@ -151,8 +151,8 @@ Examples:
 
 ```jz
 flag = case n { | 0 -> True | _ -> False }.
-copy = case value { | item -> item }.
-maybeValue = case value { | Just item -> item | Nothing -> 0 }.
+copy = case input { | item -> item }.
+maybeValue = case input { | Just item -> item | Nothing -> 0 }.
 firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
 headPlusNext = case values { | [head | tail] -> head + hd tail | [] -> 0 }.
 sumPair = case pair { | (left, right) -> left + right }.
@@ -161,12 +161,12 @@ choose = \(Just item | Also item) -> item.
 chooseBody =
   \|(Nothing, fallback) -> fallback
    |(Just item, _) -> item.
-sameValue = case value { | whole @ Just item -> whole | _ -> value }.
-positive = case value {
+sameValue = case input { | whole @ Just item -> whole | _ -> input }.
+positive = case input {
   | Just item if item > 0 -> item
   | _ -> 0
 }.
-positiveAlt = case value {
+positiveAlt = case input {
   | Just item | Also item if item > 0 -> item
   | Nothing -> 0
 }.
@@ -228,7 +228,7 @@ Or-patterns are a single pattern form, not multiple arms or parameters. In
 case arms they stay inside one arm:
 
 ```jz
-case value {
+case input {
   | Just item | Also item if item > 0 -> item
   | Nothing -> 0
 }
@@ -288,7 +288,7 @@ Pattern guards are not a new pattern node; they are optional boolean
 expressions attached to a case arm after the pattern and before `->`:
 
 ```jz
-case value {
+case input {
   | Just item if item > 0 -> item
   | _ -> 0
 }

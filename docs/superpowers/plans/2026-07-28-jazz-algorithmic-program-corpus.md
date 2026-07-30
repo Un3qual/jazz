@@ -3,7 +3,6 @@
 > **Superseded in part on 2026-07-30:** The workloads remain active, but their
 > function equations were migrated to pattern lambdas and explicit `case`.
 > See `2026-07-30-jazz-remove-function-equations.md`.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add six deterministic, computationally substantial Jazz programs that exercise functional algorithms and produce useful benchmark, statistics, and semantic-profile evidence.
@@ -42,11 +41,13 @@
 ### Task 1: Extend Corpus Validation for Full Algorithmic Profiles
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/ProgramCorpus/ProgramCorpusSpec.hs`
 - Modify: `jazz-next/program-support/JazzNext/ProgramCorpus/Types.hs` only if exact algorithm tags are added
 - Modify: `jazz-next/program-support/JazzNext/ProgramCorpus/Manifest.hs` only if the schema vocabulary changes
 
 **Interfaces:**
+
 - Produces: a required case-id set for the six algorithms.
 - Produces: reusable `assertDeterministicCaseObservation`.
 - Produces: reusable `assertBalancedNontrivialProfile`.
@@ -106,12 +107,14 @@ git commit -m "test: validate algorithmic corpus profiles"
 ### Task 2: Add `n-queens`
 
 **Files:**
+
 - Create: `jazz-next/programs/n-queens/Queens.jz`
 - Create: `jazz-next/programs/n-queens/Main.jz`
 - Create: `jazz-next/programs/n-queens/expected.stdout`
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Produces: `solutionCount :: Int -> Int`.
 - Expected stdout: `92\n` for the eight-queen problem.
 
@@ -191,12 +194,14 @@ git commit -m "feat: add n-queens corpus workload"
 ### Task 3: Add `merge-sort`
 
 **Files:**
+
 - Create: `jazz-next/programs/merge-sort/MergeSort.jz`
 - Create: `jazz-next/programs/merge-sort/Main.jz`
 - Create: `jazz-next/programs/merge-sort/expected.stdout`
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Produces: `mergeSort :: [Int] -> [Int]`.
 - Produces: deterministic checksum over a fixed list with duplicates.
 
@@ -260,12 +265,14 @@ git commit -m "feat: add merge-sort corpus workload"
 ### Task 4: Add `prime-sieve`
 
 **Files:**
+
 - Create: `jazz-next/programs/prime-sieve/Sieve.jz`
 - Create: `jazz-next/programs/prime-sieve/Main.jz`
 - Create: `jazz-next/programs/prime-sieve/expected.stdout`
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Produces: `primesThrough :: Int -> [Int]`.
 - Expected stdout: count, largest prime, and sum for a fixed bound.
 
@@ -308,6 +315,7 @@ git commit -m "feat: add prime-sieve corpus workload"
 ### Task 5: Add `fannkuch` and `tak`
 
 **Files:**
+
 - Create: `jazz-next/programs/fannkuch/Fannkuch.jz`
 - Create: `jazz-next/programs/fannkuch/Main.jz`
 - Create: `jazz-next/programs/fannkuch/expected.stdout`
@@ -317,6 +325,7 @@ git commit -m "feat: add prime-sieve corpus workload"
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Produces: `fannkuch :: Int -> Int` returning maximum flips.
 - Produces: `tak :: Int -> Int -> Int -> Int`.
 
@@ -365,12 +374,14 @@ git commit -m "feat: add Takeuchi corpus workload"
 ### Task 6: Add `symbolic-differentiation`
 
 **Files:**
+
 - Create: `jazz-next/programs/symbolic-differentiation/Expression.jz`
 - Create: `jazz-next/programs/symbolic-differentiation/Main.jz`
 - Create: `jazz-next/programs/symbolic-differentiation/expected.stdout`
 - Modify: `jazz-next/programs/corpus.json`
 
 **Interfaces:**
+
 - Produces: structured recursive expression ADT.
 - Produces: `differentiate :: Text -> Expression -> Expression`.
 - Produces: `simplify :: Expression -> Expression`.
@@ -423,6 +434,7 @@ git commit -m "feat: add symbolic differentiation workload"
 ### Task 7: Close Manifest, Documentation, and Benchmark Registration
 
 **Files:**
+
 - Modify: `jazz-next/programs/corpus.json`
 - Modify: `jazz-next/programs/README.md`
 - Modify: `jazz-next/PERFORMANCE.md`
@@ -430,6 +442,7 @@ git commit -m "feat: add symbolic differentiation workload"
 - Modify: `jazz-next/test/JazzNext/Benchmark/MetadataSpec.hs` or `StageSpec.hs` only if existing closed case inventories require it
 
 **Interfaces:**
+
 - Produces: complete lexical manifest with measured budgets.
 - Produces: documented algorithm intent and expected performance shape.
 - Restores: unconditional required six-case assertion from Task 1.
@@ -495,9 +508,11 @@ git commit -m "docs: register algorithmic performance workloads"
 ### Task 8: Run the Combined Pre-Bootstrap Quality Gate
 
 **Files:**
+
 - Modify only files required by failures found in this verification task.
 
 **Interfaces:**
+
 - Produces: the complete green gate required before typed-core/bootstrap feature progression resumes.
 
 - [ ] **Step 1: Run every new case twice and compare complete observations**

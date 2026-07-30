@@ -500,7 +500,6 @@
       "workload": "full",
       "features": [
         "modules",
-        "generic-adts",
         "patterns",
         "recursion",
         "inference",

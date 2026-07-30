@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Exception (bracket)
-import Control.Monad (forM, forM_, unless)
+import Control.Monad (forM, forM_, unless, when)
 import Data.List (sort, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -37,7 +37,7 @@ import JazzNext.ProgramCorpus.Runner
   )
 import JazzNext.ProgramCorpus.Types
   ( BenchmarkGroup,
-    FeatureTag,
+    FeatureTag (..),
     ProgramBudgetMetric (..),
     ProgramBudgetViolation (..),
     ProgramBudgets (..),
@@ -380,6 +380,11 @@ testAlgorithmicWorkloads = do
       (identifier <> " benchmark groups")
       (Set.fromList ([minBound .. maxBound] :: [BenchmarkGroup]))
       (Set.fromList (programCaseBenchmarks programCase))
+    when (identifier == "symbolic-differentiation") $
+      assertEqual
+        "symbolic differentiation does not claim generic ADT coverage"
+        False
+        (GenericAdtsFeature `elem` programCaseFeatures programCase)
 
 algorithmicCaseIdentifiers :: [Text]
 algorithmicCaseIdentifiers =

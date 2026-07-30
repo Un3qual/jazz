@@ -1,5 +1,5 @@
 module Main {
   import Queens.
 
-  solutionCount 8.
+  solutionProfile 8.
 }

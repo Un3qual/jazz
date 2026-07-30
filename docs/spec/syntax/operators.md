@@ -341,13 +341,13 @@ operator %% precedence 0. // precedence outside 1-99
 operator %% precedence 100. // precedence outside 1-99
 operator %% tier 2 sideways. // invalid associativity keyword
 operator ?> precedence 10 nonassoc.
-value = 1 ?> 2 ?> 3.      // non-associative chain needs parentheses
+chain = 1 ?> 2 ?> 3.      // non-associative chain needs parentheses
 ```
 
 Using a user operator before its declaration is invalid:
 
 ```jz
-value = a %% b.
+result = a %% b.
 operator %% tier 2.
 ```
 

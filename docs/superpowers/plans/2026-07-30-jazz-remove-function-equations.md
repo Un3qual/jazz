@@ -6,7 +6,6 @@
 > [`2026-07-30-jazz-pattern-lambda-clauses.md`](2026-07-30-jazz-pattern-lambda-clauses.md).
 > Named equations remain removed; ordered multi-body dispatch now uses the
 > expression-level `\|` clause form.
-
 > **For agentic workers:** Execute each task with red-green TDD and commit
 > coherent milestones. Do not modify `jazz-hs/` or `jazz2/`.
 

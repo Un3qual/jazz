@@ -3,7 +3,6 @@
 > **Superseded in part on 2026-07-30:** Function-equation migrations in this
 > historical plan were reversed. Authored Jazz now uses pattern lambdas and
 > explicit `case`; see `2026-07-30-jazz-remove-function-equations.md`.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every shipped `.jz` source use the best applicable implemented Jazz syntax, enforce readable data declarations, fix `value` highlighting, and prove aggregate surface-feature coverage.
@@ -110,11 +109,13 @@
 ### Task 1: Discover the Complete Authored Source Set
 
 **Files:**
+
 - Create: `jazz-next/test/JazzNext/Repository/AuthoredSources.hs`
 - Modify: `jazz-next/test/JazzNext/Repository/AuditSpec.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Produces: `AuthoredSourceRole`.
 - Produces: `AuthoredSource { authoredRelativePath, authoredRole, authoredText, authoredSurface }`.
 - Produces: `readAuthoredSources :: FilePath -> IO [AuthoredSource]`.
@@ -172,10 +173,12 @@ git commit -m "test: inventory all authored Jazz sources"
 ### Task 2: Enforce Multiline Data Declaration Formatting
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Repository/JazzSourceFormat.hs`
 - Modify: `jazz-next/test/JazzNext/Repository/AuditSpec.hs`
 
 **Interfaces:**
+
 - Produces: `OverlongDataDeclarationLine FilePath Int Int`.
 - Produces: `InvalidDataContinuationIndent FilePath Int`.
 - Consumes: valid, parsed authored source text; malformed syntax fixtures remain outside this audit.
@@ -208,7 +211,7 @@ Run the repository-audit command from Task 1. Expected: FAIL in the new assertio
 
 - [ ] **Step 3: Track data-declaration regions and enforce width/indentation**
 
-Implement a line scanner that enters a declaration on a trimmed line starting with `data ` and exits at the terminating `.` outside comments/text. Within that region:
+Implement a line scanner that enters a declaration on a trimmed line starting with `data` and exits at the terminating `.` outside comments/text. Within that region:
 
 - reject physical lines longer than 100 Unicode scalar columns;
 - require `=` and `|` constructor lines at the declaration's body indentation;
@@ -230,12 +233,14 @@ git commit -m "test: enforce Jazz data declaration layout"
 ### Task 3: Correct TextMate Export and Reserved-Keyword Scopes
 
 **Files:**
+
 - Modify: `jazz-next/editors/vscode-jazz/syntaxes/jazz.tmLanguage.json`
 - Modify: `jazz-next/editors/vscode-jazz/fixtures/representative.jz`
 - Create: `jazz-next/editors/vscode-jazz/fixtures/reserved-keyword-highlighting.jz.txt`
 - Modify: `jazz-next/test/JazzNext/Repository/AuditSpec.hs`
 
 **Interfaces:**
+
 - Produces: `value` with `keyword.other.reserved.jazz` globally.
 - Produces: `value`, `type`, `constructor`, and `class` with `storage.modifier.export.jazz` only inside a module export-list region.
 
@@ -289,11 +294,13 @@ git commit -m "fix: scope reserved value highlighting"
 ### Task 4: Migrate Reserved Names and Canonical Data Syntax
 
 **Files:**
+
 - Modify: all ledger `.jz` files containing ordinary `value` identifiers
 - Modify: all ledger `.jz` files containing opaque/redundantly grouped constructor field types
 - Modify: all ledger `.jz` files reported by the data-format audit
 
 **Interfaces:**
+
 - Consumes: globally reserved `value` and structured `Type(arguments)` grammar.
 - Produces: semantically named identifiers and canonical constructor declarations.
 
@@ -376,10 +383,12 @@ git commit -m "refactor: migrate authored Jazz syntax"
 ### Task 5: Convert Dispatch Lambdas into Function Equations
 
 **Files:**
+
 - Modify: applicable ledger `.jz` files in stdlib, compiler, programs, and editor fixture
 - Modify: expected outputs only if a discovered existing output was accidentally dependent on formatting text
 
 **Interfaces:**
+
 - Consumes: function equations and grouped head patterns.
 - Preserves: exact program stdout and hosted comparison results.
 
@@ -453,10 +462,12 @@ git commit -m "refactor: dogfood function equations"
 ### Task 6: Apply the Remaining Idiomatic Jazz Features
 
 **Files:**
+
 - Modify: applicable ledger `.jz` files
 - Modify: `jazz-next/programs/corpus.json` budgets only when deterministic semantic counts legitimately change
 
 **Interfaces:**
+
 - Consumes: `$`, compact lambdas, sections, operator values, explicit type application, all pattern families, Prelude/stdlib APIs.
 - Preserves: observable output and algorithms.
 
@@ -513,12 +524,14 @@ git commit -m "refactor: use idiomatic Jazz features"
 ### Task 7: Add the Aggregate AST Feature Inventory
 
 **Files:**
+
 - Create: `jazz-next/test/JazzNext/Repository/FeatureInventory.hs`
 - Modify: `jazz-next/test/JazzNext/Repository/AuditSpec.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 - Modify: authored `.jz` sources only if the inventory reveals a genuine uncovered, applicable feature
 
 **Interfaces:**
+
 - Produces: closed `SurfaceFeature`.
 - Produces: `inventorySurface :: Text -> SurfaceExpr -> Set SurfaceFeature`.
 - Produces: `requiredAuthoredFeatures :: Set SurfaceFeature`.
@@ -648,9 +661,11 @@ git commit -m "test: enforce authored Jazz feature coverage"
 ### Task 8: Verify the Authored-Source and Editor Workstream
 
 **Files:**
+
 - Modify only files required by failures found in this verification task.
 
 **Interfaces:**
+
 - Produces: a green authored-source/editor gate for algorithmic corpus work.
 
 - [ ] **Step 1: Run the naming, formatting, and legacy-scope audits**

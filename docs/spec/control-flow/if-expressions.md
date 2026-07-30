@@ -82,7 +82,7 @@ require a second runtime conditional primitive.
 ## Valid Examples
 
 ```jz
-if isReady then value else fallback
+if isReady then readyResult else fallback
 ```
 
 ```jz
