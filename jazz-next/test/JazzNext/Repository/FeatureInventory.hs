@@ -32,6 +32,7 @@ data SurfaceFeature
   | OrdinaryBindingFeature
   | CompactLambdaFeature
   | PatternLambdaFeature
+  | PatternLambdaClausesFeature
   | MultiParameterLambdaFeature
   | LambdaOrPatternFeature
   | MultiArmCaseFeature
@@ -121,6 +122,19 @@ inventoryExpr expression =
             )
             <> Set.unions
               (inventoryExpr body : map inventoryLambdaParameter parameterList)
+    SEPatternLambda clauses ->
+      let clauseList = NonEmpty.toList clauses
+          SurfacePatternLambdaClause _ firstPatterns _ = NonEmpty.head clauses
+          patternList = concatMap clausePatterns clauseList
+       in Set.fromList
+            ( [ CompactLambdaFeature,
+                PatternLambdaFeature,
+                PatternLambdaClausesFeature
+              ]
+                <> [MultiParameterLambdaFeature | NonEmpty.length firstPatterns > 1]
+                <> [LambdaOrPatternFeature | any patternIsOrPattern patternList]
+            )
+            <> Set.unions (map inventoryPatternLambdaClause clauseList)
     SEOperatorValue _ -> Set.singleton OperatorValueFeature
     SEList items ->
       Set.insert ListFeature (Set.unions (map inventoryExpr items))
@@ -175,6 +189,14 @@ inventoryExpr expression =
     lambdaParameterIsOrPattern parameter =
       case parameter of
         SurfaceLambdaPattern (SPOr _) -> True
+        _ -> False
+
+    clausePatterns (SurfacePatternLambdaClause _ patterns _) =
+      NonEmpty.toList patterns
+
+    patternIsOrPattern patternValue =
+      case patternValue of
+        SPOr _ -> True
         _ -> False
 
 inventoryStatement :: SurfaceStatement -> Set SurfaceFeature
@@ -232,6 +254,10 @@ inventoryCaseArm (SurfaceCaseArm patternValue guardExpr body) =
   inventoryPattern patternValue
     <> maybe Set.empty inventoryExpr guardExpr
     <> inventoryExpr body
+
+inventoryPatternLambdaClause :: SurfacePatternLambdaClause -> Set SurfaceFeature
+inventoryPatternLambdaClause (SurfacePatternLambdaClause _ patterns body) =
+  Set.unions (inventoryExpr body : map inventoryPattern (NonEmpty.toList patterns))
 
 inventoryPattern :: SurfacePattern -> Set SurfaceFeature
 inventoryPattern patternValue =

@@ -59,8 +59,11 @@ module ParserTypes (
 
   data SurfaceLambdaParameter = IdentifierParameter Text | PatternParameter SurfacePattern.
 
-  data SurfacePatternLambdaClause =
-    SurfacePatternLambdaClause CanonicalSpan NonEmpty(SurfacePattern) SurfaceExpr.
+  data SurfacePatternLambdaClause
+    = SurfacePatternLambdaClause
+      CanonicalSpan
+      NonEmpty(SurfacePattern)
+      SurfaceExpr.
 
   data SurfaceDataConstructor = SurfaceDataConstructor Text [SurfaceSignatureType].
 

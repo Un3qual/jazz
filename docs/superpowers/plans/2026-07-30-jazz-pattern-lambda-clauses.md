@@ -488,7 +488,7 @@ git commit -m "feat: mirror pattern lambda clauses in Jazz"
 - Produces: `PatternLambdaClausesFeature` repository inventory coverage and a
   representative editor fixture using `\|`.
 
-- [ ] **Step 1: Add repository/editor failures first**
+- [x] **Step 1: Add repository/editor failures first**
 
 Add `PatternLambdaClausesFeature` to `SurfaceFeature`.
 
@@ -501,7 +501,7 @@ Add the feature to the required authored-source coverage set and add
 Add an editor grammar assertion that the `\|` introducer is recognized as
 lambda punctuation rather than only as an ordinary pipe operator.
 
-- [ ] **Step 2: Run RED repository tests**
+- [x] **Step 2: Run RED repository tests**
 
 Run:
 
@@ -515,7 +515,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 Expected: FAIL because no authored source or editor fixture yet demonstrates
 the new feature and the grammar does not scope the combined introducer.
 
-- [ ] **Step 3: Migrate the mistaken equation-removal rewrites**
+- [x] **Step 3: Migrate the mistaken equation-removal rewrites**
 
 Convert functions in the five algorithm modules whose complete body is direct
 dispatch over all lambda parameters:
@@ -549,7 +549,7 @@ second pattern head exists. Do not add syntax merely to satisfy inventory.
 Do not broadly rewrite pre-existing compiler/stdlib `case` expressions that
 were not introduced by the mistaken equation migration.
 
-- [ ] **Step 4: Update the editor fixture and grammar**
+- [x] **Step 4: Update the editor fixture and grammar**
 
 Add a formatted representative form:
 
@@ -564,14 +564,14 @@ operator matchers in `jazz.tmLanguage.json`, with the established lambda scope.
 Keep standalone `|` highlighted as an operator/pattern delimiter according to
 its surrounding repository rule.
 
-- [ ] **Step 5: Run GREEN repository tests**
+- [x] **Step 5: Run GREEN repository tests**
 
 Run the same command from Step 2.
 
 Expected: PASS for feature coverage, editor validation, every program output,
 and benchmark manifest expectations.
 
-- [ ] **Step 6: Audit all authored syntax**
+- [x] **Step 6: Audit all authored syntax**
 
 Run:
 
@@ -588,7 +588,7 @@ Expected: no named Haskell-style equations.
 Review all new `\|` forms for consistent line breaks, `$` use, and the authored
 source-format policy.
 
-- [ ] **Step 7: Commit authored sources and editor support**
+- [x] **Step 7: Commit authored sources and editor support**
 
 ```bash
 git add jazz-next/programs \

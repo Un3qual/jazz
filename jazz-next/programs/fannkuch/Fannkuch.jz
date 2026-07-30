@@ -9,51 +9,39 @@ module Fannkuch (value maximumFlips) {
         listPrepend current $ integerRangeFrom (current + 1) upper.
 
   insertionsFrom =
-    \(item, reversedPrefix, remainingItems) ->
-      case remainingItems {
-        | [] ->
-          [listAppend (listReverse reversedPrefix) [item]]
-        | remaining@[first | rest] ->
-          listPrepend
-            (listAppend (listReverse reversedPrefix) (listPrepend item remaining)) $
-            insertionsFrom item (listPrepend first reversedPrefix) rest
-      }.
+    \|(item, reversedPrefix, []) ->
+      [listAppend (listReverse reversedPrefix) [item]]
+     |(item, reversedPrefix, remaining@[first | rest]) ->
+      listPrepend
+        (listAppend (listReverse reversedPrefix) (listPrepend item remaining)) $
+        insertionsFrom item (listPrepend first reversedPrefix) rest.
 
   insertEverywhere =
     \(item, items) ->
       insertionsFrom item [] items.
 
   permutations =
-    \(items) ->
-      case items {
-        | [] -> [[]]
-        | [first | rest] ->
-          listConcat $ listMap (insertEverywhere first) $ permutations rest
-      }.
+    \|([]) -> [[]]
+     |([first | rest]) ->
+      listConcat $ listMap (insertEverywhere first) $ permutations rest.
 
   reversePrefix =
     \(count, items) ->
       listAppend (listReverse (listTake count items)) (listDrop count items).
 
   flipCountFrom =
-    \(permutation, count) ->
-      case permutation {
-        | [1 | _] -> count
-        | permutationValue@[first | _] ->
-          flipCountFrom (reversePrefix first permutationValue) (count + 1)
-      }.
+    \|([1 | _], count) -> count
+     |(permutationValue@[first | _], count) ->
+      flipCountFrom (reversePrefix first permutationValue) (count + 1).
 
   flipCount =
     \(permutation) ->
       flipCountFrom permutation 0.
 
   maximumFrom =
-    \(current, items) ->
-      case items {
-        | [] -> current
-        | [item | rest] ->
-          maximumFrom (if item > current then item else current) rest
-      }.
+    \|(current, []) -> current
+     |(current, [item | rest]) ->
+      maximumFrom (if item > current then item else current) rest.
 
   maximumFlips =
     \(size) ->

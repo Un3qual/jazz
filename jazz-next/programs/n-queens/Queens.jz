@@ -6,17 +6,14 @@ module Queens (value solutionCount) {
       if number < 0 then 0 - number else number.
 
   safe =
-    \(column, distance, placedColumns) ->
-      case placedColumns {
-        | [] -> True
-        | [placed | rest] ->
-          if column == placed then
-            False
-          else if absolute (column - placed) == distance then
-            False
-          else
-            safe column (distance + 1) rest
-      }.
+    \|(column, distance, []) -> True
+     |(column, distance, [placed | rest]) ->
+      if column == placed then
+        False
+      else if absolute (column - placed) == distance then
+        False
+      else
+        safe column (distance + 1) rest.
 
   integerRangeFrom =
     \(current, upper) ->
@@ -30,20 +27,17 @@ module Queens (value solutionCount) {
       integerRangeFrom lower upper.
 
   place =
-    \(upper, remaining, placed) ->
-      case remaining {
-        | 0 -> [placed]
-        | _ ->
-          listConcat $
-            listMap
-              (\(column) ->
-                if safe column 1 placed then
-                  listMap (listPrepend column) $
-                    place upper (remaining - 1) (listPrepend column placed)
-                else
-                  [])
-              (integerRange 1 upper)
-      }.
+    \|(upper, 0, placed) -> [placed]
+     |(upper, remaining, placed) ->
+      listConcat $
+        listMap
+          (\(column) ->
+            if safe column 1 placed then
+              listMap (listPrepend column) $
+                place upper (remaining - 1) (listPrepend column placed)
+            else
+              [])
+          (integerRange 1 upper).
 
   solutionCount =
     \(size) ->

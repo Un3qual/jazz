@@ -560,6 +560,12 @@ testEditorPackageMetadata =
             (jsonPath ["repository", "operators", "patterns"] grammar)
         operatorPattern = firstValue operatorPatterns
         operatorMatch = operatorPattern >>= jsonPath ["match"]
+        lambdaPatterns =
+          maybe
+            []
+            jsonArray
+            (jsonPath ["repository", "lambdas", "patterns"] grammar)
+        patternLambdaIntroducer = firstValue lambdaPatterns
     assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
     assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
     assertEqual
@@ -625,6 +631,14 @@ testEditorPackageMetadata =
           Just (String patternText) -> ":=@!]" `Text.isInfixOf` patternText
           _ -> False
       )
+    assertEqual
+      "pattern lambda introducer has the lambda scope"
+      (Just (String "keyword.operator.lambda.jazz"))
+      (patternLambdaIntroducer >>= jsonPath ["name"])
+    assertEqual
+      "pattern lambda introducer is matched before standalone operators"
+      (Just (String "\\\\\\|"))
+      (patternLambdaIntroducer >>= jsonPath ["match"])
 
 testEditorFixtureParses :: IO ()
 testEditorFixtureParses =
@@ -669,6 +683,7 @@ requiredEditorSyntax =
     ("capability requirement", "@{"),
     ("type signature", "::"),
     ("lambda", "\\("),
+    ("pattern lambda clauses", "\\|("),
     ("function arrow", "->"),
     ("case expression", "case"),
     ("conditional", "if"),

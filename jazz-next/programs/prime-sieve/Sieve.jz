@@ -13,20 +13,14 @@ module Sieve (value primeSummary) {
       if number < divisor then number else remainder (number - divisor) divisor.
 
   sieve =
-    \(items) ->
-      case items {
-        | [] -> []
-        | [prime | rest] ->
-          listPrepend prime $
-            sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest
-      }.
+    \|([]) -> []
+     |([prime | rest]) ->
+      listPrepend prime $
+        sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest.
 
   lastItem =
-    \(items) ->
-      case items {
-        | [item] -> item
-        | [_ | rest] -> lastItem rest
-      }.
+    \|([item]) -> item
+     |([_ | rest]) -> lastItem rest.
 
   sumItems = listFoldLeft (+) 0.
 

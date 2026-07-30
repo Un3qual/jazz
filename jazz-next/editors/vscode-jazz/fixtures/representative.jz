@@ -18,6 +18,10 @@ module Editor::Representative (type Choice(Empty, Chosen), class Matches, value 
     \(Empty | Chosen _, fallback) ->
       fallback.
 
+  chooseValue =
+    \|(Empty, fallback) -> fallback
+     |(Chosen item, _) -> item.
+
   class Matches(a) {
     matches :: a -> a -> Bool.
   }.

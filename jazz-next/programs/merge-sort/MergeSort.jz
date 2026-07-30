@@ -2,38 +2,29 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
   import List.
 
   splitAlternating =
-    \(items) ->
-      case items {
-        | [] -> ([], [])
-        | [item] -> ([item], [])
-        | [left | [right | rest]] ->
-          case splitAlternating rest {
-            | (lefts, rights) ->
-              (listPrepend left lefts, listPrepend right rights)
-          }
+    \|([]) -> ([], [])
+     |([item]) -> ([item], [])
+     |([left | [right | rest]]) ->
+      case splitAlternating rest {
+        | (lefts, rights) ->
+          (listPrepend left lefts, listPrepend right rights)
       }.
 
   merge =
-    \(leftItems, rightItems) ->
-      case (leftItems, rightItems) {
-        | ([], rights) -> rights
-        | (lefts, []) -> lefts
-        | ([left | lefts], [right | rights]) ->
-          if left <= right then
-            listPrepend left $ merge lefts (listPrepend right rights)
-          else
-            listPrepend right $ merge (listPrepend left lefts) rights
-      }.
+    \|([], rights) -> rights
+     |(lefts, []) -> lefts
+     |([left | lefts], [right | rights]) ->
+      if left <= right then
+        listPrepend left $ merge lefts (listPrepend right rights)
+      else
+        listPrepend right $ merge (listPrepend left lefts) rights.
 
   mergeSort =
-    \(items) ->
-      case items {
-        | [] -> []
-        | [item] -> [item]
-        | other ->
-          case splitAlternating other {
-            | (lefts, rights) -> merge (mergeSort lefts) (mergeSort rights)
-          }
+    \|([]) -> []
+     |([item]) -> [item]
+     |(other) ->
+      case splitAlternating other {
+        | (lefts, rights) -> merge (mergeSort lefts) (mergeSort rights)
       }.
 
   remainder =
@@ -54,19 +45,13 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
   firstItem = \([item | _]) -> item.
 
   lastItem =
-    \(items) ->
-      case items {
-        | [item] -> item
-        | [_ | rest] -> lastItem rest
-      }.
+    \|([item]) -> item
+     |([_ | rest]) -> lastItem rest.
 
   weightedChecksumFrom =
-    \(index, items, total) ->
-      case items {
-        | [] -> total
-        | [item | rest] ->
-          weightedChecksumFrom (index + 1) rest (total + index * item)
-      }.
+    \|(index, [], total) -> total
+     |(index, [item | rest], total) ->
+      weightedChecksumFrom (index + 1) rest (total + index * item).
 
   mergeSortSummary =
     case mergeSort (generateFrom 1 128) {
