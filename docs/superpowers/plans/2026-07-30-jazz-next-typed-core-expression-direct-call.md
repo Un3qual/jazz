@@ -89,7 +89,7 @@ the Nix-pinned development environment.
   structural positions. Never use host paths, hashes, pointers, or map
   iteration order.
 - Use canonical implemented Jazz syntax in every source fixture. Function
-  values use pattern lambdas such as `increment = \value -> value + 1.` or
+  values use pattern lambdas such as `increment = \(value) -> value + 1.` or
   ordered `\|` clauses when multiple bodies are needed. Haskell-style function
   equations are forbidden.
 - Use `$` in the dedicated accepted fixture and exercise applicable canonical
@@ -269,7 +269,7 @@ dedicated `$` case:
 ```jazz
 module App::Main {
   increment :: Int -> Int.
-  increment = \value -> value + 1.
+  increment = \(value) -> value + 1.
 
   increment $ 41.
 }
@@ -279,9 +279,8 @@ A function that needs distinct pattern bodies uses the old multiple-body form,
 not function equations:
 
 ```jazz
-classify = \|
-  0 -> 0
-| value -> value + 1.
+classify = \|(0) -> 0
+  |(value) -> value + 1.
 ```
 
 The first profile does not accept that second example because literal-pattern
@@ -628,7 +627,7 @@ syntax rule for any future fixture support.
 
   ```jazz
   combine :: Int -> Int -> Int.
-  combine = \left -> \right -> left + right.
+  combine = \(left, right) -> left + right.
 
   combine 20 22.
   ```
