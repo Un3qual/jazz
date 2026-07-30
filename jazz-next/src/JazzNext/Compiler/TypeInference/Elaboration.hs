@@ -87,12 +87,11 @@ data TypedCoreProductionMode
   | ProduceTypedCoreExpressionDirectCall
   deriving (Eq, Show)
 
--- | The private result threaded by production-aware inference.  Existing
--- inference-only helpers construct this with no retained node or failures.
+-- | The private result threaded by production-aware inference. Existing
+-- inference-only helpers retain no provisional node.
 data InferredExpr = InferredExpr
   { inferredExpressionType :: Maybe ExpressionType,
-    inferredProvisionalExpr :: Maybe ProvisionalTypedExpr,
-    inferredProductionFailures :: [TypedCoreProductionFailure]
+    inferredProvisionalExpr :: Maybe ProvisionalTypedExpr
   }
   deriving (Eq, Show)
 
@@ -119,12 +118,15 @@ finalizeTypedCoreExpressionDirectCall ::
 finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (ProvisionalTypedScope provisionalScope) =
   case provisionalScope of
     ProvisionalScopeExpressions scopedExpressions ->
-      case traverse (uncurry finalizeStatement) (zip [0 ..] scopedExpressions) of
-        Left failure -> TypedCoreProductionUnsupported [failure]
-        Right typedStatements ->
-          case validateTypedProgram (typedProgram typedStatements) of
-            [] -> TypedCoreProductionSucceeded (typedProgram typedStatements)
-            failures -> TypedCoreProductionInvariantFailures failures
+      let finalizedStatements = map (uncurry finalizeStatement) (zip [0 ..] scopedExpressions)
+          productionFailures = concatMap fst finalizedStatements
+       in case productionFailures of
+            _ : _ -> TypedCoreProductionUnsupported productionFailures
+            [] ->
+              let typedStatements = map requireTypedStatement finalizedStatements
+               in case validateTypedProgram (typedProgram typedStatements) of
+                    [] -> TypedCoreProductionSucceeded (typedProgram typedStatements)
+                    failures -> TypedCoreProductionInvariantFailures failures
     ProvisionalUnsupportedExpression kind detail ->
       TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
     _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
@@ -139,27 +141,42 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement statementIndex (spanValue, expression) = do
-      typedExpression <- finalizeExpression statementIndex [] expression
-      Right (TypedExpressionStatement (typedSpan spanValue) typedExpression)
+    finalizeStatement statementIndex (spanValue, expression) =
+      let (failures, maybeTypedExpression) = finalizeExpression statementIndex [] expression
+       in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
 
     finalizeExpression statementIndex childPath expression =
       case expression of
         ProvisionalUnitExpression ->
-          Right (TypedTupleExpr unitInfo [])
-        ProvisionalLiteralExpression literal expressionType -> do
-          info <- scalarInfo statementIndex childPath expressionType
-          literalValue <- typedLiteral statementIndex childPath literal info
-          Right (TypedLiteralExpr info literalValue)
+          ([], Just (TypedTupleExpr unitInfo []))
+        ProvisionalLiteralExpression literal expressionType ->
+          case scalarInfo statementIndex childPath expressionType of
+            Left failure -> ([failure], Nothing)
+            Right info ->
+              case typedLiteral statementIndex childPath literal info of
+                Left failure -> ([failure], Nothing)
+                Right literalValue -> ([], Just (TypedLiteralExpr info literalValue))
         ProvisionalBinaryExpression operatorSymbol expressionType left right
-          | operatorSymbol `elem` admittedOperators -> do
-              info <- scalarInfo statementIndex childPath expressionType
-              leftExpression <- finalizeExpression statementIndex (childPath <> [0]) left
-              rightExpression <- finalizeExpression statementIndex (childPath <> [1]) right
-              Right (TypedBinaryExpr info (TypedBuiltinOperator operatorSymbol) leftExpression rightExpression)
-          | otherwise -> Left (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail)
-        ProvisionalScopeExpressions _ -> Left (failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail)
-        ProvisionalUnsupportedExpression kind detail -> Left (failureAt statementIndex childPath kind detail)
+          | operatorSymbol `elem` admittedOperators ->
+              let (operatorFailures, maybeInfo) =
+                    case scalarInfo statementIndex childPath expressionType of
+                      Left failure -> ([failure], Nothing)
+                      Right info -> ([], Just info)
+                  (leftFailures, maybeLeft) = finalizeExpression statementIndex (childPath <> [0]) left
+                  (rightFailures, maybeRight) = finalizeExpression statementIndex (childPath <> [1]) right
+                  failures = operatorFailures <> leftFailures <> rightFailures
+                  typedExpression =
+                    TypedBinaryExpr <$> maybeInfo <*> pure (TypedBuiltinOperator operatorSymbol) <*> maybeLeft <*> maybeRight
+               in (failures, if null failures then typedExpression else Nothing)
+          | otherwise ->
+              let (leftFailures, _) = finalizeExpression statementIndex (childPath <> [0]) left
+                  (rightFailures, _) = finalizeExpression statementIndex (childPath <> [1]) right
+               in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
+        ProvisionalScopeExpressions _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
+        ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
+
+    requireTypedStatement (_, Just typedStatement) = typedStatement
+    requireTypedStatement _ = error "profile failures must be handled before typed-core validation"
 
     scalarInfo statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of

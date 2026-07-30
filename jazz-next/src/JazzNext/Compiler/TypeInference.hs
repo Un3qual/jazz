@@ -480,7 +480,7 @@ inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
         InferenceOnly ->
           let (expressionType, finalState) =
                 inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
-           in (InferredExpr expressionType Nothing [], finalState)
+           in (InferredExpr expressionType Nothing, finalState)
         ProduceTypedCoreExpressionDirectCall ->
           inferScalarExprWithProduction builtinMode env state expr
 
@@ -498,10 +498,10 @@ inferScalarExprWithProduction builtinMode env state expr =
   case expr of
     ELit literal ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType) [], finalState)
+       in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType), finalState)
     ETuple [] ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (Just ProvisionalUnitExpression) [], finalState)
+       in (InferredExpr expressionType (Just ProvisionalUnitExpression), finalState)
     EBinary operatorSymbol leftExpr rightExpr
       | operatorSymbol `elem` scalarOperators ->
           let (leftResult, stateAfterLeft) = inferScalarExprWithProduction builtinMode env state leftExpr
@@ -516,7 +516,7 @@ inferScalarExprWithProduction builtinMode env state expr =
                 leftProvisional <- inferredProvisionalExpr leftResult
                 rightProvisional <- inferredProvisionalExpr rightResult
                 pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
-           in (InferredExpr expressionType provisionalExpr [], finalState)
+           in (InferredExpr expressionType provisionalExpr, finalState)
     EBinary {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
     EIf {} -> unsupported TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
     EPatternCase {} -> unsupported TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
@@ -536,7 +536,7 @@ inferScalarExprWithProduction builtinMode env state expr =
   where
     unsupported failureKind failureDetail =
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)) [], finalState)
+       in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)), finalState)
 
 scalarOperators :: [Text]
 scalarOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
@@ -564,7 +564,7 @@ inferRootScalarScope builtinMode env initialState statements =
           (\(spanValue, result) -> fmap (\provisional -> (spanValue, provisional)) (inferredProvisionalExpr result))
           results
    in
-    ( InferredExpr scopeType (ProvisionalScopeExpressions <$> provisionalExpressions) [],
+    ( InferredExpr scopeType (ProvisionalScopeExpressions <$> provisionalExpressions),
       finalState
     )
 

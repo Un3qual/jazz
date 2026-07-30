@@ -242,7 +242,7 @@ inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode 
         case (mode, statements) of
           (ProduceTypedCoreExpressionDirectCall, [SExpr _ (ETuple [])]) -> Just ProvisionalUnitExpression
           _ -> Nothing
-   in (InferredExpr scopeType provisionalExpr [], finalState)
+   in (InferredExpr scopeType provisionalExpr, finalState)
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =

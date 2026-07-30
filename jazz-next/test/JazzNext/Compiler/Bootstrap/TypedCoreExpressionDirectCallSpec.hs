@@ -86,16 +86,20 @@ testScalarProduction =
 testRejectedScalarProfile :: IO ()
 testRejectedScalarProfile =
   mapM_ assertRejected
-    [ ("text-value", TypedCoreManagedValueUnsupported, TypedCoreTextValueDetail),
-      ("list-value", TypedCoreStructuredValueUnsupported, TypedCoreListValueDetail),
-      ("non-unit-tuple", TypedCoreStructuredValueUnsupported, TypedCoreTupleValueDetail),
-      ("data-value", TypedCoreStructuredValueUnsupported, TypedCoreDataValueDetail),
-      ("conditional", TypedCoreControlFlowUnsupported, TypedCoreConditionalDetail),
-      ("pattern-case", TypedCorePatternCaseUnsupported, TypedCorePatternCaseDetail),
-      ("local-block-binding", TypedCoreNestedBlockUnsupported, TypedCoreLocalBlockDetail)
+    [ ( "text-value",
+        [ profileFailure 0 TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+          profileFailure 1 TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+        ]
+      ),
+      ("list-value", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
+      ("non-unit-tuple", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
+      ("data-value", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]),
+      ("conditional", [profileFailure 0 TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
+      ("pattern-case", [profileFailure 0 TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
+      ("local-block-binding", [profileFailure 0 TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail])
     ]
   where
-    assertRejected (name, failureKind, failureDetail) =
+    assertRejected (name, expectedFailures) =
       case filter ((== name) . fixtureName) rejectedScalarFixtures of
         [fixture] -> do
           firstRun <- produce fixture
@@ -103,7 +107,7 @@ testRejectedScalarProfile =
           assertEqual (name <> " repeatable rejection") firstRun secondRun
           assertEqual
             (name <> " production failure")
-            (TypedCoreProductionUnsupported [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) failureKind failureDetail])
+            (TypedCoreProductionUnsupported expectedFailures)
             firstRun
         _ -> failTest (name <> " rejected fixture is missing")
 
@@ -114,6 +118,12 @@ testRejectedScalarProfile =
           (fixtureInputs fixture)
           (fixtureSourcePath fixture)
           (fixtureModule fixture)
+
+    profileFailure statementIndex failureKind failureDetail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [])
+        failureKind
+        failureDetail
 
 testUnitProduction :: IO ()
 testUnitProduction =

@@ -159,7 +159,7 @@ orderingOperatorsFixture = scalarStatementsFixture "ordering-operators" [EBinary
 equalityOperatorsFixture = scalarStatementsFixture "equality-operators" [EBinary "==" (ELit (LInt 1)) (ELit (LInt 1)), EBinary "!=" (ELit (LInt 1)) (ELit (LInt 2))]
 
 textFixture, listFixture, nonUnitTupleFixture, dataFixture, conditionalFixture, patternCaseFixture, localBlockBindingFixture :: Fixture
-textFixture = scalarFixture "text-value" (ELit (LText "managed"))
+textFixture = scalarStatementsFixture "text-value" [ELit (LText "managed"), EList [ELit (LInt 1)]]
 listFixture = scalarFixture "list-value" (EList [ELit (LInt 1)])
 nonUnitTupleFixture = scalarFixture "non-unit-tuple" (ETuple [ELit (LInt 1), ELit (LInt 2)])
 dataFixture = scalarFixture "data-value" (EBlock [SData span1 (SourceName "Box") [] [DataConstructor (SourceName "Box") []], SExpr (SourceSpan 2 1) (EVar (SourceName "Box"))])
