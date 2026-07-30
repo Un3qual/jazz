@@ -82,6 +82,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternLambdaClause (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
@@ -156,6 +157,8 @@ forceSurfaceExpr expression =
     SELambda parameters body ->
       forceListWith forceSurfaceLambdaParameter (NonEmpty.toList parameters) `seq`
         forceSurfaceExpr body
+    SEPatternLambda clauses ->
+      forceListWith forceSurfacePatternLambdaClause (NonEmpty.toList clauses)
     SEOperatorValue operator -> operator `seq` ()
     SEList values -> forceListWith forceSurfaceExpr values
     SETuple values -> forceListWith forceSurfaceExpr values
@@ -188,6 +191,12 @@ forceSurfaceLambdaParameter parameter =
   case parameter of
     SurfaceLambdaIdentifier name -> name `seq` ()
     SurfaceLambdaPattern patternValue -> forceSurfacePattern patternValue
+
+forceSurfacePatternLambdaClause :: SurfacePatternLambdaClause -> ()
+forceSurfacePatternLambdaClause (SurfacePatternLambdaClause sourceSpan patterns body) =
+  forceSourceSpan sourceSpan `seq`
+    forceListWith forceSurfacePattern (NonEmpty.toList patterns) `seq`
+      forceSurfaceExpr body
 
 forceSurfacePattern :: SurfacePattern -> ()
 forceSurfacePattern patternValue =

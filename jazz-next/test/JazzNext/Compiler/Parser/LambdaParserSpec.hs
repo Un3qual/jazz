@@ -8,34 +8,35 @@ import JazzNext.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    Statement (..)
+    Statement (..),
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
-    generatedName
+    generatedName,
   )
 import JazzNext.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
-    SurfaceStatement (..)
+    SurfacePatternLambdaClause (..),
+    SurfaceStatement (..),
   )
 import JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftDiagnosticContains,
     assertRight,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -67,7 +68,15 @@ tests =
     ("lowering desugars or-pattern parameters through case nodes", testLowerDesugarsOrPatternParameterThroughCase),
     ("rejects grouped or-pattern lambda parameters", testRejectsGroupedOrPatternLambdaParameter),
     ("rejects lambda parameter or-pattern guards", testRejectsLambdaOrPatternParameterGuard),
-    ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter)
+    ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter),
+    ("accepts ordered pattern-lambda clauses", testAcceptsPatternLambdaClauses),
+    ("parses ordered pattern-lambda clauses structurally", testParsesPatternLambdaClausesStructurally),
+    ("lowers ordered pattern-lambda clauses to one case", testLowersPatternLambdaClausesToOneCase),
+    ("rejects pattern-lambda clause arity mismatch", testRejectsPatternLambdaClauseArityMismatch),
+    ("keeps pipe operators in pattern-lambda bodies", testKeepsPipeOperatorInPatternLambdaBody),
+    ("rejects pattern lambda without a head", testRejectsPatternLambdaWithoutHead),
+    ("rejects pattern lambda head without an arrow", testRejectsPatternLambdaHeadWithoutArrow),
+    ("rejects pattern lambda without a body", testRejectsPatternLambdaWithoutBody)
   ]
 
 testParsesSingleArgumentLambda :: IO ()
@@ -404,3 +413,109 @@ testRejectsKeywordLambdaParameter =
     "lambda keyword parameter"
     "expected identifier"
     (parseSurfaceProgram "f = \\(if) -> if.")
+
+testAcceptsPatternLambdaClauses :: IO ()
+testAcceptsPatternLambdaClauses =
+  assertRight
+    "multi-body pattern lambda"
+    ( parseSurfaceProgram
+        "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item."
+    )
+    (\_ -> pure ())
+
+testParsesPatternLambdaClausesStructurally :: IO ()
+testParsesPatternLambdaClausesStructurally =
+  assertEqual
+    "pattern-lambda surface AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "choose"
+                (SourceSpan 1 1)
+                ( SEPatternLambda
+                    ( SurfacePatternLambdaClause
+                        (SourceSpan 1 11)
+                        (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
+                        (SEVar "fallback")
+                        :| [ SurfacePatternLambdaClause
+                               (SourceSpan 1 44)
+                               (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
+                               (SEVar "item")
+                           ]
+                    )
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
+
+testLowersPatternLambdaClausesToOneCase :: IO ()
+testLowersPatternLambdaClausesToOneCase =
+  assertRight
+    "parse + lower pattern-lambda clauses"
+    (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
+    (\surfaceProgram -> assertEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    firstArgument = generatedName (LambdaPatternArgument 1)
+    secondArgument = generatedName (LambdaPatternArgument 2)
+    expectedProgram =
+      EBlock
+        [ SLet
+            "choose"
+            (SourceSpan 1 1)
+            ( ELambda
+                firstArgument
+                ( ELambda
+                    secondArgument
+                    ( EPatternCase
+                        (ETuple [EVar firstArgument, EVar secondArgument])
+                        [ CaseArm
+                            (PTuple [PConstructor "Nothing" [], PVariable "fallback"])
+                            Nothing
+                            (EVar "fallback"),
+                          CaseArm
+                            (PTuple [PConstructor "Just" [PVariable "item"], PWildcard])
+                            Nothing
+                            (EVar "item")
+                        ]
+                    )
+                )
+            )
+        ]
+
+testRejectsPatternLambdaClauseArityMismatch :: IO ()
+testRejectsPatternLambdaClauseArityMismatch =
+  assertLeftDiagnosticContains
+    "pattern lambda clause arity"
+    "pattern-lambda clauses must all have 1 parameter(s), found 2"
+    (parseSurfaceProgram "choose = \\|([]) -> 0 |([item | rest], fallback) -> item.")
+
+testKeepsPipeOperatorInPatternLambdaBody :: IO ()
+testKeepsPipeOperatorInPatternLambdaBody =
+  assertRight
+    "pipe operator before next lambda clause"
+    ( parseSurfaceProgram
+        "operator (|) tier 4 precedence 20 left. choose = \\|(0) -> 1 | 2 |(_) -> 3."
+    )
+    (\_ -> pure ())
+
+testRejectsPatternLambdaWithoutHead :: IO ()
+testRejectsPatternLambdaWithoutHead =
+  assertLeftDiagnosticContains
+    "pattern lambda without head"
+    "expected '('"
+    (parseSurfaceProgram "choose = \\|.")
+
+testRejectsPatternLambdaHeadWithoutArrow :: IO ()
+testRejectsPatternLambdaHeadWithoutArrow =
+  assertLeftDiagnosticContains
+    "pattern lambda head without arrow"
+    "expected '->'"
+    (parseSurfaceProgram "choose = \\|(item) item.")
+
+testRejectsPatternLambdaWithoutBody :: IO ()
+testRejectsPatternLambdaWithoutBody =
+  assertLeftDiagnosticContains
+    "pattern lambda without body"
+    "expected expression"
+    (parseSurfaceProgram "choose = \\|(item) ->.")

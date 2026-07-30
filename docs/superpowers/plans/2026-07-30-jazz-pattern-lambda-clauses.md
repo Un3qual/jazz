@@ -56,7 +56,7 @@ data ParserPatternFailure
 
 - `SELambda` remains unchanged for ordinary single-body lambdas.
 
-- [ ] **Step 1: Add public parser failures before implementation**
+- [x] **Step 1: Add public parser failures before implementation**
 
 Add focused tests that use only the existing public parser entrypoint, so they
 compile before the new AST constructor exists:
@@ -111,7 +111,7 @@ testRejectsPatternLambdaWithoutBody =
 
 Register all six tests in `LambdaParserSpec.tests`.
 
-- [ ] **Step 2: Add end-to-end semantic failures before implementation**
+- [x] **Step 2: Add end-to-end semantic failures before implementation**
 
 Add these real-source tests to `LambdaSemanticsSpec` and register them:
 
@@ -152,7 +152,7 @@ testPatternLambdaClausesNoMatchRuntime = do
 
 Reuse the suite's existing `assertSuccessfulRuntime` helper.
 
-- [ ] **Step 3: Run RED tests**
+- [x] **Step 3: Run RED tests**
 
 Run:
 
@@ -166,7 +166,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 Expected: FAIL because `parseLambdaExpr` requires `(` immediately after `\`
 and rejects the leading `|`.
 
-- [ ] **Step 4: Add the surface types and structured diagnostic**
+- [x] **Step 4: Add the surface types and structured diagnostic**
 
 Export and define `SurfacePatternLambdaClause` in `Parser/AST.hs`, then add
 `SEPatternLambda` to `SurfaceExpr`.
@@ -181,7 +181,7 @@ pattern-lambda clauses must all have <expected> parameter(s), found <actual>
 Keep the diagnostic under `PatternFailure`; it is expression/pattern syntax,
 not a declaration failure.
 
-- [ ] **Step 5: Parse the historical `\|` form**
+- [x] **Step 5: Parse the historical `\|` form**
 
 Extend `parseLambdaExpr`:
 
@@ -224,7 +224,7 @@ Reuse the existing case-arm boundary logic for body expressions. A body-level
 pipe is a clause boundary only when lookahead recognizes a complete
 `|(parameters) ->` head; otherwise normal operator precedence owns it.
 
-- [ ] **Step 6: Lower clauses to existing core**
+- [x] **Step 6: Lower clauses to existing core**
 
 In `Parser/Lower.hs`, add:
 
@@ -249,7 +249,7 @@ parameter order.
 Do not route through `lowerSurfaceLambda`; ordinary identifier lambdas retain
 their direct source-name core binders.
 
-- [ ] **Step 7: Complete hosted traversals**
+- [x] **Step 7: Complete hosted traversals**
 
 Update every exhaustive `SurfaceExpr` traversal in `Force.hs` and
 `ModuleResolver.hs`.
@@ -270,7 +270,7 @@ Qualified value/type reference collection visits every clause body and every
 pattern reference using the existing helpers. Forcing recursively forces
 clause patterns and bodies while preserving order and spans.
 
-- [ ] **Step 8: Add exact AST and lowering assertions**
+- [x] **Step 8: Add exact AST and lowering assertions**
 
 Now that the public types exist, extend `LambdaParserSpec` with exact expected
 surface and core trees for:
@@ -285,13 +285,13 @@ Assert `SEPatternLambda` contains two ordered clauses, each with arity two.
 Assert lowering produces two generated unary lambdas around one tuple
 `EPatternCase` with two ordered arms.
 
-- [ ] **Step 9: Run GREEN hosted tests**
+- [x] **Step 9: Run GREEN hosted tests**
 
 Run the same command from Step 3.
 
 Expected: PASS for both suites.
 
-- [ ] **Step 10: Run adjacent hosted regression suites**
+- [x] **Step 10: Run adjacent hosted regression suites**
 
 Run:
 
@@ -305,7 +305,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: PASS, including continued rejection of named equations.
 
-- [ ] **Step 11: Commit the hosted implementation**
+- [x] **Step 11: Commit the hosted implementation**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler \

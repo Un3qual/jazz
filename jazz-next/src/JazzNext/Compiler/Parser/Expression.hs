@@ -9,6 +9,7 @@ where
 
 import Control.Monad (void)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -29,6 +30,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceLiteral (..),
     SurfaceNumericType (..),
     SurfacePattern (..),
+    SurfacePatternLambdaClause (..),
     SurfaceSignatureType,
   )
 import JazzNext.Compiler.Parser.Context
@@ -42,6 +44,7 @@ import JazzNext.Compiler.Parser.Failure
     ParserFailureReason (..),
     ParserInternalInvariant (..),
     ParserOperatorUse (..),
+    ParserPatternFailure (..),
     ParserUnsupportedFeature (..),
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -997,6 +1000,8 @@ parseLambdaExpr ::
 parseLambdaExpr parseBlock context stop lambdaToken = do
   tokens <- MP.getInput
   case tokens of
+    Token {tokenKind = TOperator "|"} : _ ->
+      parsePatternLambdaExpr parseBlock context stop lambdaToken
     Token {tokenKind = TLParen} : _ -> do
       void parseAnyToken
       parameters <- parseLambdaParameters
@@ -1022,6 +1027,119 @@ parseLambdaExpr parseBlock context stop lambdaToken = do
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'(' after lambda introducer" (ParserAtToken (tokenKind token) (tokenLexeme token)))
+
+parsePatternLambdaExpr ::
+  StatementBlockParser ->
+  ParserContext ->
+  Stop ->
+  Token ->
+  Parser SurfaceExpr
+parsePatternLambdaExpr parseBlock context stop lambdaToken = do
+  firstClause@(SurfacePatternLambdaClause _ firstPatterns _) <-
+    parsePatternLambdaClause parseBlock context stop lambdaToken
+  collect (NonEmpty.length firstPatterns) firstClause []
+  where
+    collect expectedArity firstClause reversedRemaining = do
+      tokens <- MP.getInput
+      if patternLambdaClauseStarts tokens
+        then do
+          nextClause@(SurfacePatternLambdaClause clauseSpan patterns _) <-
+            parsePatternLambdaClause parseBlock context stop lambdaToken
+          let actualArity = NonEmpty.length patterns
+          if actualArity == expectedArity
+            then collect expectedArity firstClause (nextClause : reversedRemaining)
+            else
+              failTokenParserAt
+                clauseSpan
+                (PatternFailure (PatternLambdaClauseArityMismatch expectedArity actualArity))
+        else
+          pure (SEPatternLambda (firstClause :| reverse reversedRemaining))
+
+parsePatternLambdaClause ::
+  StatementBlockParser ->
+  ParserContext ->
+  Stop ->
+  Token ->
+  Parser SurfacePatternLambdaClause
+parsePatternLambdaClause parseBlock context stop lambdaToken = do
+  clauseToken <- parsePatternLambdaClausePipe lambdaToken
+  tokens <- MP.getInput
+  case tokens of
+    Token {tokenKind = TLParen} : _ -> void parseAnyToken
+    [] ->
+      failTokenParserAt
+        (tokenSpan clauseToken)
+        (ExpectedSyntax "'('" (ParserEndOfInputAfter "pattern-lambda clause introducer"))
+    token : _ ->
+      failTokenParserAt
+        (tokenSpan token)
+        (ExpectedSyntax "'('" (ParserAtToken (tokenKind token) (tokenLexeme token)))
+  parameters <- parseLambdaParameters
+  consumeArrow (ParserEndOfInputAfter "pattern-lambda clause head")
+  bodyExpr <-
+    parseExprWithMinPrecedenceUntil
+      parseBlock
+      context
+      (patternLambdaClauseBoundaryOr stop)
+      1
+  pure
+    ( SurfacePatternLambdaClause
+        (tokenSpan clauseToken)
+        (fmap surfaceLambdaParameterPattern parameters)
+        bodyExpr
+    )
+
+parsePatternLambdaClausePipe :: Token -> Parser Token
+parsePatternLambdaClausePipe lambdaToken = do
+  tokens <- MP.getInput
+  case tokens of
+    token@Token {tokenKind = TOperator "|"} : _ -> do
+      void parseAnyToken
+      pure token
+    [] ->
+      failTokenParserAt
+        (tokenSpan lambdaToken)
+        (ExpectedSyntax "'|'" (ParserEndOfInputAfter "pattern-lambda introducer"))
+    token : _ ->
+      failTokenParserAt
+        (tokenSpan token)
+        (ExpectedSyntax "'|'" (ParserAtToken (tokenKind token) (tokenLexeme token)))
+
+surfaceLambdaParameterPattern :: SurfaceLambdaParameter -> SurfacePattern
+surfaceLambdaParameterPattern parameter =
+  case parameter of
+    SurfaceLambdaIdentifier name -> SPVariable name
+    SurfaceLambdaPattern patternValue -> patternValue
+
+patternLambdaClauseBoundaryOr :: Stop -> Stop
+patternLambdaClauseBoundaryOr stop tokens =
+  stop tokens || patternLambdaClauseStarts tokens
+
+patternLambdaClauseStarts :: Stop
+patternLambdaClauseStarts tokens =
+  case tokens of
+    Token {tokenKind = TOperator "|"} : rest ->
+      parenthesizedHeadEndsAtArrow rest
+    _ -> False
+
+parenthesizedHeadEndsAtArrow :: [Token] -> Bool
+parenthesizedHeadEndsAtArrow tokens =
+  case tokens of
+    Token {tokenKind = TLParen} : rest -> go 1 rest
+    _ -> False
+  where
+    go :: Int -> [Token] -> Bool
+    go _ [] = False
+    go depth (token : rest) =
+      case tokenKind token of
+        TLParen -> go (depth + 1) rest
+        TRParen
+          | depth == 1 ->
+              case rest of
+                Token {tokenKind = TArrow} : _ -> True
+                _ -> False
+          | otherwise -> go (depth - 1) rest
+        _ -> go depth rest
 
 parseLambdaParameters :: Parser (NonEmpty SurfaceLambdaParameter)
 parseLambdaParameters = do
