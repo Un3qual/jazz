@@ -118,6 +118,7 @@ library jazz-next-internal
       JazzNext.Compiler.TypeInference
       JazzNext.Compiler.TypeInference.Capabilities
       JazzNext.Compiler.TypeInference.Diagnostics
+      JazzNext.Compiler.TypeInference.Elaboration
       JazzNext.Compiler.TypeInference.Operator
       JazzNext.Compiler.TypeInference.Pattern
       JazzNext.Compiler.TypeInference.Scope
@@ -452,6 +453,13 @@ test-suite jazz-typed-core-contract-spec
       JazzNext.Repository.Root
       JazzNext.Repository.SourceLayout
       JazzNext.TestSource
+
+test-suite jazz-typed-core-expression-direct-call-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 
 test-suite parser-core-spec
   import: test-common

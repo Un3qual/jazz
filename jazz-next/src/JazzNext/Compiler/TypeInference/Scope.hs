@@ -1,9 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Scope, binding, signature, and constructor inference.
+-- | Scope, binding, signature, and constructor inference.  Typed-core
+-- production selects and finalizes only the root scope after this traversal,
+-- leaving ordinary scope inference and its runtime-hint ownership unchanged.
 module JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferScopeType,
+    inferScopeTypeRaw,
     instantiateNonBuiltinTypeBinding
   ) where
 
@@ -66,6 +69,10 @@ import JazzNext.Compiler.RuntimeHints
   )
 import JazzNext.Compiler.TypeInference.Capabilities
 import JazzNext.Compiler.TypeInference.Diagnostics
+import JazzNext.Compiler.TypeInference.Elaboration
+  ( InferredExpr (..),
+    TypedCoreProductionMode
+  )
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Solver
@@ -113,7 +120,7 @@ import JazzNext.Compiler.TypeInference.Types
   )
 
 inferExprTypeWithExpected ::
-  InferExprFn ->
+  InferenceOnlyExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -217,8 +224,23 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
+inferScopeType :: Set Int -> InferExprFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferScopeType preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+  let (scopeType, finalState) =
+        inferScopeTypeRaw
+          preludeStatementIndices
+          (\builtin env state expr ->
+             let (inferredResult, nextState) = inferExpression mode builtin env state expr
+              in (inferredExpressionType inferredResult, nextState)
+          )
+          builtinMode
+          initialEnv
+          initialState
+          statements
+   in (InferredExpr scopeType Nothing [], finalState)
+
+inferScopeTypeRaw :: Set Int -> InferenceOnlyExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeTypeRaw preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
@@ -1541,7 +1563,7 @@ instantiateTypeScheme typeScheme state =
        in (Map.insert typeVar freshType bindings, nextState)
 
 inferExplicitTypeApplication ::
-  InferExprFn ->
+  InferenceOnlyExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->

@@ -32,7 +32,7 @@ import JazzNext.Compiler.TypeInference.Types
   )
 
 inferPatternCaseType ::
-  InferExprFn ->
+  InferenceOnlyExprFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   ExpressionType ->
