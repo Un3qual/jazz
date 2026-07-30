@@ -140,31 +140,39 @@ Each blocked item should answer these questions:
   separate structurally aligned typed tree with final semantic types,
   representation recipes, instantiations, evidence, and resolved identities
   while preserving canonical core and the interpreter boundary.
-- Smallest unblocker: review and approve
-  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, whose
-  architecture and bounded first profile were approved in discussion on
-  `2026-07-30`.
-- Decision needed: accept the complete written producer/lowerer boundary, exact
-  target paths, fixed 16-accepted / 20-rejected fixture inventory, non-goals,
-  and verification contract before implementation planning and promotion.
-- Recommended default: keep the IR independent of LLVM instruction objects,
-  preserve block-local temporaries and typed block arguments, and do not add
-  bytecode or a VM.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001`.
-  The contract foundation and pre-bootstrap language-quality gate are complete.
-  The written design now fixes an opt-in single-pass stage-0 producer, one
-  resolved-module scalar/direct-call profile, structured unsupported outcomes,
-  exact target paths, fixtures, and verification. It remains design-only until
-  written review.
-- Target paths: fixed by
-  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`; do not
-  widen them during implementation without a reviewed design amendment.
-- Verification: the completed foundation used exact focused parity,
-  warning-clean development build, routine bounded Cabal `all`, package,
-  queue/docs, and whitespace checks.
-- Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
-  object generation; linking; native-runtime or ABI implementation; a public
-  compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
+- Accepted decision: the typed-core expression/direct-call producer and lowerer
+  contract is
+  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, approved
+  in discussion and written form on `2026-07-30`. It fixes an opt-in
+  single-pass stage-0 producer, one resolved-module scalar/direct-call profile,
+  structured unsupported outcomes, deterministic lowering, exact target paths,
+  a fixed 16-accepted / 20-rejected manifest, and complete verification.
+- Smallest unblocker: execute
+  `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`, the sole `Ready Now`
+  child.
+- Decision needed: none for this child. A permanent typed-core or lowered-IR
+  contract defect requires a reviewed design amendment rather than silent
+  scope expansion.
+- Recommended default: preserve normal inference/compile/run behavior; produce
+  provisional typed nodes only in the opt-in mode; finalize once from the final
+  solver state; validate both permanent boundaries; and keep emitted IR
+  independent of LLVM instruction objects.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
+  (`ready`). Its executor-safe plan owns the complete implementation and
+  closeout sequence.
+- Target paths: the ordered frontmatter list names every existing concrete
+  ownership path. The plan's file/responsibility map and owning tasks fix the
+  four exact new module/test paths, which the queue validator cannot list
+  before creation. Do not widen either set without a reviewed design amendment.
+- Verification:
+  `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures`;
+  warning-clean serialized development build; serialized routine Cabal `all`;
+  `cabal check`; queue/docs validators; and `git diff --check`.
+- Not in scope: closures, recursion, control flow, patterns, multi-module or
+  import integration, managed values, layouts, runtime services, tail calls,
+  LLVM emission, object generation, linking, native-runtime or ABI
+  implementation, a public compiler embedding API, bytecode or a VM, or edits
+  to `jazz-hs/` or `jazz2/`.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

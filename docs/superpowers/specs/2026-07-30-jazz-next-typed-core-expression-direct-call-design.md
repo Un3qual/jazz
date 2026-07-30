@@ -2,9 +2,10 @@
 
 ## Status
 
-Proposed written design. The architecture and first-profile boundary were
-approved in discussion on `2026-07-30`; written-spec review is still pending.
-No implementation child is promoted by this document alone.
+Approved in discussion and written form on `2026-07-30`. The implementation
+plan is ready as
+`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`, the sole promoted
+`Ready Now` child.
 
 The typed-core and backend-neutral lowered-IR contract foundations are complete,
 and the pre-bootstrap language-quality gate has closed. Inference does not yet
@@ -464,18 +465,14 @@ implementation source text, constructor declarations by string search, Haskell
 
 ## Queue Transition
 
-While written review is pending, `Ready Now` remains empty and this design
-remains the sole `Next Curation Target`.
-
-After written approval:
-
-1. create the implementation plan
-   `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`;
-2. copy the exact target paths, fixture manifests, non-goals, and verification
-   commands from this design into plan frontmatter;
-3. promote only that implementation child into `Ready Now`; and
-4. keep closures, recursion, control flow, multi-module integration, LLVM,
-   object/link, and native-runtime work unpromoted.
+Written approval was recorded on `2026-07-30`. The implementation plan
+`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` fixes the exact existing
+ownership and new file-creation paths, fixture manifests, non-goals, and
+verification commands from this design and is the sole promoted `Ready Now`
+child. Queue frontmatter lists the existing concrete paths; the plan's
+file/responsibility map and owning tasks name the four new paths until they
+exist. Closures, recursion, control flow, multi-module integration, LLVM,
+object/link, and native-runtime work remain unpromoted.
 
 Implementation closeout archives the completed row, updates the bootstrap
 profile and blocker contract, and names closure/recursion as the next ordered
