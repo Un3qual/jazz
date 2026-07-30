@@ -57,7 +57,8 @@ main = runTestSuite "DeclarationParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
+  [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
+    ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
     ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
@@ -71,6 +72,18 @@ tests =
     ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
     ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
   ]
+
+testRejectsFunctionEquations :: IO ()
+testRejectsFunctionEquations =
+  case
+      parseSurfaceProgram
+        """
+        length [] = 0.
+        length [_ | rest] = 1 + length rest.
+        """
+    of
+      Left _ -> pure ()
+      Right _ -> failTest "expected Haskell-style function equations to be rejected"
 
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList = do

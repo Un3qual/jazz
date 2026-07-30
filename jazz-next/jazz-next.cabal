@@ -627,11 +627,6 @@ test-suite if-expression-parser-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
 
-test-suite function-equation-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/FunctionEquationParserSpec.hs
-
 test-suite lambda-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
@@ -728,11 +723,6 @@ test-suite lambda-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
-
-test-suite function-equation-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/FunctionEquationSemanticsSpec.hs
 
 test-suite name-semantics-spec
   import: test-common

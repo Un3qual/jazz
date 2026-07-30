@@ -6,7 +6,6 @@ module JazzNext.Compiler.Parser.Pattern
     parseCaseArmPatternTokens,
     parseCasePatternParser,
     parseCasePatternTokens,
-    parseFunctionHeadPatternParser,
     parseLambdaParameterParser,
     parseLambdaParameterTokens,
   )
@@ -104,19 +103,6 @@ parseCasePatternParser = do
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "case pattern" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-
--- | Parse one function-head parameter. Payload-bearing constructor patterns
--- require grouping so adjacent parameters stay unambiguous.
-parseFunctionHeadPatternParser :: Parser SurfacePattern
-parseFunctionHeadPatternParser = do
-  maybeToken <- peekToken
-  case maybeToken of
-    Just Token {tokenKind = TIdentifier name}
-      | isConstructorIdentifierText name && not (isReservedLiteralName name) -> do
-          void parseAnyToken
-          pure (SPConstructor (mkIdentifier name) [])
-    _ ->
-      parseCasePatternParser
 
 parseIdentifierCasePattern :: Text -> Parser SurfacePattern
 parseIdentifierCasePattern name =

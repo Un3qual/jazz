@@ -57,6 +57,8 @@ tests =
     ("cons-like list lambda parameter runs", testConsLikeListPatternLambdaParameterRuntime),
     ("constructor-pattern lambda parameter runs", testConstructorPatternLambdaParameterRuntime),
     ("or-pattern lambda parameter runs", testOrPatternLambdaParameterRuntime),
+    ("or-pattern lambda head followed by another parameter runs", testMultiParameterOrPatternLambdaRuntime),
+    ("explicit case dispatch inside an ordinary function runs", testExplicitCaseDispatchRuntime),
     ("wildcard lambda parameter runs", testWildcardPatternLambdaParameterRuntime),
     ("pattern lambda parameter reports no match at runtime", testPatternLambdaParameterNoMatchRuntime),
     ("or-pattern lambda parameter reports no match at runtime", testOrPatternLambdaParameterNoMatchRuntime),
@@ -287,6 +289,36 @@ testOrPatternLambdaParameterRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
+
+testMultiParameterOrPatternLambdaRuntime :: IO ()
+testMultiParameterOrPatternLambdaRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "data Maybe = Nothing | Just Int | Also Int. add = \\(Just item | Also item, extra) -> item + extra. add (Also 40) 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+
+testExplicitCaseDispatchRuntime :: IO ()
+testExplicitCaseDispatchRuntime = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      length =
+        \\(items) ->
+          case items {
+            | [] -> 0
+            | [_ | rest] -> 1 + length rest
+          }.
+      length [1, 2, 3].
+      """
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testWildcardPatternLambdaParameterRuntime :: IO ()
 testWildcardPatternLambdaParameterRuntime = do

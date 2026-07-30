@@ -109,7 +109,6 @@ data ResolvedNameOrigin
 -- parser surface grows a dedicated operator-binding node.
 data GeneratedNameKind
   = LambdaPatternArgument Int
-  | FunctionEquationArgument Int
   | OperatorBinding Text
   | OperatorSectionFunction
   | OperatorSectionLeft

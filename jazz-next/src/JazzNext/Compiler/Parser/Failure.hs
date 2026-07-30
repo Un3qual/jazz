@@ -21,7 +21,6 @@ module JazzNext.Compiler.Parser.Failure
 where
 
 import Data.Text (Text)
-import qualified Data.Text as Text
 import JazzNext.Compiler.DiagnosticCatalog
   ( ErrorCode (E0001),
   )
@@ -130,7 +129,6 @@ data ParserDeclarationFailure
   | ClassSupportsExactlyOneParameter
   | ClassParameterMustBeLowercase
   | UndeclaredConstructorTypeParameter Text Text
-  | FunctionClauseArityMismatch Text Int Int
   | ConstructorArgumentDelimiterMismatch Text
   | ConstructorExportGroupRequiresAll
   | ModuleMustBeFirstTopLevelForm
@@ -314,13 +312,6 @@ renderDeclarationFailure failure =
         <> "' is not declared in data type '"
         <> typeName
         <> "'"
-    FunctionClauseArityMismatch functionName expectedArity actualArity ->
-      "function '"
-        <> functionName
-        <> "' clauses must all have "
-        <> Text.pack (show expectedArity)
-        <> " parameter(s), found "
-        <> Text.pack (show actualArity)
     ConstructorArgumentDelimiterMismatch lexeme ->
       "unexpected '" <> lexeme <> "' in constructor argument"
     ConstructorExportGroupRequiresAll ->

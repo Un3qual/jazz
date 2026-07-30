@@ -34,7 +34,6 @@ import JazzNext.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
-    SurfaceFunctionClause (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
@@ -354,8 +353,6 @@ lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of
     SSLet name spanValue valueExpr ->
       SLet (lowerBindingName name) spanValue (lowerSurfaceExprWithoutCostCentre valueExpr)
-    SSFunction name spanValue clauses ->
-      lowerSurfaceFunction name spanValue clauses
     SSSignature name spanValue signaturePayload ->
       SSignature (lowerBindingName name) spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName typeParameters constructors ->
@@ -374,40 +371,6 @@ lowerSurfaceStatement surfaceStatement =
       SImport spanValue modulePath alias importedSymbols
     SSExpr spanValue expr ->
       SExpr spanValue (lowerSurfaceExprWithoutCostCentre expr)
-
-lowerSurfaceFunction ::
-  Identifier ->
-  SourceSpan ->
-  NonEmpty SurfaceFunctionClause ->
-  Statement
-lowerSurfaceFunction functionName spanValue clauses =
-  SLet
-    (lowerBindingName functionName)
-    spanValue
-    (foldr ELambda caseExpr argumentNames)
-  where
-    firstClause NonEmpty.:| _ = clauses
-    SurfaceFunctionClause _ firstPatterns _ = firstClause
-    argumentNames =
-      [ generatedName (FunctionEquationArgument argumentIndex)
-        | argumentIndex <- [1 .. length firstPatterns]
-      ]
-    scrutinee =
-      case argumentNames of
-        [argumentName] -> EVar argumentName
-        _ -> ETuple (map EVar argumentNames)
-    caseExpr =
-      EPatternCase
-        scrutinee
-        (map lowerClause (NonEmpty.toList clauses))
-    lowerClause (SurfaceFunctionClause _ patterns bodyExpr) =
-      CaseArm
-        ( case patterns of
-            [singlePattern] -> lowerSurfacePattern singlePattern
-            _ -> PTuple (map lowerSurfacePattern patterns)
-        )
-        Nothing
-        (lowerSurfaceExprWithoutCostCentre bodyExpr)
 
 lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
 lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =

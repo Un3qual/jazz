@@ -49,7 +49,6 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr,
-    SurfaceFunctionClause (..),
     SurfaceImplMethod (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
@@ -91,9 +90,6 @@ import JazzNext.Compiler.Parser.Operator
     isBuiltinOperatorSymbol,
     isReservedOperatorSymbol,
     isValidUserOperatorSymbol,
-  )
-import JazzNext.Compiler.Parser.Pattern
-  ( parseFunctionHeadPatternParser,
   )
 import JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
@@ -522,23 +518,6 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
           singleStatement <$> parseExprStatement parseExpression tokens
       | TIdentifier name <- tokenKind nameToken ->
           singleStatement <$> parseSignature (mkIdentifier name) nameToken afterName
-    nameToken : afterName
-      | TIdentifier name <- tokenKind nameToken,
-        looksLikeFunctionEquation afterName,
-        isReservedLiteralName name ->
-          Left
-            ( parserFailureAt
-                (tokenSpan nameToken)
-                (DeclarationFailure (ReservedLiteralName BindingName name))
-            )
-      | TIdentifier name <- tokenKind nameToken,
-        looksLikeFunctionEquation afterName ->
-          singleStatement
-            <$> parseFunctionEquationGroup
-              parseExpression
-              (mkIdentifier name)
-              nameToken
-              afterName
     nameToken : afterName@(Token {tokenKind = TEquals} : _)
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -555,105 +534,6 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
     declaredOperators = parserDeclaredOperators context
     statementContext = parserStatementContext context
     singleStatement (statement, remaining) = ([statement], remaining)
-
-parseFunctionEquationGroup ::
-  ImplExpressionParser ParserFailure ->
-  Identifier ->
-  Token ->
-  [Token] ->
-  Either ParserFailure (SurfaceStatement, [Token])
-parseFunctionEquationGroup parseExpression functionName firstNameToken tokensAfterFirstName = do
-  (firstClause, remaining) <-
-    parseFunctionClause parseExpression firstNameToken tokensAfterFirstName
-  let SurfaceFunctionClause _ firstClausePatterns _ = firstClause
-  collectClauses (length firstClausePatterns) firstClause [] remaining
-  where
-    collectClauses expectedArity firstClause reversedClauses allTokens =
-      case allTokens of
-        nextNameToken@Token {tokenKind = TIdentifier nextName} : tokensAfterName
-          | nextName == identifierText functionName,
-            looksLikeFunctionEquation tokensAfterName -> do
-              (nextClause@(SurfaceFunctionClause _ patterns _), remaining) <-
-                parseFunctionClause parseExpression nextNameToken tokensAfterName
-              if length patterns == expectedArity
-                then
-                  collectClauses
-                    expectedArity
-                    firstClause
-                    (nextClause : reversedClauses)
-                    remaining
-                else
-                  Left
-                    ( parserFailureAt
-                        (tokenSpan nextNameToken)
-                        ( DeclarationFailure
-                            ( FunctionClauseArityMismatch
-                                nextName
-                                expectedArity
-                                (length patterns)
-                            )
-                        )
-                    )
-        _ ->
-          Right
-            ( SSFunction
-                functionName
-                (tokenSpan firstNameToken)
-                (firstClause NonEmpty.:| reverse reversedClauses),
-              allTokens
-            )
-
-parseFunctionClause ::
-  ImplExpressionParser ParserFailure ->
-  Token ->
-  [Token] ->
-  Either ParserFailure (SurfaceFunctionClause, [Token])
-parseFunctionClause parseExpression nameToken =
-  collectPatterns []
-  where
-    collectPatterns reversedPatterns allTokens =
-      case allTokens of
-        Token {tokenKind = TEquals} : tokensAfterEquals ->
-          case reverse reversedPatterns of
-            [] ->
-              Left
-                ( parserFailureAt
-                    (tokenSpan nameToken)
-                    (ExpectedSyntax "function head pattern" (ParserAtToken TEquals "="))
-                )
-            patterns -> do
-              (bodyExpr, afterExpr) <- parseExpression tokensAfterEquals
-              remaining <- consumeDot afterExpr
-              Right
-                ( SurfaceFunctionClause
-                    (tokenSpan nameToken)
-                    patterns
-                    bodyExpr,
-                  remaining
-                )
-        [] ->
-          Left
-            ( parserFailureAt
-                (tokenSpan nameToken)
-                (ExpectedSyntax "'='" (ParserEndOfInputIn "function equation"))
-            )
-        _ -> do
-          (patternValue, remaining) <-
-            runTokenParserPrefixDetailed
-              "function head pattern"
-              parseFunctionHeadPatternParser
-              allTokens
-          collectPatterns (patternValue : reversedPatterns) remaining
-
-looksLikeFunctionEquation :: [Token] -> Bool
-looksLikeFunctionEquation = go False
-  where
-    go _ [] = False
-    go sawPattern (token : rest) =
-      case tokenKind token of
-        TEquals -> sawPattern
-        TDot -> False
-        _ -> go True rest
 
 parseOperatorBinding ::
   ImplExpressionParser ParserFailure ->
@@ -1841,8 +1721,6 @@ beginsStatement tokens =
     Token {tokenKind = TIdentifier name} : rest
       | looksLikeReservedAbstractionDeclaration name rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
-    Token {tokenKind = TIdentifier _} : rest
-      | looksLikeFunctionEquation rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
     _ -> False
 
@@ -1945,8 +1823,6 @@ nextStatementStartsMatchingBinding name tokens =
   case tokens of
     Token {tokenKind = TIdentifier nextName} : Token {tokenKind = TEquals} : _ ->
       nextName == name
-    Token {tokenKind = TIdentifier nextName} : rest ->
-      nextName == name && looksLikeFunctionEquation rest
     _ -> False
 
 collectImportAliasesUntilEnd :: [Token] -> Set Text
