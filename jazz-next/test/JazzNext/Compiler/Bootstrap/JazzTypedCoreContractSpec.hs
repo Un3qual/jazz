@@ -368,6 +368,7 @@ reviewRegressionGroups =
     (("rejects expression-only metadata on patterns", testPatternExpressionMetadata), [patternExpressionMetadataProgram]),
     (("allows phantom data arguments in strict equality", testPhantomDataEquality), [phantomDataEqualityProgram]),
     (("preserves same-scope value rebinding", testSameScopeValueRebinding), [sameScopeValueRebindingProgram]),
+    (("locks narrow forward signed-function visibility", testForwardSignedFunctionVisibility), map snd forwardSignedVisibilityPrograms),
     (("preserves top-level statement scope order", testForwardModuleReference), [forwardModuleReferenceProgram]),
     (("rejects cyclic resolved imports", testCyclicResolvedImports), [cyclicImportProgram]),
     (("keeps bare signatures out of executable value scope", testBareSignatureVisibility), [bareSignatureVisibilityProgram]),
@@ -3950,6 +3951,41 @@ testSameScopeValueRebinding =
     "signed value rebinding remains valid and last-wins"
     []
     (validateTypedProgram sameScopeValueRebindingProgram)
+
+testForwardSignedFunctionVisibility :: IO ()
+testForwardSignedFunctionVisibility = do
+  let expectedNames =
+        [ "forward-signed-function-visibility",
+          "forward-signed-scalar-invisibility",
+          "forward-unsigned-function-invisibility"
+        ]
+      expectedResults =
+        [ [],
+          [ forwardVisibilityFailure
+              "forward-signed-scalar-invisibility"
+              [0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailure
+              "forward-unsigned-function-invisibility"
+              [0, 0, 0]
+              (fixtureValueName "later")
+          ]
+        ]
+      actualResults = map (validateTypedProgram . snd) forwardSignedVisibilityPrograms
+  assertEqual "supplemental forward visibility names" expectedNames (map fst forwardSignedVisibilityPrograms)
+  assertEqual "supplemental forward visibility first run" expectedResults actualResults
+  assertEqual
+    "supplemental forward visibility second run"
+    expectedResults
+    (map (validateTypedProgram . snd) forwardSignedVisibilityPrograms)
+
+forwardVisibilityFailure :: Text -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
+forwardVisibilityFailure fixture expressionPath name =
+  TypedCoreValidationFailure
+    (TypedExpressionPath (fixtureModulePath fixture) [1] expressionPath)
+    TypedInvisibleName
+    (TypedNameDetail name)
 
 testForwardModuleReference :: IO ()
 testForwardModuleReference =
@@ -8414,6 +8450,84 @@ forwardModuleReferenceProgram =
         TypedLetStatement laterOwner laterName span1 (monoScheme laterOwner) trueExpr,
         expressionStatement 3 (TypedVariableExpr boolInfo firstName)
       ]
+
+forwardSignedVisibilityPrograms :: [(Text, TypedProgram)]
+forwardSignedVisibilityPrograms =
+  [ ( "forward-signed-function-visibility",
+      forwardVisibilityProgram "forward-signed-function-visibility" True True
+    ),
+    ( "forward-signed-scalar-invisibility",
+      forwardVisibilityProgram "forward-signed-scalar-invisibility" True False
+    ),
+    ( "forward-unsigned-function-invisibility",
+      forwardVisibilityProgram "forward-unsigned-function-invisibility" False True
+    )
+  ]
+
+forwardVisibilityProgram :: Text -> Bool -> Bool -> TypedProgram
+forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstSignatureOwner = binder modulePath [0] firstName
+    firstOwner = binder modulePath [1] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [1, 0] firstArgumentName
+    firstSignatureScheme =
+      TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstScheme =
+      TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstBody
+      | laterIsFunction =
+          TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+      | otherwise = TypedVariableExpr boolInfo laterName
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        firstBody
+    laterStatementIndex = if laterIsSigned then 3 else 2
+    laterOwner = binder modulePath [laterStatementIndex] laterName
+    laterScheme
+      | laterIsFunction =
+          TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+      | otherwise = monoScheme laterOwner
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterExpression
+      | laterIsFunction =
+          TypedLambdaExpr
+            boolToBoolInfo
+            (binder modulePath [laterStatementIndex, 0] laterArgumentName)
+            laterArgumentName
+            (TypedVariableExpr boolInfo laterArgumentName)
+      | otherwise = trueExpr
+    laterSignature =
+      let signatureOwner = binder modulePath [2] laterName
+          signatureScheme
+            | laterIsFunction =
+                TypedScheme signatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+            | otherwise = monoScheme signatureOwner
+       in TypedSignatureStatement signatureOwner laterName span1 signatureScheme
+    terminalStatementIndex = laterStatementIndex + 1
+    terminalExpression =
+      TypedApplyExpr
+        boolInfo
+        (TypedVariableExpr boolToBoolInfo firstName)
+        trueExpr
+    statements =
+      [ TypedSignatureStatement firstSignatureOwner firstName span1 firstSignatureScheme,
+        TypedLetStatement firstOwner firstName span1 firstScheme firstExpression
+      ]
+        <> [laterSignature | laterIsSigned]
+        <> [ TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+             expressionStatement terminalStatementIndex terminalExpression
+           ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =

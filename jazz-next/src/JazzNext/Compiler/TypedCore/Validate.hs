@@ -1342,6 +1342,7 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
   validateFrom initialContext 0 locatedStatements
   where
     statements = map snd locatedStatements
+    forwardSignedFunctions = forwardSignedFunctionDeclarations statements
     dependencies = recursiveGroupDependencies initialContext statements
     reachability = recursiveGroupReachability dependencies
     validateFrom _ _ [] = []
@@ -1350,13 +1351,15 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
         Just scopeFailure ->
           scopeFailure : validateFrom visibleContext (blockIndex + 1) rest
         Nothing ->
-          let recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
+          let forwardVisibleContext =
+                withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+              recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
               statementContext =
                 case statement of
                   TypedLetStatement {}
-                    | null recursiveGroup -> visibleContext
-                    | otherwise -> withBlockDeclarations recursiveGroup visibleContext
-                  _ -> withBlockDeclarations [statement] visibleContext
+                    | null recursiveGroup -> forwardVisibleContext
+                    | otherwise -> withBlockDeclarations recursiveGroup forwardVisibleContext
+                  _ -> withBlockDeclarations [statement] forwardVisibleContext
               nextContext = withBlockDeclarations [statement] visibleContext
               nextStatement =
                 case rest of
@@ -1374,6 +1377,71 @@ validateStatementsInOrderWith rejectedStatement initialContext locatedStatements
            in attachedSignatureFailures
                 <> statementFailures
                 <> validateFrom nextContext (blockIndex + 1) rest
+
+withForwardSignedFunctionDeclarations :: [TypedStatement] -> ModuleContext -> ModuleContext
+withForwardSignedFunctionDeclarations declarations context =
+  let predeclaredContext = withBlockDeclarations declarations context
+   in
+    predeclaredContext
+      { moduleContextActiveSchemes =
+          Map.union
+            (moduleContextActiveSchemes context)
+            (moduleContextActiveSchemes predeclaredContext)
+      }
+
+forwardSignedFunctionDeclarations :: [TypedStatement] -> [TypedStatement]
+forwardSignedFunctionDeclarations statements =
+  case statements of
+    TypedSignatureStatement _ signatureName _ signatureScheme :
+      binding@(TypedLetStatement _ bindingName _ bindingScheme expression) :
+      rest
+        | signatureName == bindingName,
+          signatureBindingSchemeMismatch signatureScheme bindingScheme == Nothing,
+          concreteMonomorphicFunctionScheme bindingScheme,
+          leadingTypedLambda expression ->
+            binding : forwardSignedFunctionDeclarations rest
+        | otherwise ->
+            forwardSignedFunctionDeclarations (binding : rest)
+    _ : rest -> forwardSignedFunctionDeclarations rest
+    [] -> []
+
+concreteMonomorphicFunctionScheme :: TypedScheme -> Bool
+concreteMonomorphicFunctionScheme (TypedScheme _ parameters evidence primitive typeValue recipe) =
+  null parameters
+    && null evidence
+    && null primitive
+    && concreteTypedType typeValue
+    && concreteTypedRecipe recipe
+    && case (typeValue, recipe) of
+      (TypedFunctionType {}, TypedClosureRecipe {}) -> True
+      _ -> False
+
+concreteTypedType :: TypedType -> Bool
+concreteTypedType typeValue =
+  case typeValue of
+    TypedListType elementType -> concreteTypedType elementType
+    TypedTupleType elementTypes -> all concreteTypedType elementTypes
+    TypedDataType _ arguments -> all concreteTypedType arguments
+    TypedFunctionType argumentType resultType ->
+      concreteTypedType argumentType && concreteTypedType resultType
+    TypedTypeParameterType {} -> False
+    _ -> True
+
+concreteTypedRecipe :: TypedRepresentationRecipe -> Bool
+concreteTypedRecipe recipe =
+  case recipe of
+    TypedManagedListRecipe elementRecipe -> concreteTypedRecipe elementRecipe
+    TypedManagedProductRecipe elementRecipes -> all concreteTypedRecipe elementRecipes
+    TypedClosureRecipe argumentRecipes resultRecipe ->
+      all concreteTypedRecipe argumentRecipes && concreteTypedRecipe resultRecipe
+    TypedRepresentationParameterRecipe {} -> False
+    _ -> True
+
+leadingTypedLambda :: TypedExpr -> Bool
+leadingTypedLambda expression =
+  case expression of
+    TypedLambdaExpr {} -> True
+    _ -> False
 
 blockStatementScopeFailure :: ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure
 blockStatementScopeFailure context statementLocation statement =
