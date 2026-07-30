@@ -618,7 +618,7 @@ git commit -m "refactor: use pattern lambda clauses in Jazz"
 - Produces: one consistent active language contract and a clean, fully passing
   branch.
 
-- [ ] **Step 1: Reconcile active documentation**
+- [x] **Step 1: Reconcile active documentation**
 
 Document:
 
@@ -635,7 +635,7 @@ Mark the earlier implementation plan's explicit-`case` migration instruction
 as superseded by this plan. Change the new design status from approved to
 implemented only after all verification below succeeds.
 
-- [ ] **Step 2: Run focused documentation gates**
+- [x] **Step 2: Run focused documentation gates**
 
 Run:
 
@@ -647,7 +647,7 @@ git diff --check
 
 Expected: all pass.
 
-- [ ] **Step 3: Run the complete Cabal test matrix**
+- [x] **Step 3: Run the complete Cabal test matrix**
 
 Run:
 
@@ -658,7 +658,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 
 Expected: every suite passes with zero failures.
 
-- [ ] **Step 4: Run repository residue checks**
+- [x] **Step 4: Run repository residue checks**
 
 Run:
 
@@ -674,7 +674,7 @@ Expected: no equation-specific representation or parser path.
 
 Run the named-equation `.jz` scan from Task 3 again.
 
-- [ ] **Step 5: Commit documentation and final verification state**
+- [x] **Step 5: Commit documentation and final verification state**
 
 ```bash
 git add docs jazz-next/README.md

@@ -28,11 +28,16 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Optional type signature form: `name :: Type.` directly above its binding.
    - Lambda form: `\(args) -> expr`; arguments may be identifiers or active
      pattern forms.
-   - Named functions may instead use contiguous ordered equations:
-     `name pattern1 pattern2 = expr.` Every clause in one group has the same
-     arity, clauses are tested top-to-bottom, and the group remains curried.
-     Group constructor arguments when needed, as in
-     `maybeMap transform (Just item) = Just (transform item).`
+   - Ordered alternatives with distinct bodies use an expression-level
+     pattern lambda:
+     `\|(pattern1, pattern2) -> expr |(other1, other2) -> expr`.
+     Every clause has the same arity, clauses are tested top-to-bottom, clause
+     binders are scoped to their own body, and the lambda remains curried and
+     partially applicable.
+   - Same-body alternatives remain one ordinary lambda or-pattern:
+     `\(Just item | Also item) -> item`.
+   - Haskell-style named equations such as `name pattern = expr.` are not part
+     of the grammar.
    - Unit-lambda form: `\() -> expr`, equivalent to the unary pattern form
      `\(()) -> expr` and invoked as `function ()`.
 

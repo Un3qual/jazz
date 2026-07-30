@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved on `2026-07-30`.
+Implemented and verified on `2026-07-30`.
 
 This design corrects the multi-body decision in
 [`2026-07-30-jazz-remove-function-equations-design.md`](2026-07-30-jazz-remove-function-equations-design.md).

@@ -230,8 +230,19 @@ choose = \(Just item | Also item, fallback) -> item.
 ```
 
 Haskell-style `name pattern... = body.` equations are not part of the active
-grammar. Functions that need different bodies for ordered alternatives use an
-explicit `case` inside the lambda.
+grammar. Functions that need different bodies for ordered alternatives use a
+multi-body pattern lambda:
+
+```jazz
+chooseBody =
+  \|(Nothing, fallback) -> fallback
+   |(Just item, _) -> item.
+```
+
+All clause heads have the same arity, matching is top-to-bottom, binders are
+clause-local, and the resulting function remains curried and partially
+applicable. Explicit `case` remains the canonical form for computed scrutinees,
+matching after setup work, and nested value inspection.
 
 ### Parsed Declarations
 
@@ -572,7 +583,7 @@ If you need a practical baseline for continuing Jazz, use this order:
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
    - handwritten-parser parity coverage in `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`, and `OperatorSectionSpec.hs` that locks current core expression, module/import, operator/fixity, and section AST shape, span, and deterministic diagnostic behavior before any future Megaparsec/CST migration
-   - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters and top-level parameter or-patterns lower through internal pattern-case bodies while preserving ordinary unary core lambdas; Haskell-style equation declarations are rejected
+   - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters and top-level parameter or-patterns lower through internal pattern-case bodies, while ordered `\|` clauses lower to curried generated arguments around one ordered pattern case; Haskell-style equation declarations are rejected
    - application, list literals, and tuple literals
    - adjacent rank-1 signatures over primitives, lower-case variables, exact-arity named applications, nested list/tuple/function compositions, empty `@{}:` wrappers, concrete constrained signatures, and solver-backed variable constrained signatures, with fresh per-use instantiation and explicit first-variable type application
    - `if ... else ...` surface expressions retained as canonical core `EIf`

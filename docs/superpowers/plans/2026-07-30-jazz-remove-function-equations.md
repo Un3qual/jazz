@@ -1,5 +1,12 @@
 # Jazz Function-Equation Removal Implementation Plan
 
+> **Status:** Completed for named Haskell-style equation removal. The
+> instruction below to rewrite different-body alternatives as explicit `case`
+> was superseded on `2026-07-30` by
+> [`2026-07-30-jazz-pattern-lambda-clauses.md`](2026-07-30-jazz-pattern-lambda-clauses.md).
+> Named equations remain removed; ordered multi-body dispatch now uses the
+> expression-level `\|` clause form.
+
 > **For agentic workers:** Execute each task with red-green TDD and commit
 > coherent milestones. Do not modify `jazz-hs/` or `jazz2/`.
 
@@ -7,11 +14,13 @@
 pre-existing pattern-lambda function heads, including multiple parameters and
 top-level or-pattern alternatives.
 
-**Architecture:** Ordinary `SSLet` bindings whose values are `SELambda` remain
-the only function-definition surface. Pattern lambda parameters continue to
-lower through the existing one-arm `EPatternCase` path. Multi-body dispatch is
-authored as an explicit `case`; equation-only AST, parser, lowering, generated
-names, and bootstrap-mirror types are deleted.
+**Architecture:** Ordinary `SSLet` bindings whose values are lambda
+expressions remain the only function-definition surface. Pattern lambda
+parameters continue to lower through the existing pattern-case path.
+Equation-only AST, parser, lowering, generated names, and bootstrap-mirror
+types are deleted. This plan originally used explicit `case` as the only
+different-body replacement; the superseding clause-lambda plan adds
+expression-level `SEPatternLambda` without restoring named equations.
 
 **Tech Stack:** Haskell 2010, Jazz-authored bootstrap frontend modules, Cabal
 test suites, repository source/feature audits.
@@ -110,8 +119,9 @@ test suites, repository source/feature audits.
 - [ ] Convert single-head functions to ordinary pattern lambdas.
 - [ ] Convert same-body compatible alternatives to the retained lambda
   or-pattern syntax where it improves the source.
-- [ ] Convert different-body alternatives to an ordinary lambda plus explicit
-  `case`; use tuple cases when dispatch depends on multiple arguments.
+- [ ] Superseded: convert different-body alternatives to ordered `\|` clause
+  lambdas when the complete function head is being matched; retain explicit
+  `case` for computed or nested scrutinees.
 - [ ] Preserve existing `$`, sections, patterns, aliases, annotations, and
   other implemented features where they remain clear and useful.
 - [ ] Replace equation feature-inventory entries with separate coverage for
@@ -134,7 +144,8 @@ test suites, repository source/feature audits.
 - [ ] Remove function equations from active language and readiness claims.
 - [ ] Mark the earlier equation decision and implementation plan superseded by
   the 2026-07-30 removal design without rewriting history.
-- [ ] Document pattern lambdas and explicit `case` as the canonical forms.
+- [ ] Document ordinary pattern lambdas, ordered `\|` clause lambdas, and
+  intentional explicit `case` as the canonical forms.
 - [ ] Search active source and documentation for stale equation claims.
 - [ ] Commit the documentation reconciliation.
 

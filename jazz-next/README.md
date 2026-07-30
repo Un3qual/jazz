@@ -86,6 +86,12 @@ outside this shipped-source root. Small, focused fixtures remain under `test/`.
 Ordinary multi-argument Jazz functions use compact lambdas such as
 `\(left, right) -> left == right`. The compiler preserves currying and partial
 application by lowering that surface form to nested unary core lambdas.
+Same-body alternatives stay inside one lambda parameter, for example
+`\(Just item | Also item) -> item`. Ordered alternatives with distinct bodies
+use `\|(patterns) -> body |(patterns) -> body`; they lower to generated unary
+arguments around one ordered pattern case, preserving currying, partial
+application, recursion, and the existing `E3022` no-match diagnostic. Named
+Haskell-style equations remain invalid.
 
 ### Hosted canonical core
 
@@ -104,9 +110,9 @@ boundary even as later profiles land.
 
 `CoreLower.lowerControlFlowPatternsExpression :: SurfaceExpr -> Maybe CoreExpr`
 reuses the same private recursive kernel and additionally lowers every pattern,
-guarded case, conditional, nested control-flow, and multi-parameter or
-pattern-lambda rule. Pattern parameters use structured generated names with
-their original one-based source positions. It retains the exact child-2
+guarded case, conditional, nested control-flow, ordinary pattern lambda, and
+ordered multi-body pattern-lambda clause. Pattern parameters use structured
+generated names with their original one-based source positions. It retains the exact child-2
 boundary, returning `Nothing` for nested type application, `$`, signatures,
 declarations, operator bindings, imports, and modules.
 
