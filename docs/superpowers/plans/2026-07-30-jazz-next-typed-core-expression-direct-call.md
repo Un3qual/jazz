@@ -23,8 +23,11 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs
+  - jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs
   - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
+  - jazz-next/jazz/compiler/LoweredIRValidate.jz
   - jazz-next/jazz/compiler/TypedCoreValidate.jz
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures
@@ -818,10 +821,24 @@ syntax rule for any future fixture support.
 
 ### Task 4: Lower scalar values and primitive operators
 
+> **Approved UInt64 validator amendment (`2026-07-30`):** Typed core admits
+> the full unsigned 64-bit domain, but the Haskell lowered-IR validator
+> incorrectly capped `LoweredUnsignedIntegerImmediate LoweredIntegerWidth64`
+> at signed-64 maximum while the Jazz validator had no upper bound. Both
+> permanent validators must use the exact inclusive range
+> `0..18446744073709551615`. Add mirrored repeatable boundary coverage for
+> `9223372036854775808`, `18446744073709551615`, and the rejected first
+> overflow `18446744073709551616`; update the existing shared-carrier
+> expectation without changing permanent constructors or unrelated tag
+> carrier rules.
+
 **Files:**
 
 - Create: `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs`
+- Modify: `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`
+- Modify: `jazz-next/jazz/compiler/LoweredIRValidate.jz`
 - Modify: `jazz-next/jazz-next.cabal`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
 
@@ -848,6 +865,11 @@ syntax rule for any future fixture support.
   Add direct unit tests for lowering precedence using an intentionally invalid
   `TypedProgram`; it must return `LoweredIRTypedCoreFailures` before any
   profile result.
+
+  Run every explicit-width expected program through lowering twice before
+  comparing against its complete expectation. Include direct full-domain
+  `UInt64` lowerer cases at `9223372036854775808` and
+  `18446744073709551615`.
 
 - [ ] **Step 2: Run and confirm the lowerer is absent**
 

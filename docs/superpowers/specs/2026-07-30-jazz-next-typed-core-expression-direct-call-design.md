@@ -415,7 +415,9 @@ Production changes are limited to:
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs` (new);
+- `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`;
+- `jazz-next/jazz/compiler/LoweredIRValidate.jz`;
 - `jazz-next/jazz/compiler/TypedCoreValidate.jz`;
 - `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs` (new); and
 - `jazz-next/jazz-next.cabal`.
@@ -426,6 +428,7 @@ Test ownership is limited to:
   (new); and
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
   (new);
+- `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`.
 
 Coordination and status paths are:
@@ -451,6 +454,13 @@ through the existing analyzer/inference boundary. Eligibility and ordinary
 pending-signature state must be derived together by one source-scope
 preparation owner from one signature elaboration result; a discarded
 eligibility prepass plus normal signature re-elaboration is not permitted.
+
+The reviewed Task 4 UInt64 amendment authorizes both permanent lowered-IR
+validators and their existing cross-language contract suite to correct the
+unsigned-64 immediate range to `0..18446744073709551615`. The first
+upper-half value and maximum must validate in both implementations; the first
+overflow must fail identically. This does not widen variant/tag carrier rules
+or authorize permanent constructor changes.
 
 No `.jz` compiler implementation is added in this child. Any Jazz source used
 as a fixture must use the canonical language surface already implemented; no
