@@ -4,6 +4,7 @@ module Main (main) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
@@ -129,51 +130,24 @@ testFixtureManifest =
       ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
       admittedOperators
     >> assertEqual "fixture entries follow the complete ordered manifest" fixtureNames (map fixtureName fixtures)
-    >> assertEqual
-      "fixture entries have no unknown category"
-      (replicate 16 (Just "accepted") <> replicate 20 (Just "rejected") :: [Maybe Text])
-      (map fixtureCategory fixtures)
-  where
-    fixtureCategory fixture
-      | fixtureName fixture `elem` acceptedFixtureNames = Just "accepted"
-      | fixtureName fixture `elem` rejectedFixtureNames = Just "rejected"
-      | otherwise = Nothing
 
 testRejectedManifestProducerFailures :: IO ()
 testRejectedManifestProducerFailures = do
-  outcomes <- mapM runTwice rejectedFixtureNames
-  assertEqual "rejected manifest has complete outcome coverage" rejectedFixtureNames (map fst outcomes)
+  outcomes <- mapM runTwice rejectedManifestExpectedStatuses
+  assertEqual "rejected manifest has complete outcome coverage" rejectedFixtureNames (map fst rejectedManifestExpectedStatuses)
   assertEqual
     "rejected manifest producer failure kinds"
-    [ ("source-diagnostic", []),
-      ("invalid-portable-source-path", [TypedCoreInvalidPortableSourcePath]),
-      ("resolved-import", [TypedCoreResolvedImportsUnsupported]),
-      ("ambient-prelude-input", [TypedCoreAmbientPreludeInputUnsupported]),
-      ("text-value", [TypedCoreManagedValueUnsupported, TypedCoreStructuredValueUnsupported]),
-      ("list-value", [TypedCoreStructuredValueUnsupported]),
-      ("non-unit-tuple", [TypedCoreStructuredValueUnsupported]),
-      ("data-value", [TypedCoreStructuredValueUnsupported]),
-      ("conditional", [TypedCoreControlFlowUnsupported]),
-      ("pattern-case", [TypedCorePatternCaseUnsupported]),
-      ("local-block-binding", [TypedCoreNestedBlockUnsupported]),
-      ("bare-function-value", [TypedCoreCallableValueUnsupported]),
-      ("partial-direct-call", [TypedCoreCallArityUnsupported]),
-      ("oversaturated-direct-call", [TypedCoreUserDefinedOperatorUnsupported, TypedCoreCallArityUnsupported]),
-      ("capturing-function", [TypedCoreUnsupportedRootExpression, TypedCoreCaptureUnsupported]),
-      ("self-recursive-function", [TypedCoreRecursiveFunctionUnsupported]),
-      ("mutually-recursive-functions", [TypedCoreRecursiveFunctionUnsupported, TypedCoreRecursiveFunctionUnsupported]),
-      ("polymorphic-or-evidence-function", [TypedCoreUnresolvedExpressionType, TypedCoreNonMonomorphicFunctionUnsupported, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType]),
-      ("imported-direct-call", [TypedCoreImportedInputsUnsupported]),
-      ("user-defined-operator-call", [TypedCoreUserDefinedOperatorUnsupported])
-    ]
-    (map (\(name, result) -> (name, statusFailureKinds result)) outcomes)
+    rejectedManifestFailureKinds
+    (map (\(name, _, result) -> (name, statusFailureKinds result)) outcomes)
   where
-    runTwice name = do
+    runTwice (name, expectedStatus) = do
       let fixture = fixtureByName name
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " manifest rejection repeatability") firstRun secondRun
-      pure (name, typedCoreProductionStatus firstRun)
+      assertEqual (name <> " first complete rejection") expectedStatus (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " second complete rejection") expectedStatus (typedCoreProductionStatus secondRun)
+      pure (name, expectedStatus, typedCoreProductionStatus firstRun)
 
     statusFailureKinds status =
       case status of
@@ -201,8 +175,10 @@ testAcceptedManifestPipeline =
       case (lookup name expectedTypedPrograms, lookup name expectedLoweredPrograms) of
         (Just expectedTypedProgram, Just expectedLoweredProgram) -> do
           let fixture = fixtureByName name
-          firstProduction <- produceFixture fixture
-          secondProduction <- produceFixture fixture
+          (firstProduction, firstLookupPaths) <- produceFixtureWithTrace fixture
+          (secondProduction, secondLookupPaths) <- produceFixtureWithTrace fixture
+          assertEqual (name <> " first resolver source lookup") ["src/App/Main.jz"] firstLookupPaths
+          assertEqual (name <> " second resolver source lookup") ["src/App/Main.jz"] secondLookupPaths
           assertEqual (name <> " complete production repeatability") firstProduction secondProduction
           assertEqual
             (name <> " complete typed production")
@@ -235,7 +211,7 @@ testDirectCallProduction =
   where
     assertProduced (name, expectedProgram) = do
       let fixture = fixtureByName name
-      ordinary <- inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+      ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstRun secondRun
@@ -407,10 +383,7 @@ testLowererStructuralBoundary =
 
 testForwardVisibilityBoundary :: IO ()
 testForwardVisibilityBoundary = do
-  ordinary <-
-    inferExpressionWithInputs
-      (fixtureInputs ordinaryForwardVisibilityFixture)
-      (coreModuleExpr (resolvedModuleCore (fixtureModule ordinaryForwardVisibilityFixture)))
+  ordinary <- inferFixture ordinaryForwardVisibilityFixture
   firstRun <- produceFixture ordinaryForwardVisibilityFixture
   secondRun <- produceFixture ordinaryForwardVisibilityFixture
   assertUnboundLater "ordinary unsigned forward caller" ordinary
@@ -426,10 +399,7 @@ testForwardVisibilityBoundary = do
   mapM_ assertInvisible forwardVisibilityNegativeFixtures
   where
     assertInvisible fixture = do
-      ordinary <-
-        inferExpressionWithInputs
-          (fixtureInputs fixture)
-          (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+      ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertUnboundLater (fixtureName fixture <> " ordinary invisibility") ordinary
@@ -489,7 +459,7 @@ testRejectedCallableProfile =
       ]
     assertRejected (name, expectedStatus) = do
       let fixture = fixtureByName name
-      ordinary <- inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+      ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable rejection") firstRun secondRun
@@ -559,13 +529,140 @@ callableExpectedStatuses =
         kind
         detail
 
+rejectedManifestExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
+rejectedManifestExpectedStatuses =
+  [ ("source-diagnostic", TypedCoreProductionBlockedByDiagnostics),
+    ( "invalid-portable-source-path",
+      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail]
+    ),
+    ( "resolved-import",
+      unsupported [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail]
+    ),
+    ( "ambient-prelude-input",
+      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail]
+    ),
+    ( "text-value",
+      unsupported
+        [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+        ]
+    ),
+    ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
+    ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
+    ("data-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]),
+    ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
+    ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
+    ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
+    ("bare-function-value", unsupported [expressionFailure 2 [] TypedCoreCallableValueUnsupported (TypedCoreNameDetail "identity")]),
+    ("partial-direct-call", unsupported [expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 2 1)]),
+    ( "oversaturated-direct-call",
+      unsupported
+        [ expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+          expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 2)
+        ]
+    ),
+    ( "capturing-function",
+      unsupported
+        [ statementFailure 1 TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail,
+          expressionFailure 3 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "seed")
+        ]
+    ),
+    ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
+    ( "mutually-recursive-functions",
+      unsupported
+        [ statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
+          statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
+        ]
+    ),
+    ( "polymorphic-or-evidence-function",
+      unsupported
+        [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+          statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
+          expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+          expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+          expressionFailure 2 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
+        ]
+    ),
+    ( "imported-direct-call",
+      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
+    ),
+    ("user-defined-operator-call", unsupported [expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail])
+  ]
+  where
+    unsupported = TypedCoreProductionUnsupported
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+    statementFailure statementIndex kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        kind
+        detail
+
+rejectedManifestFailureKinds :: [(Text, [TypedCoreProductionFailureKind])]
+rejectedManifestFailureKinds =
+  [ ("source-diagnostic", []),
+    ("invalid-portable-source-path", [TypedCoreInvalidPortableSourcePath]),
+    ("resolved-import", [TypedCoreResolvedImportsUnsupported]),
+    ("ambient-prelude-input", [TypedCoreAmbientPreludeInputUnsupported]),
+    ("text-value", [TypedCoreManagedValueUnsupported, TypedCoreStructuredValueUnsupported]),
+    ("list-value", [TypedCoreStructuredValueUnsupported]),
+    ("non-unit-tuple", [TypedCoreStructuredValueUnsupported]),
+    ("data-value", [TypedCoreStructuredValueUnsupported]),
+    ("conditional", [TypedCoreControlFlowUnsupported]),
+    ("pattern-case", [TypedCorePatternCaseUnsupported]),
+    ("local-block-binding", [TypedCoreNestedBlockUnsupported]),
+    ("bare-function-value", [TypedCoreCallableValueUnsupported]),
+    ("partial-direct-call", [TypedCoreCallArityUnsupported]),
+    ("oversaturated-direct-call", [TypedCoreUserDefinedOperatorUnsupported, TypedCoreCallArityUnsupported]),
+    ("capturing-function", [TypedCoreUnsupportedRootExpression, TypedCoreCaptureUnsupported]),
+    ("self-recursive-function", [TypedCoreRecursiveFunctionUnsupported]),
+    ("mutually-recursive-functions", [TypedCoreRecursiveFunctionUnsupported, TypedCoreRecursiveFunctionUnsupported]),
+    ("polymorphic-or-evidence-function", [TypedCoreUnresolvedExpressionType, TypedCoreNonMonomorphicFunctionUnsupported, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType]),
+    ("imported-direct-call", [TypedCoreImportedInputsUnsupported]),
+    ("user-defined-operator-call", [TypedCoreUserDefinedOperatorUnsupported])
+  ]
+
+resolveFixtureModule :: Fixture -> IO ResolvedModule
+resolveFixtureModule fixture = do
+  result <- resolveFixture fixture
+  case result of
+    Left _ -> failTest (fixtureName fixture <> " did not resolve through the module resolver")
+    Right resolvedModule -> pure resolvedModule
+
+inferFixture :: Fixture -> IO InferenceResult
+inferFixture fixture = do
+  resolvedModule <- resolveFixtureModule fixture
+  inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore resolvedModule))
+
 produceFixture :: Fixture -> IO TypedCoreProductionResult
-produceFixture fixture =
+produceFixture fixture = do
+  resolvedModule <- resolveFixtureModule fixture
+  produceResolvedFixture fixture resolvedModule
+
+produceFixtureWithTrace :: Fixture -> IO (TypedCoreProductionResult, [FilePath])
+produceFixtureWithTrace fixture = do
+  lookupPaths <- newIORef []
+  resolvedResult <- resolveFixtureWithLookup fixture $ \path -> do
+    modifyIORef' lookupPaths (<> [path])
+    pure (Map.lookup path (fixtureSourceFiles fixture))
+  resolvedModule <-
+    case resolvedResult of
+      Left _ -> failTest (fixtureName fixture <> " did not resolve through the module resolver")
+      Right value -> pure value
+  productionResult <- produceResolvedFixture fixture resolvedModule
+  lookupPathsValue <- readIORef lookupPaths
+  pure (productionResult, lookupPathsValue)
+
+produceResolvedFixture :: Fixture -> ResolvedModule -> IO TypedCoreProductionResult
+produceResolvedFixture fixture resolvedModule =
   inferResolvedModuleTypedCoreWithProfile
     TypedCoreExpressionDirectCallProfile
     (fixtureInputs fixture)
     (fixtureSourcePath fixture)
-    (fixtureModule fixture)
+    resolvedModule
 
 testScalarProduction :: IO ()
 testScalarProduction =
@@ -574,7 +671,7 @@ testScalarProduction =
     assertScalar (name, expectedProgram) =
       case filter ((== name) . fixtureName) scalarFixtures of
         [fixture] -> do
-          ordinary <- inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+          ordinary <- inferFixture fixture
           firstResult <- produceFixture fixture
           secondResult <- produceFixture fixture
           let firstRun = typedCoreProductionStatus firstResult
@@ -668,7 +765,7 @@ testRejectedScalarProfile =
     assertRejected (name, expectedFailures) =
       case filter ((== name) . fixtureName) rejectedScalarFixtures of
         [fixture] -> do
-          ordinary <- inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+          ordinary <- inferFixture fixture
           firstResult <- produceFixture fixture
           secondResult <- produceFixture fixture
           let firstRun = typedCoreProductionStatus firstResult
@@ -692,29 +789,26 @@ testUnitProduction =
   case fixtures of
     [] -> failTest "unit fixture is missing"
     actualFixture : _ -> do
-      beforeInferenceResult <- inferExpressionWithInputs (fixtureInputs actualFixture) (coreModuleExpr (resolvedModuleCore (fixtureModule actualFixture)))
+      beforeInferenceResult <- inferFixture actualFixture
       actualUnitResult <-
         inferResolvedModuleTypedCoreWithProfile
           TypedCoreExpressionDirectCallProfile
           (fixtureInputs actualFixture)
           (fixtureSourcePath actualFixture)
-          (fixtureModule actualFixture)
+          =<< resolveFixtureModule actualFixture
       assertEqual "unit production" (TypedCoreProductionSucceeded expectedUnitProgram) (typedCoreProductionStatus actualUnitResult)
       assertEqual "ordinary inference is unchanged" beforeInferenceResult (typedCoreProductionInferenceResult actualUnitResult)
 
 testDiagnosticPrecedence :: IO ()
 testDiagnosticPrecedence = do
   let sourceDiagnosticFixture = fixtureByName "source-diagnostic"
-  ordinary <-
-    inferExpressionWithInputs
-      (fixtureInputs sourceDiagnosticFixture)
-      (coreModuleExpr (resolvedModuleCore (fixtureModule sourceDiagnosticFixture)))
+  ordinary <- inferFixture sourceDiagnosticFixture
   sourceDiagnosticResult <-
     inferResolvedModuleTypedCoreWithProfile
       TypedCoreExpressionDirectCallProfile
       (fixtureInputs sourceDiagnosticFixture)
       (fixtureSourcePath sourceDiagnosticFixture)
-      (fixtureModule sourceDiagnosticFixture)
+      =<< resolveFixtureModule sourceDiagnosticFixture
   assertEqual "diagnostics take precedence" TypedCoreProductionBlockedByDiagnostics (typedCoreProductionStatus sourceDiagnosticResult)
   assertEqual "diagnostic inference compatibility" ordinary (typedCoreProductionInferenceResult sourceDiagnosticResult)
 
@@ -735,12 +829,7 @@ testInputFailures =
 
 assertUnsupported :: Fixture -> [TypedCoreProductionFailure] -> IO ()
 assertUnsupported fixture expectedFailures = do
-  result <-
-    inferResolvedModuleTypedCoreWithProfile
-      TypedCoreExpressionDirectCallProfile
-      (fixtureInputs fixture)
-      (fixtureSourcePath fixture)
-      (fixtureModule fixture)
+  result <- produceFixture fixture
   assertEqual
     (fixtureName fixture <> " production status")
     (TypedCoreProductionUnsupported expectedFailures)
@@ -750,6 +839,7 @@ testAdditionalProfileFailures :: IO ()
 testAdditionalProfileFailures =
   case fixtures of
     unitFixture : _ -> do
+      resolvedUnitModule <- resolveFixtureModule unitFixture
       let pathMismatch =
             unitFixture
               { fixtureInputs = (fixtureInputs unitFixture) {inferenceCurrentModulePath = Just ["Other", "Main"]}
@@ -775,34 +865,25 @@ testAdditionalProfileFailures =
                     { inferenceImportedCapabilities = emptyScopeCapabilityFacts {scopeClassFacts = Map.singleton "Foreign" 0}
                     }
               }
-          unsupportedRoot = unitFixture {fixtureModule = withExpression (ELit (LBool True)) unitFixture}
+          unsupportedRoot = withExpression (ELit (LBool True)) resolvedUnitModule
           nonLocalCall =
-            unitFixture
-              { fixtureModule =
-                  withExpression
-                    ( EBlock
-                        [ SExpr
-                            (SourceSpan 1 1)
-                            (EApply (EVar "__kernel_toInt8") (ELit (LInt 1)))
-                        ]
-                    )
-                    unitFixture
-              }
+            withExpression
+              ( EBlock
+                  [ SExpr
+                      (SourceSpan 1 1)
+                      (EApply (EVar "__kernel_toInt8") (ELit (LInt 1)))
+                  ]
+              )
+              resolvedUnitModule
           unsupportedExport =
-            unitFixture
-              { fixtureModule =
-                  (fixtureModule unitFixture)
-                    { resolvedModuleExportInventory =
-                        exportInventory [ModuleExport ValueNamespace "missing"]
-                    }
+            resolvedUnitModule
+              { resolvedModuleExportInventory =
+                  exportInventory [ModuleExport ValueNamespace "missing"]
               }
           leadingStatement =
-            unitFixture
-              { fixtureModule =
-                  withExpression
-                    (EBlock [SLet "ignored" (SourceSpan 1 1) (ETuple []), SExpr (SourceSpan 2 1) (ETuple [])])
-                    unitFixture
-              }
+            withExpression
+              (EBlock [SLet "ignored" (SourceSpan 1 1) (ETuple []), SExpr (SourceSpan 2 1) (ETuple [])])
+              resolvedUnitModule
           inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
           rootExpressionFailure = [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
           statementFailure = [TypedCoreProductionFailure (TypedCoreProductionStatementPath ["App", "Main"] 0) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
@@ -810,20 +891,29 @@ testAdditionalProfileFailures =
       assertUnsupported importedValue inputFailure
       assertUnsupported importedData inputFailure
       assertUnsupported importedCapabilities inputFailure
-      assertUnsupported unsupportedRoot rootExpressionFailure
-      assertUnsupported
+      assertUnsupportedResolved unitFixture unsupportedRoot rootExpressionFailure
+      assertUnsupportedResolved
+        unitFixture
         nonLocalCall
         [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toInt8")]
-      assertUnsupported
+      assertUnsupportedResolved
+        unitFixture
         unsupportedExport
         [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreUnsupportedExport (TypedCoreNameDetail "missing")]
-      assertUnsupported leadingStatement statementFailure
+      assertUnsupportedResolved unitFixture leadingStatement statementFailure
     [] -> failTest "unit fixture is missing"
 
-withExpression :: Expr -> Fixture -> ResolvedModule
-withExpression expression fixture =
-  let moduleValue = fixtureModule fixture
-   in moduleValue
+assertUnsupportedResolved :: Fixture -> ResolvedModule -> [TypedCoreProductionFailure] -> IO ()
+assertUnsupportedResolved fixture resolvedModule expectedFailures = do
+  result <- produceResolvedFixture fixture resolvedModule
+  assertEqual
+    (fixtureName fixture <> " production status")
+    (TypedCoreProductionUnsupported expectedFailures)
+    (typedCoreProductionStatus result)
+
+withExpression :: Expr -> ResolvedModule -> ResolvedModule
+withExpression expression moduleValue =
+  moduleValue
         { resolvedModuleCore =
             CoreModule
               (Just ["App", "Main"])

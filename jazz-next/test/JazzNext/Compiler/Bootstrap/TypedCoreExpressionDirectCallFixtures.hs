@@ -21,6 +21,8 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     ordinaryForwardVisibilityFixture,
     forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
+    resolveFixture,
+    resolveFixtureWithLookup,
     admittedOperators,
     explicitNumericTypes,
   )
@@ -28,18 +30,17 @@ where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
-import JazzNext.Compiler.Diagnostics (SourceSpan (..))
-import JazzNext.Compiler.FractionalLiteral (mkFractionalLiteralSource)
+import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.LoweredIR
-import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
-import JazzNext.Compiler.ModuleGraph
-import JazzNext.Compiler.Name (Name (SourceName), NameNamespace (ValueNamespace))
-import JazzNext.Compiler.Parser (parseSurfaceProgram)
-import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
+import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig (..),
+    resolveProgram,
+  )
 import JazzNext.Compiler.TypeInference (InferenceInputs (..))
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (TFunctionType, TIntType),
@@ -53,7 +54,7 @@ data Fixture = Fixture
   { fixtureName :: Text,
     fixtureInputs :: InferenceInputs,
     fixtureSourcePath :: TypedSourcePath,
-    fixtureModule :: ResolvedModule
+    fixtureSourceFiles :: Map.Map FilePath Text
   }
 
 fixtureNames :: [Text]
@@ -105,46 +106,44 @@ rejectedFixtureNames =
 
 fixtures :: [Fixture]
 fixtures =
-  [ Fixture "unit-entry" emptyInputs validSourcePath unitModule,
-    boolFixture,
-    charFixture,
-    defaultIntFixture,
-    defaultFloatFixture,
+  [ sourceFixture "unit-entry" unitEntrySource,
+    sourceFixture "bool-entry" boolEntrySource,
+    sourceFixture "char-entry" charEntrySource,
+    sourceFixture "default-int-entry" defaultIntEntrySource,
+    sourceFixture "default-float-entry" defaultFloatEntrySource,
     sourceFixture "explicit-numeric-widths" explicitNumericWidthsSource,
-    arithmeticOperatorsFixture,
-    orderingOperatorsFixture,
-    equalityOperatorsFixture,
+    sourceFixture "arithmetic-operators" arithmeticOperatorsSource,
+    sourceFixture "ordering-operators" orderingOperatorsSource,
+    sourceFixture "equality-operators" equalityOperatorsSource,
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
     sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
     sourceFixture "nested-direct-calls" nestedDirectCallsSource,
     sourceFixture "dollar-direct-call" dollarDirectCallSource,
-    (sourceFixture "exported-direct-function" exportedDirectFunctionSource)
-      { fixtureModule =
-          (fixtureModule (sourceFixture "exported-direct-function" exportedDirectFunctionSource))
-            { resolvedModuleExportInventory =
-                exportInventory [ModuleExport ValueNamespace "increment"]
-            }
+    sourceFixture "exported-direct-function" exportedDirectFunctionSource,
+    sourceFixture "source-diagnostic" sourceDiagnosticSource,
+    (sourceFixture "invalid-portable-source-path" unitEntrySource)
+      { fixtureSourcePath = TypedSourcePath "/private/host/Main.jz"
       },
-    Fixture "source-diagnostic" emptyInputs validSourcePath sourceDiagnosticModule,
-    Fixture "invalid-portable-source-path" emptyInputs (TypedSourcePath "/private/host/Main.jz") unitModule,
-    Fixture "resolved-import" emptyInputs validSourcePath moduleWithImport,
-    Fixture "ambient-prelude-input" ambientPreludeInputs validSourcePath unitModule,
-    textFixture,
-    listFixture,
-    nonUnitTupleFixture,
-    dataFixture,
-    conditionalFixture,
-    patternCaseFixture,
-    localBlockBindingFixture,
-    sourceFixture "bare-function-value" bareFunctionValueSource,
-    sourceFixture "partial-direct-call" partialDirectCallSource,
-    sourceFixture "oversaturated-direct-call" oversaturatedDirectCallSource,
-    sourceFixture "capturing-function" capturingFunctionSource,
-    sourceFixture "self-recursive-function" selfRecursiveFunctionSource,
-    sourceFixture "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
-    sourceFixture "polymorphic-or-evidence-function" polymorphicFunctionSource,
+    sourceFixtureWithFiles "resolved-import" emptyInputs resolvedImportSource resolvedImportSourceFiles,
+    (sourceFixture "ambient-prelude-input" unitEntrySource)
+      { fixtureInputs = ambientPreludeInputs
+      },
+    sourceFixtureNoExports "text-value" textValueSource,
+    sourceFixtureNoExports "list-value" listValueSource,
+    sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
+    sourceFixtureNoExports "data-value" dataValueSource,
+    sourceFixtureNoExports "conditional" conditionalSource,
+    sourceFixtureNoExports "pattern-case" patternCaseSource,
+    sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
+    sourceFixtureNoExports "bare-function-value" bareFunctionValueSource,
+    sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
+    sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
+    sourceFixtureNoExports "capturing-function" capturingFunctionSource,
+    sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
+    sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
+    sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
     (sourceFixture "imported-direct-call" importedDirectCallSource)
       { fixtureInputs =
           emptyInputs
@@ -154,7 +153,7 @@ fixtures =
                   (PlainTypeBinding (TFunctionType TIntType TIntType))
             }
       },
-    sourceFixture "user-defined-operator-call" userDefinedOperatorCallSource
+    sourceFixtureNoExports "user-defined-operator-call" userDefinedOperatorCallSource
   ]
 
 forwardVisibilityNegativeFixtures :: [Fixture]
@@ -385,35 +384,35 @@ scalarExpectedPrograms =
 directCallExpectedPrograms :: [(Text, TypedProgram)]
 directCallExpectedPrograms =
   [ ( "explicit-numeric-widths",
-      expectedFunctionProgram [] explicitNumericFunctions (TypedTupleExpr unitInfo [])
+      expectedFunctionProgram (map expectedFunctionName explicitNumericFunctions) explicitNumericFunctions (TypedTupleExpr unitInfo [])
     ),
     ( "scalar-parameter-return",
       expectedFunctionProgram
-        []
+        ["identity"]
         [identityFunction]
         (directCall "identity" [intInfo] intInfo [intExpr 42])
     ),
     ( "single-argument-direct-call",
       expectedFunctionProgram
-        []
+        ["increment"]
         [incrementFunction]
         (directCall "increment" [intInfo] intInfo [intExpr 41])
     ),
     ( "curried-multi-argument-direct-call",
       expectedFunctionProgram
-        []
+        ["combine"]
         [combineFunction]
         (directCall "combine" [intInfo, intInfo] intInfo [intExpr 20, intExpr 22])
     ),
     ( "forward-direct-call-dag",
       expectedFunctionProgram
-        []
+        ["first", "second"]
         [firstFunction, incrementNamed "second"]
         (directCall "first" [intInfo] intInfo [intExpr 41])
     ),
     ( "nested-direct-calls",
       expectedFunctionProgram
-        []
+        ["increment", "double"]
         [incrementFunction, doubleFunction]
         ( directCall
             "double"
@@ -424,7 +423,7 @@ directCallExpectedPrograms =
     ),
     ( "dollar-direct-call",
       expectedFunctionProgram
-        []
+        ["increment"]
         [incrementFunction]
         (directCall "increment" [intInfo] intInfo [intExpr 41])
     ),
@@ -888,13 +887,49 @@ sourceFixture name source =
     name
     emptyInputs
     validSourcePath
-    ( unitModule
-        { resolvedModuleCore =
-            case parseSurfaceProgram source >>= lowerSurfaceModule "src/App/Main.jz" modulePath of
-              Right coreModule -> coreModule
-              Left diagnostic -> error ("invalid typed-core fixture source: " <> show diagnostic)
-        }
-    )
+    (Map.singleton sourceFilePath source)
+
+sourceFixtureWithFiles :: Text -> InferenceInputs -> Text -> Map.Map FilePath Text -> Fixture
+sourceFixtureWithFiles name inputs source additionalSources =
+  Fixture
+    name
+    inputs
+    validSourcePath
+    (Map.insert sourceFilePath source additionalSources)
+
+sourceFixtureNoExports :: Text -> Text -> Fixture
+sourceFixtureNoExports name source =
+  sourceFixture name (emptyExportModuleSource source)
+
+resolveFixture :: Fixture -> IO (Either Diagnostic ModuleGraph.ResolvedModule)
+resolveFixture fixture =
+  resolveFixtureWithLookup fixture (pure . (`Map.lookup` fixtureSourceFiles fixture))
+
+resolveFixtureWithLookup :: Fixture -> (FilePath -> IO (Maybe Text)) -> IO (Either Diagnostic ModuleGraph.ResolvedModule)
+resolveFixtureWithLookup fixture loadSource =
+  fmap (fmap resolverEntryModule) $
+    resolveProgram
+      fixtureResolverConfig
+      (inferenceBuiltinMode (fixtureInputs fixture))
+      Set.empty
+      Set.empty
+      loadSource
+      modulePath
+  where
+    resolverEntryModule program =
+      case filter ((== modulePath) . ModuleGraph.resolvedModulePath) (ModuleGraph.resolvedProgramModules program) of
+        [resolvedModule] -> resolvedModule
+        _ -> error "typed-core fixture resolver did not produce one entry module"
+
+fixtureResolverConfig :: ModuleResolutionConfig
+fixtureResolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+
+sourceFilePath :: FilePath
+sourceFilePath = "src/App/Main.jz"
+
+emptyExportModuleSource :: Text -> Text
+emptyExportModuleSource source =
+  "module App::Main () {\n" <> source <> "\n}"
 
 fixtureByName :: Text -> Fixture
 fixtureByName name =
@@ -1096,7 +1131,12 @@ polymorphicFunctionSource =
     ]
 
 importedDirectCallSource :: Text
-importedDirectCallSource = "foreign 1."
+importedDirectCallSource =
+  Text.unlines
+    [ "foreign :: Int -> Int.",
+      "foreign = \\(item) -> item.",
+      "foreign 1."
+    ]
 
 userDefinedOperatorCallSource :: Text
 userDefinedOperatorCallSource =
@@ -1128,56 +1168,33 @@ modulePath = ["App", "Main"]
 validSourcePath :: TypedSourcePath
 validSourcePath = TypedSourcePath "src/App/Main.jz"
 
-span1 :: SourceSpan
-span1 = SourceSpan 1 1
+unitEntrySource, boolEntrySource, charEntrySource, defaultIntEntrySource, defaultFloatEntrySource :: Text
+unitEntrySource = "()."
+boolEntrySource = "True."
+charEntrySource = "'j'."
+defaultIntEntrySource = "7."
+defaultFloatEntrySource = "1.5."
 
-unitExpr :: Expr
-unitExpr = EBlock [SExpr span1 (ETuple [])]
+arithmeticOperatorsSource, orderingOperatorsSource, equalityOperatorsSource :: Text
+arithmeticOperatorsSource = Text.unlines ["1 + 2.", "3 - 1.", "2 * 4.", "8 / 2."]
+orderingOperatorsSource = Text.unlines ["1 < 2.", "2 <= 2.", "3 > 2.", "3 >= 3."]
+equalityOperatorsSource = Text.unlines ["1 == 1.", "1 != 2."]
 
-boolFixture, charFixture, defaultIntFixture, defaultFloatFixture, arithmeticOperatorsFixture, orderingOperatorsFixture, equalityOperatorsFixture :: Fixture
-boolFixture = scalarFixture "bool-entry" (ELit (LBool True))
-charFixture = scalarFixture "char-entry" (ELit (LChar 'j'))
-defaultIntFixture = scalarFixture "default-int-entry" (ELit (LInt 7))
-defaultFloatFixture = scalarFixture "default-float-entry" (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing))
-arithmeticOperatorsFixture = scalarStatementsFixture "arithmetic-operators" [EBinary "+" (ELit (LInt 1)) (ELit (LInt 2)), EBinary "-" (ELit (LInt 3)) (ELit (LInt 1)), EBinary "*" (ELit (LInt 2)) (ELit (LInt 4)), EBinary "/" (ELit (LInt 8)) (ELit (LInt 2))]
-orderingOperatorsFixture = scalarStatementsFixture "ordering-operators" [EBinary "<" (ELit (LInt 1)) (ELit (LInt 2)), EBinary "<=" (ELit (LInt 2)) (ELit (LInt 2)), EBinary ">" (ELit (LInt 3)) (ELit (LInt 2)), EBinary ">=" (ELit (LInt 3)) (ELit (LInt 3))]
-equalityOperatorsFixture = scalarStatementsFixture "equality-operators" [EBinary "==" (ELit (LInt 1)) (ELit (LInt 1)), EBinary "!=" (ELit (LInt 1)) (ELit (LInt 2))]
+sourceDiagnosticSource, textValueSource, listValueSource, nonUnitTupleSource, dataValueSource, conditionalSource, patternCaseSource, localBlockBindingSource :: Text
+sourceDiagnosticSource = "missing."
+textValueSource = Text.unlines ["\"managed\".", "[1]."]
+listValueSource = "[1]."
+nonUnitTupleSource = "(1, 2)."
+dataValueSource = Text.unlines ["data Box = Box.", "Box."]
+conditionalSource = "if True then 1 else 2."
+patternCaseSource = "case True { | _ -> 1 }."
+localBlockBindingSource = "{ item = 1. item. }."
 
-textFixture, listFixture, nonUnitTupleFixture, dataFixture, conditionalFixture, patternCaseFixture, localBlockBindingFixture :: Fixture
-textFixture = scalarStatementsFixture "text-value" [ELit (LText "managed"), EList [ELit (LInt 1)]]
-listFixture = scalarFixture "list-value" (EList [ELit (LInt 1)])
-nonUnitTupleFixture = scalarFixture "non-unit-tuple" (ETuple [ELit (LInt 1), ELit (LInt 2)])
-dataFixture = scalarFixture "data-value" (EBlock [SData span1 (SourceName "Box") [] [DataConstructor (SourceName "Box") []], SExpr (SourceSpan 2 1) (EVar (SourceName "Box"))])
-conditionalFixture = scalarFixture "conditional" (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
-patternCaseFixture = scalarFixture "pattern-case" (EPatternCase (ELit (LBool True)) [CaseArm PWildcard Nothing (ELit (LInt 1))])
-localBlockBindingFixture = scalarFixture "local-block-binding" (EBlock [SLet (SourceName "value") span1 (ELit (LInt 1)), SExpr (SourceSpan 2 1) (EVar (SourceName "value"))])
+resolvedImportSource :: Text
+resolvedImportSource = Text.unlines ["import Library::Value.", "()."]
 
-scalarFixture :: Text -> Expr -> Fixture
-scalarFixture name expression = Fixture name emptyInputs validSourcePath (unitModule {resolvedModuleCore = CoreModule (Just modulePath) Nothing [] (EBlock [SExpr span1 expression])})
-
-scalarStatementsFixture :: Text -> [Expr] -> Fixture
-scalarStatementsFixture name expressions =
-  Fixture name emptyInputs validSourcePath
-    (unitModule {resolvedModuleCore = CoreModule (Just modulePath) Nothing [] (EBlock (zipWith (\line expression -> SExpr (SourceSpan line 1) expression) [1 ..] expressions))})
-
-unitModule :: ResolvedModule
-unitModule =
-  ResolvedModule
-    { resolvedModulePath = modulePath,
-      resolvedSourcePath = "host-only/ignored.jz",
-      resolvedModuleImports = [],
-      resolvedModuleExportInventory = exportInventory [],
-      resolvedModuleCore = CoreModule (Just modulePath) Nothing [] unitExpr
-    }
-
-sourceDiagnosticModule :: ResolvedModule
-sourceDiagnosticModule = unitModule {resolvedModuleCore = CoreModule (Just modulePath) Nothing [] (EBlock [SExpr span1 (EVar (SourceName "missing"))])}
-
-moduleWithImport :: ResolvedModule
-moduleWithImport =
-  unitModule
-    { resolvedModuleImports = [ResolvedImport span1 ["Library", "Value"] Nothing Nothing]
-    }
+resolvedImportSourceFiles :: Map.Map FilePath Text
+resolvedImportSourceFiles = Map.singleton "src/Library/Value.jz" "answer = 1."
 
 entryModule :: TypedModule
 entryModule =
@@ -1315,7 +1332,7 @@ expectedFunctionProgram exportedNames functions terminalExpression =
         modulePath
         validSourcePath
         []
-        [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
+        [TypedModuleExport TypedValueNamespace name | name <- sort exportedNames]
         typedInterface
         statements
         (typedExpressionInfo terminalExpression)
@@ -1338,7 +1355,7 @@ expectedFunctionProgram exportedNames functions terminalExpression =
         [ TypedValueInterface
             (resolvedName name)
             (functionScheme bindingIndex function)
-        | name <- exportedNames,
+        | name <- sort exportedNames,
           (functionOffset, function) <- zip [0 ..] functions,
           expectedFunctionName function == name,
           let bindingIndex = functionOffset * 2 + 1
