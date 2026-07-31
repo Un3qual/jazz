@@ -347,20 +347,24 @@ testJazzUInt64ImmediateRange = do
   assertEqual "Jazz UInt64 boundary deterministic output" (runOutput first) (runOutput second)
 
 testJazzMalformedUnsignedImmediate :: IO ()
-testJazzMalformedUnsignedImmediate = do
-  let expected =
-        renderRuntimeValue
-          ( canonicalLoweredValidationFailuresRuntimeValue
-              [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
-          )
-  first <- runJazzMalformedUnsignedImmediate
-  second <- runJazzMalformedUnsignedImmediate
-  assertJazzOutput "Jazz malformed UInt64 first run" expected first
-  assertJazzOutput "Jazz malformed UInt64 second run" expected second
-  assertEqual "Jazz malformed UInt64 deterministic output" (runOutput first) (runOutput second)
+testJazzMalformedUnsignedImmediate =
+  mapM_ assertMalformed ["not-decimal", "007", "-1"]
+  where
+    expected =
+      renderRuntimeValue
+        ( canonicalLoweredValidationFailuresRuntimeValue
+            [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
+        )
+    assertMalformed immediateText = do
+      first <- runJazzMalformedUnsignedImmediate immediateText
+      second <- runJazzMalformedUnsignedImmediate immediateText
+      let label = "Jazz malformed UInt64 " <> immediateText
+      assertJazzOutput (label <> " first run") expected first
+      assertJazzOutput (label <> " second run") expected second
+      assertEqual (label <> " deterministic output") (runOutput first) (runOutput second)
 
-runJazzMalformedUnsignedImmediate :: IO RunResult
-runJazzMalformedUnsignedImmediate =
+runJazzMalformedUnsignedImmediate :: Text -> IO RunResult
+runJazzMalformedUnsignedImmediate immediateText =
   runModuleGraph
     defaultWarningSettings
     resolverConfig
@@ -369,12 +373,13 @@ runJazzMalformedUnsignedImmediate =
   where
     lookupSource sourcePath =
       case sourcePath of
-        "src/App/Main.jz" -> pure (Just jazzMalformedUnsignedImmediateSource)
+        "src/App/Main.jz" -> pure (Just (jazzMalformedUnsignedImmediateSource immediateText))
         _ -> readCheckedInJazzProjectModuleSource sourcePath
 
-jazzMalformedUnsignedImmediateSource :: Text
-jazzMalformedUnsignedImmediateSource =
-  """
+jazzMalformedUnsignedImmediateSource :: Text -> Text
+jazzMalformedUnsignedImmediateSource immediateText =
+  Text.replace "__IMMEDIATE__" immediateText
+    """
   module App::Main {
     import LoweredIRTypes.
     import LoweredIRValidate (validateProgram).
@@ -396,7 +401,7 @@ jazzMalformedUnsignedImmediateSource =
             (Just
               (LoweredReturn
                 (LoweredImmediateOperand
-                  (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 "not-decimal"))))]
+                  (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 "__IMMEDIATE__"))))]
           (LoweredBlockId "entry")]
         (LoweredFunctionId "main")).
   }

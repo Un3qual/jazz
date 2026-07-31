@@ -25,7 +25,9 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs
+  - jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs
   - jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs
   - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
   - jazz-next/jazz/compiler/LoweredIRTypes.jz
@@ -34,6 +36,8 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures
   - nix --extra-experimental-features 'nix-command flakes' develop -c cabal build --project-dir=jazz-next -fdevelopment all --jobs=1
@@ -850,7 +854,7 @@ syntax rule for any future fixture support.
 >
 > Jazz has no arbitrary-precision source numeric type, and an `Int` constructor
 > field coerces before `validateProgram`. Therefore the Jazz
-> `LoweredUnsignedIntegerImmediate` payload uses canonical signed-decimal
+> `LoweredUnsignedIntegerImmediate` payload uses canonical unsigned-decimal
 > `Text`; the checked comparison adapter converts the Haskell `Integer`
 > payload to that text. The Jazz validator must reject negative, malformed,
 > and overflowing text through the same structured range failure. This is the

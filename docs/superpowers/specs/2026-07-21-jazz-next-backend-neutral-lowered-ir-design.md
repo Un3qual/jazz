@@ -245,7 +245,7 @@ host objects.
 
 Signed and unsigned integer immediate payloads must fit their declared width.
 The Haskell model stores both as arbitrary-precision `Integer`. Jazz's signed
-payload uses `Int`, while the unsigned payload uses canonical signed-decimal
+payload uses `Int`, while the unsigned payload uses canonical unsigned-decimal
 `Text` because Jazz has no arbitrary-precision source numeric type and an
 `Int` constructor field coerces through signed 64-bit range before validation.
 The comparison adapter bridges Haskell unsigned `Integer` values to canonical

@@ -77,7 +77,7 @@ data FunctionShape = FunctionShape
     functionShapeStatementIndex :: Int,
     functionShapeParameters :: [FunctionParameterShape],
     functionShapeResultRepresentation :: LoweredRepresentation,
-    functionShapeBodyPath :: [Int],
+    functionShapeReversedBodyPath :: [Int],
     functionShapeBody :: TypedExpr
   }
 
@@ -336,7 +336,7 @@ collectFunctionShape ::
 collectFunctionShape modulePath statementIndex name scheme expression = do
   identifier <- localValueIdentifier name
   (schemeType, schemeRecipe) <- monomorphicSchemeContract scheme
-  (parameters, resultRepresentation, bodyPath, body) <-
+  (parameters, resultRepresentation, reversedBodyPath, body) <-
     flattenLeadingLambdas schemeType schemeRecipe [0] [] expression
   if null parameters
     then Nothing
@@ -350,7 +350,7 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
             functionShapeStatementIndex = statementIndex,
             functionShapeParameters = parameters,
             functionShapeResultRepresentation = resultRepresentation,
-            functionShapeBodyPath = bodyPath,
+            functionShapeReversedBodyPath = reversedBodyPath,
             functionShapeBody = body
           }
 localValueIdentifier :: TypedCoreName -> Maybe Text
@@ -414,10 +414,8 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
       resultRepresentation <- scalarRepresentation expectedType expectedRecipe
       if nodeType (expressionInfo expression) == expectedType
           && nodeRecipe (expressionInfo expression) == expectedRecipe
-        then Just (reverse reversedParameters, resultRepresentation, expressionPath, expression)
+        then Just (reverse reversedParameters, resultRepresentation, reversedExpressionPath, expression)
         else Nothing
-      where
-        expressionPath = reverse reversedExpressionPath
 
 scalarRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 scalarRepresentation typeValue recipe =
@@ -454,7 +452,7 @@ validateStatementProfiles modulePath functions localValueNames =
                     inspectExpression
                       modulePath
                       [statementIndex]
-                      (functionShapeBodyPath function)
+                      (functionShapeReversedBodyPath function)
                       functions
                       localValueNames
                       (functionShapeParameters function)
@@ -680,7 +678,7 @@ emitFunction modulePath functions function =
   case lowerExpression
     modulePath
     [functionShapeStatementIndex function]
-    (functionShapeBodyPath function)
+    (functionShapeReversedBodyPath function)
     functions
     (functionShapeParameters function)
     initialState

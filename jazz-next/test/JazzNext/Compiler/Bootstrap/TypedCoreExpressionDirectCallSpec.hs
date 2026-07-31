@@ -52,6 +52,8 @@ tests =
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
+    ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
+    ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
@@ -118,7 +120,8 @@ testFixtureManifest =
       [ "forward-polymorphic-function-invisibility",
         "forward-constrained-function-invisibility",
         "forward-signed-scalar-invisibility",
-        "forward-unsigned-lambda-invisibility"
+        "forward-unsigned-lambda-invisibility",
+        "nested-forward-signed-function-invisibility"
       ]
       (map fixtureName forwardVisibilityNegativeFixtures)
     >> assertEqual
@@ -152,16 +155,6 @@ testRejectedManifestProducerFailures = do
       assertEqual (name <> " first complete rejection") expectedStatus (typedCoreProductionStatus firstRun)
       assertEqual (name <> " second complete rejection") expectedStatus (typedCoreProductionStatus secondRun)
       pure (name, expectedStatus, typedCoreProductionStatus firstRun)
-
-    statusFailureKinds status =
-      case status of
-        TypedCoreProductionBlockedByDiagnostics -> []
-        TypedCoreProductionUnsupported failures ->
-          [ kind
-          | TypedCoreProductionFailure _ kind _ <- failures
-          ]
-        TypedCoreProductionInvariantFailures _ -> []
-        TypedCoreProductionSucceeded _ -> []
 
 testAcceptedManifestPipeline :: IO ()
 testAcceptedManifestPipeline =
@@ -426,6 +419,57 @@ testForwardVisibilityBoundary = do
         TypedCoreProductionBlockedByDiagnostics
         (typedCoreProductionStatus firstRun)
 
+testProductionDiagnosticCompatibility :: IO ()
+testProductionDiagnosticCompatibility = do
+  let fixture = producerEdgeFixture "out-of-range-signed-function-literal"
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "out-of-range signed function reports one ordinary type error"
+    ["E2005"]
+    [ diagnosticCodeText (diagnosticCode diagnostic)
+    | diagnostic <- inferredDiagnostics ordinary,
+      isErrorDiagnostic diagnostic
+    ]
+  assertEqual
+    "out-of-range signed function inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "out-of-range signed function repeatable production" firstRun secondRun
+  assertEqual
+    "out-of-range signed function blocks typed-core production"
+    TypedCoreProductionBlockedByDiagnostics
+    (typedCoreProductionStatus firstRun)
+
+testUnsupportedDeclarationProfile :: IO ()
+testUnsupportedDeclarationProfile = do
+  let fixture = producerEdgeFixture "class-impl-declarations"
+      expected =
+        TypedCoreProductionUnsupported
+          [ unsupportedStatement 0,
+            unsupportedStatement 1
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "class and impl declaration ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "class and impl declaration inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "class and impl declaration repeatable production" firstRun secondRun
+  assertEqual "class and impl declaration failures" expected (typedCoreProductionStatus firstRun)
+  where
+    unsupportedStatement statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+
 assertUnboundLater :: Text -> InferenceResult -> IO ()
 assertUnboundLater label = assertUnboundName label "later"
 
@@ -478,66 +522,25 @@ testRejectedCallableProfile =
 
 callableExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
 callableExpectedStatuses =
-  [ ( "bare-function-value",
-      unsupported
-        [expressionFailure 2 [] TypedCoreCallableValueUnsupported (TypedCoreNameDetail "identity")]
-    ),
-    ( "partial-direct-call",
-      unsupported
-        [expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 2 1)]
-    ),
-    ( "oversaturated-direct-call",
-      unsupported
-        [ expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 2)
-        ]
-    ),
-    ( "capturing-function",
-      unsupported
-        [ statementFailure 1 TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail,
-          expressionFailure 3 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "seed")
-        ]
-    ),
-    ( "self-recursive-function",
-      unsupported
-        [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]
-    ),
-    ( "mutually-recursive-functions",
-      unsupported
-        [ statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
-          statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
-        ]
-    ),
-    ( "polymorphic-or-evidence-function",
-      unsupported
-        [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
-          expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
-        ]
-    ),
-    ( "imported-direct-call",
-      unsupported
-        [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
-    ),
-    ( "user-defined-operator-call",
-      unsupported
-        [expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
-    )
-  ]
+  map expectedStatus callableRejectionNames
   where
-    unsupported = TypedCoreProductionUnsupported
-    expressionFailure statementIndex childPath kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-        kind
-        detail
-    statementFailure statementIndex kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
-        kind
-        detail
+    expectedStatus name =
+      case lookup name rejectedManifestExpectedStatuses of
+        Just status -> (name, status)
+        Nothing -> error ("callable rejection is missing from the rejected manifest: " <> show name)
+
+callableRejectionNames :: [Text]
+callableRejectionNames =
+  [ "bare-function-value",
+    "partial-direct-call",
+    "oversaturated-direct-call",
+    "capturing-function",
+    "self-recursive-function",
+    "mutually-recursive-functions",
+    "polymorphic-or-evidence-function",
+    "imported-direct-call",
+    "user-defined-operator-call"
+  ]
 
 rejectedManifestExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
 rejectedManifestExpectedStatuses =
@@ -613,27 +616,20 @@ rejectedManifestExpectedStatuses =
 
 rejectedManifestFailureKinds :: [(Text, [TypedCoreProductionFailureKind])]
 rejectedManifestFailureKinds =
-  [ ("source-diagnostic", []),
-    ("invalid-portable-source-path", [TypedCoreInvalidPortableSourcePath]),
-    ("resolved-import", [TypedCoreResolvedImportsUnsupported]),
-    ("ambient-prelude-input", [TypedCoreAmbientPreludeInputUnsupported]),
-    ("text-value", [TypedCoreManagedValueUnsupported, TypedCoreStructuredValueUnsupported]),
-    ("list-value", [TypedCoreStructuredValueUnsupported]),
-    ("non-unit-tuple", [TypedCoreStructuredValueUnsupported]),
-    ("data-value", [TypedCoreStructuredValueUnsupported]),
-    ("conditional", [TypedCoreControlFlowUnsupported]),
-    ("pattern-case", [TypedCorePatternCaseUnsupported]),
-    ("local-block-binding", [TypedCoreNestedBlockUnsupported]),
-    ("bare-function-value", [TypedCoreCallableValueUnsupported]),
-    ("partial-direct-call", [TypedCoreCallArityUnsupported]),
-    ("oversaturated-direct-call", [TypedCoreUserDefinedOperatorUnsupported, TypedCoreCallArityUnsupported]),
-    ("capturing-function", [TypedCoreUnsupportedRootExpression, TypedCoreCaptureUnsupported]),
-    ("self-recursive-function", [TypedCoreRecursiveFunctionUnsupported]),
-    ("mutually-recursive-functions", [TypedCoreRecursiveFunctionUnsupported, TypedCoreRecursiveFunctionUnsupported]),
-    ("polymorphic-or-evidence-function", [TypedCoreUnresolvedExpressionType, TypedCoreNonMonomorphicFunctionUnsupported, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType]),
-    ("imported-direct-call", [TypedCoreImportedInputsUnsupported]),
-    ("user-defined-operator-call", [TypedCoreUserDefinedOperatorUnsupported])
+  [ (name, statusFailureKinds status)
+  | (name, status) <- rejectedManifestExpectedStatuses
   ]
+
+statusFailureKinds :: TypedCoreProductionStatus -> [TypedCoreProductionFailureKind]
+statusFailureKinds status =
+  case status of
+    TypedCoreProductionBlockedByDiagnostics -> []
+    TypedCoreProductionUnsupported failures ->
+      [ kind
+      | TypedCoreProductionFailure _ kind _ <- failures
+      ]
+    TypedCoreProductionInvariantFailures _ -> []
+    TypedCoreProductionSucceeded _ -> []
 
 resolveFixtureModule :: Fixture -> IO ResolvedModule
 resolveFixtureModule fixture = do

@@ -38,7 +38,7 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001` | `docs` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | Define the next typed-core/lowering boundary for closures and recursion after the completed scalar/direct-call profile. | `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`, `docs/superpowers/specs/2026-07-30-jazz-next-typed-core-expression-direct-call-design.md` | `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh` | Requires an approved closure/recursion design and a separate executor-ready child before implementation promotion. |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001` | `docs` | [JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | Define the next typed-core/lowering boundary for closures and recursion after the completed scalar/direct-call profile. | `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md` | `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh` | Requires an approved closure/recursion design and a separate executor-ready child before implementation promotion. |
 
 ## Blocked
 

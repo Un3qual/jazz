@@ -96,6 +96,7 @@ import JazzNext.Compiler.TypeInference.Pattern
 import JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferExplicitTypeApplicationWithResult,
+    inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding
@@ -149,6 +150,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionPath (..),
     TypedCoreProductionProfile (..),
     TypedCoreProductionStatus (..),
+    blockProductionFailureKindAndDetail,
     finalizeTypedCoreExpressionDirectCall,
     InferredExpr (..),
     InferredProductionFailure (..),
@@ -254,6 +256,7 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
   do
   let (inferredResult, finalState) =
         inferExprTypeWithMode
+          True
           mode
           preludeStatementIndices
           (inferenceBuiltinMode inputs)
@@ -467,6 +470,7 @@ instantiateEnvBinding binding state =
 -- Core expressions do not retain inner-node source spans yet, so inference
 -- reuses the enclosing statement span as the best available location metadata.
 inferExprTypeWithMode ::
+  Bool ->
   TypedCoreProductionMode ->
   Set Int ->
   BuiltinResolutionMode ->
@@ -474,25 +478,26 @@ inferExprTypeWithMode ::
   InferState ->
   Expr ->
   (InferredExpr, InferState)
-inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
+inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices builtinMode env state expr =
   case expr of
     EBlock statements
       | mode == ProduceTypedCoreExpressionDirectCall,
-        any isDataStatement statements ->
+        (failureKind, failureDetail) <- blockProductionFailureKindAndDetail statements,
+        failureKind == TypedCoreStructuredValueUnsupported ->
           let (expressionType, finalState) =
                 inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
            in
             ( InferredExpr
                 expressionType
-                (Just (ProvisionalUnsupportedExpression TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail))
-                [InferredProductionFailure [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
+                (Just (ProvisionalUnsupportedExpression failureKind failureDetail))
+                [InferredProductionFailure [] failureKind failureDetail],
               finalState
             )
     EBlock statements ->
-      inferScopeTypeWithMode
+      (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
         preludeStatementIndices
         (\childMode childBuiltin childEnv childState childExpr ->
-           inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
+           inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
         )
         mode
         builtinMode
@@ -582,15 +587,9 @@ inferScalarExprWithProduction builtinMode env state expr =
               : concat (zipWith childFailures [0 ..] elementResults)
        in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
     EBlock statements ->
-      inferUnsupportedWithProduction
-        ( if any isDataStatement statements
-            then TypedCoreStructuredValueUnsupported
-            else TypedCoreNestedBlockUnsupported
-        )
-        ( if any isDataStatement statements
-            then TypedCoreDataValueDetail
-            else TypedCoreLocalBlockDetail
-        )
+      let (failureKind, failureDetail) =
+            blockProductionFailureKindAndDetail statements
+       in inferUnsupportedWithProduction failureKind failureDetail
     EVar name ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
        in (InferredExpr expressionType (ProvisionalVariableExpression name <$> expressionType) [], finalState)
@@ -607,7 +606,10 @@ inferScalarExprWithProduction builtinMode env state expr =
             pure (ProvisionalLambdaExpression parameterName inferredType body)
           failures = childFailures 0 bodyResult
        in (InferredExpr expressionType provisionalExpr failures, stateAfterBody)
-    EOperatorValue {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+    EOperatorValue {} ->
+      inferUnsupportedWithProduction
+        TypedCoreUserDefinedOperatorUnsupported
+        TypedCoreUnsupportedRootDetail
     EApply functionExpr argumentExpr ->
       let (functionResult, stateAfterFunction) = inferScalarExprWithProduction builtinMode env state functionExpr
           (argumentResult, stateAfterArgument) = inferScalarExprWithProduction builtinMode env stateAfterFunction argumentExpr
@@ -967,10 +969,11 @@ inferScalarExprWithProduction builtinMode env state expr =
               (childFailures 0 rightResult)
         EBlock statements ->
           let (blockResult, finalState) =
-                inferScopeTypeWithMode
+                inferNestedScopeTypeWithMode
                   Set.empty
                   ( \childMode childBuiltin childEnv childState childExpr ->
                       inferExprTypeWithMode
+                        False
                         childMode
                         Set.empty
                         childBuiltin
@@ -1053,12 +1056,6 @@ inferScalarExprWithProduction builtinMode env state expr =
 
 scalarOperators :: [Text]
 scalarOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-
-isDataStatement :: Statement -> Bool
-isDataStatement statement =
-  case statement of
-    SData {} -> True
-    _ -> False
 
 inferExprTypeRaw ::
   BuiltinResolutionMode ->

@@ -16,6 +16,7 @@ module JazzNext.Compiler.TypeInference.Elaboration
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     ProvisionalTypedScope (..),
+    blockProductionFailureKindAndDetail,
     finalizeTypedCoreExpressionDirectCall,
   ) where
 
@@ -25,7 +26,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST (Literal (..), NumericType (..))
+import JazzNext.Compiler.AST (Literal (..), NumericType (..), Statement (..))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventoryEntries)
@@ -110,6 +111,22 @@ data TypedCoreProductionMode
   = InferenceOnly
   | ProduceTypedCoreExpressionDirectCall
   deriving (Eq, Show)
+
+-- | Keep the unsupported block classification beside the failure contract so
+-- root and nested production traversals cannot drift apart.
+blockProductionFailureKindAndDetail ::
+  [Statement] ->
+  (TypedCoreProductionFailureKind, TypedCoreProductionFailureDetail)
+blockProductionFailureKindAndDetail statements
+  | any isDataStatement statements =
+      (TypedCoreStructuredValueUnsupported, TypedCoreDataValueDetail)
+  | otherwise =
+      (TypedCoreNestedBlockUnsupported, TypedCoreLocalBlockDetail)
+  where
+    isDataStatement statement =
+      case statement of
+        SData {} -> True
+        _ -> False
 
 -- | The private result threaded by production-aware inference. Existing
 -- inference-only helpers retain no provisional node.
@@ -558,8 +575,14 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
 
     fractionalLiteral source maybeNumericType =
-      let (whole, fractional, _) = fractionalLiteralSourceParts source
-       in TypedFractionalLiteral (Text.pack (show whole)) (Text.pack (show (abs fractional))) maybeNumericType
+      let (whole, fractional, scale) = fractionalLiteralSourceParts source
+          digitCount = max 0 (length (show scale) - 1)
+          fractionalDigits =
+            Text.justifyRight
+              digitCount
+              '0'
+              (Text.pack (show (abs fractional)))
+       in TypedFractionalLiteral (Text.pack (show whole)) fractionalDigits maybeNumericType
 
     unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
 

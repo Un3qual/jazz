@@ -6,6 +6,7 @@
 module JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferExplicitTypeApplicationWithResult,
+    inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding,
@@ -75,9 +76,9 @@ import JazzNext.Compiler.TypeInference.Elaboration
     InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
-    TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
+    blockProductionFailureKindAndDetail,
   )
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
@@ -220,14 +221,18 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
             ]
        in (InferredExpr (Just functionType) provisional failures, stateAfterBody)
     (TNumericType _, ELit literal@(LInt _)) ->
-      let (_, nextState) = inferExpression mode builtinMode env state (ELit literal)
-          concreteType = resolveType nextState expectedType
-       in ( InferredExpr
-              (Just concreteType)
-              (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
-              [],
-            nextState
-          )
+      let (literalResult, nextState) = inferExpression mode builtinMode env state (ELit literal)
+       in case inferredExpressionType literalResult of
+            Just literalType
+              | Just checkedState <- unifyTypes expectedType literalType nextState ->
+                  let concreteType = resolveType checkedState expectedType
+                   in ( InferredExpr
+                          (Just concreteType)
+                          (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
+                          [],
+                        checkedState
+                      )
+            _ -> (literalResult, nextState)
     (TNumericType numericType, ELit literal@(LFloat literalValue literalSource Nothing))
       | Just _ <- numericTypeFloatMax numericType ->
           let nextState =
@@ -314,12 +319,17 @@ publishVisibleTypes env state =
 
 inferScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
-  inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+  inferScopeTypeInternal True preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+
+inferNestedScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+  inferScopeTypeInternal False preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
   let (inferredResult, finalState) =
         inferScopeTypeInternal
+          False
           preludeStatementIndices
           ( \_mode builtin env state expr ->
               let (expressionType, nextState) = inferExpression builtin env state expr
@@ -332,8 +342,8 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
           statements
    in (inferredExpressionType inferredResult, finalState)
 
-inferScopeTypeInternal :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
-inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
@@ -363,7 +373,7 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
     predeclaredDataTypes =
       predeclareScopeDataTypes indexedStatements initialState
     scopePreparation =
-      prepareScope mode predeclaredDataTypes indexedStatements initialState
+      prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatements initialState
     bindingSeedsByStatement = preparedBindingSeeds scopePreparation
     preparedSignaturesByStatement = preparedSignatures scopePreparation
     forwardFunctionBindings = preparedForwardFunctions scopePreparation
@@ -393,7 +403,13 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                       Nothing -> seedStatementCapabilityFact stateForSource statement
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                  (scopeResultType, resultState, provisionalRest, productionFailures) =
+                    go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                  provisional =
+                    case mode of
+                      ProduceTypedCoreExpressionDirectCall -> ProvisionalUnsupportedStatement statementIndex : provisionalRest
+                      InferenceOnly -> provisionalRest
+               in (scopeResultType, resultState, provisional, productionFailures)
             SImpl implSpan capabilityName arguments methods ->
               let maybeInvalidTarget = firstInvalidImplTarget stateForSource implSpan arguments
                   nextState =
@@ -404,7 +420,13 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                          in checkImplMethodBodies inferPlain builtinMode env implSeededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                  (scopeResultType, resultState, provisionalRest, productionFailures) =
+                    go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                  provisional =
+                    case mode of
+                      ProduceTypedCoreExpressionDirectCall -> ProvisionalUnsupportedStatement statementIndex : provisionalRest
+                      InferenceOnly -> provisionalRest
+               in (scopeResultType, resultState, provisional, productionFailures)
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
@@ -720,14 +742,15 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
         then inferredProductionFailures result
         else
           case expression of
-            EBlock blockStatements
-              | any isDataStatement blockStatements ->
+            EBlock blockStatements ->
+              case blockProductionFailureKindAndDetail blockStatements of
+                (TypedCoreStructuredValueUnsupported, _) ->
                   inferredProductionFailures result
-              | otherwise ->
+                (failureKind, failureDetail) ->
                   InferredProductionFailure
                     []
-                    TypedCoreNestedBlockUnsupported
-                    TypedCoreLocalBlockDetail
+                    failureKind
+                    failureDetail
                     : inferredProductionFailures result
             _ -> inferredProductionFailures result
 
@@ -735,11 +758,6 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
       [ InferredProductionFailure (statementIndex : childPath) kind detail
       | InferredProductionFailure childPath kind detail <- failures
       ]
-
-    isDataStatement statement =
-      case statement of
-        SData {} -> True
-        _ -> False
 
     builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme)
     builtinOperatorSymbolExpr currentEnv expression =
@@ -1136,12 +1154,13 @@ data ScopePreparation = ScopePreparation
   }
 
 prepareScope ::
+  Bool ->
   TypedCoreProductionMode ->
   Map Text DataTypeBinding ->
   [(Int, Statement)] ->
   InferState ->
   ScopePreparation
-prepareScope mode predeclaredDataTypes indexedStatements initialState =
+prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatements initialState =
   let (bindingSeeds, signatures, forwardFunctions, _, _, finalPreparationState) =
         foldl'
           step
@@ -1160,7 +1179,10 @@ prepareScope mode predeclaredDataTypes indexedStatements initialState =
         preparedForwardFunctions = forwardFunctions,
         preparedScopeState =
           initialState
-            { inferSolver = inferSolver finalPreparationState
+            { inferSolver =
+                (inferSolver initialState)
+                  { solverNextTypeVar = solverNextTypeVar (inferSolver finalPreparationState)
+                  }
             }
       }
   where
@@ -1266,7 +1288,8 @@ prepareScope mode predeclaredDataTypes indexedStatements initialState =
               nextForwardFunctions =
                 case pendingSignature of
                   Just (PreparedSignature (Just signature) True)
-                    | mode == ProduceTypedCoreExpressionDirectCall,
+                    | allowForwardSignedFunctions,
+                      mode == ProduceTypedCoreExpressionDirectCall,
                       pendingSignatureName signature == identifierText bindingName,
                       ELambda {} <- bindingExpression,
                       concreteForwardFunctionType (pendingSignatureDeclaredType signature) ->

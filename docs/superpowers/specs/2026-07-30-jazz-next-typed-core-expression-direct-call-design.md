@@ -10,7 +10,7 @@ The typed-core and backend-neutral lowered-IR contract foundations are complete,
 and the pre-bootstrap language-quality gate has closed. The child now produces
 and validates the bounded typed-core scalar/direct-call profile during its
 opt-in inference traversal and lowers it to validated backend-neutral IR.
-Normal compile/run remains canonical-core/interpreter based. Closure/recursion
+Normal compile/run remains canonical-core/interpreter-based. Closure/recursion
 is the next design gate, not an implementation promotion.
 
 ## Goal
@@ -221,8 +221,8 @@ The scalar profile contains:
 `Text` is managed and is not a scalar in this profile.
 
 Supported expressions are scalar literals, scalar parameter references,
-supported builtin binary expressions, fully saturated local direct calls, and
-the nested applications needed to express those calls. The supported builtin
+supported built-in binary expressions, fully saturated local direct calls, and
+the nested applications needed to express those calls. The supported built-in
 operators are:
 
 - arithmetic: `+`, `-`, `*`, `/`;
@@ -481,7 +481,7 @@ upper-half value and maximum must validate in both implementations; the first
 overflow must fail identically. This does not widen variant/tag carrier rules
 or authorize Haskell constructor changes. Because Jazz `Int` constructor
 fields coerce through signed 64-bit range before validation, the Jazz
-`LoweredUnsignedIntegerImmediate` payload is instead canonical signed-decimal
+`LoweredUnsignedIntegerImmediate` payload is instead canonical unsigned-decimal
 `Text`; the checked adapter owns the Haskell `Integer` to Jazz `Text` bridge,
 and the Jazz validator retains negative, malformed, and overflow ownership.
 

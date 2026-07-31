@@ -57,7 +57,7 @@ stops before typed-core elaboration or core-to-IR lowering.
 signed-`Int` carrier contradicted the typed-core `UInt64` domain and prevented
 ordinary Jazz construction before validation. The Haskell semantic field
 remains `Integer`; the corresponding Jazz unsigned-immediate field is
-canonical signed-decimal `Text`, and the checked adapter owns that
+canonical unsigned-decimal `Text`, and the checked adapter owns that
 representation bridge. Both validators accept exactly
 `0..18446744073709551615` and reject negative, malformed, and overflowing
 payloads through the existing structured range failure.

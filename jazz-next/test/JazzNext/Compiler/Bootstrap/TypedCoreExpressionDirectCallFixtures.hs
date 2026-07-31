@@ -162,7 +162,8 @@ forwardVisibilityNegativeFixtures =
   [ sourceFixture "forward-polymorphic-function-invisibility" forwardPolymorphicFunctionSource,
     sourceFixture "forward-constrained-function-invisibility" forwardConstrainedFunctionSource,
     sourceFixture "forward-signed-scalar-invisibility" forwardSignedScalarSource,
-    sourceFixture "forward-unsigned-lambda-invisibility" forwardUnsignedLambdaSource
+    sourceFixture "forward-unsigned-lambda-invisibility" forwardUnsignedLambdaSource,
+    sourceFixtureNoExports "nested-forward-signed-function-invisibility" nestedForwardSignedFunctionSource
   ]
 
 ordinaryForwardVisibilityFixture :: Fixture
@@ -178,7 +179,7 @@ scalarExpectedLoweredPrograms =
     ("bool-entry", expectedLoweredProgram LoweredBoolRepresentation [] (loweredImmediate (LoweredBoolImmediate True))),
     ("char-entry", expectedLoweredProgram LoweredCharRepresentation [] (loweredImmediate (LoweredCharImmediate 'j'))),
     ("default-int-entry", expectedLoweredProgram int64Representation [] (loweredInt64 7)),
-    ("default-float-entry", expectedLoweredProgram float64Representation [] (loweredImmediate (LoweredFloatImmediate LoweredFloatWidth64 "1.5"))),
+    ("default-float-entry", expectedLoweredProgram float64Representation [] (loweredImmediate (LoweredFloatImmediate LoweredFloatWidth64 "1.05"))),
     ( "arithmetic-operators",
       expectedLoweredProgram
         int64Representation
@@ -357,7 +358,7 @@ scalarExpectedPrograms =
   [ ("bool-entry", expectedScalarProgram boolInfo (boolExpr True)),
     ("char-entry", expectedScalarProgram charInfo (charExpr 'j')),
     ("default-int-entry", expectedScalarProgram intInfo (intExpr 7)),
-    ("default-float-entry", expectedScalarProgram floatInfo (floatExpr 1 5 Nothing)),
+    ("default-float-entry", expectedScalarProgram floatInfo (floatExpr 1 "05" Nothing)),
     ( "arithmetic-operators",
       expectedScalarStatements
         [ binaryExpr intInfo "+" (intExpr 1) (intExpr 2),
@@ -429,7 +430,8 @@ directCallExpectedPrograms =
         (directCall "increment" [intInfo] intInfo [intExpr 41])
     ),
     ( "exported-direct-function",
-      expectedFunctionProgram
+      expectedFunctionProgramWithLineOffset
+        1
         ["increment"]
         [incrementFunction]
         (directCall "increment" [intInfo] intInfo [intExpr 41])
@@ -976,6 +978,26 @@ producerEdgeFixtures =
               "chooseSecond 1 2."
             ]
         )
+    ),
+    ( "out-of-range-signed-function-literal",
+      sourceFixtureNoExports
+        "out-of-range-signed-function-literal"
+        ( Text.unlines
+            [ "invalid :: Bool -> Int8.",
+              "invalid = \\(ignored) -> 999.",
+              "invalid True."
+            ]
+        )
+    ),
+    ( "class-impl-declarations",
+      sourceFixtureNoExports
+        "class-impl-declarations"
+        ( Text.unlines
+            [ "class Marker(a) { }.",
+              "impl Marker(Int) { }.",
+              "1."
+            ]
+        )
     )
   ]
 
@@ -1165,6 +1187,18 @@ forwardUnsignedLambdaSource =
       "first 1."
     ]
 
+nestedForwardSignedFunctionSource :: Text
+nestedForwardSignedFunctionSource =
+  Text.unlines
+    [ "{",
+      "  caller :: Int -> Int.",
+      "  caller = \\(item) -> later True.",
+      "  later :: Int -> Int.",
+      "  later = \\(item) -> item.",
+      "  caller 1.",
+      "}."
+    ]
+
 nestedDirectCallsSource :: Text
 nestedDirectCallsSource =
   Text.unlines
@@ -1184,7 +1218,10 @@ dollarDirectCallSource =
     ]
 
 exportedDirectFunctionSource :: Text
-exportedDirectFunctionSource = singleArgumentDirectCallSource
+exportedDirectFunctionSource =
+  "module App::Main (value increment) {\n"
+    <> singleArgumentDirectCallSource
+    <> "}\n"
 
 bareFunctionValueSource :: Text
 bareFunctionValueSource =
@@ -1289,7 +1326,7 @@ unitEntrySource = "()."
 boolEntrySource = "True."
 charEntrySource = "'j'."
 defaultIntEntrySource = "7."
-defaultFloatEntrySource = "1.5."
+defaultFloatEntrySource = "1.05."
 
 arithmeticOperatorsSource, orderingOperatorsSource, equalityOperatorsSource :: Text
 arithmeticOperatorsSource = Text.unlines ["1 + 2.", "3 - 1.", "2 * 4.", "8 / 2."]
@@ -1342,8 +1379,8 @@ charExpr value = TypedLiteralExpr charInfo (TypedCharacterLiteral value)
 intExpr :: Integer -> TypedExpr
 intExpr value = TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))
 
-floatExpr :: Integer -> Integer -> Maybe TypedNumericType -> TypedExpr
-floatExpr whole fractional maybeNumericType = TypedLiteralExpr floatInfo (TypedFractionalLiteral (Text.pack (show whole)) (Text.pack (show fractional)) maybeNumericType)
+floatExpr :: Integer -> Text -> Maybe TypedNumericType -> TypedExpr
+floatExpr whole fractional maybeNumericType = TypedLiteralExpr floatInfo (TypedFractionalLiteral (Text.pack (show whole)) fractional maybeNumericType)
 
 binaryExpr :: TypedNodeInfo -> Text -> TypedExpr -> TypedExpr -> TypedExpr
 binaryExpr resultInfo operator left right = TypedBinaryExpr resultInfo (TypedBuiltinOperator operator) left right
@@ -1441,7 +1478,10 @@ explicitNumericFunctions =
             (TypedLiteralExpr resultInfo literal)
 
 expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
-expectedFunctionProgram exportedNames functions terminalExpression =
+expectedFunctionProgram = expectedFunctionProgramWithLineOffset 0
+
+expectedFunctionProgramWithLineOffset :: Int -> [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
+expectedFunctionProgramWithLineOffset lineOffset exportedNames functions terminalExpression =
   TypedProgram
     Nothing
     [ TypedModule
@@ -1457,7 +1497,7 @@ expectedFunctionProgram exportedNames functions terminalExpression =
   where
     functionStatements =
       concat
-        [ expectedFunctionStatements signatureIndex bindingIndex function
+        [ expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function
         | (functionOffset, function) <- zip [0 ..] functions,
           let signatureIndex = functionOffset * 2,
           let bindingIndex = signatureIndex + 1
@@ -1465,7 +1505,7 @@ expectedFunctionProgram exportedNames functions terminalExpression =
     terminalIndex = length functionStatements
     statements =
       functionStatements
-        <> [TypedExpressionStatement (TypedSpan (terminalIndex + 1) 1) terminalExpression]
+        <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) terminalExpression]
     typedInterface =
       TypedModuleInterface
         [ TypedValueInterface
@@ -1481,16 +1521,19 @@ expectedFunctionProgram exportedNames functions terminalExpression =
         []
 
 expectedFunctionStatements :: Int -> Int -> ExpectedFunction -> [TypedStatement]
-expectedFunctionStatements signatureIndex bindingIndex function =
+expectedFunctionStatements = expectedFunctionStatementsAtLineOffset 0
+
+expectedFunctionStatementsAtLineOffset :: Int -> Int -> Int -> ExpectedFunction -> [TypedStatement]
+expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function =
   [ TypedSignatureStatement
       signatureOwner
       functionName
-      (TypedSpan (signatureIndex + 1) 1)
+      (TypedSpan (lineOffset + signatureIndex + 1) 1)
       (functionScheme signatureIndex function),
     TypedLetStatement
       bindingOwner
       functionName
-      (TypedSpan (bindingIndex + 1) 1)
+      (TypedSpan (lineOffset + bindingIndex + 1) 1)
       (functionScheme bindingIndex function)
       (lambdaExpression bindingIndex [0] (expectedFunctionParameters function))
   ]

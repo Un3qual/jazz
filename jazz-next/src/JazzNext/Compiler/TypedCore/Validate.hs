@@ -14,7 +14,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Ratio ((%))
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -54,6 +54,12 @@ data ModuleContext = ModuleContext
     moduleContextLexicalContracts :: Map ResolvedNameKey ValueContract,
     moduleContextTypeScope :: Set TypedTypeParameterId,
     moduleContextPrimitiveConstraints :: [TypedPrimitiveConstraint]
+  }
+
+data ForwardSignedFunctionContext = ForwardSignedFunctionContext
+  { forwardFunctionSchemes :: Map TypedBinderId TypedScheme,
+    forwardFunctionActiveSchemes :: Map ResolvedNameKey TypedScheme,
+    forwardFunctionVisibleNames :: Set ResolvedNameKey
   }
 
 data ResolvedNameKey
@@ -1348,6 +1354,7 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
   validateFrom initialContext 0 locatedStatements
   where
     statements = map snd locatedStatements
+    forwardContext = prepareForwardSignedFunctionContext initialContext forwardSignedFunctions
     dependencies = recursiveGroupDependencies initialContext statements
     reachability = recursiveGroupReachability dependencies
     validateFrom _ _ [] = []
@@ -1357,7 +1364,7 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
           scopeFailure : validateFrom visibleContext (blockIndex + 1) rest
         Nothing ->
           let forwardVisibleContext =
-                withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+                withForwardSignedFunctionDeclarations forwardContext visibleContext
               recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
               statementContext =
                 case statement of
@@ -1383,16 +1390,32 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
                 <> statementFailures
                 <> validateFrom nextContext (blockIndex + 1) rest
 
-withForwardSignedFunctionDeclarations :: [TypedStatement] -> ModuleContext -> ModuleContext
-withForwardSignedFunctionDeclarations declarations context =
-  let predeclaredContext = withBlockDeclarations declarations context
-   in
-    predeclaredContext
-      { moduleContextActiveSchemes =
-          Map.union
-            (moduleContextActiveSchemes context)
-            (moduleContextActiveSchemes predeclaredContext)
-      }
+prepareForwardSignedFunctionContext :: ModuleContext -> [TypedStatement] -> ForwardSignedFunctionContext
+prepareForwardSignedFunctionContext context declarations =
+  ForwardSignedFunctionContext
+    { forwardFunctionSchemes = Map.fromList schemeEntries,
+      forwardFunctionActiveSchemes =
+        Map.fromList
+          [ (key, scheme)
+          | (owner, scheme) <- schemeEntries,
+            key <- maybeToList (binderDefinitionKey owner)
+          ],
+      forwardFunctionVisibleNames =
+        Set.fromList (concatMap (statementDefinedNameKeys (moduleContextPath context)) declarations)
+    }
+  where
+    schemeEntries = concatMap statementSchemes declarations
+
+withForwardSignedFunctionDeclarations :: ForwardSignedFunctionContext -> ModuleContext -> ModuleContext
+withForwardSignedFunctionDeclarations forwardContext context =
+  context
+    { moduleContextSchemes =
+        Map.union (forwardFunctionSchemes forwardContext) (moduleContextSchemes context),
+      moduleContextActiveSchemes =
+        Map.union (moduleContextActiveSchemes context) (forwardFunctionActiveSchemes forwardContext),
+      moduleContextVisibleNames =
+        Set.union (forwardFunctionVisibleNames forwardContext) (moduleContextVisibleNames context)
+    }
 
 forwardSignedFunctionDeclarations :: [TypedStatement] -> [TypedStatement]
 forwardSignedFunctionDeclarations statements =
@@ -1401,7 +1424,7 @@ forwardSignedFunctionDeclarations statements =
       binding@(TypedLetStatement _ bindingName _ bindingScheme expression) :
       rest
         | signatureName == bindingName,
-          signatureBindingSchemeMismatch signatureScheme bindingScheme == Nothing,
+          isNothing (signatureBindingSchemeMismatch signatureScheme bindingScheme),
           concreteMonomorphicFunctionScheme bindingScheme,
           leadingTypedLambda expression ->
             binding : forwardSignedFunctionDeclarations rest
