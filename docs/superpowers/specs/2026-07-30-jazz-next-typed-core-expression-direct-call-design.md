@@ -417,6 +417,7 @@ Production changes are limited to:
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs` (new);
 - `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs`;
+- `jazz-next/jazz/compiler/LoweredIRTypes.jz`;
 - `jazz-next/jazz/compiler/LoweredIRValidate.jz`;
 - `jazz-next/jazz/compiler/TypedCoreValidate.jz`;
 - `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs` (new); and
@@ -428,6 +429,7 @@ Test ownership is limited to:
   (new); and
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
   (new);
+- `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`;
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
 - `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`.
 
@@ -460,7 +462,11 @@ validators and their existing cross-language contract suite to correct the
 unsigned-64 immediate range to `0..18446744073709551615`. The first
 upper-half value and maximum must validate in both implementations; the first
 overflow must fail identically. This does not widen variant/tag carrier rules
-or authorize permanent constructor changes.
+or authorize Haskell constructor changes. Because Jazz `Int` constructor
+fields coerce through signed 64-bit range before validation, the Jazz
+`LoweredUnsignedIntegerImmediate` payload is instead canonical signed-decimal
+`Text`; the checked adapter owns the Haskell `Integer` to Jazz `Text` bridge,
+and the Jazz validator retains negative, malformed, and overflow ownership.
 
 No `.jz` compiler implementation is added in this child. Any Jazz source used
 as a fixture must use the canonical language surface already implemented; no

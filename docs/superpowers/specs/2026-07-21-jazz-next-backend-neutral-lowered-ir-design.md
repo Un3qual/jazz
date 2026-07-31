@@ -243,11 +243,15 @@ temporaries, function symbols, or immediate scalar values. Managed aggregate
 values are constructed through instructions rather than embedded as immediate
 host objects.
 
-Signed and unsigned integer immediate payloads must fit both their declared
-width and the shared signed `Int` carrier used by the Haskell/Jazz interchange.
-Consequently, `UInt64` immediate payloads are limited to `0..Int64::max` in
-this version; later widening requires a new versioned payload encoding rather
-than accepting values that only one validator can represent.
+Signed and unsigned integer immediate payloads must fit their declared width.
+The Haskell model stores both as arbitrary-precision `Integer`. Jazz's signed
+payload uses `Int`, while the unsigned payload uses canonical signed-decimal
+`Text` because Jazz has no arbitrary-precision source numeric type and an
+`Int` constructor field coerces through signed 64-bit range before validation.
+The comparison adapter bridges Haskell unsigned `Integer` values to canonical
+decimal text. This preserves validator ownership of negative, malformed,
+overflowing, and full-domain `UInt64` payloads. `UInt64` immediates therefore
+use the exact inclusive domain `0..18446744073709551615`.
 
 Character immediates must be Unicode scalar values. In particular, a
 Haskell-side producer cannot use surrogate code points that Jazz source and

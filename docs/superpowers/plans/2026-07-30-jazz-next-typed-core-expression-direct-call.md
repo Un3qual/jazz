@@ -15,7 +15,9 @@ target_paths:
   - docs/execution/done-archive.md
   - docs/execution/queue.md
   - docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md
+  - docs/superpowers/specs/2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md
   - docs/superpowers/specs/2026-07-30-jazz-next-typed-core-expression-direct-call-design.md
+  - docs/superpowers/plans/2026-07-21-jazz-next-lowered-ir-contract-foundation.md
   - docs/superpowers/plans/2026-07-30-jazz-next-typed-core-expression-direct-call.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
@@ -25,8 +27,10 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs
   - jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs
   - jazz-next/src/JazzNext/Compiler/TypedCore/Validate.hs
+  - jazz-next/jazz/compiler/LoweredIRTypes.jz
   - jazz-next/jazz/compiler/LoweredIRValidate.jz
   - jazz-next/jazz/compiler/TypedCoreValidate.jz
+  - jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
@@ -831,13 +835,23 @@ syntax rule for any future fixture support.
 > overflow `18446744073709551616`; update the existing shared-carrier
 > expectation without changing permanent constructors or unrelated tag
 > carrier rules.
+>
+> Jazz has no arbitrary-precision source numeric type, and an `Int` constructor
+> field coerces before `validateProgram`. Therefore the Jazz
+> `LoweredUnsignedIntegerImmediate` payload uses canonical signed-decimal
+> `Text`; the checked comparison adapter converts the Haskell `Integer`
+> payload to that text. The Jazz validator must reject negative, malformed,
+> and overflowing text through the same structured range failure. This is the
+> sole authorized permanent Jazz schema representation change.
 
 **Files:**
 
 - Create: `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs`
+- Modify: `jazz-next/jazz/compiler/LoweredIRTypes.jz`
 - Modify: `jazz-next/jazz/compiler/LoweredIRValidate.jz`
 - Modify: `jazz-next/jazz-next.cabal`
+- Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
