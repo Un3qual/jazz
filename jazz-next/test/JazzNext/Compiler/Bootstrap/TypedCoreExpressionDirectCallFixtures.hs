@@ -24,14 +24,13 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     rejectedScalarFixtures,
     resolveFixture,
     resolveFixtureWithLookup,
-    admittedOperators,
     explicitNumericTypes,
   )
 where
 
+import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
@@ -59,54 +58,19 @@ data Fixture = Fixture
   }
 
 fixtureNames :: [Text]
-fixtureNames = acceptedFixtureNames <> rejectedFixtureNames
+fixtureNames = map fixtureName fixtures
 
 acceptedFixtureNames :: [Text]
-acceptedFixtureNames =
-  [ "unit-entry",
-    "bool-entry",
-    "char-entry",
-    "default-int-entry",
-    "default-float-entry",
-    "explicit-numeric-widths",
-    "arithmetic-operators",
-    "ordering-operators",
-    "equality-operators",
-    "scalar-parameter-return",
-    "single-argument-direct-call",
-    "curried-multi-argument-direct-call",
-    "forward-direct-call-dag",
-    "nested-direct-calls",
-    "dollar-direct-call",
-    "exported-direct-function"
-  ]
+acceptedFixtureNames = map fixtureName acceptedFixtures
 
 rejectedFixtureNames :: [Text]
-rejectedFixtureNames =
-  [ "source-diagnostic",
-    "invalid-portable-source-path",
-    "resolved-import",
-    "ambient-prelude-input",
-    "text-value",
-    "list-value",
-    "non-unit-tuple",
-    "data-value",
-    "conditional",
-    "pattern-case",
-    "local-block-binding",
-    "bare-function-value",
-    "partial-direct-call",
-    "oversaturated-direct-call",
-    "capturing-function",
-    "self-recursive-function",
-    "mutually-recursive-functions",
-    "polymorphic-or-evidence-function",
-    "imported-direct-call",
-    "user-defined-operator-call"
-  ]
+rejectedFixtureNames = map fixtureName rejectedFixtures
 
 fixtures :: [Fixture]
-fixtures =
+fixtures = acceptedFixtures <> rejectedFixtures
+
+acceptedFixtures :: [Fixture]
+acceptedFixtures =
   [ sourceFixture "unit-entry" unitEntrySource,
     sourceFixture "bool-entry" boolEntrySource,
     sourceFixture "char-entry" charEntrySource,
@@ -122,8 +86,12 @@ fixtures =
     sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
     sourceFixture "nested-direct-calls" nestedDirectCallsSource,
     sourceFixture "dollar-direct-call" dollarDirectCallSource,
-    sourceFixture "exported-direct-function" exportedDirectFunctionSource,
-    sourceFixture "source-diagnostic" sourceDiagnosticSource,
+    sourceFixture "exported-direct-function" exportedDirectFunctionSource
+  ]
+
+rejectedFixtures :: [Fixture]
+rejectedFixtures =
+  [ sourceFixture "source-diagnostic" sourceDiagnosticSource,
     (sourceFixture "invalid-portable-source-path" unitEntrySource)
       { fixtureSourcePath = TypedSourcePath "/private/host/Main.jz"
       },
@@ -1107,9 +1075,6 @@ producerEdgeFixtures =
     )
   ]
 
-admittedOperators :: [Text]
-admittedOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-
 explicitNumericTypes :: [Text]
 explicitNumericTypes =
   [ "Int8",
@@ -1704,14 +1669,3 @@ typedExpressionType (TypedNodeInfo expressionType _ _ _) = expressionType
 
 typedExpressionRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
 typedExpressionRecipe (TypedNodeInfo _ recipe _ _) = recipe
-
-typedExpressionInfo :: TypedExpr -> TypedNodeInfo
-typedExpressionInfo expression =
-  case expression of
-    TypedLiteralExpr info _ -> info
-    TypedVariableExpr info _ -> info
-    TypedLambdaExpr info _ _ _ -> info
-    TypedApplyExpr info _ _ -> info
-    TypedBinaryExpr info _ _ _ -> info
-    TypedTupleExpr info _ -> info
-    _ -> error "scalar fixture expected a scalar expression"

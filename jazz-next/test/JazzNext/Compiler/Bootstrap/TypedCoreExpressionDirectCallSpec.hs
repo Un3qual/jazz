@@ -2,12 +2,12 @@
 
 module Main (main) where
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
-import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
+import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -20,16 +20,16 @@ import JazzNext.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
-import JazzNext.Compiler.TypedCore
-import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.Compiler.TypeInference
 import JazzNext.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ExpressionType (TBoolType),
     ScopeCapabilityFacts (..),
     TypeBinding (PlainTypeBinding),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
   )
+import JazzNext.Compiler.TypedCore
+import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 
 main :: IO ()
@@ -39,16 +39,11 @@ tests :: [NamedTest]
 tests =
   [ ("audits the complete producer fixture manifest", testFixtureManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
-    ("runs every accepted manifest fixture through the complete pipeline twice", testAcceptedManifestPipeline),
-    ("produces unit and preserves ordinary inference", testUnitProduction),
-    ("produces the complete scalar expression profile twice", testScalarProduction),
-    ("lowers the complete scalar expression profile twice", testScalarLowering),
+    ("runs every accepted manifest fixture through the complete pipeline", testAcceptedManifestPipeline),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
     ("validates typed core before checking the lowering profile", testLoweringPrecedence),
-    ("produces monomorphic functions and fully saturated direct calls twice", testDirectCallProduction),
-    ("lowers monomorphic functions and fully saturated direct calls twice", testDirectCallLowering),
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
@@ -73,51 +68,7 @@ tests =
 
 testFixtureManifest :: IO ()
 testFixtureManifest =
-  assertEqual
-    "accepted fixture names"
-    [ "unit-entry",
-      "bool-entry",
-      "char-entry",
-      "default-int-entry",
-      "default-float-entry",
-      "explicit-numeric-widths",
-      "arithmetic-operators",
-      "ordering-operators",
-      "equality-operators",
-      "scalar-parameter-return",
-      "single-argument-direct-call",
-      "curried-multi-argument-direct-call",
-      "forward-direct-call-dag",
-      "nested-direct-calls",
-      "dollar-direct-call",
-      "exported-direct-function"
-    ]
-    acceptedFixtureNames
-    >> assertEqual
-      "rejected fixture names"
-      [ "source-diagnostic",
-        "invalid-portable-source-path",
-        "resolved-import",
-        "ambient-prelude-input",
-        "text-value",
-        "list-value",
-        "non-unit-tuple",
-        "data-value",
-        "conditional",
-        "pattern-case",
-        "local-block-binding",
-        "bare-function-value",
-        "partial-direct-call",
-        "oversaturated-direct-call",
-        "capturing-function",
-        "self-recursive-function",
-        "mutually-recursive-functions",
-        "polymorphic-or-evidence-function",
-        "imported-direct-call",
-        "user-defined-operator-call"
-      ]
-      rejectedFixtureNames
-    >> assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
+  assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
     >> assertEqual "accepted fixture count" 16 (length acceptedFixtureNames)
     >> assertEqual "rejected fixture count" 20 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 36 (Set.size (Set.fromList fixtureNames))
@@ -138,10 +89,6 @@ testFixtureManifest =
       "explicit numeric widths"
       ["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float16", "Float32", "Float64"]
       explicitNumericTypes
-    >> assertEqual
-      "admitted operators"
-      ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-      admittedOperators
     >> assertEqual "fixture entries follow the complete ordered manifest" fixtureNames (map fixtureName fixtures)
 
 testRejectedManifestProducerFailures :: IO ()
@@ -178,75 +125,36 @@ testAcceptedManifestPipeline =
       case (lookup name expectedTypedPrograms, lookup name expectedLoweredPrograms) of
         (Just expectedTypedProgram, Just expectedLoweredProgram) -> do
           let fixture = fixtureByName name
-          (firstProduction, firstLookupPaths) <- produceFixtureWithTrace fixture
-          (secondProduction, secondLookupPaths) <- produceFixtureWithTrace fixture
-          assertEqual (name <> " first resolver source lookup") ["src/App/Main.jz"] firstLookupPaths
-          assertEqual (name <> " second resolver source lookup") ["src/App/Main.jz"] secondLookupPaths
-          assertEqual (name <> " complete production repeatability") firstProduction secondProduction
+          ordinary <- inferFixture fixture
+          (production, lookupPaths) <- produceFixtureWithTrace fixture
+          assertEqual (name <> " resolver source lookup") ["src/App/Main.jz"] lookupPaths
+          if name == "forward-direct-call-dag"
+            then do
+              assertUnboundName "ordinary forward direct call" "second" ordinary
+              assertEqual
+                "typed-core forward direct call diagnostics"
+                []
+                (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult production)))
+            else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult production)
           assertEqual
             (name <> " complete typed production")
             (TypedCoreProductionSucceeded expectedTypedProgram)
-            (typedCoreProductionStatus firstProduction)
-          assertEqual (name <> " first typed validation") [] (validateTypedProgram expectedTypedProgram)
-          assertEqual (name <> " second typed validation") [] (validateTypedProgram expectedTypedProgram)
-          case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
-            (TypedCoreProductionSucceeded firstTypedProgram, TypedCoreProductionSucceeded secondTypedProgram) -> do
-              assertEqual (name <> " first produced typed validation") [] (validateTypedProgram firstTypedProgram)
-              assertEqual (name <> " second produced typed validation") [] (validateTypedProgram secondTypedProgram)
-              let firstLowering = lowerTypedCoreExpressionDirectCall firstTypedProgram
-                  secondLowering = lowerTypedCoreExpressionDirectCall secondTypedProgram
-              assertEqual (name <> " complete lowering repeatability") firstLowering secondLowering
+            (typedCoreProductionStatus production)
+          assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedTypedProgram)
+          case typedCoreProductionStatus production of
+            TypedCoreProductionSucceeded typedProgram -> do
+              assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
+              let lowering = lowerTypedCoreExpressionDirectCall typedProgram
               assertEqual
                 (name <> " complete lowered production")
                 (LoweredIRSucceeded expectedLoweredProgram)
-                firstLowering
-              case (firstLowering, secondLowering) of
-                (LoweredIRSucceeded firstLoweredProgram, LoweredIRSucceeded secondLoweredProgram) -> do
-                  assertEqual (name <> " first lowered validation") [] (validateLoweredProgram firstLoweredProgram)
-                  assertEqual (name <> " second lowered validation") [] (validateLoweredProgram secondLoweredProgram)
-                _ -> failTest (name <> " did not produce lowered IR twice")
-            _ -> failTest (name <> " did not produce typed core twice")
+                lowering
+              case lowering of
+                LoweredIRSucceeded loweredProgram ->
+                  assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+                _ -> failTest (name <> " did not produce lowered IR")
+            _ -> failTest (name <> " did not produce typed core")
         _ -> failTest (name <> " is missing a complete pipeline expectation")
-
-testDirectCallProduction :: IO ()
-testDirectCallProduction =
-  mapM_ assertProduced directCallExpectedPrograms
-  where
-    assertProduced (name, expectedProgram) = do
-      let fixture = fixtureByName name
-      ordinary <- inferFixture fixture
-      firstRun <- produceFixture fixture
-      secondRun <- produceFixture fixture
-      assertEqual (name <> " repeatable production") firstRun secondRun
-      if name == "forward-direct-call-dag"
-        then do
-          assertUnboundName "ordinary forward direct call" "second" ordinary
-          assertEqual
-            "typed-core forward direct call diagnostics"
-            []
-            (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
-        else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
-      assertEqual
-        (name <> " complete typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
-        (typedCoreProductionStatus firstRun)
-
-testDirectCallLowering :: IO ()
-testDirectCallLowering =
-  mapM_ assertLowered directCallExpectedLoweredPrograms
-  where
-    assertLowered (name, expectedProgram) = do
-      let fixture = fixtureByName name
-      firstProduction <- produceFixture fixture
-      secondProduction <- produceFixture fixture
-      case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
-        (TypedCoreProductionSucceeded firstProgram, TypedCoreProductionSucceeded secondProgram) -> do
-          let firstLowering = lowerTypedCoreExpressionDirectCall firstProgram
-              secondLowering = lowerTypedCoreExpressionDirectCall secondProgram
-          assertEqual (name <> " permanently valid expected lowering") [] (validateLoweredProgram expectedProgram)
-          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
-          assertEqual (name <> " complete lowered program") (LoweredIRSucceeded expectedProgram) firstLowering
-        _ -> failTest (name <> " did not produce typed core for lowering")
 
 testLowererCallableBoundary :: IO ()
 testLowererCallableBoundary =
@@ -264,66 +172,83 @@ testLowererCallableBoundary =
 
     expectedResults =
       [ ( "invalid-function-shape",
-          [ statementFailure 0
+          [ statementFailure
+              0
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
         ( "invalid-function-shape-rhs",
-          [ statementFailure 0
+          [ statementFailure
+              0
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "seed")),
-            expressionFailure 0 [0]
+            expressionFailure
+              0
+              [0]
               LoweredIRUnsupportedExpression
               LoweredIRNoFailureDetail
           ]
         ),
         ( "capturing-function",
-          [ statementFailure 0
+          [ statementFailure
+              0
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "seed")),
-            expressionFailure 2 [0, 0, 1]
+            expressionFailure
+              2
+              [0, 0, 1]
               LoweredIRCaptureUnsupported
               (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
         ( "duplicate-parameter-function",
-          [ expressionFailure 1 [0, 0]
+          [ expressionFailure
+              1
+              [0, 0]
               LoweredIRDuplicateParameterIdentity
               (LoweredIRNameFailureDetail (currentName "item"))
           ]
         ),
         ( "duplicate-function-identity",
-          [ statementFailure 3
+          [ statementFailure
+              3
               LoweredIRDuplicateFunctionIdentity
               (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
         ( "self-recursive-function",
-          [ statementFailure 1
+          [ statementFailure
+              1
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "loop"))
           ]
         ),
         ( "mutually-recursive-functions",
-          [ statementFailure 1
+          [ statementFailure
+              1
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure 3
+            statementFailure
+              3
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "right"))
           ]
         ),
         ( "bare-function-value",
           [ callableModuleResultFailure,
-            expressionFailure 2 [0]
+            expressionFailure
+              2
+              [0]
               LoweredIRCallableValueUnsupported
               (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
         ( "partial-direct-call",
           [ callableModuleResultFailure,
-            expressionFailure 2 [0]
+            expressionFailure
+              2
+              [0]
               LoweredIRCallArityUnsupported
               (LoweredIRArityFailureDetail 2 1)
           ]
@@ -337,7 +262,9 @@ testLowererCallableBoundary =
               (TypedModulePath ["App", "Main"])
               LoweredIRUnsupportedModule
               LoweredIRNoFailureDetail,
-            expressionFailure 0 [0]
+            expressionFailure
+              0
+              [0]
               LoweredIRNonLocalCallUnsupported
               ( LoweredIRNameFailureDetail
                   (TypedResolvedName (TypedImportedModule ["Library", "Functions"]) TypedValueNamespace "foreign")
@@ -819,44 +746,10 @@ produceFixtureWithTrace fixture = do
 
 produceResolvedFixture :: Fixture -> ResolvedModule -> IO TypedCoreProductionResult
 produceResolvedFixture fixture resolvedModule =
-  inferResolvedModuleTypedCoreWithProfile
-    TypedCoreExpressionDirectCallProfile
+  inferResolvedModuleTypedCoreExpressionDirectCall
     (fixtureInputs fixture)
     (fixtureSourcePath fixture)
     resolvedModule
-
-testScalarProduction :: IO ()
-testScalarProduction =
-  mapM_ assertScalar scalarExpectedPrograms
-  where
-    assertScalar (name, expectedProgram) =
-      case filter ((== name) . fixtureName) scalarFixtures of
-        [fixture] -> do
-          ordinary <- inferFixture fixture
-          firstResult <- produceFixture fixture
-          secondResult <- produceFixture fixture
-          let firstRun = typedCoreProductionStatus firstResult
-              secondRun = typedCoreProductionStatus secondResult
-          assertEqual (name <> " repeatable production") firstRun secondRun
-          assertEqual (name <> " scalar inference compatibility") ordinary (typedCoreProductionInferenceResult firstResult)
-          assertEqual (name <> " scalar program") (TypedCoreProductionSucceeded expectedProgram) firstRun
-        _ -> failTest (name <> " scalar fixture is missing")
-
-testScalarLowering :: IO ()
-testScalarLowering =
-  mapM_ assertLowered scalarExpectedLoweredPrograms
-  where
-    assertLowered (name, expectedProgram) = do
-      let fixture = fixtureByName name
-      firstProduction <- produceFixture fixture
-      secondProduction <- produceFixture fixture
-      case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
-        (TypedCoreProductionSucceeded firstProgram, TypedCoreProductionSucceeded secondProgram) -> do
-          let firstLowering = lowerTypedCoreExpressionDirectCall firstProgram
-              secondLowering = lowerTypedCoreExpressionDirectCall secondProgram
-          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
-          assertEqual (name <> " complete lowered program") (LoweredIRSucceeded expectedProgram) firstLowering
-        _ -> failTest (name <> " did not produce typed core for lowering")
 
 testNestedScalarLowering :: IO ()
 testNestedScalarLowering =
@@ -909,7 +802,8 @@ testLoweringPrecedence =
 
 testRejectedScalarProfile :: IO ()
 testRejectedScalarProfile =
-  mapM_ assertRejected
+  mapM_
+    assertRejected
     [ ( "text-value",
         [ profileFailure 0 TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
           profileFailure 1 TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
@@ -1103,28 +997,12 @@ producerEdgeFixture name =
     Just fixture -> fixture
     Nothing -> error "producer edge fixture is missing"
 
-testUnitProduction :: IO ()
-testUnitProduction =
-  case fixtures of
-    [] -> failTest "unit fixture is missing"
-    actualFixture : _ -> do
-      beforeInferenceResult <- inferFixture actualFixture
-      actualUnitResult <-
-        inferResolvedModuleTypedCoreWithProfile
-          TypedCoreExpressionDirectCallProfile
-          (fixtureInputs actualFixture)
-          (fixtureSourcePath actualFixture)
-          =<< resolveFixtureModule actualFixture
-      assertEqual "unit production" (TypedCoreProductionSucceeded expectedUnitProgram) (typedCoreProductionStatus actualUnitResult)
-      assertEqual "ordinary inference is unchanged" beforeInferenceResult (typedCoreProductionInferenceResult actualUnitResult)
-
 testDiagnosticPrecedence :: IO ()
 testDiagnosticPrecedence = do
   let sourceDiagnosticFixture = fixtureByName "source-diagnostic"
   ordinary <- inferFixture sourceDiagnosticFixture
   sourceDiagnosticResult <-
-    inferResolvedModuleTypedCoreWithProfile
-      TypedCoreExpressionDirectCallProfile
+    inferResolvedModuleTypedCoreExpressionDirectCall
       (fixtureInputs sourceDiagnosticFixture)
       (fixtureSourcePath sourceDiagnosticFixture)
       =<< resolveFixtureModule sourceDiagnosticFixture

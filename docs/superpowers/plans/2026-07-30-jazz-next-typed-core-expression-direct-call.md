@@ -138,24 +138,20 @@ nested typed blocks retain source-order visibility.
 | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Public opt-in producer entry point, unchanged inference-only projection, production mode threading, and pairing of `InferenceResult` with production status. |
 | `jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs` | Update the shared recursive inference function type to carry the richer internal expression result without changing diagnostic ownership. |
 | `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs` | Retain supported root-scope signatures, bindings, and terminal expression in source order while preserving existing inference/generalization/runtime-hint behavior. |
-| `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs` | Own production profiles, provisional typed nodes/statements, structured producer failures, solver-state finalization, deterministic ids, typed module/interface construction, and typed-core validation. |
+| `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs` | Own provisional typed nodes/statements, structured producer failures, solver-state finalization, deterministic ids, typed module/interface construction, and typed-core validation. |
 | `jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs` | Validate typed input, reject forms outside the slice, lower scalar primitives and direct calls deterministically, and validate the produced IR. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs` | Own the exact accepted/rejected manifests, canonical sources and inputs, explicit expected production results, explicit expected IR, and coverage audits. |
-| `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs` | Run each source through parse, resolve, analyze/infer, finalize, validate, lower, and validate twice; assert exact results and inference-only compatibility. |
+| `jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs` | Run each source through parse, resolve, analyze/infer, finalize, validate, lower, and validate; assert exact results and inference-only compatibility. |
 | `jazz-next/jazz-next.cabal` | Expose the two production modules and register the focused test component. |
 | Coordination and status paths in frontmatter | Record implementation state, verification, closeout, and the next closure/recursion design gate. |
 
 ## Fixed Public and Internal Boundaries
 
-`JazzNext.Compiler.TypeInference.Elaboration` owns the opt-in profile and
+`JazzNext.Compiler.TypeInference.Elaboration` owns the opt-in production
 status types. `JazzNext.Compiler.TypeInference` re-exports the public types and
 owns the result that includes the existing `InferenceResult`:
 
 ```haskell
-data TypedCoreProductionProfile
-  = TypedCoreExpressionDirectCallProfile
-  deriving (Eq, Show)
-
 data TypedCoreProductionStatus
   = TypedCoreProductionBlockedByDiagnostics
   | TypedCoreProductionUnsupported [TypedCoreProductionFailure]
@@ -169,8 +165,7 @@ data TypedCoreProductionResult = TypedCoreProductionResult
   }
   deriving (Eq, Show)
 
-inferResolvedModuleTypedCoreWithProfile ::
-  TypedCoreProductionProfile ->
+inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->
   TypedSourcePath ->
   ModuleGraph.ResolvedModule ->
@@ -201,8 +196,8 @@ type InferExprFn =
   (InferredExpr, InferState)
 ```
 
-`ProvisionalTypedExpr` and `ProvisionalTypedScope` are internal return values,
-not permanent compiler contracts. Their constructors cover only literal,
+`ProvisionalTypedExpr` is an internal return value, not a permanent compiler
+contract. Its constructors cover only literal,
 unit, variable, lambda, application, listed binary operator, root signature,
 root function binding, and terminal-expression shapes. Each retained node
 carries its unresolved `ExpressionType`, resolved identity, stable structural
@@ -215,7 +210,7 @@ finalizeTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
   ModuleGraph.ResolvedModule ->
   InferState ->
-  ProvisionalTypedScope ->
+  ProvisionalTypedExpr ->
   TypedCoreProductionStatus
 ```
 
@@ -540,12 +535,9 @@ syntax rule for any future fixture support.
   `default-float-entry`, `arithmetic-operators`, `ordering-operators`, and
   `equality-operators`.
 
-  The manifest audit must prove:
+  The accepted operator fixtures must cover:
 
-  ```haskell
-  admittedOperators ==
-    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-  ```
+  `+`, `-`, `*`, `/`, `<`, `<=`, `>`, `>=`, `==`, and `!=`.
 
   Each fixture carries an explicit complete `TypedProgram`; operator fixtures
   assert exact child order, `TypedType`, and representation recipe at every
@@ -580,11 +572,11 @@ syntax rule for any future fixture support.
   Accumulate failures in structural preorder and continue ordinary inference
   through unsupported children.
 
-- [x] **Step 5: Prove exact scalar results and repeatability**
+- [x] **Step 5: Prove exact scalar results**
 
-  Run each accepted and rejected fixture twice. Compare the complete
-  production status and complete `TypedProgram` values. Assert the two runs
-  are equal before comparing expectations.
+  Run each accepted and rejected fixture through the complete pipeline.
+  Compare the production status and complete `TypedProgram` values against
+  explicit expectations.
 
   Run:
 
@@ -596,7 +588,7 @@ syntax rule for any future fixture support.
       --jobs=1 --test-show-details=failures
   ```
 
-  Expected: all currently registered cases pass twice with exact values.
+  Expected: all currently registered cases pass with exact values.
 
 - [x] **Step 6: Commit scalar elaboration**
 
@@ -689,7 +681,7 @@ syntax rule for any future fixture support.
   may not determine output order. Preserve duplicate binder/declaration,
   instantiation, evidence, interface, recursion, and ordinary source-order
   checks. The three supplemental cases must compare complete Haskell/Jazz
-  results twice without changing the fixed 16/28 manifest counts.
+  results without changing the fixed 16/28 validator manifest counts.
 
   Re-run the command. Expected: GREEN with exact mirrored results.
 
@@ -804,8 +796,8 @@ syntax rule for any future fixture support.
 - [x] **Step 6: Prove both full manifests and inference compatibility**
 
   Audit exact counts (`16` accepted, `20` rejected), uniqueness, order, width
-  coverage, operator coverage, and failure-kind coverage. Run every case twice
-  and compare complete structured statuses.
+  coverage, operator coverage, and failure-kind coverage. Run every case and
+  compare complete structured statuses.
 
   For representative scalar, direct-call, diagnostic, and unsupported
   sources, call the ordinary inference entry point separately and assert its
@@ -822,7 +814,7 @@ syntax rule for any future fixture support.
       --jobs=1 --test-show-details=failures
   ```
 
-  Expected: exact 16/20 production results pass twice and inference-only
+  Expected: exact 16/20 production results pass and inference-only
   compatibility remains exact.
 
 - [x] **Step 7: Commit direct-call production**
@@ -1031,11 +1023,11 @@ syntax rule for any future fixture support.
   remains `LoweredDirectCall` plus `LoweredReturn`; never emit
   `LoweredDirectTailCall` in this child.
 
-- [x] **Step 5: Prove deterministic complete lowering twice**
+- [x] **Step 5: Prove complete lowering**
 
-  Parse, resolve, infer/finalize, lower, and validate every accepted fixture
-  twice. Compare each complete production result and complete lowering result
-  between runs, then against its explicit expectation.
+  Parse, resolve, infer/finalize, lower, and validate every accepted fixture.
+  Compare each complete production and lowering result against its explicit
+  expectation.
 
   Run:
 

@@ -4,8 +4,7 @@
 -- inference path does not retain these values; they are used only by the
 -- explicit resolved-module producer.
 module JazzNext.Compiler.TypeInference.Elaboration
-  ( TypedCoreProductionProfile (..),
-    TypedCoreProductionStatus (..),
+  ( TypedCoreProductionStatus (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
@@ -15,10 +14,11 @@ module JazzNext.Compiler.TypeInference.Elaboration
     InferredExpr (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
-    ProvisionalTypedScope (..),
     blockProductionFailureKindAndDetail,
     finalizeTypedCoreExpressionDirectCall,
-  ) where
+    isTypedCoreDirectCallOperator,
+  )
+where
 
 import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -35,20 +35,16 @@ import JazzNext.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
     NameNamespace (..),
-    identifierText
+    identifierText,
   )
-import JazzNext.Compiler.TypedCore
-import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
-    resolveType
+    resolveType,
   )
 import JazzNext.Compiler.TypeInference.State (InferState)
 import JazzNext.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
-
-data TypedCoreProductionProfile
-  = TypedCoreExpressionDirectCallProfile
-  deriving (Eq, Show)
+import JazzNext.Compiler.TypedCore
+import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 
 data TypedCoreProductionStatus
   = TypedCoreProductionBlockedByDiagnostics
@@ -131,8 +127,9 @@ blockProductionFailureKindAndDetail statements
         SData {} -> True
         _ -> False
 
--- | The private result threaded by production-aware inference. Existing
--- inference-only helpers retain no provisional node.
+-- | The private result threaded by the shared inference traversal. Ordinary
+-- inference projects the expression type; production also consumes the
+-- provisional node and ordered profile failures.
 data InferredExpr = InferredExpr
   { inferredExpressionType :: Maybe ExpressionType,
     inferredProvisionalExpr :: Maybe ProvisionalTypedExpr,
@@ -161,13 +158,10 @@ data ProvisionalTypedExpr
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType Bool (Maybe TypeBinding) ProvisionalTypedExpr
+  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalFunctionFailures Int [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int
-  deriving (Eq, Show)
-
-newtype ProvisionalTypedScope = ProvisionalTypedScope ProvisionalTypedExpr
   deriving (Eq, Show)
 
 data FunctionProfile = FunctionProfile
@@ -178,15 +172,15 @@ data FunctionProfile = FunctionProfile
   }
 
 -- | Finalize the initial unit-only root against the permanent contract.
--- Future profile slices extend the provisional scope rather than changing the
+-- Future production slices extend the provisional scope rather than changing the
 -- typed-core constructors themselves.
 finalizeTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
   ResolvedModule ->
   InferState ->
-  ProvisionalTypedScope ->
+  ProvisionalTypedExpr ->
   TypedCoreProductionStatus
-finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (ProvisionalTypedScope provisionalScope) =
+finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements
       | not (hasTerminalResult provisionalStatements) ->
@@ -201,18 +195,20 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
            in case productionFailures of
                 _ : _ -> TypedCoreProductionUnsupported productionFailures
                 [] ->
-                  let typedStatements = map requireTypedStatement finalizedStatements
-                   in case reverse typedStatements of
-                        terminalStatement@TypedExpressionStatement {} : _ ->
+                  case traverse snd finalizedStatements of
+                    Just typedStatements ->
+                      case reverse typedStatements of
+                        TypedExpressionStatement _ terminalExpression : _ ->
                           let programValue =
                                 typedProgram
                                   (snd exportResult)
                                   typedStatements
-                                  (typedStatementInfo terminalStatement)
+                                  (typedExpressionInfo terminalExpression)
                            in case validateTypedProgram programValue of
                                 [] -> TypedCoreProductionSucceeded programValue
                                 failures -> TypedCoreProductionInvariantFailures failures
                         _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
+                    Nothing -> TypedCoreProductionUnsupported [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
       TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
     _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
@@ -259,7 +255,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
               let typedName = resolvedValueName name
                   owner = binderAt statementIndex [] typedName
                in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner info)))
-        ProvisionalFunctionBinding statementIndex name spanValue expressionType _forwardEligible maybeBinding expression ->
+        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
               rebindingFailures =
@@ -309,7 +305,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
                 Left failure -> ([failure], Nothing)
                 Right literalValue -> ([], Just (TypedLiteralExpr info literalValue))
         ProvisionalBinaryExpression operatorSymbol expressionType left right
-          | operatorSymbol `elem` admittedOperators ->
+          | isTypedCoreDirectCallOperator operatorSymbol ->
               let (operatorFailures, maybeInfo) =
                     case scalarInfo statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
@@ -435,9 +431,6 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
                 function
             _ -> (expression, arguments, resultTypes)
 
-    requireTypedStatement (_, Just typedStatement) = typedStatement
-    requireTypedStatement _ = error "profile failures must be handled before typed-core validation"
-
     statementFailure statementIndex kind detail =
       TypedCoreProductionFailure (TypedCoreProductionStatementPath modulePath statementIndex) kind detail
 
@@ -450,7 +443,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         _ -> TypedResolvedName TypedCurrentModule TypedValueNamespace (identifierText name)
 
     scheme owner info =
-      TypedScheme owner [] [] [] (nodeType info) (nodeRecipe info)
+      TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info)
 
     callableInfo statementIndex childPath expressionType =
       case typeAndRecipe statementIndex childPath expressionType of
@@ -488,7 +481,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
       where
         collect functions statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ expressionType _ _ expression
+            ProvisionalFunctionBinding statementIndex name _ expressionType _ expression
               | lambdaCount expression > 0 ->
                   Map.insertWith
                     (\_ firstFunction -> firstFunction)
@@ -502,7 +495,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
       where
         collect (seenNames, reboundStatements) statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ _ _ _ _
+            ProvisionalFunctionBinding statementIndex name _ _ _ _
               | Set.member name seenNames ->
                   (seenNames, Map.insert statementIndex name reboundStatements)
               | otherwise ->
@@ -577,7 +570,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         TVarType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
 
     typedLiteral statementIndex childPath literal info =
-      case (literal, nodeType info) of
+      case (literal, typedNodeType info) of
         (LInt value, TypedIntType) -> Right (TypedIntegerLiteral (Text.pack (show value)))
         (LInt value, TypedNumericType _) -> Right (TypedIntegerLiteral (Text.pack (show value)))
         (LFloat _ source _, TypedFloatType) -> Right (fractionalLiteral source Nothing)
@@ -606,8 +599,9 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         ProvisionalLambdaExpression _ _ body -> 1 + lambdaCount body
         _ -> 0
 
-admittedOperators :: [Text]
-admittedOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
+isTypedCoreDirectCallOperator :: Text -> Bool
+isTypedCoreDirectCallOperator operatorSymbol =
+  operatorSymbol `elem` ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
 
 typedSpan :: SourceSpan -> TypedSpan
 typedSpan spanValue = TypedSpan (spanLine spanValue) (spanColumn spanValue)
@@ -629,35 +623,6 @@ numericInfo numericType =
 
 typedNumericType :: NumericType -> TypedNumericType
 typedNumericType = fst . numericInfo
-
-typedExpressionInfo :: TypedExpr -> TypedNodeInfo
-typedExpressionInfo expression =
-  case expression of
-    TypedLiteralExpr info _ -> info
-    TypedVariableExpr info _ -> info
-    TypedLambdaExpr info _ _ _ -> info
-    TypedTupleExpr info _ -> info
-    TypedApplyExpr info _ _ -> info
-    TypedBinaryExpr info _ _ _ -> info
-    _ -> error "direct-call typed-core elaboration produced an unsupported expression"
-
-typedStatementInfo :: TypedStatement -> TypedNodeInfo
-typedStatementInfo statement =
-  case statement of
-    TypedExpressionStatement _ expression -> typedExpressionInfo expression
-    TypedLetStatement _ _ _ schemeValue _ ->
-      case schemeValue of
-        TypedScheme _ _ _ _ typeValue recipe -> TypedNodeInfo typeValue recipe [] []
-    TypedSignatureStatement _ _ _ schemeValue ->
-      case schemeValue of
-        TypedScheme _ _ _ _ typeValue recipe -> TypedNodeInfo typeValue recipe [] []
-    _ -> error "direct-call typed-core elaboration produced an unsupported statement"
-
-nodeType :: TypedNodeInfo -> TypedType
-nodeType (TypedNodeInfo typeValue _ _ _) = typeValue
-
-nodeRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
-nodeRecipe (TypedNodeInfo _ recipe _ _) = recipe
 
 defaultScalarLiterals :: ExpressionType -> ExpressionType
 defaultScalarLiterals expressionType =

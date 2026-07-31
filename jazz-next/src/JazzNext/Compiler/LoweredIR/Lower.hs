@@ -61,8 +61,7 @@ data LoweredIRLoweringResult
   deriving (Eq, Show)
 
 data LoweringState = LoweringState
-  { loweringFunctionId :: LoweredFunctionId,
-    loweringNextTemporary :: Int,
+  { loweringNextTemporary :: Int,
     loweringInstructions :: [LoweredInstruction]
   }
 
@@ -152,7 +151,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
               LoweredIRNoFailureDetail
           ]
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath (TypedModulePath modulePath) (nodeRecipe moduleInfo)
+      representationAtPath (TypedModulePath modulePath) (typedNodeRecipe moduleInfo)
     (profileFailures, functionCalls) =
       validateStatementProfiles modulePath functionShapes localValueNames statements
     recursiveFailures =
@@ -164,12 +163,10 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
         <> profileFailures
         <> recursiveFailures
     emitProgram =
-      case
-          ( maybeResultRepresentation,
+      case ( maybeResultRepresentation,
             traverse (emitFunction modulePath functionShapes) functionShapes,
-            emitEntry modulePath entryFunctionId functionShapes statements
-          )
-        of
+             emitEntry modulePath functionShapes statements
+           ) of
           (Just resultRepresentation, Right functions, Right (resultOperand, finalState)) ->
             Right
               ( LoweredProgram
@@ -254,8 +251,7 @@ collectFunctionShapes modulePath =
                 reversedFunctions
                 reversedLocalNames
                 seenNames
-            else
-              case duplicateLeadingParameters expression of
+            else case duplicateLeadingParameters expression of
                 duplicateParameters@(_ : _) ->
                   continue
                     ( reverse
@@ -353,6 +349,7 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
             functionShapeReversedBodyPath = reversedBodyPath,
             functionShapeBody = body
           }
+
 localValueIdentifier :: TypedCoreName -> Maybe Text
 localValueIdentifier name =
   case name of
@@ -377,7 +374,7 @@ flattenLeadingLambdas ::
 flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reversedParameters expression =
   case expression of
     TypedLambdaExpr info _ parameterName body -> do
-      if nodeType info == expectedType && nodeRecipe info == expectedRecipe
+      if typedNodeType info == expectedType && typedNodeRecipe info == expectedRecipe
         then pure ()
         else Nothing
       (argumentType, resultType) <-
@@ -412,8 +409,8 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
         body
     _ -> do
       resultRepresentation <- scalarRepresentation expectedType expectedRecipe
-      if nodeType (expressionInfo expression) == expectedType
-          && nodeRecipe (expressionInfo expression) == expectedRecipe
+      if typedNodeType (typedExpressionInfo expression) == expectedType
+        && typedNodeRecipe (typedExpressionInfo expression) == expectedRecipe
         then Just (reverse reversedParameters, resultRepresentation, reversedExpressionPath, expression)
         else Nothing
 
@@ -509,7 +506,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
     TypedVariableExpr info name ->
       case find ((== name) . functionParameterName) parameters of
         Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
-          | loweredRepresentation (nodeRecipe info) == Just expectedRepresentation ->
+          | loweredRepresentation (typedNodeRecipe info) == Just expectedRepresentation ->
               noExpressionFailures
           | otherwise -> representationCheck info
         Nothing ->
@@ -555,12 +552,12 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
         [LoweredIRLoweringFailure path kind detail]
         []
     representationCheck info =
-      case loweredRepresentation (nodeRecipe info) of
+      case loweredRepresentation (typedNodeRecipe info) of
         Just _ -> noExpressionFailures
         Nothing ->
           oneFailure
             LoweredIRUnsupportedRepresentation
-            (LoweredIRRecipeFailureDetail (nodeRecipe info))
+            (LoweredIRRecipeFailureDetail (typedNodeRecipe info))
     operatorCheck operator =
       case loweredPrimitive operator of
         Just _ -> noExpressionFailures
@@ -724,24 +721,21 @@ emitFunction modulePath functions function =
   where
     initialState =
       LoweringState
-        { loweringFunctionId = functionShapeId function,
-          loweringNextTemporary = 1,
+        { loweringNextTemporary = 1,
           loweringInstructions = []
         }
 
 emitEntry ::
   [Text] ->
-  LoweredFunctionId ->
   [FunctionShape] ->
   [TypedStatement] ->
   Either [LoweredIRLoweringFailure] (LoweredOperand, LoweringState)
-emitEntry modulePath entryFunctionId functions =
+emitEntry modulePath functions =
   go 0 Nothing initialState
   where
     initialState =
       LoweringState
-        { loweringFunctionId = entryFunctionId,
-          loweringNextTemporary = 1,
+        { loweringNextTemporary = 1,
           loweringInstructions = []
         }
     go _ (Just resultOperand) state [] = Right (resultOperand, state)
@@ -791,11 +785,11 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
     TypedVariableExpr info name ->
       case find ((== name) . functionParameterName) parameters of
         Just (FunctionParameterShape _ (LoweredParameter parameterId representation))
-          | loweredRepresentation (nodeRecipe info) == Just representation ->
+          | loweredRepresentation (typedNodeRecipe info) == Just representation ->
               ([], Just (LoweredFunctionParameterOperand parameterId representation), state)
         _ -> unsupportedExpression path state
     TypedTupleExpr info [] ->
-      case nodeRecipe info of
+      case typedNodeRecipe info of
         TypedUnitRecipe ->
           ([], Just (LoweredImmediateOperand LoweredUnitImmediate), state)
         recipe -> unsupportedRepresentation path recipe state
@@ -833,7 +827,7 @@ lowerLiteral ::
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerLiteral path info literal state =
-  case (literal, nodeRecipe info) of
+  case (literal, typedNodeRecipe info) of
     (TypedBooleanLiteral value, TypedBoolRecipe) ->
       loweredImmediate (LoweredBoolImmediate value)
     (TypedCharacterLiteral value, TypedCharRecipe) ->
@@ -847,15 +841,15 @@ lowerLiteral path info literal state =
         Just width ->
           loweredImmediate
             (LoweredFloatImmediate width (whole <> "." <> fractional))
-        Nothing -> unsupportedRepresentation path (nodeRecipe info) state
-    _ -> unsupportedRepresentation path (nodeRecipe info) state
+        Nothing -> unsupportedRepresentation path (typedNodeRecipe info) state
+    _ -> unsupportedRepresentation path (typedNodeRecipe info) state
   where
     loweredImmediate immediate =
       ([], Just (LoweredImmediateOperand immediate), state)
     lowerInteger source maybeConstructor =
       case (readMaybe (Text.unpack source), maybeConstructor) of
         (Just value, Just constructor) -> loweredImmediate (constructor value)
-        _ -> unsupportedRepresentation path (nodeRecipe info) state
+        _ -> unsupportedRepresentation path (typedNodeRecipe info) state
 
 lowerBinary ::
   [Text] ->
@@ -903,7 +897,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
             Nothing
           )
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (nodeRecipe info)
+      representationAtPath path (typedNodeRecipe info)
     (leftFailures, maybeLeftOperand, leftState) =
       lowerExpression
         modulePath
@@ -994,7 +988,7 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
   where
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (nodeRecipe (expressionInfo expression))
+      representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
     (reversedArgumentFailureChunks, reversedArgumentOperands, argumentState) =
       foldl'
         lowerArgument
@@ -1107,27 +1101,3 @@ unsupportedRepresentation path recipe state =
     Nothing,
     state
   )
-
-nodeRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
-nodeRecipe (TypedNodeInfo _ recipe _ _) = recipe
-
-nodeType :: TypedNodeInfo -> TypedType
-nodeType (TypedNodeInfo typeValue _ _ _) = typeValue
-
-expressionInfo :: TypedExpr -> TypedNodeInfo
-expressionInfo expression =
-  case expression of
-    TypedLiteralExpr info _ -> info
-    TypedVariableExpr info _ -> info
-    TypedLambdaExpr info _ _ _ -> info
-    TypedOperatorValueExpr info _ -> info
-    TypedListExpr info _ -> info
-    TypedTupleExpr info _ -> info
-    TypedApplyExpr info _ _ -> info
-    TypedTypeApplicationExpr info _ _ _ -> info
-    TypedIfExpr info _ _ _ -> info
-    TypedPatternCaseExpr info _ _ -> info
-    TypedBinaryExpr info _ _ _ -> info
-    TypedLeftSectionExpr info _ _ -> info
-    TypedRightSectionExpr info _ _ -> info
-    TypedBlockExpr info _ -> info

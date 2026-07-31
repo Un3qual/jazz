@@ -9,7 +9,7 @@ module JazzNext.Compiler.TypeInference.Scope
     inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
-    forwardSignedFunctionAnalysisBindings,
+    inferScopeTypeWithModeAndForwardBindings,
     instantiateNonBuiltinTypeBinding,
   )
 where
@@ -190,8 +190,7 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
               expectedType
               expr
        in (InferredExpr expressionType Nothing [], nextState)
-    else
-      case (resolveType state expectedType, expr) of
+    else case (resolveType state expectedType, expr) of
     (_, EVar name)
       | Map.notMember name env,
         Just (expressionType, nextState) <-
@@ -320,15 +319,38 @@ publishVisibleTypes env state =
 
 inferScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+  let (inferredResult, finalState, _) =
+        inferScopeTypeWithModeAndForwardBindings
+          preludeStatementIndices
+          inferExpression
+          mode
+          builtinMode
+          initialEnv
+          initialState
+          statements
+   in (inferredResult, finalState)
+
+inferScopeTypeWithModeAndForwardBindings ::
+  Set Int ->
+  InferExprWithModeFn ->
+  TypedCoreProductionMode ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  [Statement] ->
+  (InferredExpr, InferState, Map Int (Name, SourceSpan))
+inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   inferScopeTypeInternal True preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
 
 inferNestedScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
-  inferScopeTypeInternal False preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+  let (inferredResult, finalState, _) =
+        inferScopeTypeInternal False preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+   in (inferredResult, finalState)
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
-  let (inferredResult, finalState) =
+  let (inferredResult, finalState, _) =
         inferScopeTypeInternal
           False
           preludeStatementIndices
@@ -343,7 +365,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
           statements
    in (inferredExpressionType inferredResult, finalState)
 
-inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
+inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
@@ -352,7 +374,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
         case mode of
           ProduceTypedCoreExpressionDirectCall -> Just (ProvisionalScopeStatements provisionalStatements)
           InferenceOnly -> Nothing
-   in (InferredExpr scopeType provisionalExpr productionFailures, restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
+   in ( InferredExpr scopeType provisionalExpr productionFailures,
+        restoreCapabilityFacts initialState stateWithPublishedModuleFacts,
+        forwardAnalysisBindings
+      )
   where
     inferPlain builtin env state expr =
       let (result, nextState) = inferExpression mode builtin env state expr
@@ -378,6 +403,12 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     bindingSeedsByStatement = preparedBindingSeeds scopePreparation
     preparedSignaturesByStatement = preparedSignatures scopePreparation
     forwardFunctionBindings = preparedForwardFunctions scopePreparation
+    forwardAnalysisBindings =
+      Map.fromList
+        [ (statementIndex, (bindingName, bindingSpan))
+        | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
+          Map.member statementIndex forwardFunctionBindings
+        ]
     stateAfterBindingSeeds = preparedScopeState scopePreparation
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
@@ -473,8 +504,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       bindingNamesByStatement
                       bindingSeedsByStatement
                   envWithBindingSeed =
-                    case
-                        ( shouldSeedSelfRecursiveFunction statementIndex name envForStatement,
+                        case ( shouldSeedSelfRecursiveFunction statementIndex name envForStatement,
                           Map.lookup statementIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
@@ -556,12 +586,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   stateAfterSignatureCheck =
                     case (matchingPendingSignature, valueType) of
                       (Just pendingSignature, Just inferredType) ->
-                        case
-                            unifyTypes
+                            case unifyTypes
                               (pendingSignatureDeclaredType pendingSignature)
                               inferredType
-                              stateAfterBindingSeedCheck
-                          of
+                              stateAfterBindingSeedCheck of
                           Just unifiedState -> unifiedState
                           Nothing ->
                             addTypeError
@@ -629,12 +657,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       matchingPendingSignature
                       stateAfterDroppedInferredMethodCheck
                   stateAfterRuntimeHint =
-                    case
-                        runtimeHintForBinding
+                        case runtimeHintForBinding
                           stateAfterDroppedInferredMethodCheck
                           maybeNextBinding
-                          nextBindingType
-                      of
+                          nextBindingType of
                         Just runtimeHint ->
                           modifyInferenceOutput
                             ( \output ->
@@ -680,7 +706,6 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                                 name
                                 bindingSpan
                                 bindingType
-                                (Map.member statementIndex forwardFunctionBindings)
                                 maybeNextBinding
                                 expression
                             ]
@@ -741,8 +766,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     nestedBlockProductionFailures expression result =
       if mode /= ProduceTypedCoreExpressionDirectCall
         then inferredProductionFailures result
-        else
-          case expression of
+        else case expression of
             EBlock blockStatements ->
               case blockProductionFailureKindAndDetail blockStatements of
                 (TypedCoreStructuredValueUnsupported, _) ->
@@ -1154,30 +1178,6 @@ data ScopePreparation = ScopePreparation
     preparedScopeState :: InferState
   }
 
--- | Derive analyzer-visible forward bindings from the same signature/binding
--- eligibility pass that prepares production inference. Analyzer visibility
--- must not depend on whether a later function body inferred successfully.
-forwardSignedFunctionAnalysisBindings ::
-  [Statement] ->
-  InferState ->
-  Map Int (Name, SourceSpan)
-forwardSignedFunctionAnalysisBindings statements initialState =
-  Map.fromList
-    [ (statementIndex, (bindingName, bindingSpan))
-    | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
-      Map.member statementIndex (preparedForwardFunctions scopePreparation)
-    ]
-  where
-    indexedStatements = zip [0 ..] statements
-    predeclaredDataTypes = predeclareScopeDataTypes indexedStatements initialState
-    scopePreparation =
-      prepareScope
-        True
-        ProduceTypedCoreExpressionDirectCall
-        predeclaredDataTypes
-        indexedStatements
-        initialState
-
 prepareScope ::
   Bool ->
   TypedCoreProductionMode ->
@@ -1197,8 +1197,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
             initialState
           )
           indexedStatements
-   in
-    ScopePreparation
+   in ScopePreparation
       { preparedBindingSeeds = bindingSeeds,
         preparedSignatures = signatures,
         preparedForwardFunctions = forwardFunctions,
@@ -1240,8 +1239,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
                 case firstInvalidClassMethodSignature validationState capabilityName parameters methods of
                   Just _ -> state
                   Nothing -> seedStatementCapabilityFact state statement
-           in
-            ( bindingSeeds,
+             in ( bindingSeeds,
               signatures,
               forwardFunctions,
               Nothing,
@@ -1253,8 +1251,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
                 case firstInvalidImplTarget state implSpan arguments of
                   Just _ -> state
                   Nothing -> seedStatementCapabilityFact state statement
-           in
-            ( bindingSeeds,
+             in ( bindingSeeds,
               signatures,
               forwardFunctions,
               Nothing,
@@ -1271,8 +1268,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
                   constructors
                   Map.empty
                   state
-           in
-            ( bindingSeeds,
+             in ( bindingSeeds,
               signatures,
               forwardFunctions,
               Nothing,
@@ -1296,12 +1292,12 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
               preparedSignature =
                 PreparedSignature
                   maybePendingSignature
-                  ( maybe False
+                    ( maybe
+                        False
                       (\signature -> unconstrainedSignaturePayload signaturePayload && eligibleForwardSignature signature)
                       maybePendingSignature
                   )
-           in
-            ( bindingSeeds,
+             in ( bindingSeeds,
               Map.insert statementIndex preparedSignature signatures,
               forwardFunctions,
               Just preparedSignature,
@@ -1323,8 +1319,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
                           (ForwardFunctionBinding bindingName (pendingSignatureDeclaredType signature))
                           forwardFunctions
                   _ -> forwardFunctions
-           in
-            ( Map.insert statementIndex bindingSeed bindingSeeds,
+             in ( Map.insert statementIndex bindingSeed bindingSeeds,
               signatures,
               nextForwardFunctions,
               Nothing,
