@@ -444,9 +444,24 @@ validateStatementProfiles modulePath functions localValueNames =
     go statementIndex reversedFailureChunks reversedCalls (statement : rest) =
       case statement of
         TypedSignatureStatement {} -> continue reversedFailureChunks reversedCalls
-        TypedLetStatement {} ->
+        TypedLetStatement _ _ _ _ expression ->
           case find ((== statementIndex) . functionShapeStatementIndex) functions of
-            Nothing -> continue reversedFailureChunks reversedCalls
+            Nothing ->
+              case expression of
+                TypedLambdaExpr {} -> continue reversedFailureChunks reversedCalls
+                _ ->
+                  let check =
+                        inspectExpression
+                          modulePath
+                          [statementIndex]
+                          [0]
+                          functions
+                          localValueNames
+                          []
+                          expression
+                   in continue
+                        (expressionCheckFailures check : reversedFailureChunks)
+                        reversedCalls
             Just function ->
               let check =
                     inspectExpression

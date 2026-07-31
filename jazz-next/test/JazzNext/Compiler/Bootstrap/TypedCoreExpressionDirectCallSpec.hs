@@ -52,6 +52,8 @@ tests =
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
+    ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
+    ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
     ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
@@ -267,6 +269,15 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
+        ( "invalid-function-shape-rhs",
+          [ statementFailure 0
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "seed")),
+            expressionFailure 0 [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
+          ]
+        ),
         ( "capturing-function",
           [ statementFailure 0
               LoweredIRInvalidFunctionShape
@@ -422,6 +433,36 @@ testForwardVisibilityBoundary = do
         (fixtureName fixture <> " blocks typed-core production")
         TypedCoreProductionBlockedByDiagnostics
         (typedCoreProductionStatus firstRun)
+
+testUnitForwardVisibility :: IO ()
+testUnitForwardVisibility = do
+  let fixture = producerEdgeFixture "unit-forward-function"
+  result <- produceFixture fixture
+  assertEqual
+    "unit forward function diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult result)))
+  case typedCoreProductionStatus result of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual "unit forward function typed-core validation" [] (validateTypedProgram programValue)
+    _ -> failTest "unit forward function did not produce typed core"
+
+testCurriedArgumentFailurePath :: IO ()
+testCurriedArgumentFailurePath = do
+  let fixture = producerEdgeFixture "curried-first-argument-capture"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 5 [0, 0, 0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "seed")
+          ]
+  result <- produceFixture fixture
+  assertEqual "curried first-argument capture path" expected (typedCoreProductionStatus result)
 
 testProductionDiagnosticCompatibility :: IO ()
 testProductionDiagnosticCompatibility = do

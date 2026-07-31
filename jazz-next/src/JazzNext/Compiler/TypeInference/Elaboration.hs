@@ -386,9 +386,16 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
                           let (calleeFailures, maybeCallee) =
                                 finalizeExpression functions statementIndex childPath parameters True callee
                               finalizedArguments =
-                                zipWith
-                                  (\argumentIndex argument -> finalizeExpression functions statementIndex (childPath <> [argumentIndex + 1]) parameters False argument)
-                                  [0 ..]
+                                map
+                                  ( \(argumentPath, argument) ->
+                                      finalizeExpression
+                                        functions
+                                        statementIndex
+                                        (childPath <> argumentPath)
+                                        parameters
+                                        False
+                                        argument
+                                  )
                                   arguments
                               (resultInfoFailures, resultInfos) =
                                 partitionEithers
@@ -416,12 +423,16 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
             _ ->
               ([failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail], Nothing)
 
-    applicationSpine = go [] []
+    applicationSpine = go [] [] []
       where
-        go arguments resultTypes expression =
+        go calleePath arguments resultTypes expression =
           case expression of
             ProvisionalApplyExpression resultType function argument ->
-              go (argument : arguments) (resultType : resultTypes) function
+              go
+                (calleePath <> [0])
+                ((calleePath <> [1], argument) : arguments)
+                (resultType : resultTypes)
+                function
             _ -> (expression, arguments, resultTypes)
 
     requireTypedStatement (_, Just typedStatement) = typedStatement

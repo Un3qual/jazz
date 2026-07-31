@@ -1364,6 +1364,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
         TNumericType {} -> True
         TBoolType -> True
         TCharType -> True
+        TTupleType [] -> True
         _ -> False
 
 predeclareScopeDataTypes ::

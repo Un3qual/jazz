@@ -664,6 +664,7 @@ loweredParameter index =
 lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
+    ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
@@ -737,6 +738,32 @@ scalarBindingProgram =
             (TypedSpan 1 1)
             seedScheme
             (intExpr 1),
+          TypedExpressionStatement (TypedSpan 2 1) (intExpr 1)
+        ]
+        intInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+
+invalidScalarBindingRhsProgram :: TypedProgram
+invalidScalarBindingRhsProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedLetStatement
+            seedBinder
+            seedName
+            (TypedSpan 1 1)
+            seedScheme
+            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2)),
           TypedExpressionStatement (TypedSpan 2 1) (intExpr 1)
         ]
         intInfo
@@ -887,6 +914,32 @@ rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-uni
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+    ( "unit-forward-function",
+      sourceFixtureNoExports
+        "unit-forward-function"
+        ( Text.unlines
+            [ "first :: () -> ().",
+              "first = \\(item) -> second item.",
+              "second :: () -> ().",
+              "second = \\(item) -> item.",
+              "first ()."
+            ]
+        )
+    ),
+    ( "curried-first-argument-capture",
+      sourceFixtureNoExports
+        "curried-first-argument-capture"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "combine :: Int -> Int -> Int.",
+              "combine = \\(left, right) -> left + right.",
+              "use :: Int -> Int.",
+              "use = \\(item) -> combine seed item.",
+              "use 1."
+            ]
+        )
+    ),
     ( "signed-function-only",
       sourceFixtureNoExports
         "signed-function-only"
