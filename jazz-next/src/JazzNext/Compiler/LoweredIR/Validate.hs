@@ -431,9 +431,7 @@ signedIntegerBounds width =
 
 unsignedIntegerMaximum :: LoweredIntegerWidth -> Integer
 unsignedIntegerMaximum width =
-  case width of
-    LoweredIntegerWidth64 -> 9223372036854775807
-    _ -> 2 ^ integerWidthBits width - 1
+  2 ^ integerWidthBits width - 1
 
 integerWidthBits :: LoweredIntegerWidth -> Int
 integerWidthBits width =

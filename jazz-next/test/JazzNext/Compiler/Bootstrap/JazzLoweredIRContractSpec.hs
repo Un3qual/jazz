@@ -50,7 +50,9 @@ tests =
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("reports every validator hardening regression exactly", testHardeningPrograms),
-    ("rejects integer immediates outside the shared Haskell/Jazz carrier", testSharedImmediateCarrierRange),
+    ("validates the exact UInt64 immediate domain", testUInt64ImmediateRange),
+    ("matches Jazz UInt64 immediate boundaries twice", testJazzUInt64ImmediateRange),
+    ("rejects malformed Jazz unsigned immediate text twice", testJazzMalformedUnsignedImmediate),
     ("rejects non-scalar character immediates", testUnicodeScalarImmediate),
     ("rejects variant tags outside the shared Haskell/Jazz carrier", testSharedTagCarrierRange),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
@@ -313,14 +315,109 @@ testHardeningPrograms =
     )
     hardeningFixtures
 
-testSharedImmediateCarrierRange :: IO ()
-testSharedImmediateCarrierRange =
-  assertEqual
-    "upper-half UInt64 immediate"
-    [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
-    ( validateLoweredProgram
-        (immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 9223372036854775808))
+testUInt64ImmediateRange :: IO ()
+testUInt64ImmediateRange =
+  mapM_
+    ( \(name, programValue, expectedFailures) ->
+        assertEqual
+          (name <> " Haskell validation")
+          expectedFailures
+          (validateLoweredProgram programValue)
     )
+    uint64ImmediateBoundaryCases
+
+testJazzUInt64ImmediateRange :: IO ()
+testJazzUInt64ImmediateRange = do
+  let programs = [programValue | (_, programValue, _) <- uint64ImmediateBoundaryCases]
+      expected =
+        renderRuntimeValue
+          ( VList
+              [ VTuple
+                  [ canonicalLoweredProgramRuntimeValue programValue,
+                    canonicalLoweredValidationFailuresRuntimeValue expectedFailures
+                  ]
+                | (_, programValue, expectedFailures) <- uint64ImmediateBoundaryCases
+              ]
+              Nothing
+          )
+  first <- runJazzValidationBatch programs
+  second <- runJazzValidationBatch programs
+  assertJazzOutput "Jazz UInt64 boundary first run" expected first
+  assertJazzOutput "Jazz UInt64 boundary second run" expected second
+  assertEqual "Jazz UInt64 boundary deterministic output" (runOutput first) (runOutput second)
+
+testJazzMalformedUnsignedImmediate :: IO ()
+testJazzMalformedUnsignedImmediate = do
+  let expected =
+        renderRuntimeValue
+          ( canonicalLoweredValidationFailuresRuntimeValue
+              [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
+          )
+  first <- runJazzMalformedUnsignedImmediate
+  second <- runJazzMalformedUnsignedImmediate
+  assertJazzOutput "Jazz malformed UInt64 first run" expected first
+  assertJazzOutput "Jazz malformed UInt64 second run" expected second
+  assertEqual "Jazz malformed UInt64 deterministic output" (runOutput first) (runOutput second)
+
+runJazzMalformedUnsignedImmediate :: IO RunResult
+runJazzMalformedUnsignedImmediate =
+  runModuleGraph
+    defaultWarningSettings
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    lookupSource sourcePath =
+      case sourcePath of
+        "src/App/Main.jz" -> pure (Just jazzMalformedUnsignedImmediateSource)
+        _ -> readCheckedInJazzProjectModuleSource sourcePath
+
+jazzMalformedUnsignedImmediateSource :: Text
+jazzMalformedUnsignedImmediateSource =
+  """
+  module App::Main {
+    import LoweredIRTypes.
+    import LoweredIRValidate (validateProgram).
+    import Maybe.
+    validateProgram
+      (LoweredProgram
+        (LoweredIRVersion 1)
+        []
+        []
+        [LoweredFunction
+          (LoweredFunctionId "main")
+          Nothing
+          []
+          (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64)
+          [LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            (Just
+              (LoweredReturn
+                (LoweredImmediateOperand
+                  (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 "not-decimal"))))]
+          (LoweredBlockId "entry")]
+        (LoweredFunctionId "main")).
+  }
+
+  """
+
+uint64ImmediateBoundaryCases :: [(Text, LoweredProgram, [LoweredIRValidationFailure])]
+uint64ImmediateBoundaryCases =
+  [ ( "first upper-half UInt64 immediate",
+      immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 9223372036854775808),
+      []
+    ),
+    ( "maximum UInt64 immediate",
+      immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 18446744073709551615),
+      []
+    ),
+    ( "first overflowing UInt64 immediate",
+      immediateReturnProgram (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 18446744073709551616),
+      [terminatorFailure "main" "entry" LoweredImmediateOutOfRange (LoweredImmediateRangeDetail (unsigned LoweredIntegerWidth64))]
+    )
+  ]
 
 testUnicodeScalarImmediate :: IO ()
 testUnicodeScalarImmediate =

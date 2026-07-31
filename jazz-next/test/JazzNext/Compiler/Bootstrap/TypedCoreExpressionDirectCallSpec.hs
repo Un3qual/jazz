@@ -15,6 +15,7 @@ import JazzNext.Compiler.Diagnostics
     isErrorDiagnostic,
   )
 import JazzNext.Compiler.LoweredIR.Lower
+import JazzNext.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
@@ -39,6 +40,7 @@ tests =
     ("produces the complete scalar expression profile twice", testScalarProduction),
     ("lowers the complete scalar expression profile twice", testScalarLowering),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
+    ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
     ("validates typed core before checking the lowering profile", testLoweringPrecedence),
     ("rejects valid callable typed core with ordered structural failures", testCallableLoweringUnsupported),
@@ -351,12 +353,30 @@ testExplicitNumericWidthLowering :: IO ()
 testExplicitNumericWidthLowering =
   mapM_
     ( \(name, typedProgram, expectedProgram) ->
-        assertEqual
-          (name <> " exact lowering")
-          (LoweredIRSucceeded expectedProgram)
-          (lowerTypedCoreExpressionDirectCall typedProgram)
+        let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+            secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+         in assertEqual (name <> " repeatable lowering") firstRun secondRun
+              >> assertEqual
+                (name <> " exact lowering")
+                (LoweredIRSucceeded expectedProgram)
+                firstRun
     )
     explicitNumericScalarLoweringPrograms
+
+testFullUInt64Lowering :: IO ()
+testFullUInt64Lowering =
+  mapM_
+    ( \(name, typedProgram, expectedProgram) ->
+        let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+            secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+         in assertEqual (name <> " permanent validation") [] (validateLoweredProgram expectedProgram)
+              >> assertEqual (name <> " repeatable lowering") firstRun secondRun
+              >> assertEqual
+                (name <> " exact lowering")
+                (LoweredIRSucceeded expectedProgram)
+                firstRun
+    )
+    fullUInt64ScalarLoweringPrograms
 
 testLoweringPrecedence :: IO ()
 testLoweringPrecedence =

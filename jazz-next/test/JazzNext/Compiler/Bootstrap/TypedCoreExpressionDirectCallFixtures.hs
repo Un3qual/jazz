@@ -9,6 +9,7 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     expectedUnitProgram,
     scalarExpectedLoweredPrograms,
     explicitNumericScalarLoweringPrograms,
+    fullUInt64ScalarLoweringPrograms,
     nestedScalarTypedProgram,
     expectedNestedScalarLoweredProgram,
     scalarFixtures,
@@ -248,6 +249,29 @@ explicitNumericScalarLoweringPrograms =
        in ( name,
             expectedScalarProgram info (TypedLiteralExpr info (TypedFractionalLiteral whole fractional (Just numericType))),
             expectedLoweredProgram representation [] (loweredImmediate immediateValue)
+          )
+
+fullUInt64ScalarLoweringPrograms :: [(Text, TypedProgram, LoweredProgram)]
+fullUInt64ScalarLoweringPrograms =
+  [ fullUInt64Program "first-upper-half-uint64" "9223372036854775808" 9223372036854775808,
+    fullUInt64Program "maximum-uint64" "18446744073709551615" 18446744073709551615
+  ]
+  where
+    fullUInt64Program name source value =
+      let info =
+            TypedNodeInfo
+              (TypedNumericType TypedUInt64Type)
+              (TypedUnsignedIntegerRecipe 64)
+              []
+              []
+          representation =
+            LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64
+       in ( name,
+            expectedScalarProgram info (TypedLiteralExpr info (TypedIntegerLiteral source)),
+            expectedLoweredProgram
+              representation
+              []
+              (loweredImmediate (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 value))
           )
 
 nestedScalarTypedProgram :: TypedProgram
