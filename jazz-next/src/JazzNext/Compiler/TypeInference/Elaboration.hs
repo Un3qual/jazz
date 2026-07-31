@@ -190,33 +190,34 @@ finalizeTypedCoreExpressionDirectCall ::
   TypedCoreProductionStatus
 finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
-    ProvisionalScopeStatements provisionalStatements
-      | not (hasTerminalResult provisionalStatements) ->
-          TypedCoreProductionUnsupported [missingModuleResultFailure]
-      | otherwise ->
-          let functions = functionTable provisionalStatements
-              reboundFunctions = reboundFunctionStatements provisionalStatements
-              recursiveNames = recursiveFunctionNames functions
-              finalizedStatements = map (finalizeStatement functions reboundFunctions recursiveNames) provisionalStatements
-              exportResult = finalizeExports functions
-              productionFailures = concatMap fst finalizedStatements <> fst exportResult
-           in case productionFailures of
-                _ : _ -> TypedCoreProductionUnsupported productionFailures
-                [] ->
-                  case traverse snd finalizedStatements of
-                    Just typedStatements ->
-                      case reverse typedStatements of
-                        TypedExpressionStatement _ terminalExpression : _ ->
-                          let programValue =
-                                typedProgram
-                                  (snd exportResult)
-                                  typedStatements
-                                  (typedExpressionInfo terminalExpression)
-                           in case validateTypedProgram programValue of
-                                [] -> TypedCoreProductionSucceeded programValue
-                                failures -> TypedCoreProductionInvariantFailures failures
-                        _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
-                    Nothing -> TypedCoreProductionUnsupported [missingModuleResultFailure]
+    ProvisionalScopeStatements provisionalStatements ->
+      let functions = functionTable provisionalStatements
+          reboundFunctions = reboundFunctionStatements provisionalStatements
+          recursiveNames = recursiveFunctionNames functions
+          finalizedStatements = map (finalizeStatement functions reboundFunctions recursiveNames) provisionalStatements
+          exportResult = finalizeExports functions
+          missingResultFailures =
+            [ missingModuleResultFailure
+            | not (hasTerminalResult provisionalStatements)
+            ]
+          productionFailures = concatMap fst finalizedStatements <> fst exportResult <> missingResultFailures
+       in case productionFailures of
+            _ : _ -> TypedCoreProductionUnsupported productionFailures
+            [] ->
+              case traverse snd finalizedStatements of
+                Just typedStatements ->
+                  case reverse typedStatements of
+                    TypedExpressionStatement _ terminalExpression : _ ->
+                      let programValue =
+                            typedProgram
+                              (snd exportResult)
+                              typedStatements
+                              (typedExpressionInfo terminalExpression)
+                       in case validateTypedProgram programValue of
+                            [] -> TypedCoreProductionSucceeded programValue
+                            failures -> TypedCoreProductionInvariantFailures failures
+                    _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
+                Nothing -> TypedCoreProductionUnsupported [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
       TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
     _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
@@ -403,34 +404,36 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
-                   in if actualArity /= expectedArity
-                        then
-                          ( [failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)],
-                            Nothing
+                      arityFailures =
+                        [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
+                        | actualArity /= expectedArity
+                        ]
+                      (calleeFailures, maybeCallee) =
+                        finalizeExpression functions statementIndex childPath parameters CalleeExpression callee
+                      finalizedArguments =
+                        map
+                          ( \(argumentPath, argument) ->
+                              finalizeExpression
+                                functions
+                                statementIndex
+                                (childPath <> argumentPath)
+                                parameters
+                                ScalarExpression
+                                argument
                           )
-                        else
-                          let (calleeFailures, maybeCallee) =
-                                finalizeExpression functions statementIndex childPath parameters CalleeExpression callee
-                              finalizedArguments =
-                                map
-                                  ( \(argumentPath, argument) ->
-                                      finalizeExpression
-                                        functions
-                                        statementIndex
-                                        (childPath <> argumentPath)
-                                        parameters
-                                        ScalarExpression
-                                        argument
-                                  )
-                                  arguments
-                              (resultInfoFailures, resultInfos) =
+                          arguments
+                      childFailures = calleeFailures <> concatMap fst finalizedArguments
+                   in case arityFailures of
+                        _ : _ -> (arityFailures <> childFailures, Nothing)
+                        [] ->
+                          let (resultInfoFailures, resultInfos) =
                                 partitionEithers
                                   ( zipWith
                                       (scalarOrCallableInfo statementIndex)
                                       [childPath <> replicate remainingApplications 0 | remainingApplications <- reverse [0 .. actualArity - 1]]
                                       resultTypes
                                   )
-                              failures = calleeFailures <> concatMap fst finalizedArguments <> resultInfoFailures
+                              failures = childFailures <> resultInfoFailures
                               maybeArguments = traverse snd finalizedArguments
                               typedApplication = do
                                 typedCallee <- maybeCallee

@@ -908,6 +908,18 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "partial-call-argument-capture",
+      sourceFixtureNoExports
+        "partial-call-argument-capture"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "combine :: Int -> Int -> Int.",
+              "combine = \\(left, right) -> left + right.",
+              "combine seed."
+            ]
+        )
+    ),
     ( "higher-order-parameter",
       sourceFixtureNoExports
         "higher-order-parameter"
@@ -990,6 +1002,17 @@ producerEdgeFixtures =
         ( Text.unlines
             [ "identity :: Int -> Int.",
               "identity = \\(item) -> item."
+            ]
+        )
+    ),
+    ( "missing-result-failure-accumulation",
+      sourceFixtureNoExports
+        "missing-result-failure-accumulation"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "addSeed :: Int -> Int.",
+              "addSeed = \\(item) -> item + seed."
             ]
         )
     ),

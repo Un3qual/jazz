@@ -4936,9 +4936,10 @@ module TypedCoreValidate (
           [failure (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) TypedBlockResultMismatch (TypedTextDetail detail)]
           (validateBlockStatementsInOrderFrom initialContext visibleContext forwardSignedFunctions statementLocation expressionPath allStatements dependencies rest (blockIndex + 1))
         | Nothing -> {
-          forwardVisibleContext = withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext.
           statementBaseContext =
-            if isForwardSignedFunctionDeclaration forwardSignedFunctions statement then forwardVisibleContext else visibleContext.
+            if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
+            then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+            else visibleContext.
           recursiveGroup = blockRecursiveGroupStatements dependencies allStatements blockIndex.
           statementContext = case statement {
             | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
@@ -5674,9 +5675,10 @@ module TypedCoreValidate (
     | [] -> []
     | [statement | rest] -> {
       statementLocation = [statementIndex].
-      forwardVisibleContext = withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext.
       statementBaseContext =
-        if isForwardSignedFunctionDeclaration forwardSignedFunctions statement then forwardVisibleContext else visibleContext.
+        if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
+        then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+        else visibleContext.
       recursiveGroup = blockRecursiveGroupStatements dependencies allStatements statementIndex.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->

@@ -50,6 +50,7 @@ tests =
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
+    ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
     ("rejects higher-order function parameters from the scalar profile", testHigherOrderParameterRejection),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
@@ -67,6 +68,7 @@ tests =
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
+    ("retains statement failures when the module result is missing", testMissingResultFailureAccumulation),
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
@@ -399,6 +401,34 @@ testCurriedArgumentFailurePath = do
           ]
   result <- produceFixture fixture
   assertEqual "curried first-argument capture path" expected (typedCoreProductionStatus result)
+
+testInvalidArityArgumentFailureAccumulation :: IO ()
+testInvalidArityArgumentFailureAccumulation = do
+  let fixture = producerEdgeFixture "partial-call-argument-capture"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 4 [])
+              TypedCoreCallArityUnsupported
+              (TypedCoreArityDetail 2 1),
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 4 [1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "seed")
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "partial-call argument failure inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "partial-call argument failure repeatability" firstRun secondRun
+  assertEqual "partial-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
 
 testHigherOrderParameterRejection :: IO ()
 testHigherOrderParameterRejection = do
@@ -985,6 +1015,34 @@ testMissingModuleResultProduction =
       assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
       assertEqual (name <> " repeatable production") firstRun secondRun
       assertEqual (name <> " exact missing-result failure") expected (typedCoreProductionStatus firstRun)
+
+testMissingResultFailureAccumulation :: IO ()
+testMissingResultFailureAccumulation = do
+  let fixture = producerEdgeFixture "missing-result-failure-accumulation"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "seed"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "missing-result failure inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "missing-result failure repeatability" firstRun secondRun
+  assertEqual "missing-result complete failure accumulation" expected (typedCoreProductionStatus firstRun)
 
 testCompoundFailureAccumulation :: IO ()
 testCompoundFailureAccumulation = do
