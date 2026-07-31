@@ -1,4 +1,0 @@
-packages: .
-
-package jazz-next
-  flags: +development

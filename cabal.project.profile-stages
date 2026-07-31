@@ -1,0 +1,8 @@
+packages: .
+
+profiling: True
+profiling-detail: none
+library-profiling-detail: none
+
+package jazz
+  flags: +development +profiling-workflow
