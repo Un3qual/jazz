@@ -3,13 +3,18 @@
 module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
   ( Fixture (..),
     fixtureNames,
+    acceptedFixtureNames,
+    rejectedFixtureNames,
     fixtures,
     expectedUnitProgram,
     scalarFixtures,
     scalarExpectedPrograms,
+    directCallExpectedPrograms,
     rejectedScalarFixtures,
     admittedOperators,
-  ) where
+    explicitNumericTypes,
+  )
+where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -19,12 +24,18 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.FractionalLiteral (mkFractionalLiteralSource)
-import JazzNext.Compiler.ModuleExports (exportInventory)
+import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph
-import JazzNext.Compiler.Name (Name (SourceName))
-import JazzNext.Compiler.TypedCore
+import JazzNext.Compiler.Name (Name (SourceName), NameNamespace (ValueNamespace))
+import JazzNext.Compiler.Parser (parseSurfaceProgram)
+import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
 import JazzNext.Compiler.TypeInference (InferenceInputs (..))
-import JazzNext.Compiler.TypeInference.Types (emptyScopeCapabilityFacts)
+import JazzNext.Compiler.TypeInference.Types
+  ( ExpressionType (TFunctionType, TIntType),
+    TypeBinding (PlainTypeBinding),
+    emptyScopeCapabilityFacts,
+  )
+import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 
 data Fixture = Fixture
@@ -35,15 +46,34 @@ data Fixture = Fixture
   }
 
 fixtureNames :: [Text]
-fixtureNames =
+fixtureNames = acceptedFixtureNames <> rejectedFixtureNames
+
+acceptedFixtureNames :: [Text]
+acceptedFixtureNames =
   [ "unit-entry",
     "bool-entry",
     "char-entry",
     "default-int-entry",
     "default-float-entry",
+    "explicit-numeric-widths",
     "arithmetic-operators",
     "ordering-operators",
     "equality-operators",
+    "scalar-parameter-return",
+    "single-argument-direct-call",
+    "curried-multi-argument-direct-call",
+    "forward-direct-call-dag",
+    "nested-direct-calls",
+    "dollar-direct-call",
+    "exported-direct-function"
+  ]
+
+rejectedFixtureNames :: [Text]
+rejectedFixtureNames =
+  [ "source-diagnostic",
+    "invalid-portable-source-path",
+    "resolved-import",
+    "ambient-prelude-input",
     "text-value",
     "list-value",
     "non-unit-tuple",
@@ -51,10 +81,15 @@ fixtureNames =
     "conditional",
     "pattern-case",
     "local-block-binding",
-    "source-diagnostic",
-    "invalid-portable-source-path",
-    "resolved-import",
-    "ambient-prelude-input"
+    "bare-function-value",
+    "partial-direct-call",
+    "oversaturated-direct-call",
+    "capturing-function",
+    "self-recursive-function",
+    "mutually-recursive-functions",
+    "polymorphic-or-evidence-function",
+    "imported-direct-call",
+    "user-defined-operator-call"
   ]
 
 fixtures :: [Fixture]
@@ -64,9 +99,27 @@ fixtures =
     charFixture,
     defaultIntFixture,
     defaultFloatFixture,
+    sourceFixture "explicit-numeric-widths" explicitNumericWidthsSource,
     arithmeticOperatorsFixture,
     orderingOperatorsFixture,
     equalityOperatorsFixture,
+    sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
+    sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
+    sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
+    sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
+    sourceFixture "nested-direct-calls" nestedDirectCallsSource,
+    sourceFixture "dollar-direct-call" dollarDirectCallSource,
+    (sourceFixture "exported-direct-function" exportedDirectFunctionSource)
+      { fixtureModule =
+          (fixtureModule (sourceFixture "exported-direct-function" exportedDirectFunctionSource))
+            { resolvedModuleExportInventory =
+                exportInventory [ModuleExport ValueNamespace "increment"]
+            }
+      },
+    Fixture "source-diagnostic" emptyInputs validSourcePath sourceDiagnosticModule,
+    Fixture "invalid-portable-source-path" emptyInputs (TypedSourcePath "/private/host/Main.jz") unitModule,
+    Fixture "resolved-import" emptyInputs validSourcePath moduleWithImport,
+    Fixture "ambient-prelude-input" ambientPreludeInputs validSourcePath unitModule,
     textFixture,
     listFixture,
     nonUnitTupleFixture,
@@ -74,17 +127,30 @@ fixtures =
     conditionalFixture,
     patternCaseFixture,
     localBlockBindingFixture,
-    Fixture "source-diagnostic" emptyInputs validSourcePath sourceDiagnosticModule,
-    Fixture "invalid-portable-source-path" emptyInputs (TypedSourcePath "/private/host/Main.jz") unitModule,
-    Fixture "resolved-import" emptyInputs validSourcePath moduleWithImport,
-    Fixture "ambient-prelude-input" ambientPreludeInputs validSourcePath unitModule
+    sourceFixture "bare-function-value" bareFunctionValueSource,
+    sourceFixture "partial-direct-call" partialDirectCallSource,
+    sourceFixture "oversaturated-direct-call" oversaturatedDirectCallSource,
+    sourceFixture "capturing-function" capturingFunctionSource,
+    sourceFixture "self-recursive-function" selfRecursiveFunctionSource,
+    sourceFixture "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
+    sourceFixture "polymorphic-or-evidence-function" polymorphicFunctionSource,
+    (sourceFixture "imported-direct-call" importedDirectCallSource)
+      { fixtureInputs =
+          emptyInputs
+            { inferenceImportedTypes =
+                Map.singleton
+                  "foreign"
+                  (PlainTypeBinding (TFunctionType TIntType TIntType))
+            }
+      },
+    sourceFixture "user-defined-operator-call" userDefinedOperatorCallSource
   ]
 
 expectedUnitProgram :: TypedProgram
 expectedUnitProgram = TypedProgram Nothing [entryModule] modulePath
 
 scalarFixtures :: [Fixture]
-scalarFixtures = take 7 (drop 1 fixtures)
+scalarFixtures = map fixtureByName ["bool-entry", "char-entry", "default-int-entry", "default-float-entry", "arithmetic-operators", "ordering-operators", "equality-operators"]
 
 scalarExpectedPrograms :: [(Text, TypedProgram)]
 scalarExpectedPrograms =
@@ -116,11 +182,255 @@ scalarExpectedPrograms =
     )
   ]
 
+directCallExpectedPrograms :: [(Text, TypedProgram)]
+directCallExpectedPrograms =
+  [ ( "explicit-numeric-widths",
+      expectedFunctionProgram [] explicitNumericFunctions (TypedTupleExpr unitInfo [])
+    ),
+    ( "scalar-parameter-return",
+      expectedFunctionProgram
+        []
+        [identityFunction]
+        (directCall "identity" [intInfo] intInfo [intExpr 42])
+    ),
+    ( "single-argument-direct-call",
+      expectedFunctionProgram
+        []
+        [incrementFunction]
+        (directCall "increment" [intInfo] intInfo [intExpr 41])
+    ),
+    ( "curried-multi-argument-direct-call",
+      expectedFunctionProgram
+        []
+        [combineFunction]
+        (directCall "combine" [intInfo, intInfo] intInfo [intExpr 20, intExpr 22])
+    ),
+    ( "forward-direct-call-dag",
+      expectedFunctionProgram
+        []
+        [firstFunction, incrementNamed "second"]
+        (directCall "first" [intInfo] intInfo [intExpr 41])
+    ),
+    ( "nested-direct-calls",
+      expectedFunctionProgram
+        []
+        [incrementFunction, doubleFunction]
+        ( directCall
+            "double"
+            [intInfo]
+            intInfo
+            [directCall "increment" [intInfo] intInfo [intExpr 20]]
+        )
+    ),
+    ( "dollar-direct-call",
+      expectedFunctionProgram
+        []
+        [incrementFunction]
+        (directCall "increment" [intInfo] intInfo [intExpr 41])
+    ),
+    ( "exported-direct-function",
+      expectedFunctionProgram
+        ["increment"]
+        [incrementFunction]
+        (directCall "increment" [intInfo] intInfo [intExpr 41])
+    )
+  ]
+
 rejectedScalarFixtures :: [Fixture]
-rejectedScalarFixtures = take 7 (drop 8 fixtures)
+rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "conditional", "pattern-case", "local-block-binding"]
 
 admittedOperators :: [Text]
 admittedOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
+
+explicitNumericTypes :: [Text]
+explicitNumericTypes =
+  [ "Int8",
+    "Int16",
+    "Int32",
+    "Int64",
+    "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "Float16",
+    "Float32",
+    "Float64"
+  ]
+
+sourceFixture :: Text -> Text -> Fixture
+sourceFixture name source =
+  Fixture
+    name
+    emptyInputs
+    validSourcePath
+    ( unitModule
+        { resolvedModuleCore =
+            case parseSurfaceProgram source >>= lowerSurfaceModule "src/App/Main.jz" modulePath of
+              Right coreModule -> coreModule
+              Left diagnostic -> error ("invalid typed-core fixture source: " <> show diagnostic)
+        }
+    )
+
+fixtureByName :: Text -> Fixture
+fixtureByName name =
+  case filter ((== name) . fixtureName) fixtures of
+    [fixture] -> fixture
+    _ -> error ("typed-core fixture is missing or duplicated: " <> Text.unpack name)
+
+explicitNumericWidthsSource :: Text
+explicitNumericWidthsSource =
+  Text.unlines
+    [ "asInt8 :: Bool -> Int8.",
+      "asInt8 = \\(ignored) -> 1.",
+      "asInt16 :: Bool -> Int16.",
+      "asInt16 = \\(ignored) -> 2.",
+      "asInt32 :: Bool -> Int32.",
+      "asInt32 = \\(ignored) -> 3.",
+      "asInt64 :: Bool -> Int64.",
+      "asInt64 = \\(ignored) -> 4.",
+      "asUInt8 :: Bool -> UInt8.",
+      "asUInt8 = \\(ignored) -> 5.",
+      "asUInt16 :: Bool -> UInt16.",
+      "asUInt16 = \\(ignored) -> 6.",
+      "asUInt32 :: Bool -> UInt32.",
+      "asUInt32 = \\(ignored) -> 7.",
+      "asUInt64 :: Bool -> UInt64.",
+      "asUInt64 = \\(ignored) -> 8.",
+      "asFloat16 :: Bool -> Float16.",
+      "asFloat16 = \\(ignored) -> 1.5.",
+      "asFloat32 :: Bool -> Float32.",
+      "asFloat32 = \\(ignored) -> 2.5.",
+      "asFloat64 :: Bool -> Float64.",
+      "asFloat64 = \\(ignored) -> 3.5.",
+      "()."
+    ]
+
+scalarParameterReturnSource :: Text
+scalarParameterReturnSource =
+  Text.unlines
+    [ "identity :: Int -> Int.",
+      "identity = \\(item) -> item.",
+      "identity 42."
+    ]
+
+singleArgumentDirectCallSource :: Text
+singleArgumentDirectCallSource =
+  Text.unlines
+    [ "increment :: Int -> Int.",
+      "increment = \\(item) -> item + 1.",
+      "increment 41."
+    ]
+
+curriedMultiArgumentDirectCallSource :: Text
+curriedMultiArgumentDirectCallSource =
+  Text.unlines
+    [ "combine :: Int -> Int -> Int.",
+      "combine = \\(left, right) -> left + right.",
+      "combine 20 22."
+    ]
+
+forwardDirectCallDagSource :: Text
+forwardDirectCallDagSource =
+  Text.unlines
+    [ "first :: Int -> Int.",
+      "first = \\(item) -> second item.",
+      "second :: Int -> Int.",
+      "second = \\(item) -> item + 1.",
+      "first 41."
+    ]
+
+nestedDirectCallsSource :: Text
+nestedDirectCallsSource =
+  Text.unlines
+    [ "increment :: Int -> Int.",
+      "increment = \\(item) -> item + 1.",
+      "double :: Int -> Int.",
+      "double = \\(item) -> item + item.",
+      "double (increment 20)."
+    ]
+
+dollarDirectCallSource :: Text
+dollarDirectCallSource =
+  Text.unlines
+    [ "increment :: Int -> Int.",
+      "increment = \\(item) -> item + 1.",
+      "increment $ 41."
+    ]
+
+exportedDirectFunctionSource :: Text
+exportedDirectFunctionSource = singleArgumentDirectCallSource
+
+bareFunctionValueSource :: Text
+bareFunctionValueSource =
+  Text.unlines
+    [ "identity :: Int -> Int.",
+      "identity = \\(item) -> item.",
+      "identity."
+    ]
+
+partialDirectCallSource :: Text
+partialDirectCallSource =
+  Text.unlines
+    [ "combine :: Int -> Int -> Int.",
+      "combine = \\(left, right) -> left + right.",
+      "combine 1."
+    ]
+
+oversaturatedDirectCallSource :: Text
+oversaturatedDirectCallSource =
+  Text.unlines
+    [ "makeAdder :: Int -> Int -> Int.",
+      "makeAdder = \\(left) -> (left +).",
+      "makeAdder 1 2."
+    ]
+
+capturingFunctionSource :: Text
+capturingFunctionSource =
+  Text.unlines
+    [ "seed :: Int.",
+      "seed = 1.",
+      "addSeed :: Int -> Int.",
+      "addSeed = \\(item) -> item + seed.",
+      "addSeed 41."
+    ]
+
+selfRecursiveFunctionSource :: Text
+selfRecursiveFunctionSource =
+  Text.unlines
+    [ "loop :: Int -> Int.",
+      "loop = \\(item) -> loop item.",
+      "loop 1."
+    ]
+
+mutuallyRecursiveFunctionsSource :: Text
+mutuallyRecursiveFunctionsSource =
+  Text.unlines
+    [ "left :: Int -> Int.",
+      "left = \\(item) -> right item.",
+      "right :: Int -> Int.",
+      "right = \\(item) -> left item.",
+      "left 1."
+    ]
+
+polymorphicFunctionSource :: Text
+polymorphicFunctionSource =
+  Text.unlines
+    [ "identity :: a -> a.",
+      "identity = \\(item) -> item.",
+      "identity 1."
+    ]
+
+importedDirectCallSource :: Text
+importedDirectCallSource = "foreign 1."
+
+userDefinedOperatorCallSource :: Text
+userDefinedOperatorCallSource =
+  Text.unlines
+    [ "operator %% tier 2.",
+      "(%%) :: Int -> Int -> Int.",
+      "(%%) = \\(left, right) -> left + right.",
+      "1 %% 2."
+    ]
 
 emptyInputs :: InferenceInputs
 emptyInputs =
@@ -248,10 +558,202 @@ expectedScalarStatements expressions =
     ]
     modulePath
 
+data ExpectedFunction = ExpectedFunction
+  { expectedFunctionName :: Text,
+    expectedFunctionParameters :: [(Text, TypedNodeInfo)],
+    expectedFunctionResult :: TypedNodeInfo,
+    expectedFunctionBody :: TypedExpr
+  }
+
+identityFunction :: ExpectedFunction
+identityFunction =
+  ExpectedFunction
+    "identity"
+    [("item", intInfo)]
+    intInfo
+    (variableExpr "item" intInfo)
+
+incrementFunction :: ExpectedFunction
+incrementFunction = incrementNamed "increment"
+
+incrementNamed :: Text -> ExpectedFunction
+incrementNamed name =
+  ExpectedFunction
+    name
+    [("item", intInfo)]
+    intInfo
+    (binaryExpr intInfo "+" (variableExpr "item" intInfo) (intExpr 1))
+
+combineFunction :: ExpectedFunction
+combineFunction =
+  ExpectedFunction
+    "combine"
+    [("left", intInfo), ("right", intInfo)]
+    intInfo
+    (binaryExpr intInfo "+" (variableExpr "left" intInfo) (variableExpr "right" intInfo))
+
+firstFunction :: ExpectedFunction
+firstFunction =
+  ExpectedFunction
+    "first"
+    [("item", intInfo)]
+    intInfo
+    (directCall "second" [intInfo] intInfo [variableExpr "item" intInfo])
+
+doubleFunction :: ExpectedFunction
+doubleFunction =
+  ExpectedFunction
+    "double"
+    [("item", intInfo)]
+    intInfo
+    (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "item" intInfo))
+
+explicitNumericFunctions :: [ExpectedFunction]
+explicitNumericFunctions =
+  [ numericFunction "asInt8" TypedInt8Type (TypedSignedIntegerRecipe 8) (TypedIntegerLiteral "1"),
+    numericFunction "asInt16" TypedInt16Type (TypedSignedIntegerRecipe 16) (TypedIntegerLiteral "2"),
+    numericFunction "asInt32" TypedInt32Type (TypedSignedIntegerRecipe 32) (TypedIntegerLiteral "3"),
+    numericFunction "asInt64" TypedInt64Type (TypedSignedIntegerRecipe 64) (TypedIntegerLiteral "4"),
+    numericFunction "asUInt8" TypedUInt8Type (TypedUnsignedIntegerRecipe 8) (TypedIntegerLiteral "5"),
+    numericFunction "asUInt16" TypedUInt16Type (TypedUnsignedIntegerRecipe 16) (TypedIntegerLiteral "6"),
+    numericFunction "asUInt32" TypedUInt32Type (TypedUnsignedIntegerRecipe 32) (TypedIntegerLiteral "7"),
+    numericFunction "asUInt64" TypedUInt64Type (TypedUnsignedIntegerRecipe 64) (TypedIntegerLiteral "8"),
+    numericFunction "asFloat16" TypedFloat16Type (TypedFloatRecipe 16) (TypedFractionalLiteral "1" "5" (Just TypedFloat16Type)),
+    numericFunction "asFloat32" TypedFloat32Type (TypedFloatRecipe 32) (TypedFractionalLiteral "2" "5" (Just TypedFloat32Type)),
+    numericFunction "asFloat64" TypedFloat64Type (TypedFloatRecipe 64) (TypedFractionalLiteral "3" "5" (Just TypedFloat64Type))
+  ]
+  where
+    numericFunction name numericType recipe literal =
+      let resultInfo = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+       in ExpectedFunction
+            name
+            [("ignored", boolInfo)]
+            resultInfo
+            (TypedLiteralExpr resultInfo literal)
+
+expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
+expectedFunctionProgram exportedNames functions terminalExpression =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
+        typedInterface
+        statements
+        (typedExpressionInfo terminalExpression)
+    ]
+    modulePath
+  where
+    functionStatements =
+      concat
+        [ expectedFunctionStatements signatureIndex bindingIndex function
+        | (functionOffset, function) <- zip [0 ..] functions,
+          let signatureIndex = functionOffset * 2,
+          let bindingIndex = signatureIndex + 1
+        ]
+    terminalIndex = length functionStatements
+    statements =
+      functionStatements
+        <> [TypedExpressionStatement (TypedSpan (terminalIndex + 1) 1) terminalExpression]
+    typedInterface =
+      TypedModuleInterface
+        [ TypedValueInterface
+            (resolvedName name)
+            (functionScheme bindingIndex function)
+        | name <- exportedNames,
+          (functionOffset, function) <- zip [0 ..] functions,
+          expectedFunctionName function == name,
+          let bindingIndex = functionOffset * 2 + 1
+        ]
+        []
+        []
+        []
+
+expectedFunctionStatements :: Int -> Int -> ExpectedFunction -> [TypedStatement]
+expectedFunctionStatements signatureIndex bindingIndex function =
+  [ TypedSignatureStatement
+      signatureOwner
+      functionName
+      (TypedSpan (signatureIndex + 1) 1)
+      (functionScheme signatureIndex function),
+    TypedLetStatement
+      bindingOwner
+      functionName
+      (TypedSpan (bindingIndex + 1) 1)
+      (functionScheme bindingIndex function)
+      (lambdaExpression bindingIndex [0] (expectedFunctionParameters function))
+  ]
+  where
+    functionName = resolvedName (expectedFunctionName function)
+    signatureOwner = TypedBinderId (modulePath, [signatureIndex], functionName)
+    bindingOwner = TypedBinderId (modulePath, [bindingIndex], functionName)
+
+    lambdaExpression statementIndex childPath parameters =
+      case parameters of
+        [] -> expectedFunctionBody function
+        (parameterName, _) : rest ->
+          let typedParameterName = resolvedName parameterName
+              parameterBinder = TypedBinderId (modulePath, statementIndex : childPath, typedParameterName)
+           in TypedLambdaExpr
+                (functionInfo parameters (expectedFunctionResult function))
+                parameterBinder
+                typedParameterName
+                (lambdaExpression statementIndex (childPath <> [0]) rest)
+
+functionScheme :: Int -> ExpectedFunction -> TypedScheme
+functionScheme statementIndex function =
+  let functionName = resolvedName (expectedFunctionName function)
+      owner = TypedBinderId (modulePath, [statementIndex], functionName)
+      info = functionInfo (expectedFunctionParameters function) (expectedFunctionResult function)
+   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info)
+
+functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
+functionInfo parameters resultInfo =
+  TypedNodeInfo
+    (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
+    (TypedClosureRecipe (map (typedExpressionRecipe . snd) parameters) (typedExpressionRecipe resultInfo))
+    []
+    []
+
+directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
+directCall functionName parameterInfos resultInfo arguments =
+  go
+    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName))
+    parameterInfos
+    arguments
+  where
+    go functionExpression remainingParameters remainingArguments =
+      case (remainingParameters, remainingArguments) of
+        (_ : parameterRest, argument : argumentRest) ->
+          let applicationInfo =
+                case parameterRest of
+                  [] -> resultInfo
+                  _ -> functionInfo (zip (repeat "") parameterRest) resultInfo
+           in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
+        ([], []) -> functionExpression
+        _ -> error "expected direct call must be fully saturated"
+
+resolvedName :: Text -> TypedCoreName
+resolvedName = TypedResolvedName TypedCurrentModule TypedValueNamespace
+
+variableExpr :: Text -> TypedNodeInfo -> TypedExpr
+variableExpr name info = TypedVariableExpr info (resolvedName name)
+
+typedExpressionType :: TypedNodeInfo -> TypedType
+typedExpressionType (TypedNodeInfo expressionType _ _ _) = expressionType
+
+typedExpressionRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
+typedExpressionRecipe (TypedNodeInfo _ recipe _ _) = recipe
+
 typedExpressionInfo :: TypedExpr -> TypedNodeInfo
 typedExpressionInfo expression =
   case expression of
     TypedLiteralExpr info _ -> info
+    TypedVariableExpr info _ -> info
+    TypedLambdaExpr info _ _ _ -> info
+    TypedApplyExpr info _ _ -> info
     TypedBinaryExpr info _ _ _ -> info
     TypedTupleExpr info _ -> info
     _ -> error "scalar fixture expected a scalar expression"

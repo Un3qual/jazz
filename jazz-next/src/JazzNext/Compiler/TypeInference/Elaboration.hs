@@ -13,21 +13,33 @@ module JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionMode (..),
     InferredExpr (..),
     ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
     ProvisionalTypedScope (..),
     finalizeTypedCoreExpressionDirectCall,
   ) where
 
+import Data.Either (partitionEithers)
+import Data.Graph (SCC (..), stronglyConnComp)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST (Literal (..), NumericType (..))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
+import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventoryEntries)
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (..))
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (OperatorBinding),
+    Name (..),
+    NameNamespace (..),
+    identifierText
+  )
 import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.Compiler.TypeInference.Solver (resolveType)
 import JazzNext.Compiler.TypeInference.State (InferState)
-import JazzNext.Compiler.TypeInference.Types (ExpressionType (..))
+import JazzNext.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 
 data TypedCoreProductionProfile
   = TypedCoreExpressionDirectCallProfile
@@ -60,6 +72,13 @@ data TypedCoreProductionFailureKind
   | TypedCorePatternCaseUnsupported
   | TypedCoreNestedBlockUnsupported
   | TypedCoreUserDefinedOperatorUnsupported
+  | TypedCoreCallableValueUnsupported
+  | TypedCoreCallArityUnsupported
+  | TypedCoreCaptureUnsupported
+  | TypedCoreRecursiveFunctionUnsupported
+  | TypedCoreNonMonomorphicFunctionUnsupported
+  | TypedCoreNonLocalCallUnsupported
+  | TypedCoreUnsupportedExport
   | TypedCoreUnresolvedExpressionType
   deriving (Eq, Show)
 
@@ -73,6 +92,8 @@ data TypedCoreProductionFailureDetail
   | TypedCorePatternCaseDetail
   | TypedCoreLocalBlockDetail
   | TypedCoreUnsupportedRootDetail
+  | TypedCoreNameDetail Text
+  | TypedCoreArityDetail Int Int
   deriving (Eq, Show)
 
 data TypedCoreProductionFailure
@@ -99,12 +120,29 @@ data ProvisionalTypedExpr
   = ProvisionalUnitExpression
   | ProvisionalLiteralExpression Literal ExpressionType
   | ProvisionalBinaryExpression Text ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
-  | ProvisionalScopeExpressions [(SourceSpan, ProvisionalTypedExpr)]
+  | ProvisionalVariableExpression Name ExpressionType
+  | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
+  | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
+  | ProvisionalScopeStatements [ProvisionalTypedStatement]
   | ProvisionalUnsupportedExpression TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
+  deriving (Eq, Show)
+
+data ProvisionalTypedStatement
+  = ProvisionalSignature Int Name SourceSpan ExpressionType
+  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
+  | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
+  | ProvisionalUnsupportedStatement Int
   deriving (Eq, Show)
 
 newtype ProvisionalTypedScope = ProvisionalTypedScope ProvisionalTypedExpr
   deriving (Eq, Show)
+
+data FunctionProfile = FunctionProfile
+  { functionStatementIndex :: Int,
+    functionType :: ExpressionType,
+    functionArity :: Int,
+    functionExpression :: ProvisionalTypedExpr
+  }
 
 -- | Finalize the initial unit-only root against the permanent contract.
 -- Future profile slices extend the provisional scope rather than changing the
@@ -117,15 +155,18 @@ finalizeTypedCoreExpressionDirectCall ::
   TypedCoreProductionStatus
 finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (ProvisionalTypedScope provisionalScope) =
   case provisionalScope of
-    ProvisionalScopeExpressions scopedExpressions ->
-      let finalizedStatements = map (uncurry finalizeStatement) (zip [0 ..] scopedExpressions)
-          productionFailures = concatMap fst finalizedStatements
+    ProvisionalScopeStatements provisionalStatements ->
+      let functions = functionTable provisionalStatements
+          recursiveNames = recursiveFunctionNames functions
+          finalizedStatements = map (finalizeStatement functions recursiveNames) provisionalStatements
+          exportResult = finalizeExports functions
+          productionFailures = concatMap fst finalizedStatements <> fst exportResult
        in case productionFailures of
             _ : _ -> TypedCoreProductionUnsupported productionFailures
             [] ->
               let typedStatements = map requireTypedStatement finalizedStatements
-               in case validateTypedProgram (typedProgram typedStatements) of
-                    [] -> TypedCoreProductionSucceeded (typedProgram typedStatements)
+               in case validateTypedProgram (typedProgram (snd exportResult) typedStatements) of
+                    [] -> TypedCoreProductionSucceeded (typedProgram (snd exportResult) typedStatements)
                     failures -> TypedCoreProductionInvariantFailures failures
     ProvisionalUnsupportedExpression kind detail ->
       TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
@@ -133,19 +174,68 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
   where
     modulePath = resolvedModulePath resolvedModule
 
-    typedProgram typedStatements =
-      TypedProgram Nothing
-        [TypedModule modulePath sourcePath [] [] (TypedModuleInterface [] [] [] []) typedStatements (typedStatementInfo (last typedStatements))]
+    typedProgram typedInterface typedStatements =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            modulePath
+            sourcePath
+            []
+            (typedExports typedInterface)
+            typedInterface
+            typedStatements
+            (typedStatementInfo (last typedStatements))
+        ]
         modulePath
+
+    typedExports (TypedModuleInterface values _ _ _) =
+      [TypedModuleExport TypedValueNamespace name | TypedValueInterface (TypedResolvedName _ _ name) _ <- values]
 
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement statementIndex (spanValue, expression) =
-      let (failures, maybeTypedExpression) = finalizeExpression statementIndex [] expression
-       in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+    finalizeStatement functions recursiveNames statement =
+      case statement of
+        ProvisionalSignature statementIndex name spanValue expressionType ->
+          case callableInfo statementIndex [] expressionType of
+            Left failure -> ([failure], Nothing)
+            Right info ->
+              let typedName = resolvedValueName name
+                  owner = binderAt statementIndex [] typedName
+               in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner info)))
+        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
+          let typedName = resolvedValueName name
+              owner = binderAt statementIndex [] typedName
+              recursiveFailures =
+                [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
+                | Set.member name recursiveNames
+                ]
+              schemeFailures =
+                case maybeBinding of
+                  Just PlainTypeBinding {} -> []
+                  _ -> [statementFailure statementIndex TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail (identifierText name))]
+              shapeFailures =
+                case expression of
+                  ProvisionalLambdaExpression {} -> []
+                  _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+              (expressionFailures, maybeExpression) =
+                finalizeExpression functions statementIndex [0] Set.empty False expression
+              infoResult = callableInfo statementIndex [] expressionType
+              infoFailures = either (: []) (const []) infoResult
+              failures = recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
+              typedStatement = do
+                info <- either (const Nothing) Just infoResult
+                typedExpression <- maybeExpression
+                pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner info) typedExpression)
+           in (failures, if null failures then typedStatement else Nothing)
+        ProvisionalTerminalExpression statementIndex spanValue expression ->
+          let (failures, maybeTypedExpression) =
+                finalizeExpression functions statementIndex [] Set.empty False expression
+           in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+        ProvisionalUnsupportedStatement statementIndex ->
+          ([statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail], Nothing)
 
-    finalizeExpression statementIndex childPath expression =
+    finalizeExpression functions statementIndex childPath parameters calleePosition expression =
       case expression of
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
@@ -162,21 +252,202 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
                     case scalarInfo statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just info)
-                  (leftFailures, maybeLeft) = finalizeExpression statementIndex (childPath <> [0]) left
-                  (rightFailures, maybeRight) = finalizeExpression statementIndex (childPath <> [1]) right
+                  (leftFailures, maybeLeft) = finalizeExpression functions statementIndex (childPath <> [0]) parameters False left
+                  (rightFailures, maybeRight) = finalizeExpression functions statementIndex (childPath <> [1]) parameters False right
                   failures = operatorFailures <> leftFailures <> rightFailures
                   typedExpression =
                     TypedBinaryExpr <$> maybeInfo <*> pure (TypedBuiltinOperator operatorSymbol) <*> maybeLeft <*> maybeRight
                in (failures, if null failures then typedExpression else Nothing)
           | otherwise ->
-              let (leftFailures, _) = finalizeExpression statementIndex (childPath <> [0]) left
-                  (rightFailures, _) = finalizeExpression statementIndex (childPath <> [1]) right
+              let (leftFailures, _) = finalizeExpression functions statementIndex (childPath <> [0]) parameters False left
+                  (rightFailures, _) = finalizeExpression functions statementIndex (childPath <> [1]) parameters False right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
-        ProvisionalScopeExpressions _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
+        ProvisionalVariableExpression name expressionType
+          | Set.member name parameters ->
+              case scalarInfo statementIndex childPath expressionType of
+                Left failure -> ([failure], Nothing)
+                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+          | Just function <- Map.lookup name functions ->
+              if calleePosition
+                then case callableInfo statementIndex childPath (functionType function) of
+                  Left failure -> ([failure], Nothing)
+                  Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+                else
+                  ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
+                    Nothing
+                  )
+          | otherwise ->
+              ( [failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))],
+                Nothing
+              )
+        ProvisionalLambdaExpression parameterName expressionType body ->
+          case callableInfo statementIndex childPath expressionType of
+            Left failure -> ([failure], Nothing)
+            Right info ->
+              let parameterPath = childPath
+                  (bodyFailures, maybeBody) =
+                    finalizeExpression functions statementIndex (childPath <> [0]) (Set.insert parameterName parameters) False body
+                  parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
+               in (bodyFailures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
+        ProvisionalApplyExpression _ _ _ ->
+          finalizeApplicationSpine functions statementIndex childPath parameters expression
+        ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
+
+    finalizeApplicationSpine functions statementIndex childPath parameters expression =
+      let (callee, arguments, resultTypes) = applicationSpine expression
+       in case callee of
+            ProvisionalVariableExpression name _
+              | Just function <- Map.lookup name functions ->
+                  let expectedArity = functionArity function
+                      actualArity = length arguments
+                   in if actualArity /= expectedArity
+                        then
+                          ( [failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)],
+                            Nothing
+                          )
+                        else
+                          let (calleeFailures, maybeCallee) =
+                                finalizeExpression functions statementIndex childPath parameters True callee
+                              finalizedArguments =
+                                zipWith
+                                  (\argumentIndex argument -> finalizeExpression functions statementIndex (childPath <> [argumentIndex + 1]) parameters False argument)
+                                  [0 ..]
+                                  arguments
+                              (resultInfoFailures, resultInfos) =
+                                partitionEithers
+                                  ( zipWith
+                                      (scalarOrCallableInfo statementIndex)
+                                      [childPath <> replicate remainingApplications 0 | remainingApplications <- reverse [0 .. actualArity - 1]]
+                                      resultTypes
+                                  )
+                              failures = calleeFailures <> concatMap fst finalizedArguments <> resultInfoFailures
+                              maybeArguments = traverse snd finalizedArguments
+                              typedApplication = do
+                                typedCallee <- maybeCallee
+                                typedArguments <- maybeArguments
+                                pure
+                                  ( foldl'
+                                      (\typedFunction (info, argument) -> TypedApplyExpr info typedFunction argument)
+                                      typedCallee
+                                      (zip resultInfos typedArguments)
+                                  )
+                           in (failures, if null failures then typedApplication else Nothing)
+            ProvisionalVariableExpression name _ ->
+              ( [failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))],
+                Nothing
+              )
+            _ ->
+              ([failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail], Nothing)
+
+    applicationSpine = go [] []
+      where
+        go arguments resultTypes expression =
+          case expression of
+            ProvisionalApplyExpression resultType function argument ->
+              go (argument : arguments) (resultType : resultTypes) function
+            _ -> (expression, arguments, resultTypes)
 
     requireTypedStatement (_, Just typedStatement) = typedStatement
     requireTypedStatement _ = error "profile failures must be handled before typed-core validation"
+
+    statementFailure statementIndex kind detail =
+      TypedCoreProductionFailure (TypedCoreProductionStatementPath modulePath statementIndex) kind detail
+
+    binderAt statementIndex suffix name =
+      TypedBinderId (modulePath, statementIndex : suffix, name)
+
+    resolvedValueName name =
+      case name of
+        GeneratedName (OperatorBinding storageName) -> TypedGeneratedName (TypedOperatorBinding storageName)
+        _ -> TypedResolvedName TypedCurrentModule TypedValueNamespace (identifierText name)
+
+    scheme owner info =
+      TypedScheme owner [] [] [] (nodeType info) (nodeRecipe info)
+
+    callableInfo statementIndex childPath expressionType =
+      case typeAndRecipe statementIndex childPath expressionType of
+        Right (typeValue@TypedFunctionType {}, recipe@TypedClosureRecipe {}) ->
+          Right (TypedNodeInfo typeValue recipe [] [])
+        Right _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
+        Left failure -> Left failure
+
+    scalarOrCallableInfo statementIndex childPath expressionType =
+      case typeAndRecipe statementIndex childPath expressionType of
+        Right (typeValue, recipe) -> Right (TypedNodeInfo typeValue recipe [] [])
+        Left failure -> Left failure
+
+    typeAndRecipe statementIndex childPath expressionType =
+      case defaultScalarLiterals (resolveType state expressionType) of
+        TFunctionType argument result -> do
+          (argumentType, argumentRecipe) <- typeAndRecipe statementIndex childPath argument
+          (resultType, resultRecipe) <- typeAndRecipe statementIndex childPath result
+          Right (TypedFunctionType argumentType resultType, prependClosureRecipe argumentRecipe resultRecipe)
+        other ->
+          case scalarInfo statementIndex childPath other of
+            Right (TypedNodeInfo typeValue recipe _ _) -> Right (typeValue, recipe)
+            Left failure -> Left failure
+
+    prependClosureRecipe argumentRecipe resultRecipe =
+      case resultRecipe of
+        TypedClosureRecipe arguments finalResult -> TypedClosureRecipe (argumentRecipe : arguments) finalResult
+        _ -> TypedClosureRecipe [argumentRecipe] resultRecipe
+
+    functionTable statements =
+      Map.fromList
+        [ (name, FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
+        | ProvisionalFunctionBinding statementIndex name _ expressionType _ expression <- statements,
+          lambdaCount expression > 0
+        ]
+
+    recursiveFunctionNames functions =
+      Set.fromList
+        [ name
+        | component <-
+            stronglyConnComp
+              [ (name, name, Set.toList (localCalls functions (functionExpression function)))
+              | (name, function) <- Map.toList functions
+              ],
+          name <- case component of
+            AcyclicSCC candidate
+              | Set.member candidate (localCalls functions (functionExpression (functions Map.! candidate))) -> [candidate]
+            AcyclicSCC _ -> []
+            CyclicSCC names -> names
+        ]
+
+    localCalls functions expression =
+      case expression of
+        ProvisionalApplyExpression _ function argument ->
+          let (callee, _, _) = applicationSpine expression
+              own =
+                case callee of
+                  ProvisionalVariableExpression name _
+                    | Map.member name functions -> Set.singleton name
+                  _ -> Set.empty
+           in own <> localCalls functions function <> localCalls functions argument
+        ProvisionalLambdaExpression _ _ body -> localCalls functions body
+        ProvisionalBinaryExpression _ _ left right -> localCalls functions left <> localCalls functions right
+        _ -> Set.empty
+
+    finalizeExports functions =
+      foldl'
+        collect
+        ([], TypedModuleInterface [] [] [] [])
+        (Set.toAscList (exportInventoryEntries (resolvedModuleExportInventory resolvedModule)))
+      where
+        collect (failures, TypedModuleInterface values datas classes impls) (ModuleExport namespace name)
+          | namespace == ValueNamespace =
+              case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
+                [(_, function)] ->
+                  case callableInfo (functionStatementIndex function) [] (functionType function) of
+                    Right info ->
+                      let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
+                          owner = binderAt (functionStatementIndex function) [] typedName
+                       in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner info)]) datas classes impls)
+                    Left failure -> (failures <> [failure], TypedModuleInterface values datas classes impls)
+                _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
+          | otherwise =
+              (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
 
     scalarInfo statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
@@ -202,6 +473,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         (LInt value, TypedNumericType _) -> Right (TypedIntegerLiteral (Text.pack (show value)))
         (LFloat _ source _, TypedFloatType) -> Right (fractionalLiteral source Nothing)
         (LFloat _ source (Just numericType), TypedNumericType _) -> Right (fractionalLiteral source (Just (typedNumericType numericType)))
+        (LFloat _ source Nothing, TypedNumericType numericType) -> Right (fractionalLiteral source (Just numericType))
         (LBool value, TypedBoolType) -> Right (TypedBooleanLiteral value)
         (LChar value, TypedCharType) -> Right (TypedCharacterLiteral value)
         (LText _, _) -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreTextValueDetail)
@@ -212,6 +484,12 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
        in TypedFractionalLiteral (Text.pack (show whole)) (Text.pack (show (abs fractional))) maybeNumericType
 
     unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
+
+    lambdaCount :: ProvisionalTypedExpr -> Int
+    lambdaCount expression =
+      case expression of
+        ProvisionalLambdaExpression _ _ body -> 1 + lambdaCount body
+        _ -> 0
 
 admittedOperators :: [Text]
 admittedOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
@@ -241,18 +519,30 @@ typedExpressionInfo :: TypedExpr -> TypedNodeInfo
 typedExpressionInfo expression =
   case expression of
     TypedLiteralExpr info _ -> info
+    TypedVariableExpr info _ -> info
+    TypedLambdaExpr info _ _ _ -> info
     TypedTupleExpr info _ -> info
+    TypedApplyExpr info _ _ -> info
     TypedBinaryExpr info _ _ _ -> info
-    _ -> error "scalar typed-core elaboration produced a non-scalar expression"
+    _ -> error "direct-call typed-core elaboration produced an unsupported expression"
 
 typedStatementInfo :: TypedStatement -> TypedNodeInfo
 typedStatementInfo statement =
   case statement of
     TypedExpressionStatement _ expression -> typedExpressionInfo expression
-    _ -> error "scalar typed-core elaboration produced a non-expression statement"
+    TypedLetStatement _ _ _ schemeValue _ ->
+      case schemeValue of
+        TypedScheme _ _ _ _ typeValue recipe -> TypedNodeInfo typeValue recipe [] []
+    TypedSignatureStatement _ _ _ schemeValue ->
+      case schemeValue of
+        TypedScheme _ _ _ _ typeValue recipe -> TypedNodeInfo typeValue recipe [] []
+    _ -> error "direct-call typed-core elaboration produced an unsupported statement"
 
 nodeType :: TypedNodeInfo -> TypedType
 nodeType (TypedNodeInfo typeValue _ _ _) = typeValue
+
+nodeRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
+nodeRecipe (TypedNodeInfo _ recipe _ _) = recipe
 
 defaultScalarLiterals :: ExpressionType -> ExpressionType
 defaultScalarLiterals expressionType =

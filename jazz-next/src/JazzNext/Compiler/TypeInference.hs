@@ -23,6 +23,7 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
+import Data.List (tails)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -37,6 +38,7 @@ import JazzNext.Compiler.Analyzer
   )
 import JazzNext.Compiler.AST
   ( SignatureType (..),
+    SignaturePayload (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -250,7 +252,7 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
   do
   AnalysisResult _ analyzerDiagnostics <-
     analyzeProgramWithInputs
-      (analysisInputsForInference inputs)
+      (analysisInputsForInference inputs expr)
       hiddenStatementIndices
       expr
   let (inferredResult, finalState) =
@@ -349,13 +351,15 @@ emptyInferenceInputs builtinMode settings =
       inferenceCurrentModulePath = Nothing
     }
 
-analysisInputsForInference :: InferenceInputs -> AnalysisInputs
-analysisInputsForInference inputs =
+analysisInputsForInference :: InferenceInputs -> Expr -> AnalysisInputs
+analysisInputsForInference inputs expression =
   AnalysisInputs
     { analysisBuiltinMode = inferenceBuiltinMode inputs,
       analysisWarningSettings = inferenceWarningSettings inputs,
       analysisImportedValues =
-        Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs),
+        Map.union
+          (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs))
+          (Map.fromList [(name, AnalysisBinding Nothing True) | name <- signedRootBindings expression]),
       analysisImportedClasses =
         Set.map
           (sourceName . mkIdentifier)
@@ -365,6 +369,41 @@ analysisInputsForInference inputs =
           ),
       analysisModulePath = inferenceCurrentModulePath inputs
     }
+  where
+    signedRootBindings rootExpression =
+      case rootExpression of
+        EBlock statements ->
+          [ bindingName
+          | (SSignature signatureName _ signature) : (SLet bindingName _ bindingExpression) : _ <- tails statements,
+            signatureName == bindingName,
+            concreteFunctionSignature signature,
+            leadingLambda bindingExpression
+          ]
+        _ -> []
+
+    concreteFunctionSignature signature =
+      case signature of
+        SignatureType (TypeFunction argumentType resultType) ->
+          concreteScalarSignatureType argumentType
+            && concreteScalarSignatureType resultType
+        _ -> False
+
+    concreteScalarSignatureType signatureType =
+      case signatureType of
+        TypeInt -> True
+        TypeFloat -> True
+        TypeNumeric {} -> True
+        TypeBool -> True
+        TypeChar -> True
+        TypeFunction argumentType resultType ->
+          concreteScalarSignatureType argumentType
+            && concreteScalarSignatureType resultType
+        _ -> False
+
+    leadingLambda bindingExpression =
+      case bindingExpression of
+        ELambda {} -> True
+        _ -> False
 
 initialStateForInference :: InferenceInputs -> InferState
 initialStateForInference inputs =
@@ -461,20 +500,26 @@ inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
   case expr of
     EBlock statements
       | mode == ProduceTypedCoreExpressionDirectCall,
-        not (null statements),
-        all isRootExpressionStatement statements ->
-          inferRootScalarScope builtinMode env state statements
-      | otherwise ->
-          inferScopeTypeWithMode
-            preludeStatementIndices
-            (\childMode childBuiltin childEnv childState childExpr ->
-               inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
+        any isDataStatement statements ->
+          let (expressionType, finalState) =
+                inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
+           in
+            ( InferredExpr
+                expressionType
+                (Just (ProvisionalUnsupportedExpression TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail)),
+              finalState
             )
-            mode
-            builtinMode
-            env
-            state
-            statements
+    EBlock statements ->
+      inferScopeTypeWithMode
+        preludeStatementIndices
+        (\childMode childBuiltin childEnv childState childExpr ->
+           inferExprTypeWithMode childMode Set.empty childBuiltin childEnv childState childExpr
+        )
+        mode
+        builtinMode
+        env
+        state
+        statements
     _ ->
       case mode of
         InferenceOnly ->
@@ -526,10 +571,47 @@ inferScalarExprWithProduction builtinMode env state expr =
       case filter isDataStatement statements of
         _ : _ -> unsupported TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         [] -> unsupported TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
-    EVar {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
-    ELambda {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+    EVar name ->
+      let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+       in (InferredExpr expressionType (ProvisionalVariableExpression name <$> expressionType), finalState)
+    ELambda parameterName bodyExpr ->
+      let (parameterType, stateAfterParameter) = freshTypeVar state
+          extendedEnv = Map.insert parameterName (PlainTypeBinding parameterType) env
+          (bodyResult, stateAfterBody) = inferScalarExprWithProduction builtinMode extendedEnv stateAfterParameter bodyExpr
+          expressionType =
+            TFunctionType (resolveType stateAfterBody parameterType)
+              <$> inferredExpressionType bodyResult
+          provisionalExpr = do
+            inferredType <- expressionType
+            body <- inferredProvisionalExpr bodyResult
+            pure (ProvisionalLambdaExpression parameterName inferredType body)
+       in (InferredExpr expressionType provisionalExpr, stateAfterBody)
     EOperatorValue {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
-    EApply {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+    EApply functionExpr argumentExpr ->
+      let (functionResult, stateAfterFunction) = inferScalarExprWithProduction builtinMode env state functionExpr
+          (argumentResult, stateAfterArgument) = inferScalarExprWithProduction builtinMode env stateAfterFunction argumentExpr
+          (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
+          (expressionType, finalState) =
+            case (inferredExpressionType functionResult, inferredExpressionType argumentResult) of
+              (Just functionType, Just argumentType) ->
+                case unifyTypes functionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+                  Just unifiedState ->
+                    case numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr of
+                      Just diagnostic -> (Nothing, addTypeError unifiedState diagnostic)
+                      Nothing -> (Just (resolveType unifiedState resultTypeVar), unifiedState)
+                  Nothing ->
+                    ( Nothing,
+                      addTypeError
+                        (discardFailedFunctionApplicationConstraints state stateWithResultVar)
+                        (mkApplyTypeError (resolveType stateWithResultVar functionType) (resolveType stateWithResultVar argumentType))
+                    )
+              _ -> (Nothing, discardFailedFunctionApplicationConstraints state stateWithResultVar)
+          provisionalExpr = do
+            resultType <- expressionType
+            function <- inferredProvisionalExpr functionResult
+            argument <- inferredProvisionalExpr argumentResult
+            pure (ProvisionalApplyExpression resultType function argument)
+       in (InferredExpr expressionType provisionalExpr, finalState)
     ETypeApplication {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
     ESectionLeft {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
     ESectionRight {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
@@ -540,39 +622,6 @@ inferScalarExprWithProduction builtinMode env state expr =
 
 scalarOperators :: [Text]
 scalarOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
-
-inferRootScalarScope :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
-inferRootScalarScope builtinMode env initialState statements =
-  let (reversedResults, finalState) =
-        foldl
-          (\(resultsAcc, state) statement ->
-             case statement of
-               SExpr spanValue expression ->
-                 let (result, nextState) = inferScalarExprWithProduction builtinMode env state expression
-                  in ((spanValue, result) : resultsAcc, nextState)
-               _ -> (resultsAcc, state)
-          )
-          ([], initialState)
-          statements
-      results = reverse reversedResults
-      scopeType =
-        case reverse results of
-          (_, result) : _ -> inferredExpressionType result
-          [] -> Nothing
-      provisionalExpressions =
-        traverse
-          (\(spanValue, result) -> fmap (\provisional -> (spanValue, provisional)) (inferredProvisionalExpr result))
-          results
-   in
-    ( InferredExpr scopeType (ProvisionalScopeExpressions <$> provisionalExpressions),
-      finalState
-    )
-
-isRootExpressionStatement :: Statement -> Bool
-isRootExpressionStatement statement =
-  case statement of
-    SExpr {} -> True
-    _ -> False
 
 isDataStatement :: Statement -> Bool
 isDataStatement statement =
