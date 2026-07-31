@@ -4943,8 +4943,7 @@ module TypedCoreValidate (
   validateBlockStatementsInOrder = \(context, statementLocation, expressionPath, statements) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       dependencies = statementDependencies context statements.
-      forwardSignedFunctions = forwardSignedFunctionDeclarations statements.
-      validateBlockStatementsInOrderFrom context context forwardSignedFunctions statementLocation expressionPath statements dependencies statements 0.
+      validateBlockStatementsInOrderFrom context context [] statementLocation expressionPath statements dependencies statements 0.
     }
   }.
 

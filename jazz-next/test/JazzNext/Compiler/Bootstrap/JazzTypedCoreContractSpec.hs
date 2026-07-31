@@ -369,6 +369,7 @@ reviewRegressionGroups =
     (("allows phantom data arguments in strict equality", testPhantomDataEquality), [phantomDataEqualityProgram]),
     (("preserves same-scope value rebinding", testSameScopeValueRebinding), [sameScopeValueRebindingProgram]),
     (("locks narrow forward signed-function visibility", testForwardSignedFunctionVisibility), map snd forwardSignedVisibilityPrograms),
+    (("keeps forward signed-function visibility out of nested blocks", testNestedForwardSignedFunctionInvisibility), [nestedForwardSignedFunctionProgram]),
     (("preserves top-level statement scope order", testForwardModuleReference), [forwardModuleReferenceProgram]),
     (("rejects cyclic resolved imports", testCyclicResolvedImports), [cyclicImportProgram]),
     (("keeps bare signatures out of executable value scope", testBareSignatureVisibility), [bareSignatureVisibilityProgram]),
@@ -3979,6 +3980,23 @@ testForwardSignedFunctionVisibility = do
     "supplemental forward visibility second run"
     expectedResults
     (map (validateTypedProgram . snd) forwardSignedVisibilityPrograms)
+
+testNestedForwardSignedFunctionInvisibility :: IO ()
+testNestedForwardSignedFunctionInvisibility = do
+  let expected =
+        [ TypedCoreValidationFailure
+            (TypedExpressionPath (fixtureModulePath fixture) [0, 0, 1] [0, 0, 0])
+            TypedInvisibleName
+            (TypedNameDetail (fixtureValueName "later"))
+        ]
+      actual = validateTypedProgram nestedForwardSignedFunctionProgram
+  assertEqual "nested forward signed function first run" expected actual
+  assertEqual
+    "nested forward signed function second run"
+    expected
+    (validateTypedProgram nestedForwardSignedFunctionProgram)
+  where
+    fixture = "review-nested-forward-signed-function-invisibility"
 
 forwardVisibilityFailure :: Text -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
 forwardVisibilityFailure fixture expressionPath name =
@@ -8528,6 +8546,58 @@ forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
         <> [ TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
              expressionStatement terminalStatementIndex terminalExpression
            ]
+
+nestedForwardSignedFunctionProgram :: TypedProgram
+nestedForwardSignedFunctionProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nested-forward-signed-function-invisibility"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstSignatureOwner = binder modulePath [0, 0, 0] firstName
+    firstOwner = binder modulePath [0, 0, 1] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [0, 0, 1, 0] firstArgumentName
+    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        ( TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+        )
+    laterSignatureOwner = binder modulePath [0, 0, 2] laterName
+    laterOwner = binder modulePath [0, 0, 3] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterArgumentOwner = binder modulePath [0, 0, 3, 0] laterArgumentName
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        laterArgumentOwner
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    block =
+      TypedBlockExpr
+        boolInfo
+        [ TypedSignatureStatement
+            firstSignatureOwner
+            firstName
+            span1
+            (TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
+          TypedSignatureStatement
+            laterSignatureOwner
+            laterName
+            span1
+            (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+          expressionStatement 2 (TypedApplyExpr boolInfo (TypedVariableExpr boolToBoolInfo firstName) trueExpr)
+        ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =

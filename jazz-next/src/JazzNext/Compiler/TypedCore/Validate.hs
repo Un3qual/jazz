@@ -1332,17 +1332,22 @@ withBlockDeclarations statements context =
         )
 
 validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrder = validateStatementsInOrderWith (\_ _ _ -> Nothing)
+validateStatementsInOrder initialContext locatedStatements =
+  validateStatementsInOrderWith
+    (\_ _ _ -> Nothing)
+    (forwardSignedFunctionDeclarations (map snd locatedStatements))
+    initialContext
+    locatedStatements
 
 validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateBlockStatementsInOrder = validateStatementsInOrderWith blockStatementScopeFailure
+validateBlockStatementsInOrder =
+  validateStatementsInOrderWith blockStatementScopeFailure []
 
-validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrderWith rejectedStatement initialContext locatedStatements =
+validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialContext locatedStatements =
   validateFrom initialContext 0 locatedStatements
   where
     statements = map snd locatedStatements
-    forwardSignedFunctions = forwardSignedFunctionDeclarations statements
     dependencies = recursiveGroupDependencies initialContext statements
     reachability = recursiveGroupReachability dependencies
     validateFrom _ _ [] = []
