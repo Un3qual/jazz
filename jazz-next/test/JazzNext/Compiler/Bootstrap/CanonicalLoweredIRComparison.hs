@@ -434,7 +434,7 @@ immediateValue immediate =
     LoweredUnitImmediate -> nullary "LoweredUnitImmediate"
     LoweredBoolImmediate value -> constructor "LoweredBoolImmediate" [VBool value]
     LoweredSignedIntegerImmediate width value -> constructor "LoweredSignedIntegerImmediate" [integerWidthValue width, integerValue value]
-    LoweredUnsignedIntegerImmediate width value -> constructor "LoweredUnsignedIntegerImmediate" [integerWidthValue width, integerValue value]
+    LoweredUnsignedIntegerImmediate width value -> constructor "LoweredUnsignedIntegerImmediate" [integerWidthValue width, VText (Text.pack (show value))]
     LoweredFloatImmediate width value -> constructor "LoweredFloatImmediate" [floatWidthValue width, VText value]
     LoweredCharImmediate value -> constructor "LoweredCharImmediate" [VChar value]
 

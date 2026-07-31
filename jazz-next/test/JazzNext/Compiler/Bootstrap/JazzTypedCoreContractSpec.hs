@@ -316,7 +316,8 @@ reviewRegressionGroups :: [(NamedTest, [TypedProgram])]
 -- The lone-surrogate character regression remains Haskell-only because its
 -- invalid scalar cannot be encoded in the Jazz source used by hosted parity.
 reviewRegressionGroups =
-  [ (("rejects malformed nested block contracts at unique statement paths", testNestedBlockValidationRegressions), [nestedPathProgram, nestedDeclarationProgram, nestedDuplicateBinderProgram, guardedCasePathProgram]),
+  [ (("accepts semantic scalar aliases at application boundaries", testApplicationScalarAliasCompatibility), [applicationScalarAliasProgram]),
+    (("rejects malformed nested block contracts at unique statement paths", testNestedBlockValidationRegressions), [nestedPathProgram, nestedDeclarationProgram, nestedDuplicateBinderProgram, guardedCasePathProgram]),
     (("enforces typed-core scope and visibility contracts", testScopeAndVisibilityRegressions), [generalizedLetScopeProgram, importedInstantiationProgram, invisibleSiblingImplProgram, selectedEvidenceTargetProgram, invisibleVariableProgram, selectedMethodContractProgram, enclosingImplMethodProgram]),
     (("enforces typed-core value-shape contracts", testValueShapeRegressions), [bindingValueProgram, lambdaResultProgram, literalTypeProgram, collectionShapeProgram, dataTypeArityProgram, tuplePatternShapeProgram, moduleResultProgram, schemeDataTypeProgram, driveAbsoluteProgram]),
     (("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions), [instantiationDataTypeProgram, literalPatternProgram, invisibleOperatorProgram, expressionDuplicateBinderProgram, privateInterfaceLeakProgram, constructorPatternContractProgram, nonListPatternProgram, explicitTypeApplicationContractProgram, variableSchemeContractProgram, missingImportProgram, candidateConstraintProgram, invalidVariableNamespaceProgram]),
@@ -368,6 +369,8 @@ reviewRegressionGroups =
     (("rejects expression-only metadata on patterns", testPatternExpressionMetadata), [patternExpressionMetadataProgram]),
     (("allows phantom data arguments in strict equality", testPhantomDataEquality), [phantomDataEqualityProgram]),
     (("preserves same-scope value rebinding", testSameScopeValueRebinding), [sameScopeValueRebindingProgram]),
+    (("locks narrow forward signed-function visibility", testForwardSignedFunctionVisibility), map snd forwardSignedVisibilityPrograms),
+    (("keeps forward signed-function visibility out of nested blocks", testNestedForwardSignedFunctionInvisibility), [nestedForwardSignedFunctionProgram]),
     (("preserves top-level statement scope order", testForwardModuleReference), [forwardModuleReferenceProgram]),
     (("rejects cyclic resolved imports", testCyclicResolvedImports), [cyclicImportProgram]),
     (("keeps bare signatures out of executable value scope", testBareSignatureVisibility), [bareSignatureVisibilityProgram]),
@@ -447,6 +450,77 @@ reviewRegressionGroups =
     (("validates evidence capability identities", testForgedEvidenceCapability), [forgedEvidenceCapabilityProgram]),
     (("rejects empty monomorphic instantiations", testEmptyMonomorphicInstantiation), [emptyMonomorphicInstantiationProgram])
   ]
+
+testApplicationScalarAliasCompatibility :: IO ()
+testApplicationScalarAliasCompatibility =
+  assertEqual
+    "Int/Int64 and Float/Float64 remain compatible application types"
+    []
+    (validateTypedProgram applicationScalarAliasProgram)
+
+applicationScalarAliasProgram :: TypedProgram
+applicationScalarAliasProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [ intBinding,
+      expressionStatement 2 intApplication,
+      floatBinding,
+      expressionStatement 4 floatApplication
+    ]
+    emptyInterface
+    floatAliasInfo
+    modulePath
+  where
+    fixture = "review-application-scalar-alias"
+    modulePath = fixtureModulePath fixture
+    int64Type = TypedNumericType TypedInt64Type
+    int64Recipe = TypedSignedIntegerRecipe 64
+    float64Type = TypedNumericType TypedFloat64Type
+    float64Recipe = TypedFloatRecipe 64
+    floatAliasInfo = info TypedFloatType float64Recipe
+    (intBinding, intApplication) =
+      aliasApplication
+        0
+        "identityInt64"
+        int64Type
+        TypedIntType
+        int64Recipe
+        (TypedIntegerLiteral "1")
+    (floatBinding, floatApplication) =
+      aliasApplication
+        2
+        "identityFloat64"
+        float64Type
+        TypedFloatType
+        float64Recipe
+        (TypedFractionalLiteral "1" "5" Nothing)
+
+    aliasApplication statementIndex nameText explicitType aliasType recipe literal =
+      let name = fixtureValueName nameText
+          owner = binder modulePath [statementIndex] name
+          argumentName = fixtureValueName (nameText <> "Argument")
+          argumentOwner = binder modulePath [statementIndex, 0] argumentName
+          explicitInfo = info explicitType recipe
+          functionType = TypedFunctionType explicitType explicitType
+          functionRecipe = TypedClosureRecipe [recipe] recipe
+          functionInfo = info functionType functionRecipe
+          scheme = TypedScheme owner [] [] [] functionType functionRecipe
+          binding =
+            TypedLetStatement
+              owner
+              name
+              span1
+              scheme
+              (TypedLambdaExpr functionInfo argumentOwner argumentName (TypedVariableExpr explicitInfo argumentName))
+          aliasInfo = info aliasType recipe
+          application =
+            TypedApplyExpr
+              aliasInfo
+              (TypedVariableExpr functionInfo name)
+              (TypedLiteralExpr aliasInfo literal)
+       in (binding, application)
 
 reviewRegressionPrograms :: [TypedProgram]
 reviewRegressionPrograms = concatMap snd reviewRegressionGroups
@@ -3950,6 +4024,76 @@ testSameScopeValueRebinding =
     "signed value rebinding remains valid and last-wins"
     []
     (validateTypedProgram sameScopeValueRebindingProgram)
+
+testForwardSignedFunctionVisibility :: IO ()
+testForwardSignedFunctionVisibility = do
+  let expectedNames =
+        [ "forward-signed-function-visibility",
+          "forward-signed-scalar-invisibility",
+          "forward-unsigned-function-invisibility",
+          "forward-signed-function-hidden-from-unsigned-caller",
+          "forward-signed-function-hidden-from-scalar-expression"
+        ]
+      expectedResults =
+        [ [],
+          [ forwardVisibilityFailure
+              "forward-signed-scalar-invisibility"
+              [0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailure
+              "forward-unsigned-function-invisibility"
+              [0, 0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailureAt
+              "forward-signed-function-hidden-from-unsigned-caller"
+              0
+              [0, 0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailureAt
+              "forward-signed-function-hidden-from-scalar-expression"
+              0
+              [0, 0]
+              (fixtureValueName "later")
+          ]
+        ]
+      actualResults = map (validateTypedProgram . snd) forwardSignedVisibilityPrograms
+  assertEqual "supplemental forward visibility names" expectedNames (map fst forwardSignedVisibilityPrograms)
+  assertEqual "supplemental forward visibility first run" expectedResults actualResults
+  assertEqual
+    "supplemental forward visibility second run"
+    expectedResults
+    (map (validateTypedProgram . snd) forwardSignedVisibilityPrograms)
+
+testNestedForwardSignedFunctionInvisibility :: IO ()
+testNestedForwardSignedFunctionInvisibility = do
+  let expected =
+        [ TypedCoreValidationFailure
+            (TypedExpressionPath (fixtureModulePath fixture) [0, 0, 1] [0, 0, 0])
+            TypedInvisibleName
+            (TypedNameDetail (fixtureValueName "later"))
+        ]
+      actual = validateTypedProgram nestedForwardSignedFunctionProgram
+  assertEqual "nested forward signed function first run" expected actual
+  assertEqual
+    "nested forward signed function second run"
+    expected
+    (validateTypedProgram nestedForwardSignedFunctionProgram)
+  where
+    fixture = "review-nested-forward-signed-function-invisibility"
+
+forwardVisibilityFailure :: Text -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
+forwardVisibilityFailure fixture expressionPath name =
+  forwardVisibilityFailureAt fixture 1 expressionPath name
+
+forwardVisibilityFailureAt :: Text -> Int -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
+forwardVisibilityFailureAt fixture statementIndex expressionPath name =
+  TypedCoreValidationFailure
+    (TypedExpressionPath (fixtureModulePath fixture) [statementIndex] expressionPath)
+    TypedInvisibleName
+    (TypedNameDetail name)
 
 testForwardModuleReference :: IO ()
 testForwardModuleReference =
@@ -8414,6 +8558,225 @@ forwardModuleReferenceProgram =
         TypedLetStatement laterOwner laterName span1 (monoScheme laterOwner) trueExpr,
         expressionStatement 3 (TypedVariableExpr boolInfo firstName)
       ]
+
+forwardSignedVisibilityPrograms :: [(Text, TypedProgram)]
+forwardSignedVisibilityPrograms =
+  [ ( "forward-signed-function-visibility",
+      forwardVisibilityProgram "forward-signed-function-visibility" True True
+    ),
+    ( "forward-signed-scalar-invisibility",
+      forwardVisibilityProgram "forward-signed-scalar-invisibility" True False
+    ),
+    ( "forward-unsigned-function-invisibility",
+      forwardVisibilityProgram "forward-unsigned-function-invisibility" False True
+    ),
+    ( "forward-signed-function-hidden-from-unsigned-caller",
+      unsignedForwardCallerProgram
+    ),
+    ( "forward-signed-function-hidden-from-scalar-expression",
+      scalarForwardReferenceProgram
+    )
+  ]
+
+forwardVisibilityProgram :: Text -> Bool -> Bool -> TypedProgram
+forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstSignatureOwner = binder modulePath [0] firstName
+    firstOwner = binder modulePath [1] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [1, 0] firstArgumentName
+    firstSignatureScheme =
+      TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstScheme =
+      TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstBody
+      | laterIsFunction =
+          TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+      | otherwise = TypedVariableExpr boolInfo laterName
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        firstBody
+    laterStatementIndex = if laterIsSigned then 3 else 2
+    laterOwner = binder modulePath [laterStatementIndex] laterName
+    laterScheme
+      | laterIsFunction =
+          TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+      | otherwise = monoScheme laterOwner
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterExpression
+      | laterIsFunction =
+          TypedLambdaExpr
+            boolToBoolInfo
+            (binder modulePath [laterStatementIndex, 0] laterArgumentName)
+            laterArgumentName
+            (TypedVariableExpr boolInfo laterArgumentName)
+      | otherwise = trueExpr
+    laterSignature =
+      let signatureOwner = binder modulePath [2] laterName
+          signatureScheme
+            | laterIsFunction =
+                TypedScheme signatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+            | otherwise = monoScheme signatureOwner
+       in TypedSignatureStatement signatureOwner laterName span1 signatureScheme
+    terminalStatementIndex = laterStatementIndex + 1
+    terminalExpression =
+      TypedApplyExpr
+        boolInfo
+        (TypedVariableExpr boolToBoolInfo firstName)
+        trueExpr
+    statements =
+      [ TypedSignatureStatement firstSignatureOwner firstName span1 firstSignatureScheme,
+        TypedLetStatement firstOwner firstName span1 firstScheme firstExpression
+      ]
+        <> [laterSignature | laterIsSigned]
+        <> [ TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+             expressionStatement terminalStatementIndex terminalExpression
+           ]
+
+unsignedForwardCallerProgram :: TypedProgram
+unsignedForwardCallerProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "forward-signed-function-hidden-from-unsigned-caller"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstOwner = binder modulePath [0] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [0, 0] firstArgumentName
+    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        ( TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+        )
+    laterSignatureOwner = binder modulePath [1] laterName
+    laterOwner = binder modulePath [2] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    statements =
+      [ TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
+        TypedSignatureStatement
+          laterSignatureOwner
+          laterName
+          span1
+          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+        TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+        expressionStatement
+          3
+          ( TypedApplyExpr
+              boolInfo
+              (TypedVariableExpr boolToBoolInfo firstName)
+              trueExpr
+          )
+      ]
+
+scalarForwardReferenceProgram :: TypedProgram
+scalarForwardReferenceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "forward-signed-function-hidden-from-scalar-expression"
+    modulePath = fixtureModulePath fixture
+    laterName = fixtureValueName "later"
+    laterSignatureOwner = binder modulePath [1] laterName
+    laterOwner = binder modulePath [2] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    statements =
+      [ expressionStatement
+          1
+          ( TypedApplyExpr
+              boolInfo
+              (TypedVariableExpr boolToBoolInfo laterName)
+              trueExpr
+          ),
+        TypedSignatureStatement
+          laterSignatureOwner
+          laterName
+          span1
+          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+        TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+        expressionStatement 3 trueExpr
+      ]
+
+nestedForwardSignedFunctionProgram :: TypedProgram
+nestedForwardSignedFunctionProgram =
+  singleModuleProgram fixture relativeSource [] [expressionStatement 1 block] emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nested-forward-signed-function-invisibility"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstSignatureOwner = binder modulePath [0, 0, 0] firstName
+    firstOwner = binder modulePath [0, 0, 1] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [0, 0, 1, 0] firstArgumentName
+    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        ( TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+        )
+    laterSignatureOwner = binder modulePath [0, 0, 2] laterName
+    laterOwner = binder modulePath [0, 0, 3] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterArgumentOwner = binder modulePath [0, 0, 3, 0] laterArgumentName
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        laterArgumentOwner
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    block =
+      TypedBlockExpr
+        boolInfo
+        [ TypedSignatureStatement
+            firstSignatureOwner
+            firstName
+            span1
+            (TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
+          TypedSignatureStatement
+            laterSignatureOwner
+            laterName
+            span1
+            (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+          expressionStatement 2 (TypedApplyExpr boolInfo (TypedVariableExpr boolToBoolInfo firstName) trueExpr)
+        ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
 missingPolymorphicInstantiationOwner =

@@ -53,6 +53,15 @@ same ordered failure model; a checked test adapter renders complete canonical
 programs and failures for exact repeated comparison. This child deliberately
 stops before typed-core elaboration or core-to-IR lowering.
 
+**UInt64 representation correction (`2026-07-30`):** The original shared
+signed-`Int` carrier contradicted the typed-core `UInt64` domain and prevented
+ordinary Jazz construction before validation. The Haskell semantic field
+remains `Integer`; the corresponding Jazz unsigned-immediate field is
+canonical unsigned-decimal `Text`, and the checked adapter owns that
+representation bridge. Both validators accept exactly
+`0..18446744073709551615` and reject negative, malformed, and overflowing
+payloads through the existing structured range failure.
+
 **Tech Stack:** GHC 9.14.1, Haskell 2010 with existing package extensions,
 ordinary Jazz `.jz` modules, the stack-safe Jazz interpreter, canonical runtime
 values, Cabal test components, and the Nix-pinned development environment.
@@ -95,7 +104,7 @@ values, Cabal test components, and the Nix-pinned development environment.
 | --- | --- |
 | `jazz-next/src/JazzNext/Compiler/LoweredIR.hs` | Stage-0 identifiers, representations, layouts, call signatures, operands, operations, instructions, terminators, blocks, functions, services, programs, and validation-result data. |
 | `jazz-next/src/JazzNext/Compiler/LoweredIR/Validate.hs` | Stable complete Haskell validation without target/backend assumptions. |
-| `jazz-next/jazz/compiler/LoweredIRTypes.jz` | Exact ordinary Jazz mirror of the semantic IR and validation-result schema. |
+| `jazz-next/jazz/compiler/LoweredIRTypes.jz` | Ordinary Jazz mirror of the semantic IR and validation-result schema, with canonical decimal `Text` for the arbitrary-domain unsigned immediate payload. |
 | `jazz-next/jazz/compiler/LoweredIRValidate.jz` | Stable complete Jazz validation using ordinary ADTs and list traversal. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs` | Checked structural conversion and canonical rendering; no lowering or invariant decisions. |
 | `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs` | Fixed 10-valid / 31-invalid fixture inventory, manifest audits, Haskell expectations, hosted executions, repetition, and exact assertions. |
@@ -107,7 +116,7 @@ values, Cabal test components, and the Nix-pinned development environment.
 | Owner | Interface |
 | --- | --- |
 | Haskell IR model | Export opaque identifier wrappers plus complete algebraic data for version, representation, call signature, layout, runtime service, operand, primitive, operation, instruction, terminator, block, function, and program values. |
-| Jazz IR model | Export the constructor-equivalent `LoweredIRTypes` ADTs using the same field order and constructor ownership as the Haskell model. |
+| Jazz IR model | Export constructor-equivalent `LoweredIRTypes` ADTs using the same field order and ownership; bridge the Haskell unsigned `Integer` payload as canonical decimal `Text`. |
 | Haskell validator | `validateLoweredProgram :: LoweredProgram -> [LoweredIRValidationFailure]`. |
 | Jazz validator | `validateProgram :: LoweredProgram -> [LoweredIRValidationFailure]`. |
 | Validation path | Identify program, layout, runtime-service, function, block, instruction index, or terminator position without source-file paths. |
@@ -237,8 +246,10 @@ parity to stage 0.
   independently constructed Jazz fixtures.
 - [x] Run the focused suite and confirm hosted cases fail because the Jazz
   modules do not exist while Haskell expectations remain green.
-- [x] Implement the exact Jazz ADT mirror with matching constructor field order
-  and no host-only values.
+- [x] Implement the Jazz ADT mirror with matching constructor field order and
+  no host-only values. The reviewed UInt64 correction uses canonical decimal
+  `Text` for the unsigned immediate payload so ordinary Jazz construction
+  reaches validator-owned range checks.
 - [x] Implement the Jazz validator through deterministic list traversal and
   compiler-local association-list lookups; aggregate all findings in source
   order.

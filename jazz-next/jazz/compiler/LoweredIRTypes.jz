@@ -54,7 +54,7 @@ module LoweredIRTypes {
     = LoweredUnitImmediate
     | LoweredBoolImmediate Bool
     | LoweredSignedIntegerImmediate LoweredIntegerWidth Int
-    | LoweredUnsignedIntegerImmediate LoweredIntegerWidth Int
+    | LoweredUnsignedIntegerImmediate LoweredIntegerWidth Text
     | LoweredFloatImmediate LoweredFloatWidth Text
     | LoweredCharImmediate Char.
 

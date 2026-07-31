@@ -3,6 +3,7 @@
 -- | Type-inference diagnostics and error-state operations.
 module JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
+    InferExprWithModeFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
@@ -111,6 +112,10 @@ import JazzNext.Compiler.TypeInference.State
     inferConcreteImplFacts,
     modifyInferenceOutput
   )
+import JazzNext.Compiler.TypeInference.Elaboration
+  ( InferredExpr,
+    TypedCoreProductionMode
+  )
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
@@ -118,12 +123,24 @@ import JazzNext.Compiler.TypeInference.Types
     TypeEnv
   )
 
+-- Production-aware traversal results retain the same type result alongside
+-- opt-in elaboration data; inference-only callers project the type unchanged.
+-- The legacy alias remains the migration boundary for current helper modules.
+
 type InferExprFn =
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr ->
   (Maybe ExpressionType, InferState)
+
+type InferExprWithModeFn =
+  TypedCoreProductionMode ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  (InferredExpr, InferState)
 
 addTypeError :: InferState -> Diagnostic -> InferState
 addTypeError state diagnostic =

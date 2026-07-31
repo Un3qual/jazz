@@ -168,10 +168,12 @@ field categories, and malformed nested values instead of guessing defaults.
 Temporary identifiers are block-local; values crossing CFG edges use typed
 block arguments.
 
-This is a contract and validation boundary, not a source lowerer. Canonical
-core remains the reference-interpreter input. Typed-core elaboration,
-core-to-IR lowering, LLVM emission, object generation/linking, and a native
-runtime remain separate design gates.
+The scalar/direct-call batch adds separate opt-in typed-core producer and
+lowerer stages for one validated, resolved-module profile. Neither participates
+in normal compile/run: canonical core remains the reference-interpreter input.
+Closure/recursion is the next design gate; control flow, multi-module
+integration, LLVM emission, object generation/linking, and a native runtime
+remain separate unpromoted gates.
 
 ### Typed core
 
@@ -191,10 +193,12 @@ and ordered-failure parity. Its checked comparison adapter rejects unknown
 constructors, wrong arity, wrong field categories, malformed identities, and
 host-specific values rather than guessing defaults.
 
-This is a contract and validation boundary. Inference does not yet produce
-typed core, and no typed-core-to-lowered-IR entry point exists. Typed-core
-expression production plus closed-scalar/direct-call lowering is the next
-design gate; canonical-core interpretation remains unchanged.
+The completed scalar/direct-call batch adds an opt-in producer that retains
+one bounded single-module profile during the existing inference traversal,
+finalizes a validated `TypedProgram`, and lowers it through the separate
+backend-neutral IR lowerer. Ordinary inference and normal compile/run remain
+canonical-core/interpreter-based. Closure/recursion is the next design gate;
+it is not an implemented runtime or bootstrap stage.
 
 ## Editor support
 

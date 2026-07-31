@@ -6,6 +6,7 @@
 module JazzNext.Compiler.TypedCore where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 
 newtype TypedTypeParameterId = TypedTypeParameterId Int
   deriving (Eq, Ord, Show)
@@ -21,6 +22,20 @@ data TypedEvidenceParameterRef = TypedEvidenceParameterRef TypedBinderId TypedEv
 
 newtype TypedSourcePath = TypedSourcePath Text
   deriving (Eq, Ord, Show)
+
+validTypedSourcePath :: TypedSourcePath -> Bool
+validTypedSourcePath (TypedSourcePath sourcePath) =
+  not (Text.null sourcePath)
+    && not (Text.isPrefixOf "/" sourcePath)
+    && not (Text.any (== '\\') sourcePath)
+    && not (driveAbsolute sourcePath)
+    && all validSegment (Text.splitOn "/" sourcePath)
+  where
+    validSegment segment = not (Text.null segment) && segment /= "." && segment /= ".."
+    driveAbsolute path =
+      case Text.unpack path of
+        _ : ':' : _ -> True
+        _ -> False
 
 data TypedNameOrigin
   = TypedCurrentModule
@@ -206,6 +221,30 @@ data TypedExpr
   | TypedRightSectionExpr TypedNodeInfo TypedOperatorRef TypedExpr
   | TypedBlockExpr TypedNodeInfo [TypedStatement]
   deriving (Eq, Ord, Show)
+
+typedExpressionInfo :: TypedExpr -> TypedNodeInfo
+typedExpressionInfo expression =
+  case expression of
+    TypedLiteralExpr info _ -> info
+    TypedVariableExpr info _ -> info
+    TypedLambdaExpr info _ _ _ -> info
+    TypedOperatorValueExpr info _ -> info
+    TypedListExpr info _ -> info
+    TypedTupleExpr info _ -> info
+    TypedApplyExpr info _ _ -> info
+    TypedTypeApplicationExpr info _ _ _ -> info
+    TypedIfExpr info _ _ _ -> info
+    TypedPatternCaseExpr info _ _ -> info
+    TypedBinaryExpr info _ _ _ -> info
+    TypedLeftSectionExpr info _ _ -> info
+    TypedRightSectionExpr info _ _ -> info
+    TypedBlockExpr info _ -> info
+
+typedNodeType :: TypedNodeInfo -> TypedType
+typedNodeType (TypedNodeInfo typeValue _ _ _) = typeValue
+
+typedNodeRecipe :: TypedNodeInfo -> TypedRepresentationRecipe
+typedNodeRecipe (TypedNodeInfo _ recipe _ _) = recipe
 
 data TypedConstructorDeclaration
   = TypedConstructorDeclaration

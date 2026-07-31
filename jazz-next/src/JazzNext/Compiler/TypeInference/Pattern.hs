@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.TypeInference.Pattern
   ( inferPatternCaseType,
+    inferPatternCaseTypeWithResults,
     inferPatternType,
     instantiateConstructorBinding
   ) where
@@ -18,6 +19,7 @@ import JazzNext.Compiler.Name (Name, identifierText)
 import JazzNext.Compiler.Pattern
   ( commonPatternBinderNames, patternBinderNames )
 import JazzNext.Compiler.TypeInference.Diagnostics
+import JazzNext.Compiler.TypeInference.Elaboration (InferredExpr (..))
 import JazzNext.Compiler.TypeInference.Solver
   ( combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
 import JazzNext.Compiler.TypeInference.State
@@ -40,37 +42,83 @@ inferPatternCaseType ::
   [CaseArm] ->
   (Maybe ExpressionType, InferState)
 inferPatternCaseType inferExpression builtinMode env scrutineeType initialState caseArms =
-  foldl' step (Nothing, initialState) caseArms
+  let (expressionType, finalState, _) =
+        inferPatternCaseTypeInternal
+          ( \builtin childEnv childState childExpr ->
+              let (childType, nextState) =
+                    inferExpression builtin childEnv childState childExpr
+               in (childType, nextState, Nothing)
+          )
+          builtinMode
+          env
+          scrutineeType
+          initialState
+          caseArms
+   in (expressionType, finalState)
+
+inferPatternCaseTypeWithResults ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (InferredExpr, InferState)) ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  ExpressionType ->
+  InferState ->
+  [CaseArm] ->
+  (Maybe ExpressionType, InferState, [InferredExpr])
+inferPatternCaseTypeWithResults inferExpression builtinMode env scrutineeType initialState caseArms =
+  inferPatternCaseTypeInternal
+    ( \builtin childEnv childState childExpr ->
+        let (childResult, nextState) =
+              inferExpression builtin childEnv childState childExpr
+         in (inferredExpressionType childResult, nextState, Just childResult)
+    )
+    builtinMode
+    env
+    scrutineeType
+    initialState
+    caseArms
+
+inferPatternCaseTypeInternal ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  ExpressionType ->
+  InferState ->
+  [CaseArm] ->
+  (Maybe ExpressionType, InferState, [result])
+inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initialState caseArms =
+  let (expressionType, finalState, reversedResults) =
+        foldl' step (Nothing, initialState, []) caseArms
+   in (expressionType, finalState, reverse reversedResults)
   where
-    step ::
-      (Maybe ExpressionType, InferState) ->
-      CaseArm ->
-      (Maybe ExpressionType, InferState)
-    step (maybeExpectedBodyType, stateAcc) (CaseArm pattern guardExpr bodyExpr) =
+    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm pattern guardExpr bodyExpr) =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
             rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
        in
         if patternSkipsBranchType patternTyping
-          then (maybeExpectedBodyType, stateAfterPattern)
+          then (maybeExpectedBodyType, stateAfterPattern, resultsAcc)
           else
             let armEnv =
                   patternBindings patternTyping `Map.union` env
-                stateAfterGuard =
+                (stateAfterGuard, maybeGuardResult) =
                   inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
-                (maybeBodyType, stateAfterBody) =
+                (maybeBodyType, stateAfterBody, maybeBodyResult) =
                   inferExpression builtinMode armEnv stateAfterGuard bodyExpr
+                resultsAfterGuard =
+                  maybe resultsAcc (: resultsAcc) maybeGuardResult
+                nextResults =
+                  maybe resultsAfterGuard (: resultsAfterGuard) maybeBodyResult
              in
               case (maybeExpectedBodyType, maybeBodyType) of
                 (Nothing, _) ->
-                  (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
+                  (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody, nextResults)
                 (expectedBodyType, Nothing) ->
-                  (expectedBodyType, stateAfterBody)
+                  (expectedBodyType, stateAfterBody, nextResults)
                 (Just inferredExpectedBodyType, Just inferredBodyType) ->
                   case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
                     Just unifiedState ->
-                      (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState)
+                      (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState, nextResults)
                     Nothing ->
                       ( Just inferredExpectedBodyType,
                         addTypeError
@@ -78,31 +126,28 @@ inferPatternCaseType inferExpression builtinMode env scrutineeType initialState 
                           ( mkPatternBranchTypeMismatchError
                               (resolveType stateAfterBody inferredExpectedBodyType)
                               (resolveType stateAfterBody inferredBodyType)
-                          )
+                          ),
+                        nextResults
                       )
 
-    inferCaseGuardType ::
-      BuiltinResolutionMode ->
-      TypeEnv ->
-      InferState ->
-      Maybe Expr ->
-      InferState
     inferCaseGuardType builtinMode' armEnv stateAcc guardExpr =
       case guardExpr of
-        Nothing -> stateAcc
+        Nothing -> (stateAcc, Nothing)
         Just conditionExpr ->
-          let (maybeGuardType, stateAfterGuard) =
+          let (maybeGuardType, stateAfterGuard, maybeGuardResult) =
                 inferExpression builtinMode' armEnv stateAcc conditionExpr
-           in case maybeGuardType of
-                Just inferredGuardType ->
-                  case unifyTypes inferredGuardType TBoolType stateAfterGuard of
-                    Just unifiedState -> unifiedState
-                    Nothing ->
-                      addTypeError
-                        stateAfterGuard
-                        (mkCaseGuardTypeError (resolveType stateAfterGuard inferredGuardType))
-                Nothing ->
-                  stateAfterGuard
+              checkedState =
+                case maybeGuardType of
+                  Just inferredGuardType ->
+                    case unifyTypes inferredGuardType TBoolType stateAfterGuard of
+                      Just unifiedState -> unifiedState
+                      Nothing ->
+                        addTypeError
+                          stateAfterGuard
+                          (mkCaseGuardTypeError (resolveType stateAfterGuard inferredGuardType))
+                  Nothing ->
+                    stateAfterGuard
+           in (checkedState, maybeGuardResult)
 
 data PatternTyping = PatternTyping
   { patternBindings :: TypeEnv,

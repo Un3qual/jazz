@@ -21,6 +21,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     freshTypeVars,
     importModuleCapabilityFacts,
     inferQualifiedMethodApplication,
+    inferQualifiedMethodApplicationWithResults,
     instantiateQualifiedMethodType,
     instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
@@ -486,56 +487,77 @@ inferQualifiedMethodApplication ::
   [Expr] ->
   (Maybe ExpressionType, InferState)
 inferQualifiedMethodApplication inferExpression builtinMode env state methodKey argumentExprs =
-  let (argumentTypes, stateAfterArguments) =
-        inferQualifiedMethodArguments inferExpression builtinMode env state argumentExprs
-   in case sequence argumentTypes of
-        Nothing -> (Nothing, stateAfterArguments)
-        Just typedArgumentTypes ->
-          resolveQualifiedMethodApplicationType
-            methodKey
-            env
-            stateAfterArguments
-            (zip argumentExprs typedArgumentTypes)
+  let (expressionType, finalState, _) =
+        inferQualifiedMethodApplicationWithResults
+          inferExpression
+          id
+          builtinMode
+          env
+          state
+          methodKey
+          argumentExprs
+   in (expressionType, finalState)
 
-inferQualifiedMethodArguments ::
-  InferExprFn ->
+inferQualifiedMethodApplicationWithResults ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (result, InferState)) ->
+  (result -> Maybe ExpressionType) ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
+  Text ->
   [Expr] ->
-  ([Maybe ExpressionType], InferState)
-inferQualifiedMethodArguments inferExpression builtinMode env state argumentExprs =
-  let (reversedTypes, finalState) = foldl' step ([], state) argumentExprs
-   in (reverse reversedTypes, finalState)
+  (Maybe ExpressionType, InferState, [result])
+inferQualifiedMethodApplicationWithResults inferExpression resultType builtinMode env state methodKey argumentExprs =
+  let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
+      results = reverse reversedResults
+   in case traverse resultType results of
+        Nothing -> (Nothing, stateAfterArguments, results)
+        Just typedArgumentTypes ->
+          let (expressionType, finalState) =
+                resolveQualifiedMethodApplicationType
+                  methodKey
+                  env
+                  stateAfterArguments
+                  (zip argumentExprs typedArgumentTypes)
+           in (expressionType, finalState, results)
   where
-    step (typesAcc, stateAcc) argumentExpr =
-      let (argumentType, stateAfterArgument) =
+    step (resultsAcc, stateAcc) argumentExpr =
+      let (result, stateAfterArgument) =
             inferExpression builtinMode env stateAcc argumentExpr
-       in (argumentType : typesAcc, stateAfterArgument)
+       in (result : resultsAcc, stateAfterArgument)
 
 checkImplMethodBodies ::
-  InferExprFn ->
+  ( BuiltinResolutionMode ->
+    TypeEnv ->
+    InferState ->
+    ExpressionType ->
+    Expr ->
+    (result, InferState)
+  ) ->
+  (result -> Maybe ExpressionType) ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Name ->
   [SignatureType] ->
   [ImplMethod] ->
-  InferState
-checkImplMethodBodies inferExpression builtinMode env state capabilityName arguments methods =
+  (InferState, [(Int, result)])
+checkImplMethodBodies inferExpected resultType builtinMode env state capabilityName arguments methods =
   case arguments of
     [implTarget]
       | concreteConstraintArgument implTarget,
         not (implMethodNamesHaveDuplicates methods) ->
           let implMethodEnv stateForBindings =
                 Map.union env (currentImplMethodBindings implTarget stateForBindings)
-              checkMethod stateAcc (ImplMethod methodName methodSpan methodExpr) =
+              checkMethod (stateAcc, resultsAcc) (methodIndex, ImplMethod methodName methodSpan methodExpr) =
                 let methodKey = qualifiedMethodKey capabilityName methodName
                  in case Map.lookup methodKey (inferClassMethodSignatures stateAcc) of
                       Nothing ->
-                        addTypeError
-                          stateAcc
-                          (mkImplMethodMissingClassMethodError methodKey methodSpan)
+                        ( addTypeError
+                            stateAcc
+                            (mkImplMethodMissingClassMethodError methodKey methodSpan),
+                          resultsAcc
+                        )
                       Just classMethodType ->
                         let (maybeExpectedType, stateAfterExpectedType) =
                               qualifiedMethodSignatureType
@@ -545,10 +567,10 @@ checkImplMethodBodies inferExpression builtinMode env state capabilityName argum
                                 stateAcc
                          in case maybeExpectedType of
                               Nothing ->
-                                stateAfterExpectedType
+                                (stateAfterExpectedType, resultsAcc)
                               Just expectedType ->
-                                let (maybeMethodType, rawStateAfterMethod) =
-                                      inferExprTypeWithExpected inferExpression
+                                let (methodResult, rawStateAfterMethod) =
+                                      inferExpected
                                         builtinMode
                                         (implMethodEnv stateAcc)
                                         stateAfterExpectedType
@@ -557,7 +579,7 @@ checkImplMethodBodies inferExpression builtinMode env state capabilityName argum
                                     stateAfterMethod =
                                       annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
                                     stateAfterMethodCheck =
-                                      case maybeMethodType of
+                                      case resultType methodResult of
                                         Just methodType ->
                                           case unifyTypes expectedType methodType stateAfterMethod of
                                             Just unifiedState -> unifiedState
@@ -572,12 +594,16 @@ checkImplMethodBodies inferExpression builtinMode env state capabilityName argum
                                                 )
                                         Nothing ->
                                           stateAfterMethod
-                                 in finalizeDeferredExplicitConstraintsAt
-                                      methodSpan
-                                      stateAfterExpectedType
-                                      stateAfterMethodCheck
-           in foldl' checkMethod state methods
-    _ -> state
+                                    finalMethodState =
+                                      finalizeDeferredExplicitConstraintsAt
+                                        methodSpan
+                                        stateAfterExpectedType
+                                        stateAfterMethodCheck
+                                 in (finalMethodState, (methodIndex, methodResult) : resultsAcc)
+              (finalState, reversedResults) =
+                foldl' checkMethod (state, []) (zip [0 ..] methods)
+           in (finalState, reverse reversedResults)
+    _ -> (state, [])
   where
     implMethodNamesHaveDuplicates :: [ImplMethod] -> Bool
     implMethodNamesHaveDuplicates implMethods =
@@ -593,41 +619,6 @@ checkImplMethodBodies inferExpression builtinMode env state capabilityName argum
             Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
             Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
         ]
-
-inferExprTypeWithExpected ::
-  InferExprFn ->
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  InferState ->
-  ExpressionType ->
-  Expr ->
-  (Maybe ExpressionType, InferState)
-inferExprTypeWithExpected inferExpression builtinMode env state expectedType expr =
-  case (resolveType state expectedType, expr) of
-    (_, EVar name)
-      | Map.notMember name env,
-        Just qualifiedMethodResult <-
-          instantiateQualifiedMethodTypeWithExpected
-            (identifierText name)
-            expectedType
-            state ->
-          qualifiedMethodResult
-    (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
-      let extendedEnv =
-            Map.insert parameterName (PlainTypeBinding argumentType) env
-          (bodyType, stateAfterBody) =
-            inferExprTypeWithExpected inferExpression builtinMode extendedEnv state resultType bodyExpr
-       in case bodyType of
-            Just inferredBodyType ->
-              ( Just
-                  ( TFunctionType
-                      (resolveType stateAfterBody argumentType)
-                      inferredBodyType
-                  ),
-                stateAfterBody
-              )
-            Nothing -> (Nothing, stateAfterBody)
-    _ -> inferExpression builtinMode env state expr
 
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->

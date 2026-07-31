@@ -140,26 +140,35 @@ Each blocked item should answer these questions:
   separate structurally aligned typed tree with final semantic types,
   representation recipes, instantiations, evidence, and resolved identities
   while preserving canonical core and the interpreter boundary.
-- Smallest unblocker: design the first typed-core expression-production and
-  closed-scalar/direct-call lowering child against the landed contracts.
-- Decision needed: accept the exact producer/lowerer boundary, target paths,
-  fixture inventory, and verification contract before promotion.
-- Recommended default: keep the IR independent of LLVM instruction objects,
-  preserve block-local temporaries and typed block arguments, and do not add
-  bytecode or a VM.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-DESIGN-001`.
-  The contract
-  foundation and pre-bootstrap language-quality gate are complete; this
-  candidate is design-only until the producer/lowerer boundary, exact target
-  paths, fixture inventory, and focused verification are approved.
-- Target paths: must be fixed by the next reviewed producer/lowerer design; do
-  not infer them from the contract-foundation modules alone.
-- Verification: the completed foundation used exact focused parity,
-  warning-clean development build, routine bounded Cabal `all`, package,
-  queue/docs, and whitespace checks.
-- Not in scope: core-to-IR lowering; typed-core elaboration; LLVM emission;
-  object generation; linking; native-runtime or ABI implementation; a public
-  compiler embedding API; bytecode or a VM; or edits to `jazz-hs/` or `jazz2/`.
+- Accepted decision: the typed-core expression/direct-call producer and lowerer
+  contract is
+  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, approved
+  in discussion and written form on `2026-07-30`. It fixes an opt-in
+  single-pass stage-0 producer, one resolved-module scalar/direct-call profile,
+  structured unsupported outcomes, deterministic lowering, exact target paths,
+  a fixed 16-accepted / 20-rejected manifest, and complete verification.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
+  completed on `2026-07-30`. It produces the verified opt-in single-pass
+  scalar/direct-call typed-core profile and deterministic validated lowering;
+  normal compile/run remains canonical-core/interpreter based.
+- Smallest unblocker: approve a closure/recursion design that fixes its
+  typed-core and lowering ownership, profile, failure ordering, and focused
+  verification before creating an executor-ready implementation child.
+- Decision needed: closure/recursion semantics and lowering boundary. Do not
+  infer an implementation scope from the completed scalar/direct-call profile.
+- Recommended default: preserve the completed opt-in boundary and normal
+  canonical-core/interpreter compile/run path while closure/recursion is
+  designed separately.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001`
+  (`docs` curation candidate only; not approved or ready for implementation).
+- Target paths: establish them in the closure/recursion design; do not reuse
+  or widen the completed child’s ownership list by implication.
+- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Not in scope: promoting closure/recursion implementation, or promoting
+  control flow, patterns, multi-module or import integration, managed values,
+  layouts, runtime services, tail calls, LLVM emission, object generation,
+  linking, native-runtime or ABI implementation, a public compiler embedding
+  API, bytecode or a VM, or edits to `jazz-hs/` or `jazz2/`.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

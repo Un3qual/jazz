@@ -223,6 +223,28 @@ module TypedCoreValidate (
     | other -> False
   }.
 
+  normalizeDefaultScalarAliases :: TypedType -> TypedType.
+  normalizeDefaultScalarAliases = \(typeValue) -> case typeValue {
+    | TypedIntType -> TypedNumericType TypedInt64Type
+    | TypedFloatType -> TypedNumericType TypedFloat64Type
+    | TypedListType elementType -> TypedListType (normalizeDefaultScalarAliases elementType)
+    | TypedTupleType elementTypes ->
+      TypedTupleType (listMap (\(elementType) -> normalizeDefaultScalarAliases elementType) elementTypes)
+    | TypedDataType name arguments ->
+      TypedDataType name (listMap (\(argument) -> normalizeDefaultScalarAliases argument) arguments)
+    | TypedFunctionType argumentType resultType ->
+      TypedFunctionType
+        (normalizeDefaultScalarAliases argumentType)
+        (normalizeDefaultScalarAliases resultType)
+    | other -> other
+  }.
+
+  applicationTypesCompatible :: TypedType -> TypedType -> Bool.
+  applicationTypesCompatible = \(expected, actual) ->
+    typeEqual
+      (normalizeDefaultScalarAliases expected)
+      (normalizeDefaultScalarAliases actual).
+
   equalityDataKeyMember :: EqualityDataKey -> [EqualityDataKey] -> Bool.
   equalityDataKeyMember = \(candidate, keys) -> case (candidate, keys) {
     | (other, []) -> False
@@ -2985,9 +3007,18 @@ module TypedCoreValidate (
     functionSelections = nodeEvidenceSelections (expressionInfo function).
     listConcat
       [ case nodeType (expressionInfo function) {
-          | TypedFunctionType expectedArgument expectedResult -> listAppend
-            (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
-            (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
+          | TypedFunctionType expectedArgument expectedResult -> {
+            actualArgument = nodeType (expressionInfo argument).
+            argumentFailures =
+              if applicationTypesCompatible expectedArgument actualArgument
+              then []
+              else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument actualArgument)].
+            resultFailures =
+              if applicationTypesCompatible expectedResult (nodeType resultInfo)
+              then []
+              else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))].
+            listAppend argumentFailures resultFailures.
+          }
           | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
         },
         missingApplicationEvidenceObligations path resultSelections functionSelections,
@@ -4316,6 +4347,21 @@ module TypedCoreValidate (
     }
   }.
 
+  withForwardSignedFunctionDeclarations :: [TypedStatement] -> ModuleContext -> ModuleContext.
+  withForwardSignedFunctionDeclarations = \(declarations, context) -> case context {
+    | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case withBlockDeclarations declarations context {
+      | ModuleContext predeclaredModulePath predeclaredVisibleModules predeclaredSchemes predeclaredVisibleNames predeclaredVisibleImpls predeclaredDataEntries predeclaredTypeScope ->
+        ModuleContext
+          modulePath
+          visibleModules
+          (listAppend schemes (moduleSchemeEntries declarations))
+          predeclaredVisibleNames
+          predeclaredVisibleImpls
+          predeclaredDataEntries
+          predeclaredTypeScope
+    }
+  }.
+
   appendResolvedNameEntries :: [Text] -> [TypedCoreName] -> [NameEntry] -> [NameEntry].
   appendResolvedNameEntries = \(modulePath, names, entries) -> case names {
     | [] -> entries
@@ -4790,6 +4836,91 @@ module TypedCoreValidate (
         []
   }.
 
+  signatureBindingSchemesMatch :: TypedScheme -> TypedScheme -> Bool.
+  signatureBindingSchemesMatch = \(signatureScheme, bindingScheme) -> case (signatureScheme, bindingScheme) {
+    | (TypedScheme signatureOwner signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe, TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe) ->
+      if typeParameterIdListEqual signatureParameters bindingParameters == False then False else
+        if evidenceParameterListEqual signatureEvidence bindingEvidence == False then False else
+          if primitiveConstraintListEqual signaturePrimitive bindingPrimitive == False then False else
+            if typeEqual signatureType bindingType == False then False else
+              recipeEqual signatureRecipe bindingRecipe
+  }.
+
+  concreteTypedType :: TypedType -> Bool.
+  concreteTypedType = \(typeValue) -> case typeValue {
+    | TypedListType elementType -> concreteTypedType elementType
+    | TypedTupleType elementTypes -> listAll (\(elementType) -> concreteTypedType elementType) elementTypes
+    | TypedDataType name arguments -> listAll (\(argument) -> concreteTypedType argument) arguments
+    | TypedFunctionType argumentType resultType -> if concreteTypedType argumentType then concreteTypedType resultType else False
+    | TypedTypeParameterType parameter -> False
+    | other -> True
+  }.
+
+  concreteTypedRecipe :: TypedRepresentationRecipe -> Bool.
+  concreteTypedRecipe = \(recipe) -> case recipe {
+    | TypedManagedListRecipe elementRecipe -> concreteTypedRecipe elementRecipe
+    | TypedManagedProductRecipe elementRecipes -> listAll (\(elementRecipe) -> concreteTypedRecipe elementRecipe) elementRecipes
+    | TypedClosureRecipe argumentRecipes resultRecipe ->
+      if listAll (\(argumentRecipe) -> concreteTypedRecipe argumentRecipe) argumentRecipes then concreteTypedRecipe resultRecipe else False
+    | TypedRepresentationParameterRecipe parameter -> False
+    | other -> True
+  }.
+
+  concreteMonomorphicFunctionScheme :: TypedScheme -> Bool.
+  concreteMonomorphicFunctionScheme = \(scheme) -> case scheme {
+    | TypedScheme owner parameters evidence primitive typeValue recipe ->
+      if listLength parameters == 0 then
+        if listLength evidence == 0 then
+          if listLength primitive == 0 then
+            if concreteTypedType typeValue then
+              if concreteTypedRecipe recipe then case (typeValue, recipe) {
+                | (TypedFunctionType argumentType resultType, TypedClosureRecipe argumentRecipes resultRecipe) -> True
+                | other -> False
+              } else False
+            else False
+          else False
+        else False
+      else False
+  }.
+
+  leadingTypedLambda :: TypedExpr -> Bool.
+  leadingTypedLambda = \(expression) -> case expression {
+    | TypedLambdaExpr info binder name body -> True
+    | other -> False
+  }.
+
+  forwardSignedFunctionDeclarations :: [TypedStatement] -> [TypedStatement].
+  forwardSignedFunctionDeclarations = \(statements) -> case statements {
+    | [] -> []
+    | [TypedSignatureStatement signatureBinder signatureName signatureSpan signatureScheme | [TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression | rest]] ->
+      if coreNameEqual signatureName bindingName then
+        if signatureBindingSchemesMatch signatureScheme bindingScheme then
+          if concreteMonomorphicFunctionScheme bindingScheme then
+            if leadingTypedLambda expression then
+              listPrepend
+                (TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression)
+                (forwardSignedFunctionDeclarations rest)
+            else forwardSignedFunctionDeclarations (listPrepend (TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression) rest)
+          else forwardSignedFunctionDeclarations (listPrepend (TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression) rest)
+        else forwardSignedFunctionDeclarations (listPrepend (TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression) rest)
+      else forwardSignedFunctionDeclarations (listPrepend (TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression) rest)
+    | [first | rest] -> forwardSignedFunctionDeclarations rest
+  }.
+
+  forwardSignedFunctionBinderMember :: TypedBinderId -> [TypedStatement] -> Bool.
+  forwardSignedFunctionBinderMember = \(candidate, declarations) -> case declarations {
+    | [] -> False
+    | [TypedLetStatement binder name span scheme expression | rest] ->
+      if binderIdEqual candidate binder then True else forwardSignedFunctionBinderMember candidate rest
+    | [first | rest] -> forwardSignedFunctionBinderMember candidate rest
+  }.
+
+  isForwardSignedFunctionDeclaration :: [TypedStatement] -> TypedStatement -> Bool.
+  isForwardSignedFunctionDeclaration = \(declarations, statement) -> case statement {
+    | TypedLetStatement binder name span scheme expression -> forwardSignedFunctionBinderMember binder declarations
+    | other -> False
+  }.
+
   validateAttachedSignature :: TypedCoreValidationPath -> TypedStatement -> [TypedStatement] -> Bool -> [TypedCoreValidationFailure].
   validateAttachedSignature = \(path, statement, remainingStatements, statementIsValid) -> case (statement, remainingStatements) {
     | (TypedSignatureStatement signatureBinder signatureName signatureSpan signatureScheme, [TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression | rest]) ->
@@ -4826,26 +4957,30 @@ module TypedCoreValidate (
     | other -> Nothing
   }.
 
-  validateBlockStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateBlockStatementsInOrderFrom = \(initialContext, visibleContext, statementLocation, expressionPath, allStatements, dependencies, remainingStatements, blockIndex) -> case remainingStatements {
+  validateBlockStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [Int] -> [Int] -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateBlockStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, statementLocation, expressionPath, allStatements, dependencies, remainingStatements, blockIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       nestedStatementPath = nestedStatementLocation statementLocation expressionPath blockIndex.
       case blockStatementScopeDetail statement {
         | Just detail -> listAppend
           [failure (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) TypedBlockResultMismatch (TypedTextDetail detail)]
-          (validateBlockStatementsInOrderFrom initialContext visibleContext statementLocation expressionPath allStatements dependencies rest (blockIndex + 1))
+          (validateBlockStatementsInOrderFrom initialContext visibleContext forwardSignedFunctions statementLocation expressionPath allStatements dependencies rest (blockIndex + 1))
         | Nothing -> {
+          statementBaseContext =
+            if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
+            then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+            else visibleContext.
           recursiveGroup = blockRecursiveGroupStatements dependencies allStatements blockIndex.
           statementContext = case statement {
-            | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
-            | other -> withBlockDeclarations [statement] visibleContext
+            | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
+            | other -> withBlockDeclarations [statement] statementBaseContext
           }.
           statementFailures = validateStatement statementContext nestedStatementPath statement.
           listConcat
             [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) nestedStatementPath) statement rest (listLength statementFailures == 0),
               statementFailures,
-              validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) statementLocation expressionPath allStatements dependencies rest (blockIndex + 1)
+              validateBlockStatementsInOrderFrom initialContext (withBlockDeclarations [statement] visibleContext) forwardSignedFunctions statementLocation expressionPath allStatements dependencies rest (blockIndex + 1)
             ].
         }
       }.
@@ -4856,7 +4991,7 @@ module TypedCoreValidate (
   validateBlockStatementsInOrder = \(context, statementLocation, expressionPath, statements) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       dependencies = statementDependencies context statements.
-      validateBlockStatementsInOrderFrom context context statementLocation expressionPath statements dependencies statements 0.
+      validateBlockStatementsInOrderFrom context context [] statementLocation expressionPath statements dependencies statements 0.
     }
   }.
 
@@ -5566,23 +5701,27 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, allStatements, dependencies, remainingStatements, statementIndex) -> case remainingStatements {
+  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, allStatements, dependencies, remainingStatements, statementIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       statementLocation = [statementIndex].
+      statementBaseContext =
+        if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
+        then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
+        else visibleContext.
       recursiveGroup = blockRecursiveGroupStatements dependencies allStatements statementIndex.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->
-          if listLength recursiveGroup == 0 then visibleContext else withBlockDeclarations recursiveGroup visibleContext
-        | other -> if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext
+          if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
+        | other -> if isModuleMetadataStatement statement then statementBaseContext else withBlockDeclarations [statement] statementBaseContext
       }.
       nextContext = if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext.
       statementFailures = validateStatement statementContext statementLocation statement.
       listConcat
         [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest (listLength statementFailures == 0),
           statementFailures,
-          validateModuleStatementsInOrderFrom initialContext nextContext allStatements dependencies rest (statementIndex + 1)
+          validateModuleStatementsInOrderFrom initialContext nextContext forwardSignedFunctions allStatements dependencies rest (statementIndex + 1)
         ].
     }
   }.
@@ -5590,7 +5729,8 @@ module TypedCoreValidate (
   validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
   validateModuleStatementsInOrder = \(context, statements) -> {
     dependencies = statementDependencies context statements.
-    validateModuleStatementsInOrderFrom context context statements dependencies statements 0.
+    forwardSignedFunctions = forwardSignedFunctionDeclarations statements.
+    validateModuleStatementsInOrderFrom context context forwardSignedFunctions statements dependencies statements 0.
   }.
 
   activeDeclaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
