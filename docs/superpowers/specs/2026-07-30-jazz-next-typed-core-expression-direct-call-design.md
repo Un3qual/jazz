@@ -240,7 +240,19 @@ One supported module may contain:
 - optional concrete monomorphic signatures for supported functions;
 - top-level bindings whose values are one or more leading lambdas followed by a
   supported scalar body; and
-- one terminal scalar expression statement.
+- one or more ordered scalar expression statements.
+
+The final expression statement is the module result. Earlier expression
+statements are evaluated, typed, and lowered in source order and their scalar
+results are discarded. A module with no expression statement is outside this
+profile and must produce a structured profile failure before permanent
+typed-core construction or validation. Empty modules must never reach a
+partial host operation.
+
+Same-scope function rebinding and duplicate/shadowed leading-lambda parameter
+names are outside this first profile. The producer and lowerer reject them
+structurally before success or lowered-IR invariant validation; this slice does
+not guess which name-based declaration or binder identity should win.
 
 The producer treats the canonical root `EBlock` as the module scope. Nested
 `EBlock` expressions remain outside the first profile.
@@ -256,6 +268,8 @@ call graph without exposing later scalar values, unsigned functions,
 generalized/evidence-bearing functions, or unrelated declarations. The fixed
 16-valid / 28-invalid typed-core contract manifest remains unchanged; one
 valid and two invalid supplemental visibility cases prove exact parity twice.
+Nested typed blocks retain ordinary source-order visibility and do not receive
+this module-only forward predeclaration.
 
 A supported function:
 

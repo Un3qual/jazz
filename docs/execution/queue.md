@@ -18,11 +18,12 @@ frontend implementations and the authored corpus.
 The typed-core expression/direct-call child completed on `2026-07-30`: its
 opt-in single-pass producer creates one resolved-module scalar/direct-call
 typed-core profile and deterministically lowers it to validated backend-neutral
-IR. Normal compile/run remains canonical-core/interpreter based, and permanent
-mirrored contracts remain unchanged. Closure/recursion is the next ordered
-design gate; it is not an implementation row. Control flow, multi-module
-integration, LLVM, object/link, and native-runtime implementation remain
-unpromoted.
+IR. Normal compile/run remains canonical-core/interpreter based. Permanent
+Haskell constructors remain unchanged; reviewed mirrored validator amendments
+and the Jazz canonical-decimal UInt64 immediate encoding landed with exact
+parity coverage. Closure/recursion is the next ordered design gate; it is not
+an implementation row. Control flow, multi-module integration, LLVM,
+object/link, and native-runtime implementation remain unpromoted.
 
 ## Next Curation Target
 

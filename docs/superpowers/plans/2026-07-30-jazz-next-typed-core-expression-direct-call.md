@@ -42,7 +42,7 @@ verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Produce and validate one opt-in single-module typed-core scalar/direct-call profile during the existing inference traversal, lower it to validated backend-neutral IR, and prove exact deterministic behavior over the fixed 16-accepted / 20-rejected manifest without changing normal compile/run behavior or permanent mirrored contracts."
+deliverable: "Produce and validate one opt-in single-module typed-core scalar/direct-call profile during the existing inference traversal, lower it to validated backend-neutral IR, and prove exact deterministic behavior over the fixed 16-accepted / 20-rejected manifest without changing normal compile/run behavior or permanent Haskell constructors; reviewed mirrored validator and Jazz UInt64 representation amendments are included."
 ---
 
 # Jazz-Next Typed-Core Expression and Direct-Call Implementation Plan
@@ -114,6 +114,17 @@ the Nix-pinned development environment.
   collections.
 - Run each failing behavior test before its production change and commit every
   independently reviewable green milestone.
+
+**Approved aggregate statement/identity amendment (`2026-07-30`):** The
+accepted scalar/operator fixtures intentionally contain ordered expression
+statements. A supported module therefore has one or more scalar expression
+statements: all execute in source order and the final expression is the module
+result. Empty modules and function-only modules return structured producer
+profile failures before permanent typed-core construction/validation. The
+first profile also rejects same-scope function rebinding and duplicate or
+shadowed leading-lambda parameter names before producer success or lowered-IR
+invariant validation. Forward signed-function visibility remains module-only;
+nested typed blocks retain source-order visibility.
 
 ## File and Responsibility Map
 
