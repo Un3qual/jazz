@@ -75,6 +75,7 @@ library jazz-next-internal
       JazzNext.Compiler.Force
       JazzNext.Compiler.FractionalLiteral
       JazzNext.Compiler.LoweredIR
+      JazzNext.Compiler.LoweredIR.Lower
       JazzNext.Compiler.LoweredIR.Validate
       JazzNext.Compiler.TypedCore
       JazzNext.Compiler.TypedCore.Validate

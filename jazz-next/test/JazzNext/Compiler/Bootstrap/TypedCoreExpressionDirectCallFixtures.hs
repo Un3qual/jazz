@@ -7,6 +7,10 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     rejectedFixtureNames,
     fixtures,
     expectedUnitProgram,
+    scalarExpectedLoweredPrograms,
+    explicitNumericScalarLoweringPrograms,
+    nestedScalarTypedProgram,
+    expectedNestedScalarLoweredProgram,
     scalarFixtures,
     scalarExpectedPrograms,
     directCallExpectedPrograms,
@@ -26,6 +30,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.FractionalLiteral (mkFractionalLiteralSource)
+import JazzNext.Compiler.LoweredIR
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph
 import JazzNext.Compiler.Name (Name (SourceName), NameNamespace (ValueNamespace))
@@ -162,6 +167,160 @@ ordinaryForwardVisibilityFixture =
 
 expectedUnitProgram :: TypedProgram
 expectedUnitProgram = TypedProgram Nothing [entryModule] modulePath
+
+scalarExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+scalarExpectedLoweredPrograms =
+  [ ("unit-entry", expectedLoweredProgram LoweredUnitRepresentation [] (loweredImmediate LoweredUnitImmediate)),
+    ("bool-entry", expectedLoweredProgram LoweredBoolRepresentation [] (loweredImmediate (LoweredBoolImmediate True))),
+    ("char-entry", expectedLoweredProgram LoweredCharRepresentation [] (loweredImmediate (LoweredCharImmediate 'j'))),
+    ("default-int-entry", expectedLoweredProgram int64Representation [] (loweredInt64 7)),
+    ("default-float-entry", expectedLoweredProgram float64Representation [] (loweredImmediate (LoweredFloatImmediate LoweredFloatWidth64 "1.5"))),
+    ( "arithmetic-operators",
+      expectedLoweredProgram
+        int64Representation
+        [ expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 1, loweredInt64 2],
+          expectedPrimitiveInstruction 2 int64Representation (LoweredArithmeticPrimitive LoweredSubtract) [loweredInt64 3, loweredInt64 1],
+          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredMultiply) [loweredInt64 2, loweredInt64 4],
+          expectedPrimitiveInstruction 4 int64Representation (LoweredArithmeticPrimitive LoweredDivide) [loweredInt64 8, loweredInt64 2]
+        ]
+        (loweredTemporary 4 int64Representation)
+    ),
+    ( "ordering-operators",
+      expectedLoweredProgram
+        LoweredBoolRepresentation
+        [ expectedPrimitiveInstruction 1 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredLessThan) [loweredInt64 1, loweredInt64 2],
+          expectedPrimitiveInstruction 2 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredLessThanOrEqual) [loweredInt64 2, loweredInt64 2],
+          expectedPrimitiveInstruction 3 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredGreaterThan) [loweredInt64 3, loweredInt64 2],
+          expectedPrimitiveInstruction 4 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredGreaterThanOrEqual) [loweredInt64 3, loweredInt64 3]
+        ]
+        (loweredTemporary 4 LoweredBoolRepresentation)
+    ),
+    ( "equality-operators",
+      expectedLoweredProgram
+        LoweredBoolRepresentation
+        [ expectedPrimitiveInstruction 1 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredEqual) [loweredInt64 1, loweredInt64 1],
+          expectedPrimitiveInstruction 2 LoweredBoolRepresentation (LoweredComparisonPrimitive LoweredNotEqual) [loweredInt64 1, loweredInt64 2]
+        ]
+        (loweredTemporary 2 LoweredBoolRepresentation)
+    )
+  ]
+
+explicitNumericScalarLoweringPrograms :: [(Text, TypedProgram, LoweredProgram)]
+explicitNumericScalarLoweringPrograms =
+  [ expectedNumericInteger "Int8" TypedInt8Type (TypedSignedIntegerRecipe 8) (LoweredSignedIntegerRepresentation LoweredIntegerWidth8) (LoweredSignedIntegerImmediate LoweredIntegerWidth8 1) 1,
+    expectedNumericInteger "Int16" TypedInt16Type (TypedSignedIntegerRecipe 16) (LoweredSignedIntegerRepresentation LoweredIntegerWidth16) (LoweredSignedIntegerImmediate LoweredIntegerWidth16 2) 2,
+    expectedNumericInteger "Int32" TypedInt32Type (TypedSignedIntegerRecipe 32) (LoweredSignedIntegerRepresentation LoweredIntegerWidth32) (LoweredSignedIntegerImmediate LoweredIntegerWidth32 3) 3,
+    expectedNumericInteger "Int64" TypedInt64Type (TypedSignedIntegerRecipe 64) (LoweredSignedIntegerRepresentation LoweredIntegerWidth64) (LoweredSignedIntegerImmediate LoweredIntegerWidth64 4) 4,
+    expectedNumericInteger "UInt8" TypedUInt8Type (TypedUnsignedIntegerRecipe 8) (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth8) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth8 5) 5,
+    expectedNumericInteger "UInt16" TypedUInt16Type (TypedUnsignedIntegerRecipe 16) (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth16) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth16 6) 6,
+    expectedNumericInteger "UInt32" TypedUInt32Type (TypedUnsignedIntegerRecipe 32) (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth32) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth32 7) 7,
+    expectedNumericInteger "UInt64" TypedUInt64Type (TypedUnsignedIntegerRecipe 64) (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 8) 8,
+    expectedNumericFloat "Float16" TypedFloat16Type (TypedFloatRecipe 16) (LoweredFloatRepresentation LoweredFloatWidth16) (LoweredFloatImmediate LoweredFloatWidth16 "1.5") "1" "5",
+    expectedNumericFloat "Float32" TypedFloat32Type (TypedFloatRecipe 32) (LoweredFloatRepresentation LoweredFloatWidth32) (LoweredFloatImmediate LoweredFloatWidth32 "2.5") "2" "5",
+    expectedNumericFloat "Float64" TypedFloat64Type (TypedFloatRecipe 64) (LoweredFloatRepresentation LoweredFloatWidth64) (LoweredFloatImmediate LoweredFloatWidth64 "3.5") "3" "5"
+  ]
+  where
+    expectedNumericInteger ::
+      Text ->
+      TypedNumericType ->
+      TypedRepresentationRecipe ->
+      LoweredRepresentation ->
+      LoweredImmediate ->
+      Integer ->
+      (Text, TypedProgram, LoweredProgram)
+    expectedNumericInteger name numericType recipe representation immediateValue value =
+      let info = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+       in ( name,
+            expectedScalarProgram info (TypedLiteralExpr info (TypedIntegerLiteral (Text.pack (show value)))),
+            expectedLoweredProgram representation [] (loweredImmediate immediateValue)
+          )
+    expectedNumericFloat ::
+      Text ->
+      TypedNumericType ->
+      TypedRepresentationRecipe ->
+      LoweredRepresentation ->
+      LoweredImmediate ->
+      Text ->
+      Text ->
+      (Text, TypedProgram, LoweredProgram)
+    expectedNumericFloat name numericType recipe representation immediateValue whole fractional =
+      let info = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+       in ( name,
+            expectedScalarProgram info (TypedLiteralExpr info (TypedFractionalLiteral whole fractional (Just numericType))),
+            expectedLoweredProgram representation [] (loweredImmediate immediateValue)
+          )
+
+nestedScalarTypedProgram :: TypedProgram
+nestedScalarTypedProgram =
+  expectedScalarProgram
+    intInfo
+    ( binaryExpr
+        intInfo
+        "*"
+        (binaryExpr intInfo "+" (intExpr 1) (intExpr 2))
+        (binaryExpr intInfo "-" (intExpr 5) (intExpr 3))
+    )
+
+expectedNestedScalarLoweredProgram :: LoweredProgram
+expectedNestedScalarLoweredProgram =
+  expectedLoweredProgram
+    int64Representation
+    [ expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 1, loweredInt64 2],
+      expectedPrimitiveInstruction 2 int64Representation (LoweredArithmeticPrimitive LoweredSubtract) [loweredInt64 5, loweredInt64 3],
+      expectedPrimitiveInstruction
+        3
+        int64Representation
+        (LoweredArithmeticPrimitive LoweredMultiply)
+        [loweredTemporary 1 int64Representation, loweredTemporary 2 int64Representation]
+    ]
+    (loweredTemporary 3 int64Representation)
+
+expectedLoweredProgram :: LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+expectedLoweredProgram resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    []
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        resultRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            instructions
+            (Just (LoweredReturn resultOperand))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+
+expectedPrimitiveInstruction :: Int -> LoweredRepresentation -> LoweredPrimitive -> [LoweredOperand] -> LoweredInstruction
+expectedPrimitiveInstruction index representation primitive operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredPrimitiveOperation primitive operands)
+
+loweredEntryFunctionId :: LoweredFunctionId
+loweredEntryFunctionId = LoweredFunctionId "App::Main::$entry"
+
+loweredImmediate :: LoweredImmediate -> LoweredOperand
+loweredImmediate = LoweredImmediateOperand
+
+loweredInt64 :: Integer -> LoweredOperand
+loweredInt64 = loweredImmediate . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+
+loweredTemporary :: Int -> LoweredRepresentation -> LoweredOperand
+loweredTemporary index =
+  LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index)))
+
+int64Representation :: LoweredRepresentation
+int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+
+float64Representation :: LoweredRepresentation
+float64Representation = LoweredFloatRepresentation LoweredFloatWidth64
 
 scalarFixtures :: [Fixture]
 scalarFixtures = map fixtureByName ["bool-entry", "char-entry", "default-int-entry", "default-float-entry", "arithmetic-operators", "ordering-operators", "equality-operators"]

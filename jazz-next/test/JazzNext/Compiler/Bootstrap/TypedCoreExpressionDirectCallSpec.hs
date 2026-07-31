@@ -14,9 +14,11 @@ import JazzNext.Compiler.Diagnostics
     diagnosticSubject,
     isErrorDiagnostic,
   )
+import JazzNext.Compiler.LoweredIR.Lower
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
+import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.TypeInference
 import JazzNext.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
@@ -35,6 +37,11 @@ tests =
   [ ("audits the complete producer fixture manifest", testFixtureManifest),
     ("produces unit and preserves ordinary inference", testUnitProduction),
     ("produces the complete scalar expression profile twice", testScalarProduction),
+    ("lowers the complete scalar expression profile twice", testScalarLowering),
+    ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
+    ("lowers nested scalar operands from left to right", testNestedScalarLowering),
+    ("validates typed core before checking the lowering profile", testLoweringPrecedence),
+    ("rejects valid callable typed core with ordered structural failures", testCallableLoweringUnsupported),
     ("produces monomorphic functions and fully saturated direct calls twice", testDirectCallProduction),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
@@ -316,6 +323,77 @@ testScalarProduction =
           assertEqual (name <> " scalar inference compatibility") ordinary (typedCoreProductionInferenceResult firstResult)
           assertEqual (name <> " scalar program") (TypedCoreProductionSucceeded expectedProgram) firstRun
         _ -> failTest (name <> " scalar fixture is missing")
+
+testScalarLowering :: IO ()
+testScalarLowering =
+  mapM_ assertLowered scalarExpectedLoweredPrograms
+  where
+    assertLowered (name, expectedProgram) = do
+      let fixture = fixtureByName name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
+        (TypedCoreProductionSucceeded firstProgram, TypedCoreProductionSucceeded secondProgram) -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall firstProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall secondProgram
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          assertEqual (name <> " complete lowered program") (LoweredIRSucceeded expectedProgram) firstLowering
+        _ -> failTest (name <> " did not produce typed core for lowering")
+
+testNestedScalarLowering :: IO ()
+testNestedScalarLowering =
+  assertEqual
+    "nested scalar lowering"
+    (LoweredIRSucceeded expectedNestedScalarLoweredProgram)
+    (lowerTypedCoreExpressionDirectCall nestedScalarTypedProgram)
+
+testExplicitNumericWidthLowering :: IO ()
+testExplicitNumericWidthLowering =
+  mapM_
+    ( \(name, typedProgram, expectedProgram) ->
+        assertEqual
+          (name <> " exact lowering")
+          (LoweredIRSucceeded expectedProgram)
+          (lowerTypedCoreExpressionDirectCall typedProgram)
+    )
+    explicitNumericScalarLoweringPrograms
+
+testLoweringPrecedence :: IO ()
+testLoweringPrecedence =
+  assertEqual
+    "typed-core validation precedes lowering profile checks"
+    ( LoweredIRTypedCoreFailures
+        [ TypedCoreValidationFailure
+            TypedProgramPath
+            TypedUnknownEntryModule
+            (TypedTextDetail "Missing::Entry")
+        ]
+    )
+    (lowerTypedCoreExpressionDirectCall (TypedProgram Nothing [] ["Missing", "Entry"]))
+
+testCallableLoweringUnsupported :: IO ()
+testCallableLoweringUnsupported =
+  case lookup "single-argument-direct-call" directCallExpectedPrograms of
+    Nothing -> failTest "single-argument direct-call expectation is missing"
+    Just programValue ->
+      assertEqual
+        "callable lowering failures"
+        ( LoweredIRUnsupported
+            [ LoweredIRLoweringFailure
+                (TypedStatementPath ["App", "Main"] [0])
+                LoweredIRUnsupportedStatement
+                LoweredIRNoFailureDetail,
+              LoweredIRLoweringFailure
+                (TypedStatementPath ["App", "Main"] [1])
+                LoweredIRUnsupportedStatement
+                LoweredIRNoFailureDetail,
+              LoweredIRLoweringFailure
+                (TypedExpressionPath ["App", "Main"] [2] [])
+                LoweredIRUnsupportedExpression
+                LoweredIRNoFailureDetail
+            ]
+        )
+        (lowerTypedCoreExpressionDirectCall programValue)
 
 testRejectedScalarProfile :: IO ()
 testRejectedScalarProfile =
