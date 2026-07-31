@@ -37,6 +37,8 @@ main = runTestSuite "TypedCoreExpressionDirectCall" tests
 tests :: [NamedTest]
 tests =
   [ ("audits the complete producer fixture manifest", testFixtureManifest),
+    ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
+    ("runs every accepted manifest fixture through the complete pipeline twice", testAcceptedManifestPipeline),
     ("produces unit and preserves ordinary inference", testUnitProduction),
     ("produces the complete scalar expression profile twice", testScalarProduction),
     ("lowers the complete scalar expression profile twice", testScalarLowering),
@@ -47,6 +49,7 @@ tests =
     ("produces monomorphic functions and fully saturated direct calls twice", testDirectCallProduction),
     ("lowers monomorphic functions and fully saturated direct calls twice", testDirectCallLowering),
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
+    ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
@@ -125,6 +128,106 @@ testFixtureManifest =
       "admitted operators"
       ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
       admittedOperators
+    >> assertEqual "fixture entries follow the complete ordered manifest" fixtureNames (map fixtureName fixtures)
+    >> assertEqual
+      "fixture entries have no unknown category"
+      (replicate 16 (Just "accepted") <> replicate 20 (Just "rejected") :: [Maybe Text])
+      (map fixtureCategory fixtures)
+  where
+    fixtureCategory fixture
+      | fixtureName fixture `elem` acceptedFixtureNames = Just "accepted"
+      | fixtureName fixture `elem` rejectedFixtureNames = Just "rejected"
+      | otherwise = Nothing
+
+testRejectedManifestProducerFailures :: IO ()
+testRejectedManifestProducerFailures = do
+  outcomes <- mapM runTwice rejectedFixtureNames
+  assertEqual "rejected manifest has complete outcome coverage" rejectedFixtureNames (map fst outcomes)
+  assertEqual
+    "rejected manifest producer failure kinds"
+    [ ("source-diagnostic", []),
+      ("invalid-portable-source-path", [TypedCoreInvalidPortableSourcePath]),
+      ("resolved-import", [TypedCoreResolvedImportsUnsupported]),
+      ("ambient-prelude-input", [TypedCoreAmbientPreludeInputUnsupported]),
+      ("text-value", [TypedCoreManagedValueUnsupported, TypedCoreStructuredValueUnsupported]),
+      ("list-value", [TypedCoreStructuredValueUnsupported]),
+      ("non-unit-tuple", [TypedCoreStructuredValueUnsupported]),
+      ("data-value", [TypedCoreStructuredValueUnsupported]),
+      ("conditional", [TypedCoreControlFlowUnsupported]),
+      ("pattern-case", [TypedCorePatternCaseUnsupported]),
+      ("local-block-binding", [TypedCoreNestedBlockUnsupported]),
+      ("bare-function-value", [TypedCoreCallableValueUnsupported]),
+      ("partial-direct-call", [TypedCoreCallArityUnsupported]),
+      ("oversaturated-direct-call", [TypedCoreUserDefinedOperatorUnsupported, TypedCoreCallArityUnsupported]),
+      ("capturing-function", [TypedCoreUnsupportedRootExpression, TypedCoreCaptureUnsupported]),
+      ("self-recursive-function", [TypedCoreRecursiveFunctionUnsupported]),
+      ("mutually-recursive-functions", [TypedCoreRecursiveFunctionUnsupported, TypedCoreRecursiveFunctionUnsupported]),
+      ("polymorphic-or-evidence-function", [TypedCoreUnresolvedExpressionType, TypedCoreNonMonomorphicFunctionUnsupported, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType, TypedCoreUnresolvedExpressionType]),
+      ("imported-direct-call", [TypedCoreImportedInputsUnsupported]),
+      ("user-defined-operator-call", [TypedCoreUserDefinedOperatorUnsupported])
+    ]
+    (map (\(name, result) -> (name, statusFailureKinds result)) outcomes)
+  where
+    runTwice name = do
+      let fixture = fixtureByName name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " manifest rejection repeatability") firstRun secondRun
+      pure (name, typedCoreProductionStatus firstRun)
+
+    statusFailureKinds status =
+      case status of
+        TypedCoreProductionBlockedByDiagnostics -> []
+        TypedCoreProductionUnsupported failures ->
+          [ kind
+          | TypedCoreProductionFailure _ kind _ <- failures
+          ]
+        TypedCoreProductionInvariantFailures _ -> []
+        TypedCoreProductionSucceeded _ -> []
+
+testAcceptedManifestPipeline :: IO ()
+testAcceptedManifestPipeline =
+  mapM_ assertAccepted acceptedFixtureNames
+  where
+    expectedTypedPrograms =
+      [("unit-entry", expectedUnitProgram)]
+        <> scalarExpectedPrograms
+        <> directCallExpectedPrograms
+    expectedLoweredPrograms =
+      scalarExpectedLoweredPrograms
+        <> directCallExpectedLoweredPrograms
+
+    assertAccepted name =
+      case (lookup name expectedTypedPrograms, lookup name expectedLoweredPrograms) of
+        (Just expectedTypedProgram, Just expectedLoweredProgram) -> do
+          let fixture = fixtureByName name
+          firstProduction <- produceFixture fixture
+          secondProduction <- produceFixture fixture
+          assertEqual (name <> " complete production repeatability") firstProduction secondProduction
+          assertEqual
+            (name <> " complete typed production")
+            (TypedCoreProductionSucceeded expectedTypedProgram)
+            (typedCoreProductionStatus firstProduction)
+          assertEqual (name <> " first typed validation") [] (validateTypedProgram expectedTypedProgram)
+          assertEqual (name <> " second typed validation") [] (validateTypedProgram expectedTypedProgram)
+          case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
+            (TypedCoreProductionSucceeded firstTypedProgram, TypedCoreProductionSucceeded secondTypedProgram) -> do
+              assertEqual (name <> " first produced typed validation") [] (validateTypedProgram firstTypedProgram)
+              assertEqual (name <> " second produced typed validation") [] (validateTypedProgram secondTypedProgram)
+              let firstLowering = lowerTypedCoreExpressionDirectCall firstTypedProgram
+                  secondLowering = lowerTypedCoreExpressionDirectCall secondTypedProgram
+              assertEqual (name <> " complete lowering repeatability") firstLowering secondLowering
+              assertEqual
+                (name <> " complete lowered production")
+                (LoweredIRSucceeded expectedLoweredProgram)
+                firstLowering
+              case (firstLowering, secondLowering) of
+                (LoweredIRSucceeded firstLoweredProgram, LoweredIRSucceeded secondLoweredProgram) -> do
+                  assertEqual (name <> " first lowered validation") [] (validateLoweredProgram firstLoweredProgram)
+                  assertEqual (name <> " second lowered validation") [] (validateLoweredProgram secondLoweredProgram)
+                _ -> failTest (name <> " did not produce lowered IR twice")
+            _ -> failTest (name <> " did not produce typed core twice")
+        _ -> failTest (name <> " is missing a complete pipeline expectation")
 
 testDirectCallProduction :: IO ()
 testDirectCallProduction =
@@ -266,6 +369,41 @@ testLowererCallableBoundary =
         ( LoweredIRRecipeFailureDetail
             (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
         )
+
+testLowererStructuralBoundary :: IO ()
+testLowererStructuralBoundary =
+  mapM_ assertBoundary expectedResults
+  where
+    assertBoundary (name, expectedFailures) =
+      case lookup name lowererStructuralBoundaryPrograms of
+        Nothing -> failTest (name <> " lowerer structural boundary program is missing")
+        Just programValue -> do
+          let firstRun = lowerTypedCoreExpressionDirectCall programValue
+              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
+          assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
+
+    expectedResults =
+      [ ( "managed-scalar-entry",
+          [ LoweredIRLoweringFailure
+              (TypedModulePath ["App", "Main"])
+              LoweredIRUnsupportedRepresentation
+              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe),
+            LoweredIRLoweringFailure
+              (TypedExpressionPath ["App", "Main"] [0] [0])
+              LoweredIRUnsupportedRepresentation
+              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
+          ]
+        ),
+        ( "conditional-entry",
+          [ LoweredIRLoweringFailure
+              (TypedExpressionPath ["App", "Main"] [0] [0])
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
+          ]
+        )
+      ]
 
 testForwardVisibilityBoundary :: IO ()
 testForwardVisibilityBoundary = do

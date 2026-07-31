@@ -17,6 +17,7 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedPrograms,
     directCallExpectedLoweredPrograms,
     lowererBoundaryPrograms,
+    lowererStructuralBoundaryPrograms,
     ordinaryForwardVisibilityFixture,
     forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
@@ -670,6 +671,24 @@ lowererBoundaryPrograms =
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
 
+lowererStructuralBoundaryPrograms :: [(Text, TypedProgram)]
+lowererStructuralBoundaryPrograms =
+  [ ("managed-scalar-entry", managedScalarLowererProgram),
+    ("conditional-entry", conditionalLowererProgram)
+  ]
+
+managedScalarLowererProgram :: TypedProgram
+managedScalarLowererProgram =
+  expectedScalarProgram
+    textInfo
+    (TypedLiteralExpr textInfo (TypedTextLiteral "managed"))
+
+conditionalLowererProgram :: TypedProgram
+conditionalLowererProgram =
+  expectedScalarProgram
+    intInfo
+    (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2))
+
 duplicateParameterLowererProgram :: TypedProgram
 duplicateParameterLowererProgram =
   expectedFunctionProgram
@@ -1174,11 +1193,12 @@ entryModule =
 unitInfo :: TypedNodeInfo
 unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
 
-boolInfo, charInfo, intInfo, floatInfo :: TypedNodeInfo
+boolInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
 boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
 charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
+textInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [] []
 
 boolExpr :: Bool -> TypedExpr
 boolExpr value = TypedLiteralExpr boolInfo (TypedBooleanLiteral value)
