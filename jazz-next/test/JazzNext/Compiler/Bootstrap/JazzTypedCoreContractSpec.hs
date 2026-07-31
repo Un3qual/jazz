@@ -3958,7 +3958,9 @@ testForwardSignedFunctionVisibility = do
   let expectedNames =
         [ "forward-signed-function-visibility",
           "forward-signed-scalar-invisibility",
-          "forward-unsigned-function-invisibility"
+          "forward-unsigned-function-invisibility",
+          "forward-signed-function-hidden-from-unsigned-caller",
+          "forward-signed-function-hidden-from-scalar-expression"
         ]
       expectedResults =
         [ [],
@@ -3970,6 +3972,18 @@ testForwardSignedFunctionVisibility = do
           [ forwardVisibilityFailure
               "forward-unsigned-function-invisibility"
               [0, 0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailureAt
+              "forward-signed-function-hidden-from-unsigned-caller"
+              0
+              [0, 0, 0]
+              (fixtureValueName "later")
+          ],
+          [ forwardVisibilityFailureAt
+              "forward-signed-function-hidden-from-scalar-expression"
+              0
+              [0, 0]
               (fixtureValueName "later")
           ]
         ]
@@ -4000,8 +4014,12 @@ testNestedForwardSignedFunctionInvisibility = do
 
 forwardVisibilityFailure :: Text -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
 forwardVisibilityFailure fixture expressionPath name =
+  forwardVisibilityFailureAt fixture 1 expressionPath name
+
+forwardVisibilityFailureAt :: Text -> Int -> [Int] -> TypedCoreName -> TypedCoreValidationFailure
+forwardVisibilityFailureAt fixture statementIndex expressionPath name =
   TypedCoreValidationFailure
-    (TypedExpressionPath (fixtureModulePath fixture) [1] expressionPath)
+    (TypedExpressionPath (fixtureModulePath fixture) [statementIndex] expressionPath)
     TypedInvisibleName
     (TypedNameDetail name)
 
@@ -8479,6 +8497,12 @@ forwardSignedVisibilityPrograms =
     ),
     ( "forward-unsigned-function-invisibility",
       forwardVisibilityProgram "forward-unsigned-function-invisibility" False True
+    ),
+    ( "forward-signed-function-hidden-from-unsigned-caller",
+      unsignedForwardCallerProgram
+    ),
+    ( "forward-signed-function-hidden-from-scalar-expression",
+      scalarForwardReferenceProgram
     )
   ]
 
@@ -8546,6 +8570,89 @@ forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
         <> [ TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
              expressionStatement terminalStatementIndex terminalExpression
            ]
+
+unsignedForwardCallerProgram :: TypedProgram
+unsignedForwardCallerProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "forward-signed-function-hidden-from-unsigned-caller"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    laterName = fixtureValueName "later"
+    firstOwner = binder modulePath [0] firstName
+    firstArgumentName = fixtureValueName "firstArgument"
+    firstArgumentOwner = binder modulePath [0, 0] firstArgumentName
+    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        firstArgumentOwner
+        firstArgumentName
+        ( TypedApplyExpr
+            boolInfo
+            (TypedVariableExpr boolToBoolInfo laterName)
+            (TypedVariableExpr boolInfo firstArgumentName)
+        )
+    laterSignatureOwner = binder modulePath [1] laterName
+    laterOwner = binder modulePath [2] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    statements =
+      [ TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
+        TypedSignatureStatement
+          laterSignatureOwner
+          laterName
+          span1
+          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+        TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+        expressionStatement
+          3
+          ( TypedApplyExpr
+              boolInfo
+              (TypedVariableExpr boolToBoolInfo firstName)
+              trueExpr
+          )
+      ]
+
+scalarForwardReferenceProgram :: TypedProgram
+scalarForwardReferenceProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "forward-signed-function-hidden-from-scalar-expression"
+    modulePath = fixtureModulePath fixture
+    laterName = fixtureValueName "later"
+    laterSignatureOwner = binder modulePath [1] laterName
+    laterOwner = binder modulePath [2] laterName
+    laterArgumentName = fixtureValueName "laterArgument"
+    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentName
+        (TypedVariableExpr boolInfo laterArgumentName)
+    statements =
+      [ expressionStatement
+          1
+          ( TypedApplyExpr
+              boolInfo
+              (TypedVariableExpr boolToBoolInfo laterName)
+              trueExpr
+          ),
+        TypedSignatureStatement
+          laterSignatureOwner
+          laterName
+          span1
+          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+        TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
+        expressionStatement 3 trueExpr
+      ]
 
 nestedForwardSignedFunctionProgram :: TypedProgram
 nestedForwardSignedFunctionProgram =

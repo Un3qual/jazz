@@ -556,16 +556,13 @@ inferExprTypeDetailed builtinMode env state expr =
                     resultType <- expressionType
                     leftType <- inferredExpressionType leftResult
                     rightType <- inferredExpressionType rightResult
-                    leftProvisional <- inferredProvisionalExpr leftResult
-                    rightProvisional <- inferredProvisionalExpr rightResult
-                    pure
-                      ( ProvisionalBinaryExpression
-                          operatorSymbol
-                          resultType
-                          (mergedUnifiedType finalState leftType rightType)
-                          leftProvisional
-                          rightProvisional
-                      )
+                    provisionalBinaryExpression
+                      finalState
+                      operatorSymbol
+                      resultType
+                      (mergedUnifiedType finalState leftType rightType)
+                      leftResult
+                      rightResult
            in (InferredExpr expressionType provisionalExpr failures, finalState)
     EBinary {} ->
       inferUnsupportedWithProduction
@@ -763,17 +760,30 @@ inferExprTypeDetailed builtinMode env state expr =
                 resultType <- expressionType
                 leftType <- inferredExpressionType leftResult
                 rightType <- inferredExpressionType rightResult
-                leftProvisional <- inferredProvisionalExpr leftResult
-                rightProvisional <- inferredProvisionalExpr rightResult
-                pure
-                  ( ProvisionalBinaryExpression
-                      operatorSymbol
-                      resultType
-                      (mergedUnifiedType finalState leftType rightType)
-                      leftProvisional
-                      rightProvisional
-                  )
+                provisionalBinaryExpression
+                  finalState
+                  operatorSymbol
+                  resultType
+                  (mergedUnifiedType finalState leftType rightType)
+                  leftResult
+                  rightResult
        in (InferredExpr expressionType provisionalExpr failures, finalState)
+
+    provisionalBinaryExpression finalState operatorSymbol resultType operandType leftResult rightResult = do
+      leftProvisional <-
+        inferredProvisionalExpr
+          (specializeInferredExpression finalState operandType leftResult)
+      rightProvisional <-
+        inferredProvisionalExpr
+          (specializeInferredExpression finalState operandType rightResult)
+      pure
+        ( ProvisionalBinaryExpression
+            operatorSymbol
+            resultType
+            operandType
+            leftProvisional
+            rightProvisional
+        )
 
     inferSectionApplicationWithFallback functionExpr argumentExpr operatorSymbol leftOperand rightOperand =
       let genericResult@(inferredResult, _) = inferGenericApplication functionExpr argumentExpr

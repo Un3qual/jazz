@@ -948,6 +948,16 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "narrow-root-binary-direct-call",
+      sourceFixtureNoExports
+        "narrow-root-binary-direct-call"
+        ( Text.unlines
+            [ "narrowIdentity :: Int8 -> Int8.",
+              "narrowIdentity = \\(item) -> item.",
+              "narrowIdentity 1 + 2."
+            ]
+        )
+    ),
     ( "unused-user-defined-operator",
       sourceFixtureNoExports
         "unused-user-defined-operator"

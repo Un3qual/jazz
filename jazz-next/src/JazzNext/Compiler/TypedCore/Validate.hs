@@ -1351,13 +1351,17 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
         Nothing ->
           let forwardVisibleContext =
                 withForwardSignedFunctionDeclarations forwardContext visibleContext
+              statementBaseContext
+                | isForwardSignedFunctionDeclaration forwardSignedFunctions statement =
+                    forwardVisibleContext
+                | otherwise = visibleContext
               recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
               statementContext =
                 case statement of
                   TypedLetStatement {}
-                    | null recursiveGroup -> forwardVisibleContext
-                    | otherwise -> withBlockDeclarations recursiveGroup forwardVisibleContext
-                  _ -> withBlockDeclarations [statement] forwardVisibleContext
+                    | null recursiveGroup -> statementBaseContext
+                    | otherwise -> withBlockDeclarations recursiveGroup statementBaseContext
+                  _ -> withBlockDeclarations [statement] statementBaseContext
               nextContext = withBlockDeclarations [statement] visibleContext
               nextStatement =
                 case rest of
@@ -1418,6 +1422,17 @@ forwardSignedFunctionDeclarations statements =
             forwardSignedFunctionDeclarations (binding : rest)
     _ : rest -> forwardSignedFunctionDeclarations rest
     [] -> []
+
+isForwardSignedFunctionDeclaration :: [TypedStatement] -> TypedStatement -> Bool
+isForwardSignedFunctionDeclaration declarations statement =
+  case statement of
+    TypedLetStatement binderId _ _ _ _ -> any (hasBinder binderId) declarations
+    _ -> False
+  where
+    hasBinder binderId declaration =
+      case declaration of
+        TypedLetStatement declarationBinderId _ _ _ _ -> declarationBinderId == binderId
+        _ -> False
 
 concreteMonomorphicFunctionScheme :: TypedScheme -> Bool
 concreteMonomorphicFunctionScheme (TypedScheme _ parameters evidence primitive typeValue recipe) =

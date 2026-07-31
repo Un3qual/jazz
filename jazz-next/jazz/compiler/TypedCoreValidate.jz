@@ -4876,6 +4876,20 @@ module TypedCoreValidate (
     | [first | rest] -> forwardSignedFunctionDeclarations rest
   }.
 
+  forwardSignedFunctionBinderMember :: TypedBinderId -> [TypedStatement] -> Bool.
+  forwardSignedFunctionBinderMember = \(candidate, declarations) -> case declarations {
+    | [] -> False
+    | [TypedLetStatement binder name span scheme expression | rest] ->
+      if binderIdEqual candidate binder then True else forwardSignedFunctionBinderMember candidate rest
+    | [first | rest] -> forwardSignedFunctionBinderMember candidate rest
+  }.
+
+  isForwardSignedFunctionDeclaration :: [TypedStatement] -> TypedStatement -> Bool.
+  isForwardSignedFunctionDeclaration = \(declarations, statement) -> case statement {
+    | TypedLetStatement binder name span scheme expression -> forwardSignedFunctionBinderMember binder declarations
+    | other -> False
+  }.
+
   validateAttachedSignature :: TypedCoreValidationPath -> TypedStatement -> [TypedStatement] -> Bool -> [TypedCoreValidationFailure].
   validateAttachedSignature = \(path, statement, remainingStatements, statementIsValid) -> case (statement, remainingStatements) {
     | (TypedSignatureStatement signatureBinder signatureName signatureSpan signatureScheme, [TypedLetStatement bindingBinder bindingName bindingSpan bindingScheme expression | rest]) ->
@@ -4923,10 +4937,12 @@ module TypedCoreValidate (
           (validateBlockStatementsInOrderFrom initialContext visibleContext forwardSignedFunctions statementLocation expressionPath allStatements dependencies rest (blockIndex + 1))
         | Nothing -> {
           forwardVisibleContext = withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext.
+          statementBaseContext =
+            if isForwardSignedFunctionDeclaration forwardSignedFunctions statement then forwardVisibleContext else visibleContext.
           recursiveGroup = blockRecursiveGroupStatements dependencies allStatements blockIndex.
           statementContext = case statement {
-            | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then forwardVisibleContext else withBlockDeclarations recursiveGroup forwardVisibleContext
-            | other -> withBlockDeclarations [statement] forwardVisibleContext
+            | TypedLetStatement binder name span scheme expression -> if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
+            | other -> withBlockDeclarations [statement] statementBaseContext
           }.
           statementFailures = validateStatement statementContext nestedStatementPath statement.
           listConcat
@@ -5659,11 +5675,13 @@ module TypedCoreValidate (
     | [statement | rest] -> {
       statementLocation = [statementIndex].
       forwardVisibleContext = withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext.
+      statementBaseContext =
+        if isForwardSignedFunctionDeclaration forwardSignedFunctions statement then forwardVisibleContext else visibleContext.
       recursiveGroup = blockRecursiveGroupStatements dependencies allStatements statementIndex.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->
-          if listLength recursiveGroup == 0 then forwardVisibleContext else withBlockDeclarations recursiveGroup forwardVisibleContext
-        | other -> if isModuleMetadataStatement statement then forwardVisibleContext else withBlockDeclarations [statement] forwardVisibleContext
+          if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
+        | other -> if isModuleMetadataStatement statement then statementBaseContext else withBlockDeclarations [statement] statementBaseContext
       }.
       nextContext = if isModuleMetadataStatement statement then visibleContext else withBlockDeclarations [statement] visibleContext.
       statementFailures = validateStatement statementContext statementLocation statement.

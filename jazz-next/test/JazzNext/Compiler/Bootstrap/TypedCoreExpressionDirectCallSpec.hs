@@ -54,6 +54,7 @@ tests =
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
+    ("specializes terminal binary operands to their unified numeric type", testNarrowRootBinaryDirectCall),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("rejects anonymous lambdas as module results", testAnonymousLambdaResultRejection),
@@ -431,6 +432,10 @@ testNarrowCompositeFunctionResult =
 testNarrowComparisonOperand :: IO ()
 testNarrowComparisonOperand =
   assertCompleteProduction "narrow comparison operand" (producerEdgeFixture "narrow-comparison-operand")
+
+testNarrowRootBinaryDirectCall :: IO ()
+testNarrowRootBinaryDirectCall =
+  assertCompleteProduction "narrow root binary direct call" (producerEdgeFixture "narrow-root-binary-direct-call")
 
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
