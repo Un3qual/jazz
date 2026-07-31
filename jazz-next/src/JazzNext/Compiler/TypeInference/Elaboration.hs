@@ -21,6 +21,7 @@ module JazzNext.Compiler.TypeInference.Elaboration
   )
 where
 
+import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
 import qualified Data.Map.Strict as Map
@@ -149,7 +150,7 @@ data InferredProductionFailure
 data ProvisionalTypedExpr
   = ProvisionalUnitExpression
   | ProvisionalLiteralExpression Literal ExpressionType
-  | ProvisionalBinaryExpression Text ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
+  | ProvisionalBinaryExpression Text ExpressionType ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalVariableExpression Name ExpressionType
   | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
   | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
@@ -163,7 +164,7 @@ data ProvisionalTypedStatement
   | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalFunctionFailures Int [InferredProductionFailure]
-  | ProvisionalUnsupportedStatement Int
+  | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
   deriving (Eq, Show)
 
 data FunctionProfile = FunctionProfile
@@ -265,6 +266,11 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
         ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
+              generatedOperatorFailures =
+                case name of
+                  GeneratedName (OperatorBinding _) ->
+                    [statementFailure statementIndex TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
+                  _ -> []
               rebindingFailures =
                 [ statementFailure statementIndex TypedCoreFunctionRebindingUnsupported (TypedCoreNameDetail (identifierText name))
                 | Map.member statementIndex reboundFunctions
@@ -285,7 +291,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 finalizeExpression functions statementIndex [0] Set.empty FunctionBindingExpression expression
               infoResult = callableInfo statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
-              failures = rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
+              failures = generatedOperatorFailures <> rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
               typedStatement = do
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
@@ -297,8 +303,8 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
         ProvisionalFunctionFailures statementIndex failures ->
           (map (qualifyInferredFailure statementIndex [0]) failures, Nothing)
-        ProvisionalUnsupportedStatement statementIndex ->
-          ([statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail], Nothing)
+        ProvisionalUnsupportedStatement statementIndex kind detail ->
+          ([statementFailure statementIndex kind detail], Nothing)
 
     finalizeExpression functions statementIndex childPath parameters expressionRole expression =
       case expression of
@@ -311,7 +317,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
               case typedLiteral statementIndex childPath literal info of
                 Left failure -> ([failure], Nothing)
                 Right literalValue -> ([], Just (TypedLiteralExpr info literalValue))
-        ProvisionalBinaryExpression operatorSymbol expressionType left right
+        ProvisionalBinaryExpression operatorSymbol expressionType _ left right
           | isTypedCoreDirectCallOperator operatorSymbol ->
               let (operatorFailures, maybeInfo) =
                     case scalarInfo statementIndex childPath expressionType of
@@ -328,6 +334,10 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   (rightFailures, _) = finalizeExpression functions statementIndex (childPath <> [1]) parameters ScalarExpression right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
+          | TDataType {} <- resolveType state expressionType ->
+              ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
+                Nothing
+              )
           | Set.member name parameters ->
               case scalarInfo statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
@@ -548,7 +558,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   _ -> Set.empty
            in own <> localCalls functions function <> localCalls functions argument
         ProvisionalLambdaExpression _ _ body -> localCalls functions body
-        ProvisionalBinaryExpression _ _ left right -> localCalls functions left <> localCalls functions right
+        ProvisionalBinaryExpression _ _ _ left right -> localCalls functions left <> localCalls functions right
         _ -> Set.empty
 
     finalizeExports functions =
@@ -640,12 +650,15 @@ specializeProvisionalExpression state maybeExpected expression =
     ProvisionalUnitExpression -> ProvisionalUnitExpression
     ProvisionalLiteralExpression literal expressionType ->
       ProvisionalLiteralExpression literal (specializedType expressionType)
-    ProvisionalBinaryExpression operatorSymbol expressionType left right ->
+    ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
       let resultType = specializedType expressionType
-          operandExpected = concreteIntegralType resultType
+          resolvedOperandType = resolveType state operandType
+          operandExpected = concreteIntegralType resultType <|> concreteIntegralType resolvedOperandType
+          specializedOperandType = maybe resolvedOperandType id operandExpected
        in ProvisionalBinaryExpression
             operatorSymbol
             resultType
+            specializedOperandType
             (specializeProvisionalExpression state operandExpected left)
             (specializeProvisionalExpression state operandExpected right)
     ProvisionalVariableExpression name expressionType ->
@@ -684,7 +697,7 @@ provisionalExpressionType state expression =
   resolveType state <$> case expression of
     ProvisionalUnitExpression -> Just (TTupleType [])
     ProvisionalLiteralExpression _ expressionType -> Just expressionType
-    ProvisionalBinaryExpression _ expressionType _ _ -> Just expressionType
+    ProvisionalBinaryExpression _ expressionType _ _ _ -> Just expressionType
     ProvisionalVariableExpression _ expressionType -> Just expressionType
     ProvisionalLambdaExpression _ expressionType _ -> Just expressionType
     ProvisionalApplyExpression expressionType _ _ -> Just expressionType

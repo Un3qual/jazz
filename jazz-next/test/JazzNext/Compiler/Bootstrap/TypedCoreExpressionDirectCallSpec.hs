@@ -53,6 +53,9 @@ tests =
     ("rejects higher-order function parameters from the scalar profile", testHigherOrderParameterRejection),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
+    ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
+    ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
+    ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("rejects anonymous lambdas as module results", testAnonymousLambdaResultRejection),
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
@@ -425,6 +428,54 @@ testNarrowCompositeFunctionResult :: IO ()
 testNarrowCompositeFunctionResult =
   assertCompleteProduction "narrow composite function result" (producerEdgeFixture "narrow-composite-function-result")
 
+testNarrowComparisonOperand :: IO ()
+testNarrowComparisonOperand =
+  assertCompleteProduction "narrow comparison operand" (producerEdgeFixture "narrow-comparison-operand")
+
+testUnusedUserDefinedOperatorBinding :: IO ()
+testUnusedUserDefinedOperatorBinding = do
+  let fixture = producerEdgeFixture "unused-user-defined-operator"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUserDefinedOperatorUnsupported
+              TypedCoreUnsupportedRootDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "unused user-defined operator inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "unused user-defined operator repeatable production" firstRun secondRun
+  assertEqual "unused user-defined operator binding rejection" expected (typedCoreProductionStatus firstRun)
+
+testRootDataFailureAccumulation :: IO ()
+testRootDataFailureAccumulation = do
+  let fixture = producerEdgeFixture "root-data-failure-accumulation"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+              TypedCoreStructuredValueUnsupported
+              TypedCoreListValueDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreStructuredValueUnsupported
+              TypedCoreDataValueDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "root data failure inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "root data failure repeatable production" firstRun secondRun
+  assertEqual "root data failure structural order" expected (typedCoreProductionStatus firstRun)
+
 testAnonymousLambdaResultRejection :: IO ()
 testAnonymousLambdaResultRejection = do
   let fixture = producerEdgeFixture "anonymous-lambda-result"
@@ -716,7 +767,12 @@ rejectedManifestExpectedStatuses =
     ),
     ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
     ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
-    ("data-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]),
+    ( "data-value",
+      unsupported
+        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
+        ]
+    ),
     ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
     ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
@@ -753,7 +809,12 @@ rejectedManifestExpectedStatuses =
     ( "imported-direct-call",
       unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
     ),
-    ("user-defined-operator-call", unsupported [expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail])
+    ( "user-defined-operator-call",
+      unsupported
+        [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+          expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+        ]
+    )
   ]
   where
     unsupported = TypedCoreProductionUnsupported
@@ -879,42 +940,22 @@ testLoweringPrecedence =
 
 testRejectedScalarProfile :: IO ()
 testRejectedScalarProfile =
-  mapM_
-    assertRejected
-    [ ( "text-value",
-        [ profileFailure 0 TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-          profileFailure 1 TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-        ]
-      ),
-      ("list-value", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
-      ("non-unit-tuple", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
-      ("data-value", [profileFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]),
-      ("conditional", [profileFailure 0 TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
-      ("pattern-case", [profileFailure 0 TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
-      ("local-block-binding", [profileFailure 0 TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail])
-    ]
+  mapM_ assertRejected rejectedScalarFixtures
   where
-    assertRejected (name, expectedFailures) =
-      case filter ((== name) . fixtureName) rejectedScalarFixtures of
-        [fixture] -> do
-          ordinary <- inferFixture fixture
-          firstResult <- produceFixture fixture
-          secondResult <- produceFixture fixture
-          let firstRun = typedCoreProductionStatus firstResult
-              secondRun = typedCoreProductionStatus secondResult
-          assertEqual (name <> " repeatable rejection") firstRun secondRun
-          assertEqual (name <> " scalar rejection inference compatibility") ordinary (typedCoreProductionInferenceResult firstResult)
-          assertEqual
-            (name <> " production failure")
-            (TypedCoreProductionUnsupported expectedFailures)
-            firstRun
-        _ -> failTest (name <> " rejected fixture is missing")
-
-    profileFailure statementIndex failureKind failureDetail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [])
-        failureKind
-        failureDetail
+    assertRejected fixture = do
+      let name = fixtureName fixture
+          expectedStatus =
+            case lookup name rejectedManifestExpectedStatuses of
+              Just status -> status
+              Nothing -> error ("scalar rejection is missing from the rejected manifest: " <> show name)
+      ordinary <- inferFixture fixture
+      firstResult <- produceFixture fixture
+      secondResult <- produceFixture fixture
+      let firstRun = typedCoreProductionStatus firstResult
+          secondRun = typedCoreProductionStatus secondResult
+      assertEqual (name <> " repeatable rejection") firstRun secondRun
+      assertEqual (name <> " scalar rejection inference compatibility") ordinary (typedCoreProductionInferenceResult firstResult)
+      assertEqual (name <> " production failure") expectedStatus firstRun
 
 testMissingModuleResultProduction :: IO ()
 testMissingModuleResultProduction =
@@ -981,7 +1022,8 @@ testUnsupportedCompositeFailureAccumulation =
           ]
         ),
         ( "unsupported-binary-child",
-          [ expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+          [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
             expressionFailure 2 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
             expressionFailure 2 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
           ]

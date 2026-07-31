@@ -267,17 +267,7 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
                     (inferenceImportedTypes inputs)
                     initialState
                     statements
-                rootResult =
-                  case mode of
-                    ProduceTypedCoreExpressionDirectCall
-                      | (failureKind, failureDetail) <- blockProductionFailureKindAndDetail statements,
-                        failureKind == TypedCoreStructuredValueUnsupported ->
-                          InferredExpr
-                            (inferredExpressionType blockResult)
-                            (Just (ProvisionalUnsupportedExpression failureKind failureDetail))
-                            [InferredProductionFailure [] failureKind failureDetail]
-                    _ -> blockResult
-             in (rootResult, blockState, bindings)
+             in (blockResult, blockState, bindings)
           _ ->
             let (result, resultState) =
                   inferExprTypeWithMode
@@ -564,9 +554,18 @@ inferExprTypeDetailed builtinMode env state expr =
                   _ : _ -> Just (ProvisionalRetainedFailures failures)
                   [] -> do
                     resultType <- expressionType
+                    leftType <- inferredExpressionType leftResult
+                    rightType <- inferredExpressionType rightResult
                     leftProvisional <- inferredProvisionalExpr leftResult
                     rightProvisional <- inferredProvisionalExpr rightResult
-                    pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
+                    pure
+                      ( ProvisionalBinaryExpression
+                          operatorSymbol
+                          resultType
+                          (mergedUnifiedType finalState leftType rightType)
+                          leftProvisional
+                          rightProvisional
+                      )
            in (InferredExpr expressionType provisionalExpr failures, finalState)
     EBinary {} ->
       inferUnsupportedWithProduction
@@ -762,9 +761,18 @@ inferExprTypeDetailed builtinMode env state expr =
               _ : _ -> Just (ProvisionalRetainedFailures failures)
               [] -> do
                 resultType <- expressionType
+                leftType <- inferredExpressionType leftResult
+                rightType <- inferredExpressionType rightResult
                 leftProvisional <- inferredProvisionalExpr leftResult
                 rightProvisional <- inferredProvisionalExpr rightResult
-                pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
+                pure
+                  ( ProvisionalBinaryExpression
+                      operatorSymbol
+                      resultType
+                      (mergedUnifiedType finalState leftType rightType)
+                      leftProvisional
+                      rightProvisional
+                  )
        in (InferredExpr expressionType provisionalExpr failures, finalState)
 
     inferSectionApplicationWithFallback functionExpr argumentExpr operatorSymbol leftOperand rightOperand =

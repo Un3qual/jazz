@@ -77,6 +77,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
+    TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
     blockProductionFailureKindAndDetail,
@@ -446,7 +447,12 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                     go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
-                      ProduceTypedCoreExpressionDirectCall -> ProvisionalUnsupportedStatement statementIndex : provisionalRest
+                      ProduceTypedCoreExpressionDirectCall ->
+                        ProvisionalUnsupportedStatement
+                          statementIndex
+                          TypedCoreUnsupportedRootExpression
+                          TypedCoreUnsupportedRootDetail
+                          : provisionalRest
                       InferenceOnly -> provisionalRest
                in (scopeResultType, resultState, provisional, productionFailures)
             SImpl implSpan capabilityName arguments methods ->
@@ -463,13 +469,29 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                     go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
-                      ProduceTypedCoreExpressionDirectCall -> ProvisionalUnsupportedStatement statementIndex : provisionalRest
+                      ProduceTypedCoreExpressionDirectCall ->
+                        ProvisionalUnsupportedStatement
+                          statementIndex
+                          TypedCoreUnsupportedRootExpression
+                          TypedCoreUnsupportedRootDetail
+                          : provisionalRest
                       InferenceOnly -> provisionalRest
                in (scopeResultType, resultState, provisional, productionFailures)
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
-               in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                  (scopeResultType, resultState, provisionalRest, productionFailures) =
+                    go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                  provisional =
+                    case mode of
+                      ProduceTypedCoreExpressionDirectCall ->
+                        ProvisionalUnsupportedStatement
+                          statementIndex
+                          TypedCoreStructuredValueUnsupported
+                          TypedCoreDataValueDetail
+                          : provisionalRest
+                      InferenceOnly -> provisionalRest
+               in (scopeResultType, resultState, provisional, productionFailures)
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
                     case Map.lookup statementIndex preparedSignaturesByStatement of
@@ -719,7 +741,11 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
                         [ProvisionalFunctionFailures statementIndex failures]
                       (ProduceTypedCoreExpressionDirectCall, [], _, _) ->
-                        [ProvisionalUnsupportedStatement statementIndex]
+                        [ ProvisionalUnsupportedStatement
+                            statementIndex
+                            TypedCoreUnsupportedRootExpression
+                            TypedCoreUnsupportedRootDetail
+                        ]
                       _ -> []
                   productionFailures =
                     qualifyStatementProductionFailures statementIndex valueProductionFailures
@@ -763,7 +789,11 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       (ProduceTypedCoreExpressionDirectCall, _, Just expression) ->
                         [ProvisionalTerminalExpression statementIndex exprSpan expression]
                       (ProduceTypedCoreExpressionDirectCall, _, Nothing) ->
-                        [ProvisionalUnsupportedStatement statementIndex]
+                        [ ProvisionalUnsupportedStatement
+                            statementIndex
+                            TypedCoreUnsupportedRootExpression
+                            TypedCoreUnsupportedRootDetail
+                        ]
                       _ -> []
                   productionFailures =
                     qualifyStatementProductionFailures statementIndex expressionProductionFailures

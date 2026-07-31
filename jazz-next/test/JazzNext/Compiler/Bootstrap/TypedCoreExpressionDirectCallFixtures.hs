@@ -938,6 +938,37 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "narrow-comparison-operand",
+      sourceFixtureNoExports
+        "narrow-comparison-operand"
+        ( Text.unlines
+            [ "isSmall :: Int8 -> Bool.",
+              "isSmall = \\(item) -> item < 2.",
+              "isSmall 1."
+            ]
+        )
+    ),
+    ( "unused-user-defined-operator",
+      sourceFixtureNoExports
+        "unused-user-defined-operator"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> left + right.",
+              "()."
+            ]
+        )
+    ),
+    ( "root-data-failure-accumulation",
+      sourceFixtureNoExports
+        "root-data-failure-accumulation"
+        ( Text.unlines
+            [ "[1].",
+              "data Box = Box.",
+              "()."
+            ]
+        )
+    ),
     ( "anonymous-lambda-result",
       sourceFixtureNoExports
         "anonymous-lambda-result"
