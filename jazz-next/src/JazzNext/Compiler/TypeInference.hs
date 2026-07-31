@@ -99,6 +99,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     blockProductionFailureKindAndDetail,
     finalizeTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
+    specializeInferredExpression,
   )
 import JazzNext.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
@@ -791,14 +792,22 @@ inferExprTypeDetailed builtinMode env state expr =
               functionResult
               argumentResult
               stateAfterArgument
-          failures = childFailures 0 functionResult <> childFailures 1 argumentResult
+          specializedArgumentResult =
+            case (expressionType, inferredExpressionType functionResult) of
+              (Just _, Just functionType) ->
+                case resolveType finalState functionType of
+                  TFunctionType parameterType _ ->
+                    specializeInferredExpression finalState parameterType argumentResult
+                  _ -> argumentResult
+              _ -> argumentResult
+          failures = childFailures 0 functionResult <> childFailures 1 specializedArgumentResult
           provisionalExpr =
             case failures of
               _ : _ -> Just (ProvisionalRetainedFailures failures)
               [] -> do
                 resultType <- expressionType
                 function <- inferredProvisionalExpr functionResult
-                argument <- inferredProvisionalExpr argumentResult
+                argument <- inferredProvisionalExpr specializedArgumentResult
                 pure (ProvisionalApplyExpression resultType function argument)
        in (InferredExpr expressionType provisionalExpr failures, finalState)
 

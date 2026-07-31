@@ -6,6 +6,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
 import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.DiagnosticCatalog (diagnosticCodeText)
@@ -49,6 +50,10 @@ tests =
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
+    ("rejects higher-order function parameters from the scalar profile", testHigherOrderParameterRejection),
+    ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
+    ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
+    ("rejects anonymous lambdas as module results", testAnonymousLambdaResultRejection),
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
     ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
@@ -391,6 +396,73 @@ testCurriedArgumentFailurePath = do
   result <- produceFixture fixture
   assertEqual "curried first-argument capture path" expected (typedCoreProductionStatus result)
 
+testHigherOrderParameterRejection :: IO ()
+testHigherOrderParameterRejection = do
+  let fixture = producerEdgeFixture "higher-order-parameter"
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "higher-order parameter inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "higher-order parameter repeatable production" firstRun secondRun
+  case typedCoreProductionStatus firstRun of
+    TypedCoreProductionUnsupported failures ->
+      assertEqual
+        "higher-order parameter reports a managed-value profile failure"
+        True
+        ( TypedCoreManagedValueUnsupported
+            `elem` [kind | TypedCoreProductionFailure _ kind _ <- failures]
+        )
+    _ -> failTest "higher-order parameter was not rejected by typed-core production"
+
+testNarrowLiteralDirectCall :: IO ()
+testNarrowLiteralDirectCall =
+  assertCompleteProduction "narrow literal direct call" (producerEdgeFixture "narrow-literal-direct-call")
+
+testNarrowCompositeFunctionResult :: IO ()
+testNarrowCompositeFunctionResult =
+  assertCompleteProduction "narrow composite function result" (producerEdgeFixture "narrow-composite-function-result")
+
+testAnonymousLambdaResultRejection :: IO ()
+testAnonymousLambdaResultRejection = do
+  let fixture = producerEdgeFixture "anonymous-lambda-result"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+              TypedCoreCallableValueUnsupported
+              TypedCoreUnsupportedRootDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "anonymous lambda result inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "anonymous lambda result repeatable production" firstRun secondRun
+  assertEqual "anonymous lambda module result rejection" expected (typedCoreProductionStatus firstRun)
+
+assertCompleteProduction :: Text -> Fixture -> IO ()
+assertCompleteProduction label fixture = do
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual (label <> " repeatable production") firstRun secondRun
+  assertEqual
+    (label <> " diagnostics")
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+  case typedCoreProductionStatus firstRun of
+    TypedCoreProductionSucceeded programValue -> do
+      assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
+      case lowerTypedCoreExpressionDirectCall programValue of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
+        _ -> failTest (label <> " did not lower successfully")
+    _ -> failTest (label <> " did not produce typed core")
+
 testProductionDiagnosticCompatibility :: IO ()
 testProductionDiagnosticCompatibility = do
   let fixture = producerEdgeFixture "out-of-range-signed-function-literal"
@@ -717,7 +789,12 @@ resolveFixtureModule :: Fixture -> IO ResolvedModule
 resolveFixtureModule fixture = do
   result <- resolveFixture fixture
   case result of
-    Left _ -> failTest (fixtureName fixture <> " did not resolve through the module resolver")
+    Left failures ->
+      failTest
+        ( fixtureName fixture
+            <> " did not resolve through the module resolver: "
+            <> Text.pack (show failures)
+        )
     Right resolvedModule -> pure resolvedModule
 
 inferFixture :: Fixture -> IO InferenceResult

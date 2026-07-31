@@ -80,6 +80,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
     blockProductionFailureKindAndDetail,
+    specializeInferredExpression,
   )
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
@@ -244,7 +245,13 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                   [],
                 nextState
               )
-    _ -> inferExpression mode builtinMode env state expr
+    _ ->
+      let (inferred, nextState) = inferExpression mode builtinMode env state expr
+       in case inferredExpressionType inferred of
+            Just expressionType
+              | Just checkedState <- unifyTypes expectedType expressionType nextState ->
+                  (specializeInferredExpression checkedState expectedType inferred, checkedState)
+            _ -> (inferred, nextState)
 
 setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
 setStatementRuntimeHintPath preludeStatementIndices statementIndex state =

@@ -908,6 +908,41 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "higher-order-parameter",
+      sourceFixtureNoExports
+        "higher-order-parameter"
+        ( Text.unlines
+            [ "ignore :: (Int -> Int) -> Int.",
+              "ignore = \\(function) -> 1.",
+              "1."
+            ]
+        )
+    ),
+    ( "narrow-literal-direct-call",
+      sourceFixtureNoExports
+        "narrow-literal-direct-call"
+        ( Text.unlines
+            [ "narrowIdentity :: Int8 -> Int8.",
+              "narrowIdentity = \\(item) -> item.",
+              "narrowIdentity 1."
+            ]
+        )
+    ),
+    ( "narrow-composite-function-result",
+      sourceFixtureNoExports
+        "narrow-composite-function-result"
+        ( Text.unlines
+            [ "narrowSum :: Bool -> Int8.",
+              "narrowSum = \\(ignored) -> 1 + 2.",
+              "narrowSum True."
+            ]
+        )
+    ),
+    ( "anonymous-lambda-result",
+      sourceFixtureNoExports
+        "anonymous-lambda-result"
+        "\\(flag) -> flag == True."
+    ),
     ( "signed-function-only",
       sourceFixtureNoExports
         "signed-function-only"

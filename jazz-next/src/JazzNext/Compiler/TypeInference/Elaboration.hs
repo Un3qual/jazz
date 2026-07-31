@@ -15,6 +15,7 @@ module JazzNext.Compiler.TypeInference.Elaboration
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
+    specializeInferredExpression,
     finalizeTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
   )
@@ -27,6 +28,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST (Literal (..), NumericType (..), Statement (..))
+import JazzNext.Compiler.BuiltinCatalog (numericTypeIsIntegral)
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventoryEntries)
@@ -171,6 +173,11 @@ data FunctionProfile = FunctionProfile
     functionExpression :: ProvisionalTypedExpr
   }
 
+data ExpressionRole
+  = FunctionBindingExpression
+  | CalleeExpression
+  | ScalarExpression
+
 -- | Finalize the initial unit-only root against the permanent contract.
 -- Future production slices extend the provisional scope rather than changing the
 -- typed-core constructors themselves.
@@ -275,7 +282,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   ProvisionalLambdaExpression {} -> []
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
               (expressionFailures, maybeExpression) =
-                finalizeExpression functions statementIndex [0] Set.empty False expression
+                finalizeExpression functions statementIndex [0] Set.empty FunctionBindingExpression expression
               infoResult = callableInfo statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
               failures = rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
@@ -286,14 +293,14 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
            in (failures, if null failures then typedStatement else Nothing)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
-                finalizeExpression functions statementIndex [] Set.empty False expression
+                finalizeExpression functions statementIndex [] Set.empty ScalarExpression expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
         ProvisionalFunctionFailures statementIndex failures ->
           (map (qualifyInferredFailure statementIndex [0]) failures, Nothing)
         ProvisionalUnsupportedStatement statementIndex ->
           ([statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail], Nothing)
 
-    finalizeExpression functions statementIndex childPath parameters calleePosition expression =
+    finalizeExpression functions statementIndex childPath parameters expressionRole expression =
       case expression of
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
@@ -310,15 +317,15 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                     case scalarInfo statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just info)
-                  (leftFailures, maybeLeft) = finalizeExpression functions statementIndex (childPath <> [0]) parameters False left
-                  (rightFailures, maybeRight) = finalizeExpression functions statementIndex (childPath <> [1]) parameters False right
+                  (leftFailures, maybeLeft) = finalizeExpression functions statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, maybeRight) = finalizeExpression functions statementIndex (childPath <> [1]) parameters ScalarExpression right
                   failures = operatorFailures <> leftFailures <> rightFailures
                   typedExpression =
                     TypedBinaryExpr <$> maybeInfo <*> pure (TypedBuiltinOperator operatorSymbol) <*> maybeLeft <*> maybeRight
                in (failures, if null failures then typedExpression else Nothing)
           | otherwise ->
-              let (leftFailures, _) = finalizeExpression functions statementIndex (childPath <> [0]) parameters False left
-                  (rightFailures, _) = finalizeExpression functions statementIndex (childPath <> [1]) parameters False right
+              let (leftFailures, _) = finalizeExpression functions statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, _) = finalizeExpression functions statementIndex (childPath <> [1]) parameters ScalarExpression right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
           | Set.member name parameters ->
@@ -326,11 +333,12 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 Left failure -> ([failure], Nothing)
                 Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
           | Just function <- Map.lookup name functions ->
-              if calleePosition
-                then case callableInfo statementIndex childPath (functionType function) of
-                  Left failure -> ([failure], Nothing)
-                  Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
-                else
+              case expressionRole of
+                CalleeExpression ->
+                  case callableInfo statementIndex childPath (functionType function) of
+                    Left failure -> ([failure], Nothing)
+                    Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+                _ ->
                   ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
                     Nothing
                   )
@@ -339,23 +347,35 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 Nothing
               )
         ProvisionalLambdaExpression parameterName expressionType body ->
-          case callableInfo statementIndex childPath expressionType of
-            Left failure -> ([failure], Nothing)
-            Right info ->
-              let duplicateParameterFailures =
-                    [ failureAt
-                        statementIndex
-                        childPath
-                        TypedCoreDuplicateParameterUnsupported
-                        (TypedCoreNameDetail (identifierText parameterName))
-                    | Set.member parameterName parameters
-                    ]
-                  parameterPath = childPath
-                  (bodyFailures, maybeBody) =
-                    finalizeExpression functions statementIndex (childPath <> [0]) (Set.insert parameterName parameters) False body
-                  parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
-                  failures = duplicateParameterFailures <> bodyFailures
-               in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
+          case expressionRole of
+            FunctionBindingExpression ->
+              case callableInfo statementIndex childPath expressionType of
+                Left failure -> ([failure], Nothing)
+                Right info ->
+                  let duplicateParameterFailures =
+                        [ failureAt
+                            statementIndex
+                            childPath
+                            TypedCoreDuplicateParameterUnsupported
+                            (TypedCoreNameDetail (identifierText parameterName))
+                        | Set.member parameterName parameters
+                        ]
+                      parameterPath = childPath
+                      (bodyFailures, maybeBody) =
+                        finalizeExpression
+                          functions
+                          statementIndex
+                          (childPath <> [0])
+                          (Set.insert parameterName parameters)
+                          FunctionBindingExpression
+                          body
+                      parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
+                      failures = duplicateParameterFailures <> bodyFailures
+                   in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
+            _ ->
+              ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail],
+                Nothing
+              )
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine functions statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
@@ -380,7 +400,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                           )
                         else
                           let (calleeFailures, maybeCallee) =
-                                finalizeExpression functions statementIndex childPath parameters True callee
+                                finalizeExpression functions statementIndex childPath parameters CalleeExpression callee
                               finalizedArguments =
                                 map
                                   ( \(argumentPath, argument) ->
@@ -389,7 +409,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                                         statementIndex
                                         (childPath <> argumentPath)
                                         parameters
-                                        False
+                                        ScalarExpression
                                         argument
                                   )
                                   arguments
@@ -460,7 +480,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
     typeAndRecipe statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TFunctionType argument result -> do
-          (argumentType, argumentRecipe) <- typeAndRecipe statementIndex childPath argument
+          TypedNodeInfo argumentType argumentRecipe _ _ <- scalarInfo statementIndex childPath argument
           (resultType, resultRecipe) <- typeAndRecipe statementIndex childPath result
           Right (TypedFunctionType argumentType resultType, prependClosureRecipe argumentRecipe resultRecipe)
         other ->
@@ -598,6 +618,98 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       case expression of
         ProvisionalLambdaExpression _ _ body -> 1 + lambdaCount body
         _ -> 0
+
+-- | Commit a successfully selected integral context into the provisional tree.
+-- Integer-range unification validates compatibility but deliberately creates no
+-- solver substitution, so production must retain the concrete representation
+-- selected by a signature, operator operand, or function parameter.
+specializeInferredExpression :: InferState -> ExpressionType -> InferredExpr -> InferredExpr
+specializeInferredExpression state expectedType inferred =
+  inferred
+    { inferredExpressionType =
+        specializeExpressionType state expectedType
+          <$> inferredExpressionType inferred,
+      inferredProvisionalExpr =
+        specializeProvisionalExpression state (Just expectedType)
+          <$> inferredProvisionalExpr inferred
+    }
+
+specializeProvisionalExpression :: InferState -> Maybe ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
+specializeProvisionalExpression state maybeExpected expression =
+  case expression of
+    ProvisionalUnitExpression -> ProvisionalUnitExpression
+    ProvisionalLiteralExpression literal expressionType ->
+      ProvisionalLiteralExpression literal (specializedType expressionType)
+    ProvisionalBinaryExpression operatorSymbol expressionType left right ->
+      let resultType = specializedType expressionType
+          operandExpected = concreteIntegralType resultType
+       in ProvisionalBinaryExpression
+            operatorSymbol
+            resultType
+            (specializeProvisionalExpression state operandExpected left)
+            (specializeProvisionalExpression state operandExpected right)
+    ProvisionalVariableExpression name expressionType ->
+      ProvisionalVariableExpression name (specializedType expressionType)
+    ProvisionalLambdaExpression parameterName expressionType body ->
+      let specializedFunctionType = specializedType expressionType
+          bodyExpected =
+            case specializedFunctionType of
+              TFunctionType _ resultType -> Just resultType
+              _ -> Nothing
+       in ProvisionalLambdaExpression
+            parameterName
+            specializedFunctionType
+            (specializeProvisionalExpression state bodyExpected body)
+    ProvisionalApplyExpression expressionType function argument ->
+      let resultType = specializedType expressionType
+          argumentExpected =
+            case provisionalExpressionType state function of
+              Just (TFunctionType parameterType _) -> Just parameterType
+              _ -> Nothing
+       in ProvisionalApplyExpression
+            resultType
+            (specializeProvisionalExpression state Nothing function)
+            (specializeProvisionalExpression state argumentExpected argument)
+    ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
+    ProvisionalUnsupportedExpression kind detail -> ProvisionalUnsupportedExpression kind detail
+    ProvisionalRetainedFailures failures -> ProvisionalRetainedFailures failures
+  where
+    specializedType expressionType =
+      case maybeExpected of
+        Just expectedType -> specializeExpressionType state expectedType expressionType
+        Nothing -> resolveType state expressionType
+
+provisionalExpressionType :: InferState -> ProvisionalTypedExpr -> Maybe ExpressionType
+provisionalExpressionType state expression =
+  resolveType state <$> case expression of
+    ProvisionalUnitExpression -> Just (TTupleType [])
+    ProvisionalLiteralExpression _ expressionType -> Just expressionType
+    ProvisionalBinaryExpression _ expressionType _ _ -> Just expressionType
+    ProvisionalVariableExpression _ expressionType -> Just expressionType
+    ProvisionalLambdaExpression _ expressionType _ -> Just expressionType
+    ProvisionalApplyExpression expressionType _ _ -> Just expressionType
+    ProvisionalScopeStatements {} -> Nothing
+    ProvisionalUnsupportedExpression {} -> Nothing
+    ProvisionalRetainedFailures {} -> Nothing
+
+specializeExpressionType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+specializeExpressionType state expectedType expressionType =
+  let resolvedExpected = resolveType state expectedType
+      resolvedExpression = resolveType state expressionType
+   in case (resolvedExpression, resolvedExpected) of
+        (TIntegerLiteralType literalRange, TIntType)
+          | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
+        (TIntegerLiteralType literalRange, numericType@(TNumericType concreteType))
+          | integerLiteralRangeFitsNumericType literalRange concreteType -> numericType
+        _ -> resolvedExpression
+
+concreteIntegralType :: ExpressionType -> Maybe ExpressionType
+concreteIntegralType expressionType =
+  case expressionType of
+    TIntType -> Just TIntType
+    numericType@(TNumericType concreteType)
+      | numericTypeIsIntegral concreteType -> Just numericType
+    _ -> Nothing
 
 isTypedCoreDirectCallOperator :: Text -> Bool
 isTypedCoreDirectCallOperator operatorSymbol =
