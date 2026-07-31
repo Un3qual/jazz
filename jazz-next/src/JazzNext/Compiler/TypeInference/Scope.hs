@@ -452,20 +452,34 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           statementIndex
                           TypedCoreUnsupportedRootExpression
                           TypedCoreUnsupportedRootDetail
+                          []
                           : provisionalRest
                       InferenceOnly -> provisionalRest
                in (scopeResultType, resultState, provisional, productionFailures)
             SImpl implSpan capabilityName arguments methods ->
               let maybeInvalidTarget = firstInvalidImplTarget stateForSource implSpan arguments
-                  nextState =
+                  (nextState, implMethodResults) =
                     case maybeInvalidTarget of
-                      Just diagnostic -> addTypeError stateForSource diagnostic
+                      Just diagnostic -> (addTypeError stateForSource diagnostic, [])
                       Nothing ->
                         let implSeededState = seedStatementCapabilityFact stateForSource statement
-                         in checkImplMethodBodies inferPlain builtinMode env implSeededState capabilityName arguments methods
+                         in checkImplMethodBodies
+                              (inferExprTypeWithExpectedMode inferExpression mode)
+                              inferredExpressionType
+                              builtinMode
+                              env
+                              implSeededState
+                              capabilityName
+                              arguments
+                              methods
+                  implMethodFailures =
+                    [ InferredProductionFailure (methodIndex : childPath) kind detail
+                    | (methodIndex, methodResult) <- implMethodResults,
+                      InferredProductionFailure childPath kind detail <- inferredProductionFailures methodResult
+                    ]
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-                  (scopeResultType, resultState, provisionalRest, productionFailures) =
+                  (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
@@ -474,8 +488,12 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           statementIndex
                           TypedCoreUnsupportedRootExpression
                           TypedCoreUnsupportedRootDetail
+                          implMethodFailures
                           : provisionalRest
                       InferenceOnly -> provisionalRest
+                  productionFailures =
+                    qualifyStatementProductionFailures statementIndex implMethodFailures
+                      <> restProductionFailures
                in (scopeResultType, resultState, provisional, productionFailures)
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
@@ -489,6 +507,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           statementIndex
                           TypedCoreStructuredValueUnsupported
                           TypedCoreDataValueDetail
+                          []
                           : provisionalRest
                       InferenceOnly -> provisionalRest
                in (scopeResultType, resultState, provisional, productionFailures)
@@ -739,12 +758,20 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                                 expression
                             ]
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
-                        [ProvisionalFunctionFailures statementIndex failures]
+                        [ ProvisionalUnsupportedStatement
+                            statementIndex
+                            TypedCoreUnsupportedRootExpression
+                            TypedCoreUnsupportedRootDetail
+                            [ InferredProductionFailure (0 : childPath) kind detail
+                            | InferredProductionFailure childPath kind detail <- failures
+                            ]
+                        ]
                       (ProduceTypedCoreExpressionDirectCall, [], _, _) ->
                         [ ProvisionalUnsupportedStatement
                             statementIndex
                             TypedCoreUnsupportedRootExpression
                             TypedCoreUnsupportedRootDetail
+                            []
                         ]
                       _ -> []
                   productionFailures =
@@ -793,6 +820,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                             statementIndex
                             TypedCoreUnsupportedRootExpression
                             TypedCoreUnsupportedRootDetail
+                            []
                         ]
                       _ -> []
                   productionFailures =

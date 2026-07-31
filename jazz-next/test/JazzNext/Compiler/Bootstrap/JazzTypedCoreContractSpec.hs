@@ -316,7 +316,8 @@ reviewRegressionGroups :: [(NamedTest, [TypedProgram])]
 -- The lone-surrogate character regression remains Haskell-only because its
 -- invalid scalar cannot be encoded in the Jazz source used by hosted parity.
 reviewRegressionGroups =
-  [ (("rejects malformed nested block contracts at unique statement paths", testNestedBlockValidationRegressions), [nestedPathProgram, nestedDeclarationProgram, nestedDuplicateBinderProgram, guardedCasePathProgram]),
+  [ (("accepts semantic scalar aliases at application boundaries", testApplicationScalarAliasCompatibility), [applicationScalarAliasProgram]),
+    (("rejects malformed nested block contracts at unique statement paths", testNestedBlockValidationRegressions), [nestedPathProgram, nestedDeclarationProgram, nestedDuplicateBinderProgram, guardedCasePathProgram]),
     (("enforces typed-core scope and visibility contracts", testScopeAndVisibilityRegressions), [generalizedLetScopeProgram, importedInstantiationProgram, invisibleSiblingImplProgram, selectedEvidenceTargetProgram, invisibleVariableProgram, selectedMethodContractProgram, enclosingImplMethodProgram]),
     (("enforces typed-core value-shape contracts", testValueShapeRegressions), [bindingValueProgram, lambdaResultProgram, literalTypeProgram, collectionShapeProgram, dataTypeArityProgram, tuplePatternShapeProgram, moduleResultProgram, schemeDataTypeProgram, driveAbsoluteProgram]),
     (("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions), [instantiationDataTypeProgram, literalPatternProgram, invisibleOperatorProgram, expressionDuplicateBinderProgram, privateInterfaceLeakProgram, constructorPatternContractProgram, nonListPatternProgram, explicitTypeApplicationContractProgram, variableSchemeContractProgram, missingImportProgram, candidateConstraintProgram, invalidVariableNamespaceProgram]),
@@ -449,6 +450,77 @@ reviewRegressionGroups =
     (("validates evidence capability identities", testForgedEvidenceCapability), [forgedEvidenceCapabilityProgram]),
     (("rejects empty monomorphic instantiations", testEmptyMonomorphicInstantiation), [emptyMonomorphicInstantiationProgram])
   ]
+
+testApplicationScalarAliasCompatibility :: IO ()
+testApplicationScalarAliasCompatibility =
+  assertEqual
+    "Int/Int64 and Float/Float64 remain compatible application types"
+    []
+    (validateTypedProgram applicationScalarAliasProgram)
+
+applicationScalarAliasProgram :: TypedProgram
+applicationScalarAliasProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [ intBinding,
+      expressionStatement 2 intApplication,
+      floatBinding,
+      expressionStatement 4 floatApplication
+    ]
+    emptyInterface
+    floatAliasInfo
+    modulePath
+  where
+    fixture = "review-application-scalar-alias"
+    modulePath = fixtureModulePath fixture
+    int64Type = TypedNumericType TypedInt64Type
+    int64Recipe = TypedSignedIntegerRecipe 64
+    float64Type = TypedNumericType TypedFloat64Type
+    float64Recipe = TypedFloatRecipe 64
+    floatAliasInfo = info TypedFloatType float64Recipe
+    (intBinding, intApplication) =
+      aliasApplication
+        0
+        "identityInt64"
+        int64Type
+        TypedIntType
+        int64Recipe
+        (TypedIntegerLiteral "1")
+    (floatBinding, floatApplication) =
+      aliasApplication
+        2
+        "identityFloat64"
+        float64Type
+        TypedFloatType
+        float64Recipe
+        (TypedFractionalLiteral "1" "5" Nothing)
+
+    aliasApplication statementIndex nameText explicitType aliasType recipe literal =
+      let name = fixtureValueName nameText
+          owner = binder modulePath [statementIndex] name
+          argumentName = fixtureValueName (nameText <> "Argument")
+          argumentOwner = binder modulePath [statementIndex, 0] argumentName
+          explicitInfo = info explicitType recipe
+          functionType = TypedFunctionType explicitType explicitType
+          functionRecipe = TypedClosureRecipe [recipe] recipe
+          functionInfo = info functionType functionRecipe
+          scheme = TypedScheme owner [] [] [] functionType functionRecipe
+          binding =
+            TypedLetStatement
+              owner
+              name
+              span1
+              scheme
+              (TypedLambdaExpr functionInfo argumentOwner argumentName (TypedVariableExpr explicitInfo argumentName))
+          aliasInfo = info aliasType recipe
+          application =
+            TypedApplyExpr
+              aliasInfo
+              (TypedVariableExpr functionInfo name)
+              (TypedLiteralExpr aliasInfo literal)
+       in (binding, application)
 
 reviewRegressionPrograms :: [TypedProgram]
 reviewRegressionPrograms = concatMap snd reviewRegressionGroups

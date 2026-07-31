@@ -57,6 +57,7 @@ tests =
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
     ("specializes terminal binary operands to their unified numeric type", testNarrowRootBinaryDirectCall),
+    ("normalizes equivalent scalar aliases to the expected type", testEquivalentScalarAliasSpecialization),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
@@ -64,6 +65,8 @@ tests =
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
     ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
+    ("retains impl method body profile failures", testImplMethodBodyFailureAccumulation),
+    ("retains unsupported binding markers with initializer failures", testUnsupportedBindingFailureAccumulation),
     ("preserves qualified-method application inference in rejected profiles", testQualifiedMethodInferenceCompatibility),
     ("rejects uncommitted integer ranges outside Int64", testOutOfRangeDefaultIntegerRejection),
     ("rejects numeric promotions that typed core cannot represent", testNumericPromotionRejection),
@@ -497,6 +500,12 @@ testNarrowRootBinaryDirectCall :: IO ()
 testNarrowRootBinaryDirectCall =
   assertCompleteProduction "narrow root binary direct call" (producerEdgeFixture "narrow-root-binary-direct-call")
 
+testEquivalentScalarAliasSpecialization :: IO ()
+testEquivalentScalarAliasSpecialization =
+  assertCompleteProduction
+    "equivalent scalar alias specialization"
+    (producerEdgeFixture "equivalent-scalar-alias-specialization")
+
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
   let fixture = producerEdgeFixture "unused-user-defined-operator"
@@ -615,7 +624,12 @@ assertCompleteProduction label fixture = do
         LoweredIRSucceeded loweredProgram ->
           assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
         _ -> failTest (label <> " did not lower successfully")
-    _ -> failTest (label <> " did not produce typed core")
+    status ->
+      failTest
+        ( label
+            <> " did not produce typed core: "
+            <> Text.pack (show status)
+        )
 
 testProductionDiagnosticCompatibility :: IO ()
 testProductionDiagnosticCompatibility = do
@@ -685,6 +699,66 @@ testUnsupportedDeclarationProfile = do
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
+
+testImplMethodBodyFailureAccumulation :: IO ()
+testImplMethodBodyFailureAccumulation = do
+  let fixture = producerEdgeFixture "impl-method-profile-failure"
+      expected =
+        TypedCoreProductionUnsupported
+          [ unsupportedStatement 0,
+            unsupportedStatement 1,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+              TypedCoreStructuredValueUnsupported
+              TypedCoreListValueDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "impl method body ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "impl method body inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "impl method body repeatable production" firstRun secondRun
+  assertEqual "impl method body complete failure accumulation" expected (typedCoreProductionStatus firstRun)
+  where
+    unsupportedStatement statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+
+testUnsupportedBindingFailureAccumulation :: IO ()
+testUnsupportedBindingFailureAccumulation = do
+  let fixture = producerEdgeFixture "unsupported-binding-child-failure"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 0)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+              TypedCoreStructuredValueUnsupported
+              TypedCoreListValueDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "unsupported binding ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "unsupported binding inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "unsupported binding repeatable production" firstRun secondRun
+  assertEqual "unsupported binding complete failure accumulation" expected (typedCoreProductionStatus firstRun)
 
 testQualifiedMethodInferenceCompatibility :: IO ()
 testQualifiedMethodInferenceCompatibility = do

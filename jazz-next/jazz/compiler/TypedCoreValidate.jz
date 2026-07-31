@@ -223,6 +223,28 @@ module TypedCoreValidate (
     | other -> False
   }.
 
+  normalizeDefaultScalarAliases :: TypedType -> TypedType.
+  normalizeDefaultScalarAliases = \(typeValue) -> case typeValue {
+    | TypedIntType -> TypedNumericType TypedInt64Type
+    | TypedFloatType -> TypedNumericType TypedFloat64Type
+    | TypedListType elementType -> TypedListType (normalizeDefaultScalarAliases elementType)
+    | TypedTupleType elementTypes ->
+      TypedTupleType (listMap (\(elementType) -> normalizeDefaultScalarAliases elementType) elementTypes)
+    | TypedDataType name arguments ->
+      TypedDataType name (listMap (\(argument) -> normalizeDefaultScalarAliases argument) arguments)
+    | TypedFunctionType argumentType resultType ->
+      TypedFunctionType
+        (normalizeDefaultScalarAliases argumentType)
+        (normalizeDefaultScalarAliases resultType)
+    | other -> other
+  }.
+
+  applicationTypesCompatible :: TypedType -> TypedType -> Bool.
+  applicationTypesCompatible = \(expected, actual) ->
+    typeEqual
+      (normalizeDefaultScalarAliases expected)
+      (normalizeDefaultScalarAliases actual).
+
   equalityDataKeyMember :: EqualityDataKey -> [EqualityDataKey] -> Bool.
   equalityDataKeyMember = \(candidate, keys) -> case (candidate, keys) {
     | (other, []) -> False
@@ -2985,9 +3007,18 @@ module TypedCoreValidate (
     functionSelections = nodeEvidenceSelections (expressionInfo function).
     listConcat
       [ case nodeType (expressionInfo function) {
-          | TypedFunctionType expectedArgument expectedResult -> listAppend
-            (if typeEqual expectedArgument (nodeType (expressionInfo argument)) then [] else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument (nodeType (expressionInfo argument)))])
-            (if typeEqual expectedResult (nodeType resultInfo) then [] else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))])
+          | TypedFunctionType expectedArgument expectedResult -> {
+            actualArgument = nodeType (expressionInfo argument).
+            argumentFailures =
+              if applicationTypesCompatible expectedArgument actualArgument
+              then []
+              else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument actualArgument)].
+            resultFailures =
+              if applicationTypesCompatible expectedResult (nodeType resultInfo)
+              then []
+              else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))].
+            listAppend argumentFailures resultFailures.
+          }
           | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
         },
         missingApplicationEvidenceObligations path resultSelections functionSelections,

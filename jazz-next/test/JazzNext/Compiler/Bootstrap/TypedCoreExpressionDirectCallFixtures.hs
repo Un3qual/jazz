@@ -980,6 +980,28 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "equivalent-scalar-alias-specialization",
+      sourceFixtureNoExports
+        "equivalent-scalar-alias-specialization"
+        ( Text.unlines
+            [ "asInt :: Bool -> Int.",
+              "asInt = \\(ignored) -> 1.",
+              "asInt64 :: Bool -> Int64.",
+              "asInt64 = \\(flag) -> asInt flag.",
+              "acceptInt64 :: Int64 -> Int64.",
+              "acceptInt64 = \\(item) -> item.",
+              "useInt64 :: Bool -> Int64.",
+              "useInt64 = \\(flag) -> acceptInt64 (asInt flag).",
+              "asFloat :: Bool -> Float.",
+              "asFloat = \\(ignored) -> 1.5.",
+              "asFloat64 :: Bool -> Float64.",
+              "asFloat64 = \\(flag) -> asFloat flag.",
+              "acceptFloat64 :: Float64 -> Float64.",
+              "acceptFloat64 = \\(item) -> item.",
+              "acceptFloat64 (asFloat True)."
+            ]
+        )
+    ),
     ( "unused-user-defined-operator",
       sourceFixtureNoExports
         "unused-user-defined-operator"
@@ -1126,6 +1148,25 @@ producerEdgeFixtures =
             [ "class Marker(a) { }.",
               "impl Marker(Int) { }.",
               "1."
+            ]
+        )
+    ),
+    ( "impl-method-profile-failure",
+      sourceFixtureNoExports
+        "impl-method-profile-failure"
+        ( Text.unlines
+            [ "class Items(a) { items :: a -> [Int]. }.",
+              "impl Items(Int) { items = \\(item) -> [item]. }.",
+              "()."
+            ]
+        )
+    ),
+    ( "unsupported-binding-child-failure",
+      sourceFixtureNoExports
+        "unsupported-binding-child-failure"
+        ( Text.unlines
+            [ "seed = [1].",
+              "()."
             ]
         )
     ),

@@ -3252,10 +3252,10 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
           ]
     actualArgument = typedNodeType (typedExpressionInfo argument)
     argumentFailures expected
-      | expected == actualArgument = []
+      | applicationTypesCompatible expected actualArgument = []
       | otherwise = [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expected actualArgument)]
     resultFailures expected
-      | expected == resultType = []
+      | applicationTypesCompatible expected resultType = []
       | otherwise = [failure path TypedApplicationResultMismatch (TypedTypeDetail expected resultType)]
     functionSelections =
       case typedExpressionInfo function of
@@ -3269,6 +3269,7 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
       | TypedEvidenceCandidates constraint candidates <- functionSelections,
         not (any (progressesCandidateObligation constraint candidates) resultSelections)
       ]
+
     progressesCandidateObligation constraint candidates selection =
       case selection of
         TypedEvidenceCandidates resultConstraint resultCandidates ->
@@ -3297,6 +3298,27 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
         not (null matchingCandidateSets),
         any (selectedCandidate `notElem`) matchingCandidateSets
       ]
+
+applicationTypesCompatible :: TypedType -> TypedType -> Bool
+applicationTypesCompatible expected actual =
+  normalizeDefaultScalarAliases expected == normalizeDefaultScalarAliases actual
+
+normalizeDefaultScalarAliases :: TypedType -> TypedType
+normalizeDefaultScalarAliases typeValue =
+  case typeValue of
+    TypedIntType -> TypedNumericType TypedInt64Type
+    TypedFloatType -> TypedNumericType TypedFloat64Type
+    TypedListType elementType ->
+      TypedListType (normalizeDefaultScalarAliases elementType)
+    TypedTupleType elementTypes ->
+      TypedTupleType (map normalizeDefaultScalarAliases elementTypes)
+    TypedDataType name arguments ->
+      TypedDataType name (map normalizeDefaultScalarAliases arguments)
+    TypedFunctionType argumentType resultType ->
+      TypedFunctionType
+        (normalizeDefaultScalarAliases argumentType)
+        (normalizeDefaultScalarAliases resultType)
+    other -> other
 
 validateConditional :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
 validateConditional path (TypedNodeInfo resultType _ _ _) condition thenExpression elseExpression =

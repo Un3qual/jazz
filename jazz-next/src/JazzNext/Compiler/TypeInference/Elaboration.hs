@@ -163,8 +163,7 @@ data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
   | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
-  | ProvisionalFunctionFailures Int [InferredProductionFailure]
-  | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
+  | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   deriving (Eq, Show)
 
 data FunctionProfile = FunctionProfile
@@ -302,10 +301,11 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           let (failures, maybeTypedExpression) =
                 finalizeExpression functions statementIndex [] Set.empty ScalarExpression expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
-        ProvisionalFunctionFailures statementIndex failures ->
-          (map (qualifyInferredFailure statementIndex [0]) failures, Nothing)
-        ProvisionalUnsupportedStatement statementIndex kind detail ->
-          ([statementFailure statementIndex kind detail], Nothing)
+        ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
+          ( statementFailure statementIndex kind detail
+              : map (qualifyInferredFailure statementIndex []) childFailures,
+            Nothing
+          )
 
     finalizeExpression functions statementIndex childPath parameters expressionRole expression =
       case expression of
@@ -722,6 +722,10 @@ specializeExpressionType state expectedType expressionType =
           | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
         (TIntegerLiteralType literalRange, numericType@(TNumericType concreteType))
           | integerLiteralRangeFitsNumericType literalRange concreteType -> numericType
+        (TIntType, TNumericType NumericInt64) -> resolvedExpected
+        (TNumericType NumericInt64, TIntType) -> resolvedExpected
+        (TFloatType, TNumericType NumericFloat64) -> resolvedExpected
+        (TNumericType NumericFloat64, TFloatType) -> resolvedExpected
         _ -> resolvedExpression
 
 concreteIntegralType :: ExpressionType -> Maybe ExpressionType
