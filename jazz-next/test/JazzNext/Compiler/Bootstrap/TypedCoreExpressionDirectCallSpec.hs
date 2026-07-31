@@ -498,9 +498,14 @@ testAnonymousLambdaResultRejection = do
 
 assertCompleteProduction :: Text -> Fixture -> IO ()
 assertCompleteProduction label fixture = do
+  ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual (label <> " repeatable production") firstRun secondRun
+  assertEqual
+    (label <> " inference compatibility")
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
   assertEqual
     (label <> " diagnostics")
     []
