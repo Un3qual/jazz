@@ -920,6 +920,16 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "non-local-call-argument-capture",
+      sourceFixtureNoExports
+        "non-local-call-argument-capture"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "__kernel_toFloat64 seed."
+            ]
+        )
+    ),
     ( "higher-order-parameter",
       sourceFixtureNoExports
         "higher-order-parameter"

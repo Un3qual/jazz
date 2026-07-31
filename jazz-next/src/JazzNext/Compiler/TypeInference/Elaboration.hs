@@ -399,6 +399,19 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
 
     finalizeApplicationSpine functions statementIndex childPath parameters expression =
       let (callee, arguments, resultTypes) = applicationSpine expression
+          finalizedArguments =
+            map
+              ( \(argumentPath, argument) ->
+                  finalizeExpression
+                    functions
+                    statementIndex
+                    (childPath <> argumentPath)
+                    parameters
+                    ScalarExpression
+                    argument
+              )
+              arguments
+          argumentFailures = concatMap fst finalizedArguments
        in case callee of
             ProvisionalVariableExpression name _
               | Just function <- Map.lookup name functions ->
@@ -410,19 +423,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                         ]
                       (calleeFailures, maybeCallee) =
                         finalizeExpression functions statementIndex childPath parameters CalleeExpression callee
-                      finalizedArguments =
-                        map
-                          ( \(argumentPath, argument) ->
-                              finalizeExpression
-                                functions
-                                statementIndex
-                                (childPath <> argumentPath)
-                                parameters
-                                ScalarExpression
-                                argument
-                          )
-                          arguments
-                      childFailures = calleeFailures <> concatMap fst finalizedArguments
+                      childFailures = calleeFailures <> argumentFailures
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
@@ -446,11 +447,15 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                                   )
                            in (failures, if null failures then typedApplication else Nothing)
             ProvisionalVariableExpression name _ ->
-              ( [failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))],
+              ( failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))
+                  : argumentFailures,
                 Nothing
               )
             _ ->
-              ([failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail], Nothing)
+              ( failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail
+                  : argumentFailures,
+                Nothing
+              )
 
     applicationSpine = go [] [] []
       where

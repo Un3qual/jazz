@@ -7,7 +7,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
+import JazzNext.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Statement (..))
 import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import JazzNext.Compiler.Diagnostics
@@ -51,6 +51,7 @@ tests =
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
     ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
+    ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
     ("rejects higher-order function parameters from the scalar profile", testHigherOrderParameterRejection),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
@@ -58,6 +59,7 @@ tests =
     ("specializes terminal binary operands to their unified numeric type", testNarrowRootBinaryDirectCall),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
+    ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
     ("rejects anonymous lambdas as module results", testAnonymousLambdaResultRejection),
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
@@ -430,6 +432,34 @@ testInvalidArityArgumentFailureAccumulation = do
   assertEqual "partial-call argument failure repeatability" firstRun secondRun
   assertEqual "partial-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
 
+testNonLocalCallArgumentFailureAccumulation :: IO ()
+testNonLocalCallArgumentFailureAccumulation = do
+  let fixture = producerEdgeFixture "non-local-call-argument-capture"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+              TypedCoreNonLocalCallUnsupported
+              (TypedCoreNameDetail "__kernel_toFloat64"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "seed")
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "non-local-call argument failure inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "non-local-call argument failure repeatability" firstRun secondRun
+  assertEqual "non-local-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
+
 testHigherOrderParameterRejection :: IO ()
 testHigherOrderParameterRejection = do
   let fixture = producerEdgeFixture "higher-order-parameter"
@@ -510,6 +540,39 @@ testRootDataFailureAccumulation = do
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "root data failure repeatable production" firstRun secondRun
   assertEqual "root data failure structural order" expected (typedCoreProductionStatus firstRun)
+
+testNestedDataFailureAccumulation :: IO ()
+testNestedDataFailureAccumulation =
+  case fixtures of
+    fixture : _ -> do
+      resolvedModule <- resolveFixtureModule fixture
+      let spanValue = SourceSpan 1 1
+          nestedBlock =
+            EBlock
+              [ SExpr spanValue (EList [ELit (LInt 1)]),
+                SData spanValue "Box" [] [DataConstructor "Box" []],
+                SExpr spanValue (ETuple [])
+              ]
+          forgedModule =
+            withExpression
+              (EBlock [SExpr spanValue nestedBlock])
+              resolvedModule
+          expected =
+            TypedCoreProductionUnsupported
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                  TypedCoreStructuredValueUnsupported
+                  TypedCoreDataValueDetail,
+                TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+                  TypedCoreStructuredValueUnsupported
+                  TypedCoreListValueDetail
+              ]
+      firstRun <- produceResolvedFixture fixture forgedModule
+      secondRun <- produceResolvedFixture fixture forgedModule
+      assertEqual "nested data failure repeatable production" firstRun secondRun
+      assertEqual "nested data failure structural order" expected (typedCoreProductionStatus firstRun)
+    [] -> failTest "unit fixture is missing"
 
 testAnonymousLambdaResultRejection :: IO ()
 testAnonymousLambdaResultRejection = do

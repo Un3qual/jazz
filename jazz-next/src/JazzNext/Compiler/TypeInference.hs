@@ -482,12 +482,15 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
       | mode == ProduceTypedCoreExpressionDirectCall,
         (failureKind, failureDetail) <- blockProductionFailureKindAndDetail statements,
         failureKind == TypedCoreStructuredValueUnsupported ->
-          let (ordinaryResult, finalState) = inferBlock InferenceOnly statements
+          let (blockResult, finalState) = inferBlock mode statements
+              failures =
+                InferredProductionFailure [] failureKind failureDetail
+                  : inferredProductionFailures blockResult
            in
             ( InferredExpr
-                (inferredExpressionType ordinaryResult)
-                (Just (ProvisionalUnsupportedExpression failureKind failureDetail))
-                [InferredProductionFailure [] failureKind failureDetail],
+                (inferredExpressionType blockResult)
+                (Just (ProvisionalRetainedFailures failures))
+                failures,
               finalState
             )
     EBlock statements ->
