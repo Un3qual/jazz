@@ -105,6 +105,7 @@ data AnalysisInputs = AnalysisInputs
   { analysisBuiltinMode :: BuiltinResolutionMode,
     analysisWarningSettings :: WarningSettings,
     analysisImportedValues :: Map Name AnalysisBinding,
+    analysisForwardFunctions :: Map Int (Name, AnalysisBinding),
     analysisImportedClasses :: Set Name,
     analysisModulePath :: Maybe [Text]
   }
@@ -154,6 +155,7 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
       { analysisBuiltinMode = builtinMode,
         analysisWarningSettings = settings,
         analysisImportedValues = Map.empty,
+        analysisForwardFunctions = Map.empty,
         analysisImportedClasses = Set.empty,
         analysisModulePath = Nothing
       }
@@ -166,7 +168,7 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
   let (warnings, errors) =
         case expr of
           EBlock statements ->
-            collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings importedClasses topLevelContext statements
+            collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
           _ ->
             collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
    in
@@ -180,6 +182,10 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
     builtinMode = analysisBuiltinMode inputs
     settings = analysisWarningSettings inputs
     importedBindings = Map.map analysisBindingToVisibleBinding (analysisImportedValues inputs)
+    forwardBindings =
+      Map.map
+        (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
+        (analysisForwardFunctions inputs)
     importedClasses = Set.map identifierText (analysisImportedClasses inputs)
 
 analysisBindingToVisibleBinding :: AnalysisBinding -> VisibleBinding
@@ -325,7 +331,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ rightExpr ->
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context rightExpr
-    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings visibleClassNames context statements
+    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings Map.empty visibleClassNames context statements
 
 collectExprListDiagnostics ::
   BuiltinResolutionMode ->
@@ -356,11 +362,12 @@ collectScopeDiagnostics ::
   Set Int ->
   WarningSettings ->
   Map Name VisibleBinding ->
+  Map Int (Name, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
   [Statement] ->
   ([Diagnostic], [Diagnostic])
-collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope outerClassNames context statements =
+collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -583,9 +590,12 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
               visible =
                 -- Recursive peer names in the same SCC are visible while
                 -- analyzing the binding body.
-                withRecursivePeerBindings
+                withForwardFunctionBindings
                   statementIndex
-                  (currentVisibleBindings nextScope)
+                  ( withRecursivePeerBindings
+                      statementIndex
+                      (currentVisibleBindings nextScope)
+                  )
               bindingContext = contextForBinding bindingName
               (valueWarnings, valueErrors) =
                 collectExprDiagnostics
@@ -688,6 +698,19 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                   Map.notMember peerName visibleNow
               ]
        in visibleNow `Map.union` peerEntries
+
+    withForwardFunctionBindings ::
+      Int ->
+      Map Name VisibleBinding ->
+      Map Name VisibleBinding
+    withForwardFunctionBindings statementIndex visibleNow =
+      case Map.lookup statementIndex forwardBindings of
+        Nothing -> visibleNow
+        Just _ ->
+          foldl'
+            (\visibleAcc (_, (name, binding)) -> Map.insertWith (\_ existing -> existing) name binding visibleAcc)
+            visibleNow
+            (filter ((> statementIndex) . fst) (Map.toAscList forwardBindings))
 
     appendWarnings :: [Diagnostic] -> [Diagnostic] -> [Diagnostic]
     appendWarnings = foldl' (flip (:))

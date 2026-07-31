@@ -23,7 +23,6 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
-import Data.List (tails)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -37,12 +36,11 @@ import JazzNext.Compiler.Analyzer
     analyzeProgramWithInputs
   )
 import JazzNext.Compiler.AST
-  ( SignatureType (..),
-    SignaturePayload (..),
-    DataConstructor (..),
+  ( DataConstructor (..),
     Expr (..),
     Literal (..),
     NumericType (..),
+    SignatureType,
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -153,6 +151,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     InferredExpr (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedScope (..),
+    ProvisionalTypedStatement (..),
     TypedCoreProductionMode (..),
   )
 import JazzNext.Compiler.WarningConfig
@@ -250,11 +249,6 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode :: TypedCoreProdu
 inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hiddenStatementIndices preludeStatementIndices expr =
   {-# SCC "jazz-stage:type-inference" #-}
   do
-  AnalysisResult _ analyzerDiagnostics <-
-    analyzeProgramWithInputs
-      (analysisInputsForInference inputs expr)
-      hiddenStatementIndices
-      expr
   let (inferredResult, finalState) =
         inferExprTypeWithMode
           mode
@@ -265,6 +259,11 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
           expr
       typeErrors = reverse (inferErrorsRev finalState)
       runtimeTypeHints = inferRuntimeTypeHints finalState
+  AnalysisResult _ analyzerDiagnostics <-
+    analyzeProgramWithInputs
+      (analysisInputsForInference inputs (forwardAnalysisValues mode inferredResult))
+      hiddenStatementIndices
+      expr
   inferredExpressionType inferredResult `seq`
     pure
       ( InferenceResult
@@ -351,15 +350,14 @@ emptyInferenceInputs builtinMode settings =
       inferenceCurrentModulePath = Nothing
     }
 
-analysisInputsForInference :: InferenceInputs -> Expr -> AnalysisInputs
-analysisInputsForInference inputs expression =
+analysisInputsForInference :: InferenceInputs -> Map Int (Name, AnalysisBinding) -> AnalysisInputs
+analysisInputsForInference inputs forwardValues =
   AnalysisInputs
     { analysisBuiltinMode = inferenceBuiltinMode inputs,
       analysisWarningSettings = inferenceWarningSettings inputs,
       analysisImportedValues =
-        Map.union
-          (Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs))
-          (Map.fromList [(name, AnalysisBinding Nothing True) | name <- signedRootBindings expression]),
+        Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs),
+      analysisForwardFunctions = forwardValues,
       analysisImportedClasses =
         Set.map
           (sourceName . mkIdentifier)
@@ -369,41 +367,18 @@ analysisInputsForInference inputs expression =
           ),
       analysisModulePath = inferenceCurrentModulePath inputs
     }
-  where
-    signedRootBindings rootExpression =
-      case rootExpression of
-        EBlock statements ->
-          [ bindingName
-          | (SSignature signatureName _ signature) : (SLet bindingName _ bindingExpression) : _ <- tails statements,
-            signatureName == bindingName,
-            concreteFunctionSignature signature,
-            leadingLambda bindingExpression
-          ]
-        _ -> []
 
-    concreteFunctionSignature signature =
-      case signature of
-        SignatureType (TypeFunction argumentType resultType) ->
-          concreteScalarSignatureType argumentType
-            && concreteScalarSignatureType resultType
-        _ -> False
-
-    concreteScalarSignatureType signatureType =
-      case signatureType of
-        TypeInt -> True
-        TypeFloat -> True
-        TypeNumeric {} -> True
-        TypeBool -> True
-        TypeChar -> True
-        TypeFunction argumentType resultType ->
-          concreteScalarSignatureType argumentType
-            && concreteScalarSignatureType resultType
-        _ -> False
-
-    leadingLambda bindingExpression =
-      case bindingExpression of
-        ELambda {} -> True
-        _ -> False
+forwardAnalysisValues :: TypedCoreProductionMode -> InferredExpr -> Map Int (Name, AnalysisBinding)
+forwardAnalysisValues mode inferredResult
+  | mode /= ProduceTypedCoreExpressionDirectCall = Map.empty
+  | otherwise =
+      case inferredProvisionalExpr inferredResult of
+        Just (ProvisionalScopeStatements provisionalStatements) ->
+          Map.fromList
+            [ (statementIndex, (name, AnalysisBinding (Just bindingSpan) False))
+              | ProvisionalFunctionBinding statementIndex name bindingSpan _ True _ _ <- provisionalStatements
+            ]
+        _ -> Map.empty
 
 initialStateForInference :: InferenceInputs -> InferState
 initialStateForInference inputs =

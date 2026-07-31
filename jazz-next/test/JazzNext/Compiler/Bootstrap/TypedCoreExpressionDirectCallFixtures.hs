@@ -10,6 +10,8 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     directCallExpectedPrograms,
+    ordinaryForwardVisibilityFixture,
+    forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
     admittedOperators,
     explicitNumericTypes,
@@ -145,6 +147,18 @@ fixtures =
       },
     sourceFixture "user-defined-operator-call" userDefinedOperatorCallSource
   ]
+
+forwardVisibilityNegativeFixtures :: [Fixture]
+forwardVisibilityNegativeFixtures =
+  [ sourceFixture "forward-polymorphic-function-invisibility" forwardPolymorphicFunctionSource,
+    sourceFixture "forward-constrained-function-invisibility" forwardConstrainedFunctionSource,
+    sourceFixture "forward-signed-scalar-invisibility" forwardSignedScalarSource,
+    sourceFixture "forward-unsigned-lambda-invisibility" forwardUnsignedLambdaSource
+  ]
+
+ordinaryForwardVisibilityFixture :: Fixture
+ordinaryForwardVisibilityFixture =
+  sourceFixture "ordinary-unsigned-forward-caller-invisibility" ordinaryUnsignedForwardCallerSource
 
 expectedUnitProgram :: TypedProgram
 expectedUnitProgram = TypedProgram Nothing [entryModule] modulePath
@@ -337,6 +351,56 @@ forwardDirectCallDagSource =
       "second :: Int -> Int.",
       "second = \\(item) -> item + 1.",
       "first 41."
+    ]
+
+ordinaryUnsignedForwardCallerSource :: Text
+ordinaryUnsignedForwardCallerSource =
+  Text.unlines
+    [ "caller = \\(item) -> later item.",
+      "later :: Int -> Int.",
+      "later = \\(item) -> item.",
+      "caller 1."
+    ]
+
+forwardPolymorphicFunctionSource :: Text
+forwardPolymorphicFunctionSource =
+  Text.unlines
+    [ "first :: Int -> Int.",
+      "first = \\(item) -> later item.",
+      "later :: a -> a.",
+      "later = \\(item) -> item.",
+      "first 1."
+    ]
+
+forwardConstrainedFunctionSource :: Text
+forwardConstrainedFunctionSource =
+  Text.unlines
+    [ "class Eq(a) { }.",
+      "impl Eq(Int) { }.",
+      "first :: Int -> Int.",
+      "first = \\(item) -> later item.",
+      "later :: @{Eq(Int)}: Int -> Int.",
+      "later = \\(item) -> item.",
+      "first 1."
+    ]
+
+forwardSignedScalarSource :: Text
+forwardSignedScalarSource =
+  Text.unlines
+    [ "first :: Int -> Int.",
+      "first = \\(item) -> item + later.",
+      "later :: Int.",
+      "later = 1.",
+      "first 1."
+    ]
+
+forwardUnsignedLambdaSource :: Text
+forwardUnsignedLambdaSource =
+  Text.unlines
+    [ "first :: Int -> Int.",
+      "first = \\(item) -> later item.",
+      "later = \\(item) -> item.",
+      "first 1."
     ]
 
 nestedDirectCallsSource :: Text

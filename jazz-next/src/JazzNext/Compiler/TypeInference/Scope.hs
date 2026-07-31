@@ -348,17 +348,9 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
-    forwardSignedFunctionStatements =
-      Set.filter
-        ( \statementIndex ->
-            case Map.lookup statementIndex statementsByIndex of
-              Just (SLet _ _ (ELambda {})) -> True
-              _ -> False
-        )
-        signedBindingStatements
     statementsByIndex = Map.fromList indexedStatements
-    (bindingSeedsByStatement, bindingSeededState) =
-      allocateBindingSeeds indexedStatements initialState
+    (bindingSeedsByStatement, forwardFunctionBindings, bindingSeededState) =
+      allocateBindingSeeds mode indexedStatements initialState
     predeclaredDataTypes =
       predeclareScopeDataTypes indexedStatements bindingSeededState
     stateAfterBindingSeeds = bindingSeededState
@@ -461,22 +453,22 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                         Map.insert name (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                       _ -> envWithRecursiveBindings
                   envWithForwardSignedBindings =
-                    foldl'
-                      ( \currentEnv signedStatementIndex ->
-                          case
-                              ( Map.lookup signedStatementIndex bindingNamesByStatement,
-                                Map.lookup signedStatementIndex bindingSeedsByStatement
-                              ) of
-                            (Just signedName, Just signedSeed) ->
-                              Map.insertWith
-                                (\_ existing -> existing)
-                                signedName
-                                (PlainTypeBinding signedSeed)
-                                currentEnv
-                            _ -> currentEnv
-                      )
-                      envWithBindingSeed
-                      (Set.toAscList forwardSignedFunctionStatements)
+                    case Map.lookup statementIndex forwardFunctionBindings of
+                      Nothing -> envWithBindingSeed
+                      Just _ ->
+                        foldl'
+                          ( \currentEnv (forwardStatementIndex, forwardBinding) ->
+                              if forwardStatementIndex > statementIndex
+                                then
+                                  Map.insertWith
+                                    (\_ existing -> existing)
+                                    (forwardFunctionName forwardBinding)
+                                    (PlainTypeBinding (forwardFunctionType forwardBinding))
+                                    currentEnv
+                                else currentEnv
+                          )
+                          envWithBindingSeed
+                          (Map.toAscList forwardFunctionBindings)
                   envWithPendingSignature =
                     case matchingPendingSignature of
                       Just pendingSignature ->
@@ -653,7 +645,15 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                     case (mode, nextBindingType, inferredProvisionalExpr rawValueResult) of
                       (ProduceTypedCoreExpressionDirectCall, Just bindingType, Just expression)
                         | ProvisionalLambdaExpression {} <- expression ->
-                            [ProvisionalFunctionBinding statementIndex name bindingSpan bindingType maybeNextBinding expression]
+                            [ ProvisionalFunctionBinding
+                                statementIndex
+                                name
+                                bindingSpan
+                                bindingType
+                                (Map.member statementIndex forwardFunctionBindings)
+                                maybeNextBinding
+                                expression
+                            ]
                       (ProduceTypedCoreExpressionDirectCall, _, _) ->
                         [ProvisionalUnsupportedStatement statementIndex]
                       _ -> []
@@ -1071,19 +1071,78 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                 _ -> currentEnv
         _ -> currentEnv
 
+data ForwardFunctionBinding = ForwardFunctionBinding
+  { forwardFunctionName :: Name,
+    forwardFunctionType :: ExpressionType
+  }
+
 allocateBindingSeeds ::
+  TypedCoreProductionMode ->
   [(Int, Statement)] ->
   InferState ->
-  (Map Int ExpressionType, InferState)
-allocateBindingSeeds indexedStatements initialState =
-  foldl' step (Map.empty, initialState) indexedStatements
+  (Map Int ExpressionType, Map Int ForwardFunctionBinding, InferState)
+allocateBindingSeeds mode indexedStatements initialState =
+  let (bindingSeeds, forwardFunctions, _, finalState) =
+        foldl' step (Map.empty, Map.empty, Nothing, initialState) indexedStatements
+   in (bindingSeeds, forwardFunctions, finalState)
   where
-    step (bindingSeeds, state) (statementIndex, statement) =
+    step (bindingSeeds, forwardFunctions, pendingSignature, state) (statementIndex, statement) =
       case statement of
-        SLet {} ->
+        SSignature name signatureSpan signaturePayload ->
+          ( bindingSeeds,
+            forwardFunctions,
+            if mode == ProduceTypedCoreExpressionDirectCall
+              then
+                case Signature.signaturePayloadToSignatureType signaturePayload state of
+                  (Just signatureType, _) ->
+                    Just
+                      ( PendingSignatureType
+                          (identifierText name)
+                          signatureSpan
+                          (Signature.signaturePayloadDeclaredType signatureType)
+                          (Signature.signaturePayloadExplicitConstraints signatureType)
+                          (Signature.signaturePayloadVariableOrder signatureType)
+                      )
+                  (Nothing, _) -> Nothing
+              else Nothing,
+            state
+          )
+        SLet bindingName _bindingSpan bindingExpression ->
           let (bindingSeed, nextState) = freshTypeVar state
-           in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
-        _ -> (bindingSeeds, state)
+              nextForwardFunctions =
+                case pendingSignature of
+                  Just signature
+                    | pendingSignatureName signature == identifierText bindingName,
+                      ELambda {} <- bindingExpression,
+                      eligibleForwardSignature signature ->
+                        Map.insert
+                          statementIndex
+                          (ForwardFunctionBinding bindingName (pendingSignatureDeclaredType signature))
+                          forwardFunctions
+                  _ -> forwardFunctions
+           in (Map.insert statementIndex bindingSeed bindingSeeds, nextForwardFunctions, Nothing, nextState)
+        _ -> (bindingSeeds, forwardFunctions, Nothing, state)
+
+    eligibleForwardSignature signature =
+      null (pendingSignatureVariableOrder signature)
+        && null (pendingSignatureExplicitConstraints signature)
+        && concreteForwardFunctionType (pendingSignatureDeclaredType signature)
+
+    concreteForwardFunctionType expressionType =
+      case expressionType of
+        TFunctionType argumentType resultType ->
+          concreteForwardScalarType argumentType
+            && (concreteForwardScalarType resultType || concreteForwardFunctionType resultType)
+        _ -> False
+
+    concreteForwardScalarType expressionType =
+      case expressionType of
+        TIntType -> True
+        TFloatType -> True
+        TNumericType {} -> True
+        TBoolType -> True
+        TCharType -> True
+        _ -> False
 
 predeclareScopeDataTypes ::
   [(Int, Statement)] ->

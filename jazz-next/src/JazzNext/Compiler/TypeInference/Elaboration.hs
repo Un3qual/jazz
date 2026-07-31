@@ -129,7 +129,7 @@ data ProvisionalTypedExpr
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
+  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType Bool (Maybe TypeBinding) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalUnsupportedStatement Int
   deriving (Eq, Show)
@@ -203,7 +203,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
               let typedName = resolvedValueName name
                   owner = binderAt statementIndex [] typedName
                in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner info)))
-        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
+        ProvisionalFunctionBinding statementIndex name spanValue expressionType _forwardEligible maybeBinding expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
               recursiveFailures =
@@ -396,7 +396,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
     functionTable statements =
       Map.fromList
         [ (name, FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
-        | ProvisionalFunctionBinding statementIndex name _ expressionType _ expression <- statements,
+        | ProvisionalFunctionBinding statementIndex name _ expressionType _ _ expression <- statements,
           lambdaCount expression > 0
         ]
 

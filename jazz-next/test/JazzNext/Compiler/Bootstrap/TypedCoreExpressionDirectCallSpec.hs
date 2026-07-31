@@ -7,7 +7,13 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import JazzNext.Compiler.AST (Expr (..), Literal (..), Statement (..))
-import JazzNext.Compiler.Diagnostics (SourceSpan (..))
+import JazzNext.Compiler.DiagnosticCatalog (diagnosticCodeText)
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..),
+    diagnosticCode,
+    diagnosticSubject,
+    isErrorDiagnostic,
+  )
 import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
@@ -30,6 +36,7 @@ tests =
     ("produces unit and preserves ordinary inference", testUnitProduction),
     ("produces the complete scalar expression profile twice", testScalarProduction),
     ("produces monomorphic functions and fully saturated direct calls twice", testDirectCallProduction),
+    ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
@@ -88,6 +95,18 @@ testFixtureManifest =
     >> assertEqual "rejected fixture count" 20 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 36 (Set.size (Set.fromList fixtureNames))
     >> assertEqual
+      "supplemental forward visibility fixtures"
+      [ "forward-polymorphic-function-invisibility",
+        "forward-constrained-function-invisibility",
+        "forward-signed-scalar-invisibility",
+        "forward-unsigned-lambda-invisibility"
+      ]
+      (map fixtureName forwardVisibilityNegativeFixtures)
+    >> assertEqual
+      "ordinary forward visibility fixture"
+      "ordinary-unsigned-forward-caller-invisibility"
+      (fixtureName ordinaryForwardVisibilityFixture)
+    >> assertEqual
       "explicit numeric widths"
       ["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float16", "Float32", "Float64"]
       explicitNumericTypes
@@ -106,11 +125,74 @@ testDirectCallProduction =
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      if name == "forward-direct-call-dag"
+        then do
+          assertUnboundName "ordinary forward direct call" "second" ordinary
+          assertEqual
+            "typed-core forward direct call diagnostics"
+            []
+            (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+        else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual
         (name <> " complete typed program")
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
+
+testForwardVisibilityBoundary :: IO ()
+testForwardVisibilityBoundary = do
+  ordinary <-
+    inferExpressionWithInputs
+      (fixtureInputs ordinaryForwardVisibilityFixture)
+      (coreModuleExpr (resolvedModuleCore (fixtureModule ordinaryForwardVisibilityFixture)))
+  firstRun <- produceFixture ordinaryForwardVisibilityFixture
+  secondRun <- produceFixture ordinaryForwardVisibilityFixture
+  assertUnboundLater "ordinary unsigned forward caller" ordinary
+  assertEqual
+    "ordinary unsigned forward caller inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "ordinary unsigned forward caller repeatable production" firstRun secondRun
+  assertEqual
+    "ordinary unsigned forward caller blocks typed-core production"
+    TypedCoreProductionBlockedByDiagnostics
+    (typedCoreProductionStatus firstRun)
+  mapM_ assertInvisible forwardVisibilityNegativeFixtures
+  where
+    assertInvisible fixture = do
+      ordinary <-
+        inferExpressionWithInputs
+          (fixtureInputs fixture)
+          (coreModuleExpr (resolvedModuleCore (fixtureModule fixture)))
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertUnboundLater (fixtureName fixture <> " ordinary invisibility") ordinary
+      assertEqual
+        (fixtureName fixture <> " inference compatibility")
+        ordinary
+        (typedCoreProductionInferenceResult firstRun)
+      assertEqual
+        (fixtureName fixture <> " repeatable production")
+        firstRun
+        secondRun
+      assertEqual
+        (fixtureName fixture <> " blocks typed-core production")
+        TypedCoreProductionBlockedByDiagnostics
+        (typedCoreProductionStatus firstRun)
+
+assertUnboundLater :: Text -> InferenceResult -> IO ()
+assertUnboundLater label = assertUnboundName label "later"
+
+assertUnboundName :: Text -> Text -> InferenceResult -> IO ()
+assertUnboundName label name inferenceResult =
+  assertEqual
+    (label <> " reports " <> name <> " as unbound")
+    True
+    ( ("E1001", Just name)
+        `elem` [ (diagnosticCodeText (diagnosticCode diagnostic), diagnosticSubject diagnostic)
+               | diagnostic <- inferredDiagnostics inferenceResult,
+                 isErrorDiagnostic diagnostic
+               ]
+    )
 
 testRejectedCallableProfile :: IO ()
 testRejectedCallableProfile =
