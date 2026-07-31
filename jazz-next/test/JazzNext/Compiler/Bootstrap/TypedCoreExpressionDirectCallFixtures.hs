@@ -18,6 +18,7 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedLoweredPrograms,
     lowererBoundaryPrograms,
     lowererStructuralBoundaryPrograms,
+    producerEdgeFixtures,
     ordinaryForwardVisibilityFixture,
     forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
@@ -662,6 +663,7 @@ lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
+    ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("self-recursive-function", selfRecursiveLowererProgram),
     ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
@@ -699,6 +701,23 @@ duplicateParameterLowererProgram =
         (variableExpr "item" intInfo)
     ]
     (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
+
+duplicateFunctionLowererProgram :: TypedProgram
+duplicateFunctionLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "identity"
+        [("first", intInfo)]
+        intInfo
+        (variableExpr "first" intInfo),
+      ExpectedFunction
+        "identity"
+        [("second", intInfo)]
+        intInfo
+        (variableExpr "second" intInfo)
+    ]
+    (directCall "identity" [intInfo] intInfo [intExpr 1])
 
 scalarBindingProgram :: TypedProgram
 scalarBindingProgram =
@@ -862,6 +881,57 @@ importedDirectCallLowererProgram =
 
 rejectedScalarFixtures :: [Fixture]
 rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "conditional", "pattern-case", "local-block-binding"]
+
+producerEdgeFixtures :: [(Text, Fixture)]
+producerEdgeFixtures =
+  [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+    ( "signed-function-only",
+      sourceFixtureNoExports
+        "signed-function-only"
+        ( Text.unlines
+            [ "identity :: Int -> Int.",
+              "identity = \\(item) -> item."
+            ]
+        )
+    ),
+    ( "nested-unsupported-children",
+      sourceFixtureNoExports
+        "nested-unsupported-children"
+        "if True then [1] else [2]."
+    ),
+    ( "signed-function-rebinding",
+      sourceFixtureNoExports
+        "signed-function-rebinding"
+        ( Text.unlines
+            [ "identity :: Int -> Int.",
+              "identity = \\(item) -> item.",
+              "identity :: Int -> Int.",
+              "identity = \\(item) -> item + 1.",
+              "identity 1."
+            ]
+        )
+    ),
+    ( "duplicate-leading-parameters",
+      sourceFixtureNoExports
+        "duplicate-leading-parameters"
+        ( Text.unlines
+            [ "chooseSecond :: Int -> Int -> Int.",
+              "chooseSecond = \\(item, item) -> item.",
+              "chooseSecond 1 2."
+            ]
+        )
+    ),
+    ( "curried-shadowed-parameter",
+      sourceFixtureNoExports
+        "curried-shadowed-parameter"
+        ( Text.unlines
+            [ "chooseSecond :: Int -> Int -> Int.",
+              "chooseSecond = \\(item) -> \\(item) -> item.",
+              "chooseSecond 1 2."
+            ]
+        )
+    )
+  ]
 
 admittedOperators :: [Text]
 admittedOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]

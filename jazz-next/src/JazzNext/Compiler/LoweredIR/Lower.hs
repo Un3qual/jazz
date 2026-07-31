@@ -11,7 +11,8 @@ module JazzNext.Compiler.LoweredIR.Lower
   )
 where
 
-import Data.List (find, nub)
+import Data.List (find)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.LoweredIR
@@ -28,6 +29,8 @@ data LoweredIRLoweringKind
   | LoweredIRUnsupportedRepresentation
   | LoweredIRUnsupportedOperator
   | LoweredIRInvalidFunctionShape
+  | LoweredIRDuplicateFunctionIdentity
+  | LoweredIRDuplicateParameterIdentity
   | LoweredIRCaptureUnsupported
   | LoweredIRRecursiveFunctionUnsupported
   | LoweredIRCallableValueUnsupported
@@ -182,7 +185,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
                              [ LoweredBlock
                                  entryBlockId
                                  []
-                                 (loweringInstructions finalState)
+                                 (reverse (loweringInstructions finalState))
                                  (Just (LoweredReturn resultOperand))
                              ]
                              entryBlockId
@@ -230,49 +233,98 @@ collectFunctionShapes ::
   [TypedStatement] ->
   ([LoweredIRLoweringFailure], [FunctionShape], [TypedCoreName])
 collectFunctionShapes modulePath =
-  go 0 [] [] []
+  go 0 [] [] [] Set.empty
   where
-    go _ failures functions localNames [] = (failures, functions, localNames)
-    go statementIndex failures functions localNames (statement : rest) =
+    go _ reversedFailures reversedFunctions reversedLocalNames _ [] =
+      (reverse reversedFailures, reverse reversedFunctions, reverse reversedLocalNames)
+    go statementIndex reversedFailures reversedFunctions reversedLocalNames seenNames (statement : rest) =
       case statement of
         TypedSignatureStatement {} ->
-          continue failures functions localNames
+          continue reversedFailures reversedFunctions reversedLocalNames seenNames
         TypedLetStatement _ name _ scheme expression ->
-          case collectFunctionShape modulePath statementIndex name scheme expression of
-            Just function ->
-              continue failures (functions <> [function]) (localNames <> [name])
-            Nothing ->
+          if Set.member name seenNames
+            then
               continue
-                ( failures
-                    <> [ LoweredIRLoweringFailure
-                           (TypedStatementPath modulePath [statementIndex])
-                           LoweredIRInvalidFunctionShape
-                           (LoweredIRNameFailureDetail name)
-                       ]
+                ( LoweredIRLoweringFailure
+                    (TypedStatementPath modulePath [statementIndex])
+                    LoweredIRDuplicateFunctionIdentity
+                    (LoweredIRNameFailureDetail name)
+                    : reversedFailures
                 )
-                functions
-                (localNames <> [name])
+                reversedFunctions
+                reversedLocalNames
+                seenNames
+            else
+              case duplicateLeadingParameters expression of
+                duplicateParameters@(_ : _) ->
+                  continue
+                    ( reverse
+                        [ LoweredIRLoweringFailure
+                            (TypedExpressionPath modulePath [statementIndex] parameterPath)
+                            LoweredIRDuplicateParameterIdentity
+                            (LoweredIRNameFailureDetail parameterName)
+                        | (parameterPath, parameterName) <- duplicateParameters
+                        ]
+                        <> reversedFailures
+                    )
+                    reversedFunctions
+                    (name : reversedLocalNames)
+                    (Set.insert name seenNames)
+                [] ->
+                  case collectFunctionShape modulePath statementIndex name scheme expression of
+                    Just function ->
+                      continue
+                        reversedFailures
+                        (function : reversedFunctions)
+                        (name : reversedLocalNames)
+                        (Set.insert name seenNames)
+                    Nothing ->
+                      continue
+                        ( LoweredIRLoweringFailure
+                            (TypedStatementPath modulePath [statementIndex])
+                            LoweredIRInvalidFunctionShape
+                            (LoweredIRNameFailureDetail name)
+                            : reversedFailures
+                        )
+                        reversedFunctions
+                        (name : reversedLocalNames)
+                        (Set.insert name seenNames)
         TypedExpressionStatement {} ->
-          continue failures functions localNames
+          continue reversedFailures reversedFunctions reversedLocalNames seenNames
         _ ->
           continue
-            ( failures
-                <> [ LoweredIRLoweringFailure
-                       (TypedStatementPath modulePath [statementIndex])
-                       LoweredIRUnsupportedStatement
-                       LoweredIRNoFailureDetail
-                   ]
+            ( LoweredIRLoweringFailure
+                (TypedStatementPath modulePath [statementIndex])
+                LoweredIRUnsupportedStatement
+                LoweredIRNoFailureDetail
+                : reversedFailures
             )
-            functions
-            localNames
+            reversedFunctions
+            reversedLocalNames
+            seenNames
       where
-        continue nextFailures nextFunctions nextLocalNames =
+        continue nextFailures nextFunctions nextLocalNames nextSeenNames =
           go
             (statementIndex + 1)
             nextFailures
             nextFunctions
             nextLocalNames
+            nextSeenNames
             rest
+
+duplicateLeadingParameters :: TypedExpr -> [([Int], TypedCoreName)]
+duplicateLeadingParameters =
+  go [0] Set.empty
+  where
+    go reversedPath seenNames expression =
+      case expression of
+        TypedLambdaExpr _ _ parameterName body
+          | Set.member parameterName seenNames ->
+              (reverse reversedPath, parameterName)
+                : go (0 : reversedPath) seenNames body
+          | otherwise ->
+              go (0 : reversedPath) (Set.insert parameterName seenNames) body
+        _ -> []
 
 collectFunctionShape ::
   [Text] ->
@@ -286,7 +338,7 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
   (schemeType, schemeRecipe) <- monomorphicSchemeContract scheme
   (parameters, resultRepresentation, bodyPath, body) <-
     flattenLeadingLambdas schemeType schemeRecipe [0] [] expression
-  if null parameters || duplicateParameterNames parameters
+  if null parameters
     then Nothing
     else
       Just
@@ -301,11 +353,6 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
             functionShapeBodyPath = bodyPath,
             functionShapeBody = body
           }
-  where
-    duplicateParameterNames parameters =
-      let names = map functionParameterName parameters
-       in length names /= length (nub names)
-
 localValueIdentifier :: TypedCoreName -> Maybe Text
 localValueIdentifier name =
   case name of
@@ -327,7 +374,7 @@ flattenLeadingLambdas ::
   [FunctionParameterShape] ->
   TypedExpr ->
   Maybe ([FunctionParameterShape], LoweredRepresentation, [Int], TypedExpr)
-flattenLeadingLambdas expectedType expectedRecipe expressionPath reversedParameters expression =
+flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reversedParameters expression =
   case expression of
     TypedLambdaExpr info _ parameterName body -> do
       if nodeType info == expectedType && nodeRecipe info == expectedRecipe
@@ -360,15 +407,17 @@ flattenLeadingLambdas expectedType expectedRecipe expressionPath reversedParamet
       flattenLeadingLambdas
         resultType
         resultRecipe
-        (expressionPath <> [0])
-        (reversedParameters <> [parameter])
+        (0 : reversedExpressionPath)
+        (parameter : reversedParameters)
         body
     _ -> do
       resultRepresentation <- scalarRepresentation expectedType expectedRecipe
       if nodeType (expressionInfo expression) == expectedType
           && nodeRecipe (expressionInfo expression) == expectedRecipe
-        then Just (reversedParameters, resultRepresentation, expressionPath, expression)
+        then Just (reverse reversedParameters, resultRepresentation, expressionPath, expression)
         else Nothing
+      where
+        expressionPath = reverse reversedExpressionPath
 
 scalarRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 scalarRepresentation typeValue recipe =
@@ -392,13 +441,14 @@ validateStatementProfiles ::
 validateStatementProfiles modulePath functions localValueNames =
   go 0 [] []
   where
-    go _ failures calls [] = (failures, calls)
-    go statementIndex failures calls (statement : rest) =
+    go _ reversedFailureChunks reversedCalls [] =
+      (concat (reverse reversedFailureChunks), reverse reversedCalls)
+    go statementIndex reversedFailureChunks reversedCalls (statement : rest) =
       case statement of
-        TypedSignatureStatement {} -> continue failures calls
+        TypedSignatureStatement {} -> continue reversedFailureChunks reversedCalls
         TypedLetStatement {} ->
           case find ((== statementIndex) . functionShapeStatementIndex) functions of
-            Nothing -> continue failures calls
+            Nothing -> continue reversedFailureChunks reversedCalls
             Just function ->
               let check =
                     inspectExpression
@@ -410,8 +460,8 @@ validateStatementProfiles modulePath functions localValueNames =
                       (functionShapeParameters function)
                       (functionShapeBody function)
                in continue
-                    (failures <> expressionCheckFailures check)
-                    (calls <> [(functionShapeName function, expressionCheckCalls check)])
+                    (expressionCheckFailures check : reversedFailureChunks)
+                    ((functionShapeName function, expressionCheckCalls check) : reversedCalls)
         TypedExpressionStatement _ expression ->
           let check =
                 inspectExpression
@@ -423,9 +473,9 @@ validateStatementProfiles modulePath functions localValueNames =
                   []
                   expression
            in continue
-                (failures <> expressionCheckFailures check)
-                calls
-        _ -> continue failures calls
+                (expressionCheckFailures check : reversedFailureChunks)
+                reversedCalls
+        _ -> continue reversedFailureChunks reversedCalls
       where
         continue nextFailures nextCalls =
           go (statementIndex + 1) nextFailures nextCalls rest
@@ -485,7 +535,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
     _ ->
       oneFailure LoweredIRUnsupportedExpression LoweredIRNoFailureDetail
   where
-    path = TypedExpressionPath modulePath statementPath expressionPath
+    path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
     noExpressionFailures = ExpressionCheck [] []
     oneFailure kind detail =
       ExpressionCheck
@@ -509,20 +559,16 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
       inspectExpression
         modulePath
         statementPath
-        (expressionPath <> [childIndex])
+        (childIndex : expressionPath)
         functions
         localValueNames
         parameters
 
 combineExpressionChecks :: [ExpressionCheck] -> ExpressionCheck
-combineExpressionChecks =
-  foldl'
-    ( \(ExpressionCheck failures calls) (ExpressionCheck nextFailures nextCalls) ->
-        ExpressionCheck
-          (failures <> nextFailures)
-          (calls <> nextCalls)
-    )
-    (ExpressionCheck [] [])
+combineExpressionChecks checks =
+  ExpressionCheck
+    (concatMap expressionCheckFailures checks)
+    (concatMap expressionCheckCalls checks)
 
 inspectApplication ::
   [Text] ->
@@ -537,7 +583,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
   combineExpressionChecks
     (targetCheck : map (uncurry inspectArgument) arguments)
   where
-    path = TypedExpressionPath modulePath statementPath expressionPath
+    path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
     (callee, _, arguments) = applicationSpine expressionPath expression
     inspectArgument argumentPath argument =
       inspectExpression
@@ -594,8 +640,8 @@ applicationSpine rootPath =
       case expression of
         TypedApplyExpr _ function argument ->
           go
-            (currentPath <> [0])
-            ((currentPath <> [1], argument) : arguments)
+            (0 : currentPath)
+            ((1 : currentPath, argument) : arguments)
             function
         _ -> (expression, currentPath, arguments)
 
@@ -649,7 +695,7 @@ emitFunction modulePath functions function =
             [ LoweredBlock
                 (LoweredBlockId "entry")
                 []
-                (loweringInstructions finalState)
+                (reverse (loweringInstructions finalState))
                 (Just (LoweredReturn resultOperand))
             ]
             (LoweredBlockId "entry")
@@ -765,7 +811,7 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
         expression
     _ -> unsupportedExpression path state
   where
-    path = TypedExpressionPath modulePath statementPath expressionPath
+    path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
 
 lowerLiteral ::
   TypedCoreValidationPath ->
@@ -827,7 +873,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
               nextState =
                 rightState
                   { loweringNextTemporary = temporaryIndex + 1,
-                    loweringInstructions = loweringInstructions rightState <> [instruction]
+                    loweringInstructions = instruction : loweringInstructions rightState
                   }
            in ([], Just (LoweredTemporaryOperand temporaryId resultRepresentation), nextState)
         _ -> unsupportedExpression path rightState
@@ -849,7 +895,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
       lowerExpression
         modulePath
         statementPath
-        (expressionPath <> [0])
+        (0 : expressionPath)
         functions
         parameters
         state
@@ -858,7 +904,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
       lowerExpression
         modulePath
         statementPath
-        (expressionPath <> [1])
+        (1 : expressionPath)
         functions
         parameters
         leftState
@@ -898,7 +944,7 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
                             argumentState
                               { loweringNextTemporary = temporaryIndex + 1,
                                 loweringInstructions =
-                                  loweringInstructions argumentState <> [instruction]
+                                  instruction : loweringInstructions argumentState
                               }
                        in ([], Just (LoweredTemporaryOperand temporaryId resultRepresentation), nextState)
                     _ -> unsupportedExpression path argumentState
@@ -936,12 +982,14 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath path (nodeRecipe (expressionInfo expression))
-    (argumentFailures, argumentOperands, argumentState) =
+    (reversedArgumentFailureChunks, reversedArgumentOperands, argumentState) =
       foldl'
         lowerArgument
         ([], [], state)
         arguments
-    lowerArgument (failures, operands, currentState) (argumentPath, argument) =
+    argumentFailures = concat (reverse reversedArgumentFailureChunks)
+    argumentOperands = reverse reversedArgumentOperands
+    lowerArgument (reversedFailureChunks, reversedOperands, currentState) (argumentPath, argument) =
       let (nextFailures, maybeOperand, nextState) =
             lowerExpression
               modulePath
@@ -951,7 +999,7 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
               parameters
               currentState
               argument
-       in (failures <> nextFailures, operands <> [maybeOperand], nextState)
+       in (nextFailures : reversedFailureChunks, maybeOperand : reversedOperands, nextState)
 
 loweredPrimitive :: TypedOperatorRef -> Maybe LoweredPrimitive
 loweredPrimitive operator =

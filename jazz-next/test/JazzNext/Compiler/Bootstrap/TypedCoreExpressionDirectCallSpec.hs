@@ -54,6 +54,9 @@ tests =
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
+    ("rejects modules without an executable result twice", testMissingModuleResultProduction),
+    ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
+    ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
     ("reports every additional foundation profile failure", testAdditionalProfileFailures)
@@ -276,9 +279,15 @@ testLowererCallableBoundary =
           ]
         ),
         ( "duplicate-parameter-function",
-          [ statementFailure 1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "chooseSecond"))
+          [ expressionFailure 1 [0, 0]
+              LoweredIRDuplicateParameterIdentity
+              (LoweredIRNameFailureDetail (currentName "item"))
+          ]
+        ),
+        ( "duplicate-function-identity",
+          [ statementFailure 3
+              LoweredIRDuplicateFunctionIdentity
+              (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
         ( "self-recursive-function",
@@ -783,6 +792,87 @@ testRejectedScalarProfile =
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [])
         failureKind
         failureDetail
+
+testMissingModuleResultProduction :: IO ()
+testMissingModuleResultProduction =
+  mapM_ assertMissing ["empty-module", "signed-function-only"]
+  where
+    expected =
+      TypedCoreProductionUnsupported
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail
+        ]
+    assertMissing name = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual (name <> " exact missing-result failure") expected (typedCoreProductionStatus firstRun)
+
+testCompoundFailureAccumulation :: IO ()
+testCompoundFailureAccumulation = do
+  let fixture = producerEdgeFixture "nested-unsupported-children"
+      expected =
+        TypedCoreProductionUnsupported
+          [ expressionFailure [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
+            expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "compound failure ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+  assertEqual "compound failure repeatable production" firstRun secondRun
+  assertEqual "compound failure structural preorder" expected (typedCoreProductionStatus firstRun)
+  where
+    expressionFailure childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] 0 childPath)
+        kind
+        detail
+
+testProducerIdentityBoundary :: IO ()
+testProducerIdentityBoundary =
+  mapM_ assertIdentity expectedResults
+  where
+    expectedResults =
+      [ ( "signed-function-rebinding",
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreFunctionRebindingUnsupported
+              (TypedCoreNameDetail "identity")
+          ]
+        ),
+        ( "duplicate-leading-parameters",
+          [ parameterFailure [0, 0] ]
+        ),
+        ( "curried-shadowed-parameter",
+          [ parameterFailure [0, 0] ]
+        )
+      ]
+    parameterFailure childPath =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] 1 childPath)
+        TypedCoreDuplicateParameterUnsupported
+        (TypedCoreNameDetail "item")
+    assertIdentity (name, expectedFailures) = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact identity failure")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+
+producerEdgeFixture :: Text -> Fixture
+producerEdgeFixture name =
+  case lookup name producerEdgeFixtures of
+    Just fixture -> fixture
+    Nothing -> error "producer edge fixture is missing"
 
 testUnitProduction :: IO ()
 testUnitProduction =

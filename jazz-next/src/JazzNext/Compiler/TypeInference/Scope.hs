@@ -71,6 +71,7 @@ import JazzNext.Compiler.TypeInference.Capabilities
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Elaboration
   ( InferredExpr (..),
+    InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     TypedCoreProductionMode (..),
@@ -183,7 +184,7 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
               state
               expectedType
               expr
-       in (InferredExpr expressionType Nothing, nextState)
+       in (InferredExpr expressionType Nothing [], nextState)
     else
       case (resolveType state expectedType, expr) of
     (_, EVar name)
@@ -195,7 +196,8 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
             state ->
           ( InferredExpr
               expressionType
-              (if mode == ProduceTypedCoreExpressionDirectCall then ProvisionalVariableExpression name <$> expressionType else Nothing),
+              (if mode == ProduceTypedCoreExpressionDirectCall then ProvisionalVariableExpression name <$> expressionType else Nothing)
+              [],
             nextState
           )
     (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
@@ -209,13 +211,18 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
           provisional =
             ProvisionalLambdaExpression parameterName functionType
               <$> inferredProvisionalExpr bodyResult
-       in (InferredExpr (Just functionType) provisional, stateAfterBody)
+          failures =
+            [ InferredProductionFailure (0 : childPath) kind detail
+            | InferredProductionFailure childPath kind detail <- inferredProductionFailures bodyResult
+            ]
+       in (InferredExpr (Just functionType) provisional failures, stateAfterBody)
     (TNumericType _, ELit literal@(LInt _)) ->
       let (_, nextState) = inferExpression mode builtinMode env state (ELit literal)
           concreteType = resolveType nextState expectedType
        in ( InferredExpr
               (Just concreteType)
-              (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing),
+              (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
+              [],
             nextState
           )
     (TNumericType numericType, ELit literal@(LFloat literalValue literalSource Nothing))
@@ -225,7 +232,8 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
               concreteType = TNumericType numericType
            in ( InferredExpr
                   (Just concreteType)
-                  (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing),
+                  (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
+                  [],
                 nextState
               )
     _ -> inferExpression mode builtinMode env state expr
@@ -312,7 +320,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
           preludeStatementIndices
           ( \_mode builtin env state expr ->
               let (expressionType, nextState) = inferExpression builtin env state expr
-               in (InferredExpr expressionType Nothing, nextState)
+               in (InferredExpr expressionType Nothing [], nextState)
           )
           InferenceOnly
           builtinMode
@@ -330,7 +338,7 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
         case mode of
           ProduceTypedCoreExpressionDirectCall -> Just (ProvisionalScopeStatements provisionalStatements)
           InferenceOnly -> Nothing
-   in (InferredExpr scopeType provisionalExpr, restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
+   in (InferredExpr scopeType provisionalExpr [], restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
   where
     inferPlain builtin env state expr =
       let (result, nextState) = inferExpression mode builtin env state expr
@@ -636,8 +644,8 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                   (scopeResultType, resultState, provisionalRest) =
                     go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
                   provisional =
-                    case (mode, nextBindingType, inferredProvisionalExpr rawValueResult) of
-                      (ProduceTypedCoreExpressionDirectCall, Just bindingType, Just expression)
+                    case (mode, inferredProductionFailures rawValueResult, nextBindingType, inferredProvisionalExpr rawValueResult) of
+                      (ProduceTypedCoreExpressionDirectCall, _, Just bindingType, Just expression)
                         | ProvisionalLambdaExpression {} <- expression ->
                             [ ProvisionalFunctionBinding
                                 statementIndex
@@ -648,7 +656,9 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                                 maybeNextBinding
                                 expression
                             ]
-                      (ProduceTypedCoreExpressionDirectCall, _, _) ->
+                      (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
+                        [ProvisionalFunctionFailures statementIndex failures]
+                      (ProduceTypedCoreExpressionDirectCall, [], _, _) ->
                         [ProvisionalUnsupportedStatement statementIndex]
                       _ -> []
                in (scopeResultType, resultState, provisional <> provisionalRest)

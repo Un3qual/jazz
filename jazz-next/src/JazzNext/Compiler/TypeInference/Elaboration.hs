@@ -11,6 +11,7 @@ module JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionMode (..),
+    InferredProductionFailure (..),
     InferredExpr (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
@@ -76,6 +77,8 @@ data TypedCoreProductionFailureKind
   | TypedCoreCallArityUnsupported
   | TypedCoreCaptureUnsupported
   | TypedCoreRecursiveFunctionUnsupported
+  | TypedCoreFunctionRebindingUnsupported
+  | TypedCoreDuplicateParameterUnsupported
   | TypedCoreNonMonomorphicFunctionUnsupported
   | TypedCoreNonLocalCallUnsupported
   | TypedCoreUnsupportedExport
@@ -112,8 +115,16 @@ data TypedCoreProductionMode
 -- inference-only helpers retain no provisional node.
 data InferredExpr = InferredExpr
   { inferredExpressionType :: Maybe ExpressionType,
-    inferredProvisionalExpr :: Maybe ProvisionalTypedExpr
+    inferredProvisionalExpr :: Maybe ProvisionalTypedExpr,
+    inferredProductionFailures :: [InferredProductionFailure]
   }
+  deriving (Eq, Show)
+
+data InferredProductionFailure
+  = InferredProductionFailure
+      [Int]
+      TypedCoreProductionFailureKind
+      TypedCoreProductionFailureDetail
   deriving (Eq, Show)
 
 data ProvisionalTypedExpr
@@ -125,12 +136,14 @@ data ProvisionalTypedExpr
   | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalScopeStatements [ProvisionalTypedStatement]
   | ProvisionalUnsupportedExpression TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
+  | ProvisionalRetainedFailures [InferredProductionFailure]
   deriving (Eq, Show)
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
   | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType Bool (Maybe TypeBinding) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
+  | ProvisionalFunctionFailures Int [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int
   deriving (Eq, Show)
 
@@ -155,26 +168,38 @@ finalizeTypedCoreExpressionDirectCall ::
   TypedCoreProductionStatus
 finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (ProvisionalTypedScope provisionalScope) =
   case provisionalScope of
-    ProvisionalScopeStatements provisionalStatements ->
-      let functions = functionTable provisionalStatements
-          recursiveNames = recursiveFunctionNames functions
-          finalizedStatements = map (finalizeStatement functions recursiveNames) provisionalStatements
-          exportResult = finalizeExports functions
-          productionFailures = concatMap fst finalizedStatements <> fst exportResult
-       in case productionFailures of
-            _ : _ -> TypedCoreProductionUnsupported productionFailures
-            [] ->
-              let typedStatements = map requireTypedStatement finalizedStatements
-               in case validateTypedProgram (typedProgram (snd exportResult) typedStatements) of
-                    [] -> TypedCoreProductionSucceeded (typedProgram (snd exportResult) typedStatements)
-                    failures -> TypedCoreProductionInvariantFailures failures
+    ProvisionalScopeStatements provisionalStatements
+      | not (hasTerminalResult provisionalStatements) ->
+          TypedCoreProductionUnsupported [missingModuleResultFailure]
+      | otherwise ->
+          let functions = functionTable provisionalStatements
+              reboundFunctions = reboundFunctionStatements provisionalStatements
+              recursiveNames = recursiveFunctionNames functions
+              finalizedStatements = map (finalizeStatement functions reboundFunctions recursiveNames) provisionalStatements
+              exportResult = finalizeExports functions
+              productionFailures = concatMap fst finalizedStatements <> fst exportResult
+           in case productionFailures of
+                _ : _ -> TypedCoreProductionUnsupported productionFailures
+                [] ->
+                  let typedStatements = map requireTypedStatement finalizedStatements
+                   in case reverse typedStatements of
+                        terminalStatement@TypedExpressionStatement {} : _ ->
+                          let programValue =
+                                typedProgram
+                                  (snd exportResult)
+                                  typedStatements
+                                  (typedStatementInfo terminalStatement)
+                           in case validateTypedProgram programValue of
+                                [] -> TypedCoreProductionSucceeded programValue
+                                failures -> TypedCoreProductionInvariantFailures failures
+                        _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
       TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
     _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
     modulePath = resolvedModulePath resolvedModule
 
-    typedProgram typedInterface typedStatements =
+    typedProgram typedInterface typedStatements moduleInfo =
       TypedProgram
         Nothing
         [ TypedModule
@@ -184,9 +209,20 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
             (typedExports typedInterface)
             typedInterface
             typedStatements
-            (typedStatementInfo (last typedStatements))
+            moduleInfo
         ]
         modulePath
+
+    hasTerminalResult statements =
+      case reverse statements of
+        ProvisionalTerminalExpression {} : _ -> True
+        _ -> False
+
+    missingModuleResultFailure =
+      TypedCoreProductionFailure
+        (TypedCoreProductionModulePath modulePath)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
 
     typedExports (TypedModuleInterface values _ _ _) =
       [TypedModuleExport TypedValueNamespace name | TypedValueInterface (TypedResolvedName _ _ name) _ <- values]
@@ -194,7 +230,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement functions recursiveNames statement =
+    finalizeStatement functions reboundFunctions recursiveNames statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           case callableInfo statementIndex [] expressionType of
@@ -206,6 +242,10 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         ProvisionalFunctionBinding statementIndex name spanValue expressionType _forwardEligible maybeBinding expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
+              rebindingFailures =
+                [ statementFailure statementIndex TypedCoreFunctionRebindingUnsupported (TypedCoreNameDetail (identifierText name))
+                | Map.member statementIndex reboundFunctions
+                ]
               recursiveFailures =
                 [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
                 | Set.member name recursiveNames
@@ -222,7 +262,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
                 finalizeExpression functions statementIndex [0] Set.empty False expression
               infoResult = callableInfo statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
-              failures = recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
+              failures = rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
               typedStatement = do
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
@@ -232,6 +272,8 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
           let (failures, maybeTypedExpression) =
                 finalizeExpression functions statementIndex [] Set.empty False expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+        ProvisionalFunctionFailures statementIndex failures ->
+          (map (qualifyInferredFailure statementIndex [0]) failures, Nothing)
         ProvisionalUnsupportedStatement statementIndex ->
           ([statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail], Nothing)
 
@@ -284,15 +326,29 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
           case callableInfo statementIndex childPath expressionType of
             Left failure -> ([failure], Nothing)
             Right info ->
-              let parameterPath = childPath
+              let duplicateParameterFailures =
+                    [ failureAt
+                        statementIndex
+                        childPath
+                        TypedCoreDuplicateParameterUnsupported
+                        (TypedCoreNameDetail (identifierText parameterName))
+                    | Set.member parameterName parameters
+                    ]
+                  parameterPath = childPath
                   (bodyFailures, maybeBody) =
                     finalizeExpression functions statementIndex (childPath <> [0]) (Set.insert parameterName parameters) False body
                   parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
-               in (bodyFailures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
+                  failures = duplicateParameterFailures <> bodyFailures
+               in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine functions statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
+        ProvisionalRetainedFailures failures ->
+          (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
+
+    qualifyInferredFailure statementIndex parentPath (InferredProductionFailure relativePath kind detail) =
+      failureAt statementIndex (parentPath <> relativePath) kind detail
 
     finalizeApplicationSpine functions statementIndex childPath parameters expression =
       let (callee, arguments, resultTypes) = applicationSpine expression
@@ -394,11 +450,33 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
         _ -> TypedClosureRecipe [argumentRecipe] resultRecipe
 
     functionTable statements =
-      Map.fromList
-        [ (name, FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
-        | ProvisionalFunctionBinding statementIndex name _ expressionType _ _ expression <- statements,
-          lambdaCount expression > 0
-        ]
+      foldl'
+        collect
+        Map.empty
+        statements
+      where
+        collect functions statement =
+          case statement of
+            ProvisionalFunctionBinding statementIndex name _ expressionType _ _ expression
+              | lambdaCount expression > 0 ->
+                  Map.insertWith
+                    (\_ firstFunction -> firstFunction)
+                    name
+                    (FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
+                    functions
+            _ -> functions
+
+    reboundFunctionStatements statements =
+      snd (foldl' collect (Set.empty, Map.empty) statements)
+      where
+        collect (seenNames, reboundStatements) statement =
+          case statement of
+            ProvisionalFunctionBinding statementIndex name _ _ _ _ _
+              | Set.member name seenNames ->
+                  (seenNames, Map.insert statementIndex name reboundStatements)
+              | otherwise ->
+                  (Set.insert name seenNames, reboundStatements)
+            _ -> (seenNames, reboundStatements)
 
     recursiveFunctionNames functions =
       Set.fromList

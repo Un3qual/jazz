@@ -334,11 +334,12 @@ testProductionScopeElaboratesSignatureOnce =
             Just (PlainTypeBinding expressionType) ->
               ( InferredExpr
                   (Just expressionType)
-                  (Just (ProvisionalVariableExpression name expressionType)),
+                  (Just (ProvisionalVariableExpression name expressionType))
+                  [],
                 state
               )
-            _ -> (InferredExpr Nothing Nothing, state)
-        _ -> (InferredExpr Nothing Nothing, state)
+            _ -> (InferredExpr Nothing Nothing [], state)
+        _ -> (InferredExpr Nothing Nothing [], state)
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()
 testRecursivePreviewSolverStateIsTransactional =

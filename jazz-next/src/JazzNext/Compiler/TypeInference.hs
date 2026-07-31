@@ -149,6 +149,7 @@ import JazzNext.Compiler.TypeInference.Elaboration
     TypedCoreProductionStatus (..),
     finalizeTypedCoreExpressionDirectCall,
     InferredExpr (..),
+    InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedScope (..),
     ProvisionalTypedStatement (..),
@@ -481,7 +482,8 @@ inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
            in
             ( InferredExpr
                 expressionType
-                (Just (ProvisionalUnsupportedExpression TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail)),
+                (Just (ProvisionalUnsupportedExpression TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail))
+                [InferredProductionFailure [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
               finalState
             )
     EBlock statements ->
@@ -500,7 +502,7 @@ inferExprTypeWithMode mode preludeStatementIndices builtinMode env state expr =
         InferenceOnly ->
           let (expressionType, finalState) =
                 inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr
-           in (InferredExpr expressionType Nothing, finalState)
+           in (InferredExpr expressionType Nothing [], finalState)
         ProduceTypedCoreExpressionDirectCall ->
           inferScalarExprWithProduction builtinMode env state expr
 
@@ -518,10 +520,10 @@ inferScalarExprWithProduction builtinMode env state expr =
   case expr of
     ELit literal ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType), finalState)
+       in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType) [], finalState)
     ETuple [] ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (Just ProvisionalUnitExpression), finalState)
+       in (InferredExpr expressionType (Just ProvisionalUnitExpression) [], finalState)
     EBinary operatorSymbol leftExpr rightExpr
       | operatorSymbol `elem` scalarOperators ->
           let (leftResult, stateAfterLeft) = inferScalarExprWithProduction builtinMode env state leftExpr
@@ -536,19 +538,68 @@ inferScalarExprWithProduction builtinMode env state expr =
                 leftProvisional <- inferredProvisionalExpr leftResult
                 rightProvisional <- inferredProvisionalExpr rightResult
                 pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
-           in (InferredExpr expressionType provisionalExpr, finalState)
+              failures = childFailures 0 leftResult <> childFailures 1 rightResult
+           in (InferredExpr expressionType provisionalExpr failures, finalState)
     EBinary {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
-    EIf {} -> unsupported TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+    EIf conditionExpr thenExpr elseExpr ->
+      let (conditionResult, stateAfterCondition) =
+            inferScalarExprWithProduction builtinMode env state conditionExpr
+          (thenResult, stateAfterThen) =
+            inferScalarExprWithProduction builtinMode env stateAfterCondition thenExpr
+          (elseResult, stateAfterElse) =
+            inferScalarExprWithProduction builtinMode env stateAfterThen elseExpr
+          stateAfterConditionCheck =
+            case inferredExpressionType conditionResult of
+              Just inferredConditionType ->
+                case unifyTypes inferredConditionType TBoolType stateAfterElse of
+                  Just unifiedState -> unifiedState
+                  Nothing ->
+                    addTypeError
+                      stateAfterElse
+                      (mkIfConditionTypeError (resolveType stateAfterElse inferredConditionType))
+              Nothing -> stateAfterElse
+          (expressionType, finalState) =
+            case (inferredExpressionType thenResult, inferredExpressionType elseResult) of
+              (Just inferredThenType, Just inferredElseType) ->
+                case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
+                  Just unifiedState ->
+                    (Just (mergedUnifiedType unifiedState inferredThenType inferredElseType), unifiedState)
+                  Nothing ->
+                    ( Nothing,
+                      addTypeError
+                        stateAfterConditionCheck
+                        ( mkIfBranchTypeMismatchError
+                            (resolveType stateAfterConditionCheck inferredThenType)
+                            (resolveType stateAfterConditionCheck inferredElseType)
+                        )
+                    )
+              _ -> (Nothing, stateAfterConditionCheck)
+          failures =
+            InferredProductionFailure [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+              : childFailures 0 conditionResult
+                <> childFailures 1 thenResult
+                <> childFailures 2 elseResult
+       in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
     EPatternCase {} -> unsupported TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
-    EList {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-    ETuple {} -> unsupported TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
+    EList elements ->
+      let (expressionType, finalState, elementResults) = inferListWithProduction state elements
+          failures =
+            InferredProductionFailure [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+              : concat (zipWith childFailures [0 ..] elementResults)
+       in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
+    ETuple elements ->
+      let (expressionType, finalState, elementResults) = inferTupleWithProduction state elements
+          failures =
+            InferredProductionFailure [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
+              : concat (zipWith childFailures [0 ..] elementResults)
+       in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
     EBlock statements ->
       case filter isDataStatement statements of
         _ : _ -> unsupported TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         [] -> unsupported TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
     EVar name ->
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (ProvisionalVariableExpression name <$> expressionType), finalState)
+       in (InferredExpr expressionType (ProvisionalVariableExpression name <$> expressionType) [], finalState)
     ELambda parameterName bodyExpr ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
           extendedEnv = Map.insert parameterName (PlainTypeBinding parameterType) env
@@ -560,7 +611,8 @@ inferScalarExprWithProduction builtinMode env state expr =
             inferredType <- expressionType
             body <- inferredProvisionalExpr bodyResult
             pure (ProvisionalLambdaExpression parameterName inferredType body)
-       in (InferredExpr expressionType provisionalExpr, stateAfterBody)
+          failures = childFailures 0 bodyResult
+       in (InferredExpr expressionType provisionalExpr failures, stateAfterBody)
     EOperatorValue {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
     EApply functionExpr argumentExpr ->
       let (functionResult, stateAfterFunction) = inferScalarExprWithProduction builtinMode env state functionExpr
@@ -586,14 +638,81 @@ inferScalarExprWithProduction builtinMode env state expr =
             function <- inferredProvisionalExpr functionResult
             argument <- inferredProvisionalExpr argumentResult
             pure (ProvisionalApplyExpression resultType function argument)
-       in (InferredExpr expressionType provisionalExpr, finalState)
+          failures = childFailures 0 functionResult <> childFailures 1 argumentResult
+       in (InferredExpr expressionType provisionalExpr failures, finalState)
     ETypeApplication {} -> unsupported TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
     ESectionLeft {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
     ESectionRight {} -> unsupported TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
   where
     unsupported failureKind failureDetail =
       let (expressionType, finalState) = inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
-       in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)), finalState)
+          failures = [InferredProductionFailure [] failureKind failureDetail]
+       in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)) failures, finalState)
+
+    childFailures childIndex result =
+      [ InferredProductionFailure (childIndex : childPath) kind detail
+      | InferredProductionFailure childPath kind detail <- inferredProductionFailures result
+      ]
+
+    inferListWithProduction initialState elements =
+      case elements of
+        [] ->
+          let (elementType, finalState) = freshTypeVar initialState
+           in (Just (TListType elementType), finalState, [])
+        firstElement : restElements ->
+          let (firstResult, stateAfterFirst) =
+                inferScalarExprWithProduction builtinMode env initialState firstElement
+              (finalElementType, finalState, reversedResults) =
+                foldl'
+                  inferNextListElement
+                  (inferredExpressionType firstResult, stateAfterFirst, [firstResult])
+                  restElements
+           in (TListType <$> finalElementType, finalState, reverse reversedResults)
+
+    inferNextListElement (expectedType, stateAcc, reversedResults) element =
+      let (actualResult, stateAfterElement) =
+            inferScalarExprWithProduction builtinMode env stateAcc element
+          actualType = inferredExpressionType actualResult
+          (nextExpectedType, finalState) =
+            case (expectedType, actualType) of
+              (Just inferredExpectedType, Just inferredActualType) ->
+                case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
+                  Just unifiedState ->
+                    ( Just
+                        ( mergeIntegerLiteralRanges
+                            (resolveType unifiedState inferredExpectedType)
+                            (resolveType unifiedState inferredActualType)
+                        ),
+                      unifiedState
+                    )
+                  Nothing ->
+                    ( Just inferredExpectedType,
+                      addTypeError
+                        stateAfterElement
+                        ( mkListElementTypeMismatchError
+                            (resolveType stateAfterElement inferredExpectedType)
+                            (resolveType stateAfterElement inferredActualType)
+                        )
+                    )
+              _ -> (expectedType, stateAfterElement)
+       in (nextExpectedType, finalState, actualResult : reversedResults)
+
+    inferTupleWithProduction initialState elements =
+      goTuple (Just []) initialState [] elements
+      where
+        goTuple maybeReversedTypes stateAcc reversedResults remainingElements =
+          case remainingElements of
+            [] ->
+              (TTupleType . reverse <$> maybeReversedTypes, stateAcc, reverse reversedResults)
+            element : rest ->
+              let (elementResult, stateAfterElement) =
+                    inferScalarExprWithProduction builtinMode env stateAcc element
+                  nextReversedTypes =
+                    case (maybeReversedTypes, inferredExpressionType elementResult) of
+                      (Just reversedTypes, Just inferredElementType) ->
+                        Just (resolveType stateAfterElement inferredElementType : reversedTypes)
+                      _ -> Nothing
+               in goTuple nextReversedTypes stateAfterElement (elementResult : reversedResults) rest
 
 scalarOperators :: [Text]
 scalarOperators = ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
