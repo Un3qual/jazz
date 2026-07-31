@@ -35,10 +35,18 @@ import JazzNext.Compiler.TypeInference.Operator
     hasOperatorRule
   )
 import JazzNext.Compiler.TypeInference.Diagnostics
-  ( InferExprFn
+  ( InferExprFn,
+    InferExprWithModeFn
+  )
+import JazzNext.Compiler.TypeInference.Elaboration
+  ( InferredExpr (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    TypedCoreProductionMode (..)
   )
 import JazzNext.Compiler.TypeInference.Scope
-  ( inferScopeType
+  ( inferScopeType,
+    inferScopeTypeWithMode
   )
 import JazzNext.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -68,6 +76,7 @@ import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    TypeBinding (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..)
   )
@@ -94,6 +103,7 @@ inferenceOwnershipTests =
     ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints),
     ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
+    ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
@@ -286,6 +296,49 @@ testFailedSignaturePayloadNormalizationRollsBackState =
     (Just _, _) -> failTest "expected signature payload normalization failure"
   where
     payload = SignatureType (TypeName (sourceName (mkIdentifier "Missing")))
+
+testProductionScopeElaboratesSignatureOnce :: IO ()
+testProductionScopeElaboratesSignatureOnce =
+  case inferredProvisionalExpr inferredScope of
+    Just (ProvisionalScopeStatements (ProvisionalSignature _ _ _ signatureType : _)) -> do
+      assertEqual
+        "source-ordered prepared signature"
+        (TFunctionType (TVarType 0) (TVarType 0))
+        signatureType
+      assertEqual
+        "one signature allocation plus one binding seed"
+        2
+        (inferNextTypeVar finalState)
+    _ -> failTest "expected a retained provisional signature"
+  where
+    (inferredScope, finalState) =
+      inferScopeTypeWithMode
+        Set.empty
+        syntheticProductionInfer
+        ProduceTypedCoreExpressionDirectCall
+        ResolveKernelOnly
+        Map.empty
+        initialInferState
+        [ SSignature
+            "identity"
+            (SourceSpan 1 1)
+            (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
+          SLet "identity" (SourceSpan 2 1) (ELambda "value" (EVar "value"))
+        ]
+
+    syntheticProductionInfer :: InferExprWithModeFn
+    syntheticProductionInfer _ _ env state expression =
+      case expression of
+        EVar name ->
+          case Map.lookup name env of
+            Just (PlainTypeBinding expressionType) ->
+              ( InferredExpr
+                  (Just expressionType)
+                  (Just (ProvisionalVariableExpression name expressionType)),
+                state
+              )
+            _ -> (InferredExpr Nothing Nothing, state)
+        _ -> (InferredExpr Nothing Nothing, state)
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()
 testRecursivePreviewSolverStateIsTransactional =

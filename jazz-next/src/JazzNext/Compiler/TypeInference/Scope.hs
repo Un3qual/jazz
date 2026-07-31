@@ -349,11 +349,14 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
     bindingNamesByStatement = collectBindingNames indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
-    (bindingSeedsByStatement, forwardFunctionBindings, bindingSeededState) =
-      allocateBindingSeeds mode indexedStatements initialState
     predeclaredDataTypes =
-      predeclareScopeDataTypes indexedStatements bindingSeededState
-    stateAfterBindingSeeds = bindingSeededState
+      predeclareScopeDataTypes indexedStatements initialState
+    scopePreparation =
+      prepareScope mode predeclaredDataTypes indexedStatements initialState
+    bindingSeedsByStatement = preparedBindingSeeds scopePreparation
+    preparedSignaturesByStatement = preparedSignatures scopePreparation
+    forwardFunctionBindings = preparedForwardFunctions scopePreparation
+    stateAfterBindingSeeds = preparedScopeState scopePreparation
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
     go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
@@ -397,22 +400,13 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case Signature.signaturePayloadToSignatureType signaturePayload signatureState of
-                      (Just signatureType, stateAfterSignature) ->
-                        ( Just
-                            ( PendingSignatureType
-                                (identifierText name)
-                                signatureSpan
-                                (Signature.signaturePayloadDeclaredType signatureType)
-                                (Signature.signaturePayloadExplicitConstraints signatureType)
-                                (Signature.signaturePayloadVariableOrder signatureType)
-                            ),
-                          restoreCapabilityFacts state stateAfterSignature
-                        )
-                      (Nothing, stateAfterSignature) ->
+                    case Map.lookup statementIndex preparedSignaturesByStatement of
+                      Just (PreparedSignature (Just pendingSignature) _) ->
+                        (Just pendingSignature, state)
+                      _ ->
                         ( Nothing,
                           addTypeError
-                            (restoreCapabilityFacts state stateAfterSignature)
+                            state
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
@@ -1076,52 +1070,177 @@ data ForwardFunctionBinding = ForwardFunctionBinding
     forwardFunctionType :: ExpressionType
   }
 
-allocateBindingSeeds ::
+data PreparedSignature
+  = PreparedSignature (Maybe PendingSignatureType) Bool
+
+data ScopePreparation = ScopePreparation
+  { preparedBindingSeeds :: Map Int ExpressionType,
+    preparedSignatures :: Map Int PreparedSignature,
+    preparedForwardFunctions :: Map Int ForwardFunctionBinding,
+    preparedScopeState :: InferState
+  }
+
+prepareScope ::
   TypedCoreProductionMode ->
+  Map Text DataTypeBinding ->
   [(Int, Statement)] ->
   InferState ->
-  (Map Int ExpressionType, Map Int ForwardFunctionBinding, InferState)
-allocateBindingSeeds mode indexedStatements initialState =
-  let (bindingSeeds, forwardFunctions, _, finalState) =
-        foldl' step (Map.empty, Map.empty, Nothing, initialState) indexedStatements
-   in (bindingSeeds, forwardFunctions, finalState)
-  where
-    step (bindingSeeds, forwardFunctions, pendingSignature, state) (statementIndex, statement) =
-      case statement of
-        SSignature name signatureSpan signaturePayload ->
-          ( bindingSeeds,
-            forwardFunctions,
-            if mode == ProduceTypedCoreExpressionDirectCall
-              then
-                case Signature.signaturePayloadToSignatureType signaturePayload state of
-                  (Just signatureType, _) ->
-                    Just
-                      ( PendingSignatureType
-                          (identifierText name)
-                          signatureSpan
-                          (Signature.signaturePayloadDeclaredType signatureType)
-                          (Signature.signaturePayloadExplicitConstraints signatureType)
-                          (Signature.signaturePayloadVariableOrder signatureType)
-                      )
-                  (Nothing, _) -> Nothing
-              else Nothing,
-            state
+  ScopePreparation
+prepareScope mode predeclaredDataTypes indexedStatements initialState =
+  let (bindingSeeds, signatures, forwardFunctions, _, _, finalPreparationState) =
+        foldl'
+          step
+          ( Map.empty,
+            Map.empty,
+            Map.empty,
+            Nothing,
+            capabilityFactsFromState initialState,
+            initialState
           )
+          indexedStatements
+   in
+    ScopePreparation
+      { preparedBindingSeeds = bindingSeeds,
+        preparedSignatures = signatures,
+        preparedForwardFunctions = forwardFunctions,
+        preparedScopeState =
+          initialState
+            { inferSolver = inferSolver finalPreparationState
+            }
+      }
+  where
+    step
+      (bindingSeeds, signatures, forwardFunctions, pendingSignature, moduleBaselineFacts, state)
+      (statementIndex, statement) =
+      case statement of
+        SModule _ modulePath ->
+          ( bindingSeeds,
+            signatures,
+            forwardFunctions,
+            Nothing,
+            moduleBaselineFacts,
+            enterModuleCapabilityScope moduleBaselineFacts modulePath state
+          )
+        SImport _ modulePath maybeAlias maybeSymbolNames ->
+          ( bindingSeeds,
+            signatures,
+            forwardFunctions,
+            Nothing,
+            moduleBaselineFacts,
+            importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state
+          )
+        SClass classSpan capabilityName parameters methods ->
+          let validationState =
+                seedStatementCapabilityFact
+                  state
+                  (SClass classSpan capabilityName parameters [])
+              nextState =
+                case firstInvalidClassMethodSignature validationState capabilityName parameters methods of
+                  Just _ -> state
+                  Nothing -> seedStatementCapabilityFact state statement
+           in
+            ( bindingSeeds,
+              signatures,
+              forwardFunctions,
+              Nothing,
+              updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
+              nextState
+            )
+        SImpl implSpan _capabilityName arguments _ ->
+          let nextState =
+                case firstInvalidImplTarget state implSpan arguments of
+                  Just _ -> state
+                  Nothing -> seedStatementCapabilityFact state statement
+           in
+            ( bindingSeeds,
+              signatures,
+              forwardFunctions,
+              Nothing,
+              updateRootModuleBaselineFacts moduleBaselineFacts state nextState,
+              nextState
+            )
+        SData spanValue typeName typeParameters constructors ->
+          let (_, nextState) =
+                registerDataConstructors
+                  predeclaredDataTypes
+                  spanValue
+                  typeName
+                  typeParameters
+                  constructors
+                  Map.empty
+                  state
+           in
+            ( bindingSeeds,
+              signatures,
+              forwardFunctions,
+              Nothing,
+              moduleBaselineFacts,
+              nextState
+            )
+        SSignature name signatureSpan signaturePayload ->
+          let (maybeSignatureType, stateAfterSignature) =
+                Signature.signaturePayloadToSignatureType signaturePayload state
+              maybePendingSignature =
+                fmap
+                  ( \signatureType ->
+                      PendingSignatureType
+                        (identifierText name)
+                        signatureSpan
+                        (Signature.signaturePayloadDeclaredType signatureType)
+                        (Signature.signaturePayloadExplicitConstraints signatureType)
+                        (Signature.signaturePayloadVariableOrder signatureType)
+                  )
+                  maybeSignatureType
+              preparedSignature =
+                PreparedSignature
+                  maybePendingSignature
+                  ( maybe False
+                      (\signature -> unconstrainedSignaturePayload signaturePayload && eligibleForwardSignature signature)
+                      maybePendingSignature
+                  )
+           in
+            ( bindingSeeds,
+              Map.insert statementIndex preparedSignature signatures,
+              forwardFunctions,
+              Just preparedSignature,
+              moduleBaselineFacts,
+              restoreCapabilityFacts state stateAfterSignature
+            )
         SLet bindingName _bindingSpan bindingExpression ->
           let (bindingSeed, nextState) = freshTypeVar state
               nextForwardFunctions =
                 case pendingSignature of
-                  Just signature
-                    | pendingSignatureName signature == identifierText bindingName,
+                  Just (PreparedSignature (Just signature) True)
+                    | mode == ProduceTypedCoreExpressionDirectCall,
+                      pendingSignatureName signature == identifierText bindingName,
                       ELambda {} <- bindingExpression,
-                      eligibleForwardSignature signature ->
+                      concreteForwardFunctionType (pendingSignatureDeclaredType signature) ->
                         Map.insert
                           statementIndex
                           (ForwardFunctionBinding bindingName (pendingSignatureDeclaredType signature))
                           forwardFunctions
                   _ -> forwardFunctions
-           in (Map.insert statementIndex bindingSeed bindingSeeds, nextForwardFunctions, Nothing, nextState)
-        _ -> (bindingSeeds, forwardFunctions, Nothing, state)
+           in
+            ( Map.insert statementIndex bindingSeed bindingSeeds,
+              signatures,
+              nextForwardFunctions,
+              Nothing,
+              moduleBaselineFacts,
+              nextState
+            )
+        _ ->
+          ( bindingSeeds,
+            signatures,
+            forwardFunctions,
+            Nothing,
+            moduleBaselineFacts,
+            state
+          )
+
+    unconstrainedSignaturePayload signaturePayload =
+      case signaturePayload of
+        ConstrainedSignature constraints _ -> null constraints
+        _ -> True
 
     eligibleForwardSignature signature =
       null (pendingSignatureVariableOrder signature)
