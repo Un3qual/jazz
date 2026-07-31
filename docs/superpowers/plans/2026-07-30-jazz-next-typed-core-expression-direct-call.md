@@ -384,7 +384,7 @@ syntax rule for any future fixture support.
   `ambient-prelude-input`.
 - Preserves: exact ordinary `InferenceResult` values and diagnostics.
 
-- [ ] **Step 1: Register the focused suite with the first failing cases**
+- [x] **Step 1: Register the focused suite with the first failing cases**
 
   Expose `JazzNext.Compiler.TypeInference.Elaboration`. Register
   `jazz-typed-core-expression-direct-call-spec` with main
@@ -407,7 +407,7 @@ syntax rule for any future fixture support.
     afterInferenceResult
   ```
 
-- [ ] **Step 2: Run the focused suite and confirm the API is absent**
+- [x] **Step 2: Run the focused suite and confirm the API is absent**
 
   Run:
 
@@ -421,7 +421,7 @@ syntax rule for any future fixture support.
   Expected: FAIL at compile time because the producer, status types, and
   elaboration module do not exist.
 
-- [ ] **Step 3: Generalize private inference return plumbing**
+- [x] **Step 3: Generalize private inference return plumbing**
 
   Add `TypedCoreProductionMode`, `InferredExpr`, provisional unit/root-scope
   nodes, and structured input failure kinds in `Elaboration.hs`. Change
@@ -443,7 +443,7 @@ syntax rule for any future fixture support.
 
   so the ordinary path does not retain typed nodes or production failures.
 
-- [ ] **Step 4: Add the opt-in root entry point and unit finalization**
+- [x] **Step 4: Add the opt-in root entry point and unit finalization**
 
   Validate before finalization:
 
@@ -464,7 +464,7 @@ syntax rule for any future fixture support.
 
   then call `validateTypedProgram`.
 
-- [ ] **Step 5: Run focused and existing inference tests**
+- [x] **Step 5: Run focused and existing inference tests**
 
   Run the focused suite, then:
 
@@ -480,7 +480,7 @@ syntax rule for any future fixture support.
   equality holds for representative valid and invalid sources, and the
   permanent typed-core suite remains green.
 
-- [ ] **Step 6: Commit the green foundation**
+- [x] **Step 6: Commit the green foundation**
 
   ```bash
   git add jazz-next/jazz-next.cabal \
@@ -519,7 +519,7 @@ syntax rule for any future fixture support.
   failures.
 - Preserves: ordinary inference and permanent typed-core constructors.
 
-- [ ] **Step 1: Add failing accepted scalar fixtures**
+- [x] **Step 1: Add failing accepted scalar fixtures**
 
   Add accepted cases `bool-entry`, `char-entry`, `default-int-entry`,
   `default-float-entry`, `arithmetic-operators`, `ordering-operators`, and
@@ -536,19 +536,19 @@ syntax rule for any future fixture support.
   assert exact child order, `TypedType`, and representation recipe at every
   node.
 
-- [ ] **Step 2: Add failing rejected scalar/profile fixtures**
+- [x] **Step 2: Add failing rejected scalar/profile fixtures**
 
   Add `text-value`, `list-value`, `non-unit-tuple`, `data-value`,
   `conditional`, `pattern-case`, and `local-block-binding`. Assert complete
   ordered production failures including module/statement/expression paths and
   stable kind/detail fields.
 
-- [ ] **Step 3: Run and confirm unsupported scalar nodes**
+- [x] **Step 3: Run and confirm unsupported scalar nodes**
 
   Run the focused suite. Expected: FAIL because literals other than unit,
   binary nodes, and the new structured failure kinds are not finalized.
 
-- [ ] **Step 4: Retain and finalize scalar provisional nodes**
+- [x] **Step 4: Retain and finalize scalar provisional nodes**
 
   During the existing recursive visits, retain literal and supported binary
   nodes with unresolved `ExpressionType`. Finalization must:
@@ -565,7 +565,7 @@ syntax rule for any future fixture support.
   Accumulate failures in structural preorder and continue ordinary inference
   through unsupported children.
 
-- [ ] **Step 5: Prove exact scalar results and repeatability**
+- [x] **Step 5: Prove exact scalar results and repeatability**
 
   Run each accepted and rejected fixture twice. Compare the complete
   production status and complete `TypedProgram` values. Assert the two runs
@@ -583,7 +583,7 @@ syntax rule for any future fixture support.
 
   Expected: all currently registered cases pass twice with exact values.
 
-- [ ] **Step 6: Commit scalar elaboration**
+- [x] **Step 6: Commit scalar elaboration**
 
   ```bash
   git add jazz-next/src/JazzNext/Compiler/TypeInference.hs \
@@ -641,7 +641,7 @@ syntax rule for any future fixture support.
   generalized/evidence-bearing functions, imported calls, declared
   user-defined operator calls, and unsupported exports.
 
-- [ ] **Step 0: Lock mirrored forward signed-function visibility**
+- [x] **Step 0: Lock mirrored forward signed-function visibility**
 
   Add a supplemental three-case validator family outside the permanent fixed
   16-valid / 28-invalid manifest:
@@ -687,7 +687,7 @@ syntax rule for any future fixture support.
   git commit -m "fix: validate forward signed function references"
   ```
 
-- [ ] **Step 1: Add the eight remaining accepted fixtures**
+- [x] **Step 1: Add the eight remaining accepted fixtures**
 
   Add `explicit-numeric-widths`, `scalar-parameter-return`,
   `single-argument-direct-call`, `curried-multi-argument-direct-call`,
@@ -722,7 +722,7 @@ syntax rule for any future fixture support.
   The `$` fixture must reach the same canonical `EApply` spine as ordinary
   application and must not receive a separate elaboration rule.
 
-- [ ] **Step 2: Add the remaining callable/operator rejection fixtures**
+- [x] **Step 2: Add the remaining callable/operator rejection fixtures**
 
   Add `bare-function-value`, `partial-direct-call`,
   `oversaturated-direct-call`, `capturing-function`,
@@ -736,13 +736,13 @@ syntax rule for any future fixture support.
   analysis/inference succeeds and the producer—not an unbound-name
   diagnostic—owns the structured rejection.
 
-- [ ] **Step 3: Run and confirm callable/profile failures**
+- [x] **Step 3: Run and confirm callable/profile failures**
 
   Run the focused suite. Expected: FAIL because scope production does not yet
   retain function statements, applications do not resolve a local direct
   target/arity, and call-graph/capture checks are absent.
 
-- [ ] **Step 4: Retain root-scope signatures, functions, and calls**
+- [x] **Step 4: Retain root-scope signatures, functions, and calls**
 
   In `Scope.hs`, preserve existing binding seeds, adjacent-signature checking,
   generalization, runtime hints, and module-interface inference. In production
@@ -765,7 +765,7 @@ syntax rule for any future fixture support.
   identity, concrete signature expected types, and application-spine argument
   order during existing `EApply` visits.
 
-- [ ] **Step 5: Finalize and validate callable restrictions**
+- [x] **Step 5: Finalize and validate callable restrictions**
 
   Before constructing the permanent tree:
 
@@ -786,7 +786,7 @@ syntax rule for any future fixture support.
   expression paths. The interface preserves resolved export inventory order;
   statement/function order preserves source order.
 
-- [ ] **Step 6: Prove both full manifests and inference compatibility**
+- [x] **Step 6: Prove both full manifests and inference compatibility**
 
   Audit exact counts (`16` accepted, `20` rejected), uniqueness, order, width
   coverage, operator coverage, and failure-kind coverage. Run every case twice
@@ -810,7 +810,7 @@ syntax rule for any future fixture support.
   Expected: exact 16/20 production results pass twice and inference-only
   compatibility remains exact.
 
-- [ ] **Step 7: Commit direct-call production**
+- [x] **Step 7: Commit direct-call production**
 
   ```bash
   git add jazz-next/src/JazzNext/Compiler/TypeInference.hs \
@@ -865,7 +865,7 @@ syntax rule for any future fixture support.
   the 10 listed primitive operators.
 - Preserves: permanent lowered-IR constructors and validator ownership.
 
-- [ ] **Step 1: Add explicit expected scalar `LoweredProgram` values**
+- [x] **Step 1: Add explicit expected scalar `LoweredProgram` values**
 
   Extend the accepted scalar fixtures with complete expected IR. Assert:
 
@@ -886,12 +886,12 @@ syntax rule for any future fixture support.
   `UInt64` lowerer cases at `9223372036854775808` and
   `18446744073709551615`.
 
-- [ ] **Step 2: Run and confirm the lowerer is absent**
+- [x] **Step 2: Run and confirm the lowerer is absent**
 
   Run the focused suite. Expected: FAIL at compile time because
   `JazzNext.Compiler.LoweredIR.Lower` and its result types do not exist.
 
-- [ ] **Step 3: Implement typed validation and scalar operand lowering**
+- [x] **Step 3: Implement typed validation and scalar operand lowering**
 
   Call `validateTypedProgram` first. For a valid supported module, use an
   internal state containing the current function id, next block-local
@@ -913,7 +913,7 @@ syntax rule for any future fixture support.
   primitives. Emit one instruction/temporary per primitive and lower both
   operands left to right.
 
-- [ ] **Step 4: Reject unsupported valid typed trees structurally**
+- [x] **Step 4: Reject unsupported valid typed trees structurally**
 
   For permanent typed-core values outside this profile, return complete
   ordered `LoweredIRLoweringFailure` values with typed module/statement/
@@ -922,7 +922,7 @@ syntax rule for any future fixture support.
   Only after a complete supported program is emitted, call
   `validateLoweredProgram`; return invariant failures before success.
 
-- [ ] **Step 5: Run scalar lowering and permanent contract suites**
+- [x] **Step 5: Run scalar lowering and permanent contract suites**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -936,7 +936,7 @@ syntax rule for any future fixture support.
   Expected: every accepted scalar fixture matches its complete expected IR
   twice; the two permanent schema/validator suites remain green.
 
-- [ ] **Step 6: Commit scalar lowering**
+- [x] **Step 6: Commit scalar lowering**
 
   ```bash
   git add jazz-next/jazz-next.cabal \
@@ -963,7 +963,7 @@ syntax rule for any future fixture support.
 - Rejects independently: invalid function shapes, captures, recursion,
   callable values, arity errors, and non-local targets.
 
-- [ ] **Step 1: Add complete expected function/direct-call IR**
+- [x] **Step 1: Add complete expected function/direct-call IR**
 
   Extend the seven function/direct-call accepted fixtures with explicit
   `LoweredProgram` values. Assert:
@@ -979,12 +979,12 @@ syntax rule for any future fixture support.
   Assert local functions remain in source order even when the acyclic call
   graph contains forward references; the entry function comes last.
 
-- [ ] **Step 2: Run and confirm direct calls are unsupported**
+- [x] **Step 2: Run and confirm direct calls are unsupported**
 
   Run the focused suite. Expected: FAIL with explicit lowerer profile failures
   for typed lambdas/applications and missing expected functions.
 
-- [ ] **Step 3: Collect function shapes and stable call signatures**
+- [x] **Step 3: Collect function shapes and stable call signatures**
 
   Validate all typed statements before emission. Flatten leading
   `TypedLambdaExpr` nodes into parameters while preserving each annotation's
@@ -996,7 +996,7 @@ syntax rule for any future fixture support.
   typed-core boundary. This is lowerer profile validation, not an assumption
   inherited from the producer.
 
-- [ ] **Step 4: Emit parameter operands and ordinary direct calls**
+- [x] **Step 4: Emit parameter operands and ordinary direct calls**
 
   Lower a parameter reference to:
 
@@ -1016,7 +1016,7 @@ syntax rule for any future fixture support.
   remains `LoweredDirectCall` plus `LoweredReturn`; never emit
   `LoweredDirectTailCall` in this child.
 
-- [ ] **Step 5: Prove deterministic complete lowering twice**
+- [x] **Step 5: Prove deterministic complete lowering twice**
 
   Parse, resolve, infer/finalize, lower, and validate every accepted fixture
   twice. Compare each complete production result and complete lowering result
@@ -1037,7 +1037,7 @@ syntax rule for any future fixture support.
   all 20 rejected cases produce exact ordered producer failures; permanent
   suites remain green.
 
-- [ ] **Step 6: Commit direct-call lowering**
+- [x] **Step 6: Commit direct-call lowering**
 
   ```bash
   git add jazz-next/src/JazzNext/Compiler/LoweredIR/Lower.hs \
@@ -1061,7 +1061,7 @@ syntax rule for any future fixture support.
 - Preserves: normal compile/run results, contract suites, and deterministic
   status ordering.
 
-- [ ] **Step 1: Make manifest audits exhaustive**
+- [x] **Step 1: Make manifest audits exhaustive**
 
   Assert exact ordered name lists, counts `16` and `20`, uniqueness, all eleven
   explicit widths, every admitted operator, every producer failure kind used
@@ -1076,7 +1076,7 @@ syntax rule for any future fixture support.
 
   twice with complete value equality.
 
-- [ ] **Step 2: Add lowerer-only negative values**
+- [x] **Step 2: Add lowerer-only negative values**
 
   Construct valid permanent `TypedProgram` values that the producer cannot
   emit in this profile—such as a managed scalar position or valid conditional—
@@ -1084,7 +1084,7 @@ syntax rule for any future fixture support.
   the fixed 20 rejected source fixtures because they test the lowerer's
   independent trust boundary.
 
-- [ ] **Step 3: Run focused tests repeatedly**
+- [x] **Step 3: Run focused tests repeatedly**
 
   Run the focused command twice:
 
@@ -1100,7 +1100,7 @@ syntax rule for any future fixture support.
   Expected both times: PASS with exact manifests, exact complete values, and
   no order-sensitive drift.
 
-- [ ] **Step 4: Run the warning-clean development build**
+- [x] **Step 4: Run the warning-clean development build**
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop -c \
@@ -1110,7 +1110,7 @@ syntax rule for any future fixture support.
   Expected: PASS with `-Wall -Werror`; no unused provisional fields, partial
   matches, incomplete record updates, or redundant constraints.
 
-- [ ] **Step 5: Commit test closure or root-cause corrections**
+- [x] **Step 5: Commit test closure or root-cause corrections**
 
   ```bash
   git add jazz-next/test/JazzNext/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs \
