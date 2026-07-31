@@ -410,6 +410,7 @@ Jazz-authored producer or comparison adapter.
 
 Production changes are limited to:
 
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs`;
 - `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`;
@@ -443,6 +444,13 @@ The implementation must not modify the permanent constructors in
 visibility defect authorizes only the mirrored validator and supplemental
 parity paths named above. Any other contract defect stops the child for a
 reviewed design amendment rather than silently widening these target paths.
+
+The reviewed Task 3 analyzer/signature-ownership amendment authorizes
+`Analyzer.hs` only to carry production-only eligible forward-function facts
+through the existing analyzer/inference boundary. Eligibility and ordinary
+pending-signature state must be derived together by one source-scope
+preparation owner from one signature elaboration result; a discarded
+eligibility prepass plus normal signature re-elaboration is not permitted.
 
 No `.jz` compiler implementation is added in this child. Any Jazz source used
 as a fixture must use the canonical language surface already implemented; no

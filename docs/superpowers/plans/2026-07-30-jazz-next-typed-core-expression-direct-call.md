@@ -19,6 +19,7 @@ target_paths:
   - docs/superpowers/plans/2026-07-30-jazz-next-typed-core-expression-direct-call.md
   - jazz-next/README.md
   - jazz-next/jazz-next.cabal
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs
@@ -52,6 +53,9 @@ non-capturing local direct calls to the permanent backend-neutral
 inference path. Its recursive result pairs the current inferred type with an
 optional provisional typed node and ordered profile failures, so finalization
 uses the accepted final solver state without a second semantic traversal.
+One source-scope preparation owner elaborates pending signatures once and
+supplies both ordinary signature state and production-only eligible forward
+function facts to the existing analyzer/inference boundary.
 Normal inference entry points stay inference-only. A separate typed-core
 lowerer validates its input, emits deterministic one-block scalar/direct-call
 IR, and validates that result.
@@ -107,6 +111,7 @@ the Nix-pinned development environment.
 
 | File | Responsibility in this child |
 | --- | --- |
+| `jazz-next/src/JazzNext/Compiler/Analyzer.hs` | Carry production-only eligible forward-function facts across the existing analyzer boundary without widening ordinary imported/value visibility. |
 | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Public opt-in producer entry point, unchanged inference-only projection, production mode threading, and pairing of `InferenceResult` with production status. |
 | `jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs` | Update the shared recursive inference function type to carry the richer internal expression result without changing diagnostic ownership. |
 | `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs` | Retain supported root-scope signatures, bindings, and terminal expression in source order while preserving existing inference/generalization/runtime-hint behavior. |
@@ -593,9 +598,19 @@ syntax rule for any future fixture support.
 > functions, and unrelated declarations remain source-order invisible.
 > Haskell and Jazz behavior plus supplemental parity fixtures must land
 > together; no permanent constructor changes are authorized.
+>
+> **Approved analyzer/signature-ownership amendment (`2026-07-30`):**
+> `Analyzer.hs` is an explicit Task 3 target so production-only eligible
+> forward-function facts can cross the existing analyzer/inference boundary
+> without masquerading as imports or changing ordinary inference. A single
+> source-scope preparation owner must elaborate each pending signature once,
+> retain the resulting ordinary pending-signature state, and derive forward
+> eligibility from that same result. A discarded eligibility prepass followed
+> by normal signature re-elaboration is forbidden.
 
 **Files:**
 
+- Modify: `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Elaboration.hs`
@@ -723,7 +738,12 @@ syntax rule for any future fixture support.
 
   In `Scope.hs`, preserve existing binding seeds, adjacent-signature checking,
   generalization, runtime hints, and module-interface inference. In production
-  mode only, additionally return source-ordered provisional root statements:
+  mode only, additionally return source-ordered provisional root statements.
+  Prepare each source-scope signature exactly once: the same elaborated
+  pending-signature record consumed by ordinary source-order traversal must
+  also own the production-only forward-eligibility fact. Do not elaborate
+  signature payloads in a discarded seed/eligibility prepass and then
+  elaborate them again during `SSignature` traversal:
 
   ```haskell
   data ProvisionalTypedStatement
