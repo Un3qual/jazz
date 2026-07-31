@@ -56,6 +56,7 @@ tests =
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
+    ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
@@ -830,6 +831,83 @@ testCompoundFailureAccumulation = do
     expressionFailure childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] 0 childPath)
+        kind
+        detail
+
+testUnsupportedCompositeFailureAccumulation :: IO ()
+testUnsupportedCompositeFailureAccumulation =
+  mapM_ assertCompositeFailure expectedResults
+  where
+    expectedResults =
+      [ ( "pattern-case-unsupported-children",
+          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
+            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          ]
+        ),
+        ( "nested-block-unsupported-child",
+          [ expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
+            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          ]
+        ),
+        ( "guarded-pattern-case-unsupported-children",
+          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
+            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
+            expressionFailure 0 [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          ]
+        ),
+        ( "unsupported-binary-child",
+          [ expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 2 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
+            expressionFailure 2 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          ]
+        ),
+        ( "left-section-unsupported-child",
+          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          ]
+        ),
+        ( "right-section-unsupported-child",
+          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          ]
+        ),
+        ( "type-application-composite",
+          [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+            statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
+            expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+            expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+            expressionFailure 2 [0] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+          ]
+        )
+      ]
+
+    assertCompositeFailure (name, expectedFailures) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary inference compatibility")
+        ordinary
+        (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " structural preorder")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+    statementFailure statementIndex kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         kind
         detail
 

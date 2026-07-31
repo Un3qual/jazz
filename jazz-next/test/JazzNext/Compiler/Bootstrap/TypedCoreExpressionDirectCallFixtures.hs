@@ -899,6 +899,52 @@ producerEdgeFixtures =
         "nested-unsupported-children"
         "if True then [1] else [2]."
     ),
+    ( "pattern-case-unsupported-children",
+      sourceFixtureNoExports
+        "pattern-case-unsupported-children"
+        "case [1] { | _ -> [2] }."
+    ),
+    ( "guarded-pattern-case-unsupported-children",
+      sourceFixtureNoExports
+        "guarded-pattern-case-unsupported-children"
+        "case [1] { | _ if if True then True else False -> [2] }."
+    ),
+    ( "nested-block-unsupported-child",
+      sourceFixtureNoExports
+        "nested-block-unsupported-child"
+        "{ ignored = [1]. [2]. }."
+    ),
+    ( "unsupported-binary-child",
+      sourceFixtureNoExports
+        "unsupported-binary-child"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> left + right.",
+              "(if True then 1 else 2) %% (if True then 3 else 4)."
+            ]
+        )
+    ),
+    ( "left-section-unsupported-child",
+      sourceFixtureNoExports
+        "left-section-unsupported-child"
+        "((if True then 1 else 2) +)."
+    ),
+    ( "right-section-unsupported-child",
+      sourceFixtureNoExports
+        "right-section-unsupported-child"
+        "(+ (if True then 1 else 2))."
+    ),
+    ( "type-application-composite",
+      sourceFixtureNoExports
+        "type-application-composite"
+        ( Text.unlines
+            [ "identity :: a -> a.",
+              "identity = \\(item) -> item.",
+              "identity @Int 1."
+            ]
+        )
+    ),
     ( "signed-function-rebinding",
       sourceFixtureNoExports
         "signed-function-rebinding"

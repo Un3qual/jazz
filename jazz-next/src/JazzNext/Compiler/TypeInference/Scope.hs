@@ -5,6 +5,7 @@
 -- leaving ordinary scope inference and its runtime-hint ownership unchanged.
 module JazzNext.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
+    inferExplicitTypeApplicationWithResult,
     inferScopeType,
     inferScopeTypeWithMode,
     instantiateNonBuiltinTypeBinding,
@@ -74,6 +75,8 @@ import JazzNext.Compiler.TypeInference.Elaboration
     InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
+    TypedCoreProductionFailureDetail (..),
+    TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
   )
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
@@ -331,14 +334,14 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 
 inferScopeTypeInternal :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
-  let (scopeType, finalState, provisionalStatements) =
+  let (scopeType, finalState, provisionalStatements, productionFailures) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
       provisionalExpr =
         case mode of
           ProduceTypedCoreExpressionDirectCall -> Just (ProvisionalScopeStatements provisionalStatements)
           InferenceOnly -> Nothing
-   in (InferredExpr scopeType provisionalExpr [], restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
+   in (InferredExpr scopeType provisionalExpr productionFailures, restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
   where
     inferPlain builtin env state expr =
       let (result, nextState) = inferExpression mode builtin env state expr
@@ -369,7 +372,7 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
 
     go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
       case remainingStatements of
-        [] -> (lastExprType, publishVisibleTypes env state, [])
+        [] -> (lastExprType, publishVisibleTypes env state, [], [])
         (statementIndex, statement) : rest ->
           let stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
            in case statement of
@@ -418,7 +421,7 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
-                  (scopeResultType, resultState, provisionalRest) =
+                  (scopeResultType, resultState, provisionalRest, productionFailures) =
                     go env lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
                   provisional =
                     case (mode, nextPendingSignature) of
@@ -426,7 +429,7 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                         | TFunctionType {} <- pendingSignatureDeclaredType pendingSignature ->
                             [ProvisionalSignature statementIndex name signatureSpan (pendingSignatureDeclaredType pendingSignature)]
                       _ -> []
-               in (scopeResultType, resultState, provisional <> provisionalRest)
+               in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement) =
@@ -497,6 +500,8 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                         inferExprTypeWithExpectedMode inferExpression mode builtinMode envWithPendingSignature stateForSignatureCheck expectedValueType valueExpr
                       Nothing ->
                         inferExpression mode builtinMode envWithPendingSignature stateForStatement valueExpr
+                  valueProductionFailures =
+                    nestedBlockProductionFailures valueExpr rawValueResult
                   rawValueType = inferredExpressionType rawValueResult
                   valueType =
                     targetedFractionalLiteralBindingType
@@ -641,10 +646,10 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                       nextEnvBeforeRecursiveGroupGeneralization
                       recursiveGroupStartStatesForStatement
                       stateAfterCapturedConstraintPrune
-                  (scopeResultType, resultState, provisionalRest) =
+                  (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
                   provisional =
-                    case (mode, inferredProductionFailures rawValueResult, nextBindingType, inferredProvisionalExpr rawValueResult) of
+                    case (mode, valueProductionFailures, nextBindingType, inferredProvisionalExpr rawValueResult) of
                       (ProduceTypedCoreExpressionDirectCall, _, Just bindingType, Just expression)
                         | ProvisionalLambdaExpression {} <- expression ->
                             [ ProvisionalFunctionBinding
@@ -661,11 +666,16 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                       (ProduceTypedCoreExpressionDirectCall, [], _, _) ->
                         [ProvisionalUnsupportedStatement statementIndex]
                       _ -> []
-               in (scopeResultType, resultState, provisional <> provisionalRest)
+                  productionFailures =
+                    qualifyStatementProductionFailures statementIndex valueProductionFailures
+                      <> restProductionFailures
+               in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource
                   (exprResult, rawStateAfterExpr) = inferExpression mode builtinMode envForStatement stateForStatement expr
+                  expressionProductionFailures =
+                    nestedBlockProductionFailures expr exprResult
                   exprType = inferredExpressionType exprResult
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan stateForStatement rawStateAfterExpr
@@ -685,16 +695,51 @@ inferScopeTypeInternal preludeStatementIndices inferExpression mode builtinMode 
                           resultType
                           Set.empty
                       Nothing -> stateAfterExplicitConstraintCheck
-                  (scopeResultType, resultState, provisionalRest) =
+                  (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go env exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
                   provisional =
-                    case (mode, inferredProvisionalExpr exprResult) of
-                      (ProduceTypedCoreExpressionDirectCall, Just expression) ->
+                    case (mode, expressionProductionFailures, inferredProvisionalExpr exprResult) of
+                      (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), Just ProvisionalScopeStatements {}) ->
+                        [ ProvisionalTerminalExpression
+                            statementIndex
+                            exprSpan
+                            (ProvisionalRetainedFailures failures)
+                        ]
+                      (ProduceTypedCoreExpressionDirectCall, _, Just expression) ->
                         [ProvisionalTerminalExpression statementIndex exprSpan expression]
-                      (ProduceTypedCoreExpressionDirectCall, Nothing) ->
+                      (ProduceTypedCoreExpressionDirectCall, _, Nothing) ->
                         [ProvisionalUnsupportedStatement statementIndex]
                       _ -> []
-               in (scopeResultType, resultState, provisional <> provisionalRest)
+                  productionFailures =
+                    qualifyStatementProductionFailures statementIndex expressionProductionFailures
+                      <> restProductionFailures
+               in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
+
+    nestedBlockProductionFailures expression result =
+      if mode /= ProduceTypedCoreExpressionDirectCall
+        then inferredProductionFailures result
+        else
+          case expression of
+            EBlock blockStatements
+              | any isDataStatement blockStatements ->
+                  inferredProductionFailures result
+              | otherwise ->
+                  InferredProductionFailure
+                    []
+                    TypedCoreNestedBlockUnsupported
+                    TypedCoreLocalBlockDetail
+                    : inferredProductionFailures result
+            _ -> inferredProductionFailures result
+
+    qualifyStatementProductionFailures statementIndex failures =
+      [ InferredProductionFailure (statementIndex : childPath) kind detail
+      | InferredProductionFailure childPath kind detail <- failures
+      ]
+
+    isDataStatement statement =
+      case statement of
+        SData {} -> True
+        _ -> False
 
     builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme)
     builtinOperatorSymbolExpr currentEnv expression =
@@ -1899,29 +1944,79 @@ inferExplicitTypeApplication ::
   SignatureType ->
   (Maybe ExpressionType, InferState)
 inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+  let (expressionType, finalState, _) =
+        inferExplicitTypeApplicationInternal
+          ( \builtin childEnv childState childExpr ->
+              let (childType, nextState) =
+                    inferExpression builtin childEnv childState childExpr
+               in (childType, nextState, Nothing)
+          )
+          builtinMode
+          env
+          state
+          functionExpr
+          typeArgumentSpan
+          typeArgument
+   in (expressionType, finalState)
+
+inferExplicitTypeApplicationWithResult ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (InferredExpr, InferState)) ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  SourceSpan ->
+  SignatureType ->
+  (Maybe ExpressionType, InferState, Maybe InferredExpr)
+inferExplicitTypeApplicationWithResult inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+  inferExplicitTypeApplicationInternal
+    ( \builtin childEnv childState childExpr ->
+        let (childResult, nextState) =
+              inferExpression builtin childEnv childState childExpr
+         in (inferredExpressionType childResult, nextState, Just childResult)
+    )
+    builtinMode
+    env
+    state
+    functionExpr
+    typeArgumentSpan
+    typeArgument
+
+inferExplicitTypeApplicationInternal ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  SourceSpan ->
+  SignatureType ->
+  (Maybe ExpressionType, InferState, Maybe result)
+inferExplicitTypeApplicationInternal inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
       | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr ->
           let (maybeInstantiatedType, nextState) =
                 instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
            in ( maybeInstantiatedType,
-              recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState
+                recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState,
+                Nothing
             )
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
        in ( maybeInstantiatedType,
-          recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState
+            recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState,
+            Nothing
         )
     (Just _, Nothing) ->
-      (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
+      (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument), Nothing)
     (Nothing, _) ->
-      let (maybeFunctionType, stateAfterFunction) =
+      let (maybeFunctionType, stateAfterFunction, maybeFunctionResult) =
             inferExpression builtinMode env state functionExpr
        in case maybeFunctionType of
           Just _ ->
-            (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
-          Nothing -> (Nothing, stateAfterFunction)
+            (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError, maybeFunctionResult)
+          Nothing -> (Nothing, stateAfterFunction, maybeFunctionResult)
 
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr -> Maybe Text
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =
