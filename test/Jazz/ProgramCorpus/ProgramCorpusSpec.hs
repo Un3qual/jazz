@@ -54,7 +54,8 @@ import Jazz.TestHarness
     runTestSuite,
   )
 import System.Directory
-  ( createDirectory,
+  ( canonicalizePath,
+    createDirectory,
     createDirectoryIfMissing,
     createDirectoryLink,
     createFileLink,
@@ -63,6 +64,7 @@ import System.Directory
     listDirectory,
     removeFile,
     removePathForcibly,
+    withCurrentDirectory,
   )
 import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -79,6 +81,8 @@ tests =
     ("reports unreadable manifests as corpus violations", testUnreadableManifest),
     ("treats unreadable corpus sources as unavailable", testUnreadableCorpusSource),
     ("rejects unknown budget fields", testUnknownBudgetField),
+    ("rejects a child-only package root", testRejectsChildPackageRoot),
+    ("discovers an ancestor package root", testDiscoversAncestorPackageRoot),
     ("reports package-root canonicalization failures as corpus violations", testPackageRootCanonicalizationFailure),
     ("reports corpus-root canonicalization failures as corpus violations", testRootCanonicalizationFailure),
     ("reports case-path canonicalization failures as corpus violations", testCasePathCanonicalizationFailure),
@@ -213,6 +217,33 @@ testUnknownBudgetField =
       Left violations ->
         failTest ("expected an unknown-budget decode failure, got " <> Text.pack (show violations))
       Right corpus -> failTest ("expected unknown budget field failure, loaded " <> Text.pack (show corpus))
+
+testRejectsChildPackageRoot :: IO ()
+testRejectsChildPackageRoot =
+  withTemporaryDirectory $ \temporaryRoot -> do
+    let childPackageRoot = temporaryRoot </> "jazz"
+    writeEmptyPackage childPackageRoot
+    result <- withCurrentDirectory temporaryRoot loadProgramCorpus
+    assertEqual
+      "child-only package root result"
+      (Left [MissingCorpusManifest "could not locate jazz.cabal"])
+      result
+
+testDiscoversAncestorPackageRoot :: IO ()
+testDiscoversAncestorPackageRoot =
+  withTemporaryDirectory $ \packageRoot -> do
+    let nestedDirectory = packageRoot </> "work" </> "nested"
+    writeEmptyPackage packageRoot
+    createDirectoryIfMissing True nestedDirectory
+    expectedCorpusRoot <- canonicalizePath (packageRoot </> "programs")
+    result <- withCurrentDirectory nestedDirectory loadProgramCorpus
+    case result of
+      Left violations ->
+        failTest ("expected ancestor package root, got " <> Text.pack (show violations))
+      Right corpus -> do
+        assertEqual "ancestor corpus root" expectedCorpusRoot (programCorpusRoot corpus)
+        assertEqual "ancestor corpus schema" 1 (programCorpusSchemaVersion corpus)
+        assertEqual "ancestor empty corpus" [] (programCorpusCases corpus)
 
 testPackageRootCanonicalizationFailure :: IO ()
 testPackageRootCanonicalizationFailure = do
@@ -610,6 +641,13 @@ listFilesRecursively directory = do
 
 writeManifest :: FilePath -> Text -> IO ()
 writeManifest root = TextIO.writeFile (root </> "corpus.json")
+
+writeEmptyPackage :: FilePath -> IO ()
+writeEmptyPackage packageRoot = do
+  let corpusRoot = packageRoot </> "programs"
+  createDirectoryIfMissing True corpusRoot
+  TextIO.writeFile (packageRoot </> "jazz.cabal") "name: jazz\n"
+  writeManifest corpusRoot "{\"schemaVersion\":1,\"cases\":[]}"
 
 withTemporaryDirectory :: (FilePath -> IO a) -> IO a
 withTemporaryDirectory = bracket create removePathForcibly

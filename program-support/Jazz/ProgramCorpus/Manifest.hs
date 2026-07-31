@@ -465,8 +465,7 @@ canonicalizeCorpusRoot canonicalizeRoot requestedRoot = do
       Right canonicalRoot -> Right canonicalRoot
 
 candidateRoots :: FilePath -> [FilePath]
-candidateRoots currentDirectory =
-  concatMap (\ancestor -> [ancestor, ancestor </> "jazz"]) (ancestors currentDirectory)
+candidateRoots = ancestors
 
 ancestors :: FilePath -> [FilePath]
 ancestors directory =

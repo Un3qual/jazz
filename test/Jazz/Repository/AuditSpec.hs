@@ -96,7 +96,8 @@ tests =
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
     ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
-    ("documents the shared program corpus and performance workflows", testPerformanceDocumentation)
+    ("documents the shared program corpus and performance workflows", testPerformanceDocumentation),
+    ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths)
   ]
 
 testAuthoredSourceInventory :: IO ()
@@ -910,10 +911,36 @@ testPerformanceDocumentation =
   withPackageRoot $ \packageRoot ->
     forM_
       [ "PERFORMANCE.md",
+        "editors" </> "vscode-jazz" </> "README.md",
         "programs" </> "README.md",
         "programs" </> "corpus.json"
       ]
       (assertPackageFileExists packageRoot)
+
+testCanonicalDocumentationPaths :: IO ()
+testCanonicalDocumentationPaths =
+  withPackageRoot $ \packageRoot -> do
+    performance <- TextIO.readFile (packageRoot </> "PERFORMANCE.md")
+    programDocumentation <- TextIO.readFile (packageRoot </> "programs" </> "README.md")
+    editorDocumentation <- TextIO.readFile (packageRoot </> "editors" </> "vscode-jazz" </> "README.md")
+    assertTextContains "performance root workflow" "assume the repository root" performance
+    assertTextOmits "performance child-directory workflow" "cd jazz" performance
+    assertTextOmits "performance child project directory" "--project-dir=jazz" performance
+    assertTextContains "program manifest path" "`programs/corpus.json`" programDocumentation
+    assertTextContains "program fixture path" "`test/fixtures/`" programDocumentation
+    assertTextContains "program case root" "relative to `programs/`" programDocumentation
+    assertTextOmits "nested program manifest path" "`jazz/programs/corpus.json`" programDocumentation
+    assertTextOmits "nested program fixture path" "`jazz/test/fixtures/`" programDocumentation
+    assertTextContains "editor extension path" "`editors/vscode-jazz`" editorDocumentation
+    assertTextOmits "nested editor extension path" "`jazz/editors/vscode-jazz`" editorDocumentation
+
+assertTextContains :: Text -> Text -> Text -> IO ()
+assertTextContains description expected source =
+  assertEqual description True (expected `Text.isInfixOf` source)
+
+assertTextOmits :: Text -> Text -> Text -> IO ()
+assertTextOmits description forbidden source =
+  assertEqual description False (forbidden `Text.isInfixOf` source)
 
 assertPackageFileExists :: FilePath -> FilePath -> IO ()
 assertPackageFileExists packageRoot relativePath = do

@@ -11,7 +11,7 @@ payload types. Selected constructor names in grouped module exports use that
 same constructor scope while the owning type retains `entity.name.type.jazz`.
 The active editor theme determines the rendered colors.
 
-The extension source lives in `jazz/editors/vscode-jazz`. To use it from a
+The extension source lives in `editors/vscode-jazz`. To use it from a
 repository checkout, copy or symlink that directory into your VS Code extensions
 directory and reload the editor window. VS Code will then associate `.jz` files
 with the `Jazz` language and the `source.jazz` TextMate grammar.

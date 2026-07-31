@@ -14,12 +14,10 @@ is cumulative allocation by the current Haskell compiler/interpreter, while a
 heap profile shows live residency over time. A future native Jazz runtime will
 need allocator-owned physical statistics of its own.
 
-The commands below assume the repository's Nix development shell and the
-`jazz/` directory:
+The commands below assume the repository root and its Nix development shell:
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop
-cd jazz
 ```
 
 ## Correctness and semantic budgets
@@ -62,7 +60,7 @@ Hosted-parser scale correctness has two deterministic semantic-budget tiers:
   ceilings. It is included in the routine matrix:
 
   ```bash
-  cabal test --project-dir=jazz all --test-show-details=failures
+  cabal test all --test-show-details=failures
   ```
 
 - The full tier preserves one 513-statement semantic-budget check per grammar
@@ -72,7 +70,7 @@ Hosted-parser scale correctness has two deterministic semantic-budget tiers:
   evidence needs full-scale reproduction:
 
   ```bash
-  cabal test --project-dir=jazz -ffull-parser-scale \
+  cabal test -ffull-parser-scale \
     jazz-parser-scale-full-expression-spec \
     jazz-parser-scale-full-declarations-spec \
     jazz-parser-scale-full-control-flow-spec \
