@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-TYPED-CORE-CONTRACT-FOUNDATION-001
   - JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001
+completed_on: 2026-07-30
 last_verified: 2026-07-30
 plan_section: "Implementation Batch: Typed-Core Expression Production and Direct-Call Lowering"
 target_paths:
@@ -1143,7 +1144,7 @@ syntax rule for any future fixture support.
 - Produces: closure/recursion as the next ordered design gate, without
   promoting it as implementation.
 
-- [ ] **Step 1: Run the complete required matrix**
+- [x] **Step 1: Run the complete required matrix**
 
   Run exactly:
 
@@ -1160,7 +1161,7 @@ syntax rule for any future fixture support.
   Expected: every command passes. Routine Cabal `all` remains serialized and
   does not opt into exhaustive parser-scale components.
 
-- [ ] **Step 2: Review the implementation against the design**
+- [x] **Step 2: Review the implementation against the design**
 
   Confirm:
 
@@ -1176,7 +1177,7 @@ syntax rule for any future fixture support.
     than function equations; and
   - `jazz-hs/` and `jazz2/` have no diff.
 
-- [ ] **Step 3: Update status and archive the completed child**
+- [x] **Step 3: Update status and archive the completed child**
 
   Set this plan to `status: done`, add `completed_on`, and update
   `last_verified`. Move its queue row to `done-archive.md` with concise
@@ -1189,7 +1190,7 @@ syntax rule for any future fixture support.
   control flow, multi-module integration, LLVM, object/link, or native runtime
   without its own approved design and executor-ready child.
 
-- [ ] **Step 4: Re-run coordination checks after closeout**
+- [x] **Step 4: Re-run coordination checks after closeout**
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -1199,7 +1200,7 @@ syntax rule for any future fixture support.
 
   Expected: queue/archive/frontmatter parity and docs status checks pass.
 
-- [ ] **Step 5: Commit closeout**
+- [x] **Step 5: Commit closeout**
 
   ```bash
   git add docs/execution/blocker-contracts.md \

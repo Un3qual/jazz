@@ -18,12 +18,13 @@ backend-neutral lowered-IR contract foundation also completed on `2026-07-21`:
 matching Haskell/Jazz schemas and validators have exact repeated parity over 10
 valid and 31 invalid fixtures. The typed-core contract foundation completed on
 `2026-07-22`: matching Haskell/Jazz schemas and complete validators have exact
-repeated parity over 16 valid and 28 invalid fixtures. Inference does not yet
-produce typed core, and no core-to-IR lowerer exists. Typed-core expression
-production plus closed-scalar/direct-call lowering is the next design gate.
-Its opt-in single-pass architecture and bounded first profile were approved in
-discussion and written form on `2026-07-30`; the executor-ready implementation
-child is the sole `Ready Now` row.
+repeated parity over 16 valid and 28 invalid fixtures. The opt-in typed-core
+expression/direct-call child completed on `2026-07-30`: it produces one
+resolved-module scalar/direct-call typed-core profile during the existing
+inference traversal and lowers it to validated backend-neutral IR. Normal
+compile/run remains canonical-core/interpreter based. Closure/recursion is the
+next ordered design gate and requires its own approved design plus
+executor-ready child; it is not implementation work yet.
 LLVM, object/link, and native-runtime stages remain separate unpromoted gates.
 
 ## Goal
@@ -487,16 +488,13 @@ contract foundation is also complete: `JazzNext.Compiler.TypedCore`
 and validator; `jazz-next/jazz/compiler/TypedCoreTypes.jz` and
 `jazz-next/jazz/compiler/TypedCoreValidate.jz` own the ordinary Jazz mirrors.
 Its checked adapter and 16-valid / 28-invalid fixed corpus prove exact complete
-ordered parity for all 44 fixtures twice. Inference does not yet produce typed
-core, and no core-to-IR lowerer exists. Typed-core expression production plus
-closed-scalar/direct-call lowering is the next design gate. The proposed
-`2026-07-30-jazz-next-typed-core-expression-direct-call-design.md` selects an
-opt-in single-pass stage-0 producer and one resolved-module scalar/direct-call
-lowerer without changing normal compile/run behavior. It was approved in
-discussion and written form on `2026-07-30`, and
-`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` is the sole promoted
-implementation child. LLVM, object/link, and native-runtime implementation
-remain unpromoted.
+ordered parity for all 44 fixtures twice. The completed
+`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` child adds an opt-in
+single-pass producer and one resolved-module scalar/direct-call lowerer without
+changing normal canonical-core/interpreter compile/run behavior.
+Closure/recursion is the next ordered design gate and needs its own approved
+design plus executor-ready child. LLVM, object/link, and native-runtime
+implementation remain unpromoted.
 
 ## Non-Goals
 

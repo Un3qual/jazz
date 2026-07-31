@@ -147,35 +147,28 @@ Each blocked item should answer these questions:
   single-pass stage-0 producer, one resolved-module scalar/direct-call profile,
   structured unsupported outcomes, deterministic lowering, exact target paths,
   a fixed 16-accepted / 20-rejected manifest, and complete verification.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`, the sole `Ready Now`
-  child.
-- Decision needed: none for this child. A permanent typed-core or lowered-IR
-  contract defect requires a reviewed design amendment rather than silent
-  scope expansion.
-- Recommended default: preserve normal inference/compile/run behavior; produce
-  provisional typed nodes only in the opt-in mode; finalize once from the final
-  solver state; validate both permanent boundaries; and keep emitted IR
-  independent of LLVM instruction objects.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
-  (`ready`). Its executor-safe plan owns the complete implementation and
-  closeout sequence.
-- Target paths: the ordered frontmatter list names every existing concrete
-  ownership path. The plan's file/responsibility map and owning tasks fix the
-  four exact new module/test paths, which the queue validator cannot list
-  before creation. The approved forward signed-function visibility amendment
-  also owns the existing mirrored Haskell/Jazz typed-core validators and
-  contract spec named in frontmatter. Do not widen either set without a
-  reviewed design amendment.
-- Verification:
-  `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test --project-dir=jazz-next jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --jobs=1 --test-show-details=failures`;
-  warning-clean serialized development build; serialized routine Cabal `all`;
-  `cabal check`; queue/docs validators; and `git diff --check`.
-- Not in scope: closures, recursion, control flow, patterns, multi-module or
-  import integration, managed values, layouts, runtime services, tail calls,
-  LLVM emission, object generation, linking, native-runtime or ABI
-  implementation, a public compiler embedding API, bytecode or a VM, or edits
-  to `jazz-hs/` or `jazz2/`.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
+  completed on `2026-07-30`. It produces the verified opt-in single-pass
+  scalar/direct-call typed-core profile and deterministic validated lowering;
+  normal compile/run remains canonical-core/interpreter based.
+- Smallest unblocker: approve a closure/recursion design that fixes its
+  typed-core and lowering ownership, profile, failure ordering, and focused
+  verification before creating an executor-ready implementation child.
+- Decision needed: closure/recursion semantics and lowering boundary. Do not
+  infer an implementation scope from the completed scalar/direct-call profile.
+- Recommended default: preserve the completed opt-in boundary and normal
+  canonical-core/interpreter compile/run path while closure/recursion is
+  designed separately.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001`
+  (`docs` curation candidate only; not approved or ready for implementation).
+- Target paths: establish them in the closure/recursion design; do not reuse
+  or widen the completed child’s ownership list by implication.
+- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Not in scope: promoting closure/recursion implementation, or promoting
+  control flow, patterns, multi-module or import integration, managed values,
+  layouts, runtime services, tail calls, LLVM emission, object generation,
+  linking, native-runtime or ABI implementation, a public compiler embedding
+  API, bytecode or a VM, or edits to `jazz-hs/` or `jazz2/`.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

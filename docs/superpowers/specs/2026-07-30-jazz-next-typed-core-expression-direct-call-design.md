@@ -3,13 +3,15 @@
 ## Status
 
 Approved in discussion and written form on `2026-07-30`. The implementation
-plan is ready as
-`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`, the sole promoted
-`Ready Now` child.
+child `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` completed on
+`2026-07-30` and is archived.
 
 The typed-core and backend-neutral lowered-IR contract foundations are complete,
-and the pre-bootstrap language-quality gate has closed. Inference does not yet
-produce typed core, and no typed-core-to-IR lowerer exists.
+and the pre-bootstrap language-quality gate has closed. The child now produces
+and validates the bounded typed-core scalar/direct-call profile during its
+opt-in inference traversal and lowers it to validated backend-neutral IR.
+Normal compile/run remains canonical-core/interpreter based. Closure/recursion
+is the next design gate, not an implementation promotion.
 
 ## Goal
 
@@ -29,20 +31,21 @@ inference.
 
 ## Current Boundary
 
-`JazzNext.Compiler.TypeInference` currently traverses canonical core and returns
-an `InferenceResult` containing the unchanged expression, diagnostics, runtime
-hints, and a module interface. Its recursive expression functions return only a
-`Maybe ExpressionType` plus `InferState`; inner expression types, instantiated
-schemes, and selected evidence are not retained.
+Ordinary `JazzNext.Compiler.TypeInference` entrypoints traverse canonical core
+and return an `InferenceResult` containing the unchanged expression,
+diagnostics, runtime hints, and a module interface. Their recursive expression
+functions return only a `Maybe ExpressionType` plus `InferState`; the completed
+opt-in profile instead retains its provisional nodes during that same traversal.
 
 `JazzNext.Compiler.TypedCore` already defines the permanent typed program,
 module, statement, expression, type, representation-recipe, name, binder,
 instantiation, evidence, and validation contracts. Its Haskell and Jazz
 validators have exact parity over the fixed contract corpus.
 
-`JazzNext.Compiler.LoweredIR` already defines the permanent backend-neutral
+`JazzNext.Compiler.LoweredIR` defines the permanent backend-neutral
 program, function, block, instruction, call, representation, layout, runtime
-service, terminator, and validation contracts. It has no producer.
+service, terminator, and validation contracts. The completed child supplies a
+separate opt-in lowerer for only its bounded profile.
 
 The normal compiler and interpreter still consume canonical core plus runtime
 hints. They must remain unchanged until later integration gates are accepted.
@@ -502,18 +505,15 @@ implementation source text, constructor declarations by string search, Haskell
 
 ## Queue Transition
 
-Written approval was recorded on `2026-07-30`. The implementation plan
-`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` fixes the exact existing
-ownership and new file-creation paths, fixture manifests, non-goals, and
-verification commands from this design and is the sole promoted `Ready Now`
-child. Queue frontmatter lists the existing concrete paths; the plan's
-file/responsibility map and owning tasks name the four new paths until they
-exist. Closures, recursion, control flow, multi-module integration, LLVM,
-object/link, and native-runtime work remain unpromoted.
-
-Implementation closeout archives the completed row, updates the bootstrap
-profile and blocker contract, and names closure/recursion as the next ordered
-design gate.
+Written approval and implementation closeout were recorded on `2026-07-30`.
+The archived plan
+`JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001` fixed the exact ownership,
+fixture manifests, non-goals, and verification commands from this design.
+The completed profile is intentionally opt-in: normal compile/run continues to
+use canonical core and the interpreter. Closure/recursion is now the next
+ordered design gate; control flow, multi-module integration, LLVM, object/link,
+and native-runtime work remain unpromoted until separate approved designs and
+executor-ready children exist.
 
 ## Non-Goals
 
