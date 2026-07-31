@@ -15,6 +15,8 @@ module JazzNext.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     directCallExpectedPrograms,
+    directCallExpectedLoweredPrograms,
+    lowererBoundaryPrograms,
     ordinaryForwardVisibilityFixture,
     forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
@@ -432,6 +434,413 @@ directCallExpectedPrograms =
         (directCall "increment" [intInfo] intInfo [intExpr 41])
     )
   ]
+
+directCallExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+directCallExpectedLoweredPrograms =
+  [ ( "explicit-numeric-widths",
+      expectedCallableLoweredProgram
+        [ expectedLiteralFunction "asInt8" (LoweredSignedIntegerRepresentation LoweredIntegerWidth8) (LoweredSignedIntegerImmediate LoweredIntegerWidth8 1),
+          expectedLiteralFunction "asInt16" (LoweredSignedIntegerRepresentation LoweredIntegerWidth16) (LoweredSignedIntegerImmediate LoweredIntegerWidth16 2),
+          expectedLiteralFunction "asInt32" (LoweredSignedIntegerRepresentation LoweredIntegerWidth32) (LoweredSignedIntegerImmediate LoweredIntegerWidth32 3),
+          expectedLiteralFunction "asInt64" int64Representation (LoweredSignedIntegerImmediate LoweredIntegerWidth64 4),
+          expectedLiteralFunction "asUInt8" (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth8) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth8 5),
+          expectedLiteralFunction "asUInt16" (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth16) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth16 6),
+          expectedLiteralFunction "asUInt32" (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth32) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth32 7),
+          expectedLiteralFunction "asUInt64" (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64) (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 8),
+          expectedLiteralFunction "asFloat16" (LoweredFloatRepresentation LoweredFloatWidth16) (LoweredFloatImmediate LoweredFloatWidth16 "1.5"),
+          expectedLiteralFunction "asFloat32" (LoweredFloatRepresentation LoweredFloatWidth32) (LoweredFloatImmediate LoweredFloatWidth32 "2.5"),
+          expectedLiteralFunction "asFloat64" float64Representation (LoweredFloatImmediate LoweredFloatWidth64 "3.5")
+        ]
+        LoweredUnitRepresentation
+        []
+        (loweredImmediate LoweredUnitImmediate)
+    ),
+    ( "scalar-parameter-return",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "identity"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            []
+            (loweredParameter 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "identity" [loweredInt64 42]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "single-argument-direct-call",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "increment"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredInt64 1]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "increment" [loweredInt64 41]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "curried-multi-argument-direct-call",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "combine"
+            [ LoweredParameter (LoweredParameterId "arg1") int64Representation,
+              LoweredParameter (LoweredParameterId "arg2") int64Representation
+            ]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredParameter 2 int64Representation]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "combine" [loweredInt64 20, loweredInt64 22]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "forward-direct-call-dag",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "first"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "second" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation),
+          expectedLocalFunction
+            "second"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredInt64 1]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "first" [loweredInt64 41]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "nested-direct-calls",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "increment"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredInt64 1]
+            ]
+            (loweredTemporary 1 int64Representation),
+          expectedLocalFunction
+            "double"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredParameter 1 int64Representation]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [ expectedDirectCallInstruction 1 int64Representation "increment" [loweredInt64 20],
+          expectedDirectCallInstruction 2 int64Representation "double" [loweredTemporary 1 int64Representation]
+        ]
+        (loweredTemporary 2 int64Representation)
+    ),
+    ( "dollar-direct-call",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "increment"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredInt64 1]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "increment" [loweredInt64 41]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "exported-direct-function",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "increment"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredInt64 1]
+            ]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "increment" [loweredInt64 41]]
+        (loweredTemporary 1 int64Representation)
+    )
+  ]
+
+expectedCallableLoweredProgram ::
+  [LoweredFunction] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredOperand ->
+  LoweredProgram
+expectedCallableLoweredProgram functions resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    []
+    []
+    ( functions
+        <> [ LoweredFunction
+               loweredEntryFunctionId
+               Nothing
+               []
+               resultRepresentation
+               [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+               (LoweredBlockId "entry")
+           ]
+    )
+    loweredEntryFunctionId
+
+expectedLocalFunction ::
+  Text ->
+  [LoweredParameter] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredOperand ->
+  LoweredFunction
+expectedLocalFunction name parameters resultRepresentation instructions resultOperand =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> name))
+    Nothing
+    parameters
+    resultRepresentation
+    [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+    (LoweredBlockId "entry")
+
+expectedLiteralFunction :: Text -> LoweredRepresentation -> LoweredImmediate -> LoweredFunction
+expectedLiteralFunction name resultRepresentation immediateValue =
+  expectedLocalFunction
+    name
+    [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+    resultRepresentation
+    []
+    (loweredImmediate immediateValue)
+
+expectedDirectCallInstruction :: Int -> LoweredRepresentation -> Text -> [LoweredOperand] -> LoweredInstruction
+expectedDirectCallInstruction index representation functionName operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredDirectCall (LoweredFunctionId ("App::Main::" <> functionName)) operands)
+
+loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
+loweredParameter index =
+  LoweredFunctionParameterOperand (LoweredParameterId ("arg" <> Text.pack (show index)))
+
+lowererBoundaryPrograms :: [(Text, TypedProgram)]
+lowererBoundaryPrograms =
+  [ ("invalid-function-shape", scalarBindingProgram),
+    ("duplicate-parameter-function", duplicateParameterLowererProgram),
+    ("capturing-function", capturingLowererProgram),
+    ("self-recursive-function", selfRecursiveLowererProgram),
+    ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
+    ("bare-function-value", bareFunctionLowererProgram),
+    ("partial-direct-call", partialCallLowererProgram),
+    ("imported-direct-call", importedDirectCallLowererProgram)
+  ]
+
+duplicateParameterLowererProgram :: TypedProgram
+duplicateParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "chooseSecond"
+        [("item", intInfo), ("item", intInfo)]
+        intInfo
+        (variableExpr "item" intInfo)
+    ]
+    (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
+
+scalarBindingProgram :: TypedProgram
+scalarBindingProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedLetStatement
+            seedBinder
+            seedName
+            (TypedSpan 1 1)
+            seedScheme
+            (intExpr 1),
+          TypedExpressionStatement (TypedSpan 2 1) (intExpr 1)
+        ]
+        intInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+
+capturingLowererProgram :: TypedProgram
+capturingLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        ( scalarStatement
+            <> expectedFunctionStatements 1 2 addSeedFunction
+            <> [ TypedExpressionStatement
+                   (TypedSpan 4 1)
+                   (directCall "addSeed" [intInfo] intInfo [intExpr 41])
+               ]
+        )
+        intInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    scalarStatement =
+      [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
+    addSeedFunction =
+      ExpectedFunction
+        "addSeed"
+        [("item", intInfo)]
+        intInfo
+        (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo))
+
+selfRecursiveLowererProgram :: TypedProgram
+selfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (directCall "loop" [intInfo] intInfo [intExpr 1])
+
+mutuallyRecursiveLowererProgram :: TypedProgram
+mutuallyRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "left"
+        [("item", intInfo)]
+        intInfo
+        (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
+      ExpectedFunction
+        "right"
+        [("item", intInfo)]
+        intInfo
+        (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (directCall "left" [intInfo] intInfo [intExpr 1])
+
+bareFunctionLowererProgram :: TypedProgram
+bareFunctionLowererProgram =
+  expectedFunctionProgram
+    []
+    [identityFunction]
+    (TypedVariableExpr (functionInfo [("item", intInfo)] intInfo) (resolvedName "identity"))
+
+partialCallLowererProgram :: TypedProgram
+partialCallLowererProgram =
+  expectedFunctionProgram
+    []
+    [combineFunction]
+    ( TypedApplyExpr
+        (functionInfo [("right", intInfo)] intInfo)
+        (TypedVariableExpr (functionInfo [("left", intInfo), ("right", intInfo)] intInfo) (resolvedName "combine"))
+        (intExpr 1)
+    )
+
+importedDirectCallLowererProgram :: TypedProgram
+importedDirectCallLowererProgram =
+  TypedProgram Nothing [providerModule, entry] modulePath
+  where
+    providerPath = ["Library", "Functions"]
+    providerName = TypedResolvedName TypedCurrentModule TypedValueNamespace "foreign"
+    importedName = TypedResolvedName (TypedImportedModule providerPath) TypedValueNamespace "foreign"
+    providerOwner = TypedBinderId (providerPath, [0], providerName)
+    providerParameterName = TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+    providerParameterBinder = TypedBinderId (providerPath, [0, 0], providerParameterName)
+    providerInfo = functionInfo [("item", intInfo)] intInfo
+    providerScheme =
+      TypedScheme
+        providerOwner
+        []
+        []
+        []
+        (TypedFunctionType TypedIntType TypedIntType)
+        (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+    providerModule =
+      TypedModule
+        providerPath
+        (TypedSourcePath "src/Library/Functions.jz")
+        []
+        [TypedModuleExport TypedValueNamespace "foreign"]
+        (TypedModuleInterface [TypedValueInterface providerName providerScheme] [] [] [])
+        [ TypedLetStatement
+            providerOwner
+            providerName
+            (TypedSpan 1 1)
+            providerScheme
+            ( TypedLambdaExpr
+                providerInfo
+                providerParameterBinder
+                providerParameterName
+                (TypedVariableExpr intInfo providerParameterName)
+            )
+        ]
+        unitInfo
+    callExpression =
+      TypedApplyExpr
+        intInfo
+        (TypedVariableExpr providerInfo importedName)
+        (intExpr 1)
+    entry =
+      TypedModule
+        modulePath
+        validSourcePath
+        [TypedResolvedImport (TypedSpan 1 1) providerPath Nothing (Just ["foreign"])]
+        []
+        (TypedModuleInterface [] [] [] [])
+        [TypedExpressionStatement (TypedSpan 1 1) callExpression]
+        intInfo
 
 rejectedScalarFixtures :: [Fixture]
 rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "conditional", "pattern-case", "local-block-binding"]

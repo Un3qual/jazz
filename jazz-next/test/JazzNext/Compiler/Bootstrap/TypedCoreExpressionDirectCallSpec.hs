@@ -20,6 +20,7 @@ import JazzNext.Compiler.ModuleExports (ModuleExport (..), exportInventory)
 import JazzNext.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
 import JazzNext.Compiler.TypedCore
+import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
 import JazzNext.Compiler.TypeInference
 import JazzNext.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
@@ -43,8 +44,9 @@ tests =
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
     ("validates typed core before checking the lowering profile", testLoweringPrecedence),
-    ("rejects valid callable typed core with ordered structural failures", testCallableLoweringUnsupported),
     ("produces monomorphic functions and fully saturated direct calls twice", testDirectCallProduction),
+    ("lowers monomorphic functions and fully saturated direct calls twice", testDirectCallLowering),
+    ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
@@ -146,6 +148,124 @@ testDirectCallProduction =
         (name <> " complete typed program")
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
+
+testDirectCallLowering :: IO ()
+testDirectCallLowering =
+  mapM_ assertLowered directCallExpectedLoweredPrograms
+  where
+    assertLowered (name, expectedProgram) = do
+      let fixture = fixtureByName name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      case (typedCoreProductionStatus firstProduction, typedCoreProductionStatus secondProduction) of
+        (TypedCoreProductionSucceeded firstProgram, TypedCoreProductionSucceeded secondProgram) -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall firstProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall secondProgram
+          assertEqual (name <> " permanently valid expected lowering") [] (validateLoweredProgram expectedProgram)
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          assertEqual (name <> " complete lowered program") (LoweredIRSucceeded expectedProgram) firstLowering
+        _ -> failTest (name <> " did not produce typed core for lowering")
+
+testLowererCallableBoundary :: IO ()
+testLowererCallableBoundary =
+  mapM_ assertBoundary expectedResults
+  where
+    assertBoundary (name, expectedFailures) =
+      case lookup name lowererBoundaryPrograms of
+        Nothing -> failTest (name <> " lowerer boundary program is missing")
+        Just programValue -> do
+          let firstRun = lowerTypedCoreExpressionDirectCall programValue
+              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
+          assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
+
+    expectedResults =
+      [ ( "invalid-function-shape",
+          [ statementFailure 0
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "seed"))
+          ]
+        ),
+        ( "capturing-function",
+          [ statementFailure 0
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "seed")),
+            expressionFailure 2 [0, 0, 1]
+              LoweredIRCaptureUnsupported
+              (LoweredIRNameFailureDetail (currentName "seed"))
+          ]
+        ),
+        ( "duplicate-parameter-function",
+          [ statementFailure 1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "chooseSecond"))
+          ]
+        ),
+        ( "self-recursive-function",
+          [ statementFailure 1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop"))
+          ]
+        ),
+        ( "mutually-recursive-functions",
+          [ statementFailure 1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "left")),
+            statementFailure 3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "right"))
+          ]
+        ),
+        ( "bare-function-value",
+          [ callableModuleResultFailure,
+            expressionFailure 2 [0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "partial-direct-call",
+          [ callableModuleResultFailure,
+            expressionFailure 2 [0]
+              LoweredIRCallArityUnsupported
+              (LoweredIRArityFailureDetail 2 1)
+          ]
+        ),
+        ( "imported-direct-call",
+          [ LoweredIRLoweringFailure
+              TypedProgramPath
+              LoweredIRUnsupportedProgram
+              LoweredIRNoFailureDetail,
+            LoweredIRLoweringFailure
+              (TypedModulePath ["App", "Main"])
+              LoweredIRUnsupportedModule
+              LoweredIRNoFailureDetail,
+            expressionFailure 0 [0]
+              LoweredIRNonLocalCallUnsupported
+              ( LoweredIRNameFailureDetail
+                  (TypedResolvedName (TypedImportedModule ["Library", "Functions"]) TypedValueNamespace "foreign")
+              )
+          ]
+        )
+      ]
+    statementFailure index kind detail =
+      LoweredIRLoweringFailure
+        (TypedStatementPath ["App", "Main"] [index])
+        kind
+        detail
+    expressionFailure statementIndex childPath kind detail =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath ["App", "Main"] [statementIndex] childPath)
+        kind
+        detail
+    currentName = TypedResolvedName TypedCurrentModule TypedValueNamespace
+    callableModuleResultFailure =
+      LoweredIRLoweringFailure
+        (TypedModulePath ["App", "Main"])
+        LoweredIRUnsupportedRepresentation
+        ( LoweredIRRecipeFailureDetail
+            (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+        )
 
 testForwardVisibilityBoundary :: IO ()
 testForwardVisibilityBoundary = do
@@ -390,30 +510,6 @@ testLoweringPrecedence =
         ]
     )
     (lowerTypedCoreExpressionDirectCall (TypedProgram Nothing [] ["Missing", "Entry"]))
-
-testCallableLoweringUnsupported :: IO ()
-testCallableLoweringUnsupported =
-  case lookup "single-argument-direct-call" directCallExpectedPrograms of
-    Nothing -> failTest "single-argument direct-call expectation is missing"
-    Just programValue ->
-      assertEqual
-        "callable lowering failures"
-        ( LoweredIRUnsupported
-            [ LoweredIRLoweringFailure
-                (TypedStatementPath ["App", "Main"] [0])
-                LoweredIRUnsupportedStatement
-                LoweredIRNoFailureDetail,
-              LoweredIRLoweringFailure
-                (TypedStatementPath ["App", "Main"] [1])
-                LoweredIRUnsupportedStatement
-                LoweredIRNoFailureDetail,
-              LoweredIRLoweringFailure
-                (TypedExpressionPath ["App", "Main"] [2] [])
-                LoweredIRUnsupportedExpression
-                LoweredIRNoFailureDetail
-            ]
-        )
-        (lowerTypedCoreExpressionDirectCall programValue)
 
 testRejectedScalarProfile :: IO ()
 testRejectedScalarProfile =
