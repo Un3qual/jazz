@@ -82,6 +82,7 @@ import JazzNext.Compiler.TypeInference.Capabilities
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
+    binaryNumericPromotionType,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
@@ -94,7 +95,8 @@ import JazzNext.Compiler.TypeInference.Pattern
     inferPatternCaseTypeWithResults
   )
 import JazzNext.Compiler.TypeInference.Scope
-  ( inferExplicitTypeApplication,
+  ( forwardSignedFunctionAnalysisBindings,
+    inferExplicitTypeApplication,
     inferExplicitTypeApplicationWithResult,
     inferNestedScopeTypeWithMode,
     inferScopeType,
@@ -156,7 +158,6 @@ import JazzNext.Compiler.TypeInference.Elaboration
     InferredProductionFailure (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedScope (..),
-    ProvisionalTypedStatement (..),
     TypedCoreProductionMode (..),
   )
 import JazzNext.Compiler.WarningConfig
@@ -254,20 +255,21 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode :: TypedCoreProdu
 inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hiddenStatementIndices preludeStatementIndices expr =
   {-# SCC "jazz-stage:type-inference" #-}
   do
-  let (inferredResult, finalState) =
+  let initialState = initialStateForInference inputs
+      (inferredResult, finalState) =
         inferExprTypeWithMode
           True
           mode
           preludeStatementIndices
           (inferenceBuiltinMode inputs)
           (inferenceImportedTypes inputs)
-          (initialStateForInference inputs)
+          initialState
           expr
       typeErrors = reverse (inferErrorsRev finalState)
       runtimeTypeHints = inferRuntimeTypeHints finalState
   AnalysisResult _ analyzerDiagnostics <-
     analyzeProgramWithInputs
-      (analysisInputsForInference inputs (forwardAnalysisValues mode inferredResult))
+      (analysisInputsForInference inputs (forwardAnalysisValues mode initialState expr))
       hiddenStatementIndices
       expr
   inferredExpressionType inferredResult `seq`
@@ -374,16 +376,15 @@ analysisInputsForInference inputs forwardValues =
       analysisModulePath = inferenceCurrentModulePath inputs
     }
 
-forwardAnalysisValues :: TypedCoreProductionMode -> InferredExpr -> Map Int (Name, AnalysisBinding)
-forwardAnalysisValues mode inferredResult
+forwardAnalysisValues :: TypedCoreProductionMode -> InferState -> Expr -> Map Int (Name, AnalysisBinding)
+forwardAnalysisValues mode initialState expr
   | mode /= ProduceTypedCoreExpressionDirectCall = Map.empty
   | otherwise =
-      case inferredProvisionalExpr inferredResult of
-        Just (ProvisionalScopeStatements provisionalStatements) ->
-          Map.fromList
-            [ (statementIndex, (name, AnalysisBinding (Just bindingSpan) False))
-              | ProvisionalFunctionBinding statementIndex name bindingSpan _ True _ _ <- provisionalStatements
-            ]
+      case expr of
+        EBlock statements ->
+          Map.map
+            (\(name, bindingSpan) -> (name, AnalysisBinding (Just bindingSpan) False))
+            (forwardSignedFunctionAnalysisBindings statements initialState)
         _ -> Map.empty
 
 initialStateForInference :: InferenceInputs -> InferState
@@ -540,12 +541,31 @@ inferScalarExprWithProduction builtinMode env state expr =
                   (Just leftType, Just rightType) ->
                     inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
                   _ -> (Nothing, stateAfterRight)
-              provisionalExpr = do
-                resultType <- expressionType
-                leftProvisional <- inferredProvisionalExpr leftResult
-                rightProvisional <- inferredProvisionalExpr rightResult
-                pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
-              failures = childFailures 0 leftResult <> childFailures 1 rightResult
+              promotionFailures =
+                case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
+                  (Just leftType, Just rightType)
+                    | Just _ <-
+                        binaryNumericPromotionType
+                          operatorSymbol
+                          leftExpr
+                          rightExpr
+                          leftType
+                          rightType
+                          finalState ->
+                        [InferredProductionFailure [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+                  _ -> []
+              failures =
+                promotionFailures
+                  <> childFailures 0 leftResult
+                  <> childFailures 1 rightResult
+              provisionalExpr =
+                case promotionFailures of
+                  _ : _ -> Just (ProvisionalRetainedFailures failures)
+                  [] -> do
+                    resultType <- expressionType
+                    leftProvisional <- inferredProvisionalExpr leftResult
+                    rightProvisional <- inferredProvisionalExpr rightResult
+                    pure (ProvisionalBinaryExpression operatorSymbol resultType leftProvisional rightProvisional)
            in (InferredExpr expressionType provisionalExpr failures, finalState)
     EBinary {} ->
       inferUnsupportedWithProduction
@@ -610,28 +630,51 @@ inferScalarExprWithProduction builtinMode env state expr =
       inferUnsupportedWithProduction
         TypedCoreUserDefinedOperatorUnsupported
         TypedCoreUnsupportedRootDetail
-    EApply functionExpr argumentExpr ->
-      let (functionResult, stateAfterFunction) = inferScalarExprWithProduction builtinMode env state functionExpr
-          (argumentResult, stateAfterArgument) = inferScalarExprWithProduction builtinMode env stateAfterFunction argumentExpr
-          (expressionType, finalState) =
-            inferApplicationFromResults
-              env
-              state
-              functionExpr
-              argumentExpr
-              functionResult
-              argumentResult
-              stateAfterArgument
-          failures = childFailures 0 functionResult <> childFailures 1 argumentResult
-          provisionalExpr =
-            case failures of
-              _ : _ -> Just (ProvisionalRetainedFailures failures)
-              [] -> do
-                resultType <- expressionType
-                function <- inferredProvisionalExpr functionResult
-                argument <- inferredProvisionalExpr argumentResult
-                pure (ProvisionalApplyExpression resultType function argument)
-       in (InferredExpr expressionType provisionalExpr failures, finalState)
+    EApply functionExpr argumentExpr
+      | Just (methodName, methodKey, argumentExprs) <- qualifiedMethodApplicationSpine expr state,
+        Map.notMember methodName env ->
+          let (expressionType, finalState, argumentResults) =
+                inferQualifiedMethodApplicationWithResults
+                  inferScalarExprWithProduction
+                  inferredExpressionType
+                  builtinMode
+                  env
+                  state
+                  methodKey
+                  argumentExprs
+              argumentFailures =
+                concat
+                  [ prefixFailures (applicationArgumentPath (length argumentResults) argumentIndex) argumentResult
+                  | (argumentIndex, argumentResult) <- zip [0 ..] argumentResults
+                  ]
+           in retainedUnsupported
+                expressionType
+                finalState
+                TypedCoreNonLocalCallUnsupported
+                (TypedCoreNameDetail methodKey)
+                argumentFailures
+      | otherwise ->
+          let (functionResult, stateAfterFunction) = inferScalarExprWithProduction builtinMode env state functionExpr
+              (argumentResult, stateAfterArgument) = inferScalarExprWithProduction builtinMode env stateAfterFunction argumentExpr
+              (expressionType, finalState) =
+                inferApplicationFromResults
+                  env
+                  state
+                  functionExpr
+                  argumentExpr
+                  functionResult
+                  argumentResult
+                  stateAfterArgument
+              failures = childFailures 0 functionResult <> childFailures 1 argumentResult
+              provisionalExpr =
+                case failures of
+                  _ : _ -> Just (ProvisionalRetainedFailures failures)
+                  [] -> do
+                    resultType <- expressionType
+                    function <- inferredProvisionalExpr functionResult
+                    argument <- inferredProvisionalExpr argumentResult
+                    pure (ProvisionalApplyExpression resultType function argument)
+           in (InferredExpr expressionType provisionalExpr failures, finalState)
     ETypeApplication {} ->
       inferUnsupportedWithProduction
         TypedCoreManagedValueUnsupported
@@ -651,9 +694,15 @@ inferScalarExprWithProduction builtinMode env state expr =
        in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)) failures, finalState)
 
     childFailures childIndex result =
-      [ InferredProductionFailure (childIndex : childPath) kind detail
+      prefixFailures [childIndex] result
+
+    prefixFailures prefix result =
+      [ InferredProductionFailure (prefix <> childPath) kind detail
       | InferredProductionFailure childPath kind detail <- inferredProductionFailures result
       ]
+
+    applicationArgumentPath argumentCount argumentIndex =
+      replicate (argumentCount - argumentIndex - 1) 0 <> [1]
 
     inferIfFromResults conditionResult thenResult elseResult stateAfterElse =
       let stateAfterConditionCheck =

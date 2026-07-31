@@ -39,7 +39,10 @@ import JazzNext.Compiler.Name
   )
 import JazzNext.Compiler.TypedCore
 import JazzNext.Compiler.TypedCore.Validate (validateTypedProgram)
-import JazzNext.Compiler.TypeInference.Solver (resolveType)
+import JazzNext.Compiler.TypeInference.Solver
+  ( integerLiteralRangeFitsNumericType,
+    resolveType
+  )
 import JazzNext.Compiler.TypeInference.State (InferState)
 import JazzNext.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 
@@ -547,7 +550,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state (Provision
     scalarInfo statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TIntType -> Right (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
-        TIntegerLiteralType {} -> Right (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
+        TIntegerLiteralType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
         TFloatType -> Right (TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] [])
         TNumericType numericType ->
           let (numericTypeValue, recipe) = numericInfo numericType
@@ -648,5 +651,6 @@ nodeRecipe (TypedNodeInfo _ recipe _ _) = recipe
 defaultScalarLiterals :: ExpressionType -> ExpressionType
 defaultScalarLiterals expressionType =
   case expressionType of
-    TIntegerLiteralType {} -> TIntType
+    TIntegerLiteralType literalRange
+      | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
     _ -> expressionType

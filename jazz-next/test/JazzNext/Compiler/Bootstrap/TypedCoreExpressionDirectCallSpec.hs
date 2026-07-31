@@ -52,8 +52,12 @@ tests =
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
+    ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
     ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
+    ("preserves qualified-method application inference in rejected profiles", testQualifiedMethodInferenceCompatibility),
+    ("rejects uncommitted integer ranges outside Int64", testOutOfRangeDefaultIntegerRejection),
+    ("rejects numeric promotions that typed core cannot represent", testNumericPromotionRejection),
     ("rejects the complete callable profile twice", testRejectedCallableProfile),
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
@@ -442,6 +446,24 @@ testProductionDiagnosticCompatibility = do
     TypedCoreProductionBlockedByDiagnostics
     (typedCoreProductionStatus firstRun)
 
+testInvalidForwardDeclarationAnalysisVisibility :: IO ()
+testInvalidForwardDeclarationAnalysisVisibility = do
+  let fixture = producerEdgeFixture "invalid-forward-signed-function"
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "invalid signed forward declaration production diagnostics"
+    ["E2006"]
+    [ diagnosticCodeText (diagnosticCode diagnostic)
+    | diagnostic <- inferredDiagnostics (typedCoreProductionInferenceResult firstRun),
+      isErrorDiagnostic diagnostic
+    ]
+  assertEqual "invalid signed forward declaration repeatable production" firstRun secondRun
+  assertEqual
+    "invalid signed forward declaration blocks typed-core production"
+    TypedCoreProductionBlockedByDiagnostics
+    (typedCoreProductionStatus firstRun)
+
 testUnsupportedDeclarationProfile :: IO ()
 testUnsupportedDeclarationProfile = do
   let fixture = producerEdgeFixture "class-impl-declarations"
@@ -469,6 +491,98 @@ testUnsupportedDeclarationProfile = do
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
+
+testQualifiedMethodInferenceCompatibility :: IO ()
+testQualifiedMethodInferenceCompatibility = do
+  let fixture = producerEdgeFixture "qualified-method-profile-rejection"
+      expected =
+        TypedCoreProductionUnsupported
+          [ unsupportedStatement 0,
+            unsupportedStatement 1,
+            unsupportedStatement 2,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+              TypedCoreNonLocalCallUnsupported
+              (TypedCoreNameDetail "Choice::pick")
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "qualified method ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "qualified method inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "qualified method repeatable production" firstRun secondRun
+  assertEqual "qualified method profile failures" expected (typedCoreProductionStatus firstRun)
+  where
+    unsupportedStatement statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+
+testOutOfRangeDefaultIntegerRejection :: IO ()
+testOutOfRangeDefaultIntegerRejection =
+  mapM_ assertRejected ["out-of-range-default-integer", "out-of-range-default-integer-binary"]
+  where
+    assertRejected name = do
+      let fixture = producerEdgeFixture name
+          expected =
+            TypedCoreProductionUnsupported
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                  TypedCoreUnresolvedExpressionType
+                  TypedCoreUnsupportedRootDetail
+              ]
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+      assertEqual
+        (name <> " inference compatibility")
+        ordinary
+        (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual (name <> " structured rejection") expected (typedCoreProductionStatus firstRun)
+
+testNumericPromotionRejection :: IO ()
+testNumericPromotionRejection =
+  mapM_
+    assertRejected
+    [ ("integer-literal-float64-promotion", 0, []),
+      ("integer-literal-float64-equality", 0, []),
+      ("signed-parameter-float64-promotion", 1, [0, 0, 0])
+    ]
+  where
+    assertRejected (name, statementIndex, childPath) = do
+      let fixture = producerEdgeFixture name
+          expected =
+            TypedCoreProductionUnsupported
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+                  TypedCoreUnsupportedRootExpression
+                  TypedCoreUnsupportedRootDetail
+              ]
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+      assertEqual
+        (name <> " inference compatibility")
+        ordinary
+        (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual (name <> " structured rejection") expected (typedCoreProductionStatus firstRun)
 
 assertUnboundLater :: Text -> InferenceResult -> IO ()
 assertUnboundLater label = assertUnboundName label "later"

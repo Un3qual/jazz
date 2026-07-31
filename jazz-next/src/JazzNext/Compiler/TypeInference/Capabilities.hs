@@ -21,6 +21,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     freshTypeVars,
     importModuleCapabilityFacts,
     inferQualifiedMethodApplication,
+    inferQualifiedMethodApplicationWithResults,
     instantiateQualifiedMethodType,
     instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
@@ -486,32 +487,44 @@ inferQualifiedMethodApplication ::
   [Expr] ->
   (Maybe ExpressionType, InferState)
 inferQualifiedMethodApplication inferExpression builtinMode env state methodKey argumentExprs =
-  let (argumentTypes, stateAfterArguments) =
-        inferQualifiedMethodArguments inferExpression builtinMode env state argumentExprs
-   in case sequence argumentTypes of
-        Nothing -> (Nothing, stateAfterArguments)
-        Just typedArgumentTypes ->
-          resolveQualifiedMethodApplicationType
-            methodKey
-            env
-            stateAfterArguments
-            (zip argumentExprs typedArgumentTypes)
+  let (expressionType, finalState, _) =
+        inferQualifiedMethodApplicationWithResults
+          inferExpression
+          id
+          builtinMode
+          env
+          state
+          methodKey
+          argumentExprs
+   in (expressionType, finalState)
 
-inferQualifiedMethodArguments ::
-  InferExprFn ->
+inferQualifiedMethodApplicationWithResults ::
+  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (result, InferState)) ->
+  (result -> Maybe ExpressionType) ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
+  Text ->
   [Expr] ->
-  ([Maybe ExpressionType], InferState)
-inferQualifiedMethodArguments inferExpression builtinMode env state argumentExprs =
-  let (reversedTypes, finalState) = foldl' step ([], state) argumentExprs
-   in (reverse reversedTypes, finalState)
+  (Maybe ExpressionType, InferState, [result])
+inferQualifiedMethodApplicationWithResults inferExpression resultType builtinMode env state methodKey argumentExprs =
+  let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
+      results = reverse reversedResults
+   in case traverse resultType results of
+        Nothing -> (Nothing, stateAfterArguments, results)
+        Just typedArgumentTypes ->
+          let (expressionType, finalState) =
+                resolveQualifiedMethodApplicationType
+                  methodKey
+                  env
+                  stateAfterArguments
+                  (zip argumentExprs typedArgumentTypes)
+           in (expressionType, finalState, results)
   where
-    step (typesAcc, stateAcc) argumentExpr =
-      let (argumentType, stateAfterArgument) =
+    step (resultsAcc, stateAcc) argumentExpr =
+      let (result, stateAfterArgument) =
             inferExpression builtinMode env stateAcc argumentExpr
-       in (argumentType : typesAcc, stateAfterArgument)
+       in (result : resultsAcc, stateAfterArgument)
 
 checkImplMethodBodies ::
   InferExprFn ->

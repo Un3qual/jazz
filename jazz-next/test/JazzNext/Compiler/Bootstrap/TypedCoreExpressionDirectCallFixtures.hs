@@ -998,6 +998,59 @@ producerEdgeFixtures =
               "1."
             ]
         )
+    ),
+    ( "invalid-forward-signed-function",
+      sourceFixtureNoExports
+        "invalid-forward-signed-function"
+        ( Text.unlines
+            [ "first :: Int -> Int.",
+              "first = \\(item) -> later item.",
+              "later :: Int -> Int.",
+              "later = \\(item) -> item True.",
+              "first 1."
+            ]
+        )
+    ),
+    ( "qualified-method-profile-rejection",
+      sourceFixtureNoExports
+        "qualified-method-profile-rejection"
+        ( Text.unlines
+            [ "class Choice(a) { pick :: a -> Bool. }.",
+              "impl Choice(Int) { pick = \\(candidate) -> True. }.",
+              "impl Choice(Bool) { pick = \\(candidate) -> False. }.",
+              "Choice::pick 1."
+            ]
+        )
+    ),
+    ( "out-of-range-default-integer",
+      sourceFixtureNoExports
+        "out-of-range-default-integer"
+        "9223372036854775808."
+    ),
+    ( "out-of-range-default-integer-binary",
+      sourceFixtureNoExports
+        "out-of-range-default-integer-binary"
+        "9223372036854775807 + 1."
+    ),
+    ( "integer-literal-float64-promotion",
+      sourceFixtureNoExports
+        "integer-literal-float64-promotion"
+        "1 + 2.0."
+    ),
+    ( "integer-literal-float64-equality",
+      sourceFixtureNoExports
+        "integer-literal-float64-equality"
+        "1 == 2.0."
+    ),
+    ( "signed-parameter-float64-promotion",
+      sourceFixtureNoExports
+        "signed-parameter-float64-promotion"
+        ( Text.unlines
+            [ "promote :: Int -> Float64 -> Float64.",
+              "promote = \\(whole, fractional) -> whole + fractional.",
+              "promote 1 2.0."
+            ]
+        )
     )
   ]
 

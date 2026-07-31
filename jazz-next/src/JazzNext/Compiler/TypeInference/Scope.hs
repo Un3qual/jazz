@@ -9,6 +9,7 @@ module JazzNext.Compiler.TypeInference.Scope
     inferNestedScopeTypeWithMode,
     inferScopeType,
     inferScopeTypeWithMode,
+    forwardSignedFunctionAnalysisBindings,
     instantiateNonBuiltinTypeBinding,
   )
 where
@@ -1152,6 +1153,30 @@ data ScopePreparation = ScopePreparation
     preparedForwardFunctions :: Map Int ForwardFunctionBinding,
     preparedScopeState :: InferState
   }
+
+-- | Derive analyzer-visible forward bindings from the same signature/binding
+-- eligibility pass that prepares production inference. Analyzer visibility
+-- must not depend on whether a later function body inferred successfully.
+forwardSignedFunctionAnalysisBindings ::
+  [Statement] ->
+  InferState ->
+  Map Int (Name, SourceSpan)
+forwardSignedFunctionAnalysisBindings statements initialState =
+  Map.fromList
+    [ (statementIndex, (bindingName, bindingSpan))
+    | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
+      Map.member statementIndex (preparedForwardFunctions scopePreparation)
+    ]
+  where
+    indexedStatements = zip [0 ..] statements
+    predeclaredDataTypes = predeclareScopeDataTypes indexedStatements initialState
+    scopePreparation =
+      prepareScope
+        True
+        ProduceTypedCoreExpressionDirectCall
+        predeclaredDataTypes
+        indexedStatements
+        initialState
 
 prepareScope ::
   Bool ->

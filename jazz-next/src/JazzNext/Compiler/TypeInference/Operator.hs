@@ -3,6 +3,7 @@
 -- | Builtin operator typing rules, isolated from expression orchestration.
 module JazzNext.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
+    binaryNumericPromotionType,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
@@ -184,6 +185,33 @@ inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
               (resolveType state rightType)
           )
       )
+
+-- | Report the implicit Float64 operand promotion selected by the ordinary
+-- operator rules. Consumers that cannot represent the conversion can reject
+-- it explicitly instead of constructing a heterogeneous binary node.
+binaryNumericPromotionType ::
+  Text ->
+  Expr ->
+  Expr ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  Maybe ExpressionType
+binaryNumericPromotionType operatorSymbol leftExpr rightExpr leftType rightType state =
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule _) -> promotedType
+    Just StrictEqualityRule -> promotedType
+    _ -> Nothing
+  where
+    promotedType =
+      fst
+        <$> directIntegerFloat64NumericOperand
+          NumericSameTypeResult
+          state
+          leftExpr
+          rightExpr
+          leftType
+          rightType
 
 applyNumericBinaryRule ::
   Text ->
