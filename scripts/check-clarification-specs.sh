@@ -110,9 +110,19 @@ if rg -n -e 'docs/(feature-status\.md|spec/|jazz-language-state\.md|jazz-improve
   fail ".codex/execution contains a live reference to a deleted documentation owner"
 fi
 
-if rg -n -e '2026-07-(21|22|30)-jazz-next-(hosted-canonical-core|backend-neutral-lowered-ir|typed-core-elaboration|typed-core-expression-direct-call)-design\.md' .codex/execution --glob '*.md' >/dev/null 2>&1; then
-  fail ".codex/execution contains a live reference to a deleted design filename"
-fi
+obsolete_product_identity='jazz'"-next"
+deleted_design_filenames=(
+  "2026-07-21-${obsolete_product_identity}-hosted-canonical-core-design.md"
+  "2026-07-21-${obsolete_product_identity}-backend-neutral-lowered-ir-design.md"
+  "2026-07-22-${obsolete_product_identity}-typed-core-elaboration-design.md"
+  "2026-07-30-${obsolete_product_identity}-typed-core-expression-direct-call-design.md"
+)
+for deleted_design_filename in "${deleted_design_filenames[@]}"; do
+  if rg -n -F "$deleted_design_filename" .codex/execution --glob '*.md' >/dev/null 2>&1; then
+    fail ".codex/execution contains a live reference to a deleted design filename"
+    break
+  fi
+done
 
 if rg -n -e 'historical archive docs|done-archive\.md|plan, status, and spec updates' .codex/execution --glob '*.md' >/dev/null 2>&1; then
   fail ".codex/execution contains obsolete documentation-preservation guidance"
