@@ -35,8 +35,9 @@ The API is `setEmpty`, `setSingleton`, `setFromList`, `setToList`, `setSize`,
 `setIntersection`, `setDifference`, `setIsSubset`, `setFilter`, `setMap`,
 `setFoldLeft`, and `setFoldRight`.
 
-Contains, insert, and remove are `O(log n)`. From-list and value-changing map
-are `O(n log n)`; materialization and folds are `O(n)`. Union is
+Empty/singleton construction, size, and empty checks are `O(1)`. Contains,
+insert, and remove are `O(log n)`. From-list, value-changing map, and filter are
+`O(n log n)`; materialization and folds are `O(n)`. Union is
 `O(m log(n + m))` for the traversed right set; subset is `O(n log m)`.
 Intersection and difference are `O(n * (log n + log m))` worst case because
 they combine membership checks with rebuilding. Representations remain private.

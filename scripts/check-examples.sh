@@ -4,6 +4,21 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
+JAZZ_EXAMPLE_MANIFEST=(
+  "examples/hello.jz"
+  "examples/functions/factorial.jz"
+  "examples/modules/src/Example/Greeting.jz"
+  "examples/modules/src/Example/Main.jz"
+  "examples/patterns/result.jz"
+)
+
+for example_path in "${JAZZ_EXAMPLE_MANIFEST[@]}"; do
+  if [[ ! -f "$example_path" ]]; then
+    printf 'FAIL: manifest example is missing: %s\n' "$example_path" >&2
+    exit 1
+  fi
+done
+
 cabal build jazz
 JAZZ_BIN="$(cabal list-bin jazz)"
 TEMP_DIR="$(mktemp -d)"

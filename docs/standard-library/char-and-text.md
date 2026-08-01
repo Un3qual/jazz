@@ -38,8 +38,17 @@ Indices and widths count scalars. Negative indices return `Nothing`; negative
 counts clamp to zero. Empty needles match at zero. Splitting on an empty
 delimiter yields one text value per scalar; replacing an empty needle leaves
 the input unchanged. Search and replacement are left-to-right and non-overlapping.
-Prefix is `O(m)`; naive search/split/replace can be `O(n * m)` plus output;
-traversal and cleanup are linear in input plus output.
+
+`textIsEmpty` and `textUncons` are constant-time at the API boundary. Indexing,
+slicing, conversion to characters, reversal, and other traversal are `O(n)`
+worst case. `textConcat` and `textJoin` are linear in traversed input plus
+produced output and avoid repeated pairwise-append chains.
+
+Prefix testing is `O(m)`; naive search, split, and replacement can be
+`O(n * m)` plus output. `textLines` recognizes LF, CRLF, and CR. `textWords`
+uses Unicode whitespace and discards empty runs. Trimming is also
+Unicode-whitespace-aware. Padding counts scalar width and never truncates text
+already at or beyond the requested width.
 
 Literal spelling and escapes are in the
 [lexical grammar](../reference/lexical-grammar.md).

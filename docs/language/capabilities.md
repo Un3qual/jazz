@@ -12,6 +12,8 @@ capabilities. The bundled vocabulary is `Eq`, `Ord`, `Num`, `Integral`,
 
 Fragment:
 
+<!-- jazz-example: fragment -->
+
 ```jazz
 class Equal(a) {
   equal :: a -> a -> Bool.

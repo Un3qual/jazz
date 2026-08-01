@@ -65,6 +65,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         (self.root / "docs").mkdir()
+        (self.root / "scripts").mkdir()
+        self.manifest_paths: list[str] = []
+        self.write_example_manifest()
         (self.root / "README.md").write_text("# Fixture\n", encoding="utf-8")
         for relative in REQUIRED_PAGES:
             target = self.root / "docs" / relative
@@ -88,6 +91,36 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn(expected, result.stdout)
         self.assertEqual("", result.stderr)
+
+    def add_tracked_example(
+        self, relative_path: str, source: str, *, add_to_manifest: bool = True
+    ) -> Path:
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source, encoding="utf-8")
+        subprocess.run(["git", "add", relative_path], cwd=self.root, check=True)
+        if add_to_manifest:
+            self.manifest_paths.append(relative_path)
+            self.write_example_manifest()
+        return target
+
+    def write_example_manifest(self) -> None:
+        entries = "".join(f'  "{path}"\n' for path in self.manifest_paths)
+        (self.root / "scripts/check-examples.sh").write_text(
+            "#!/usr/bin/env bash\n\n"
+            "JAZZ_EXAMPLE_MANIFEST=(\n"
+            f"{entries}"
+            ")\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def executable_example(relative_path: str, source: str) -> str:
+        fenced_source = source[:-1] if source.endswith("\n") else source
+        return (
+            f"<!-- jazz-example: executable path={relative_path} -->\n"
+            f"```jazz\n{fenced_source}\n```\n"
+        )
 
     def test_valid_fixture_passes(self) -> None:
         result = self.run_checker()
@@ -204,7 +237,12 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_executable_marker_must_name_existing_jazz_example(self) -> None:
         (self.root / "docs/index.md").write_text(
-            page(body="<!-- jazz-example: executable path=examples/missing.jz -->\n"),
+            page(
+                body=(
+                    "<!-- jazz-example: executable path=examples/missing.jz -->\n"
+                    "```jazz\n0.\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         self.assert_violation(
@@ -214,7 +252,12 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_executable_marker_cannot_escape_examples(self) -> None:
         (self.root / "outside.jz").write_text("0.\n", encoding="utf-8")
         (self.root / "docs/index.md").write_text(
-            page(body="<!-- jazz-example: executable path=examples/../outside.jz -->\n"),
+            page(
+                body=(
+                    "<!-- jazz-example: executable path=examples/../outside.jz -->\n"
+                    "```jazz\n0.\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         self.assert_violation(
@@ -227,7 +270,10 @@ class PublicDocsCheckerTests(unittest.TestCase):
         example.write_text("0.\n", encoding="utf-8")
         (self.root / "docs/index.md").write_text(
             page(
-                body="<!-- jazz-example: executable path=examples/untracked.jz -->\n"
+                body=(
+                    "<!-- jazz-example: executable path=examples/untracked.jz -->\n"
+                    "```jazz\n0.\n```\n"
+                )
             ),
             encoding="utf-8",
         )
@@ -249,23 +295,183 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "examples/escape.jz: tracked example resolves outside examples/"
         )
 
-    def test_every_tracked_example_is_referenced(self) -> None:
-        example = self.root / "examples/hello.jz"
-        example.parent.mkdir()
-        example.write_text('"Hello".\n', encoding="utf-8")
-        subprocess.run(["git", "add", "examples/hello.jz"], cwd=self.root, check=True)
+    def test_every_tracked_example_has_an_executable_fence(self) -> None:
+        self.add_tracked_example("examples/hello.jz", '"Hello".\n')
         self.assert_violation(
-            "examples/hello.jz: tracked example is not referenced by public docs or README.md"
+            "examples/hello.jz: tracked example has no executable public-docs fence"
         )
 
-    def test_readme_can_reference_a_tracked_example(self) -> None:
-        example = self.root / "examples/hello.jz"
-        example.parent.mkdir()
-        example.write_text('"Hello".\n', encoding="utf-8")
+    def test_readme_path_mention_does_not_cover_a_tracked_example(self) -> None:
+        self.add_tracked_example("examples/hello.jz", '"Hello".\n')
         (self.root / "README.md").write_text(
             "# Fixture\n\nSee `examples/hello.jz`.\n", encoding="utf-8"
         )
-        subprocess.run(["git", "add", "examples/hello.jz"], cwd=self.root, check=True)
+        self.assert_violation(
+            "examples/hello.jz: tracked example has no executable public-docs fence"
+        )
+
+    def test_accepts_matching_executable_fence_for_tracked_example(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example("examples/hello.jz", source)),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_readme_executable_fence_can_cover_a_tracked_example(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        (self.root / "README.md").write_text(
+            "# Fixture\n\n" + self.executable_example("examples/hello.jz", source),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_unclassified_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="```jazz\n0.\n```\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: Jazz fence must be immediately preceded by a jazz-example marker"
+        )
+
+    def test_rejects_unclassified_indented_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="  ```jazz\n0.\n  ```\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: Jazz fence must be immediately preceded by a jazz-example marker"
+        )
+
+    def test_rejects_unclassified_tilde_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="~~~jazz\n0.\n~~~\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: Jazz fence must be immediately preceded by a jazz-example marker"
+        )
+
+    def test_rejects_unclassified_readme_jazz_fence(self) -> None:
+        (self.root / "README.md").write_text(
+            "# Fixture\n\n```jazz\n0.\n```\n", encoding="utf-8"
+        )
+        self.assert_violation(
+            "README.md: Jazz fence must be immediately preceded by a jazz-example marker"
+        )
+
+    def test_accepts_fragment_marker_before_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<!-- jazz-example: fragment -->\n```jazz\n0.\n```\n"),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_orphan_jazz_example_marker(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<!-- jazz-example: fragment -->\nNo fence follows.\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: jazz-example marker is not immediately followed by a Jazz fence"
+        )
+
+    def test_requires_marker_immediately_before_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "This prose breaks the association.\n\n"
+                    "```jazz\n0.\n```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: Jazz fence must be immediately preceded by a jazz-example marker"
+        )
+
+    def test_rejects_executable_fence_content_drift(self) -> None:
+        self.add_tracked_example("examples/hello.jz", '"Hello".\n')
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=self.executable_example(
+                    "examples/hello.jz", '"Different".\n'
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: executable fence differs from examples/hello.jz"
+        )
+
+    def test_executable_fence_comparison_preserves_extra_final_newlines(self) -> None:
+        self.add_tracked_example("examples/hello.jz", '"Hello".\n\n')
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=self.executable_example("examples/hello.jz", '"Hello".\n')
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: executable fence differs from examples/hello.jz"
+        )
+
+    def test_executable_fence_comparison_preserves_internal_line_endings(self) -> None:
+        self.add_tracked_example("examples/two-lines.jz", "1.\r\n2.\r\n")
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=self.executable_example(
+                    "examples/two-lines.jz", "1.\n2.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: executable fence differs from examples/two-lines.jz"
+        )
+
+    def test_requires_tracked_examples_in_check_examples_manifest(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example(
+            "examples/hello.jz", source, add_to_manifest=False
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example("examples/hello.jz", source)),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "examples/hello.jz: tracked example is missing from scripts/check-examples.sh manifest"
+        )
+
+    def test_rejects_untracked_check_examples_manifest_entry(self) -> None:
+        self.manifest_paths.append("examples/ghost.jz")
+        self.write_example_manifest()
+        self.assert_violation(
+            "scripts/check-examples.sh: manifest entry is not a tracked example: examples/ghost.jz"
+        )
+
+    def test_module_dependency_sources_require_real_manifest_and_doc_coverage(self) -> None:
+        greeting = "module Example::Greeting {\n  greeting = \"Hello\".\n}\n"
+        main = (
+            "module Example::Main {\n"
+            "  import Example::Greeting.\n"
+            "  greeting.\n"
+            "}\n"
+        )
+        self.add_tracked_example(
+            "examples/modules/src/Example/Greeting.jz", greeting
+        )
+        self.add_tracked_example("examples/modules/src/Example/Main.jz", main)
+        body = self.executable_example(
+            "examples/modules/src/Example/Greeting.jz", greeting
+        ) + self.executable_example(
+            "examples/modules/src/Example/Main.jz", main
+        )
+        (self.root / "docs/index.md").write_text(page(body=body), encoding="utf-8")
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 

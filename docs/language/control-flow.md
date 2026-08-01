@@ -12,6 +12,8 @@ Jazz conditionals are expressions:
 
 Fragment:
 
+<!-- jazz-example: fragment -->
+
 ```jazz
 if score >= 60 then "pass" else "retry"
 ```
@@ -26,6 +28,8 @@ Cases try arms from top to bottom:
 
 Fragment:
 
+<!-- jazz-example: fragment -->
+
 ```jazz
 case value {
   | Just item -> item
@@ -33,10 +37,16 @@ case value {
 }
 ```
 
-An arm may have pattern alternatives and guards. Guards are evaluated in
-source order and must be boolean. Unreachable arms, non-exhaustive finite
-coverage, duplicate binders, and inconsistent alternative binders are
-diagnosed. Ordered pattern lambdas use the same pattern semantics.
+An arm may have pattern alternatives and one guard. Patterns are checked
+against the scrutinee type; constructor and tuple arity, duplicate binders, and
+inconsistent or-pattern binder sets or binder types are diagnosed. Guards can
+use pattern binders and must have type `Bool`. Arm bodies must have compatible
+result types. Ordered pattern lambdas use the same pattern semantics.
+
+Static exhaustiveness and unreachable-arm analysis are planned, not currently
+implemented. At runtime, failed patterns skip their guards, a `False` guard
+falls through, and a case or pattern lambda with no selected arm fails with
+`E3022`.
 
 ## Static checks
 

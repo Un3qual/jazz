@@ -24,13 +24,23 @@ low-precedence application.
 ## Operator values and sections
 
 Parenthesized operators are callable values, and left or right sections capture
-one operand.
+one operand. Their argument order is exact:
+
+- `(expr op) arg` means `op expr arg`;
+- `(op expr) arg` means `op arg expr`; and
+- `(op) left right` is ordinary curried application.
+
+For subtraction, `(10 -) 3` evaluates as `10 - 3`, while `(- 10) 3`
+evaluates as `3 - 10`. A right section is therefore different from ordinary
+partial application: `((-) 10) 3` evaluates as `10 - 3`.
 
 ## Source-local declarations
 
 Source units may declare a new operator before use:
 
 Fragment:
+
+<!-- jazz-example: fragment -->
 
 ```jazz
 operator %% tier 2.

@@ -17,7 +17,8 @@ semantic baseline.
 | Area                                                                  | Status      | Evidence                                                              |
 | --------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
 | Source, literals, bindings, lambdas, blocks, and operators            | Implemented | [Language overview](../language/overview.md)                          |
-| ADTs, patterns, cases, guards, and exhaustiveness                     | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
+| ADTs, typed patterns, ordered cases, and guards                       | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
+| Static exhaustiveness and unreachable-arm analysis                    | Planned     | [Control flow](../language/control-flow.md)                           |
 | Type inference, signatures, generic named types, and numeric widths   | Implemented | [Types and signatures](../language/types-and-signatures.md)           |
 | Modules, import visibility, explicit exports, and cycle diagnostics   | Implemented | [Module resolution](../reference/module-resolution.md)                |
 | Interpreter, stable rendering, runtime hosts, and observations        | Implemented | [Runtime values](../reference/runtime-values.md)                      |

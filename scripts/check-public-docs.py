@@ -77,8 +77,26 @@ REFERENCE_DEFINITION_RE = re.compile(
 )
 FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
-EXAMPLE_MARKER_RE = re.compile(
+JAZZ_FENCE_RE = re.compile(
+    r"^ {0,3}(?P<delimiter>`{3,}|~{3,})jazz[ \t]*\r?\n"
+    r"(?P<source>.*?)^ {0,3}(?P=delimiter)[ \t]*(?:\r?\n|$)",
+    re.MULTILINE | re.DOTALL,
+)
+JAZZ_EXAMPLE_MARKER_RE = re.compile(
+    r"<!--\s*jazz-example:.*?-->", re.DOTALL
+)
+EXECUTABLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:\s*executable\s+path=([^\s]+)\s*-->"
+)
+FRAGMENT_MARKER_RE = re.compile(
+    r"<!--\s*jazz-example:\s*fragment\s*-->"
+)
+EXAMPLE_MANIFEST_RE = re.compile(
+    r"^JAZZ_EXAMPLE_MANIFEST=\([ \t]*\r?\n(?P<body>.*?)^\)[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
+EXAMPLE_MANIFEST_ENTRY_RE = re.compile(
+    r'[ \t]*"(?P<path>[^"\r\n]+)"[ \t]*'
 )
 
 
@@ -88,7 +106,7 @@ def relative(root: Path, path: Path) -> str:
 
 def read_text(path: Path, root: Path, violations: list[str]) -> str | None:
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         violations.append(f"{relative(root, path)}: cannot read UTF-8 Markdown: {exc}")
         return None
@@ -222,6 +240,180 @@ def tracked_examples(root: Path, violations: list[str]) -> list[str]:
     )
 
 
+def valid_example_path(example_path: str) -> bool:
+    pure_path = PurePosixPath(example_path)
+    return (
+        not pure_path.is_absolute()
+        and len(pure_path.parts) >= 2
+        and pure_path.parts[0] == "examples"
+        and ".." not in pure_path.parts
+        and pure_path.suffix == ".jz"
+    )
+
+
+def without_one_final_newline(text: str) -> str:
+    if text.endswith("\r\n"):
+        return text[:-2]
+    if text.endswith("\n"):
+        return text[:-1]
+    return text
+
+
+def validate_example_manifest(
+    root: Path, tracked_example_paths: set[str], violations: list[str]
+) -> set[str]:
+    manifest_path = root / "scripts/check-examples.sh"
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        violations.append(
+            f"scripts/check-examples.sh: cannot read example manifest: {exc}"
+        )
+        return set()
+
+    blocks = list(EXAMPLE_MANIFEST_RE.finditer(manifest_text))
+    if len(blocks) != 1:
+        violations.append(
+            "scripts/check-examples.sh: expected exactly one "
+            "JAZZ_EXAMPLE_MANIFEST array"
+        )
+        return set()
+
+    manifest_paths: set[str] = set()
+    for line in blocks[0].group("body").splitlines():
+        if not line.strip():
+            continue
+        entry = EXAMPLE_MANIFEST_ENTRY_RE.fullmatch(line)
+        if entry is None:
+            violations.append(
+                "scripts/check-examples.sh: invalid example manifest entry: "
+                f"{line.strip()}"
+            )
+            continue
+        example_path = entry.group("path")
+        if example_path in manifest_paths:
+            violations.append(
+                "scripts/check-examples.sh: duplicate example manifest entry: "
+                f"{example_path}"
+            )
+            continue
+        manifest_paths.add(example_path)
+        if not valid_example_path(example_path):
+            violations.append(
+                "scripts/check-examples.sh: invalid example manifest path: "
+                f"{example_path}"
+            )
+        elif example_path not in tracked_example_paths:
+            violations.append(
+                "scripts/check-examples.sh: manifest entry is not a tracked example: "
+                f"{example_path}"
+            )
+
+    for example_path in sorted(tracked_example_paths - manifest_paths):
+        violations.append(
+            f"{example_path}: tracked example is missing from "
+            "scripts/check-examples.sh manifest"
+        )
+    return manifest_paths
+
+
+def validate_jazz_fences(
+    root: Path,
+    display: str,
+    text: str,
+    tracked_example_paths: set[str],
+    canonical_examples_root: Path,
+    violations: list[str],
+) -> set[str]:
+    documented_examples: set[str] = set()
+    fences = list(JAZZ_FENCE_RE.finditer(text))
+    markers = [
+        marker
+        for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(text)
+        if not any(fence.start() <= marker.start() < fence.end() for fence in fences)
+    ]
+    consumed_marker_starts: set[int] = set()
+
+    for fence in fences:
+        preceding_marker = next(
+            (
+                marker
+                for marker in reversed(markers)
+                if marker.end() <= fence.start()
+            ),
+            None,
+        )
+        if preceding_marker is None or text[
+            preceding_marker.end() : fence.start()
+        ].strip():
+            violations.append(
+                f"{display}: Jazz fence must be immediately preceded by a "
+                "jazz-example marker"
+            )
+            continue
+
+        consumed_marker_starts.add(preceding_marker.start())
+        marker_text = preceding_marker.group(0)
+        if FRAGMENT_MARKER_RE.fullmatch(marker_text):
+            continue
+
+        executable = EXECUTABLE_MARKER_RE.fullmatch(marker_text)
+        if executable is None:
+            violations.append(f"{display}: invalid jazz-example marker: {marker_text}")
+            continue
+
+        example_path = executable.group(1)
+        if not valid_example_path(example_path):
+            violations.append(
+                f"{display}: invalid executable example path: {example_path}"
+            )
+            continue
+
+        example_candidate = root / PurePosixPath(example_path)
+        try:
+            resolved_example = example_candidate.resolve(strict=True)
+        except OSError:
+            violations.append(
+                f"{display}: executable example does not exist: {example_path}"
+            )
+            continue
+        if not resolves_within(resolved_example, canonical_examples_root):
+            violations.append(
+                f"{display}: executable example resolves outside examples/: "
+                f"{example_path}"
+            )
+            continue
+        if example_path not in tracked_example_paths:
+            violations.append(
+                f"{display}: executable example is not tracked: {example_path}"
+            )
+            continue
+        try:
+            example_source = example_candidate.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            violations.append(
+                f"{display}: cannot read executable example {example_path}: {exc}"
+            )
+            continue
+        if without_one_final_newline(fence.group("source")) != (
+            without_one_final_newline(example_source)
+        ):
+            violations.append(
+                f"{display}: executable fence differs from {example_path}"
+            )
+            continue
+        documented_examples.add(example_path)
+
+    for marker in markers:
+        if marker.start() not in consumed_marker_starts:
+            violations.append(
+                f"{display}: jazz-example marker is not immediately followed by a "
+                "Jazz fence"
+            )
+
+    return documented_examples
+
+
 def validate(root: Path) -> list[str]:
     violations: list[str] = []
     docs_root = root / "docs"
@@ -230,6 +422,7 @@ def validate(root: Path) -> list[str]:
     canonical_docs_root = root.resolve() / "docs"
     canonical_examples_root = root.resolve() / "examples"
     tracked_example_paths = set(tracked_examples(root, violations))
+    validate_example_manifest(root, tracked_example_paths, violations)
 
     for example_path in sorted(tracked_example_paths):
         candidate = root / example_path
@@ -317,39 +510,6 @@ def validate(root: Path) -> list[str]:
                     f"{display}: {link_violation}"
                 )
 
-        for match in EXAMPLE_MARKER_RE.finditer(text):
-            example_path = match.group(1)
-            pure_path = PurePosixPath(example_path)
-            valid_path = (
-                not pure_path.is_absolute()
-                and len(pure_path.parts) >= 2
-                and pure_path.parts[0] == "examples"
-                and ".." not in pure_path.parts
-                and pure_path.suffix == ".jz"
-            )
-            if not valid_path:
-                violations.append(
-                    f"{display}: invalid executable example path: {example_path}"
-                )
-                continue
-            example_candidate = root / pure_path
-            try:
-                resolved_example = example_candidate.resolve(strict=True)
-            except OSError:
-                violations.append(
-                    f"{display}: executable example does not exist: {example_path}"
-                )
-                continue
-            if not resolves_within(resolved_example, canonical_examples_root):
-                violations.append(
-                    f"{display}: executable example resolves outside examples/: "
-                    f"{example_path}"
-                )
-            elif example_path not in tracked_example_paths:
-                violations.append(
-                    f"{display}: executable example is not tracked: {example_path}"
-                )
-
     for required_page in REQUIRED_PAGES:
         required_path = docs_root / required_page
         if not required_path.is_file():
@@ -365,18 +525,32 @@ def validate(root: Path) -> list[str]:
                 f"docs/{required_page}: required public page resolves outside docs/"
             )
 
-    searchable_text = "\n".join(doc_texts.values())
+    public_texts = {
+        relative(root, path): text for path, text in doc_texts.items()
+    }
     readme_path = root / "README.md"
     if readme_path.is_file():
         try:
-            searchable_text += "\n" + readme_path.read_text(encoding="utf-8")
+            public_texts["README.md"] = readme_path.read_bytes().decode("utf-8")
         except (OSError, UnicodeError) as exc:
             violations.append(f"README.md: cannot read UTF-8 Markdown: {exc}")
-    for example_path in sorted(tracked_example_paths):
-        if example_path not in searchable_text:
-            violations.append(
-                f"{example_path}: tracked example is not referenced by public docs or README.md"
+
+    documented_examples: set[str] = set()
+    for display, text in public_texts.items():
+        documented_examples.update(
+            validate_jazz_fences(
+                root,
+                display,
+                text,
+                tracked_example_paths,
+                canonical_examples_root,
+                violations,
             )
+        )
+    for example_path in sorted(tracked_example_paths - documented_examples):
+        violations.append(
+            f"{example_path}: tracked example has no executable public-docs fence"
+        )
 
     return sorted(set(violations))
 

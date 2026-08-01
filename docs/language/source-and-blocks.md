@@ -6,11 +6,21 @@ sidebar_position: 2
 
 # Source and blocks
 
-A Jazz source unit is a sequence of statements. Every signature, binding,
-declaration, import, and expression statement ends with `.`. Whitespace is not
-significant beyond separating tokens, and `#` starts a line comment.
+A Jazz source unit contains either ordinary top-level forms or one
+brace-bodied module declaration. Ordinary signatures, bindings, imports, data
+declarations, `class` and `impl` declarations, operator declarations,
+operator signatures and bindings, and expression statements end with `.`.
+Whitespace is not significant beyond separating tokens, and `#` starts a line
+comment.
+
+A module declaration has the form `module A::B { ... }`. It ends at `}` with
+no trailing `.`, must be the first top-level form, and owns the remainder of
+the source unit. Module declarations are forbidden inside module bodies and
+nested expression blocks.
 
 Fragment:
+
+<!-- jazz-example: fragment -->
 
 ```jazz
 answer :: Int.
@@ -22,6 +32,8 @@ Braces form expression blocks. Bindings become visible to later statements in
 the same lexical block, and the last expression is the block value.
 
 Fragment:
+
+<!-- jazz-example: fragment -->
 
 ```jazz
 {
@@ -36,7 +48,9 @@ same-scope binding with the same name replaces the earlier one. Optional
 warnings can report rebinding, outer-scope shadowing, and unused ordinary block
 bindings.
 
-Top-level and module bodies may contain declarations that nested expression
-blocks reject, including modules, imports, data declarations, capability
-declarations, and operator declarations. See the exact
+Direct module-body forms are imports, data declarations, `class` and `impl`
+declarations, operator declarations, operator signatures and bindings,
+ordinary signatures and bindings, and expression statements. Nested expression
+blocks accept ordinary signatures, bindings, and expressions, but reject
+modules, imports, data, capability, and operator declarations. See the exact
 [lexical grammar](../reference/lexical-grammar.md).

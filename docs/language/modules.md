@@ -12,13 +12,19 @@ root. `Example::Main` resolves as `Example/Main.jz`.
 The checked module example consists of these two files:
 
 <!-- jazz-example: executable path=examples/modules/src/Example/Greeting.jz -->
-<!-- jazz-example: executable path=examples/modules/src/Example/Main.jz -->
 
-Fragment from the entry module:
+```jazz
+module Example::Greeting (value greeting) {
+  greeting = "Hello from a Jazz module".
+}
+```
+
+<!-- jazz-example: executable path=examples/modules/src/Example/Main.jz -->
 
 ```jazz
 module Example::Main {
   import Example::Greeting.
+
   greeting.
 }
 ```

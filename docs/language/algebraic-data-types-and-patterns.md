@@ -1,6 +1,6 @@
 ---
 title: Algebraic data types and patterns
-description: Declare generic data types and destructure values with exhaustive patterns.
+description: Declare generic data types and destructure values with typed, ordered patterns.
 sidebar_position: 5
 ---
 
@@ -27,7 +27,11 @@ Patterns cover literals, variables, `_`, constructors, tuples, fixed lists,
 cons-like `[head | tail]`, alternatives, and `name @ pattern` as-patterns.
 Constructor patterns are structural and bind their payload patterns.
 
-Case analysis is checked for reachable, exhaustive coverage across booleans,
-ADTs, lists, tuples, and supported literal domains. A runtime no-match
-diagnostic remains a defensive boundary if an unchecked path reaches the
-interpreter. See [control flow](control-flow.md) for guards and ordering.
+The compiler checks patterns against the scrutinee type. It validates
+constructor ownership and arity, list and tuple shape, duplicate binders,
+or-pattern binder agreement, guard types, and arm-result agreement.
+
+Case arms are tried in source order. Static exhaustiveness and unreachable-arm
+analysis are not implemented yet. If no pattern and guard select an arm at
+runtime, evaluation fails with `E3022`. See
+[control flow](control-flow.md) for guards and ordering.
