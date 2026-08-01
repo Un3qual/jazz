@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,13 +67,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
             target = self.root / "docs" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(page(relative), encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def run_checker(self) -> subprocess.CompletedProcess[str]:
+    def run_checker(self, root: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["python3", str(CHECKER_PATH), str(self.root)],
+            [sys.executable, str(CHECKER_PATH), str(root or self.root)],
             check=False,
             capture_output=True,
             text=True,
@@ -118,6 +119,61 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
         )
 
+    def test_rejects_full_reference_links_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [decision][authority].\n\n"
+                    "[authority]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_collapsed_reference_links_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read [internal][].\n\n"
+                    "[internal]: ../.codex/plans/private.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into .codex/: ../.codex/plans/private.md"
+        )
+
+    def test_rejects_shortcut_reference_links_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read [internal].\n\n"
+                    "[internal]: ../.codex/execution/queue.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into .codex/: ../.codex/execution/queue.md"
+        )
+
+    def test_allows_reference_links_with_targets_inside_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [language overview][guide].\n\n"
+                    "[guide]: language/overview.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_executable_marker_must_name_existing_jazz_example(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="<!-- jazz-example: executable path=examples/missing.jz -->\n"),
@@ -147,16 +203,28 @@ class PublicDocsCheckerTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         self.assert_violation(
             "docs/index.md: executable example is not tracked: examples/untracked.jz"
+        )
+
+    def test_rejects_tracked_executable_example_symlink_outside_examples(self) -> None:
+        (self.root / "outside.jz").write_text("0.\n", encoding="utf-8")
+        example = self.root / "examples/escape.jz"
+        example.parent.mkdir()
+        example.symlink_to("../outside.jz")
+        subprocess.run(["git", "add", "examples/escape.jz"], cwd=self.root, check=True)
+        (self.root / "docs/index.md").write_text(
+            page(body="<!-- jazz-example: executable path=examples/escape.jz -->\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "examples/escape.jz: tracked example resolves outside examples/"
         )
 
     def test_every_tracked_example_is_referenced(self) -> None:
         example = self.root / "examples/hello.jz"
         example.parent.mkdir()
         example.write_text('"Hello".\n', encoding="utf-8")
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         subprocess.run(["git", "add", "examples/hello.jz"], cwd=self.root, check=True)
         self.assert_violation(
             "examples/hello.jz: tracked example is not referenced by public docs or README.md"
@@ -169,7 +237,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         (self.root / "README.md").write_text(
             "# Fixture\n\nSee `examples/hello.jz`.\n", encoding="utf-8"
         )
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         subprocess.run(["git", "add", "examples/hello.jz"], cwd=self.root, check=True)
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -177,6 +244,44 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_requires_every_task_five_page(self) -> None:
         (self.root / "docs/project/status.md").unlink()
         self.assert_violation("docs/project/status.md: missing required public page")
+
+    def test_rejects_tracked_markdown_symlink_outside_docs(self) -> None:
+        (self.root / "outside.md").write_text(page("Outside"), encoding="utf-8")
+        link = self.root / "docs/language/escape.md"
+        link.symlink_to("../../outside.md")
+        subprocess.run(["git", "add", "docs/language/escape.md"], cwd=self.root, check=True)
+        self.assert_violation(
+            "docs/language/escape.md: documentation path resolves outside docs/"
+        )
+
+    def test_required_page_symlink_cannot_resolve_outside_docs(self) -> None:
+        required = self.root / "docs/project/status.md"
+        required.unlink()
+        (self.root / "outside-status.md").write_text(
+            page("Outside status"), encoding="utf-8"
+        )
+        required.symlink_to("../../outside-status.md")
+        subprocess.run(["git", "add", "docs/project/status.md"], cwd=self.root, check=True)
+        self.assert_violation(
+            "docs/project/status.md: required public page resolves outside docs/"
+        )
+
+    def test_git_tracking_lookup_failure_is_actionable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            non_repository = Path(temp_dir)
+            (non_repository / "docs").mkdir()
+            (non_repository / "docs/index.md").write_text(
+                page("Index"), encoding="utf-8"
+            )
+            (non_repository / "README.md").write_text(
+                "# Fixture\n", encoding="utf-8"
+            )
+            result = self.run_checker(non_repository)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn(
+                "FAIL: repository: cannot enumerate tracked examples: git ls-files exited 128",
+                result.stdout,
+            )
 
     def test_violations_are_sorted_and_actionable(self) -> None:
         (self.root / "docs/index.md").write_text("No front matter.\n", encoding="utf-8")

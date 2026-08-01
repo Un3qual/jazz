@@ -71,6 +71,12 @@ REQUIRED_PAGES = (
 )
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+REFERENCE_DEFINITION_RE = re.compile(
+    r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
+    re.MULTILINE,
+)
+FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
+SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
 EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:\s*executable\s+path=([^\s]+)\s*-->"
 )
@@ -112,6 +118,56 @@ def markdown_link_target(raw_target: str) -> str:
     return target.split(maxsplit=1)[0]
 
 
+def normalize_reference_label(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip()).casefold()
+
+
+def used_reference_targets(text: str) -> list[str]:
+    definitions: dict[str, list[str]] = {}
+    definition_spans: list[tuple[int, int]] = []
+    for match in REFERENCE_DEFINITION_RE.finditer(text):
+        label = normalize_reference_label(match.group(1))
+        target = match.group(2) or match.group(3)
+        definitions.setdefault(label, []).append(target)
+        definition_spans.append(match.span())
+
+    # Reference definitions are not shortcut usages. Blank them while
+    # preserving offsets so usage parsing cannot reinterpret `[label]:`.
+    usage_text = list(text)
+    for start, end in definition_spans:
+        usage_text[start:end] = " " * (end - start)
+    usages = "".join(usage_text)
+
+    used_labels: set[str] = set()
+    full_reference_spans: list[tuple[int, int]] = []
+    for match in FULL_REFERENCE_RE.finditer(usages):
+        label = match.group(2) or match.group(1)
+        used_labels.add(normalize_reference_label(label))
+        full_reference_spans.append(match.span())
+
+    shortcut_text = list(usages)
+    for start, end in full_reference_spans:
+        shortcut_text[start:end] = " " * (end - start)
+    for match in SHORTCUT_REFERENCE_RE.finditer("".join(shortcut_text)):
+        label = normalize_reference_label(match.group(1))
+        if label in definitions:
+            used_labels.add(label)
+
+    return sorted(
+        target
+        for label in used_labels
+        for target in definitions.get(label, [])
+    )
+
+
+def resolves_within(path: Path, directory: Path) -> bool:
+    try:
+        path.relative_to(directory)
+    except ValueError:
+        return False
+    return True
+
+
 def internal_escape_label(doc_path: Path, raw_target: str, docs_root: Path) -> str | None:
     target = unquote(markdown_link_target(raw_target))
     parsed = urlsplit(target)
@@ -125,23 +181,25 @@ def internal_escape_label(doc_path: Path, raw_target: str, docs_root: Path) -> s
     return None
 
 
-def tracked_examples(root: Path) -> list[str]:
+def tracked_examples(root: Path, violations: list[str]) -> list[str]:
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "ls-files", "--", "examples"],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
-    except (OSError, subprocess.CalledProcessError):
-        examples_root = root / "examples"
-        if not examples_root.is_dir():
-            return []
-        return sorted(
-            relative(root, path)
-            for path in examples_root.rglob("*.jz")
-            if path.is_file()
+    except OSError:
+        violations.append(
+            "repository: cannot enumerate tracked examples: git executable is unavailable"
         )
+        return []
+    if result.returncode != 0:
+        violations.append(
+            "repository: cannot enumerate tracked examples: "
+            f"git ls-files exited {result.returncode}"
+        )
+        return []
     return sorted(
         line
         for line in result.stdout.splitlines()
@@ -154,7 +212,38 @@ def validate(root: Path) -> list[str]:
     docs_root = root / "docs"
     if not docs_root.is_dir():
         return ["docs: missing public documentation directory"]
-    tracked_example_paths = set(tracked_examples(root))
+    canonical_docs_root = root.resolve() / "docs"
+    canonical_examples_root = root.resolve() / "examples"
+    tracked_example_paths = set(tracked_examples(root, violations))
+
+    for example_path in sorted(tracked_example_paths):
+        candidate = root / example_path
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            violations.append(f"{example_path}: tracked example does not exist")
+            continue
+        if not resolves_within(resolved, canonical_examples_root):
+            violations.append(
+                f"{example_path}: tracked example resolves outside examples/"
+            )
+
+    unsafe_doc_paths: set[Path] = set()
+    for path in sorted(docs_root.rglob("*")):
+        if not path.is_symlink():
+            continue
+        display = relative(root, path)
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            violations.append(f"{display}: documentation symlink target does not exist")
+            unsafe_doc_paths.add(path)
+            continue
+        if not resolves_within(resolved, canonical_docs_root):
+            violations.append(
+                f"{display}: documentation path resolves outside docs/"
+            )
+            unsafe_doc_paths.add(path)
 
     for entry in sorted(docs_root.iterdir(), key=lambda path: path.name):
         if entry.name not in ALLOWED_DOCS_ENTRIES:
@@ -162,6 +251,20 @@ def validate(root: Path) -> list[str]:
 
     doc_texts: dict[Path, str] = {}
     for path in sorted(docs_root.rglob("*.md")):
+        try:
+            resolved_path = path.resolve(strict=True)
+        except OSError:
+            if path not in unsafe_doc_paths:
+                violations.append(
+                    f"{relative(root, path)}: documentation path does not exist"
+                )
+            continue
+        if not resolves_within(resolved_path, canonical_docs_root):
+            if path not in unsafe_doc_paths:
+                violations.append(
+                    f"{relative(root, path)}: documentation path resolves outside docs/"
+                )
+            continue
         text = read_text(path, root, violations)
         if text is None:
             continue
@@ -189,6 +292,13 @@ def validate(root: Path) -> list[str]:
                     f"{display}: public link escapes docs into {label}: {raw_target}"
                 )
 
+        for raw_target in used_reference_targets(text):
+            label = internal_escape_label(path, raw_target, docs_root)
+            if label is not None:
+                violations.append(
+                    f"{display}: public link escapes docs into {label}: {raw_target}"
+                )
+
         for match in EXAMPLE_MARKER_RE.finditer(text):
             example_path = match.group(1)
             pure_path = PurePosixPath(example_path)
@@ -203,9 +313,19 @@ def validate(root: Path) -> list[str]:
                 violations.append(
                     f"{display}: invalid executable example path: {example_path}"
                 )
-            elif not (root / pure_path).is_file():
+                continue
+            example_candidate = root / pure_path
+            try:
+                resolved_example = example_candidate.resolve(strict=True)
+            except OSError:
                 violations.append(
                     f"{display}: executable example does not exist: {example_path}"
+                )
+                continue
+            if not resolves_within(resolved_example, canonical_examples_root):
+                violations.append(
+                    f"{display}: executable example resolves outside examples/: "
+                    f"{example_path}"
                 )
             elif example_path not in tracked_example_paths:
                 violations.append(
@@ -213,8 +333,19 @@ def validate(root: Path) -> list[str]:
                 )
 
     for required_page in REQUIRED_PAGES:
-        if not (docs_root / required_page).is_file():
+        required_path = docs_root / required_page
+        if not required_path.is_file():
             violations.append(f"docs/{required_page}: missing required public page")
+            continue
+        try:
+            resolved_required = required_path.resolve(strict=True)
+        except OSError:
+            violations.append(f"docs/{required_page}: missing required public page")
+            continue
+        if not resolves_within(resolved_required, canonical_docs_root):
+            violations.append(
+                f"docs/{required_page}: required public page resolves outside docs/"
+            )
 
     searchable_text = "\n".join(doc_texts.values())
     readme_path = root / "README.md"
