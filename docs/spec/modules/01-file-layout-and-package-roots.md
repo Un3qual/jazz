@@ -1,7 +1,6 @@
 # Module File Layout and Package Roots
 
 Status: active module layout contract
-Primary plan: `docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md`
 
 ## Scope
 

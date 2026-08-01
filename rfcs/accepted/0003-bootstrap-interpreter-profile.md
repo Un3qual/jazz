@@ -19,22 +19,30 @@ self-hosting fixed point. Jazz may claim that fixed point only after:
 3. stage 1 produces semantically equivalent stage-2 output and a conforming
    native compiler.
 
-The committed long-term compilation pipeline is:
+The committed long-term compiler and execution boundaries are:
 
 ```text
 Jazz source
-  -> surface AST
-  -> canonical typed core
-  -> backend-neutral lowered IR
-  -> LLVM IR
-  -> object generation and linking
-  -> native Jazz program plus native runtime
+  -> hosted canonical core
+      |-> reference interpreter
+      |     -> RuntimeHost (reference execution boundary)
+      `-> analysis and type inference
+            -> post-inference typed core
+            -> backend-neutral lowered IR
+            -> LLVM IR
+            -> object generation and linking
+            -> native Jazz program
+                  -> native runtime host ABI
 ```
 
-There is no bytecode format or virtual machine between typed core and LLVM.
+Lexing, parsing, and surface lowering produce the hosted canonical-core
+boundary. The reference interpreter branches from canonical core. The native
+path instead runs analysis and type inference once, finalizes a separate
+post-inference typed-core tree, and lowers that validated tree to lowered IR.
+There is no bytecode format or virtual machine between lowered IR and LLVM.
 The interpreter remains a permanent reference execution engine and development
-surface beside the native pipeline; its private evaluation machine is not an
-artifact format or a backend IR.
+surface beside the native pipeline; it does not consume typed core or lowered
+IR, and its private evaluation machine is not an artifact format or backend IR.
 
 The bootstrap profile keeps the trusted host boundary small. The host owns
 immutable text storage, strict UTF-8 process I/O, and stack-safe interpreter

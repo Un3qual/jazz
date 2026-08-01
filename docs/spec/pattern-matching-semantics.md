@@ -2,7 +2,6 @@
 
 Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, ordered multi-body pattern-lambda clauses, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `Jazz`; Haskell-style function equations, lambda-parameter guards, and nested/grouped or-patterns are out of scope)
 Locked decisions: 2026-03-18
-Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
 ## Purpose
 

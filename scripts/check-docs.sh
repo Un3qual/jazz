@@ -83,6 +83,15 @@ if [[ -d "rfcs/accepted" ]]; then
 fi
 
 if [[ -d "rfcs/proposed" ]]; then
+  while IFS= read -r rfc_file; do
+    require_pattern "$rfc_file" "proposed status" '^Status: Proposed$'
+    require_pattern "$rfc_file" "decision date" '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    require_pattern "$rfc_file" "superseded decisions" '^Supersedes: .+$'
+    require_pattern "$rfc_file" "decision section" '^## Decision$'
+    require_pattern "$rfc_file" "context section" '^## Context$'
+    require_pattern "$rfc_file" "consequences section" '^## Consequences$'
+  done < <(find rfcs/proposed -type f -name '[0-9][0-9][0-9][0-9]-*.md' -print | sort)
+
   proposed_accepted_statuses="$(rg -n '^Status: Accepted$' rfcs/proposed --glob '*.md' || true)"
   if [[ -n "$proposed_accepted_statuses" ]]; then
     fail "accepted RFC status is not allowed below rfcs/proposed/"

@@ -3,7 +3,6 @@
 Status: active (closure verified for the current `Jazz` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `Jazz` contract): 2026-03-04
 Updated: 2026-06-27
-Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
 

@@ -1,7 +1,6 @@
 # Trait Vocabulary
 
 Status: active vocabulary contract
-Primary plan: `docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md`
 
 ## Canonical Vocabulary
 

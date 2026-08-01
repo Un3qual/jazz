@@ -1,7 +1,6 @@
 # Module Clarification Matrix
 
 Status: active clarification matrix
-Primary plan: `docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md`
 
 ## Purpose
 

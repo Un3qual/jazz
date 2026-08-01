@@ -19,16 +19,27 @@ During the documentation-reset transition, `docs/spec/` remains the temporary
 public contract. That allowance ends when its content has been rewritten into
 the canonical public directories.
 
-An accepted RFC explains intent and constrains future implementation, but it
-does not make unimplemented behavior available. If a public contract and the
-implementation disagree, the conflict must be resolved explicitly; a roadmap
-entry or internal plan cannot decide the language by itself.
+For claims about behavior users can rely on now, the public contract and
+verified implementation are operational truth. An accepted RFC may record an
+existing durable decision or authorize an explicit future contract delta. A
+future delta must be labeled as unimplemented; acceptance constrains the work
+that may implement it but does not override current operational truth or make
+the behavior available.
+
+If a public contract and the implementation disagree about current behavior,
+the conflict must be resolved explicitly. A deliberately future RFC is not
+such a conflict, because it describes target behavior rather than claiming
+current availability. A roadmap entry or internal plan cannot decide either
+current or target language behavior by itself.
 
 Every semantic language change requires an accepted RFC before implementation.
-The change that implements it must also update the governing public contract,
-behavior tests, rationale, and any required migration guidance. Internal
-refactors and tooling changes may proceed implementation-first when they do not
-change observable language behavior, but their tests and documentation must be
+Acceptance may therefore precede the implementation and public-contract
+change. When the authorized delta lands, its governing public contract,
+implementation, behavior tests, rationale, and any required migration guidance
+must land together. Until that coordinated change is complete, the existing
+public contract and verified behavior remain in force. Internal refactors and
+tooling changes may proceed implementation-first when they do not change
+observable language behavior, but their tests and documentation must be
 updated in the same change when observable tooling behavior changes.
 
 `.codex/execution/` and `.codex/plans/` coordinate work. They never define
@@ -54,6 +65,8 @@ without claiming that acceptance alone implements it.
   planned work honestly.
 - Semantic work cannot be promoted from a roadmap or task plan directly into
   code; it first needs an accepted RFC.
+- A future-facing accepted RFC authorizes a target contract but cannot be cited
+  as evidence that the target is implemented or available.
 - Accepted RFCs must be updated or superseded when their durable decision
   changes rather than silently drifting from code.
 - Repository summaries may explain status, but they are not independent

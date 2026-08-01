@@ -2,7 +2,6 @@
 
 Status: active
 Locked decisions: 2026-03-03; required `then` boundary: 2026-07-12
-Primary plan: `docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md`
 
 ## Purpose
 

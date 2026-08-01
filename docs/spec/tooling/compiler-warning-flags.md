@@ -2,7 +2,6 @@
 
 Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; `deprecated-syntax` / `W0004` is closed as reserved-only for the current active language surface until a future accepted syntax surface is intentionally deprecated)
 Locked decisions: 2026-03-03
-Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
 ## Purpose
 

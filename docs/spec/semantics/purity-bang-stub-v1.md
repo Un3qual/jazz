@@ -2,7 +2,6 @@
 
 Status: active (stub-v1 enforcement in `Jazz`)
 Locked decisions: 2026-03-02
-Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`
 
 ## Purpose
 

@@ -36,11 +36,17 @@ plan. Number it when it is ready for review, place it under `proposed/`, and
 describe one coherent decision. Record alternatives only when they clarify the
 selected boundary.
 
-Acceptance requires maintainer approval and evidence that the decision agrees
-with the public language contract and current implementation constraints. Move
-the file to `accepted/` and change its status in the same change. If an accepted
-RFC changes language semantics, update the public contract, implementation,
-tests, rationale, and migration notes together.
+Acceptance requires maintainer approval, a coherent durable boundary, and an
+explicit distinction between current behavior and any authorized future
+contract delta. A future delta need not already match the current public
+contract or implementation; acceptance constrains subsequent work without
+claiming that the behavior is available. Move the file to `accepted/` and
+change its status in the same change.
+
+When an accepted semantic delta is implemented, update the public contract,
+implementation, behavior tests, rationale, and any required migration notes in
+one coordinated change. Until then, existing public documentation and verified
+implementation remain the operational truth.
 
 ## Template
 

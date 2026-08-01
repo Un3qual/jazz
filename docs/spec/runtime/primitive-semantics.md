@@ -2,7 +2,6 @@
 
 Status: active (phase 1 partial implementation in `Jazz`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, `Char`/`Text` literals and strict equality execute end to end, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
 Locked decisions: 2026-03-03
-Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
 ## Purpose
 

@@ -1,7 +1,6 @@
 # Capability Model
 
 Status: active semantic contract for staged implementation
-Primary plan: `docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md`
 
 ## Model
 

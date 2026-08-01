@@ -2,7 +2,6 @@
 
 Status: active (implemented in `Jazz`)
 Locked decisions: 2026-05-24
-Primary plan: `docs/plans/2026-05-23-jazz-next-first-program-cli-flow.md`
 
 ## Purpose
 

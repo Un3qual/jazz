@@ -2,7 +2,6 @@
 
 Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock; custom precedence/associativity contract lock)
 Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27; custom precedence locked 2026-07-08; custom associativity locked 2026-07-08
-Primary plan: `docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md`
 
 ## Purpose
 

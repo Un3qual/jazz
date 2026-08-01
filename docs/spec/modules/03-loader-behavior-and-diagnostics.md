@@ -1,7 +1,6 @@
 # Module Loader Behavior and Diagnostics
 
 Status: active module loader contract
-Primary plan: `docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md`
 Depends on:
 
 - `docs/spec/modules/01-file-layout-and-package-roots.md`
