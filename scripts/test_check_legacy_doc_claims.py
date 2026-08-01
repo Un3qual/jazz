@@ -55,6 +55,48 @@ Legacy directories remain read-only in the current checkout, not in the archive.
 
         self.assertEqual([], find_live_legacy_tree_claims(source))
 
+    def test_negated_claim_does_not_hide_later_positive_claim(self) -> None:
+        source = """\
+It is false that legacy directories remain read-only. Legacy directories remain read-only in the current checkout.
+"""
+
+        self.assertEqual(
+            [
+                (
+                    1,
+                    "It is false that legacy directories remain read-only. Legacy directories remain read-only in the current checkout.",
+                )
+            ],
+            find_live_legacy_tree_claims(source),
+        )
+
+    def test_unrelated_earlier_negation_does_not_hide_positive_claim(self) -> None:
+        source = """\
+It is false that the archive snapshot is writable. Legacy directories remain read-only in the current checkout.
+"""
+
+        self.assertEqual(
+            [
+                (
+                    1,
+                    "It is false that the archive snapshot is writable. Legacy directories remain read-only in the current checkout.",
+                )
+            ],
+            find_live_legacy_tree_claims(source),
+        )
+
+    def test_repeated_obsolete_identity_claims_are_evaluated_independently(self) -> None:
+        obsolete_identity = "jazz-" + "hs"
+        source = (
+            f"It is false that {obsolete_identity} remains read-only and "
+            f"{obsolete_identity} remains read-only in the current checkout.\n"
+        )
+
+        self.assertEqual(
+            [(1, source.strip())],
+            find_live_legacy_tree_claims(source),
+        )
+
     def test_unrelated_negation_does_not_hide_live_checkout_claim(self) -> None:
         source = """\
 Legacy directories remain read-only in the current checkout, but are not
@@ -117,6 +159,38 @@ Legacy directories remain read-only in the current checkout.
                 (
                     4,
                     "Legacy directories remain read-only in the current checkout.",
+                )
+            ],
+            find_live_legacy_tree_claims(source),
+        )
+
+    def test_four_space_indented_marker_does_not_open_fence(self) -> None:
+        source = """\
+    ```
+Legacy directories remain read-only in the current checkout.
+"""
+
+        self.assertEqual(
+            [
+                (
+                    1,
+                    "``` Legacy directories remain read-only in the current checkout.",
+                )
+            ],
+            find_live_legacy_tree_claims(source),
+        )
+
+    def test_tab_indented_marker_does_not_open_fence(self) -> None:
+        source = """\
+\t```
+Legacy directories remain read-only in the current checkout.
+"""
+
+        self.assertEqual(
+            [
+                (
+                    1,
+                    "``` Legacy directories remain read-only in the current checkout.",
                 )
             ],
             find_live_legacy_tree_claims(source),

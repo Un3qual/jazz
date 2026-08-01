@@ -9,6 +9,9 @@ import sys
 
 _HEADING_PATTERN = re.compile(r"^\s*#{1,6}\s+")
 _LIST_ITEM_PATTERN = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+_CLAUSE_BOUNDARY_PATTERN = re.compile(
+    r"(?<=[.!?;])\s+|,\s+(?=(?:but|however)\b)", re.IGNORECASE
+)
 _LEGACY_TREE_PATTERN = re.compile(
     r"\b(?:legacy|deleted|removed|former|pre-root-canonicalization)\s+"
     r"(?:(?:implementation|source|compiler|repository)\s+)?"
@@ -18,16 +21,16 @@ _LEGACY_TREE_PATTERN = re.compile(
 _OBSOLETE_IDENTITIES = ("jazz-" + "next", "jazz-" + "hs", "jazz" + "2")
 _POSITIVE_CLAIM_PATTERNS = (
     re.compile(
-        r"\b(?:remain|remains|stay|stays|are|is)\b.*\bread[- ]only\b",
+        r"\b(?:remain|remains|stay|stays|are|is)\b.*?\bread[- ]only\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bread[- ]only\b.*\b(?:remain|remains|stay|stays|are|is)\b",
+        r"\bread[- ]only\b.*?\b(?:remain|remains|stay|stays|are|is)\b",
         re.IGNORECASE,
     ),
     re.compile(r"\b(?:currently|still)\s+(?:exist|exists)\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:remain|remains|exist|exists|are present|is present)\b.*"
+        r"\b(?:remain|remains|exist|exists|are present|is present)\b.*?"
         r"\b(?:current|live)\s+(?:checkout|workspace|repository)\b",
         re.IGNORECASE,
     ),
@@ -49,23 +52,34 @@ _NEGATED_STATUS_PATTERNS = (
 )
 
 
-def _opening_fence(line: str) -> str | None:
-    stripped = line.lstrip()
-    if not stripped or stripped[0] not in "`~":
+def _fence_run(line: str) -> tuple[str, str] | None:
+    indentation = len(line) - len(line.lstrip(" "))
+    if indentation > 3:
         return None
-    fence_character = stripped[0]
-    fence_length = len(stripped) - len(stripped.lstrip(fence_character))
+    candidate = line[indentation:]
+    if not candidate or candidate[0] not in "`~":
+        return None
+    fence_character = candidate[0]
+    fence_length = len(candidate) - len(candidate.lstrip(fence_character))
     if fence_length < 3:
         return None
-    return fence_character * fence_length
+    return fence_character * fence_length, candidate[fence_length:]
+
+
+def _opening_fence(line: str) -> str | None:
+    fence_run = _fence_run(line)
+    return None if fence_run is None else fence_run[0]
 
 
 def _closes_fence(line: str, opening_fence: str) -> bool:
-    stripped = line.strip()
+    fence_run = _fence_run(line)
+    if fence_run is None:
+        return False
+    closing_fence, remainder = fence_run
     return (
-        len(stripped) >= len(opening_fence)
-        and stripped
-        and set(stripped) == {opening_fence[0]}
+        closing_fence[0] == opening_fence[0]
+        and len(closing_fence) >= len(opening_fence)
+        and not remainder.strip()
     )
 
 
@@ -125,39 +139,58 @@ def _markdown_prose_blocks(source: str) -> Iterator[tuple[int, str]]:
 def find_live_legacy_tree_claims(source: str) -> list[tuple[int, str]]:
     claims: list[tuple[int, str]] = []
     for line_number, block in _markdown_prose_blocks(source):
-        lowered = block.casefold()
-        subject_positions = [
-            match.start()
-            for match in [_LEGACY_TREE_PATTERN.search(block)]
-            if match is not None
-        ]
-        subject_positions.extend(
-            position
-            for identity in _OBSOLETE_IDENTITIES
-            if (position := lowered.find(identity)) >= 0
-        )
-        positive_claims = [
+        if any(
+            _clause_has_live_legacy_tree_claim(clause)
+            for clause in _CLAUSE_BOUNDARY_PATTERN.split(block)
+        ):
+            claims.append((line_number, block))
+    return claims
+
+
+def _clause_has_live_legacy_tree_claim(clause: str) -> bool:
+    lowered = clause.casefold()
+    subject_positions = [
+        match.start() for match in _LEGACY_TREE_PATTERN.finditer(clause)
+    ]
+    subject_positions.extend(
+        match.start()
+        for identity in _OBSOLETE_IDENTITIES
+        for match in re.finditer(re.escape(identity), lowered)
+    )
+    if not subject_positions:
+        return False
+
+    positive_claims = sorted(
+        (
             match
             for pattern in _POSITIVE_CLAIM_PATTERNS
-            if (match := pattern.search(block)) is not None
+            for match in pattern.finditer(clause)
+        ),
+        key=lambda match: (match.start(), match.end()),
+    )
+    for positive_claim in positive_claims:
+        candidate_subjects = [
+            position for position in subject_positions if position <= positive_claim.end()
         ]
-        if not subject_positions or not positive_claims:
+        if not candidate_subjects:
             continue
-
-        subject_start = min(subject_positions)
-        positive_claim = min(positive_claims, key=lambda match: match.start())
-        false_prefix = _FALSE_CLAIM_PREFIX_PATTERN.search(block)
-        prefixed_as_false = (
-            false_prefix is not None and false_prefix.end() <= subject_start
-        )
+        subject_start = max(candidate_subjects)
+        false_prefixes = [
+            prefix
+            for prefix in _FALSE_CLAIM_PREFIX_PATTERN.finditer(clause)
+            if prefix.end() <= subject_start
+        ]
+        prefixed_as_false = bool(false_prefixes) and not clause[
+            false_prefixes[-1].end() : subject_start
+        ].strip(" `*_\"'")
         directly_negated = any(
             negation.start() <= positive_claim.start() < negation.end()
             for pattern in _NEGATED_STATUS_PATTERNS
-            if (negation := pattern.search(block)) is not None
+            for negation in pattern.finditer(clause)
         )
         if not prefixed_as_false and not directly_negated:
-            claims.append((line_number, block))
-    return claims
+            return True
+    return False
 
 
 def _markdown_files(paths: Sequence[Path]) -> tuple[list[Path], list[str]]:
