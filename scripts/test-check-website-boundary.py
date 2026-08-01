@@ -120,7 +120,7 @@ export default function Home() {
         config = config_path.read_text(encoding="utf-8")
         config = config.replace(
             "const config: Config = {",
-            "const decoy = {path: '../docs', blog: false};\n\nconst config: Config = {",
+            "const config: Config = {\n  decoy: {path: '../docs', blog: false},",
         ).replace(
             """\
         docs: {
@@ -167,16 +167,51 @@ export default actual;
         result = self.run_checker()
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn(
-            "website/docusaurus.config.ts: production URL must be https://un3qual.github.io",
+            "website/docusaurus.config.ts: default export must resolve unambiguously to a literal Config object",
             result.stdout,
         )
-        self.assertIn(
-            "website/docusaurus.config.ts: classic preset docs path must be exactly ../docs",
-            result.stdout,
+
+    def test_exported_config_rejects_executable_mutation_statements(self) -> None:
+        mutations = (
+            (
+                "assignment before export",
+                "config.url = 'https://example.invalid';\nexport default config;",
+            ),
+            (
+                "object mutation before export",
+                "Object.assign(config, {baseUrl: '/'});\nexport default config;",
+            ),
+            (
+                "executable statement before export",
+                "console.log(config);\nexport default config;",
+            ),
+            (
+                "assignment after export",
+                "export default config;\nconfig.url = 'https://example.invalid';",
+            ),
         )
-        self.assertIn(
-            "website/docusaurus.config.ts: classic preset blog must be disabled",
-            result.stdout,
+        config_path = self.root / "website/docusaurus.config.ts"
+        for label, replacement in mutations:
+            with self.subTest(label=label):
+                config_path.write_text(
+                    VALID_CONFIG.replace("export default config;", replacement),
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/docusaurus.config.ts: default export must resolve unambiguously to a literal Config object"
+                )
+
+    def test_dynamic_import_is_not_a_canonical_static_import(self) -> None:
+        config_path = self.root / "website/docusaurus.config.ts"
+        config_path.write_text(
+            VALID_CONFIG.replace(
+                "const config: Config = {",
+                "import('https://example.invalid/mutate.js');\n\nconst config: Config = {",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/docusaurus.config.ts: default export must resolve unambiguously to a literal Config object"
         )
 
     def test_boundary_objects_reject_spreads_and_computed_overrides(self) -> None:
@@ -318,6 +353,64 @@ export default actual;
         self.assert_violation(
             "website/static/internal.txt: forbidden publication source reference: docs/execution"
         )
+
+    def test_published_docs_apply_remote_and_local_target_boundaries(self) -> None:
+        docs_index = self.root / "docs/index.md"
+        docs_index.write_text(
+            """\
+![Remote](https://github.com/un3qual/jazz/blob/main/mark.svg)
+[Elsewhere](https://example.invalid/docs)
+[Internal](../.codex/execution/queue.md)
+![Missing](missing.svg)
+""",
+            encoding="utf-8",
+        )
+        internal = self.root / ".codex/execution"
+        internal.mkdir(parents=True)
+        (internal / "queue.md").write_text("Internal.\n", encoding="utf-8")
+
+        result = self.run_checker()
+        self.assertIn(
+            "docs/index.md: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.md: local Markdown target escapes published docs: ../.codex/execution/queue.md",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.md: local Markdown asset does not exist: missing.svg",
+            result.stdout,
+        )
+
+    def test_published_docs_allow_local_content_and_exact_repository_navigation(self) -> None:
+        (self.root / "docs/guide.md").write_text("# Guide\n", encoding="utf-8")
+        image = self.root / "docs/img/mark.svg"
+        image.parent.mkdir()
+        image.write_text('<svg xmlns="http://www.w3.org/2000/svg" />\n', encoding="utf-8")
+        (self.root / "docs/index.md").write_text(
+            """\
+[Guide](guide.md)
+![Local mark](img/mark.svg)
+[Repository][repo]
+
+[repo]: https://github.com/un3qual/jazz/issues
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_internal_trees_are_not_scanned_as_published_docs(self) -> None:
+        for relative_path in (".codex/private.md", "rfcs/accepted/private.md"):
+            path = self.root / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "![Internal](https://example.invalid/internal.png)\n",
+                encoding="utf-8",
+            )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_symlinks_cannot_escape_the_public_website_boundary(self) -> None:
         internal = self.root / ".codex/execution"
@@ -493,6 +586,60 @@ export default function Resource() {
             "website/src/remote.md: remote authored URL is not allowed",
             result.stdout,
         )
+
+    def test_protocol_relative_css_in_js_and_reference_definitions_are_rejected(self) -> None:
+        (self.root / "website/src/pages/styles.tsx").write_text(
+            "const style = {backgroundImage: 'url(//cdn.example.invalid/tsx.svg)'};\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/styles.js").write_text(
+            "const style = {backgroundImage: 'url(//cdn.example.invalid/js.svg)'};\n",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            """\
+![Remote][asset]
+
+[asset]: //cdn.example.invalid/reference.svg
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/pages/styles.tsx: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/styles.js: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.md: remote authored URL is not allowed",
+            result.stdout,
+        )
+
+    def test_local_double_slashes_in_comments_and_code_are_not_remote_assets(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+// CSS example: url(//not-a-resource.example/example.svg)
+export default function Division() {
+  return <p>10 // 2 is Jazz source text</p>;
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            """\
+Normal prose can contain // local Jazz comment text.
+
+```css
+.example { background: url(//not-a-resource.example/example.svg); }
+```
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_violations_are_sorted_and_reported_on_stdout(self) -> None:
         self.replace_config("blog: false", "blog: true")

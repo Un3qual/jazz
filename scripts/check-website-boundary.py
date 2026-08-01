@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -27,7 +28,15 @@ TEXT_SOURCE_SUFFIXES = {
     ".tsx",
     ".txt",
 }
-AUTHORED_URL_SUFFIXES = {".css", ".md", ".mdx", ".scss", ".tsx"}
+AUTHORED_URL_SUFFIXES = {
+    ".css",
+    ".js",
+    ".jsx",
+    ".md",
+    ".mdx",
+    ".scss",
+    ".tsx",
+}
 FORBIDDEN_SOURCE_REFERENCES = (
     ".codex",
     "docs/execution",
@@ -45,10 +54,22 @@ FORBIDDEN_BUILD_STRINGS = (
     "rfcs",
 )
 REMOTE_URL_RE = re.compile(r"https?://[^\s\"'<>)}]+", re.IGNORECASE)
-MARKDOWN_NAVIGATION_RE = re.compile(
-    r"(?<!!)\[[^\]]*\]\(\s*<?(?P<url>https?://[^\s)>]+)>?(?:\s+[^)]*)?\)",
-    re.IGNORECASE,
+INLINE_MARKDOWN_TARGET_RE = re.compile(
+    r"(?P<image>!)?\[[^\]]*\]\(\s*"
+    r"(?:<(?P<angle>[^>\n]+)>|(?P<bare>[^\s)\n]+))"
 )
+REFERENCE_DEFINITION_RE = re.compile(
+    r"^[ \t]{0,3}\[(?P<label>[^\]]+)\]:[ \t]*"
+    r"(?:<(?P<angle>[^>\n]+)>|(?P<bare>\S+))",
+    re.MULTILINE,
+)
+FULL_REFERENCE_USAGE_RE = re.compile(
+    r"(?P<image>!)?\[(?P<text>[^\]]+)\]\[(?P<label>[^\]]*)\]"
+)
+SHORTCUT_REFERENCE_USAGE_RE = re.compile(
+    r"(?P<image>!)?\[(?P<label>[^\]]+)\](?![\[(])"
+)
+MARKDOWN_AUTOLINK_RE = re.compile(r"<(?P<url>https?://[^>\s]+)>", re.IGNORECASE)
 MARKUP_NAVIGATION_RE = re.compile(
     r"<(?:Link|a)\b[^>]*?\b(?:to|href)\s*=\s*"
     r"(?P<quote>['\"])(?P<url>https?://[^'\"]+)(?P=quote)",
@@ -86,6 +107,78 @@ def read_utf8(path: Path, root: Path, violations: list[str]) -> str | None:
     except (OSError, UnicodeError) as exc:
         violations.append(f"{relative(root, path)}: cannot read UTF-8 text: {exc}")
         return None
+
+
+def mask_range(characters: list[str], start: int, end: int) -> None:
+    for index in range(start, end):
+        if characters[index] not in "\r\n":
+            characters[index] = " "
+
+
+def mask_markdown_noncontent(source: str) -> str:
+    characters = list(source)
+    for match in re.finditer(r"<!--.*?-->", source, re.DOTALL):
+        mask_range(characters, *match.span())
+
+    offset = 0
+    fence_character: str | None = None
+    fence_length = 0
+    for line in source.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        indentation = len(content) - len(content.lstrip(" "))
+        stripped = content[indentation:] if indentation <= 3 else ""
+        marker = re.match(r"(?P<marker>`{3,}|~{3,})", stripped)
+        if fence_character is None and marker:
+            marker_text = marker.group("marker")
+            fence_character = marker_text[0]
+            fence_length = len(marker_text)
+            mask_range(characters, offset, offset + len(line))
+        elif fence_character is not None:
+            mask_range(characters, offset, offset + len(line))
+            closing = re.match(
+                rf"{re.escape(fence_character)}{{{fence_length},}}\s*$",
+                stripped,
+            )
+            if closing:
+                fence_character = None
+                fence_length = 0
+        offset += len(line)
+
+    masked = "".join(characters)
+    for match in re.finditer(r"(?P<ticks>`+).*?(?P=ticks)", masked, re.DOTALL):
+        mask_range(characters, *match.span())
+    return "".join(characters)
+
+
+def strip_css_comments(source: str) -> str:
+    characters = list(source)
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        following = source[index + 1] if index + 1 < len(source) else ""
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "/" and following == "*":
+            end = source.find("*/", index + 2)
+            end = len(source) if end == -1 else end + 2
+            mask_range(characters, index, end)
+            index = end
+            continue
+        index += 1
+    return "".join(characters)
 
 
 def strip_javascript_comments(source: str) -> str:
@@ -134,6 +227,79 @@ def strip_javascript_comments(source: str) -> str:
         result.append(char)
         index += 1
     return "".join(result)
+
+
+@dataclass(frozen=True)
+class MarkdownTarget:
+    target: str
+    is_asset: bool
+    start: int
+    end: int
+
+
+def normalize_reference_label(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip()).casefold()
+
+
+def markdown_targets(source: str) -> list[MarkdownTarget]:
+    targets: list[MarkdownTarget] = []
+    for match in INLINE_MARKDOWN_TARGET_RE.finditer(source):
+        group = "angle" if match.group("angle") is not None else "bare"
+        targets.append(
+            MarkdownTarget(
+                target=match.group(group),
+                is_asset=match.group("image") is not None,
+                start=match.start(group),
+                end=match.end(group),
+            )
+        )
+    for match in MARKDOWN_AUTOLINK_RE.finditer(source):
+        targets.append(
+            MarkdownTarget(
+                target=match.group("url"),
+                is_asset=False,
+                start=match.start("url"),
+                end=match.end("url"),
+            )
+        )
+
+    definitions: dict[str, list[tuple[str, int, int]]] = {}
+    definition_spans: list[tuple[int, int]] = []
+    for match in REFERENCE_DEFINITION_RE.finditer(source):
+        group = "angle" if match.group("angle") is not None else "bare"
+        label = normalize_reference_label(match.group("label"))
+        definitions.setdefault(label, []).append(
+            (match.group(group), match.start(group), match.end(group))
+        )
+        definition_spans.append(match.span())
+
+    usage_is_asset: dict[str, bool] = {}
+    for match in FULL_REFERENCE_USAGE_RE.finditer(source):
+        label = normalize_reference_label(match.group("label") or match.group("text"))
+        usage_is_asset[label] = usage_is_asset.get(label, False) or (
+            match.group("image") is not None
+        )
+    for match in SHORTCUT_REFERENCE_USAGE_RE.finditer(source):
+        if any(start <= match.start() < end for start, end in definition_spans):
+            continue
+        label = normalize_reference_label(match.group("label"))
+        if label not in definitions:
+            continue
+        usage_is_asset[label] = usage_is_asset.get(label, False) or (
+            match.group("image") is not None
+        )
+
+    for label, entries in definitions.items():
+        for target, start, end in entries:
+            targets.append(
+                MarkdownTarget(
+                    target=target,
+                    is_asset=usage_is_asset.get(label, False),
+                    start=start,
+                    end=end,
+                )
+            )
+    return sorted(targets, key=lambda target: (target.start, target.end, target.target))
 
 
 def delimited_body(
@@ -253,13 +419,34 @@ def mask_javascript_strings(source: str) -> str:
     return "".join(masked)
 
 
-def literal_statement_trailing_is_valid(source: str, body_end: int) -> bool:
-    return bool(
-        re.match(
-            r"\s*(?:satisfies\s+Config)?\s*;",
-            source[body_end:],
-        )
+def literal_statement_end(source: str, body_end: int) -> int | None:
+    match = re.match(
+        r"\s*(?:satisfies\s+Config)?\s*;",
+        source[body_end:],
     )
+    return body_end + match.end() if match else None
+
+
+def contains_only_imports(source: str) -> bool:
+    position = 0
+    while position < len(source):
+        while position < len(source) and source[position].isspace():
+            position += 1
+        if position == len(source):
+            return True
+        import_keyword = re.match(r"import\b", source[position:])
+        if import_keyword is None:
+            return False
+        after_keyword = position + import_keyword.end()
+        while after_keyword < len(source) and source[after_keyword].isspace():
+            after_keyword += 1
+        if after_keyword < len(source) and source[after_keyword] == "(":
+            return False
+        semicolon = source.find(";", position)
+        if semicolon == -1:
+            return False
+        position = semicolon + 1
+    return True
 
 
 def default_export_config_body(source: str) -> str | None:
@@ -277,14 +464,23 @@ def default_export_config_body(source: str) -> str | None:
         if result is None:
             return None
         body, body_end = result
-        return body if literal_statement_trailing_is_valid(source, body_end) else None
+        statement_end = literal_statement_end(source, body_end)
+        if statement_end is None:
+            return None
+        if not contains_only_imports(code[: exports[0].start()]):
+            return None
+        return body if not code[statement_end:].strip() else None
 
     identifier = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", code[position:])
     if identifier is None:
         return None
     identifier_name = identifier.group(0)
     identifier_end = position + identifier.end()
-    if re.match(r"\s*;", code[identifier_end:]) is None:
+    export_trailing = re.match(r"\s*;", code[identifier_end:])
+    if export_trailing is None:
+        return None
+    export_statement_end = identifier_end + export_trailing.end()
+    if code[export_statement_end:].strip():
         return None
 
     declaration_pattern = re.compile(
@@ -298,7 +494,16 @@ def default_export_config_body(source: str) -> str | None:
     if result is None:
         return None
     body, body_end = result
-    return body if literal_statement_trailing_is_valid(source, body_end) else None
+    declaration_statement_end = literal_statement_end(source, body_end)
+    if declaration_statement_end is None:
+        return None
+    if not contains_only_imports(code[: declarations[0].start()]):
+        return None
+    if declaration_statement_end > exports[0].start():
+        return None
+    if code[declaration_statement_end : exports[0].start()].strip():
+        return None
+    return body
 
 
 def has_dynamic_object_entries(source: str) -> bool:
@@ -372,25 +577,27 @@ def is_github_repository_navigation(url: str) -> bool:
 
 def navigation_url_spans(text: str, suffix: str) -> set[tuple[int, int]]:
     spans: set[tuple[int, int]] = set()
-    patterns = [MARKUP_NAVIGATION_RE]
+    for match in MARKUP_NAVIGATION_RE.finditer(text):
+        url = match.group("url")
+        if is_github_repository_navigation(url):
+            spans.add(match.span("url"))
     if suffix in {".md", ".mdx"}:
-        patterns.append(MARKDOWN_NAVIGATION_RE)
-    for pattern in patterns:
-        for match in pattern.finditer(text):
-            url = match.group("url")
-            if is_github_repository_navigation(url):
-                spans.add(match.span("url"))
+        for target in markdown_targets(text):
+            if not target.is_asset and is_github_repository_navigation(target.target):
+                spans.add((target.start, target.end))
     return spans
 
 
 def has_protocol_relative_resource(text: str, suffix: str) -> bool:
     patterns: list[re.Pattern[str]] = []
-    if suffix in {".css", ".scss"}:
+    if suffix in {".css", ".js", ".jsx", ".scss", ".tsx"}:
         patterns.append(PROTOCOL_RELATIVE_CSS_RE)
-    if suffix == ".tsx":
+    if suffix in {".js", ".jsx", ".tsx"}:
         patterns.extend((PROTOCOL_RELATIVE_MARKUP_RE, PROTOCOL_RELATIVE_IMPORT_RE))
     if suffix in {".md", ".mdx"}:
         patterns.extend((PROTOCOL_RELATIVE_MARKDOWN_RE, PROTOCOL_RELATIVE_MARKUP_RE))
+        if any(target.target.startswith("//") for target in markdown_targets(text)):
+            return True
     return any(pattern.search(text) is not None for pattern in patterns)
 
 
@@ -557,9 +764,125 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{path_label}: forbidden publication source reference: {forbidden}"
                 )
-        if path.suffix.casefold() in AUTHORED_URL_SUFFIXES:
-            if has_forbidden_remote_url(text, path.suffix.casefold()):
+        suffix = path.suffix.casefold()
+        if suffix in AUTHORED_URL_SUFFIXES:
+            url_source = text
+            if suffix in {".js", ".jsx", ".tsx"}:
+                url_source = strip_javascript_comments(url_source)
+            elif suffix in {".css", ".scss"}:
+                url_source = strip_css_comments(url_source)
+            elif suffix in {".md", ".mdx"}:
+                url_source = mask_markdown_noncontent(url_source)
+            if has_forbidden_remote_url(url_source, suffix):
                 violations.append(f"{path_label}: remote authored URL is not allowed")
+
+
+def check_local_markdown_target(
+    root: Path,
+    docs_root: Path,
+    page: Path,
+    target: MarkdownTarget,
+    violations: list[str],
+) -> None:
+    raw_target = target.target.strip()
+    parsed = urlsplit(raw_target)
+    if raw_target.startswith("//") or parsed.scheme in {"http", "https"}:
+        return
+    if parsed.scheme or parsed.netloc:
+        violations.append(f"{relative(root, page)}: remote authored URL is not allowed")
+        return
+    if not parsed.path:
+        return
+
+    path_text = unquote(parsed.path)
+    page_label = relative(root, page)
+    absolute_target = path_text.startswith("/")
+    if absolute_target:
+        if not target.is_asset:
+            if path_text == "/" or path_text.startswith("/docs/"):
+                return
+            violations.append(
+                f"{page_label}: local Markdown target is outside published routes: {raw_target}"
+            )
+            return
+        candidate = root / "website/static" / path_text.lstrip("/")
+    else:
+        candidate = page.parent / path_text
+
+    resolved_docs = docs_root.resolve()
+    resolved_candidate = candidate.resolve()
+    containment_root = (root / "website/static").resolve() if absolute_target else resolved_docs
+    if not resolved_candidate.is_relative_to(containment_root):
+        violations.append(
+            f"{page_label}: local Markdown target escapes published docs: {raw_target}"
+        )
+        return
+    if not resolved_candidate.is_file():
+        kind = "asset" if target.is_asset else "link"
+        violations.append(
+            f"{page_label}: local Markdown {kind} does not exist: {raw_target}"
+        )
+
+
+def published_doc_paths(docs_root: Path) -> tuple[list[Path], list[Path]]:
+    pages: list[Path] = []
+    symlinks: list[Path] = []
+    for directory, directory_names, file_names in os.walk(
+        docs_root,
+        topdown=True,
+        followlinks=False,
+    ):
+        directory_names[:] = sorted(directory_names)
+        current = Path(directory)
+        for name in directory_names:
+            path = current / name
+            if path.is_symlink():
+                symlinks.append(path)
+        for name in sorted(file_names):
+            path = current / name
+            if path.is_symlink():
+                symlinks.append(path)
+            elif path.suffix.casefold() in {".md", ".mdx"}:
+                pages.append(path)
+    return (
+        sorted(pages, key=lambda path: path.as_posix()),
+        sorted(symlinks, key=lambda path: path.as_posix()),
+    )
+
+
+def check_published_docs(root: Path, violations: list[str]) -> None:
+    docs_root = root / "docs"
+    if not docs_root.is_dir():
+        violations.append("docs: configured public documentation directory is missing")
+        return
+    pages, symlinks = published_doc_paths(docs_root)
+    for symlink in symlinks:
+        violations.append(
+            f"{relative(root, symlink)}: symlink is not allowed in published docs"
+        )
+    for page in pages:
+        page_label = relative(root, page)
+        text = read_utf8(page, root, violations)
+        if text is None:
+            continue
+        authored = mask_markdown_noncontent(text)
+        folded_authored = authored.casefold()
+        for forbidden in FORBIDDEN_SOURCE_REFERENCES:
+            if forbidden.casefold() in folded_authored:
+                violations.append(
+                    f"{page_label}: forbidden publication source reference: {forbidden}"
+                )
+        suffix = page.suffix.casefold()
+        if has_forbidden_remote_url(authored, suffix):
+            violations.append(f"{page_label}: remote authored URL is not allowed")
+        for target in markdown_targets(authored):
+            check_local_markdown_target(
+                root,
+                docs_root,
+                page,
+                target,
+                violations,
+            )
 
 
 def check_generated_output(root: Path, violations: list[str]) -> None:
@@ -612,6 +935,7 @@ def main(argv: list[str]) -> int:
     else:
         check_config(root, violations)
         check_authored_sources(root, violations)
+        check_published_docs(root, violations)
         check_generated_output(root, violations)
 
     if violations:
