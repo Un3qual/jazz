@@ -5,7 +5,7 @@ Start in curated execution mode.
 3. Prefer `kind: impl` entries. Do not choose `kind: docs` or `kind: coordination` while any executable `kind: impl` entry exists.
 4. Verify status only for those entries and the exact linked plan sections needed to confirm the next executable batch. Do not scan the wider `docs/` tree unless the queue entry is insufficient.
 5. Choose one meaningful implementation batch. A valid batch is expected to modify at least one non-doc file when implementation-ready work exists. For compiler work, prefer the repository root.
-6. Execute the batch. Queue, plan, status, and spec updates are required follow-through, but they do not complete the batch by themselves while implementation work exists.
+6. Execute the batch. Queue and plan updates are required follow-through. If shipped status or public behavior changes, also update `docs/project/status.md` and the relevant `docs/language/` or `docs/reference/` owner. Documentation alone does not complete the batch while implementation work exists.
 7. Update the queue and linked plan metadata, run the listed verification, and make one commit at the verified milestone boundary.
 8. Use subagents only if the selected batch has 2+ disjoint implementation tracks.
 9. If a candidate entry is docs-only, stale, or under-specified while linked implementation work remains, narrow or rewrite it to the next concrete implementation batch before executing.

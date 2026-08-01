@@ -2,6 +2,10 @@
 
 Read this file before scanning plans or public documentation. It is the dispatch source of truth for next-batch execution and does not define public language behavior.
 
+Use `docs/project/status.md` for shipped status. Update the relevant
+`docs/language/` or `docs/reference/` owner when an implementation batch changes
+public behavior.
+
 ## Ready Now
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.

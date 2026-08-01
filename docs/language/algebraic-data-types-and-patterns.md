@@ -27,6 +27,11 @@ Patterns cover literals, variables, `_`, constructors, tuples, fixed lists,
 cons-like `[head | tail]`, alternatives, and `name @ pattern` as-patterns.
 Constructor patterns are structural and bind their payload patterns.
 
+Alternatives are supported only at the top level of a case arm or lambda
+parameter. Grouped or nested alternatives are not supported, and
+lambda-parameter guards are not supported. A case arm may place one guard after
+its complete top-level alternative pattern.
+
 The compiler checks patterns against the scrutinee type. It validates
 constructor ownership and arity, list and tuple shape, duplicate binders,
 or-pattern binder agreement, guard types, and arm-result agreement.

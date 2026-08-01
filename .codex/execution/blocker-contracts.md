@@ -3,6 +3,10 @@
 This file turns `.codex/execution/queue.md` blocked rows into promotion-ready
 handoffs. Use it before opening old plan history.
 
+Use `docs/project/status.md` for shipped status. Public behavior belongs in
+`docs/language/` and `docs/reference/`; accepted architectural boundaries live
+in `rfcs/accepted/`.
+
 When `Ready Now` is empty:
 
 1. Read `.codex/execution/queue.md`.
@@ -10,7 +14,8 @@ When `Ready Now` is empty:
    table is empty and the current executor status explicitly says there is no
    source-backed next curation target and no named candidate currently, stop
    after reporting that all source-backed candidates are exhausted.
-3. Open only the matching section below and the named source plan/spec.
+3. Open only the matching section below and its named active plan, public
+   owner, or accepted RFC.
 4. Promote exactly one child by creating or updating a child plan with concrete
    frontmatter, then add the matching `Ready Now` row.
 
@@ -125,28 +130,17 @@ Each blocked item should answer these questions:
   checked comparison adapter. Its exact 10-valid / 31-invalid manifest runs all
   41 programs through Jazz twice with complete ordered parity and keeps
   temporaries block-local.
-- Accepted decision: the hosted canonical-core contract is
-  `2026-07-21-jazz-next-hosted-canonical-core-design.md`. It preserves the
-  active stage-0 `Parser.Lower` boundary, uses ordinary Jazz ADTs and pure
-  lowering, compares canonical values through a structural test-only adapter,
-  and completed four independently reviewable children before backend work.
-- Accepted decision: the backend-neutral lowered-IR contract is
-  `2026-07-21-jazz-next-backend-neutral-lowered-ir-design.md`. It selects a
-  mirrored Haskell/Jazz CFG contract with explicit closures, calls,
+- Accepted decision: [RFC 0004: Hosted canonical compiler](../../rfcs/accepted/0004-hosted-canonical-compiler.md)
+  preserves the stage-0 parser/lowerer boundary, ordinary Jazz ADTs, pure
+  lowering, and structural differential comparison before production cutover.
+- Accepted decision: [RFC 0005: Typed-core elaboration](../../rfcs/accepted/0005-typed-core-elaboration.md)
+  owns the separate typed tree and its implemented opt-in, single-pass,
+  one-module scalar/direct-call profile while preserving canonical core and the
+  interpreter boundary.
+- Accepted decision: [RFC 0006: Lowered IR contract](../../rfcs/accepted/0006-lowered-ir-contract.md)
+  owns the mirrored backend-neutral CFG, explicit calls and closures,
   representations, layout requests, structured validation, and canonical
-  parity while preserving canonical core as interpreter input.
-- Accepted decision: the typed-core elaboration contract is
-  `2026-07-22-jazz-next-typed-core-elaboration-design.md`. It selects a
-  separate structurally aligned typed tree with final semantic types,
-  representation recipes, instantiations, evidence, and resolved identities
-  while preserving canonical core and the interpreter boundary.
-- Accepted decision: the typed-core expression/direct-call producer and lowerer
-  contract is
-  `2026-07-30-jazz-next-typed-core-expression-direct-call-design.md`, approved
-  in discussion and written form on `2026-07-30`. It fixes an opt-in
-  single-pass stage-0 producer, one resolved-module scalar/direct-call profile,
-  structured unsupported outcomes, deterministic lowering, exact target paths,
-  a fixed 16-accepted / 20-rejected manifest, and complete verification.
+  parity.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;

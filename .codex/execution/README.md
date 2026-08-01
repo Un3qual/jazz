@@ -11,9 +11,9 @@ This directory is the control surface for "what should the next executor do?" de
 
 The surrounding repository keeps separate owners:
 
-- `docs/feature-status.md`: implementation/status truth
+- `docs/project/status.md`: shipped implementation and status truth
 - `.codex/plans/*`: active task plans and execution detail
-- `docs/spec/*`: transitional public language contracts
+- `docs/language/` and `docs/reference/`: public language contracts
 
 Neither `.codex/execution/` nor `.codex/plans/` defines public language behavior.
 
@@ -29,7 +29,7 @@ Neither `.codex/execution/` nor `.codex/plans/` defines public language behavior
 8. Remove completed rows after their verified commit is recorded; do not let `queue.md` become a changelog or retain verification narratives.
 9. Do not use a repo-wide `.codex/plans/**` scan to choose work. If `Ready Now` and `Next Curation Target` are empty because the queue explicitly exhausts all source-backed candidates, stop after reporting that terminal state.
 10. When a queue entry points at an older historical plan, add a new active-path plan before doing new implementation work.
-11. Treat queue, plan, status, and spec updates as required follow-through for an implementation batch, not as a standalone successful batch while executable implementation work exists.
+11. Treat queue and plan updates, plus relevant `docs/project/status.md`, `docs/language/`, or `docs/reference/` updates, as required follow-through for an implementation batch, not as a standalone successful batch while executable implementation work exists.
 12. Keep docs-only or coordination items out of `Ready Now` unless they are the smallest verified action that directly restores implementation flow.
 
 ## Queue Entry Contract
@@ -136,8 +136,8 @@ supersedes: []
 Guidance:
 
 - Backfill only open plans.
-- Leave historical archive docs unchanged.
-- If a legacy plan is no longer an execution target, keep it as evidence and create a new active-path plan instead of mutating history heavily.
+- If an old plan is no longer an execution target, create a current active-path
+  plan instead of treating obsolete history as live authority.
 
 ## Promotion Checklist
 

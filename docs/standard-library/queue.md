@@ -15,10 +15,15 @@ The public API is `queueEmpty`, `queueSingleton`, `queueFromList`,
 `queueEnqueueAll`, `queuePeek`, `queueDequeue`, `queueMap`,
 `queueFoldLeft`, and `queueFoldRight`.
 
-Size and empty checks are `O(1)`. Enqueue is `O(1)`. Peek and dequeue are
-amortized `O(1)`, though a normalization step can be `O(n)`. Conversion,
-mapping, and folds are `O(n)`; enqueueing `m` values is `O(m)`. Views and
-folds preserve FIFO order.
+Size and empty checks are `O(1)`. Enqueue is `O(1)`. `queuePeek` is `O(1)` when
+the front is populated and `O(n)` when it must reverse a non-empty rear to find
+the oldest value. Because `queuePeek` does not return the normalized queue,
+repeated peeks of the same front-empty value repeat that `O(n)` work.
+
+`queueDequeue` is amortized `O(1)` only across a dequeue sequence that keeps
+using each returned queue. One dequeue may still spend `O(n)` normalizing the
+rear. Conversion, mapping, and folds are `O(n)`; enqueueing `m` values is
+`O(m)`. Views and folds preserve FIFO order.
 
 The constructor and internal representation are private. Empty observations
 integrate with [Maybe](maybe-result-nonempty.md).

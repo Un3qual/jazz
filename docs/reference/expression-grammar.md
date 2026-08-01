@@ -19,6 +19,13 @@ binding     := identifier "=" expression "."
 expression  := literal | identifier | qualified-name | list | tuple | block
              | lambda | pattern-lambda | if | case | application
              | type-application | operator-value | section | infix
+case-arm    := "|" case-arm-pattern ("if" expression)? "->" expression
+case-arm-pattern
+            := pattern ("|" pattern)*
+lambda-parameter
+            := pattern ("|" pattern)*
+pattern     := literal-pattern | identifier | "_" | constructor-pattern
+             | list-pattern | cons-list-pattern | tuple-pattern | as-pattern
 ```
 
 Primary expressions are integer, fractional, boolean, character, and text
@@ -37,6 +44,13 @@ additional `|(patterns) -> body` clauses of the same arity.
 `if guard` before `->`. Patterns include literals other than fractional
 literals, variables, wildcard `_`, constructors, lists, cons lists, tuples,
 as-patterns, and alternatives.
+
+The `pattern` production does not recursively include alternatives.
+Alternatives are recognized only by the outer `case-arm-pattern` or
+`lambda-parameter` production. Grouping an alternative or nesting it inside a
+constructor, tuple, list, cons-list, or as-pattern is unsupported. Lambda
+parameters do not accept guards. The optional `if` guard belongs only to a
+complete case-arm pattern.
 
 Function types are right-associative. Type atoms are primitive names, type
 variables, named types, `Name(arguments)`, lists, tuples, and parenthesized
