@@ -153,14 +153,15 @@ if metadata.get("run_id") != results_relative.parts[2]:
 PY
 }
 
-bash scripts/ci/main-functional.sh
-bash scripts/ci/extended.sh
-
 bash scripts/check-docs.sh
+find website -type f -name .DS_Store -delete
 npm --prefix website ci
 npm --prefix website run clear
 npm --prefix website run build
 bash scripts/check-website.sh
+
+bash scripts/ci/main-functional.sh
+bash scripts/ci/extended.sh
 
 cabal sdist all --output-directory="$JAZZ_RELEASE_SDIST_ROOT"
 nix build .#jazz --out-link "$JAZZ_NIX_RESULT"

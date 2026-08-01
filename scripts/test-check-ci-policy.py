@@ -134,12 +134,13 @@ VALID_RELEASE = script(
     evidence_root, release_root = (os.path.realpath(path) for path in sys.argv[1:])
     common = os.path.commonpath((evidence_root, release_root))
     if evidence_root == release_root or common in (evidence_root, release_root): raise SystemExit(1)
-    bash scripts/ci/main-functional.sh
-    bash scripts/ci/extended.sh
     bash scripts/check-docs.sh
+    find website -type f -name .DS_Store -delete
     npm --prefix website ci
     npm --prefix website run build
     bash scripts/check-website.sh
+    bash scripts/ci/main-functional.sh
+    bash scripts/ci/extended.sh
     cabal sdist all
     nix build .#jazz
     require_path website/build/index.html
