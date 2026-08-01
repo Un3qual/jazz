@@ -12,6 +12,7 @@ const config: Config = {
   trailingSlash: false,
   onBrokenLinks: 'throw',
   markdown: {
+    format: 'md',
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },

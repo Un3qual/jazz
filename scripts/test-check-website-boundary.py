@@ -22,6 +22,7 @@ const config: Config = {
   baseUrl: '/jazz/',
   onBrokenLinks: 'throw',
   markdown: {
+    format: 'md',
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },
@@ -250,6 +251,53 @@ import mark from '@site/static/img/mark.svg';
             "website/docusaurus.config.ts: @site is authorized only for site source imports"
         )
 
+    def test_config_resource_properties_require_direct_static_literals(self) -> None:
+        replacements = (
+            "favicon: icon",
+            "favicon: 'img/mark.svg' + suffix",
+            "image: `img/${theme}.svg`",
+            "href: repositoryUrl",
+            "content: socialCard",
+        )
+        for replacement in replacements:
+            with self.subTest(replacement=replacement):
+                config = VALID_CONFIG.replace(
+                    "  title: 'Jazz',",
+                    f"  title: 'Jazz',\n  {replacement},",
+                )
+                (self.root / "website/docusaurus.config.ts").write_text(
+                    config,
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/docusaurus.config.ts: config resource properties must use direct static literals"
+                )
+
+    def test_config_resource_spreads_are_forbidden(self) -> None:
+        config = VALID_CONFIG.replace(
+            "  title: 'Jazz',",
+            "  title: 'Jazz',\n  metadata: {...remoteMetadata},",
+        )
+        (self.root / "website/docusaurus.config.ts").write_text(config, encoding="utf-8")
+        self.assert_violation(
+            "website/docusaurus.config.ts: config resource spreads are forbidden"
+        )
+
+    def test_static_local_config_resources_and_navigation_remain_allowed(self) -> None:
+        config = VALID_CONFIG.replace(
+            "  title: 'Jazz',",
+            """\
+  title: 'Jazz',
+  favicon: 'img/mark.svg',
+  image: "img/mark.svg",
+  content: 'img/mark.svg',
+  href: 'https://github.com/un3qual/jazz',
+""",
+        )
+        (self.root / "website/docusaurus.config.ts").write_text(config, encoding="utf-8")
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_boundary_objects_reject_spreads_and_computed_overrides(self) -> None:
         mutations = (
             (
@@ -296,14 +344,14 @@ import mark from '@site/static/img/mark.svg';
             ),
             (
                 "markdown spread",
-                "  markdown: {\n    hooks:",
-                "  markdown: {\n    ...override,\n    hooks:",
+                "  markdown: {\n    format:",
+                "  markdown: {\n    ...override,\n    format:",
                 "markdown options must not contain spreads or computed properties",
             ),
             (
                 "markdown computed",
-                "  markdown: {\n    hooks:",
-                "  markdown: {\n    [overrideKey]: override,\n    hooks:",
+                "  markdown: {\n    format:",
+                "  markdown: {\n    [overrideKey]: override,\n    format:",
                 "markdown options must not contain spreads or computed properties",
             ),
             (
@@ -345,6 +393,7 @@ import mark from '@site/static/img/mark.svg';
         self.replace_config(
             """\
   markdown: {
+    format: 'md',
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },
@@ -355,6 +404,18 @@ import mark from '@site/static/img/mark.svg';
         self.assert_violation(
             "website/docusaurus.config.ts: broken Markdown links must throw through markdown hooks"
         )
+
+    def test_markdown_format_must_be_exactly_plain_md(self) -> None:
+        for replacement in ("format: 'mdx'", "format: 'detect'", ""):
+            with self.subTest(replacement=replacement):
+                config = VALID_CONFIG.replace("    format: 'md',", f"    {replacement}")
+                (self.root / "website/docusaurus.config.ts").write_text(
+                    config,
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/docusaurus.config.ts: markdown format must be exactly md"
+                )
 
     def test_production_origin_and_base_path_are_fixed(self) -> None:
         self.replace_config(
@@ -443,6 +504,32 @@ import mark from '@site/static/img/mark.svg';
             "docs/index.mdx: published documentation must use plain .md files; .mdx is forbidden"
         )
 
+    def test_published_docs_reject_front_matter_format_overrides(self) -> None:
+        overrides = (
+            "format: mdx",
+            "format: 'detect'",
+            "markdown.format: mdx",
+            "mdx: true",
+            "format: {parser: mdx}",
+        )
+        for override in overrides:
+            with self.subTest(override=override):
+                (self.root / "docs/index.md").write_text(
+                    f"---\ntitle: Public docs\n{override}\n---\n\n# Public docs\n",
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "docs/index.md: front matter must not enable or detect MDX"
+                )
+
+    def test_plain_markdown_front_matter_remains_allowed(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            "---\ntitle: Public docs\nformat: md\n---\n\n# Public docs\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_published_markdown_checks_all_html_resource_attributes(self) -> None:
         (self.root / "docs/index.md").write_text(
             """\
@@ -476,6 +563,15 @@ import mark from '@site/static/img/mark.svg';
             encoding="utf-8",
         )
         self.assert_violation("docs/index.md: remote authored URL is not allowed")
+
+    def test_srcset_decodes_entities_before_candidate_splitting(self) -> None:
+        (self.root / "website/src/pages/media.tsx").write_text(
+            '<source srcSet="/img/mark.svg 1x&#44; d&#97;ta:image/svg+xml,x 2x" />\n',
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/media.tsx: remote authored URL is not allowed"
+        )
 
     def test_local_targets_reject_raw_html_and_percent_decoded_backslashes(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -554,6 +650,55 @@ import mark from '@site/static/img/mark.svg';
             result.stdout,
         )
 
+    def test_generated_html_and_css_reject_remote_resource_loads(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            '<img src="https://assets.example.invalid/mark.svg">\n',
+            encoding="utf-8",
+        )
+        (build / "styles.css").write_text(
+            '.remote { background: url("https://assets.example.invalid/mark.svg"); }\n',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/build/index.html: generated output loads a remote resource",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/build/styles.css: generated output loads a remote resource",
+            result.stdout,
+        )
+
+    def test_generated_stylesheet_links_reject_remote_fetches(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            '<link rel="stylesheet" href="https://assets.example.invalid/site.css">\n',
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/build/index.html: generated output loads a remote resource"
+        )
+
+    def test_generated_output_allows_local_resources_and_embedded_css_data(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            '<link rel="canonical" href="https://un3qual.github.io/jazz/">'
+            '<link rel="alternate" href="https://un3qual.github.io/jazz/">'
+            '<img src="/jazz/img/mark.svg">'
+            '<a href="https://example.invalid">Framework link</a>\n',
+            encoding="utf-8",
+        )
+        (build / "styles.css").write_text(
+            '.embedded { background: url("data:image/svg+xml,x"); }\n',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_authored_assets_must_be_local(self) -> None:
         (self.root / "website/src/css/custom.css").write_text(
             "@import url('https://fonts.example.invalid/font.css');\n",
@@ -604,6 +749,20 @@ import mark from '@site/static/img/mark.svg';
                     result.stdout,
                 )
 
+    def test_unsupported_stylesheet_dialects_are_explicitly_rejected(self) -> None:
+        for suffix in (".scss", ".sass", ".less"):
+            (self.root / f"website/src/unsupported{suffix}").write_text(
+                ".local { color: black; }\n",
+                encoding="utf-8",
+            )
+        result = self.run_checker()
+        for suffix in (".scss", ".sass", ".less"):
+            with self.subTest(suffix=suffix):
+                self.assertIn(
+                    f"website/src/unsupported{suffix}: unsupported stylesheet dialect; author plain .css",
+                    result.stdout,
+                )
+
     def test_resource_attributes_cover_poster_and_srcset_with_quote_aware_values(self) -> None:
         (self.root / "website/src/pages/media.tsx").write_text(
             """\
@@ -619,6 +778,45 @@ export default function Media() {
         self.assert_violation(
             "website/src/pages/media.tsx: remote authored URL is not allowed"
         )
+
+    def test_resource_attributes_require_direct_static_literals(self) -> None:
+        cases = {
+            "dynamic.tsx": "<img src={icon} />\n",
+            "dynamic.jsx": "<Link to={route}>Route</Link>\n",
+            "dynamic.js": "<video poster={poster} />\n",
+            "dynamic.html": "<source srcSet={sources}>\n",
+            "dynamic.md": "<img src={icon} />\n",
+        }
+        for filename, source in cases.items():
+            (self.root / "website/src" / filename).write_text(source, encoding="utf-8")
+        result = self.run_checker()
+        for filename in cases:
+            with self.subTest(filename=filename):
+                self.assertIn(
+                    f"website/src/{filename}: resource attributes must use direct static literals",
+                    result.stdout,
+                )
+
+    def test_jsx_spreads_are_forbidden_at_resource_boundaries(self) -> None:
+        (self.root / "website/src/pages/spread.tsx").write_text(
+            "export default () => <img {...props} />;\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/spread.tsx: JSX/HTML spreads are forbidden by the static resource profile"
+        )
+
+    def test_direct_static_resource_literals_remain_allowed(self) -> None:
+        (self.root / "website/src/static.html").write_text(
+            '<img src=\"/img/mark.svg\"><video poster=/img/mark.svg></video>\n',
+            encoding="utf-8",
+        )
+        (self.root / "website/src/static.tsx").write_text(
+            '<img src="/img/mark.svg" srcSet="/img/mark.svg 1x" />;\n',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_css_scanner_handles_opposite_quotes_escapes_and_imports(self) -> None:
         (self.root / "website/src/css/custom.css").write_text(
@@ -864,10 +1062,6 @@ export default function Home() {
       <a href="https://un3qual.github.io/jazz/docs/language/overview?mode=full#syntax">
         Language guide
       </a>
-      <a href=https://un3qual.github.io/jazz/docs/project/status>Unquoted status</a>
-      <a href={'https://un3qual.github.io/jazz/docs/reference/cli#run'}>
-        Expression CLI reference
-      </a>
     </>
   );
 }
@@ -1012,14 +1206,33 @@ export default function Resource() {
             result.stdout,
         )
 
-    def test_local_double_slashes_in_comments_and_code_are_not_remote_assets(self) -> None:
+    def test_nonlocal_uri_tokens_in_site_comments_are_forbidden(self) -> None:
         (self.root / "website/src/pages/index.tsx").write_text(
-            """\
-// CSS example: url(//not-a-resource.example/example.svg)
-export default function Division() {
-  return <p>10 // 2 is Jazz source text</p>;
-}
-""",
+            "// Remote example: https://example.invalid/mark.svg\nexport default 1;\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/index.tsx: nonlocal URI scheme tokens are forbidden"
+        )
+
+    def test_jsx_double_slash_text_cannot_hide_later_resources(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            "export default () => <>// text <img src={icon} /><img src=\"data:image/svg+xml,x\" /></>;\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/pages/index.tsx: nonlocal URI scheme tokens are forbidden",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/index.tsx: resource attributes must use direct static literals",
+            result.stdout,
+        )
+
+    def test_plain_double_slash_text_and_markdown_code_fences_remain_allowed(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            "export default () => <p>10 // 2 is Jazz source text</p>;\n",
             encoding="utf-8",
         )
         (self.root / "docs/index.md").write_text(

@@ -17,6 +17,7 @@ IGNORED_DIRECTORIES = {"node_modules", "build", ".docusaurus"}
 AUTHORED_SITE_SUFFIXES = {
     ".css",
     ".cjs",
+    ".html",
     ".js",
     ".jsx",
     ".md",
@@ -25,8 +26,9 @@ AUTHORED_SITE_SUFFIXES = {
     ".ts",
     ".tsx",
 }
-TEXT_SOURCE_SUFFIXES = AUTHORED_SITE_SUFFIXES | {
-    ".html", ".json", ".scss", ".svg", ".txt"
+UNSUPPORTED_STYLESHEET_SUFFIXES = {".less", ".sass", ".scss"}
+TEXT_SOURCE_SUFFIXES = AUTHORED_SITE_SUFFIXES | UNSUPPORTED_STYLESHEET_SUFFIXES | {
+    ".json", ".svg", ".txt"
 }
 FORBIDDEN_SOURCE_REFERENCES = (
     ".codex",
@@ -44,7 +46,11 @@ FORBIDDEN_BUILD_STRINGS = (
     "JazzNext",
     "rfcs",
 )
-REMOTE_URL_RE = re.compile(r"https?://[^\s\"'<>)}]+", re.IGNORECASE)
+NONLOCAL_URI_TOKEN_RE = re.compile(
+    r"(?:\b(?:https?|ftp|file|data|javascript|vbscript|ws|wss|blob):"
+    r"[^\s\"'<>)}]*|(?<!:)//[A-Za-z0-9][^\s\"'<>)}]*)",
+    re.IGNORECASE,
+)
 INLINE_MARKDOWN_TARGET_RE = re.compile(
     r"(?P<image>!)?\[[^\]]*\]\(\s*"
     r"(?:<(?P<angle>[^>\n]+)>|(?P<bare>[^\s)\n]+))"
@@ -64,13 +70,8 @@ MARKDOWN_AUTOLINK_RE = re.compile(
     r"<(?P<url>[A-Za-z][A-Za-z0-9+.-]*:[^>\s]+)>"
 )
 RESOURCE_ATTRIBUTE_RE = re.compile(
-    r"\b(?P<attribute>src|href|to|poster|srcSet)\s*=\s*(?:"
-    r"\"(?P<double>(?:\\.|[^\"\\])*)\""
-    r"|'(?P<single>(?:\\.|[^'\\])*)'"
-    r"|\{\s*\"(?P<double_expression>(?:\\.|[^\"\\])*)\"\s*\}"
-    r"|\{\s*'(?P<single_expression>(?:\\.|[^'\\])*)'\s*\}"
-    r"|(?P<bare>[^\s\"'=<>`{}]+))",
-    re.IGNORECASE | re.DOTALL,
+    r"\b(?P<attribute>src|href|to|poster|srcSet|action|formAction|cite|data|background|manifest)\s*=\s*",
+    re.IGNORECASE,
 )
 STATIC_IMPORT_RE = re.compile(
     r"^[ \t]*import\b"
@@ -89,11 +90,9 @@ DYNAMIC_IMPORT_RE = re.compile(
     r")\s*\)",
     re.MULTILINE,
 )
-STRING_LITERAL_RE = re.compile(
-    r'"(?P<double>(?:\\.|[^"\\])*)"|'
-    r"'(?P<single>(?:\\.|[^'\\])*)'|"
-    r"`(?P<template>(?:\\.|[^`\\])*)`",
-    re.DOTALL,
+CONFIG_RESOURCE_PROPERTY_RE = re.compile(
+    r"\b(?P<property>favicon|image|socialCard|src|poster|href|to|content|customCss|sidebarPath)\s*:",
+    re.IGNORECASE,
 )
 
 
@@ -153,46 +152,18 @@ def mask_markdown_noncontent(source: str) -> str:
     return "".join(characters)
 
 
-def strip_comments(source: str, *, line_comments: bool = False) -> str:
+def strip_javascript_comments(source: str) -> str:
+    """Mask comments while leaving quoted strings untouched and offsets stable."""
+
     characters = list(source)
-    quote: str | None = None
-    escaped = False
-    index = 0
-    while index < len(source):
-        char = source[index]
-        following = source[index + 1] if index + 1 < len(source) else ""
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"', "`"}:
-            quote = char
-            index += 1
-            continue
-        if (
-            line_comments
-            and char == "/"
-            and following == "/"
-            and (index == 0 or source[index - 1] != ":")
-        ):
-            end = index + 2
-            while end < len(source) and source[end] not in "\r\n":
-                end += 1
-            mask_range(characters, index, end)
-            index = end
-            continue
-        if char == "/" and following == "*":
-            end = source.find("*/", index + 2)
-            end = len(source) if end == -1 else end + 2
-            mask_range(characters, index, end)
-            index = end
-            continue
-        index += 1
+    tokens = re.compile(
+        r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`'
+        r"|(?P<comment>//[^\r\n]*|/\*.*?\*/)",
+        re.DOTALL,
+    )
+    for match in tokens.finditer(source):
+        if match.group("comment") is not None:
+            mask_range(characters, *match.span())
     return "".join(characters)
 
 
@@ -290,46 +261,76 @@ def srcset_targets(value: str) -> list[str]:
 
     decoded = unescape(value).strip()
     if decoded.startswith("//") or urlsplit(decoded).scheme:
-        return [value]
+        return [decoded]
     return [
         candidate.strip().split(maxsplit=1)[0]
-        for candidate in value.split(",")
+        for candidate in decoded.split(",")
         if candidate.strip()
     ]
 
 
-def html_targets(source: str) -> list[MarkdownTarget]:
+def html_resource_analysis(
+    source: str,
+    *,
+    allow_bare: bool,
+) -> tuple[list[MarkdownTarget], bool, bool]:
     targets: list[MarkdownTarget] = []
+    dynamic_value, has_spread = False, False
     for tag, attributes, attributes_start in html_elements(source):
+        rel_match = re.search(
+            r"\brel\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`{}]+))",
+            attributes,
+            re.IGNORECASE,
+        )
+        rel_value = (
+            next(value for value in rel_match.groups() if value is not None).casefold()
+            if rel_match else ""
+        )
+        has_spread |= bool(re.search(r"\{\s*\.\.\.", attributes))
         for attribute in RESOURCE_ATTRIBUTE_RE.finditer(attributes):
             name = attribute.group("attribute")
-            group = next(
-                group_name
-                for group_name in (
-                    "double",
-                    "single",
-                    "double_expression",
-                    "single_expression",
-                    "bare",
-                )
-                if attribute.group(group_name) is not None
+            value_start = attribute.end()
+            if value_start >= len(attributes):
+                dynamic_value = True
+                continue
+            if attributes[value_start] in {'"', "'"}:
+                result = quoted_value(attributes, value_start)
+                if result is None:
+                    dynamic_value = True
+                    continue
+                value, local_start, local_end = result
+            elif allow_bare and attributes[value_start] not in "{`":
+                bare = re.match(r"[^\s\"'=<>`{}]+", attributes[value_start:])
+                if bare is None:
+                    dynamic_value = True
+                    continue
+                value = bare.group(0)
+                local_start = value_start
+                local_end = value_start + bare.end()
+            else:
+                dynamic_value = True
+                continue
+            folded_tag = tag.casefold()
+            folded_name = name.casefold()
+            is_navigation = (folded_tag == "a" and folded_name == "href") or (
+                tag == "Link" and folded_name in {"href", "to"}
+            ) or (
+                folded_tag == "link"
+                and folded_name == "href"
+                and bool({"alternate", "canonical"} & set(rel_value.split()))
             )
-            value = attribute.group(group)
-            is_navigation = (tag.casefold() == "a" and name.casefold() == "href") or (
-                tag == "Link" and name.casefold() in {"href", "to"}
-            )
-            values = srcset_targets(value) if name.casefold() == "srcset" else [value]
+            values = srcset_targets(value) if folded_name == "srcset" else [value]
             targets.extend(
                 MarkdownTarget(
-                    target=target,
-                    is_asset=not is_navigation,
-                    start=attributes_start + attribute.start(group),
-                    end=attributes_start + attribute.end(group),
-                    context="HTML",
+                    target,
+                    not is_navigation,
+                    attributes_start + local_start,
+                    attributes_start + local_end,
+                    "HTML",
                 )
                 for target in values
             )
-    return targets
+    return targets, dynamic_value, has_spread
 
 
 def html_elements(source: str) -> list[tuple[str, str, int]]:
@@ -436,42 +437,36 @@ def import_occurrences(source: str) -> list[tuple[str, int, int]]:
     return occurrences
 
 
-def imported_targets(source: str) -> list[str]:
-    return [value for value, _, _ in import_occurrences(source)]
-
-
-def config_literal_targets(source: str) -> list[MarkdownTarget]:
-    import_spans = {(start, end) for _, start, end in import_occurrences(source)}
-    targets: list[MarkdownTarget] = []
-    for match in STRING_LITERAL_RE.finditer(source):
-        group = next(name for name in ("double", "single", "template") if match.group(name) is not None)
-        value = match.group(group)
-        prefix = source[: match.start()]
-        if value == "https://un3qual.github.io" and re.search(r"\burl\s*:\s*$", prefix):
-            continue
-        is_navigation = bool(re.search(r"\b(?:href|to)\s*:\s*$", prefix))
-        context = "import" if match.span(group) in import_spans else "config"
-        targets.append(
-            MarkdownTarget(value, not is_navigation, *match.span(group), context)
-        )
-    return targets
-
-
-def contextual_authored_targets(source: str, suffix: str) -> list[MarkdownTarget]:
+def config_resource_targets(source: str) -> tuple[list[MarkdownTarget], bool]:
+    code = mask_javascript_strings(source)
     targets = [
-        MarkdownTarget(url, True, -1, -1, "CSS")
-        for url in css_resource_targets(source)
+        MarkdownTarget(value, True, start, end, "import")
+        for value, start, end in import_occurrences(source)
     ]
-    if suffix in {".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx", ".mdx"}:
-        targets.extend(
-            MarkdownTarget(url, True, -1, -1, "import")
-            for url in imported_targets(source)
+    invalid = False
+    for match in CONFIG_RESOURCE_PROPERTY_RE.finditer(code):
+        opening = match.end()
+        while opening < len(source) and source[opening].isspace():
+            opening += 1
+        if opening >= len(source) or source[opening] not in {'"', "'", "`"}:
+            invalid = True
+            continue
+        result = quoted_value(source, opening)
+        if result is None:
+            invalid = True
+            continue
+        value, start, end = result
+        trailing = end + 1 + len(source[end + 1 :]) - len(source[end + 1 :].lstrip())
+        if (source[opening] == "`" and "${" in value) or (
+            trailing < len(source) and source[trailing] not in ",}]"
+        ):
+            invalid = True
+            continue
+        is_navigation = match.group("property").casefold() in {"href", "to"}
+        targets.append(
+            MarkdownTarget(value, not is_navigation, start, end, "config")
         )
-    if suffix in {".md", ".mdx"}:
-        targets.extend(markdown_targets(source))
-    if suffix != ".css":
-        targets.extend(html_targets(source))
-    return targets
+    return targets, invalid
 
 
 def delimited_body(
@@ -807,21 +802,52 @@ def target_violation(
     return "remote authored URL is not allowed"
 
 
-def authored_target_violations(text: str, suffix: str, *, root: Path) -> list[str]:
-    targets = contextual_authored_targets(text, suffix)
+def authored_target_analysis(
+    text: str, suffix: str, *, root: Path
+) -> tuple[list[str], list[MarkdownTarget]]:
+    targets = [
+        MarkdownTarget(value, True, -1, -1, "CSS")
+        for value in css_resource_targets(text)
+    ]
+    if suffix in {".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx", ".mdx"}:
+        targets.extend(
+            MarkdownTarget(value, True, -1, -1, "import")
+            for value, _, _ in import_occurrences(text)
+        )
+    if suffix in {".md", ".mdx"}:
+        targets.extend(markdown_targets(text))
     violations: list[str] = []
+    if suffix != ".css":
+        html, dynamic_value, has_spread = html_resource_analysis(
+            text, allow_bare=suffix in {".html", ".md", ".mdx"}
+        )
+        targets.extend(html)
+        if dynamic_value:
+            violations.append("resource attributes must use direct static literals")
+        if has_spread:
+            violations.append(
+                "JSX/HTML spreads are forbidden by the static resource profile"
+            )
     allowed_spans = {
         (target.start, target.end)
         for target in targets
         if not target.is_asset and is_allowed_navigation(unescape(target.target.strip()))
     }
-    if any(match.span() not in allowed_spans for match in REMOTE_URL_RE.finditer(text)):
-        violations.append("remote authored URL is not allowed")
+    if any(
+        match.span() not in allowed_spans
+        for match in NONLOCAL_URI_TOKEN_RE.finditer(text)
+    ):
+        violations.append("nonlocal URI scheme tokens are forbidden")
     for target in targets:
         violation = target_violation(target, site_source=True, root=root)
         if violation is not None:
             violations.append(violation)
-    return sorted(set(violations))
+            decoded = unescape(target.target.strip())
+            if "backslash" in violation and (
+                decoded.startswith("//") or urlsplit(decoded).scheme
+            ):
+                violations.append("remote authored URL is not allowed")
+    return sorted(set(violations)), targets
 
 
 def check_config(root: Path, violations: list[str]) -> None:
@@ -832,7 +858,26 @@ def check_config(root: Path, violations: list[str]) -> None:
     raw_config = read_utf8(config_path, root, violations)
     if raw_config is None:
         return
-    config = strip_comments(raw_config, line_comments=True)
+    config = strip_javascript_comments(raw_config)
+    resource_targets, dynamic_resource = config_resource_targets(config)
+    allowed_nonlocal_spans = {
+        (target.start, target.end)
+        for target in resource_targets
+        if not target.is_asset and is_allowed_navigation(unescape(target.target.strip()))
+    }
+    if any(
+        match.span() not in allowed_nonlocal_spans
+        and not (
+            match.group() == "https://un3qual.github.io"
+            and re.search(r"\burl\s*:\s*['\"]$", config[: match.start()])
+        )
+        for match in NONLOCAL_URI_TOKEN_RE.finditer(raw_config)
+    ):
+        violations.append(f"{CONFIG_PATH}: nonlocal URI scheme tokens are forbidden")
+    if dynamic_resource:
+        violations.append(f"{CONFIG_PATH}: config resource properties must use direct static literals")
+    if "..." in mask_javascript_strings(config):
+        violations.append(f"{CONFIG_PATH}: config resource spreads are forbidden")
     config_body = default_export_config_body(config)
     if config_body is None:
         violations.append(
@@ -840,7 +885,7 @@ def check_config(root: Path, violations: list[str]) -> None:
         )
         return
 
-    for target in config_literal_targets(config):
+    for target in resource_targets:
         violation = target_violation(target, site_source=True, root=root)
         if violation is not None:
             violations.append(f"{CONFIG_PATH}: {violation}")
@@ -919,6 +964,12 @@ def check_config(root: Path, violations: list[str]) -> None:
         violations.append(
             f"{CONFIG_PATH}: markdown options must not contain spreads or computed properties"
         )
+    markdown_format_values = [
+        string_expression_value(expression)
+        for expression in property_expressions(markdown or "", "format")
+    ]
+    if markdown_format_values != ["md"]:
+        violations.append(f"{CONFIG_PATH}: markdown format must be exactly md")
     hooks = object_property_body(markdown or "", "hooks")
     if hooks is not None and has_dynamic_object_entries(hooks):
         violations.append(
@@ -986,19 +1037,20 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
                     f"{path_label}: forbidden publication source reference: {forbidden}"
                 )
         suffix = path.suffix.casefold()
+        if suffix in UNSUPPORTED_STYLESHEET_SUFFIXES:
+            violations.append(
+                f"{path_label}: unsupported stylesheet dialect; author plain .css"
+            )
         if suffix in AUTHORED_SITE_SUFFIXES and path_label != CONFIG_PATH:
             url_source = text
-            if suffix in {".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx"}:
-                url_source = strip_comments(url_source, line_comments=True)
-            elif suffix == ".css":
-                url_source = strip_comments(url_source)
-            elif suffix in {".md", ".mdx"}:
+            if suffix in {".md", ".mdx"}:
                 url_source = mask_markdown_noncontent(url_source)
-            for violation in authored_target_violations(
+            found, _ = authored_target_analysis(
                 url_source,
                 suffix,
                 root=root,
-            ):
+            )
+            for violation in found:
                 violations.append(f"{path_label}: {violation}")
 
 
@@ -1057,33 +1109,33 @@ def check_local_markdown_target(
 
 
 def published_doc_paths(docs_root: Path) -> tuple[list[Path], list[Path], list[Path]]:
-    pages: list[Path] = []
-    mdx_pages: list[Path] = []
-    symlinks: list[Path] = []
-    for directory, directory_names, file_names in os.walk(
-        docs_root,
-        topdown=True,
-        followlinks=False,
-    ):
-        directory_names[:] = sorted(directory_names)
+    pages, mdx_pages, symlinks = [], [], []
+    for directory, directory_names, file_names in os.walk(docs_root, followlinks=False):
         current = Path(directory)
-        for name in directory_names:
+        for name in directory_names + file_names:
             path = current / name
             if path.is_symlink():
                 symlinks.append(path)
-        for name in sorted(file_names):
-            path = current / name
-            if path.is_symlink():
-                symlinks.append(path)
-            elif path.suffix.casefold() == ".md":
+            elif path.is_file() and path.suffix.casefold() == ".md":
                 pages.append(path)
-            elif path.suffix.casefold() == ".mdx":
+            elif path.is_file() and path.suffix.casefold() == ".mdx":
                 mdx_pages.append(path)
-    return (
-        sorted(pages, key=lambda path: path.as_posix()),
-        sorted(mdx_pages, key=lambda path: path.as_posix()),
-        sorted(symlinks, key=lambda path: path.as_posix()),
-    )
+    key = lambda path: path.as_posix()
+    return sorted(pages, key=key), sorted(mdx_pages, key=key), sorted(symlinks, key=key)
+
+
+def front_matter_selects_mdx(source: str) -> bool:
+    block = re.match(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", source, re.DOTALL)
+    if block is None:
+        return False
+    for match in re.finditer(
+        r"^\s*([A-Za-z0-9_.-]+)\s*:\s*(.*?)\s*$", block.group(1), re.MULTILINE
+    ):
+        key = match.group(1).casefold()
+        value = match.group(2).strip().strip("'\"").casefold()
+        if "mdx" in key or (key in {"format", "markdown.format"} and value != "md"):
+            return True
+    return False
 
 
 def check_published_docs(root: Path, violations: list[str]) -> None:
@@ -1105,6 +1157,10 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
         text = read_utf8(page, root, violations)
         if text is None:
             continue
+        if front_matter_selects_mdx(text):
+            violations.append(
+                f"{page_label}: front matter must not enable or detect MDX"
+            )
         authored = mask_markdown_noncontent(text)
         folded_authored = authored.casefold()
         for forbidden in FORBIDDEN_SOURCE_REFERENCES:
@@ -1112,10 +1168,10 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{page_label}: forbidden publication source reference: {forbidden}"
                 )
-        for violation in authored_target_violations(authored, ".md", root=root):
+        found, targets = authored_target_analysis(authored, ".md", root=root)
+        for violation in found:
             violations.append(f"{page_label}: {violation}")
-        targets = markdown_targets(authored) + html_targets(authored)
-        for target in targets:
+        for target in (target for target in targets if target.context in {"Markdown", "HTML"}):
             check_local_markdown_target(
                 root,
                 docs_root,
@@ -1123,6 +1179,12 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
                 target,
                 violations,
             )
+
+
+def generated_target_loads_remote(target: str) -> bool:
+    decoded = unescape(target.strip())
+    parsed = urlsplit(decoded)
+    return decoded.startswith("//") or bool(parsed.scheme and parsed.scheme.casefold() not in {"data", "blob"})
 
 
 def check_generated_output(root: Path, violations: list[str]) -> None:
@@ -1158,6 +1220,19 @@ def check_generated_output(root: Path, violations: list[str]) -> None:
                     violations.append(
                         f"{path_label}: generated output contains forbidden string: {forbidden}"
                     )
+            suffix = path.suffix.casefold()
+            text = contents.decode("utf-8", errors="replace")
+            if suffix == ".css":
+                targets = css_resource_targets(text)
+            elif suffix == ".html":
+                html = html_resource_analysis(text, allow_bare=True)[0]
+                targets = [target.target for target in html if target.is_asset]
+            else:
+                continue
+            if any(generated_target_loads_remote(target) for target in targets):
+                violations.append(
+                    f"{path_label}: generated output loads a remote resource"
+                )
 
 
 def main(argv: list[str]) -> int:

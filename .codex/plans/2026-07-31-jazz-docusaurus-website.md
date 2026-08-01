@@ -17,6 +17,9 @@
 - Do not add a blog, documentation versioning, analytics, search service, playground, user accounts, or remote runtime content.
 - Use local or bundled assets and fonts. A production page must render without fetching Google Fonts, CDNs, remote images, or runtime APIs.
 - Use no more than two typefaces and one dominant brass accent. Avoid card grids, decorative gradients, floating dashboards, pill clutter, and a stock Docusaurus homepage.
+- Keep the published docs pipeline in plain-Markdown mode: configure `markdown.format` as `md`, publish only `.md` files, and do not permit front matter to enable or auto-detect MDX.
+- Keep resource authoring deliberately static. Resource-bearing JSX/HTML attributes and Docusaurus config properties must use direct local literals; JSX/HTML spreads, interpolated resource templates, and nonlocal URI tokens (including tokens hidden in source comments) are forbidden. The canonical production origin and the explicitly approved repository/site navigation URLs are the only narrow external exceptions.
+- Author plain CSS only. `.scss`, `.sass`, and `.less` sources are outside the website profile, and the post-build boundary check scans generated HTML and CSS resource contexts for remote loads without treating arbitrary dependency JavaScript strings as resources.
 - Motion must respect `prefers-reduced-motion` and cannot delay navigation or content access.
 - Build and structural checks replace browser automation in this workstream. Record a short human visual-review checklist in the PR for desktop, mobile, light, and dark modes.
 - Commit the scaffold/boundary, brand system, homepage/docs theme, and deployment workflow separately.
