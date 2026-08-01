@@ -270,6 +270,38 @@ test('Jazz Prism tokenizes Unicode and ASCII identifiers at lexical boundaries',
   ]);
 });
 
+test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => {
+  const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
+  const fixture = read('editors/vscode-jazz/fixtures/representative.jz');
+  const {tokens} = tokenizeJazz(fixture, 'light', {
+    includeExplanation: true,
+  });
+  const scopes = new Set(
+    tokens.flatMap((line) =>
+      line.flatMap((token) =>
+        (token.explanation ?? []).flatMap((explanation) =>
+          explanation.scopes.map(({scopeName}) => scopeName),
+        ),
+      ),
+    ),
+  );
+
+  for (const scope of [
+    'comment.line.number-sign.jazz',
+    'keyword.declaration.jazz',
+    'entity.name.type.jazz',
+    'entity.name.function.constructor.jazz',
+    'string.quoted.double.jazz',
+    'string.quoted.single.jazz',
+    'constant.numeric.jazz',
+    'keyword.operator.jazz',
+    'keyword.operator.signature.jazz',
+    'entity.name.function.effectful.jazz',
+  ]) {
+    assert.ok(scopes.has(scope), `missing TextMate scope: ${scope}`);
+  }
+});
+
 test('site metadata, local brand assets, and contrasting Prism themes are configured', () => {
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
