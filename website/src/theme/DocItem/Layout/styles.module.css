@@ -1,0 +1,35 @@
+.docRow {
+  column-gap: clamp(1rem, 3vw, 3.5rem);
+  justify-content: center;
+}
+
+.docItemContainer {
+  margin: 0 auto;
+  max-width: 52rem;
+  padding-bottom: 4rem;
+}
+
+.docItemContainer header + *,
+.docItemContainer article > *:first-child {
+  margin-top: 0;
+}
+
+.tocColumn {
+  max-width: 16rem;
+}
+
+@media (min-width: 997px) {
+  .docItemCol {
+    max-width: min(75%, 58rem) !important;
+  }
+
+  .tocColumn {
+    padding-top: 0.4rem;
+  }
+}
+
+@media (max-width: 996px) {
+  .docItemContainer {
+    padding-inline: clamp(0.2rem, 2vw, 1rem);
+  }
+}

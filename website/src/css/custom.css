@@ -2,26 +2,253 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 
 :root {
-  --ifm-color-primary: #8f5d12;
-  --ifm-color-primary-dark: #7f510f;
-  --ifm-color-primary-darker: #744a0e;
-  --ifm-color-primary-darkest: #5d3a0a;
-  --ifm-color-primary-light: #a76d16;
-  --ifm-color-primary-lighter: #b77a1b;
-  --ifm-color-primary-lightest: #d19a42;
+  --jazz-brand-ink: #171824;
+  --jazz-brand-paper: #f3eddf;
+  --jazz-ink: #171824;
+  --jazz-ink-muted: #51515d;
+  --jazz-paper: #f7f3e9;
+  --jazz-paper-muted: #ded8ca;
+  --jazz-brass: #d49a35;
+  --jazz-brass-light: #f0c978;
+  --jazz-primary-accessible: #81500c;
+  --jazz-rule: #cbc3b3;
+  --jazz-focus: #1677a3;
+  --ifm-background-color: var(--jazz-paper);
+  --ifm-background-surface-color: #efe9dc;
+  --ifm-color-content: var(--jazz-ink);
+  --ifm-color-content-secondary: var(--jazz-ink-muted);
+  --ifm-color-primary: #81500c;
+  --ifm-color-primary-dark: #704408;
+  --ifm-color-primary-darker: #653c06;
+  --ifm-color-primary-darkest: #4e2d03;
+  --ifm-color-primary-light: #955f12;
+  --ifm-color-primary-lighter: #a46a18;
+  --ifm-color-primary-lightest: #bf8129;
   --ifm-font-family-base: 'Manrope Variable', sans-serif;
   --ifm-font-family-monospace: 'IBM Plex Mono', monospace;
-  --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgb(143 93 18 / 10%);
+  --ifm-code-font-size: 92%;
+  --ifm-heading-font-weight: 690;
+  --ifm-navbar-height: 4.25rem;
+  --ifm-navbar-shadow: none;
+  --ifm-toc-border-color: var(--jazz-rule);
+  --docusaurus-highlighted-code-line-bg: rgb(129 80 12 / 12%);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #e0ad56;
-  --ifm-color-primary-dark: #d69a34;
-  --ifm-color-primary-darker: #ce9026;
-  --ifm-color-primary-darkest: #aa711e;
-  --ifm-color-primary-light: #e8bd72;
-  --ifm-color-primary-lighter: #edc985;
-  --ifm-color-primary-lightest: #f6dfb8;
-  --docusaurus-highlighted-code-line-bg: rgb(224 173 86 / 14%);
+  --jazz-ink: #f3eddf;
+  --jazz-ink-muted: #c5bdad;
+  --jazz-paper: #11121b;
+  --jazz-paper-muted: #ded8ca;
+  --jazz-primary-accessible: #edbd68;
+  --jazz-rule: #3b3a43;
+  --jazz-focus: #79c5e7;
+  --ifm-background-color: var(--jazz-paper);
+  --ifm-background-surface-color: #1a1b25;
+  --ifm-color-content: var(--jazz-ink);
+  --ifm-color-content-secondary: var(--jazz-ink-muted);
+  --ifm-color-primary: #edbd68;
+  --ifm-color-primary-dark: #e8ae49;
+  --ifm-color-primary-darker: #e5a53a;
+  --ifm-color-primary-darkest: #c3831b;
+  --ifm-color-primary-light: #f2cc87;
+  --ifm-color-primary-lighter: #f5d69c;
+  --ifm-color-primary-lightest: #fae8c7;
+  --ifm-toc-border-color: var(--jazz-rule);
+  --docusaurus-highlighted-code-line-bg: rgb(237 189 104 / 13%);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-variation-settings: 'wght' 450;
+  text-rendering: optimizeLegibility;
+}
+
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--jazz-focus);
+  outline-offset: 3px;
+}
+
+.navbar {
+  background: var(--jazz-paper);
+  border-bottom: 1px solid var(--jazz-rule);
+}
+
+.navbar__brand,
+.navbar__item,
+.navbar__toggle,
+.clean-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.navbar__brand {
+  gap: 0.55rem;
+}
+
+.navbar__logo {
+  height: 2.4rem;
+  width: 2rem;
+}
+
+.jazzNavbarTitle {
+  color: var(--jazz-ink);
+  font-size: 1.05rem;
+  font-weight: 760;
+  letter-spacing: -0.035em;
+}
+
+.navbar__link {
+  font-size: 0.86rem;
+  font-weight: 670;
+  text-underline-offset: 0.35rem;
+  transition: color 150ms ease, text-decoration-color 150ms ease;
+}
+
+.navbar__link:hover,
+.navbar__link--active {
+  color: var(--jazz-primary-accessible);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+
+.theme-doc-markdown h1,
+.theme-doc-markdown h2,
+.theme-doc-markdown h3 {
+  letter-spacing: -0.035em;
+  scroll-margin-top: calc(var(--ifm-navbar-height) + 1.5rem);
+}
+
+.theme-doc-markdown h1 {
+  font-size: clamp(2.6rem, 6vw, 4.5rem);
+  line-height: 1;
+  margin-bottom: 2rem;
+}
+
+.theme-doc-markdown h2 {
+  border-top: 1px solid var(--jazz-rule);
+  margin-top: 3.5rem;
+  padding-top: 1.1rem;
+}
+
+.theme-doc-markdown > p,
+.theme-doc-markdown > ul,
+.theme-doc-markdown > ol {
+  line-height: 1.78;
+}
+
+.theme-doc-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.theme-doc-markdown table th,
+.theme-doc-markdown table td {
+  border-color: var(--jazz-rule);
+}
+
+.theme-doc-markdown :where(h2, h3, h4) > a {
+  color: var(--jazz-primary-accessible);
+}
+
+.theme-code-block {
+  border-left: 3px solid var(--jazz-brass);
+  box-shadow: none;
+}
+
+.theme-code-block button {
+  min-height: 44px;
+  min-width: 44px;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+.theme-code-block-highlighted-line {
+  border-left: 2px solid var(--jazz-brass);
+}
+
+.breadcrumbs {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.breadcrumbs__link,
+.pagination-nav__link {
+  min-height: 44px;
+}
+
+.pagination-nav {
+  border-top: 1px solid var(--jazz-rule);
+  gap: 1rem;
+  padding-top: 2rem;
+}
+
+.pagination-nav__link {
+  border: 0;
+  border-bottom: 1px solid var(--jazz-rule);
+  border-radius: 0;
+  padding-inline: 0;
+}
+
+.pagination-nav__link:hover {
+  border-color: var(--jazz-primary-accessible);
+}
+
+.alert {
+  border: 0;
+  border-left: 3px solid var(--ifm-alert-border-color);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.theme-doc-sidebar-container {
+  border-right-color: var(--jazz-rule) !important;
+}
+
+.menu__link,
+.table-of-contents__link {
+  line-height: 1.4;
+}
+
+.menu__link {
+  min-height: 44px;
+}
+
+.footer--dark {
+  --ifm-footer-background-color: #0b0c12;
+  --ifm-footer-color: #ded8ca;
+  --ifm-footer-link-color: #f0c978;
+  --ifm-footer-title-color: #f3eddf;
+  border-top: 1px solid #393945;
+}
+
+@media (max-width: 996px) {
+  .navbar-sidebar {
+    background: var(--jazz-paper);
+    width: min(90vw, 24rem);
+  }
+
+  .navbar-sidebar__backdrop {
+    background: rgb(11 12 18 / 70%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

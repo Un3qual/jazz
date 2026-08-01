@@ -4,7 +4,9 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Jazz',
+  titleDelimiter: '·',
   tagline: 'A statically typed functional language with practical syntax',
+  favicon: 'img/favicon.svg',
   url: 'https://un3qual.github.io',
   baseUrl: '/jazz/',
   organizationName: 'un3qual',
@@ -38,11 +40,27 @@ const config: Config = {
     ],
   ],
   themeConfig: {
+    image: 'img/social-card.png',
+    metadata: [
+      {
+        name: 'description',
+        content: 'Documentation for Jazz, a statically typed functional language with practical syntax.',
+      },
+      {name: 'theme-color', content: '#171824'},
+    ],
     colorMode: {
+      defaultMode: 'light',
       respectPrefersColorScheme: true,
     },
     navbar: {
       title: 'Jazz',
+      logo: {
+        alt: '',
+        src: 'img/jazz-mark.svg',
+        srcDark: 'img/jazz-mark-dark.svg',
+        width: 32,
+        height: 40,
+      },
       items: [
         {
           type: 'docSidebar',
@@ -128,6 +146,7 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
+      additionalLanguages: ['jazz'],
     },
   } satisfies Preset.ThemeConfig,
 };
