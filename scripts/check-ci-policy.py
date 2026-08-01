@@ -69,6 +69,7 @@ POLICY_PATHS = (
 
 PR_WORKFLOW_PATH = ".github/workflows/ci-pr.yml"
 MAIN_WORKFLOW_PATH = ".github/workflows/ci-main.yml"
+EXTENDED_WORKFLOW_PATH = ".github/workflows/ci-extended.yml"
 
 PR_FORBIDDEN = (
     "cabal bench",
@@ -91,6 +92,12 @@ DOCS_ONLY_EXCLUSIONS = (
     "!RELEASING.md",
     "!.github/ISSUE_TEMPLATE/**",
     "!.github/PULL_REQUEST_TEMPLATE.md",
+)
+
+TIMING_THRESHOLD_PATTERN = re.compile(
+    r"(?:timing|benchmark).*(?:threshold|regression[_ -]?percent)"
+    r"|(?:threshold|regression[_ -]?percent).*(?:timing|benchmark)",
+    re.IGNORECASE,
 )
 
 
@@ -124,6 +131,37 @@ def indented_block(contents: str, header: str, indent: int) -> str:
             block.append(candidate)
         return "\n".join(block)
     return ""
+
+
+def yaml_literal_block(contents: str, header: str, indent: int) -> str:
+    """Return one trusted-repository YAML literal block body."""
+    lines = contents.splitlines()
+    header_line = re.compile(
+        rf"^{re.escape(' ' * indent)}{re.escape(header)}:\s*[|>]\s*$"
+    )
+    for index, line in enumerate(lines):
+        if not header_line.match(line):
+            continue
+        block: list[str] = []
+        for candidate in lines[index + 1 :]:
+            if not candidate.strip():
+                block.append(candidate)
+                continue
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            if candidate_indent <= indent:
+                break
+            block.append(candidate)
+        return "\n".join(block)
+    return ""
+
+
+def yaml_mapping_keys(contents: str, indent: int) -> list[str]:
+    """Return keys declared at one indentation level in trusted workflow YAML."""
+    pattern = re.compile(
+        rf"^{re.escape(' ' * indent)}(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_-]*))\s*:",
+        re.MULTILINE,
+    )
+    return [next(group for group in match.groups() if group) for match in pattern.finditer(contents)]
 
 
 def workflow_job(contents: str, job_name: str) -> str:
@@ -444,12 +482,7 @@ def check_extended(contents: str, violations: list[str]) -> None:
     ):
         violations.append("extended tier must generate a SHA-256 artifact manifest")
 
-    timing_threshold = re.compile(
-        r"(?:timing|benchmark).*(?:threshold|regression[_-]?percent)"
-        r"|(?:threshold|regression[_-]?percent).*(?:timing|benchmark)",
-        re.IGNORECASE,
-    )
-    if timing_threshold.search(contents):
+    if TIMING_THRESHOLD_PATTERN.search(contents):
         violations.append("extended tier must not fail on a timing regression threshold")
 
 
@@ -899,6 +932,216 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
     reject_tokens(violations, "main workflow", contents, MAIN_FORBIDDEN)
 
 
+def check_extended_workflow(root: Path, violations: list[str]) -> None:
+    path = root / EXTENDED_WORKFLOW_PATH
+    if not path.is_file():
+        violations.append(
+            f"missing required extended workflow: {EXTENDED_WORKFLOW_PATH}"
+        )
+        return
+
+    contents = active_text(path.read_text(encoding="utf-8"))
+    trigger_block = indented_block(contents, "on", 0)
+    events = yaml_mapping_keys(trigger_block, 2)
+    if "workflow_dispatch" not in events:
+        violations.append("extended workflow must support workflow_dispatch")
+    if len(events) != 2 or set(events) != {"schedule", "workflow_dispatch"}:
+        violations.append(
+            "extended workflow must trigger only on its weekly schedule and manual dispatch"
+        )
+
+    schedule = indented_block(trigger_block, "schedule", 2)
+    crons = re.findall(
+        r"(?m)^\s*-\s+cron:\s*['\"]?([^'\"]+?)['\"]?\s*$", schedule
+    )
+    if crons != ["17 7 * * 0"]:
+        violations.append("extended workflow must run at 17 7 * * 0")
+
+    permissions = [
+        line.strip()
+        for line in indented_block(contents, "permissions", 0).splitlines()
+        if line.strip()
+    ]
+    if permissions != ["contents: read"] or "permissions" in yaml_mapping_keys(
+        contents, 4
+    ):
+        violations.append("extended workflow must grant only read access to contents")
+
+    concurrency = indented_block(contents, "concurrency", 0)
+    if not re.search(r"(?m)^\s*group:\s*extended\s*$", concurrency):
+        violations.append("extended workflow concurrency group must be extended")
+    if not re.search(r"(?m)^\s*cancel-in-progress:\s*false\s*$", concurrency):
+        violations.append(
+            "extended workflow must not cancel an in-progress evidence run"
+        )
+
+    job = workflow_job(contents, "extended")
+    if not job:
+        violations.append("extended workflow is missing the extended job")
+        return
+
+    requirements = (
+        (
+            r"(?m)^\s*timeout-minutes:\s*360\s*$",
+            "extended job must have a 360-minute timeout",
+        ),
+    )
+    for pattern, message in requirements:
+        if not re.search(pattern, job):
+            violations.append(message)
+
+    job_environment = indented_block(job, "env", 4)
+    owned_environment = (
+        (
+            r"(?m)^\s*JAZZ_ARTIFACT_ROOT:\s*artifacts/extended\s*$",
+            "extended job must own JAZZ_ARTIFACT_ROOT=artifacts/extended",
+        ),
+        (
+            r"(?m)^\s*JAZZ_BENCHMARK_LABEL:\s*github-actions-extended\s*$",
+            "extended job must own JAZZ_BENCHMARK_LABEL=github-actions-extended",
+        ),
+    )
+    for pattern, message in owned_environment:
+        if not re.search(pattern, job_environment):
+            violations.append(message)
+
+    cache_step = workflow_step(job, "Cache Cabal dependencies and build output")
+    cache_requirements = (
+        (
+            r"(?m)^\s*uses:\s*actions/cache@v4\s*$",
+            "extended job must use actions/cache@v4",
+        ),
+        (
+            r"(?m)^\s*key:\s*.*\$\{\{\s*runner\.os\s*\}\}.*$",
+            "extended cache key must include runner.os",
+        ),
+        (
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
+            "extended cache key must include flake.lock, jazz.cabal, and cabal.project",
+        ),
+        (
+            r"(?m)^\s*restore-keys:\s*\|\s*\n\s*\$\{\{\s*runner\.os\s*\}\}-cabal-\s*$",
+            "extended cache must restore only the operating-system Cabal prefix",
+        ),
+    )
+    for pattern, message in cache_requirements:
+        if not re.search(pattern, cache_step):
+            violations.append(message)
+    cache_with = indented_block(cache_step, "with", 8)
+    cache_paths = [
+        line.strip()
+        for line in yaml_literal_block(cache_with, "path", 10).splitlines()
+        if line.strip()
+    ]
+    if "~/.cabal/store" not in cache_paths:
+        violations.append("extended cache must include ~/.cabal/store")
+    if "dist-newstyle" not in cache_paths:
+        violations.append("extended cache must include dist-newstyle")
+    if cache_paths and cache_paths != ["~/.cabal/store", "dist-newstyle"]:
+        violations.append(
+            "extended cache must contain only the Cabal store and ordinary build output"
+        )
+    if not re.search(
+        r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$", job
+    ):
+        violations.append("extended job must use cachix/install-nix-action@v31")
+
+    run_step = workflow_step(job, "Run extended verification")
+    if not re.search(r"(?m)^\s*id:\s*extended\s*$", run_step):
+        violations.append("extended verification step must expose the extended id")
+    if not re.search(
+        r"(?m)^\s*run:\s*nix\s+develop\s+--command\s+bash\s+scripts/ci/extended\.sh\s*$",
+        run_step,
+    ):
+        violations.append("extended job must invoke the owned extended script")
+    if re.search(r"(?m)^\s*if\s*:", run_step):
+        violations.append("extended verification step must retain implicit success gating")
+    run_step_keys = yaml_mapping_keys(run_step, 8)
+    if "shell" in run_step_keys:
+        violations.append(
+            "extended workflow must not mask verification or evidence failures"
+        )
+    run_step_environment_keys = set(yaml_mapping_keys(run_step, 10))
+    if run_step_environment_keys.intersection(
+        {"JAZZ_ARTIFACT_ROOT", "JAZZ_BENCHMARK_LABEL"}
+    ):
+        violations.append(
+            "extended verification step must not override the owned environment"
+        )
+
+    upload_step = workflow_step(job, "Upload extended verification evidence")
+    upload_requirements = (
+        (
+            r"(?m)^\s*if:\s*always\(\)\s*$",
+            "extended evidence upload must run on success or failure",
+        ),
+        (
+            r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$",
+            "extended evidence upload must use actions/upload-artifact@v4",
+        ),
+        (
+            r"(?m)^\s*name:\s*extended-\$\{\{\s*github\.sha\s*\}\}-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}\s*$",
+            "extended evidence artifact name must include commit and run provenance",
+        ),
+        (
+            r"(?m)^\s*path:\s*artifacts/extended/\s*$",
+            "extended evidence upload must include the owned artifact root",
+        ),
+        (
+            r"(?m)^\s*if-no-files-found:\s*error\s*$",
+            "extended evidence upload must fail when evidence is missing",
+        ),
+        (
+            r"(?m)^\s*retention-days:\s*30\s*$",
+            "extended evidence upload must retain evidence for 30 days",
+        ),
+    )
+    for pattern, message in upload_requirements:
+        if not re.search(pattern, upload_step):
+            violations.append(message)
+
+    summary_step = workflow_step(job, "Summarize extended verification")
+    if not re.search(r"(?m)^\s*if:\s*always\(\)\s*$", summary_step):
+        violations.append("extended summary must run on success or failure")
+    if not re.search(
+        r"(?m)^\s*EXTENDED_OUTCOME:\s*\$\{\{\s*steps\.extended\.outcome\s*\}\}\s*$",
+        summary_step,
+    ):
+        violations.append("extended summary must bind the verification completion state")
+    if '>> "$GITHUB_STEP_SUMMARY"' not in summary_step:
+        violations.append("extended summary must write to GITHUB_STEP_SUMMARY")
+    evidence_paths = (
+        "artifacts/extended/benchmarks/**/results.csv",
+        "artifacts/extended/benchmarks/**/environment.json",
+        "artifacts/extended/determinism/profile-one.speedscope.json",
+        "artifacts/extended/determinism/profile-two.speedscope.json",
+        "artifacts/extended/corpus/pass-one.txt",
+        "artifacts/extended/corpus/pass-two.txt",
+        "artifacts/extended/manifest.json",
+    )
+    for evidence_path in evidence_paths:
+        if evidence_path not in summary_step:
+            violations.append(
+                f"extended summary is missing evidence path: {evidence_path}"
+            )
+
+    failure_masking = (
+        r"(?m)^\s*continue-on-error\s*:",
+        r"(?m)^\s*set\s+\+e(?:\s|;|$)",
+        r"(?m)^\s*set\s+\+o\s+errexit(?:\s|;|$)",
+        r"(?m)\|\|\s*(?:true|:)(?:\s*(?:#.*)?)?$",
+    )
+    if any(re.search(pattern, job) for pattern in failure_masking):
+        violations.append(
+            "extended workflow must not mask verification or evidence failures"
+        )
+
+    if TIMING_THRESHOLD_PATTERN.search(contents):
+        violations.append(
+            "extended workflow must not classify timing changes with a threshold"
+        )
+
+
 def check_pull_request_workflows(root: Path, violations: list[str]) -> None:
     workflow_root = root / ".github/workflows"
     if not workflow_root.is_dir():
@@ -930,6 +1173,7 @@ def check_repository(root: Path) -> list[str]:
 
     check_pr_workflow(root, violations)
     check_main_workflow(root, violations)
+    check_extended_workflow(root, violations)
     check_pull_request_workflows(root, violations)
     return sorted(set(violations))
 

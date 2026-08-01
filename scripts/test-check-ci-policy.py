@@ -324,6 +324,77 @@ VALID_MAIN_WORKFLOW = textwrap.dedent(
     """
 ).lstrip()
 
+VALID_EXTENDED_WORKFLOW = textwrap.dedent(
+    """
+    name: Extended verification
+
+    on:
+      schedule:
+        - cron: '17 7 * * 0'
+      workflow_dispatch:
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: extended
+      cancel-in-progress: false
+
+    jobs:
+      extended:
+        name: Weekly and manual extended verification
+        runs-on: ubuntu-latest
+        timeout-minutes: 360
+        env:
+          JAZZ_ARTIFACT_ROOT: artifacts/extended
+          JAZZ_BENCHMARK_LABEL: github-actions-extended
+        steps:
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Install Nix
+            uses: cachix/install-nix-action@v31
+          - name: Cache Cabal dependencies and build output
+            uses: actions/cache@v4
+            with:
+              path: |
+                ~/.cabal/store
+                dist-newstyle
+              key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+              restore-keys: |
+                ${{ runner.os }}-cabal-
+          - name: Run extended verification
+            id: extended
+            run: nix develop --command bash scripts/ci/extended.sh
+          - name: Upload extended verification evidence
+            if: always()
+            uses: actions/upload-artifact@v4
+            with:
+              name: extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+              path: artifacts/extended/
+              if-no-files-found: error
+              retention-days: 30
+          - name: Summarize extended verification
+            if: always()
+            env:
+              EXTENDED_OUTCOME: ${{ steps.extended.outcome }}
+            run: |
+              {
+                echo "## Extended verification"
+                echo
+                echo "Completion state: \\`$EXTENDED_OUTCOME\\`"
+                echo
+                echo "Artifact paths:"
+                echo "- \\`artifacts/extended/benchmarks/**/results.csv\\`"
+                echo "- \\`artifacts/extended/benchmarks/**/environment.json\\`"
+                echo "- \\`artifacts/extended/determinism/profile-one.speedscope.json\\`"
+                echo "- \\`artifacts/extended/determinism/profile-two.speedscope.json\\`"
+                echo "- \\`artifacts/extended/corpus/pass-one.txt\\`"
+                echo "- \\`artifacts/extended/corpus/pass-two.txt\\`"
+                echo "- \\`artifacts/extended/manifest.json\\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+    """
+).lstrip()
+
 
 class CiPolicyCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -336,6 +407,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.write("scripts/ci/release-candidate.sh", VALID_RELEASE)
         self.write(".github/workflows/ci-pr.yml", VALID_PR_WORKFLOW)
         self.write(".github/workflows/ci-main.yml", VALID_MAIN_WORKFLOW)
+        self.write(".github/workflows/ci-extended.yml", VALID_EXTENDED_WORKFLOW)
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -662,6 +734,313 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_main_workflow_is_required(self) -> None:
         (self.root / ".github/workflows/ci-main.yml").unlink()
         self.assert_violation("missing required main workflow: .github/workflows/ci-main.yml")
+
+    def test_extended_workflow_is_required(self) -> None:
+        (self.root / ".github/workflows/ci-extended.yml").unlink()
+        self.assert_violation(
+            "missing required extended workflow: .github/workflows/ci-extended.yml"
+        )
+
+    def test_extended_workflow_requires_the_weekly_and_manual_triggers(self) -> None:
+        fixtures = (
+            (
+                VALID_EXTENDED_WORKFLOW.replace("  workflow_dispatch:\n", ""),
+                "extended workflow must support workflow_dispatch",
+            ),
+            (
+                VALID_EXTENDED_WORKFLOW.replace("'17 7 * * 0'", "'0 0 * * *'"),
+                "extended workflow must run at 17 7 * * 0",
+            ),
+        )
+        for fixture, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.write(".github/workflows/ci-extended.yml", fixture)
+                self.assert_violation(expected)
+
+    def test_extended_workflow_rejects_hidden_ordinary_triggers(self) -> None:
+        for trigger in (
+            "  push:\n    branches:\n      - main\n",
+            "  pull_request:\n",
+            "  repository_dispatch:\n",
+        ):
+            with self.subTest(trigger=trigger):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(
+                        "  workflow_dispatch:\n",
+                        "  workflow_dispatch:\n" + trigger,
+                    ),
+                )
+                self.assert_violation(
+                    "extended workflow must trigger only on its weekly schedule and manual dispatch"
+                )
+
+    def test_extended_workflow_requires_read_only_contents_without_overrides(self) -> None:
+        fixtures = (
+            VALID_EXTENDED_WORKFLOW.replace("contents: read", "contents: write"),
+            VALID_EXTENDED_WORKFLOW.replace(
+                "  extended:\n    name:",
+                "  extended:\n    permissions:\n      contents: write\n    name:",
+            ),
+            VALID_EXTENDED_WORKFLOW.replace(
+                "  contents: read\n", "  contents: read\n  pages: write\n"
+            ),
+        )
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture):
+                self.write(".github/workflows/ci-extended.yml", fixture)
+                self.assert_violation(
+                    "extended workflow must grant only read access to contents"
+                )
+
+    def test_extended_workflow_requires_non_cancelling_extended_concurrency(self) -> None:
+        for old, expected in (
+            (
+                "group: extended",
+                "extended workflow concurrency group must be extended",
+            ),
+            (
+                "cancel-in-progress: false",
+                "extended workflow must not cancel an in-progress evidence run",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(old, "removed"),
+                )
+                self.assert_violation(expected)
+
+    def test_extended_job_requires_timeout_nix_safe_caches_and_owned_invocation(self) -> None:
+        for old, expected in (
+            (
+                "timeout-minutes: 360",
+                "extended job must have a 360-minute timeout",
+            ),
+            (
+                "cachix/install-nix-action@v31",
+                "extended job must use cachix/install-nix-action@v31",
+            ),
+            ("actions/cache@v4", "extended job must use actions/cache@v4"),
+            ("~/.cabal/store", "extended cache must include ~/.cabal/store"),
+            ("dist-newstyle", "extended cache must include dist-newstyle"),
+            (
+                "runner.os",
+                "extended cache key must include runner.os",
+            ),
+            (
+                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')",
+                "extended cache key must include flake.lock, jazz.cabal, and cabal.project",
+            ),
+            (
+                "restore-keys: |\n            ${{ runner.os }}-cabal-",
+                "extended cache must restore only the operating-system Cabal prefix",
+            ),
+            (
+                "JAZZ_ARTIFACT_ROOT: artifacts/extended",
+                "extended job must own JAZZ_ARTIFACT_ROOT=artifacts/extended",
+            ),
+            (
+                "JAZZ_BENCHMARK_LABEL: github-actions-extended",
+                "extended job must own JAZZ_BENCHMARK_LABEL=github-actions-extended",
+            ),
+            (
+                "nix develop --command bash scripts/ci/extended.sh",
+                "extended job must invoke the owned extended script",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(old, "removed", 1),
+                )
+                self.assert_violation(expected)
+
+    def test_extended_cache_rejects_unowned_paths(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "            dist-newstyle\n",
+                "            dist-newstyle\n            /tmp/extended-cache\n",
+            ),
+        )
+        self.assert_violation(
+            "extended cache must contain only the Cabal store and ordinary build output"
+        )
+
+    def test_extended_run_step_exposes_outcome_without_masking_failure(self) -> None:
+        fixtures = (
+            (
+                VALID_EXTENDED_WORKFLOW.replace("        id: extended\n", ""),
+                "extended verification step must expose the extended id",
+            ),
+            (
+                VALID_EXTENDED_WORKFLOW.replace(
+                    "        id: extended\n",
+                    "        id: extended\n        continue-on-error: true\n",
+                ),
+                "extended workflow must not mask verification or evidence failures",
+            ),
+            (
+                VALID_EXTENDED_WORKFLOW.replace(
+                    "nix develop --command bash scripts/ci/extended.sh",
+                    "nix develop --command bash scripts/ci/extended.sh || true",
+                ),
+                "extended workflow must not mask verification or evidence failures",
+            ),
+        )
+        for fixture, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.write(".github/workflows/ci-extended.yml", fixture)
+                self.assert_violation(expected)
+
+    def test_extended_workflow_always_uploads_owned_evidence_with_provenance(self) -> None:
+        for old, expected in (
+            (
+                "if: always()",
+                "extended evidence upload must run on success or failure",
+            ),
+            (
+                "actions/upload-artifact@v4",
+                "extended evidence upload must use actions/upload-artifact@v4",
+            ),
+            (
+                "extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
+                "extended evidence artifact name must include commit and run provenance",
+            ),
+            (
+                "path: artifacts/extended/",
+                "extended evidence upload must include the owned artifact root",
+            ),
+            (
+                "if-no-files-found: error",
+                "extended evidence upload must fail when evidence is missing",
+            ),
+            (
+                "retention-days: 30",
+                "extended evidence upload must retain evidence for 30 days",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(old, "removed", 1),
+                )
+                self.assert_violation(expected)
+
+    def test_extended_summary_reports_state_and_every_evidence_category(self) -> None:
+        required_paths = (
+            "benchmarks/**/results.csv",
+            "benchmarks/**/environment.json",
+            "determinism/profile-one.speedscope.json",
+            "determinism/profile-two.speedscope.json",
+            "corpus/pass-one.txt",
+            "corpus/pass-two.txt",
+            "manifest.json",
+        )
+        for required_path in required_paths:
+            with self.subTest(required_path=required_path):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(required_path, "removed", 1),
+                )
+                self.assert_violation(
+                    f"extended summary is missing evidence path: artifacts/extended/{required_path}"
+                )
+        for old, expected in (
+            (
+                "      - name: Summarize extended verification\n        if: always()",
+                "extended summary must run on success or failure",
+            ),
+            (
+                "EXTENDED_OUTCOME: ${{ steps.extended.outcome }}",
+                "extended summary must bind the verification completion state",
+            ),
+            (
+                '>> "$GITHUB_STEP_SUMMARY"',
+                "extended summary must write to GITHUB_STEP_SUMMARY",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-extended.yml",
+                    VALID_EXTENDED_WORKFLOW.replace(old, "removed", 1),
+                )
+                self.assert_violation(expected)
+
+    def test_extended_workflow_rejects_timing_threshold_expressions(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "Completion state:", "Timing regression percent threshold:"
+            ),
+        )
+        self.assert_violation(
+            "extended workflow must not classify timing changes with a threshold"
+        )
+
+    def test_extended_workflow_rejects_flow_form_ordinary_triggers(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "  workflow_dispatch:\n",
+                "  workflow_dispatch:\n  pull_request: {}\n  push: {}\n",
+            ),
+        )
+        self.assert_violation(
+            "extended workflow must trigger only on its weekly schedule and manual dispatch"
+        )
+
+    def test_extended_workflow_rejects_quoted_job_permission_overrides(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "  extended:\n    name:",
+                '  extended:\n    "permissions":\n      contents: write\n    name:',
+            ),
+        )
+        self.assert_violation(
+            "extended workflow must grant only read access to contents"
+        )
+
+    def test_extended_run_step_rejects_owned_environment_overrides(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "        id: extended\n        run:",
+                "        id: extended\n"
+                "        env:\n"
+                "          JAZZ_ARTIFACT_ROOT: artifacts/elsewhere\n"
+                "          JAZZ_BENCHMARK_LABEL: untrusted-label\n"
+                "        run:",
+            ),
+        )
+        self.assert_violation(
+            "extended verification step must not override the owned environment"
+        )
+
+    def test_extended_run_step_rejects_a_success_masking_custom_shell(self) -> None:
+        self.write(
+            ".github/workflows/ci-extended.yml",
+            VALID_EXTENDED_WORKFLOW.replace(
+                "        id: extended\n        run:",
+                '        id: extended\n        shell: \'bash -c "{0}; exit 0"\'\n        run:',
+            ),
+        )
+        self.assert_violation(
+            "extended workflow must not mask verification or evidence failures"
+        )
+
+    def test_checked_in_repository_policy_is_valid(self) -> None:
+        repository_root = CHECKER.parents[1]
+        result = subprocess.run(
+            [sys.executable, str(CHECKER), str(repository_root)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "CI policy checks passed.\n")
 
     def test_main_workflow_requires_main_push_and_manual_triggers(self) -> None:
         fixtures = (
