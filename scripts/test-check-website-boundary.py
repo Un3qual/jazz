@@ -106,13 +106,43 @@ export default function Home() {
     def test_docs_source_must_be_exactly_public_root_docs(self) -> None:
         self.replace_config("path: '../docs'", "path: '../rfcs'")
         self.assert_violation(
-            "website/docusaurus.config.ts: docs path must be exactly ../docs"
+            "website/docusaurus.config.ts: classic preset docs path must be exactly ../docs"
         )
 
     def test_blog_must_be_disabled(self) -> None:
         self.replace_config("blog: false", "blog: {}")
         self.assert_violation(
             "website/docusaurus.config.ts: classic preset blog must be disabled"
+        )
+
+    def test_decoy_options_cannot_mask_the_real_classic_preset(self) -> None:
+        config_path = self.root / "website/docusaurus.config.ts"
+        config = config_path.read_text(encoding="utf-8")
+        config = config.replace(
+            "const config: Config = {",
+            "const decoy = {path: '../docs', blog: false};\n\nconst config: Config = {",
+        ).replace(
+            """\
+        docs: {
+          path: '../docs',
+          routeBasePath: 'docs',
+          sidebarPath: './sidebars.ts',
+        },
+        blog: false,
+""",
+            "        docs: false,\n        blog: true,\n",
+        )
+        config_path.write_text(config, encoding="utf-8")
+
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "website/docusaurus.config.ts: classic preset docs path must be exactly ../docs",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/docusaurus.config.ts: classic preset blog must be disabled",
+            result.stdout,
         )
 
     def test_broken_links_must_fail_the_build(self) -> None:
@@ -235,6 +265,80 @@ export default function Home() {
             "website/src/remote.md: remote authored URL is not allowed",
             result.stdout,
         )
+
+    def test_github_navigation_requires_the_exact_repository_boundary(self) -> None:
+        for url in (
+            "https://github.com/un3qual/jazz-lookalike",
+            "https://github.com.evil.example/un3qual/jazz",
+            "https://github.com/un3qual/jazz/%2e%2e/private",
+        ):
+            with self.subTest(url=url):
+                (self.root / "website/src/pages/index.tsx").write_text(
+                    f"""\
+import Link from '@docusaurus/Link';
+export default function Home() {{
+  return <Link to=\"{url}\">GitHub</Link>;
+}}
+""",
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/src/pages/index.tsx: remote authored URL is not allowed"
+                )
+
+    def test_github_repository_urls_are_rejected_in_asset_and_import_contexts(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            "background: url('https://github.com/un3qual/jazz/blob/main/mark.svg');\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import mark from 'https://github.com/un3qual/jazz/blob/main/mark.svg';
+export default function Home() {
+  return <img src=\"https://github.com/un3qual/jazz/blob/main/mark.svg\" alt=\"\" />;
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/remote.md").write_text(
+            "![Remote](https://github.com/un3qual/jazz/blob/main/photo.png)\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/css/custom.css: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/index.tsx: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/remote.md: remote authored URL is not allowed",
+            result.stdout,
+        )
+
+    def test_exact_github_repository_navigation_is_allowed(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import Link from '@docusaurus/Link';
+export default function Home() {
+  return (
+    <>
+      <Link to=\"https://github.com/un3qual/jazz\">Repository</Link>
+      <a href=\"https://github.com/un3qual/jazz/issues\">Issues</a>
+    </>
+  );
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/repository.md").write_text(
+            "[Repository](https://github.com/un3qual/jazz)\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_violations_are_sorted_and_reported_on_stdout(self) -> None:
         self.replace_config("blog: false", "blog: true")

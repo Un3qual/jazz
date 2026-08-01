@@ -296,9 +296,9 @@ All three interactions become static when reduced motion is requested.
 
   ```bash
   test -f website/build/index.html
-  test -f website/build/docs/getting-started/overview/index.html
-  test -f website/build/docs/language/types-and-signatures/index.html
-  test -f website/build/docs/project/status/index.html
+  test -f website/build/docs/getting-started/overview.html
+  test -f website/build/docs/language/types-and-signatures.html
+  test -f website/build/docs/project/status.html
   rg -n "Jazz|Get started|A statically typed functional language" website/build/index.html
   ```
 

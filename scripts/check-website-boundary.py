@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 
 CONFIG_PATH = "website/docusaurus.config.ts"
@@ -43,8 +44,16 @@ FORBIDDEN_BUILD_STRINGS = (
     "JazzNext",
     "rfcs",
 )
-REMOTE_URL_RE = re.compile(r"https?://[^\s\"'<>)}]+")
-GITHUB_REPOSITORY_URL = "https://github.com/un3qual/jazz"
+REMOTE_URL_RE = re.compile(r"https?://[^\s\"'<>)}]+", re.IGNORECASE)
+MARKDOWN_NAVIGATION_RE = re.compile(
+    r"(?<!!)\[[^\]]*\]\(\s*<?(?P<url>https?://[^\s)>]+)>?(?:\s+[^)]*)?\)",
+    re.IGNORECASE,
+)
+MARKUP_NAVIGATION_RE = re.compile(
+    r"<(?:Link|a)\b[^>]*?\b(?:to|href)\s*=\s*"
+    r"(?P<quote>['\"])(?P<url>https?://[^'\"]+)(?P=quote)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def relative(root: Path, path: Path) -> str:
@@ -110,31 +119,15 @@ def strip_javascript_comments(source: str) -> str:
     return "".join(result)
 
 
-def property_values(source: str, property_name: str) -> list[str]:
-    pattern = re.compile(
-        rf"\b{re.escape(property_name)}\s*:\s*(['\"])(.*?)\1",
-        re.DOTALL,
-    )
-    return [match.group(2) for match in pattern.finditer(source)]
-
-
-def has_boolean_property(source: str, property_name: str, expected: str) -> bool:
-    return bool(
-        re.search(
-            rf"\b{re.escape(property_name)}\s*:\s*{re.escape(expected)}\b",
-            source,
-        )
-    )
-
-
-def object_property_body(source: str, property_name: str) -> str | None:
-    opening = re.search(
-        rf"\b{re.escape(property_name)}\s*:\s*\{{",
-        source,
-    )
-    if opening is None:
+def delimited_body(
+    source: str,
+    opening_index: int,
+    opener: str,
+    closer: str,
+) -> tuple[str, int] | None:
+    if opening_index >= len(source) or source[opening_index] != opener:
         return None
-    start = opening.end()
+    start = opening_index + 1
     depth = 1
     quote: str | None = None
     escaped = False
@@ -150,13 +143,157 @@ def object_property_body(source: str, property_name: str) -> str | None:
             continue
         if char in {"'", '"', "`"}:
             quote = char
-        elif char == "{":
+        elif char == opener:
             depth += 1
-        elif char == "}":
+        elif char == closer:
             depth -= 1
             if depth == 0:
-                return source[start:index]
+                return source[start:index], index + 1
     return None
+
+
+def top_level_elements(source: str) -> list[str]:
+    elements: list[str] = []
+    start = 0
+    depths = {"(": 0, "[": 0, "{": 0}
+    closing_to_opening = {")": "(", "]": "[", "}": "{"}
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(source):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+        elif char in depths:
+            depths[char] += 1
+        elif char in closing_to_opening:
+            opener = closing_to_opening[char]
+            depths[opener] = max(0, depths[opener] - 1)
+        elif char == "," and all(depth == 0 for depth in depths.values()):
+            element = source[start:index].strip()
+            if element:
+                elements.append(element)
+            start = index + 1
+    final = source[start:].strip()
+    if final:
+        elements.append(final)
+    return elements
+
+
+def property_expressions(source: str, property_name: str) -> list[str]:
+    expressions: list[str] = []
+    pattern = re.compile(rf"^{re.escape(property_name)}\s*:\s*(.*)$", re.DOTALL)
+    for element in top_level_elements(source):
+        match = pattern.match(element)
+        if match:
+            expressions.append(match.group(1).strip())
+    return expressions
+
+
+def container_expression_body(
+    expression: str,
+    opener: str,
+    closer: str,
+) -> str | None:
+    stripped = expression.strip()
+    result = delimited_body(stripped, 0, opener, closer)
+    if result is None:
+        return None
+    body, end = result
+    if stripped[end:].strip():
+        return None
+    return body
+
+
+def string_expression_value(expression: str) -> str | None:
+    match = re.fullmatch(r"(['\"])(.*?)\1", expression.strip(), re.DOTALL)
+    return match.group(2) if match else None
+
+
+def config_object_body(source: str) -> str | None:
+    opening = re.search(
+        r"\bconst\s+config(?:\s*:\s*Config)?\s*=\s*\{",
+        source,
+    )
+    if opening is None:
+        return None
+    result = delimited_body(source, opening.end() - 1, "{", "}")
+    return result[0] if result else None
+
+
+def classic_preset_options(config: str) -> list[str]:
+    presets = property_expressions(config, "presets")
+    if len(presets) != 1:
+        return []
+    presets_body = container_expression_body(presets[0], "[", "]")
+    if presets_body is None:
+        return []
+
+    classic_options: list[str] = []
+    for preset_expression in top_level_elements(presets_body):
+        preset_body = container_expression_body(preset_expression, "[", "]")
+        if preset_body is None:
+            continue
+        fields = top_level_elements(preset_body)
+        if not fields or string_expression_value(fields[0]) != "classic":
+            continue
+        if len(fields) != 2:
+            continue
+        options = fields[1].strip()
+        if not options.startswith("{"):
+            continue
+        result = delimited_body(options, 0, "{", "}")
+        if result is None:
+            continue
+        body, end = result
+        trailing = options[end:].strip()
+        if trailing and not re.fullmatch(r"satisfies\s+Preset\.Options", trailing):
+            continue
+        classic_options.append(body)
+    return classic_options
+
+
+def object_property_body(source: str, property_name: str) -> str | None:
+    expressions = property_expressions(source, property_name)
+    if len(expressions) != 1:
+        return None
+    return container_expression_body(expressions[0], "{", "}")
+
+
+def is_github_repository_navigation(url: str) -> bool:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc.casefold() != "github.com":
+        return False
+    path = parsed.path
+    if unquote(path) != path:
+        return False
+    if any(segment in {".", ".."} for segment in path.split("/")):
+        return False
+    return path == "/un3qual/jazz" or path.startswith("/un3qual/jazz/")
+
+
+def navigation_url_spans(text: str, suffix: str) -> set[tuple[int, int]]:
+    spans: set[tuple[int, int]] = set()
+    patterns = [MARKUP_NAVIGATION_RE]
+    if suffix in {".md", ".mdx"}:
+        patterns.append(MARKDOWN_NAVIGATION_RE)
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            url = match.group("url")
+            if is_github_repository_navigation(url):
+                spans.add(match.span("url"))
+    return spans
+
+
+def has_forbidden_remote_url(text: str, suffix: str) -> bool:
+    allowed_spans = navigation_url_spans(text, suffix)
+    return any(match.span() not in allowed_spans for match in REMOTE_URL_RE.finditer(text))
 
 
 def check_config(root: Path, violations: list[str]) -> None:
@@ -168,13 +305,12 @@ def check_config(root: Path, violations: list[str]) -> None:
     if raw_config is None:
         return
     config = strip_javascript_comments(raw_config)
+    config_body = config_object_body(config)
+    if config_body is None:
+        violations.append(f"{CONFIG_PATH}: config must be a literal Config object")
+        return
 
     requirements = (
-        (
-            "path",
-            "../docs",
-            "docs path must be exactly ../docs",
-        ),
         (
             "url",
             "https://un3qual.github.io",
@@ -192,16 +328,51 @@ def check_config(root: Path, violations: list[str]) -> None:
         ),
     )
     for property_name, expected, message in requirements:
-        values = property_values(config, property_name)
+        values = [
+            string_expression_value(expression)
+            for expression in property_expressions(config_body, property_name)
+        ]
         if values != [expected]:
             violations.append(f"{CONFIG_PATH}: {message}")
 
-    if not has_boolean_property(config, "blog", "false"):
+    classic_options = classic_preset_options(config_body)
+    docs_body = (
+        object_property_body(classic_options[0], "docs")
+        if len(classic_options) == 1
+        else None
+    )
+    docs_paths = (
+        [
+            string_expression_value(expression)
+            for expression in property_expressions(docs_body, "path")
+        ]
+        if docs_body is not None
+        else []
+    )
+    if docs_paths != ["../docs"]:
+        violations.append(
+            f"{CONFIG_PATH}: classic preset docs path must be exactly ../docs"
+        )
+
+    blog_values = (
+        property_expressions(classic_options[0], "blog")
+        if len(classic_options) == 1
+        else []
+    )
+    if blog_values != ["false"]:
         violations.append(f"{CONFIG_PATH}: classic preset blog must be disabled")
 
-    markdown = object_property_body(config, "markdown")
+    markdown = object_property_body(config_body, "markdown")
     hooks = object_property_body(markdown or "", "hooks")
-    if hooks is None or property_values(hooks, "onBrokenMarkdownLinks") != ["throw"]:
+    markdown_link_values = (
+        [
+            string_expression_value(expression)
+            for expression in property_expressions(hooks, "onBrokenMarkdownLinks")
+        ]
+        if hooks is not None
+        else []
+    )
+    if markdown_link_values != ["throw"]:
         violations.append(
             f"{CONFIG_PATH}: broken Markdown links must throw through markdown hooks"
         )
@@ -255,8 +426,7 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
                     f"{path_label}: forbidden publication source reference: {forbidden}"
                 )
         if path.suffix.casefold() in AUTHORED_URL_SUFFIXES:
-            remote_urls = REMOTE_URL_RE.findall(text)
-            if any(not url.startswith(GITHUB_REPOSITORY_URL) for url in remote_urls):
+            if has_forbidden_remote_url(text, path.suffix.casefold()):
                 violations.append(f"{path_label}: remote authored URL is not allowed")
 
 
