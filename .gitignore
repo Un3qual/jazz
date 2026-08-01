@@ -8,6 +8,7 @@ dist-newstyle-profile-*/
 /result
 benchmark-results/
 profile-results/
+.pnpm-store/
 website/node_modules/
 website/build/
 website/.docusaurus/

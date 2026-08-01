@@ -155,9 +155,9 @@ PY
 
 bash scripts/check-docs.sh
 find website -type f -name .DS_Store -delete
-npm --prefix website ci
-npm --prefix website run clear
-npm --prefix website run build
+pnpm --dir website install --frozen-lockfile
+pnpm --dir website run clear
+pnpm --dir website run build
 bash scripts/check-website.sh
 
 bash scripts/ci/main-functional.sh

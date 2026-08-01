@@ -52,23 +52,27 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
       - name: Install website dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         working-directory: website
       - name: Check brand assets
-        run: npm run test:brand
+        run: pnpm run test:brand
         working-directory: website
       - name: Check website experience
-        run: npm run test:experience
+        run: pnpm run test:experience
         working-directory: website
       - name: Type-check website
-        run: npm run typecheck
+        run: pnpm run typecheck
         working-directory: website
       - name: Check Pages workflow contract
         run: python3 scripts/check-docs-pages-workflow.py
@@ -77,7 +81,7 @@ jobs:
       - name: Check source publication boundary
         run: python3 scripts/check-website-boundary.py
       - name: Build website
-        run: npm run build
+        run: pnpm run build
         working-directory: website
       - name: Check generated publication boundary
         run: python3 scripts/check-website-boundary.py
@@ -193,6 +197,7 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_requires_immutable_action_commits(self) -> None:
         replacements = {
             "actions/checkout@11d5960a326750d5838078e36cf38b85af677262": "actions/checkout@v4",
+            "pnpm/action-setup@v4": "pnpm/action-setup@main",
             "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020": "actions/setup-node@v4",
             "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b": "actions/configure-pages@v5",
             "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa": "actions/upload-pages-artifact@v3",
@@ -211,11 +216,11 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_block_scalar_text_cannot_impersonate_actions_or_commands(self) -> None:
         self.replace(
             "      - name: Install website dependencies\n"
-            "        run: npm ci\n"
+            "        run: pnpm install --frozen-lockfile\n"
             "        working-directory: website\n",
             "      - name: Spoof required structure\n"
             "        run: |\n"
-            "          run: npm ci\n"
+            "          run: pnpm install --frozen-lockfile\n"
             "          uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b\n"
             "          uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa\n"
             "          uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e\n",
@@ -236,30 +241,37 @@ class DocsPagesWorkflowTests(unittest.TestCase):
             "",
         )
         result = self.run_checker()
-        self.assertIn("required command is missing: npm ci", result.stdout)
+        self.assertIn("required command is missing: pnpm install --frozen-lockfile", result.stdout)
         self.assertIn("required action is missing from build job", result.stdout)
         self.assertIn("required action is missing from deploy job", result.stdout)
 
-    def test_requires_node_22_and_npm_lockfile_cache(self) -> None:
+    def test_requires_pinned_pnpm_node_22_and_pnpm_lockfile_cache(self) -> None:
+        self.replace("          version: 11.18.0", "          version: latest")
         self.replace("          node-version: 22", "          node-version: 20")
         self.replace(
-            "          cache-dependency-path: website/package-lock.json\n", ""
+            "          cache-dependency-path: website/pnpm-lock.yaml\n", ""
         )
         result = self.run_checker()
+        self.assertIn("pnpm setup must use version 11.18.0", result.stdout)
         self.assertIn("setup-node must use Node.js 22", result.stdout)
-        self.assertIn("npm cache must use website/package-lock.json", result.stdout)
+        self.assertIn("pnpm cache must use website/pnpm-lock.yaml", result.stdout)
 
-    def test_requires_clean_install_and_site_checks_in_order(self) -> None:
-        self.replace("        run: npm ci", "        run: npm install")
-        self.replace("        run: npm run test:brand", "        run: npm run build")
+    def test_requires_frozen_install_and_site_checks_in_order(self) -> None:
+        self.replace("        run: pnpm install --frozen-lockfile", "        run: pnpm install")
+        self.replace("        run: pnpm run test:brand", "        run: pnpm run build")
         result = self.run_checker()
-        self.assertIn("required command is missing: npm ci", result.stdout)
-        self.assertIn("required command is missing: npm run test:brand", result.stdout)
-        self.assertIn("required command appears more than once: npm run build", result.stdout)
+        self.assertIn("required command is missing: pnpm install --frozen-lockfile", result.stdout)
+        self.assertIn("required command is missing: pnpm run test:brand", result.stdout)
+        self.assertIn("required command appears more than once: pnpm run build", result.stdout)
 
     def test_rejects_commands_prefixed_with_echo(self) -> None:
-        self.replace("        run: npm ci", "        run: echo npm ci")
-        self.assert_violation("required command is missing: npm ci")
+        self.replace(
+            "        run: pnpm install --frozen-lockfile",
+            "        run: echo pnpm install --frozen-lockfile",
+        )
+        self.assert_violation(
+            "required command is missing: pnpm install --frozen-lockfile"
+        )
 
     def test_requires_public_docs_validation_before_build(self) -> None:
         self.replace(

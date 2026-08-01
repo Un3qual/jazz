@@ -33,12 +33,17 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
 
       - name: Resolve alpha version
         env:

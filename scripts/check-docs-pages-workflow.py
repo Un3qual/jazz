@@ -30,6 +30,7 @@ EXPECTED_JOB_PERMISSIONS = {
     "deploy": {"pages": "write", "id-token": "write"},
 }
 CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+PNPM_ACTION = "pnpm/action-setup@v4"
 SETUP_NODE_ACTION = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
 CONFIGURE_PAGES_ACTION = (
     "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b"
@@ -43,6 +44,7 @@ DEPLOY_PAGES_ACTION = (
 REQUIRED_ACTIONS = {
     "build": (
         CHECKOUT_ACTION,
+        PNPM_ACTION,
         SETUP_NODE_ACTION,
         CONFIGURE_PAGES_ACTION,
         UPLOAD_PAGES_ACTION,
@@ -50,13 +52,13 @@ REQUIRED_ACTIONS = {
     "deploy": (DEPLOY_PAGES_ACTION,),
 }
 REQUIRED_COMMANDS = (
-    "npm ci",
-    "npm run test:brand",
-    "npm run test:experience",
-    "npm run typecheck",
+    "pnpm install --frozen-lockfile",
+    "pnpm run test:brand",
+    "pnpm run test:experience",
+    "pnpm run typecheck",
     "python3 scripts/check-docs-pages-workflow.py",
     "python3 scripts/check-public-docs.py",
-    "npm run build",
+    "pnpm run build",
 )
 BOUNDARY_COMMAND = "python3 scripts/check-website-boundary.py"
 BANNED_WORK_RE = re.compile(
@@ -260,16 +262,20 @@ def validate_actions(job_steps: dict[str, list[str]], violations: list[str]) -> 
 
 
 def validate_build_setup(build_block: str, violations: list[str]) -> None:
+    pnpm_step = step_for(build_block, "uses", PNPM_ACTION) or ""
+    if re.search(r"(?m)^\s+version:\s+['\"]?11\.18\.0['\"]?\s*$", pnpm_step) is None:
+        violations.append("pnpm setup must use version 11.18.0")
+
     setup_step = step_for(build_block, "uses", SETUP_NODE_ACTION) or ""
     if re.search(r"(?m)^\s+node-version:\s+['\"]?22['\"]?\s*$", setup_step) is None:
         violations.append("setup-node must use Node.js 22")
-    if re.search(r"(?m)^\s+cache:\s+['\"]?npm['\"]?\s*$", setup_step) is None:
-        violations.append("setup-node must enable the npm cache")
+    if re.search(r"(?m)^\s+cache:\s+['\"]?pnpm['\"]?\s*$", setup_step) is None:
+        violations.append("setup-node must enable the pnpm cache")
     if re.search(
-        r"(?m)^\s+cache-dependency-path:\s+['\"]?website/package-lock\.json['\"]?\s*$",
+        r"(?m)^\s+cache-dependency-path:\s+['\"]?website/pnpm-lock\.yaml['\"]?\s*$",
         setup_step,
     ) is None:
-        violations.append("npm cache must use website/package-lock.json")
+        violations.append("pnpm cache must use website/pnpm-lock.yaml")
 
     checkout_step = step_for(build_block, "uses", CHECKOUT_ACTION) or ""
     checkout_with = section(checkout_step, "with", 8) or ""
@@ -294,7 +300,7 @@ def validate_required_commands(
         else:
             position, step = matches[0]
             command_positions.append(position)
-            if command.startswith("npm ") and re.search(
+            if command.startswith("pnpm ") and re.search(
                 r"(?m)^\s+working-directory:\s+website\s*$", step
             ) is None:
                 violations.append(f"website command must run in website/: {command}")
@@ -310,7 +316,7 @@ def validate_required_commands(
 def validate_publication_order(
     build_steps: list[str], violations: list[str]
 ) -> None:
-    build_positions = step_positions(build_steps, "run", "npm run build")
+    build_positions = step_positions(build_steps, "run", "pnpm run build")
     build_position = build_positions[0] if len(build_positions) == 1 else -1
     public_docs_positions = step_positions(
         build_steps, "run", "python3 scripts/check-public-docs.py"

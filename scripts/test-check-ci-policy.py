@@ -136,8 +136,8 @@ VALID_RELEASE = script(
     if evidence_root == release_root or common in (evidence_root, release_root): raise SystemExit(1)
     bash scripts/check-docs.sh
     find website -type f -name .DS_Store -delete
-    npm --prefix website ci
-    npm --prefix website run build
+    pnpm --dir website install --frozen-lockfile
+    pnpm --dir website run build
     bash scripts/check-website.sh
     bash scripts/ci/main-functional.sh
     bash scripts/ci/extended.sh
@@ -205,14 +205,18 @@ VALID_PR_WORKFLOW = textwrap.dedent(
         steps:
           - name: Check out repository
             uses: actions/checkout@v4
+          - name: Set up pnpm
+            uses: pnpm/action-setup@v4
+            with:
+              version: 11.18.0
           - name: Set up Node.js
             uses: actions/setup-node@v4
             with:
               node-version: 22
-              cache: npm
-              cache-dependency-path: website/package-lock.json
+              cache: pnpm
+              cache-dependency-path: website/pnpm-lock.yaml
           - name: Install website dependencies
-            run: npm ci
+            run: pnpm install --frozen-lockfile
             working-directory: website
           - name: Check public documentation
             run: bash scripts/check-public-docs.sh
@@ -463,12 +467,16 @@ VALID_RELEASE_WORKFLOW = textwrap.dedent(
             uses: actions/checkout@v4
           - name: Install Nix
             uses: cachix/install-nix-action@v31
+          - name: Set up pnpm
+            uses: pnpm/action-setup@v4
+            with:
+              version: 11.18.0
           - name: Set up Node.js
             uses: actions/setup-node@v4
             with:
               node-version: 22
-              cache: npm
-              cache-dependency-path: website/package-lock.json
+              cache: pnpm
+              cache-dependency-path: website/pnpm-lock.yaml
           - name: Resolve alpha version
             env:
               EVENT_NAME: ${{ github.event_name }}
@@ -782,8 +790,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "scripts/ci/main-functional.sh",
             "scripts/ci/extended.sh",
             "scripts/check-docs.sh",
-            "npm --prefix website ci",
-            "npm --prefix website run build",
+            "pnpm --dir website install --frozen-lockfile",
+            "pnpm --dir website run build",
             "scripts/check-website.sh",
             "cabal sdist all",
             "nix build .#jazz",
@@ -915,8 +923,15 @@ class CiPolicyCheckerTests(unittest.TestCase):
         requirements = (
             ("timeout-minutes: 480", "release job must have a 480-minute timeout"),
             ("cachix/install-nix-action@v31", "release job must install Nix"),
+            ("pnpm/action-setup@v4", "release job must use pnpm/action-setup@v4"),
+            ("version: 11.18.0", "release job must use pnpm 11.18.0"),
             ("actions/setup-node@v4", "release job must set up Node.js"),
             ("node-version: 22", "release job must use Node 22"),
+            ("cache: pnpm", "release job must use the pnpm cache"),
+            (
+                "cache-dependency-path: website/pnpm-lock.yaml",
+                "release job must key the pnpm cache from website/pnpm-lock.yaml",
+            ),
             (
                 "nix develop --command bash scripts/release/build-alpha.sh",
                 "release job must invoke scripts/release/build-alpha.sh",
@@ -1634,10 +1649,12 @@ class CiPolicyCheckerTests(unittest.TestCase):
 
     def test_docs_job_requires_node_cache_install_and_all_checks(self) -> None:
         for old, expected in (
+            ("pnpm/action-setup@v4", "docs-and-site job must use pnpm/action-setup@v4"),
+            ("version: 11.18.0", "docs-and-site job must use pnpm 11.18.0"),
             ("node-version: 22", "docs-and-site job must use Node 22"),
-            ("cache: npm", "docs-and-site job must use the npm cache"),
-            ("cache-dependency-path: website/package-lock.json", "docs-and-site job must key the npm cache from website/package-lock.json"),
-            ("run: npm ci\n        working-directory: website", "docs-and-site job must install only website dependencies with npm ci"),
+            ("cache: pnpm", "docs-and-site job must use the pnpm cache"),
+            ("cache-dependency-path: website/pnpm-lock.yaml", "docs-and-site job must key the pnpm cache from website/pnpm-lock.yaml"),
+            ("run: pnpm install --frozen-lockfile\n        working-directory: website", "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile"),
             ("bash scripts/check-public-docs.sh", "docs-and-site job is missing required check: scripts/check-public-docs.sh"),
             ("bash scripts/check-docs.sh", "docs-and-site job is missing required check: scripts/check-docs.sh"),
             ("bash scripts/check-spec-authority.sh", "docs-and-site job is missing required check: scripts/check-spec-authority.sh"),

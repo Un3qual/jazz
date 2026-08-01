@@ -518,10 +518,13 @@ def check_release(contents: str, violations: list[str]) -> None:
         ("scripts/ci/main-functional.sh", r"bash\s+scripts/ci/main-functional\.sh"),
         ("scripts/ci/extended.sh", r"bash\s+scripts/ci/extended\.sh"),
         ("scripts/check-docs.sh", r"bash\s+scripts/check-docs\.sh"),
-        ("npm --prefix website ci", r"npm\s+--prefix\s+website\s+ci"),
         (
-            "npm --prefix website run build",
-            r"npm\s+--prefix\s+website\s+run\s+build",
+            "pnpm --dir website install --frozen-lockfile",
+            r"pnpm\s+--dir\s+website\s+install\s+--frozen-lockfile",
+        ),
+        (
+            "pnpm --dir website run build",
+            r"pnpm\s+--dir\s+website\s+run\s+build",
         ),
         ("scripts/check-website.sh", r"bash\s+scripts/check-website\.sh"),
         ("cabal sdist all", r"cabal\s+sdist\s+all"),
@@ -670,6 +673,14 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
 
     required = (
         (
+            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v4\s*$",
+            "docs-and-site job must use pnpm/action-setup@v4",
+        ),
+        (
+            r"(?m)^\s*version:\s*11\.18\.0\s*$",
+            "docs-and-site job must use pnpm 11.18.0",
+        ),
+        (
             r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
             "docs-and-site job must use actions/setup-node@v4",
         ),
@@ -678,25 +689,29 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
             "docs-and-site job must use Node 22",
         ),
         (
-            r"(?m)^\s*cache:\s*npm\s*$",
-            "docs-and-site job must use the npm cache",
+            r"(?m)^\s*cache:\s*pnpm\s*$",
+            "docs-and-site job must use the pnpm cache",
         ),
         (
-            r"(?m)^\s*cache-dependency-path:\s*website/package-lock\.json\s*$",
-            "docs-and-site job must key the npm cache from website/package-lock.json",
+            r"(?m)^\s*cache-dependency-path:\s*website/pnpm-lock\.yaml\s*$",
+            "docs-and-site job must key the pnpm cache from website/pnpm-lock.yaml",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?run:\s*npm\s+ci\s*\n\s+working-directory:\s*website\s*$",
-            "docs-and-site job must install only website dependencies with npm ci",
+            r"(?m)^\s*(?:-\s+)?run:\s*pnpm\s+install\s+--frozen-lockfile\s*\n\s+working-directory:\s*website\s*$",
+            "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile",
         ),
     )
     for pattern, message in required:
         if not re.search(pattern, job):
             violations.append(message)
 
-    npm_installs = re.findall(r"(?m)^\s*(?:-\s+)?run:\s*npm\s+(?:ci|install)\b.*$", job)
-    if len(npm_installs) != 1 or not re.search(r"\bnpm\s+ci\s*$", npm_installs[0]):
-        violations.append("docs-and-site job must install only website dependencies with npm ci")
+    pnpm_installs = re.findall(r"(?m)^\s*(?:-\s+)?run:\s*pnpm\s+install\b.*$", job)
+    if len(pnpm_installs) != 1 or not re.search(
+        r"\bpnpm\s+install\s+--frozen-lockfile\s*$", pnpm_installs[0]
+    ):
+        violations.append(
+            "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile"
+        )
 
     checks = (
         ("scripts/check-public-docs.sh", r"bash\s+scripts/check-public-docs\.sh"),
@@ -1306,12 +1321,28 @@ def check_release_workflow(root: Path, violations: list[str]) -> None:
             "release job must install Nix",
         ),
         (
+            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v4\s*$",
+            "release job must use pnpm/action-setup@v4",
+        ),
+        (
+            r"(?m)^\s*version:\s*11\.18\.0\s*$",
+            "release job must use pnpm 11.18.0",
+        ),
+        (
             r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
             "release job must set up Node.js",
         ),
         (
             r"(?m)^\s*node-version:\s*22\s*$",
             "release job must use Node 22",
+        ),
+        (
+            r"(?m)^\s*cache:\s*pnpm\s*$",
+            "release job must use the pnpm cache",
+        ),
+        (
+            r"(?m)^\s*cache-dependency-path:\s*website/pnpm-lock\.yaml\s*$",
+            "release job must key the pnpm cache from website/pnpm-lock.yaml",
         ),
     )
     for pattern, message in requirements:

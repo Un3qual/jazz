@@ -48,15 +48,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
 
       - name: Install website dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         working-directory: website
 
       - name: Check the public documentation boundary

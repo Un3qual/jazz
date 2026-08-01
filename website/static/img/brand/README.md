@@ -38,7 +38,8 @@ The social-card tagline is derived from the Latin variable WOFF2 in the pinned
 `@fontsource-variable/manrope@5.3.0` package. Manrope is copyright 2019 The
 Manrope Project Authors and distributed under the SIL Open Font License 1.1;
 the complete license is installed at
-`website/node_modules/@fontsource-variable/manrope/LICENSE` by `npm ci`.
+`website/node_modules/@fontsource-variable/manrope/LICENSE` by
+`pnpm --dir website install --frozen-lockfile`.
 
 The renderer verifies the font asset SHA-256, uses pinned `fontkit@2.0.4` to
 lay out the tagline, and replaces the paths between the
@@ -52,12 +53,12 @@ PNG. The expected font SHA-256 is
 From the repository root, install the pinned website dependencies and render:
 
 ```bash
-npm --prefix website ci
-npm --prefix website run render:brand
+pnpm --dir website install --frozen-lockfile
+pnpm --dir website run render:brand
 ```
 
 The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
 writes `social-card.png` and the editor icon through Sharp, and fails unless
-their dimensions and formats match their contracts. `npm --prefix website run
+their dimensions and formats match their contracts. `pnpm --dir website run
 test:brand` validates the outline source, transparent asset padding, favicon
 legibility, and the editor icon's exact provenance.

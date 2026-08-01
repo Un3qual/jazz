@@ -73,6 +73,7 @@
             ripgrep
             actionlint
             nodejs_22
+            pnpm
             toolPkgs.nodePackages.prettier
           ];
         };

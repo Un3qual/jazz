@@ -6,8 +6,8 @@ ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 
 python3 "$ROOT/scripts/check-website-boundary.py" "$ROOT"
 python3 "$ROOT/scripts/check-docs-pages-workflow.py" "$ROOT"
-npm --prefix "$ROOT/website" run test:brand
-npm --prefix "$ROOT/website" run test:experience
-npm --prefix "$ROOT/website" run typecheck
-npm --prefix "$ROOT/website" run build
+pnpm --dir "$ROOT/website" run test:brand
+pnpm --dir "$ROOT/website" run test:experience
+pnpm --dir "$ROOT/website" run typecheck
+pnpm --dir "$ROOT/website" run build
 python3 "$ROOT/scripts/check-website-boundary.py" "$ROOT"

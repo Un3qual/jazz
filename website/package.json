@@ -2,6 +2,7 @@
   "name": "jazz-language-website",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "prestart": "node scripts/sync-factorial.mjs",
     "start": "docusaurus start",
@@ -13,7 +14,7 @@
     "render:brand": "node scripts/render-social-card.mjs",
     "test:brand": "node --test scripts/test-brand-assets.mjs",
     "test:experience": "node --test scripts/test-experience.mjs",
-    "check": "npm run typecheck && npm run build"
+    "check": "pnpm run typecheck && pnpm run build"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
