@@ -52,7 +52,24 @@ MARKDOWN_NAVIGATION_RE = re.compile(
 MARKUP_NAVIGATION_RE = re.compile(
     r"<(?:Link|a)\b[^>]*?\b(?:to|href)\s*=\s*"
     r"(?P<quote>['\"])(?P<url>https?://[^'\"]+)(?P=quote)",
+    re.DOTALL,
+)
+PROTOCOL_RELATIVE_CSS_RE = re.compile(
+    r"(?:url\s*\(\s*|@import\s+)(?:['\"])?(?P<url>//[^\s\"')]+)",
+    re.IGNORECASE,
+)
+PROTOCOL_RELATIVE_MARKUP_RE = re.compile(
+    r"\b(?:src|srcSet|poster|href|to)\s*=\s*"
+    r"(?P<quote>['\"])(?P<url>//[^'\"]+)(?P=quote)",
     re.IGNORECASE | re.DOTALL,
+)
+PROTOCOL_RELATIVE_MARKDOWN_RE = re.compile(
+    r"!?\[[^\]]*\]\(\s*<?(?P<url>//[^\s)>]+)",
+    re.IGNORECASE,
+)
+PROTOCOL_RELATIVE_IMPORT_RE = re.compile(
+    r"\b(?:from|import)\s*(?P<quote>['\"])(?P<url>//[^'\"]+)(?P=quote)",
+    re.IGNORECASE,
 )
 
 
@@ -216,22 +233,97 @@ def string_expression_value(expression: str) -> str | None:
     return match.group(2) if match else None
 
 
-def config_object_body(source: str) -> str | None:
-    opening = re.search(
-        r"\bconst\s+config(?:\s*:\s*Config)?\s*=\s*\{",
-        source,
+def mask_javascript_strings(source: str) -> str:
+    masked = list(source)
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(source):
+        if quote is not None:
+            masked[index] = "\n" if char == "\n" else " "
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+            masked[index] = " "
+    return "".join(masked)
+
+
+def literal_statement_trailing_is_valid(source: str, body_end: int) -> bool:
+    return bool(
+        re.match(
+            r"\s*(?:satisfies\s+Config)?\s*;",
+            source[body_end:],
+        )
     )
-    if opening is None:
+
+
+def default_export_config_body(source: str) -> str | None:
+    code = mask_javascript_strings(source)
+    exports = list(re.finditer(r"\bexport\s+default\b", code))
+    if len(exports) != 1:
         return None
-    result = delimited_body(source, opening.end() - 1, "{", "}")
-    return result[0] if result else None
+    export_end = exports[0].end()
+    position = export_end
+    while position < len(code) and code[position].isspace():
+        position += 1
+
+    if position < len(source) and source[position] == "{":
+        result = delimited_body(source, position, "{", "}")
+        if result is None:
+            return None
+        body, body_end = result
+        return body if literal_statement_trailing_is_valid(source, body_end) else None
+
+    identifier = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", code[position:])
+    if identifier is None:
+        return None
+    identifier_name = identifier.group(0)
+    identifier_end = position + identifier.end()
+    if re.match(r"\s*;", code[identifier_end:]) is None:
+        return None
+
+    declaration_pattern = re.compile(
+        rf"\bconst\s+{re.escape(identifier_name)}"
+        r"(?:\s*:\s*Config)?\s*=\s*\{"
+    )
+    declarations = list(declaration_pattern.finditer(code))
+    if len(declarations) != 1:
+        return None
+    result = delimited_body(source, declarations[0].end() - 1, "{", "}")
+    if result is None:
+        return None
+    body, body_end = result
+    return body if literal_statement_trailing_is_valid(source, body_end) else None
+
+
+def has_dynamic_object_entries(source: str) -> bool:
+    return any(
+        element.lstrip().startswith(("...", "["))
+        for element in top_level_elements(source)
+    )
+
+
+def has_array_spread(source: str) -> bool:
+    return any(
+        element.lstrip().startswith("...")
+        for element in top_level_elements(source)
+    )
+
+
+def presets_array_body(config: str) -> str | None:
+    presets = property_expressions(config, "presets")
+    if len(presets) != 1:
+        return None
+    return container_expression_body(presets[0], "[", "]")
 
 
 def classic_preset_options(config: str) -> list[str]:
-    presets = property_expressions(config, "presets")
-    if len(presets) != 1:
-        return []
-    presets_body = container_expression_body(presets[0], "[", "]")
+    presets_body = presets_array_body(config)
     if presets_body is None:
         return []
 
@@ -291,7 +383,20 @@ def navigation_url_spans(text: str, suffix: str) -> set[tuple[int, int]]:
     return spans
 
 
+def has_protocol_relative_resource(text: str, suffix: str) -> bool:
+    patterns: list[re.Pattern[str]] = []
+    if suffix in {".css", ".scss"}:
+        patterns.append(PROTOCOL_RELATIVE_CSS_RE)
+    if suffix == ".tsx":
+        patterns.extend((PROTOCOL_RELATIVE_MARKUP_RE, PROTOCOL_RELATIVE_IMPORT_RE))
+    if suffix in {".md", ".mdx"}:
+        patterns.extend((PROTOCOL_RELATIVE_MARKDOWN_RE, PROTOCOL_RELATIVE_MARKUP_RE))
+    return any(pattern.search(text) is not None for pattern in patterns)
+
+
 def has_forbidden_remote_url(text: str, suffix: str) -> bool:
+    if has_protocol_relative_resource(text, suffix):
+        return True
     allowed_spans = navigation_url_spans(text, suffix)
     return any(match.span() not in allowed_spans for match in REMOTE_URL_RE.finditer(text))
 
@@ -305,10 +410,17 @@ def check_config(root: Path, violations: list[str]) -> None:
     if raw_config is None:
         return
     config = strip_javascript_comments(raw_config)
-    config_body = config_object_body(config)
+    config_body = default_export_config_body(config)
     if config_body is None:
-        violations.append(f"{CONFIG_PATH}: config must be a literal Config object")
+        violations.append(
+            f"{CONFIG_PATH}: default export must resolve unambiguously to a literal Config object"
+        )
         return
+
+    if has_dynamic_object_entries(config_body):
+        violations.append(
+            f"{CONFIG_PATH}: config object must not contain spreads or computed properties"
+        )
 
     requirements = (
         (
@@ -335,12 +447,24 @@ def check_config(root: Path, violations: list[str]) -> None:
         if values != [expected]:
             violations.append(f"{CONFIG_PATH}: {message}")
 
+    presets_body = presets_array_body(config_body)
+    if presets_body is not None and has_array_spread(presets_body):
+        violations.append(f"{CONFIG_PATH}: presets array must not contain spreads")
+
     classic_options = classic_preset_options(config_body)
+    if len(classic_options) == 1 and has_dynamic_object_entries(classic_options[0]):
+        violations.append(
+            f"{CONFIG_PATH}: classic preset options must not contain spreads or computed properties"
+        )
     docs_body = (
         object_property_body(classic_options[0], "docs")
         if len(classic_options) == 1
         else None
     )
+    if docs_body is not None and has_dynamic_object_entries(docs_body):
+        violations.append(
+            f"{CONFIG_PATH}: classic preset docs options must not contain spreads or computed properties"
+        )
     docs_paths = (
         [
             string_expression_value(expression)
@@ -363,7 +487,15 @@ def check_config(root: Path, violations: list[str]) -> None:
         violations.append(f"{CONFIG_PATH}: classic preset blog must be disabled")
 
     markdown = object_property_body(config_body, "markdown")
+    if markdown is not None and has_dynamic_object_entries(markdown):
+        violations.append(
+            f"{CONFIG_PATH}: markdown options must not contain spreads or computed properties"
+        )
     hooks = object_property_body(markdown or "", "hooks")
+    if hooks is not None and has_dynamic_object_entries(hooks):
+        violations.append(
+            f"{CONFIG_PATH}: markdown hooks must not contain spreads or computed properties"
+        )
     markdown_link_values = (
         [
             string_expression_value(expression)

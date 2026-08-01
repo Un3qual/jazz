@@ -145,6 +145,115 @@ export default function Home() {
             result.stdout,
         )
 
+    def test_checked_config_must_be_the_default_export(self) -> None:
+        config_path = self.root / "website/docusaurus.config.ts"
+        config = config_path.read_text(encoding="utf-8").replace(
+            "export default config;",
+            """\
+const actual: Config = {
+  title: 'Decoy target',
+  url: 'https://example.invalid',
+  baseUrl: '/',
+  onBrokenLinks: 'warn',
+  markdown: {hooks: {onBrokenMarkdownLinks: 'warn'}},
+  presets: [['classic', {docs: false, blog: true}]],
+};
+
+export default actual;
+""",
+        )
+        config_path.write_text(config, encoding="utf-8")
+
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "website/docusaurus.config.ts: production URL must be https://un3qual.github.io",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/docusaurus.config.ts: classic preset docs path must be exactly ../docs",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/docusaurus.config.ts: classic preset blog must be disabled",
+            result.stdout,
+        )
+
+    def test_boundary_objects_reject_spreads_and_computed_overrides(self) -> None:
+        mutations = (
+            (
+                "config spread",
+                "const config: Config = {",
+                "const config: Config = {\n  ...override,",
+                "config object must not contain spreads or computed properties",
+            ),
+            (
+                "config computed",
+                "const config: Config = {",
+                "const config: Config = {\n  [overrideKey]: override,",
+                "config object must not contain spreads or computed properties",
+            ),
+            (
+                "presets spread",
+                "  presets: [\n    [",
+                "  presets: [\n    ...override,\n    [",
+                "presets array must not contain spreads",
+            ),
+            (
+                "classic spread",
+                "      {\n        docs:",
+                "      {\n        ...override,\n        docs:",
+                "classic preset options must not contain spreads or computed properties",
+            ),
+            (
+                "classic computed",
+                "      {\n        docs:",
+                "      {\n        [overrideKey]: override,\n        docs:",
+                "classic preset options must not contain spreads or computed properties",
+            ),
+            (
+                "docs spread",
+                "        docs: {\n          path:",
+                "        docs: {\n          ...override,\n          path:",
+                "classic preset docs options must not contain spreads or computed properties",
+            ),
+            (
+                "docs computed",
+                "        docs: {\n          path:",
+                "        docs: {\n          [overrideKey]: override,\n          path:",
+                "classic preset docs options must not contain spreads or computed properties",
+            ),
+            (
+                "markdown spread",
+                "  markdown: {\n    hooks:",
+                "  markdown: {\n    ...override,\n    hooks:",
+                "markdown options must not contain spreads or computed properties",
+            ),
+            (
+                "markdown computed",
+                "  markdown: {\n    hooks:",
+                "  markdown: {\n    [overrideKey]: override,\n    hooks:",
+                "markdown options must not contain spreads or computed properties",
+            ),
+            (
+                "hooks spread",
+                "    hooks: {\n      onBrokenMarkdownLinks:",
+                "    hooks: {\n      ...override,\n      onBrokenMarkdownLinks:",
+                "markdown hooks must not contain spreads or computed properties",
+            ),
+            (
+                "hooks computed",
+                "    hooks: {\n      onBrokenMarkdownLinks:",
+                "    hooks: {\n      [overrideKey]: override,\n      onBrokenMarkdownLinks:",
+                "markdown hooks must not contain spreads or computed properties",
+            ),
+        )
+        config_path = self.root / "website/docusaurus.config.ts"
+        for label, old, new, expected in mutations:
+            with self.subTest(label=label):
+                config_path.write_text(VALID_CONFIG.replace(old, new), encoding="utf-8")
+                self.assert_violation(f"website/docusaurus.config.ts: {expected}")
+
     def test_broken_links_must_fail_the_build(self) -> None:
         self.replace_config("onBrokenLinks: 'throw'", "onBrokenLinks: 'warn'")
         self.replace_config(
@@ -339,6 +448,51 @@ export default function Home() {
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_lowercase_link_resource_is_not_github_navigation(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+export default function Resource() {
+  return (
+    <link
+      rel=\"stylesheet\"
+      href=\"https://github.com/un3qual/jazz/blob/main/remote.css\"
+    />
+  );
+}
+""",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/index.tsx: remote authored URL is not allowed"
+        )
+
+    def test_protocol_relative_assets_are_rejected(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            "background-image: url('//cdn.example.invalid/mark.svg');\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            '<img src="//cdn.example.invalid/mark.svg" alt="" />;\n',
+            encoding="utf-8",
+        )
+        (self.root / "website/src/remote.md").write_text(
+            "![Remote](//cdn.example.invalid/photo.png)\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/css/custom.css: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/index.tsx: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/remote.md: remote authored URL is not allowed",
+            result.stdout,
+        )
 
     def test_violations_are_sorted_and_reported_on_stdout(self) -> None:
         self.replace_config("blog: false", "blog: true")
