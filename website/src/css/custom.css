@@ -1,0 +1,27 @@
+@import '@fontsource-variable/manrope';
+@import '@fontsource/ibm-plex-mono/400.css';
+
+:root {
+  --ifm-color-primary: #8f5d12;
+  --ifm-color-primary-dark: #7f510f;
+  --ifm-color-primary-darker: #744a0e;
+  --ifm-color-primary-darkest: #5d3a0a;
+  --ifm-color-primary-light: #a76d16;
+  --ifm-color-primary-lighter: #b77a1b;
+  --ifm-color-primary-lightest: #d19a42;
+  --ifm-font-family-base: 'Manrope Variable', sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', monospace;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgb(143 93 18 / 10%);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #e0ad56;
+  --ifm-color-primary-dark: #d69a34;
+  --ifm-color-primary-darker: #ce9026;
+  --ifm-color-primary-darkest: #aa711e;
+  --ifm-color-primary-light: #e8bd72;
+  --ifm-color-primary-lighter: #edc985;
+  --ifm-color-primary-lightest: #f6dfb8;
+  --docusaurus-highlighted-code-line-bg: rgb(224 173 86 / 14%);
+}

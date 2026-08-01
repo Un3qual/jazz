@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Fixture tests for the Jazz website publication boundary."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+CHECKER_PATH = Path(__file__).with_name("check-website-boundary.py")
+
+VALID_CONFIG = """\
+import type {Config} from '@docusaurus/types';
+
+const config: Config = {
+  title: 'Jazz',
+  url: 'https://un3qual.github.io',
+  baseUrl: '/jazz/',
+  onBrokenLinks: 'throw',
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+    },
+  },
+  presets: [
+    [
+      'classic',
+      {
+        docs: {
+          path: '../docs',
+          routeBasePath: 'docs',
+          sidebarPath: './sidebars.ts',
+        },
+        blog: false,
+      },
+    ],
+  ],
+};
+
+export default config;
+"""
+
+
+class WebsiteBoundaryCheckerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        (self.root / "docs").mkdir()
+        (self.root / "docs/index.md").write_text("# Public docs\n", encoding="utf-8")
+        (self.root / "website/src/pages").mkdir(parents=True)
+        (self.root / "website/src/css").mkdir(parents=True)
+        (self.root / "website/static/img").mkdir(parents=True)
+        (self.root / "website/docusaurus.config.ts").write_text(
+            VALID_CONFIG,
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import Link from '@docusaurus/Link';
+export default function Home() {
+  return <Link to=\"https://github.com/un3qual/jazz\">GitHub</Link>;
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/css/custom.css").write_text(
+            ".mark { background-image: url('/img/mark.svg'); }\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/static/img/mark.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def run_checker(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(CHECKER_PATH), str(self.root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def assert_violation(self, expected: str) -> None:
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(expected, result.stdout)
+        self.assertEqual("", result.stderr)
+
+    def replace_config(self, old: str, new: str) -> None:
+        path = self.root / "website/docusaurus.config.ts"
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+
+    def test_valid_fixture_passes(self) -> None:
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Website boundary checks passed.\n", result.stdout)
+        self.assertEqual("", result.stderr)
+
+    def test_docs_source_must_be_exactly_public_root_docs(self) -> None:
+        self.replace_config("path: '../docs'", "path: '../rfcs'")
+        self.assert_violation(
+            "website/docusaurus.config.ts: docs path must be exactly ../docs"
+        )
+
+    def test_blog_must_be_disabled(self) -> None:
+        self.replace_config("blog: false", "blog: {}")
+        self.assert_violation(
+            "website/docusaurus.config.ts: classic preset blog must be disabled"
+        )
+
+    def test_broken_links_must_fail_the_build(self) -> None:
+        self.replace_config("onBrokenLinks: 'throw'", "onBrokenLinks: 'warn'")
+        self.replace_config(
+            "onBrokenMarkdownLinks: 'throw'",
+            "onBrokenMarkdownLinks: 'warn'",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/docusaurus.config.ts: broken links must throw",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/docusaurus.config.ts: broken Markdown links must throw through markdown hooks",
+            result.stdout,
+        )
+
+    def test_deprecated_top_level_markdown_link_policy_is_rejected(self) -> None:
+        self.replace_config(
+            """\
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+    },
+  },
+""",
+            "  onBrokenMarkdownLinks: 'throw',\n",
+        )
+        self.assert_violation(
+            "website/docusaurus.config.ts: broken Markdown links must throw through markdown hooks"
+        )
+
+    def test_production_origin_and_base_path_are_fixed(self) -> None:
+        self.replace_config(
+            "url: 'https://un3qual.github.io'",
+            "url: 'https://example.invalid'",
+        )
+        self.replace_config("baseUrl: '/jazz/'", "baseUrl: '/'")
+        result = self.run_checker()
+        self.assertIn(
+            "website/docusaurus.config.ts: production URL must be https://un3qual.github.io",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/docusaurus.config.ts: base URL must be /jazz/",
+            result.stdout,
+        )
+
+    def test_authored_sources_reject_internal_references(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            "import queue from '../../../.codex/execution/queue.md';\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/index.tsx: forbidden publication source reference: .codex"
+        )
+
+    def test_static_tree_rejects_internal_copy_sources(self) -> None:
+        (self.root / "website/static/internal.txt").write_text(
+            "Copied from docs/execution/queue.md.\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/static/internal.txt: forbidden publication source reference: docs/execution"
+        )
+
+    def test_symlinks_cannot_escape_the_public_website_boundary(self) -> None:
+        internal = self.root / ".codex/execution"
+        internal.mkdir(parents=True)
+        (internal / "queue.md").write_text("internal\n", encoding="utf-8")
+        os.symlink(
+            internal / "queue.md",
+            self.root / "website/static/internal.md",
+        )
+        self.assert_violation(
+            "website/static/internal.md: symlink is not allowed in website sources"
+        )
+
+    def test_generated_output_rejects_internal_and_legacy_identity_strings(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            "Published from rfcs with jazz-next.\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/build/index.html: generated output contains forbidden string: rfcs",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/build/index.html: generated output contains forbidden string: jazz-next",
+            result.stdout,
+        )
+
+    def test_authored_assets_must_be_local(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            "@import url('https://fonts.example.invalid/font.css');\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            '<img src="https://images.example.invalid/mark.svg" alt="" />;\n',
+            encoding="utf-8",
+        )
+        (self.root / "website/src/remote.md").write_text(
+            "![Remote](https://images.example.invalid/photo.png)\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/css/custom.css: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/index.tsx: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/remote.md: remote authored URL is not allowed",
+            result.stdout,
+        )
+
+    def test_violations_are_sorted_and_reported_on_stdout(self) -> None:
+        self.replace_config("blog: false", "blog: true")
+        self.replace_config("baseUrl: '/jazz/'", "baseUrl: '/wrong/'")
+        result = self.run_checker()
+        lines = result.stdout.splitlines()
+        self.assertGreaterEqual(len(lines), 3)
+        self.assertEqual(sorted(lines[1:]), lines[1:])
+        self.assertEqual("", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

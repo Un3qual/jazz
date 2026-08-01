@@ -26,6 +26,7 @@
             hlint
             git
             ripgrep
+            nodejs_22
             toolPkgs.nodePackages.prettier
           ];
         };
