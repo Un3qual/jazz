@@ -181,6 +181,21 @@ def internal_escape_label(doc_path: Path, raw_target: str, docs_root: Path) -> s
     return None
 
 
+def local_docs_link_violation(
+    doc_path: Path, raw_target: str, docs_root: Path
+) -> str | None:
+    target = unquote(markdown_link_target(raw_target))
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc or not parsed.path:
+        return None
+    candidate = (doc_path.parent / parsed.path).resolve()
+    if not resolves_within(candidate, docs_root.resolve()):
+        return f"public link leaves docs/: {markdown_link_target(raw_target)}"
+    if not candidate.is_file():
+        return f"public link target does not exist: {markdown_link_target(raw_target)}"
+    return None
+
+
 def tracked_examples(root: Path, violations: list[str]) -> list[str]:
     try:
         result = subprocess.run(
@@ -274,7 +289,7 @@ def validate(root: Path) -> list[str]:
         if fields is None:
             violations.append(f"{display}: missing valid YAML front matter")
         else:
-            for required_field in ("title", "description"):
+            for required_field in ("title", "description", "sidebar_position"):
                 if required_field not in fields:
                     violations.append(
                         f"{display}: front matter is missing {required_field}"
@@ -284,19 +299,22 @@ def validate(root: Path) -> list[str]:
             if banned in text:
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        for match in LINK_RE.finditer(text):
-            raw_target = markdown_link_target(match.group(1))
-            label = internal_escape_label(path, match.group(1), docs_root)
+        raw_link_targets = [match.group(1) for match in LINK_RE.finditer(text)]
+        raw_link_targets.extend(used_reference_targets(text))
+        for raw_link_target in raw_link_targets:
+            raw_target = markdown_link_target(raw_link_target)
+            label = internal_escape_label(path, raw_link_target, docs_root)
             if label is not None:
                 violations.append(
                     f"{display}: public link escapes docs into {label}: {raw_target}"
                 )
-
-        for raw_target in used_reference_targets(text):
-            label = internal_escape_label(path, raw_target, docs_root)
-            if label is not None:
+                continue
+            link_violation = local_docs_link_violation(
+                path, raw_link_target, docs_root
+            )
+            if link_violation is not None:
                 violations.append(
-                    f"{display}: public link escapes docs into {label}: {raw_target}"
+                    f"{display}: {link_violation}"
                 )
 
         for match in EXAMPLE_MARKER_RE.finditer(text):

@@ -12,8 +12,9 @@ module Jazz.Compiler.Parser.Operator
     isStage2OperatorSymbolChar,
     isValidUserOperatorSymbol,
     lookupOperatorInfoIn,
-    lookupOperatorInfo
-  ) where
+    lookupOperatorInfo,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -33,8 +34,8 @@ data OperatorInfo = OperatorInfo
   }
   deriving (Eq, Show)
 
--- | Builtin operator table. Precedence levels match the locked v1 tiers in
--- `docs/spec/syntax/operators.md`, where larger numbers bind tighter.
+-- | Builtin operator table. Precedence levels match the public operator
+-- reference in `docs/language/operators.md`, where larger numbers bind tighter.
 builtinOperatorInfos :: [OperatorInfo]
 builtinOperatorInfos =
   [ OperatorInfo "*" 5 AssocLeft,

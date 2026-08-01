@@ -3,23 +3,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECKER="$ROOT/scripts/check-clarification-specs.sh"
-required_specs=(
-  "docs/spec/control-flow/if-expressions.md"
-  "docs/spec/syntax/operators.md"
-  "docs/spec/runtime/primitive-semantics.md"
-  "docs/spec/tooling/compiler-warning-flags.md"
+required_owners=(
+  "docs/language/control-flow.md"
+  "docs/language/operators.md"
+  "docs/reference/runtime-values.md"
+  "docs/reference/diagnostics.md"
 )
 
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 
 git -C "$fixture_root" init -q
-for spec in "${required_specs[@]}"; do
-  if [[ "$spec" == "docs/spec/control-flow/if-expressions.md" ]]; then
+for owner in "${required_owners[@]}"; do
+  if [[ "$owner" == "docs/language/control-flow.md" ]]; then
     continue
   fi
-  mkdir -p "$fixture_root/$(dirname "$spec")"
-  cp "$ROOT/$spec" "$fixture_root/$spec"
+  mkdir -p "$fixture_root/$(dirname "$owner")"
+  cp "$ROOT/$owner" "$fixture_root/$owner"
 done
 
 set +e
@@ -28,11 +28,11 @@ missing_status=$?
 set -e
 
 if [[ "$missing_status" -eq 0 ]]; then
-  printf 'FAIL: clarification checker accepted a missing required surviving spec\n' >&2
+  printf 'FAIL: clarification checker accepted a missing required public owner\n' >&2
   exit 1
 fi
-if ! rg -F 'FAIL: missing required file: docs/spec/control-flow/if-expressions.md' <<<"$missing_output" >/dev/null; then
-  printf 'FAIL: clarification checker did not identify the missing surviving spec\n' >&2
+if ! rg -F 'FAIL: missing required public owner: docs/language/control-flow.md' <<<"$missing_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify the missing public owner\n' >&2
   printf '%s\n' "$missing_output" >&2
   exit 1
 fi
@@ -42,10 +42,10 @@ if ! current_output="$(cd "$ROOT" && bash "$CHECKER" 2>&1)"; then
   printf '%s\n' "$current_output" >&2
   exit 1
 fi
-if [[ "$current_output" != "Spec clarification contract check passed." ]]; then
+if [[ "$current_output" != "Public clarification contract check passed." ]]; then
   printf 'FAIL: clarification checker emitted unexpected success output\n' >&2
   printf '%s\n' "$current_output" >&2
   exit 1
 fi
 
-echo "Spec clarification checker regressions passed."
+echo "Public clarification checker regressions passed."

@@ -13,47 +13,47 @@ fail() {
 
 require_file() {
   local file="$1"
-  [[ -f "$file" ]] || fail "missing required file: $file"
+  [[ -f "$file" ]] || fail "missing required public owner: $file"
 }
 
 require_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -i -e "$pattern" "$file" >/dev/null 2>&1; then
+  if ! rg -n -e "$pattern" "$file" >/dev/null 2>&1; then
     fail "$file missing required section: $label"
   fi
 }
 
-required_specs=(
-  "docs/spec/control-flow/if-expressions.md"
-  "docs/spec/syntax/operators.md"
-  "docs/spec/runtime/primitive-semantics.md"
-  "docs/spec/tooling/compiler-warning-flags.md"
+required_owners=(
+  "docs/language/control-flow.md"
+  "docs/language/operators.md"
+  "docs/reference/runtime-values.md"
+  "docs/reference/diagnostics.md"
 )
 
-for f in "${required_specs[@]}"; do
-  require_file "$f"
+for file in "${required_owners[@]}"; do
+  require_file "$file"
 done
 
-require_pattern "docs/spec/control-flow/if-expressions.md" "canonical surface form" '^## Canonical Surface Form'
-require_pattern "docs/spec/control-flow/if-expressions.md" "canonical desugaring" '^## Canonical Desugaring'
-require_pattern "docs/spec/control-flow/if-expressions.md" "typing rules" '^## Typing Rules'
+require_pattern "docs/language/control-flow.md" "conditionals" '^## Conditionals$'
+require_pattern "docs/language/control-flow.md" "cases and guards" '^## Cases and guards$'
+require_pattern "docs/language/control-flow.md" "static checks" '^## Static checks$'
 
-require_pattern "docs/spec/syntax/operators.md" "built-in operator table" '^## Built-in Operator Table'
-require_pattern "docs/spec/syntax/operators.md" "section AST contract" '^## Section AST Contract'
-require_pattern "docs/spec/syntax/operators.md" "staged extensibility model" '^## Staged Extensibility Model'
+require_pattern "docs/language/operators.md" "built-in precedence" '^## Built-in precedence$'
+require_pattern "docs/language/operators.md" "operator values and sections" '^## Operator values and sections$'
+require_pattern "docs/language/operators.md" "source-local declarations" '^## Source-local declarations$'
 
-require_pattern "docs/spec/runtime/primitive-semantics.md" "primitive contract table" '^## Primitive Contract Table'
-require_pattern "docs/spec/runtime/primitive-semantics.md" "equality contract" '^## Equality Contract'
-require_pattern "docs/spec/runtime/primitive-semantics.md" "runtime failure model" '^## Runtime Failure Model'
+require_pattern "docs/reference/runtime-values.md" "value families" '^## Value families and rendering$'
+require_pattern "docs/reference/runtime-values.md" "equality" '^## Equality$'
+require_pattern "docs/reference/runtime-values.md" "runtime failures" '^## Runtime failures$'
 
-require_pattern "docs/spec/tooling/compiler-warning-flags.md" "warning categories" '^## Warning Categories and IDs'
-require_pattern "docs/spec/tooling/compiler-warning-flags.md" "precedence rules" '^## Precedence Rules'
-require_pattern "docs/spec/tooling/compiler-warning-flags.md" "migration notes" '^## Migration Notes'
+require_pattern "docs/reference/diagnostics.md" "diagnostic code ranges" '^## Diagnostic model and code ranges$'
+require_pattern "docs/reference/diagnostics.md" "warning categories" '^## Warning categories and IDs$'
+require_pattern "docs/reference/diagnostics.md" "severity behavior" '^## Output and severity$'
 
 if [[ "$fail_count" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Spec clarification contract check passed."
+echo "Public clarification contract check passed."

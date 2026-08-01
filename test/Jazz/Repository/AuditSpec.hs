@@ -113,6 +113,7 @@ testAuthoredSourceInventory =
       "authored source roles"
       [ AuthoredSources.StandardLibrarySource,
         AuthoredSources.CompilerSource,
+        AuthoredSources.ExampleSource,
         AuthoredSources.ProgramSource,
         AuthoredSources.EditorFixtureSource
       ]
@@ -226,6 +227,11 @@ surfaceModulePaths expression =
 expectedAuthoredSourcePaths :: [FilePath]
 expectedAuthoredSourcePaths =
   [ "editors/vscode-jazz/fixtures/representative.jz",
+    "examples/functions/factorial.jz",
+    "examples/hello.jz",
+    "examples/modules/src/Example/Greeting.jz",
+    "examples/modules/src/Example/Main.jz",
+    "examples/patterns/result.jz",
     "jazz/compiler/Core.jz",
     "jazz/compiler/CoreLower.jz",
     "jazz/compiler/CoreTypes.jz",
@@ -965,6 +971,7 @@ testCanonicalRepositoryInfrastructure =
     assertTextContains "canonical Cabal package" "name: jazz" cabalSource
     assertTextContains "canonical private Cabal library" "library jazz-internal" cabalSource
     assertTextContains "canonical generated Cabal module" "Paths_jazz" cabalSource
+    assertTextContains "checked example source inventory" "examples/**/*.jz" cabalSource
 
 infrastructurePaths :: [FilePath]
 infrastructurePaths =
@@ -975,14 +982,13 @@ infrastructurePaths =
     "cabal.project",
     "cabal.project.profile-hotspots",
     "cabal.project.profile-stages",
+    "scripts/check-examples.sh",
     "scripts/check-docs.sh",
-    "scripts/check_legacy_doc_claims.py",
     "scripts/check-spec-authority.sh",
     "scripts/check-clarification-specs.sh",
     "scripts/test-check-clarification-specs.sh",
     "scripts/check-execution-queue.py",
     "scripts/check-execution-queue.sh",
-    "scripts/test_check_legacy_doc_claims.py",
     "scripts/test-check-execution-queue.sh"
   ]
 

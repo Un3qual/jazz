@@ -16,64 +16,37 @@ require_pattern() {
   local label="$2"
   local pattern="$3"
   if ! rg -n -i -e "$pattern" "$file" >/dev/null 2>&1; then
-    fail "$file missing policy statement: $label"
+    fail "$file missing authority statement: $label"
   fi
 }
 
-required_files=(
-  "README.md"
-  "docs/jazz-language-state.md"
-  "docs/spec/governance/spec-authority-policy.md"
-)
+governance_file="docs/project/governance.md"
+authority_rfc="rfcs/accepted/0001-language-authority-and-change-control.md"
 
-for file in "${required_files[@]}"; do
-  [[ -f "$file" ]] || fail "missing required file: $file"
+for file in "$governance_file" "$authority_rfc"; do
+  [[ -f "$file" ]] || fail "missing required authority file: $file"
 done
 
-policy_file="docs/spec/governance/spec-authority-policy.md"
-require_pattern "$policy_file" "transitional contract path" 'docs/spec/'
-require_pattern "$policy_file" "transitional public contract" 'transitional public contract'
-require_pattern "$policy_file" "future public language and reference authority" 'docs/language/.{0,160}docs/reference/'
-require_pattern "$policy_file" "current implementation evidence" 'src/.{0,160}jazz/.{0,160}test/.{0,160}(behavior|evidence)'
-require_pattern "$policy_file" "accepted RFC authority" 'accepted rfcs?.{0,160}(authoritative|authority|durable decisions?)'
-require_pattern "$policy_file" "non-normative roadmap" 'roadmap.{0,160}non[- ]normative'
-require_pattern "$policy_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
+require_pattern "$governance_file" "public documentation authority" 'curated public language and reference documentation'
+require_pattern "$governance_file" "implementation and tests evidence" 'current compiler, standard-library, and test behavior'
+require_pattern "$governance_file" "accepted durable decisions" 'accepted durable decision records'
+require_pattern "$governance_file" "non-normative roadmap" 'roadmap material.{0,80}non-normative'
+require_pattern "$governance_file" "semantic change control" 'semantic language changes require a reviewed decision record before'
 
-for summary_file in "README.md" "docs/jazz-language-state.md"; do
-  require_pattern "$summary_file" "governance policy link" 'docs/spec/governance/spec-authority-policy.md'
-  require_pattern "$summary_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
-done
+require_pattern "$authority_rfc" "public documentation authority" 'public documentation'
+require_pattern "$authority_rfc" "implementation and tests evidence" 'implementation and tests'
+require_pattern "$authority_rfc" "accepted RFC authority" 'accepted durable decisions'
+require_pattern "$authority_rfc" "non-normative roadmap" 'roadmap.{0,100}non-normative'
+require_pattern "$authority_rfc" "semantic change control" 'semantic language change.{0,160}(RFC|decision record).{0,160}before implementation'
 
-# Construct removed identities at runtime so this active audit script does not
-# itself present superseded product paths as live repository text.
-former_package='jazz-''next'
-former_reference='jazz-''hs'
-former_rewrite='jazz''2'
-obsolete_identity_pattern="(${former_package}|${former_reference}|${former_rewrite})"
-authority_claim_pattern="(${obsolete_identity_pattern}.{0,160}(active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target))|((active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target).{0,160}${obsolete_identity_pattern})"
-
-authority_candidates="$({
-  rg -n -i \
-    --glob '*.md' \
-    --glob '!docs/plans/**' \
-    --glob '!docs/superpowers/**' \
-    -e "$authority_claim_pattern" \
-    README.md docs || true
-})"
-
-if [[ -n "$authority_candidates" ]]; then
-  unsupported_claims="$({
-    printf '%s\n' "$authority_candidates" | rg -v -i \
-      '(removed|legacy|historical|pre-migration|not[^[:alpha:]]{0,6}(active|authoritative|normative|source of truth|implementation target)|non[- ]normative)' || true
-  })"
-  if [[ -n "$unsupported_claims" ]]; then
-    fail "removed implementation identity claimed as live authority"
-    printf '%s\n' "$unsupported_claims" >&2
+for removed_path in docs/spec docs/feature-status.md docs/jazz-language-state.md; do
+  if [[ -e "$removed_path" ]]; then
+    fail "superseded authority path still exists: $removed_path"
   fi
-fi
+done
 
 if [[ "$fail_count" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Spec authority policy check passed."
+echo "Documentation authority policy check passed."

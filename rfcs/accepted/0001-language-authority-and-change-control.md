@@ -15,10 +15,6 @@ Jazz uses this descending authority order:
 3. Accepted durable decisions under `rfcs/accepted/`.
 4. Roadmap material, which is informative and non-normative.
 
-During the documentation-reset transition, `docs/spec/` remains the temporary
-public contract. That allowance ends when its content has been rewritten into
-the canonical public directories.
-
 For claims about behavior users can rely on now, the public contract and
 verified implementation are operational truth. An accepted RFC may record an
 existing durable decision or authorize an explicit future contract delta. A

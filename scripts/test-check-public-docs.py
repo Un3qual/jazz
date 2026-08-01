@@ -54,7 +54,10 @@ REQUIRED_PAGES = (
 
 
 def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
-    return f"---\ntitle: {title}\ndescription: Test fixture.\n---\n\n{body}"
+    return (
+        f"---\ntitle: {title}\ndescription: Test fixture.\n"
+        f"sidebar_position: 1\n---\n\n{body}"
+    )
 
 
 class PublicDocsCheckerTests(unittest.TestCase):
@@ -93,9 +96,34 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_requires_title_and_description_front_matter(self) -> None:
         (self.root / "docs/index.md").write_text(
-            "---\ntitle: Jazz\n---\n\nMissing description.\n", encoding="utf-8"
+            "---\ntitle: Jazz\nsidebar_position: 1\n---\n\nMissing description.\n",
+            encoding="utf-8",
         )
         self.assert_violation("docs/index.md: front matter is missing description")
+
+    def test_requires_sidebar_position_front_matter(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            "---\ntitle: Jazz\ndescription: Missing position.\n---\n",
+            encoding="utf-8",
+        )
+        self.assert_violation("docs/index.md: front matter is missing sidebar_position")
+
+    def test_rejects_missing_relative_link_targets(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="[Missing](language/not-there.md)\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: public link target does not exist: language/not-there.md"
+        )
+
+    def test_rejects_links_that_leave_public_docs(self) -> None:
+        (self.root / "outside.md").write_text("Outside.\n", encoding="utf-8")
+        (self.root / "docs/index.md").write_text(
+            page(body="[Outside](../outside.md)\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: public link leaves docs/: ../outside.md"
+        )
 
     def test_rejects_disallowed_top_level_docs_entries(self) -> None:
         target = self.root / "docs/superpowers/plan.md"
