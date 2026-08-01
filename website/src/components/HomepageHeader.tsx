@@ -10,7 +10,9 @@ export default function HomepageHeader(): ReactNode {
       <section className={styles.hero} aria-labelledby="jazz-home-title">
         <div className={styles.heroCopy}>
           <p className={styles.heroKicker}>Jazz programming language</p>
-          <h1 id="jazz-home-title">Jazz</h1>
+          <h1 className={styles.heroTitle} id="jazz-home-title">
+            Jazz
+          </h1>
           <p className={styles.heroPromise}>
             A statically typed functional language with practical syntax.
           </p>

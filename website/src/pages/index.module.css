@@ -31,14 +31,24 @@
 }
 
 .heroKicker,
-.heroCopy h1,
+.heroTitle,
+.heroPromise,
+.heroActions,
+.brandPlane {
+  animation-duration: 300ms;
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.heroKicker,
+.heroTitle,
 .heroPromise,
 .heroActions {
-  animation: heroEnter 440ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-name: heroEnter;
 }
 
 .heroKicker {
-  animation-delay: 30ms;
+  animation-delay: 20ms;
   color: var(--jazz-brass-light);
   font-size: 0.75rem;
   font-weight: 720;
@@ -47,8 +57,8 @@
   text-transform: uppercase;
 }
 
-.heroCopy h1 {
-  animation-delay: 80ms;
+.heroTitle {
+  animation-delay: 55ms;
   color: inherit;
   font-size: clamp(5rem, 13vw, 10rem);
   font-weight: 760;
@@ -58,7 +68,7 @@
 }
 
 .heroPromise {
-  animation-delay: 130ms;
+  animation-delay: 90ms;
   color: var(--jazz-paper-muted);
   font-size: clamp(1.15rem, 2.2vw, 1.6rem);
   line-height: 1.45;
@@ -68,7 +78,7 @@
 
 .heroActions {
   align-items: center;
-  animation-delay: 180ms;
+  animation-delay: 125ms;
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1.35rem;
@@ -123,6 +133,8 @@
 
 .brandPlane {
   align-self: stretch;
+  animation-delay: 160ms;
+  animation-name: motifEnter;
   min-height: 28rem;
   pointer-events: none;
   position: relative;
@@ -373,6 +385,18 @@
   }
 }
 
+@keyframes motifEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) rotate(-2deg);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+}
+
 @media (max-width: 760px) {
   .hero {
     align-items: start;
@@ -382,7 +406,7 @@
     padding-top: clamp(2rem, 7vh, 4rem);
   }
 
-  .heroCopy h1 {
+  .heroTitle {
     font-size: clamp(4.8rem, 26vw, 7.5rem);
     margin-bottom: 1.5rem;
   }
@@ -435,9 +459,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .heroKicker,
-  .heroCopy h1,
+  .heroTitle,
   .heroPromise,
   .heroActions,
+  .brandPlane,
   .scoreLine {
     animation: none;
     transform: none;

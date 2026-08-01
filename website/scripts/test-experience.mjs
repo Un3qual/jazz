@@ -69,15 +69,59 @@ test('homepage styling encodes the motion, focus, target, and full-bleed contrac
   const source = `${pageCss}\n${globalCss}`;
 
   assert.match(pageCss, /100(?:svw|vw)/);
-  assert.match(
-    pageCss,
-    /animation(?:-duration)?:\s*[^;]*(?:[1-4]\d{2}ms|0\.[1-4]\d*s)/,
-  );
   assert.match(source, /prefers-reduced-motion:\s*reduce/);
   assert.match(source, /:focus-visible/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /min-width:\s*44px/);
   assert.doesNotMatch(source, /gradient\s*\(/i);
+});
+
+test('hero stagger includes the brass motif and completes under 500ms', () => {
+  const pageCss = read('website/src/pages/index.module.css');
+  const participants = [
+    'heroKicker',
+    'heroTitle',
+    'heroPromise',
+    'heroActions',
+    'brandPlane',
+  ];
+  const animationRule = pageCss.match(
+    /([^{}]+)\{[^{}]*animation-duration:\s*(\d+)ms;[^{}]*\}/,
+  );
+  assert.ok(animationRule, 'hero animation must declare a measurable duration');
+
+  const duration = Number(animationRule[2]);
+  for (const participant of participants) {
+    assert.match(animationRule[1], new RegExp(`\\.${participant}\\b`));
+  }
+
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const declarationsFor = (participant) =>
+    rules
+      .filter(([_, selectors]) =>
+        selectors
+          .split(',')
+          .some((selector) => selector.trim() === `.${participant}`),
+      )
+      .map(([_, __, declarations]) => declarations)
+      .join('\n');
+  const delays = participants.map((participant) => {
+    const declarations = declarationsFor(participant);
+    const delay = declarations.match(/animation-delay:\s*(\d+)ms/);
+    assert.ok(delay, `${participant} must declare its animation delay`);
+    return Number(delay[1]);
+  });
+
+  assert.ok(duration > 0 && Math.max(...delays) > 0);
+  assert.ok(
+    duration + Math.max(...delays) < 500,
+    `hero sequence is ${duration + Math.max(...delays)}ms`,
+  );
+  assert.match(declarationsFor('brandPlane'), /animation-name:\s*motifEnter/);
+  assert.match(
+    pageCss,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.brandPlane[\s\S]*animation:\s*none/,
+  );
 });
 
 test('brand-dark sections keep invariant high-contrast colors in both themes', () => {
@@ -94,6 +138,8 @@ test('brand-dark sections keep invariant high-contrast colors in both themes', (
 
 test('Jazz Prism registration extends the Docusaurus language loader', () => {
   const prism = read('website/src/theme/prism-include-languages.ts');
+  const grammar = read('website/scripts/prism-jazz-grammar.mjs');
+  const source = `${prism}\n${grammar}`;
   for (const token of [
     'additionalLanguages',
     'comment',
@@ -114,9 +160,55 @@ test('Jazz Prism registration extends the Docusaurus language loader', () => {
     'constructor',
     'bang',
   ]) {
-    assert.match(prism, new RegExp(token));
+    assert.match(source, new RegExp(token));
   }
-  assert.match(prism, /PrismObject\.languages\.jazz\s*=/);
+  assert.match(source, /PrismObject\.languages\.jazz\s*=/);
+});
+
+test('Jazz Prism tokenizes Unicode and ASCII identifiers at lexical boundaries', async () => {
+  const [{Prism}, {registerJazz}] = await Promise.all([
+    import('prism-react-renderer'),
+    import('./prism-jazz-grammar.mjs'),
+  ]);
+  registerJazz(Prism);
+
+  const tokens = (input) =>
+    Prism.tokenize(input, Prism.languages.jazz).flatMap((token) =>
+      typeof token === 'string'
+        ? [{type: 'plain', value: token}]
+        : [{type: token.type, value: String(token.content)}],
+    );
+
+  assert.deepEqual(tokens('café!'), [{type: 'bang', value: 'café!'}]);
+  assert.deepEqual(tokens('λ!'), [{type: 'bang', value: 'λ!'}]);
+  assert.deepEqual(tokens('Éclair'), [{type: 'constructor', value: 'Éclair'}]);
+  assert.deepEqual(tokens('print!'), [{type: 'bang', value: 'print!'}]);
+  assert.deepEqual(tokens('Maybe'), [{type: 'constructor', value: 'Maybe'}]);
+
+  const signature = tokens('café :: Int');
+  assert.deepEqual(
+    signature.filter(({type}) => type !== 'plain'),
+    [
+      {type: 'signature', value: 'café'},
+      {type: 'operator', value: '::'},
+      {type: 'constructor', value: 'Int'},
+    ],
+  );
+  assert.deepEqual(
+    tokens('factorial :: Int').filter(({type}) => type !== 'plain'),
+    [
+      {type: 'signature', value: 'factorial'},
+      {type: 'operator', value: '::'},
+      {type: 'constructor', value: 'Int'},
+    ],
+  );
+  assert.deepEqual(tokens('moduleName'), [{type: 'plain', value: 'moduleName'}]);
+  assert.deepEqual(tokens('module'), [{type: 'keyword', value: 'module'}]);
+  assert.deepEqual(tokens('moduleName.dataPoint'), [
+    {type: 'plain', value: 'moduleName'},
+    {type: 'punctuation', value: '.'},
+    {type: 'plain', value: 'dataPoint'},
+  ]);
 });
 
 test('site metadata, local brand assets, and contrasting Prism themes are configured', () => {
