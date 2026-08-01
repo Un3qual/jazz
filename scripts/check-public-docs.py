@@ -36,7 +36,17 @@ README_MATURITY_NOTICE = "Experimental / pre-1.0"
 README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
 PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
-README_WEBSITE_LINK = f"[Website]({PUBLIC_WEBSITE_URL})"
+PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
+README_WEBSITE_LINK = (
+    f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
+)
+GETTING_STARTED_WEBSITE_LINK = (
+    f"[Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})]"
+    f"({PUBLIC_WEBSITE_URL})"
+)
+PAGES_ACTIVATION_FOLLOW_UP = (
+    "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up"
+)
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
@@ -439,6 +449,29 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
     return fences
 
 
+def visible_markdown(text: str) -> str:
+    """Blank fenced code and HTML comments before checking rendered links."""
+    hidden_ranges = [
+        (fence.start, fence.end) for fence in markdown_fences(text)
+    ]
+    hidden_ranges.extend(
+        match.span()
+        for match in re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL)
+    )
+    characters = list(text)
+    for start, end in hidden_ranges:
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
+def contains_visible_phrase(visible_text: str, phrase: str) -> bool:
+    normalized_text = " ".join(visible_text.casefold().split())
+    normalized_phrase = " ".join(phrase.casefold().split())
+    return normalized_phrase in normalized_text
+
+
 def example_case_loop_executes_rows(script_text: str) -> bool:
     loops = list(EXAMPLE_CASE_LOOP_RE.finditer(script_text))
     if len(loops) != 1:
@@ -665,6 +698,7 @@ def validate_jazz_fences(
 
 
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
+    visible_text = visible_markdown(text)
     lines_with_endings = text.splitlines(keepends=True)
     exact_line_positions: dict[str, int] = {}
     offset = 0
@@ -685,8 +719,12 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if README_MATURITY_NOTICE not in text:
         violations.append("README.md: missing required maturity notice")
 
-    image_targets = [match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(text)]
-    image_targets.extend(match.group(1) for match in HTML_IMAGE_RE.finditer(text))
+    image_targets = [
+        match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(visible_text)
+    ]
+    image_targets.extend(
+        match.group(1) for match in HTML_IMAGE_RE.finditer(visible_text)
+    )
     local_logo_found = False
     for raw_target in image_targets:
         target = unquote(markdown_link_target(raw_target))
@@ -723,20 +761,23 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             violations.append(f"README.md: missing quick-start command: {command}")
 
     link_targets = {
-        markdown_link_target(match.group(1)) for match in LINK_RE.finditer(text)
+        markdown_link_target(match.group(1))
+        for match in LINK_RE.finditer(visible_text)
     }
     for required_target in README_REQUIRED_LINKS:
         if required_target not in link_targets:
             violations.append(
                 f"README.md: missing required navigation link: {required_target}"
             )
-    if (
-        README_WEBSITE_LINK not in text
-    ):
+    if README_WEBSITE_LINK not in visible_text:
         violations.append(
-            "README.md: website must use the canonical Website label"
+            "README.md: website must use the prospective canonical Website label"
         )
-    if "[GPL-3.0-only](LICENSE)" not in text:
+    if not contains_visible_phrase(visible_text, PAGES_ACTIVATION_FOLLOW_UP):
+        violations.append(
+            "README.md: missing post-merge GitHub Pages activation follow-up"
+        )
+    if "[GPL-3.0-only](LICENSE)" not in visible_text:
         violations.append("README.md: missing GPL-3.0-only license link")
 
     for section in README_REQUIRED_SECTIONS:
@@ -838,8 +879,11 @@ def validate(root: Path) -> list[str]:
             if banned in text:
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        raw_link_targets = [match.group(1) for match in LINK_RE.finditer(text)]
-        raw_link_targets.extend(used_reference_targets(text))
+        visible_text = visible_markdown(text)
+        raw_link_targets = [
+            match.group(1) for match in LINK_RE.finditer(visible_text)
+        ]
+        raw_link_targets.extend(used_reference_targets(visible_text))
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
             label = internal_escape_label(path, raw_link_target, docs_root)
@@ -874,14 +918,24 @@ def validate(root: Path) -> list[str]:
     getting_started_path = docs_root / "getting-started/overview.md"
     getting_started_text = doc_texts.get(getting_started_path)
     if getting_started_text is not None:
+        visible_getting_started = visible_markdown(getting_started_text)
         getting_started_links = {
             markdown_link_target(match.group(1))
-            for match in LINK_RE.finditer(getting_started_text)
+            for match in LINK_RE.finditer(visible_getting_started)
         }
-        getting_started_links.update(used_reference_targets(getting_started_text))
-        if PUBLIC_WEBSITE_URL not in getting_started_links:
+        getting_started_links.update(used_reference_targets(visible_getting_started))
+        if (
+            PUBLIC_WEBSITE_URL not in getting_started_links
+            or GETTING_STARTED_WEBSITE_LINK not in visible_getting_started
+        ):
             violations.append(
-                "docs/getting-started/overview.md: missing canonical website link"
+                "docs/getting-started/overview.md: missing visible prospective website link"
+            )
+        if not contains_visible_phrase(
+            visible_getting_started, PAGES_ACTIVATION_FOLLOW_UP
+        ):
+            violations.append(
+                "docs/getting-started/overview.md: missing post-merge GitHub Pages activation follow-up"
             )
 
     public_texts = {

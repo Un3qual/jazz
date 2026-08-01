@@ -14,6 +14,13 @@ CHECKER_PATH = Path(__file__).with_name("check-public-docs.py")
 
 FACTORIAL_PATH = "examples/functions/factorial.jz"
 WORDMARK_PATH = "website/static/img/jazz-wordmark.svg"
+PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
+PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
+README_WEBSITE_LINK = f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
+GETTING_STARTED_WEBSITE_LINK = (
+    f"[Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})]"
+    f"({PUBLIC_WEBSITE_URL})"
+)
 FACTORIAL_SOURCE = (
     "factorial :: Int -> Int.\n"
     "factorial =\n"
@@ -120,7 +127,8 @@ def valid_readme(*, extra: str = "") -> str:
         "- [Roadmap](docs/project/roadmap.md)",
         "- [Contribution guide](docs/project/contributing.md)",
         "- [Issue tracker](https://github.com/un3qual/jazz/issues)",
-        "- [Website](https://un3qual.github.io/jazz/)",
+        f"- {README_WEBSITE_LINK}",
+        "  — enabling GitHub Pages for GitHub Actions is a post-merge follow-up.",
         "",
         "## Contributing",
         "",
@@ -171,7 +179,8 @@ class PublicDocsCheckerTests(unittest.TestCase):
         (self.root / "docs/getting-started/overview.md").write_text(
             page(
                 "Getting started",
-                "Read the [Jazz documentation site](https://un3qual.github.io/jazz/).\n",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
             ),
             encoding="utf-8",
         )
@@ -324,13 +333,43 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
 
-    def test_readme_requires_canonical_website_label(self) -> None:
+    def test_readme_comment_decoy_cannot_supply_license_link(self) -> None:
         readme = valid_readme().replace(
-            "[Website](https://un3qual.github.io/jazz/)",
-            "[Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/)",
+            "[GPL-3.0-only](LICENSE)",
+            "GPL-3.0-only\n\n<!-- [GPL-3.0-only](LICENSE) -->",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
-        self.assert_violation("README.md: website must use the canonical Website label")
+        self.assert_violation("README.md: missing GPL-3.0-only license link")
+
+    def test_readme_requires_honest_prospective_website_label(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"[Website]({PUBLIC_WEBSITE_URL})",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: website must use the prospective canonical Website label"
+        )
+
+    def test_readme_comment_decoy_cannot_hide_stale_visible_wording(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"[Website]({PUBLIC_WEBSITE_URL})\n\n<!-- {README_WEBSITE_LINK} -->",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: website must use the prospective canonical Website label"
+        )
+
+    def test_readme_requires_post_merge_pages_follow_up(self) -> None:
+        readme = valid_readme().replace(
+            "enabling GitHub Pages for GitHub Actions is a post-merge follow-up",
+            "the documentation is published",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: missing post-merge GitHub Pages activation follow-up"
+        )
 
     def test_getting_started_requires_canonical_website_link(self) -> None:
         overview = self.root / "docs/getting-started/overview.md"
@@ -339,8 +378,52 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assert_violation(
-            "docs/getting-started/overview.md: missing canonical website link"
+            "docs/getting-started/overview.md: missing visible prospective website link"
         )
+
+    def test_getting_started_fence_only_link_is_not_visible(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"```text\n{GETTING_STARTED_WEBSITE_LINK}\n```\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
+    def test_visible_prospective_website_links_pass(self) -> None:
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_getting_started_requires_post_merge_pages_follow_up(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing post-merge GitHub Pages activation follow-up"
+        )
+
+    def test_getting_started_accepts_wrapped_post_merge_pages_follow_up(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
+                "Enabling GitHub\nPages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_readme_rejects_legacy_and_internal_terms(self) -> None:
         (self.root / "README.md").write_text(

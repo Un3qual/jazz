@@ -135,6 +135,23 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.replace("  contents: read", "  contents: write")
         self.assert_violation("permissions must be exactly")
 
+    def test_rejects_build_job_permission_override(self) -> None:
+        self.replace(
+            "  build:\n    runs-on: ubuntu-latest",
+            "  build:\n"
+            "    permissions:\n"
+            "      contents: write\n"
+            "    runs-on: ubuntu-latest",
+        )
+        self.assert_violation("job-level permissions are forbidden: build")
+
+    def test_rejects_deploy_job_permission_override(self) -> None:
+        self.replace(
+            "  deploy:\n    needs: build",
+            "  deploy:\n    permissions: write-all\n    needs: build",
+        )
+        self.assert_violation("job-level permissions are forbidden: deploy")
+
     def test_requires_pages_concurrency(self) -> None:
         self.replace("  group: pages", "  group: documentation")
         self.assert_violation("concurrency must use group pages")
