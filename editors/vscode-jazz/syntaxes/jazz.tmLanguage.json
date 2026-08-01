@@ -58,13 +58,13 @@
       "patterns": [
         {
           "name": "constant.numeric.jazz",
-          "match": "\\b(?:[0-9]+(?:\\.[0-9]+)?)(?:i8|i16|i32|i64|u8|u16|u32|u64|f16|f32|f64)?\\b"
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])(?:[0-9]+(?:\\.[0-9]+)?)(?:i8|i16|i32|i64|u8|u16|u32|u64|f16|f32|f64)?(?![\\p{Alphabetic}\\p{Number}_'!])"
         }
       ]
     },
     "data-declarations": {
       "name": "meta.declaration.type.data.jazz",
-      "begin": "\\b(data)\\s+([A-Z][A-Za-z0-9_']*)",
+      "begin": "\\b(data)\\s+(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)",
       "beginCaptures": {
         "1": {"name": "keyword.declaration.jazz"},
         "2": {"name": "entity.name.type.jazz"}
@@ -75,7 +75,7 @@
       },
       "patterns": [
         {
-          "match": "(=|\\|)\\s*([A-Z][A-Za-z0-9_']*)",
+          "match": "(=|\\|)\\s*(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)",
           "captures": {
             "1": {"name": "keyword.operator.constructor.jazz"},
             "2": {"name": "entity.name.function.constructor.jazz"}
@@ -106,7 +106,7 @@
     },
     "exports": {
       "name": "meta.module.exports.jazz",
-      "begin": "\\b(module)\\s+([A-Z][A-Za-z0-9_']*(?:::[A-Z][A-Za-z0-9_']*)*)\\s*(\\()",
+      "begin": "\\b(module)\\s+(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*(?:::\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)*)\\s*(\\()",
       "beginCaptures": {
         "1": {"name": "keyword.declaration.jazz"},
         "2": {"name": "entity.name.namespace.jazz"},
@@ -119,7 +119,7 @@
       "patterns": [
         {
           "name": "meta.export.type.grouped.jazz",
-          "begin": "\\b(type)\\s+([A-Z][A-Za-z0-9_']*)(\\s*\\()",
+          "begin": "\\b(type)\\s+(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)(\\s*\\()",
           "beginCaptures": {
             "1": {"name": "storage.modifier.export.jazz"},
             "2": {"name": "entity.name.type.jazz"},
@@ -132,7 +132,7 @@
           "patterns": [
             {
               "name": "entity.name.function.constructor.jazz",
-              "match": "\\b[A-Z][A-Za-z0-9_']*\\b"
+              "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*(?![\\p{Alphabetic}\\p{Number}_'!])"
             },
             {
               "name": "keyword.operator.wildcard.jazz",
@@ -143,7 +143,7 @@
           ]
         },
         {
-          "match": "\\b(type)\\s+([A-Z][A-Za-z0-9_']*)",
+          "match": "\\b(type)\\s+(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)",
           "captures": {
             "1": {"name": "storage.modifier.export.jazz"},
             "2": {"name": "entity.name.type.jazz"}
@@ -173,7 +173,7 @@
       "patterns": [
         {
           "name": "entity.name.function.effectful.jazz",
-          "match": "\\b[a-z_][A-Za-z0-9_']*!(?![A-Za-z0-9_'])"
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])[\\p{Alphabetic}_][\\p{Alphabetic}\\p{Number}_']*!(?![\\p{Alphabetic}\\p{Number}_'!])"
         }
       ]
     },
@@ -181,7 +181,7 @@
       "patterns": [
         {
           "name": "entity.name.type.jazz",
-          "match": "\\b[A-Z][A-Za-z0-9_']*\\b"
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*(?![\\p{Alphabetic}\\p{Number}_'!])"
         }
       ]
     },

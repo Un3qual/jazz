@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,6 +10,18 @@ const repositoryRoot = path.resolve(websiteRoot, '..');
 
 function read(relativePath) {
   return readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
+function tokenScopes(tokens) {
+  return new Set(
+    tokens.flatMap((line) =>
+      line.flatMap((token) =>
+        (token.explanation ?? []).flatMap((explanation) =>
+          explanation.scopes.map(({scopeName}) => scopeName),
+        ),
+      ),
+    ),
+  );
 }
 
 test('factorial sync emits source, invocation, and compiler-checked output', () => {
@@ -195,79 +207,26 @@ test('brand-dark sections keep invariant high-contrast colors in both themes', (
   assert.match(pageCss, /\.primaryAction\s*\{[^}]*color:\s*var\(--jazz-brand-ink\)/s);
 });
 
-test('Jazz Prism registration extends the Docusaurus language loader', () => {
-  const prism = read('website/src/theme/prism-include-languages.ts');
-  const grammar = read('website/scripts/prism-jazz-grammar.mjs');
-  const source = `${prism}\n${grammar}`;
-  for (const token of [
-    'additionalLanguages',
-    'comment',
-    'string',
-    'char',
-    'number',
-    'module',
-    'import',
-    'export',
-    'data',
-    'case',
-    'if',
-    'then',
-    'else',
-    'operator',
-    'capability',
-    'signature',
-    'constructor',
-    'bang',
+test('Docusaurus renders Jazz with TextMate and delegates other languages', () => {
+  const renderer = read('website/src/theme/CodeBlock/Content/index.tsx');
+  const packageJson = JSON.parse(read('website/package.json'));
+
+  assert.match(renderer, /metadata\.language\s*!==\s*'jazz'/);
+  assert.match(renderer, /@theme-original\/CodeBlock\/Content/);
+  assert.match(renderer, /tokenizeJazz/);
+  assert.match(renderer, /data-jazz-highlighter="textmate"/);
+  assert.equal(
+    packageJson.scripts.postbuild,
+    'node scripts/check-built-highlighting.mjs',
+  );
+
+  for (const relativePath of [
+    'website/scripts/prism-jazz-grammar.mjs',
+    'website/scripts/prism-jazz-grammar.d.mts',
+    'website/src/theme/prism-include-languages.ts',
   ]) {
-    assert.match(source, new RegExp(token));
+    assert.equal(existsSync(path.join(repositoryRoot, relativePath)), false);
   }
-  assert.match(source, /PrismObject\.languages\.jazz\s*=/);
-});
-
-test('Jazz Prism tokenizes Unicode and ASCII identifiers at lexical boundaries', async () => {
-  const [{Prism}, {registerJazz}] = await Promise.all([
-    import('prism-react-renderer'),
-    import('./prism-jazz-grammar.mjs'),
-  ]);
-  registerJazz(Prism);
-
-  const tokens = (input) =>
-    Prism.tokenize(input, Prism.languages.jazz).flatMap((token) =>
-      typeof token === 'string'
-        ? [{type: 'plain', value: token}]
-        : [{type: token.type, value: String(token.content)}],
-    );
-
-  assert.deepEqual(tokens('café!'), [{type: 'bang', value: 'café!'}]);
-  assert.deepEqual(tokens('λ!'), [{type: 'bang', value: 'λ!'}]);
-  assert.deepEqual(tokens('Éclair'), [{type: 'constructor', value: 'Éclair'}]);
-  assert.deepEqual(tokens('print!'), [{type: 'bang', value: 'print!'}]);
-  assert.deepEqual(tokens('Maybe'), [{type: 'constructor', value: 'Maybe'}]);
-
-  const signature = tokens('café :: Int');
-  assert.deepEqual(
-    signature.filter(({type}) => type !== 'plain'),
-    [
-      {type: 'signature', value: 'café'},
-      {type: 'operator', value: '::'},
-      {type: 'constructor', value: 'Int'},
-    ],
-  );
-  assert.deepEqual(
-    tokens('factorial :: Int').filter(({type}) => type !== 'plain'),
-    [
-      {type: 'signature', value: 'factorial'},
-      {type: 'operator', value: '::'},
-      {type: 'constructor', value: 'Int'},
-    ],
-  );
-  assert.deepEqual(tokens('moduleName'), [{type: 'plain', value: 'moduleName'}]);
-  assert.deepEqual(tokens('module'), [{type: 'keyword', value: 'module'}]);
-  assert.deepEqual(tokens('moduleName.dataPoint'), [
-    {type: 'plain', value: 'moduleName'},
-    {type: 'punctuation', value: '.'},
-    {type: 'plain', value: 'dataPoint'},
-  ]);
 });
 
 test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => {
@@ -276,15 +235,7 @@ test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => 
   const {tokens} = tokenizeJazz(fixture, 'light', {
     includeExplanation: true,
   });
-  const scopes = new Set(
-    tokens.flatMap((line) =>
-      line.flatMap((token) =>
-        (token.explanation ?? []).flatMap((explanation) =>
-          explanation.scopes.map(({scopeName}) => scopeName),
-        ),
-      ),
-    ),
-  );
+  const scopes = tokenScopes(tokens);
 
   for (const scope of [
     'comment.line.number-sign.jazz',
@@ -302,13 +253,29 @@ test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => 
   }
 });
 
-test('site metadata, local brand assets, and contrasting Prism themes are configured', () => {
+test('Jazz TextMate grammar recognizes Unicode identifiers', async () => {
+  const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
+  const {tokens} = tokenizeJazz('café! :: Éclair.\nλ! = café!.', 'light', {
+    includeExplanation: true,
+  });
+  const scopesByContent = new Map(
+    tokens.flat().map((token) => [token.content, tokenScopes([[token]])]),
+  );
+
+  assert.ok(
+    scopesByContent.get('café!')?.has('entity.name.function.effectful.jazz'),
+  );
+  assert.ok(scopesByContent.get('λ!')?.has('entity.name.function.effectful.jazz'));
+  assert.ok(scopesByContent.get('Éclair')?.has('entity.name.type.jazz'));
+});
+
+test('site metadata, local brand assets, and non-Jazz Prism themes are configured', () => {
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
-  assert.match(config, /additionalLanguages:\s*\['jazz'\]/);
+  assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);
   assert.match(config, /theme:\s*prismThemes\.(?:github|vsLight)/);
   assert.match(config, /darkTheme:\s*prismThemes\.(?:dracula|vsDark)/);
 });

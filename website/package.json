@@ -8,6 +8,7 @@
     "start": "docusaurus start",
     "prebuild": "node scripts/sync-factorial.mjs",
     "build": "docusaurus build",
+    "postbuild": "node scripts/check-built-highlighting.mjs",
     "serve": "docusaurus serve",
     "typecheck": "tsc --noEmit",
     "clear": "docusaurus clear",
@@ -26,17 +27,14 @@
     "@mdx-js/react": "3.1.1",
     "clsx": "2.1.1",
     "prism-react-renderer": "2.4.1",
-    "prismjs": "1.30.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "shiki": "4.4.1",
-    "utility-types": "3.11.0"
+    "shiki": "4.4.1"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.10.2",
     "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
-    "@types/prismjs": "1.26.6",
     "@types/react": "19.2.18",
     "fontkit": "2.0.4",
     "sharp": "0.35.3",

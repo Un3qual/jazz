@@ -35,9 +35,6 @@ importers:
       prism-react-renderer:
         specifier: 2.4.1
         version: 2.4.1(react@19.2.8)
-      prismjs:
-        specifier: 1.30.0
-        version: 1.30.0
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -47,9 +44,6 @@ importers:
       shiki:
         specifier: 4.4.1
         version: 4.4.1
-      utility-types:
-        specifier: 3.11.0
-        version: 3.11.0
     devDependencies:
       '@docusaurus/module-type-aliases':
         specifier: 3.10.2
@@ -60,9 +54,6 @@ importers:
       '@docusaurus/types':
         specifier: 3.10.2
         version: 3.10.2(clean-css@5.3.3)(cssnano@6.1.2(postcss@8.5.25))(csso@5.0.5)(html-minifier-terser@7.2.0)(postcss@8.5.25)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)
-      '@types/prismjs':
-        specifier: 1.26.6
-        version: 1.26.6
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
