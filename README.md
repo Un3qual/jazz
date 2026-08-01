@@ -1,183 +1,115 @@
+<p align="center">
+  <img src="./jazz_logo.png" alt="Jazz logo" width="132" />
+</p>
+
 # Jazz
 
-<img src="https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true" width="100">
+A statically typed functional language with practical syntax
 
-### Story
+> **Experimental / pre-1.0:** Jazz is under active development. The language,
+> standard library, diagnostics, and command-line interface may change before a
+> stable release.
 
-Jazz is a functional language that takes inspiration from Elixir and Haskell. I love writing Haskell, but for beginners, the category theory oriented type system is confusing[^1]. Rather than monads, semigroupoids, etc, I will have a more standard approach to typeclasses, with classes like Collection, Orderable, etc.
+Jazz combines type inference, algebraic data types, pattern matching, immutable
+bindings, first-class functions, and modules in a compact, expression-oriented
+language. The current compiler checks and runs Jazz programs through an
+interpreter.
 
-### Implemented Today (verified)
+## A first Jazz program
 
-- Strong, static typing for the core expression subset
-- Type inference for the core expression subset
-- Immutable bindings
-- First-class functions
-- Functions are curried by default
-- Partial ADT, tuple, and pattern-matching runtime subset: canonical `data` declarations, constructor values/applications, tuple literals/signatures, literal/wildcard/variable/constructor/list/tuple/as-patterns, top-level or-patterns, and single `if` case-arm guards
-- Interpreter-backed CLI execution: successful compile is diagnostic-only, and `--run` prints evaluated runtime output
-- Bundled-prelude runtime helpers (`map`, `filter`, `hd`, `tl`, `print!`) in the active CLI/run path
-- Explicit-import Jazz-authored utilities for lists, optional/result values, Unicode text/characters, host text I/O, and persistent `Dictionary`, `Queue`, `Map`, and `Set` collections
-- Explicit module export allowlists, including `type Box(..)` and selected `type Box(Pack, Empty)` constructor groups
-- Stub purity enforcement for direct `!` callee calls in binding bodies
-- Dot-terminated source forms and brace-bodied module declarations
+This checked example defines factorial with typed pattern-lambda clauses and
+evaluates it for `6`.
 
-### Planned / Aspirational
+<!-- jazz-example: executable path=examples/functions/factorial.jz -->
 
-- Broader ADT/type-system surface beyond the current generic constructor schemes
-- Future pattern forms such as lambda-parameter guards, nested/grouped or-patterns, and pattern synonyms
-- Broader tuple feature surface beyond the current runtime/signature/pattern subset
-- Full module/import loader semantics
-- LLVM backend and performance target
-- Readability/usability goals such as "easy to understand syntax"
-
-Detailed status/evidence matrix: [docs/feature-status.md](docs/feature-status.md)  
-Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-language-state.md)
-Active compiler implementation paths: `src/Jazz/`, `jazz/`, `app/`, and `test/Jazz/`
-
-### Repository Governance (Spec Authority)
-
-- `docs/spec/*` is the transitional public contract during repository productization.
-- Current `src/`, `jazz/`, and `test/` behavior is the next implementation evidence; accepted RFCs become authoritative durable decisions after the documentation reset, while roadmap material is non-normative.
-- Active compiler implementation work lands in the root paths listed above.
-- This top-level README is a project pitch and usage overview, not the normative language specification.
-- Semantic language changes require a decision record or RFC before implementation.
-- Non-semantic/internal changes may be implementation-first only when docs and tests are updated in the same change.
-- Governance policy details: `docs/spec/governance/spec-authority-policy.md`.
-
-### Examples
-
-#### Implemented Today
-
-#### Hello World
-
-The root `jazz` package loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
-
-##### Jazz
-
-```
-print! "Hello, world".
+```jazz
+factorial :: Int -> Int.
+factorial =
+  \|(0) -> 1
+   |(n) -> n * factorial (n - 1).
+factorial 6.
 ```
 
-##### Javascript
+Expected output:
 
-```js
-console.log("Hello, world");
+```text
+720
 ```
 
-#### Currying and Partial Application
+## Quick start
 
-```
-// Reference type signatures for built in functions
-// (+) :: Num -> Num -> Num
-// map :: (a -> b) -> [a] -> [b]
+Jazz currently builds from source. From the repository root, enter the
+reproducible Nix development environment, build the toolchain, and run the
+factorial example:
 
-// These examples illustrate that functions are curried by default and support partial application. I will provide type signatures for these functions for reference, but they are not needed and infer correctly
-add10 :: Int -> Int.
-add10 = (+10).
-add10List :: [Int] -> [Int].
-add10List = map add10.
-// Note that I don't have to write:
-// add10List = \(xs) -> map add10 xs
-
-nums = [1,2,3,4,5].
-print! $ add10List nums.
-// $ is an operator used to avoid parenthesis. Technically, it is a right associative, 0 precidence function application operator.
-// Without the $, I would need to write `print! (add10List nums)`, because the parser thinks I mean (in Java syntax) `print!(add10List, nums)`.
-
+```bash
+nix develop
+cabal build all
+cabal run jazz -- --run examples/functions/factorial.jz
 ```
 
-#### Planned / Aspirational Examples (not fully implemented end-to-end)
+The final command compiles, checks, and evaluates the program. The CLI also
+supports module entry points, diagnostic rendering, warning controls, and
+compile-only checks.
 
-The following examples show intended direction but are not all fully implemented through parse/analyze/codegen/runtime in the current compiler subset.
+## Available today
 
-#### Array operations
+- Static types with local inference, explicit signatures, generic named types,
+  tuples, lists, and width-specific numeric types.
+- Immutable bindings, curried functions, pattern-lambda clauses, blocks, and
+  precedence-aware operators.
+- Algebraic data types with constructor, literal, variable, list, tuple,
+  wildcard, as-pattern, or-pattern, case, and guard support.
+- Modules with imports, explicit exports, cycle diagnostics, visibility checks,
+  and deterministic graph loading.
+- An interpreter-backed CLI with stable runtime rendering and structured
+  diagnostics.
+- A bundled Prelude plus collection, optional/result, text, character, and host
+  I/O library modules.
+- Checked teaching examples and a production-shaped correctness and performance
+  corpus.
 
-##### Jazz
+## In development
 
-```
-myArr = [1, 2, 3, 4, 5].
-evens = filter (\(i) -> mod(i, 2) == 0) myArr.
-powersOf2 = map (\(i) -> Num.pow(2, i)) myArr.
-// Is the same as
-powersOf2 = map (\Num.pow(2, \0)) myArr.
-```
+- Complete capability method dispatch and purity analysis.
+- A fully Jazz-authored canonical compiler pipeline.
+- Complete typed-core production and backend-neutral lowering.
+- Native code generation, linking, and a production runtime.
+- Stable releases, package distribution, editor tooling, and a broader
+  ecosystem.
 
-##### Javascript
+Planned work is tracked separately from implemented behavior and is not
+presented as runnable language syntax.
 
-```js
-const myArr = [1, 2, 3, 4, 5];
+## Documentation
 
-let evens = [];
-for (let i in myArr) {
-  if (i % 2 == 0) evens.push(i);
-}
+- [Getting started](docs/getting-started/overview.md) — install Jazz and run your
+  first program.
+- [Language guide](docs/language/overview.md) — learn source forms, functions,
+  types, patterns, modules, and effects.
+- [Standard library](docs/standard-library/overview.md) — browse the Prelude and
+  explicit-import modules.
+- [Language reference](docs/reference/expression-grammar.md) — check exact
+  expression grammar and accepted forms.
+- [Compiler](docs/compiler/architecture.md) — understand the implementation and
+  compilation pipeline.
+- [Status](docs/project/status.md) — see what is implemented, partial, and
+  planned.
+- [Roadmap](docs/project/roadmap.md) — follow the major development horizons.
+- [Contribution guide](docs/project/contributing.md) — build, test, document, and
+  propose changes.
+- [Issue tracker](https://github.com/un3qual/jazz/issues) — report defects and
+  discuss focused improvements.
+- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/) — the
+  documentation site will publish with the website workstream.
 
-// Functional approach
-let powersOf2 = myArr.map((i) => Math.pow(2, i));
-```
+## Contributing
 
-#### Functions
+Contributions are welcome. Start with the
+[contribution guide](docs/project/contributing.md), keep behavior and tests in
+the same change, and use the [issue tracker](https://github.com/un3qual/jazz/issues)
+to coordinate substantial work.
 
-In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and cannot be called from pure functions (stub-v1 direct-call enforcement in `src/Jazz/`; full effect typing remains planned).
+## License
 
-- Multiline functions must use curly braces
-- Impure functions must end with a `!` e.g:
-  - `println! = \(str) -> ...`
-
-##### Jazz
-
-```
-// Implicit types
-isEven = \(i) -> mod(i, 2) == 0.
-// Explicit types
-isEven :: Integer -> Bool.
-isEven = \(i) -> mod(i, 2) == 0.
-
-// Multiline functions
-greet! = \(ignored) -> {
-  name = getLine!.
-  println!("Hello, ${name}").
-}.
-
-greet2! = \(name) -> {
-  println! "Hello, ${name}".
-}.
-
-// Pure greeting function that just returns the string
-greet3 = \(name) -> {
-  "Hello, ${name}".
-}.
-```
-
-##### Javascript
-
-```js
-function isEven(i) {
-  return i % 2 == 0;
-}
-// Or
-const isEven = (i) => i % 2 == 0;
-```
-
-#### Modules
-
-##### Jazz
-
-```
-module Person::Organs::Heart {
-  beat = # do stuff
-}
-```
-
-##### Javascript
-
-```js
-// In file "./Person/Organs/Heart.js"
-export class Heart {
-  function beat() {
-    // Do stuff
-  }
-}
-```
-
-[^1]: A monad is just a monoid in the category of endofunctors, what's the problem?
+Jazz is free software licensed under [GPL-3.0-only](LICENSE).

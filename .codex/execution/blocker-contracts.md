@@ -203,8 +203,8 @@ Each blocked item should answer these questions:
   signatures, custom precedence, and custom associativity as separate child
   rows. Operator signatures, custom precedence, and custom associativity have
   landed; no later operator child has an accepted executable contract.
-- Recommended default: keep Stage 2 fixed-tier parsing, same-source `(op) =
-  <expr>.` execution, adjacent operator signatures, and custom numeric
+- Recommended default: keep Stage 2 fixed-tier parsing, same-source
+  `(op) = <expr>.` execution, adjacent operator signatures, and custom numeric
   precedence, and explicit custom associativity complete. Do not promote
   runtime overload dispatch, cross-module APIs, or new built-ins without a new
   contract.

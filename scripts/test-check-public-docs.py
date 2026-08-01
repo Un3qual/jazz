@@ -12,6 +12,15 @@ from pathlib import Path
 
 CHECKER_PATH = Path(__file__).with_name("check-public-docs.py")
 
+FACTORIAL_PATH = "examples/functions/factorial.jz"
+FACTORIAL_SOURCE = (
+    "factorial :: Int -> Int.\n"
+    "factorial =\n"
+    "  \\|(0) -> 1\n"
+    "   |(n) -> n * factorial (n - 1).\n"
+    "factorial 6.\n"
+)
+
 REQUIRED_PAGES = (
     "index.md",
     "getting-started/overview.md",
@@ -60,21 +69,102 @@ def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
     )
 
 
+def valid_readme(*, extra: str = "") -> str:
+    lines = [
+        '<img src="./jazz_logo.png" alt="Jazz" width="120" />',
+        "",
+        "# Jazz",
+        "",
+        "A statically typed functional language with practical syntax",
+        "",
+        "> **Experimental / pre-1.0:** Jazz is under active development.",
+        "",
+        "## A first Jazz program",
+        "",
+        f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->",
+        "```jazz",
+        *FACTORIAL_SOURCE.rstrip("\n").splitlines(),
+        "```",
+        "",
+        "Expected output:",
+        "",
+        "```text",
+        "720",
+        "```",
+        "",
+        "## Quick start",
+        "",
+        "```bash",
+        "nix develop",
+        "cabal build all",
+        f"cabal run jazz -- --run {FACTORIAL_PATH}",
+        "```",
+        "",
+        "## Available today",
+        "",
+        "- Static typing",
+        "",
+        "## In development",
+        "",
+        "- Stable releases",
+        "",
+        "## Documentation",
+        "",
+        "- [Getting started](docs/getting-started/overview.md)",
+        "- [Language guide](docs/language/overview.md)",
+        "- [Standard library](docs/standard-library/overview.md)",
+        "- [Language reference](docs/reference/expression-grammar.md)",
+        "- [Compiler](docs/compiler/architecture.md)",
+        "- [Status](docs/project/status.md)",
+        "- [Roadmap](docs/project/roadmap.md)",
+        "- [Contribution guide](docs/project/contributing.md)",
+        "- [Issue tracker](https://github.com/un3qual/jazz/issues)",
+        "- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/)",
+        "",
+        "## Contributing",
+        "",
+        "Contributions are welcome; read the [contribution guide](docs/project/contributing.md).",
+        "",
+        "## License",
+        "",
+        "Jazz is licensed under [GPL-3.0-only](LICENSE).",
+    ]
+    if extra:
+        lines.extend(["", extra.rstrip("\n")])
+    while len(lines) < 100:
+        lines.extend(["", "<!-- fixture spacing -->"])
+    return "\n".join(lines[:150]) + "\n"
+
+
 class PublicDocsCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
         self.write_example_runner()
-        (self.root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+        (self.root / "jazz_logo.png").write_bytes(b"fixture")
+        factorial = self.root / FACTORIAL_PATH
+        factorial.parent.mkdir(parents=True)
+        factorial.write_text(FACTORIAL_SOURCE, encoding="utf-8")
+        subprocess.run(["git", "add", FACTORIAL_PATH], cwd=self.root, check=True)
+        self.example_cases.append(
+            (
+                "factorial",
+                [FACTORIAL_PATH],
+                "720",
+                f"--run {FACTORIAL_PATH}",
+            )
+        )
+        self.write_example_cases()
+        (self.root / "README.md").write_text(valid_readme(), encoding="utf-8")
         for relative in REQUIRED_PAGES:
             target = self.root / "docs" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(page(relative), encoding="utf-8")
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -151,6 +241,93 @@ class PublicDocsCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Public documentation checks passed.\n", result.stdout)
+
+    def test_readme_must_be_between_100_and_150_lines(self) -> None:
+        short_readme = "\n".join(valid_readme().splitlines()[:99]) + "\n"
+        (self.root / "README.md").write_text(
+            short_readme,
+            encoding="utf-8",
+        )
+        self.assert_violation("README.md: must contain between 100 and 150 lines")
+        (self.root / "README.md").write_text(
+            valid_readme() + ("Overflow line.\n" * 51),
+            encoding="utf-8",
+        )
+        self.assert_violation("README.md: must contain between 100 and 150 lines")
+
+    def test_readme_requires_exact_tagline_and_maturity_notice(self) -> None:
+        readme = valid_readme().replace(
+            "A statically typed functional language with practical syntax",
+            "A functional language",
+        ).replace("Experimental / pre-1.0", "Experimental")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn("README.md: missing required tagline", result.stdout)
+        self.assertIn("README.md: missing required maturity notice", result.stdout)
+
+    def test_readme_requires_local_logo_without_raw_query(self) -> None:
+        readme = valid_readme().replace(
+            './jazz_logo.png',
+            "https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn("README.md: logo must use a repository-local path", result.stdout)
+        self.assertIn("README.md: image must use a repository-local path", result.stdout)
+        self.assertIn("README.md: image URLs must not use ?raw=true", result.stdout)
+
+    def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
+        readme = valid_readme().replace(
+            f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->",
+            "<!-- jazz-example: fragment -->",
+        ).replace("```text\n720\n```", "```text\n721\n```")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn("README.md: missing executable factorial marker", result.stdout)
+        self.assertIn("README.md: missing expected factorial output", result.stdout)
+
+    def test_readme_requires_navigation_and_license_contract(self) -> None:
+        readme = valid_readme().replace(
+            "[Language guide](docs/language/overview.md)",
+            "Language guide",
+        ).replace("[GPL-3.0-only](LICENSE)", "GPL licensed")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: missing required navigation link: docs/language/overview.md",
+            result.stdout,
+        )
+        self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
+
+    def test_readme_rejects_legacy_and_internal_terms(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="See jazz2 and .codex/plans for Spec Authority."),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn("README.md: banned front-door term: jazz2", result.stdout)
+        self.assertIn("README.md: banned front-door term: .codex/", result.stdout)
+        self.assertIn("README.md: banned front-door term: Spec Authority", result.stdout)
+
+    def test_readme_requires_prescribed_content_order(self) -> None:
+        readme = valid_readme().replace(
+            "## Available today", "## Temporary heading", 1
+        ).replace("## In development", "## Available today", 1).replace(
+            "## Temporary heading", "## In development", 1
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: required content is not in the prescribed order"
+        )
+
+    def test_readme_requires_each_named_section(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme().replace("## Available today", "Available now"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "README.md: missing required section: ## Available today"
+        )
 
     def test_requires_title_and_description_front_matter(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -291,7 +468,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_executable_marker_must_name_a_tracked_example(self) -> None:
         example = self.root / "examples/untracked.jz"
-        example.parent.mkdir()
+        example.parent.mkdir(exist_ok=True)
         example.write_text("0.\n", encoding="utf-8")
         (self.root / "docs/index.md").write_text(
             page(
@@ -309,7 +486,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_rejects_tracked_executable_example_symlink_outside_examples(self) -> None:
         (self.root / "outside.jz").write_text("0.\n", encoding="utf-8")
         example = self.root / "examples/escape.jz"
-        example.parent.mkdir()
+        example.parent.mkdir(exist_ok=True)
         example.symlink_to("../outside.jz")
         subprocess.run(["git", "add", "examples/escape.jz"], cwd=self.root, check=True)
         (self.root / "docs/index.md").write_text(
@@ -349,7 +526,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         source = '"Hello".\n'
         self.add_tracked_example("examples/hello.jz", source)
         (self.root / "README.md").write_text(
-            "# Fixture\n\n" + self.executable_example("examples/hello.jz", source),
+            valid_readme(extra=self.executable_example("examples/hello.jz", source)),
             encoding="utf-8",
         )
         result = self.run_checker()
@@ -596,7 +773,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assert_violation(
-            "scripts/example-cases.tsv:2: case name is reserved for the header: name"
+            "scripts/example-cases.tsv:3: case name is reserved for the header: name"
         )
 
     def test_example_case_table_requires_a_final_newline(self) -> None:

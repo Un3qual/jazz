@@ -118,8 +118,8 @@ for checker in "${documentation_checkers[@]}"; do
 done
 
 if command -v prettier >/dev/null 2>&1 && [[ -n "${IN_NIX_SHELL:-}" ]]; then
-  if ! prettier --check docs rfcs >/dev/null 2>&1; then
-    fail "prettier --check reported public documentation or RFC formatting drift"
+  if ! prettier --check README.md docs rfcs .codex/execution .codex/plans >/dev/null 2>&1; then
+    fail "prettier --check reported documentation formatting drift"
   fi
 elif command -v prettier >/dev/null 2>&1; then
   printf 'WARN: prettier found outside nix shell; skipping format enforcement to avoid tool-version drift.\n' >&2

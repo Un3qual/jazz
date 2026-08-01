@@ -31,6 +31,58 @@ BANNED_REFERENCES = (
     "jazz2",
 )
 
+README_TAGLINE = "A statically typed functional language with practical syntax"
+README_MATURITY_NOTICE = "Experimental / pre-1.0"
+README_FACTORIAL_PATH = "examples/functions/factorial.jz"
+README_FACTORIAL_MARKER = (
+    f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
+)
+README_REQUIRED_LINKS = (
+    "docs/getting-started/overview.md",
+    "docs/language/overview.md",
+    "docs/standard-library/overview.md",
+    "docs/reference/expression-grammar.md",
+    "docs/compiler/architecture.md",
+    "docs/project/status.md",
+    "docs/project/roadmap.md",
+    "docs/project/contributing.md",
+    "https://github.com/un3qual/jazz/issues",
+    "https://un3qual.github.io/jazz/",
+)
+README_BANNED_TERMS = (
+    "docs/superpowers",
+    "docs/execution",
+    ".codex/",
+    "rfcs/",
+    "docs/spec",
+    "jazz-next",
+    "JazzNext",
+    "jazz-hs",
+    "jazz2",
+    "superpowers",
+    "Spec Authority",
+    "Repository Governance",
+    "implementation snapshot",
+    "Planned / Aspirational",
+    "JavaScript",
+    "category theory",
+    "monad is just",
+    "### Story",
+)
+README_ORDERED_TOKENS = (
+    "jazz_logo.png",
+    README_TAGLINE,
+    README_MATURITY_NOTICE,
+    README_FACTORIAL_MARKER,
+    "```text\n720\n```",
+    "## Quick start",
+    "## Available today",
+    "## In development",
+    "## Documentation",
+    "## Contributing",
+    "## License",
+)
+
 REQUIRED_PAGES = (
     "index.md",
     "getting-started/overview.md",
@@ -72,6 +124,10 @@ REQUIRED_PAGES = (
 )
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+HTML_IMAGE_RE = re.compile(
+    r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
+)
 REFERENCE_DEFINITION_RE = re.compile(
     r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
     re.MULTILINE,
@@ -597,6 +653,99 @@ def validate_jazz_fences(
     return documented_examples
 
 
+def validate_readme(root: Path, text: str, violations: list[str]) -> None:
+    line_count = len(text.splitlines())
+    if not 100 <= line_count <= 150:
+        violations.append(
+            "README.md: must contain between 100 and 150 lines "
+            f"(found {line_count})"
+        )
+
+    if README_TAGLINE not in text:
+        violations.append("README.md: missing required tagline")
+    if README_MATURITY_NOTICE not in text:
+        violations.append("README.md: missing required maturity notice")
+
+    image_targets = [match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(text)]
+    image_targets.extend(match.group(1) for match in HTML_IMAGE_RE.finditer(text))
+    local_logo_found = False
+    for raw_target in image_targets:
+        target = unquote(markdown_link_target(raw_target))
+        parsed = urlsplit(target)
+        if "?raw=true" in target.casefold():
+            violations.append("README.md: image URLs must not use ?raw=true")
+        if parsed.scheme or parsed.netloc or not parsed.path:
+            violations.append(
+                f"README.md: image must use a repository-local path: {target}"
+            )
+            continue
+        candidate = (root / parsed.path).resolve()
+        if not resolves_within(candidate, root.resolve()) or not candidate.is_file():
+            violations.append(
+                f"README.md: local image does not exist in repository: {target}"
+            )
+            continue
+        if candidate.name == "jazz_logo.png":
+            local_logo_found = True
+    if not local_logo_found:
+        violations.append("README.md: logo must use a repository-local path")
+
+    if README_FACTORIAL_MARKER not in text:
+        violations.append("README.md: missing executable factorial marker")
+    if re.search(r"```text\r?\n720\r?\n```", text) is None:
+        violations.append("README.md: missing expected factorial output")
+
+    for command in (
+        "nix develop",
+        "cabal build all",
+        f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
+    ):
+        if command not in text:
+            violations.append(f"README.md: missing quick-start command: {command}")
+
+    link_targets = {
+        markdown_link_target(match.group(1)) for match in LINK_RE.finditer(text)
+    }
+    for required_target in README_REQUIRED_LINKS:
+        if required_target not in link_targets:
+            violations.append(
+                f"README.md: missing required navigation link: {required_target}"
+            )
+    if (
+        "[Website (publishing with Workstream 3)]"
+        "(https://un3qual.github.io/jazz/)" not in text
+    ):
+        violations.append(
+            "README.md: website must be labeled as publishing with Workstream 3"
+        )
+    if "[GPL-3.0-only](LICENSE)" not in text:
+        violations.append("README.md: missing GPL-3.0-only license link")
+
+    for section in (
+        "## Quick start",
+        "## Available today",
+        "## In development",
+        "## Documentation",
+        "## Contributing",
+        "## License",
+    ):
+        if section not in text:
+            violations.append(f"README.md: missing required section: {section}")
+
+    for banned in README_BANNED_TERMS:
+        if banned.casefold() in text.casefold():
+            violations.append(f"README.md: banned front-door term: {banned}")
+
+    positions: list[int] = []
+    for token in README_ORDERED_TOKENS:
+        position = text.find(token)
+        if position < 0:
+            break
+        positions.append(position)
+    if len(positions) == len(README_ORDERED_TOKENS) and positions != sorted(positions):
+        violations.append("README.md: required content is not in the prescribed order")
+
+
 def validate(root: Path) -> list[str]:
     violations: list[str] = []
     docs_root = root / "docs"
@@ -714,9 +863,13 @@ def validate(root: Path) -> list[str]:
     readme_path = root / "README.md"
     if readme_path.is_file():
         try:
-            public_texts["README.md"] = readme_path.read_bytes().decode("utf-8")
+            readme_text = readme_path.read_bytes().decode("utf-8")
+            public_texts["README.md"] = readme_text
+            validate_readme(root, readme_text, violations)
         except (OSError, UnicodeError) as exc:
             violations.append(f"README.md: cannot read UTF-8 Markdown: {exc}")
+    else:
+        violations.append("README.md: missing project front door")
 
     documented_examples: set[str] = set()
     for display, text in public_texts.items():
