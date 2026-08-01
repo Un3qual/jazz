@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
@@ -77,11 +78,6 @@ REFERENCE_DEFINITION_RE = re.compile(
 )
 FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
-JAZZ_FENCE_RE = re.compile(
-    r"^ {0,3}(?P<delimiter>`{3,}|~{3,})jazz[ \t]*\r?\n"
-    r"(?P<source>.*?)^ {0,3}(?P=delimiter)[ \t]*(?:\r?\n|$)",
-    re.MULTILINE | re.DOTALL,
-)
 JAZZ_EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:.*?-->", re.DOTALL
 )
@@ -91,13 +87,31 @@ EXECUTABLE_MARKER_RE = re.compile(
 FRAGMENT_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:\s*fragment\s*-->"
 )
-EXAMPLE_MANIFEST_RE = re.compile(
-    r"^JAZZ_EXAMPLE_MANIFEST=\([ \t]*\r?\n(?P<body>.*?)^\)[ \t]*$",
+EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
+EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
+EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+EXAMPLE_CASE_LOOP_RE = re.compile(
+    r"^[ \t]*while[ \t]+IFS=\$'\\t'[ \t]+read[ \t]+-r[ \t]+"
+    r"case_name[ \t]+case_sources[ \t]+case_expected[ \t]+case_args_text"
+    r"[ \t]*;[ \t]*do[ \t]*\r?\n"
+    r"(?P<body>.*?)"
+    r"^[ \t]*done[ \t]*<[ \t]*scripts/example-cases\.tsv[ \t]*$",
     re.MULTILINE | re.DOTALL,
 )
-EXAMPLE_MANIFEST_ENTRY_RE = re.compile(
-    r'[ \t]*"(?P<path>[^"\r\n]+)"[ \t]*'
+EXAMPLE_RUNNER_CALL_RE = re.compile(
+    r'^[ \t]*run_example[ \t]+"\$case_name"[ \t]+'
+    r'"\$case_expected"[ \t]+"\$\{case_args\[@\]\}"[ \t]*$',
+    re.MULTILINE,
 )
+
+
+@dataclass(frozen=True)
+class MarkdownFence:
+    start: int
+    end: int
+    source: str
+    is_jazz: bool
+    closed: bool
 
 
 def relative(root: Path, path: Path) -> str:
@@ -259,62 +273,222 @@ def without_one_final_newline(text: str) -> str:
     return text
 
 
-def validate_example_manifest(
+def without_line_ending(line: str) -> str:
+    if line.endswith("\r\n"):
+        return line[:-2]
+    if line.endswith(("\n", "\r")):
+        return line[:-1]
+    return line
+
+
+def leading_spaces(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def fence_opener(line: str) -> tuple[str, int, int, bool] | None:
+    content = without_line_ending(line)
+    indent = leading_spaces(content)
+    if indent > 3:
+        return None
+    candidate = content[indent:]
+    if not candidate or candidate[0] not in ("`", "~"):
+        return None
+
+    delimiter = candidate[0]
+    length = len(candidate) - len(candidate.lstrip(delimiter))
+    if length < 3:
+        return None
+
+    info = candidate[length:]
+    if delimiter == "`" and "`" in info:
+        return None
+    first_info_token = re.match(r"([^ \t]+)", info.strip(" \t"))
+    is_jazz = (
+        first_info_token is not None
+        and first_info_token.group(1) == "jazz"
+    )
+    return delimiter, length, indent, is_jazz
+
+
+def is_fence_closer(line: str, delimiter: str, minimum_length: int) -> bool:
+    content = without_line_ending(line)
+    indent = leading_spaces(content)
+    if indent > 3:
+        return False
+    candidate = content[indent:]
+    length = len(candidate) - len(candidate.lstrip(delimiter))
+    return (
+        length >= minimum_length
+        and candidate[length:].strip(" \t") == ""
+    )
+
+
+def strip_fence_indent(line: str, indent: int) -> str:
+    removable = min(leading_spaces(line), indent)
+    return line[removable:]
+
+
+def markdown_fences(text: str) -> list[MarkdownFence]:
+    """Parse CommonMark-style fenced code blocks while preserving source text."""
+    lines = text.splitlines(keepends=True)
+    offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    fences: list[MarkdownFence] = []
+    line_index = 0
+    while line_index < len(lines):
+        opener = fence_opener(lines[line_index])
+        if opener is None:
+            line_index += 1
+            continue
+
+        delimiter, minimum_length, indent, is_jazz = opener
+        start = offsets[line_index]
+        source_lines: list[str] = []
+        line_index += 1
+        closed = False
+        while line_index < len(lines):
+            if is_fence_closer(lines[line_index], delimiter, minimum_length):
+                line_index += 1
+                closed = True
+                break
+            source_lines.append(strip_fence_indent(lines[line_index], indent))
+            line_index += 1
+
+        end = offsets[line_index] if line_index < len(lines) else len(text)
+        fences.append(
+            MarkdownFence(
+                start=start,
+                end=end,
+                source="".join(source_lines),
+                is_jazz=is_jazz,
+                closed=closed,
+            )
+        )
+
+    return fences
+
+
+def example_case_loop_executes_rows(script_text: str) -> bool:
+    loops = list(EXAMPLE_CASE_LOOP_RE.finditer(script_text))
+    if len(loops) != 1:
+        return False
+    body = loops[0].group("body")
+    return (
+        EXAMPLE_RUNNER_CALL_RE.search(body) is not None
+        and '"$case_sources"' in body
+        and '"$case_args_text"' in body
+    )
+
+
+def validate_example_cases(
     root: Path, tracked_example_paths: set[str], violations: list[str]
 ) -> set[str]:
-    manifest_path = root / "scripts/check-examples.sh"
+    cases_path = root / EXAMPLE_CASES_PATH
     try:
-        manifest_text = manifest_path.read_text(encoding="utf-8")
+        cases_text = cases_path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        violations.append(f"{EXAMPLE_CASES_PATH}: cannot read example cases: {exc}")
+        cases_text = ""
+
+    declared_sources: set[str] = set()
+    case_names: set[str] = set()
+    if cases_text and not cases_text.endswith("\n"):
+        violations.append(
+            f"{EXAMPLE_CASES_PATH}: file must end with a newline"
+        )
+    lines = cases_text.splitlines()
+    if not lines or tuple(lines[0].split("\t")) != EXAMPLE_CASE_HEADER:
+        violations.append(
+            f"{EXAMPLE_CASES_PATH}: expected tab-separated header: "
+            + "\\t".join(EXAMPLE_CASE_HEADER)
+        )
+    else:
+        for line_number, line in enumerate(lines[1:], 2):
+            fields = line.split("\t")
+            if len(fields) != len(EXAMPLE_CASE_HEADER):
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: expected exactly four "
+                    "tab-separated fields"
+                )
+                continue
+
+            case_name, raw_sources, expected, args = fields
+            if case_name == EXAMPLE_CASE_HEADER[0]:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: case name is reserved "
+                    f"for the header: {case_name}"
+                )
+            elif EXAMPLE_CASE_NAME_RE.fullmatch(case_name) is None:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: invalid case name: "
+                    f"{case_name or '<empty>'}"
+                )
+            elif case_name in case_names:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: duplicate case name: "
+                    f"{case_name}"
+                )
+            else:
+                case_names.add(case_name)
+
+            if not expected:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: expected output is empty"
+                )
+            if not args:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: arguments are empty"
+                )
+
+            sources = raw_sources.split(",") if raw_sources else []
+            if not sources:
+                violations.append(
+                    f"{EXAMPLE_CASES_PATH}:{line_number}: sources are empty"
+                )
+            seen_case_sources: set[str] = set()
+            for example_path in sources:
+                if example_path in seen_case_sources:
+                    violations.append(
+                        f"{EXAMPLE_CASES_PATH}:{line_number}: duplicate case source: "
+                        f"{example_path}"
+                    )
+                    continue
+                seen_case_sources.add(example_path)
+                declared_sources.add(example_path)
+                if not valid_example_path(example_path):
+                    violations.append(
+                        f"{EXAMPLE_CASES_PATH}: invalid case source: {example_path}"
+                    )
+                elif example_path not in tracked_example_paths:
+                    violations.append(
+                        f"{EXAMPLE_CASES_PATH}: case source is not a tracked "
+                        f"example: {example_path}"
+                    )
+
+    for example_path in sorted(tracked_example_paths - declared_sources):
+        violations.append(
+            f"{example_path}: tracked example is missing from {EXAMPLE_CASES_PATH}"
+        )
+
+    runner_path = root / "scripts/check-examples.sh"
+    try:
+        runner_text = runner_path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         violations.append(
-            f"scripts/check-examples.sh: cannot read example manifest: {exc}"
+            f"scripts/check-examples.sh: cannot read example runner: {exc}"
         )
-        return set()
-
-    blocks = list(EXAMPLE_MANIFEST_RE.finditer(manifest_text))
-    if len(blocks) != 1:
-        violations.append(
-            "scripts/check-examples.sh: expected exactly one "
-            "JAZZ_EXAMPLE_MANIFEST array"
-        )
-        return set()
-
-    manifest_paths: set[str] = set()
-    for line in blocks[0].group("body").splitlines():
-        if not line.strip():
-            continue
-        entry = EXAMPLE_MANIFEST_ENTRY_RE.fullmatch(line)
-        if entry is None:
+    else:
+        if not example_case_loop_executes_rows(runner_text):
             violations.append(
-                "scripts/check-examples.sh: invalid example manifest entry: "
-                f"{line.strip()}"
-            )
-            continue
-        example_path = entry.group("path")
-        if example_path in manifest_paths:
-            violations.append(
-                "scripts/check-examples.sh: duplicate example manifest entry: "
-                f"{example_path}"
-            )
-            continue
-        manifest_paths.add(example_path)
-        if not valid_example_path(example_path):
-            violations.append(
-                "scripts/check-examples.sh: invalid example manifest path: "
-                f"{example_path}"
-            )
-        elif example_path not in tracked_example_paths:
-            violations.append(
-                "scripts/check-examples.sh: manifest entry is not a tracked example: "
-                f"{example_path}"
+                "scripts/check-examples.sh: does not execute "
+                f"{EXAMPLE_CASES_PATH}"
             )
 
-    for example_path in sorted(tracked_example_paths - manifest_paths):
-        violations.append(
-            f"{example_path}: tracked example is missing from "
-            "scripts/check-examples.sh manifest"
-        )
-    return manifest_paths
+    return declared_sources
 
 
 def validate_jazz_fences(
@@ -326,11 +500,14 @@ def validate_jazz_fences(
     violations: list[str],
 ) -> set[str]:
     documented_examples: set[str] = set()
-    fences = list(JAZZ_FENCE_RE.finditer(text))
+    all_fences = markdown_fences(text)
+    fences = [fence for fence in all_fences if fence.is_jazz]
     markers = [
         marker
         for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(text)
-        if not any(fence.start() <= marker.start() < fence.end() for fence in fences)
+        if not any(
+            fence.start <= marker.start() < fence.end for fence in all_fences
+        )
     ]
     consumed_marker_starts: set[int] = set()
 
@@ -339,20 +516,26 @@ def validate_jazz_fences(
             (
                 marker
                 for marker in reversed(markers)
-                if marker.end() <= fence.start()
+                if marker.end() <= fence.start
             ),
             None,
         )
         if preceding_marker is None or text[
-            preceding_marker.end() : fence.start()
+            preceding_marker.end() : fence.start
         ].strip():
             violations.append(
                 f"{display}: Jazz fence must be immediately preceded by a "
                 "jazz-example marker"
             )
+            if not fence.closed:
+                violations.append(f"{display}: unclosed Jazz fence")
             continue
 
         consumed_marker_starts.add(preceding_marker.start())
+        if not fence.closed:
+            violations.append(f"{display}: unclosed Jazz fence")
+            continue
+
         marker_text = preceding_marker.group(0)
         if FRAGMENT_MARKER_RE.fullmatch(marker_text):
             continue
@@ -395,7 +578,7 @@ def validate_jazz_fences(
                 f"{display}: cannot read executable example {example_path}: {exc}"
             )
             continue
-        if without_one_final_newline(fence.group("source")) != (
+        if without_one_final_newline(fence.source) != (
             without_one_final_newline(example_source)
         ):
             violations.append(
@@ -422,7 +605,7 @@ def validate(root: Path) -> list[str]:
     canonical_docs_root = root.resolve() / "docs"
     canonical_examples_root = root.resolve() / "examples"
     tracked_example_paths = set(tracked_examples(root, violations))
-    validate_example_manifest(root, tracked_example_paths, violations)
+    validate_example_cases(root, tracked_example_paths, violations)
 
     for example_path in sorted(tracked_example_paths):
         candidate = root / example_path

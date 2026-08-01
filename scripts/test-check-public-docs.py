@@ -66,8 +66,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
-        self.manifest_paths: list[str] = []
-        self.write_example_manifest()
+        self.example_cases: list[tuple[str, list[str], str, str]] = []
+        self.write_example_cases()
+        self.write_example_runner()
         (self.root / "README.md").write_text("# Fixture\n", encoding="utf-8")
         for relative in REQUIRED_PAGES:
             target = self.root / "docs" / relative
@@ -93,24 +94,48 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
 
     def add_tracked_example(
-        self, relative_path: str, source: str, *, add_to_manifest: bool = True
+        self, relative_path: str, source: str, *, add_to_cases: bool = True
     ) -> Path:
         target = self.root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(source, encoding="utf-8")
         subprocess.run(["git", "add", relative_path], cwd=self.root, check=True)
-        if add_to_manifest:
-            self.manifest_paths.append(relative_path)
-            self.write_example_manifest()
+        if add_to_cases:
+            self.add_example_case([relative_path])
         return target
 
-    def write_example_manifest(self) -> None:
-        entries = "".join(f'  "{path}"\n' for path in self.manifest_paths)
+    def add_example_case(self, sources: list[str]) -> None:
+        case_name = f"case-{len(self.example_cases) + 1}"
+        self.example_cases.append(
+            (case_name, sources, "0", f"--run {sources[0]}")
+        )
+        self.write_example_cases()
+
+    def write_example_cases(self) -> None:
+        rows = "".join(
+            f"{name}\t{','.join(sources)}\t{expected}\t{args}\n"
+            for name, sources, expected, args in self.example_cases
+        )
+        (self.root / "scripts/example-cases.tsv").write_text(
+            "name\tsources\texpected\targs\n" + rows,
+            encoding="utf-8",
+        )
+
+    def write_example_runner(self, *, consume_cases: bool = True) -> None:
+        consumer = ""
+        if consume_cases:
+            consumer = (
+                "while IFS=$'\\t' read -r case_name case_sources "
+                "case_expected case_args_text; do\n"
+                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
+                "  IFS=',' read -r -a case_source_paths <<< \"$case_sources\"\n"
+                "  IFS=' ' read -r -a case_args <<< \"$case_args_text\"\n"
+                "  run_example \"$case_name\" \"$case_expected\" "
+                "\"${case_args[@]}\"\n"
+                "done < scripts/example-cases.tsv\n"
+            )
         (self.root / "scripts/check-examples.sh").write_text(
-            "#!/usr/bin/env bash\n\n"
-            "JAZZ_EXAMPLE_MANIFEST=(\n"
-            f"{entries}"
-            ")\n",
+            "#!/usr/bin/env bash\n\n" + consumer,
             encoding="utf-8",
         )
 
@@ -354,6 +379,111 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: Jazz fence must be immediately preceded by a jazz-example marker"
         )
 
+    def test_accepts_space_before_jazz_info_token(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "``` jazz\n0.\n```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_longer_matching_fence_closer(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "``` jazz\n0.\n````\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_both_commonmark_fence_delimiters(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "``` jazz\n0.\n```\n\n"
+                    "<!-- jazz-example: fragment -->\n"
+                    "~~~ jazz\n1.\n~~~\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_invalid_closer_stays_inside_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```` jazz\n"
+                    "0.\n"
+                    "```\n"
+                    "~~~\n"
+                    "still code\n"
+                    "`````\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_parser_resumes_after_a_valid_jazz_fence_closer(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "``` jazz\n0.\n````\n"
+                    "Prose between fences.\n"
+                    "<!-- jazz-example: fragment -->\n"
+                    "~~~ jazz\n1.\n~~~~\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_unclosed_jazz_fence(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "``` jazz\n"
+                    "0.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation("docs/index.md: unclosed Jazz fence")
+
+    def test_four_space_and_tab_pseudo_fences_are_not_fences(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "    ``` jazz\n"
+                    "    0.\n"
+                    "    ```\n"
+                    "\t~~~ jazz\n"
+                    "\t1.\n"
+                    "\t~~~\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_rejects_unclassified_readme_jazz_fence(self) -> None:
         (self.root / "README.md").write_text(
             "# Fixture\n\n```jazz\n0.\n```\n", encoding="utf-8"
@@ -434,27 +564,85 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: executable fence differs from examples/two-lines.jz"
         )
 
-    def test_requires_tracked_examples_in_check_examples_manifest(self) -> None:
+    def test_requires_tracked_examples_in_operational_example_cases(self) -> None:
         source = '"Hello".\n'
         self.add_tracked_example(
-            "examples/hello.jz", source, add_to_manifest=False
+            "examples/hello.jz", source, add_to_cases=False
         )
         (self.root / "docs/index.md").write_text(
             page(body=self.executable_example("examples/hello.jz", source)),
             encoding="utf-8",
         )
         self.assert_violation(
-            "examples/hello.jz: tracked example is missing from scripts/check-examples.sh manifest"
+            "examples/hello.jz: tracked example is missing from scripts/example-cases.tsv"
         )
 
-    def test_rejects_untracked_check_examples_manifest_entry(self) -> None:
-        self.manifest_paths.append("examples/ghost.jz")
-        self.write_example_manifest()
+    def test_rejects_untracked_operational_case_source(self) -> None:
+        self.add_example_case(["examples/ghost.jz"])
         self.assert_violation(
-            "scripts/check-examples.sh: manifest entry is not a tracked example: examples/ghost.jz"
+            "scripts/example-cases.tsv: case source is not a tracked example: examples/ghost.jz"
         )
 
-    def test_module_dependency_sources_require_real_manifest_and_doc_coverage(self) -> None:
+    def test_header_name_cannot_be_reused_as_an_example_case(self) -> None:
+        source = '"Hello".\n'
+        example_path = "examples/hello.jz"
+        self.add_tracked_example(example_path, source, add_to_cases=False)
+        self.example_cases.append(
+            ("name", [example_path], "0", f"--run {example_path}")
+        )
+        self.write_example_cases()
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(example_path, source)),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: case name is reserved for the header: name"
+        )
+
+    def test_example_case_table_requires_a_final_newline(self) -> None:
+        (self.root / "scripts/example-cases.tsv").write_text(
+            "name\tsources\texpected\targs",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv: file must end with a newline"
+        )
+
+    def test_dead_case_table_cannot_satisfy_execution_coverage(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example("examples/hello.jz", source)),
+            encoding="utf-8",
+        )
+        self.write_example_runner(consume_cases=False)
+        self.assert_violation(
+            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
+        )
+
+    def test_case_table_reader_without_runner_call_is_not_execution_coverage(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example("examples/hello.jz", source)),
+            encoding="utf-8",
+        )
+        (self.root / "scripts/check-examples.sh").write_text(
+            (
+                "#!/usr/bin/env bash\n\n"
+                "while IFS=$'\\t' read -r case_name case_sources "
+                "case_expected case_args_text; do\n"
+                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
+                "  printf '%s\\n' \"$case_name\"\n"
+                "done < scripts/example-cases.tsv\n"
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
+        )
+
+    def test_module_dependency_sources_require_real_case_and_doc_coverage(self) -> None:
         greeting = "module Example::Greeting {\n  greeting = \"Hello\".\n}\n"
         main = (
             "module Example::Main {\n"
@@ -462,14 +650,15 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "  greeting.\n"
             "}\n"
         )
-        self.add_tracked_example(
-            "examples/modules/src/Example/Greeting.jz", greeting
-        )
-        self.add_tracked_example("examples/modules/src/Example/Main.jz", main)
+        greeting_path = "examples/modules/src/Example/Greeting.jz"
+        main_path = "examples/modules/src/Example/Main.jz"
+        self.add_tracked_example(greeting_path, greeting, add_to_cases=False)
+        self.add_tracked_example(main_path, main, add_to_cases=False)
+        self.add_example_case([main_path, greeting_path])
         body = self.executable_example(
-            "examples/modules/src/Example/Greeting.jz", greeting
+            greeting_path, greeting
         ) + self.executable_example(
-            "examples/modules/src/Example/Main.jz", main
+            main_path, main
         )
         (self.root / "docs/index.md").write_text(page(body=body), encoding="utf-8")
         result = self.run_checker()

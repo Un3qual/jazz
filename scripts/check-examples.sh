@@ -4,21 +4,6 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-JAZZ_EXAMPLE_MANIFEST=(
-  "examples/hello.jz"
-  "examples/functions/factorial.jz"
-  "examples/modules/src/Example/Greeting.jz"
-  "examples/modules/src/Example/Main.jz"
-  "examples/patterns/result.jz"
-)
-
-for example_path in "${JAZZ_EXAMPLE_MANIFEST[@]}"; do
-  if [[ ! -f "$example_path" ]]; then
-    printf 'FAIL: manifest example is missing: %s\n' "$example_path" >&2
-    exit 1
-  fi
-done
-
 cabal build jazz
 JAZZ_BIN="$(cabal list-bin jazz)"
 TEMP_DIR="$(mktemp -d)"
@@ -53,10 +38,25 @@ run_example() {
   printf 'PASS: %s\n' "$name"
 }
 
-run_example hello '"Hello, Jazz"' --run examples/hello.jz
-run_example factorial '720' --run examples/functions/factorial.jz
-run_example result '41' --run examples/patterns/result.jz
-run_example module '"Hello from a Jazz module"' \
-  --run --entry-module Example::Main --module-root examples/modules/src
+while IFS=$'\t' read -r case_name case_sources case_expected case_args_text; do
+  if [[ "$case_name" == "name" ]]; then
+    continue
+  fi
+  if [[ -z "$case_name" || -z "$case_sources" || -z "$case_expected" || -z "$case_args_text" ]]; then
+    printf 'FAIL: malformed example case row: %s\n' "$case_name" >&2
+    exit 1
+  fi
+
+  IFS=',' read -r -a case_source_paths <<< "$case_sources"
+  for source_path in "${case_source_paths[@]}"; do
+    if [[ ! -f "$source_path" ]]; then
+      printf 'FAIL: example case source is missing: %s\n' "$source_path" >&2
+      exit 1
+    fi
+  done
+
+  IFS=' ' read -r -a case_args <<< "$case_args_text"
+  run_example "$case_name" "$case_expected" "${case_args[@]}"
+done < scripts/example-cases.tsv
 
 echo "Checked Jazz examples passed."
