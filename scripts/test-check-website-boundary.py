@@ -477,13 +477,96 @@ import FileUrl from 'file:///tmp/private.svg';
             result.stdout,
         )
         self.assertIn(
-            "docs/index.mdx: local MDX import escapes published docs: @site/../outside.svg",
+            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/../outside.svg",
             result.stdout,
         )
         self.assertIn(
             "docs/index.mdx: remote authored URL is not allowed",
             result.stdout,
         )
+
+    def test_published_mdx_allows_existing_site_static_imports(self) -> None:
+        (self.root / "docs/index.mdx").write_text(
+            "import mark from '@site/static/img/mark.svg';\n\n# Public docs\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_site_import_alias_is_limited_to_contained_existing_static_assets(self) -> None:
+        outside = self.root / "outside.svg"
+        outside.write_text("outside\n", encoding="utf-8")
+        os.symlink(outside, self.root / "website/static/img/escaped.svg")
+        (self.root / "website/src/private.svg").write_text(
+            "private\n",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.mdx").write_text(
+            """\
+import Missing from '@site/static/img/missing.svg';
+import Escaped from '@site/static/img/escaped.svg';
+import Traversal from '@site/../outside.svg';
+import Source from '@site/src/private.svg';
+
+# Public docs
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertIn(
+            "docs/index.mdx: local MDX import does not exist: @site/static/img/missing.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import escapes published static assets: @site/static/img/escaped.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/../outside.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/src/private.svg",
+            result.stdout,
+        )
+
+    def test_html_target_parser_keeps_greater_than_signs_inside_attributes(self) -> None:
+        (self.root / "docs/index.mdx").write_text(
+            '<img alt="2 > 1" src="missing-after-angle.svg" />\n',
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.mdx: local HTML asset does not exist: missing-after-angle.svg"
+        )
+
+    def test_local_targets_reject_raw_and_percent_decoded_backslashes(self) -> None:
+        for filename in (r"raw\mark.svg", r"encoded\mark.svg"):
+            (self.root / "docs" / filename).write_text("asset\n", encoding="utf-8")
+        (self.root / "docs/index.mdx").write_text(
+            r"""\
+![Raw](raw\mark.svg)
+<img src="encoded%5Cmark.svg" alt="Encoded" />
+import RawImport from './raw\mark.svg';
+import EncodedImport from './encoded%5Cmark.svg';
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        for target in (
+            r"raw\mark.svg",
+            "encoded%5Cmark.svg",
+            r"./raw\mark.svg",
+            "./encoded%5Cmark.svg",
+        ):
+            with self.subTest(target=target):
+                self.assertIn(
+                    f"docs/index.mdx: local target contains a backslash: {target}",
+                    result.stdout,
+                )
 
     def test_published_docs_preserve_anchors_routes_and_existing_html_or_mdx_targets(self) -> None:
         (self.root / "docs/guide.md").write_text("# Guide\n", encoding="utf-8")
@@ -571,6 +654,79 @@ import Tabs from '@theme/Tabs';
         self.assertIn(
             "website/src/remote.md: remote authored URL is not allowed",
             result.stdout,
+        )
+
+    def test_non_local_schemes_are_rejected_in_asset_and_import_contexts(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            "background-image: url('data:image/svg+xml,remote');\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import icon from 'file:///tmp/icon.svg';
+export default function Home() {
+  return <img src="javascript:alert('remote')" alt="" />;
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/remote.md").write_text(
+            "![Remote](ftp://assets.example.invalid/photo.png)\n",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.mdx").write_text(
+            """\
+import Remote from 'data:image/svg+xml,remote';
+![Remote](file:///tmp/private.svg)
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        for path in (
+            "website/src/css/custom.css",
+            "website/src/pages/index.tsx",
+            "website/src/remote.md",
+            "docs/index.mdx",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(
+                    f"{path}: remote authored URL is not allowed",
+                    result.stdout,
+                )
+
+    def test_non_local_schemes_are_rejected_in_dynamic_imports(self) -> None:
+        (self.root / "website/src/pages/dynamic.tsx").write_text(
+            "const icon = import('data:image/svg+xml,remote');\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "website/src/pages/dynamic.tsx: remote authored URL is not allowed"
+        )
+
+    def test_non_local_scheme_attributes_may_contain_the_opposite_quote(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+export default function Home() {
+  return <img src="javascript:alert('remote')" alt="" />;
+}
+""",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "website/src/pages/index.tsx: remote authored URL is not allowed"
+        )
+
+    def test_non_local_schemes_are_rejected_in_markdown_autolinks(self) -> None:
+        (self.root / "website/src/remote.md").write_text(
+            "<ftp://assets.example.invalid/photo.png>\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "website/src/remote.md: remote authored URL is not allowed"
         )
 
     def test_github_navigation_requires_the_exact_repository_boundary(self) -> None:
