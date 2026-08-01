@@ -1,0 +1,126 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      compiler: ${{ steps.filter.outputs.compiler }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Detect compiler-relevant changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: every
+          filters: |
+            compiler:
+              - '**'
+              - '!README.md'
+              - '!docs/**'
+              - '!rfcs/**'
+              - '!.codex/**'
+              - '!website/**'
+              - '!CONTRIBUTING.md'
+              - '!SECURITY.md'
+              - '!CHANGELOG.md'
+              - '!RELEASING.md'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/PULL_REQUEST_TEMPLATE.md'
+
+  docs-and-site:
+    name: Documentation and website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+        working-directory: website
+
+      - name: Check the public documentation boundary
+        run: bash scripts/check-public-docs.sh
+
+      - name: Check documentation and RFCs
+        run: bash scripts/check-docs.sh
+
+      - name: Check RFC authority
+        run: bash scripts/check-spec-authority.sh
+
+      - name: Check the website
+        run: bash scripts/check-website.sh
+
+      - name: Check CI workload policy
+        run: python3 scripts/check-ci-policy.py
+
+  compiler-fast:
+    name: Fast compiler checks
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Cache Cabal dependencies and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
+
+      - name: Run the fast compiler tier
+        run: nix develop --command bash scripts/ci/fast-compiler.sh
+
+  pr-gate:
+    name: Pull request gate
+    if: always()
+    needs:
+      - changes
+      - docs-and-site
+      - compiler-fast
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every applicable check
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_RESULT: ${{ needs.docs-and-site.result }}
+          COMPILER_REQUIRED: ${{ needs.changes.outputs.compiler }}
+          COMPILER_RESULT: ${{ needs.compiler-fast.result }}
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          [[ "$DOCS_RESULT" == "success" ]]
+          if [[ "$COMPILER_REQUIRED" == "true" ]]; then
+            [[ "$COMPILER_RESULT" == "success" ]]
+          else
+            [[ "$COMPILER_REQUIRED" == "false" ]]
+            [[ "$COMPILER_RESULT" == "skipped" ]]
+          fi

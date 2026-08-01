@@ -153,13 +153,112 @@ VALID_RELEASE = script(
 VALID_PR_WORKFLOW = textwrap.dedent(
     """
     name: Pull request checks
+
     on:
       pull_request:
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
     jobs:
-      compiler:
+      changes:
+        runs-on: ubuntu-latest
+        outputs:
+          compiler: ${{ steps.filter.outputs.compiler }}
+        steps:
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Detect compiler-relevant changes
+            id: filter
+            uses: dorny/paths-filter@v3
+            with:
+              predicate-quantifier: every
+              filters: |
+                compiler:
+                  - '**'
+                  - '!README.md'
+                  - '!docs/**'
+                  - '!rfcs/**'
+                  - '!.codex/**'
+                  - '!website/**'
+                  - '!CONTRIBUTING.md'
+                  - '!SECURITY.md'
+                  - '!CHANGELOG.md'
+                  - '!RELEASING.md'
+                  - '!.github/ISSUE_TEMPLATE/**'
+                  - '!.github/PULL_REQUEST_TEMPLATE.md'
+      docs-and-site:
         runs-on: ubuntu-latest
         steps:
-          - run: bash scripts/ci/fast-compiler.sh
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Set up Node.js
+            uses: actions/setup-node@v4
+            with:
+              node-version: 22
+              cache: npm
+              cache-dependency-path: website/package-lock.json
+          - name: Install website dependencies
+            run: npm ci
+            working-directory: website
+          - name: Check public documentation
+            run: bash scripts/check-public-docs.sh
+          - name: Check documentation and RFCs
+            run: bash scripts/check-docs.sh
+          - name: Check RFC authority
+            run: bash scripts/check-spec-authority.sh
+          - name: Check website
+            run: bash scripts/check-website.sh
+          - name: Check CI policy
+            run: python3 scripts/check-ci-policy.py
+      compiler-fast:
+        needs: changes
+        if: needs.changes.outputs.compiler == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 12
+        steps:
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Install Nix
+            uses: cachix/install-nix-action@v31
+          - name: Cache Cabal dependencies and build output
+            uses: actions/cache@v4
+            with:
+              path: |
+                ~/.cabal/store
+                dist-newstyle
+              key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          - name: Run the fast compiler tier
+            run: nix develop --command bash scripts/ci/fast-compiler.sh
+      pr-gate:
+        name: Pull request gate
+        if: always()
+        needs:
+          - changes
+          - docs-and-site
+          - compiler-fast
+        runs-on: ubuntu-latest
+        steps:
+          - name: Require every applicable check
+            env:
+              CHANGES_RESULT: ${{ needs.changes.result }}
+              DOCS_RESULT: ${{ needs.docs-and-site.result }}
+              COMPILER_REQUIRED: ${{ needs.changes.outputs.compiler }}
+              COMPILER_RESULT: ${{ needs.compiler-fast.result }}
+            run: |
+              [[ "$CHANGES_RESULT" == "success" ]]
+              [[ "$DOCS_RESULT" == "success" ]]
+              if [[ "$COMPILER_REQUIRED" == "true" ]]; then
+                [[ "$COMPILER_RESULT" == "success" ]]
+              else
+                [[ "$COMPILER_REQUIRED" == "false" ]]
+                [[ "$COMPILER_RESULT" == "skipped" ]]
+              fi
     """
 ).lstrip()
 
@@ -476,6 +575,268 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.write(".github/workflows/ci-pr.yml", VALID_PR_WORKFLOW + f"          - run: {command}\n")
                 self.assert_violation("pull-request workflow inlines compiler or long-running CI work")
+
+    def test_pull_request_workflow_is_required(self) -> None:
+        (self.root / ".github/workflows/ci-pr.yml").unlink()
+        self.assert_violation("missing required pull-request workflow: .github/workflows/ci-pr.yml")
+
+    def test_pull_request_workflow_requires_read_only_permissions(self) -> None:
+        for old in ("contents: read", "pull-requests: read"):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, old.replace("read", "write")),
+                )
+                self.assert_violation(
+                    "pull-request workflow must grant only read access to contents and pull requests"
+                )
+
+    def test_pull_request_workflow_grants_paths_filter_pr_read_access(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace("  pull-requests: read\n", ""),
+        )
+        self.assert_violation(
+            "pull-request workflow must grant only read access to contents and pull requests"
+        )
+
+    def test_pull_request_workflow_rejects_job_permission_overrides(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace(
+                "  changes:\n    runs-on:",
+                "  changes:\n    permissions:\n      contents: write\n    runs-on:",
+            ),
+        )
+        self.assert_violation("pull-request workflow must not override permissions in a job")
+
+    def test_pull_request_workflow_requires_pr_scoped_cancellation(self) -> None:
+        for old, expected in (
+            ("  cancel-in-progress: true\n", "pull-request workflow must cancel superseded runs"),
+            (
+                "${{ github.workflow }}-pr-${{ github.event.pull_request.number }}",
+                "pull-request workflow concurrency must include workflow and pull-request number",
+            ),
+        ):
+            with self.subTest(old=old):
+                replacement = "" if old.startswith("      cancel") else "static-group"
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, replacement),
+                )
+                self.assert_violation(expected)
+
+    def test_changes_job_requires_paths_filter_and_compiler_output(self) -> None:
+        for old, expected in (
+            ("dorny/paths-filter@v3", "changes job must use dorny/paths-filter@v3"),
+            ("predicate-quantifier: every", "changes job must apply every docs-only exclusion"),
+            (
+                "compiler: ${{ steps.filter.outputs.compiler }}",
+                "changes job must publish the compiler path-filter output",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, "removed"),
+                )
+                self.assert_violation(expected)
+
+    def test_changes_job_treats_only_the_documented_paths_as_docs_only(self) -> None:
+        for exclusion in (
+            "!README.md",
+            "!docs/**",
+            "!rfcs/**",
+            "!.codex/**",
+            "!website/**",
+            "!CONTRIBUTING.md",
+            "!SECURITY.md",
+            "!CHANGELOG.md",
+            "!RELEASING.md",
+            "!.github/ISSUE_TEMPLATE/**",
+            "!.github/PULL_REQUEST_TEMPLATE.md",
+        ):
+            with self.subTest(exclusion=exclusion):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(f"          - '{exclusion}'\n", ""),
+                )
+                self.assert_violation(f"changes job is missing docs-only exclusion: {exclusion}")
+
+    def test_changes_job_treats_unclassified_infrastructure_as_compiler_relevant(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace("          - '**'\n", "          - 'src/**'\n"),
+        )
+        self.assert_violation("changes job must default unclassified paths to compiler-relevant")
+
+    def test_docs_job_requires_node_cache_install_and_all_checks(self) -> None:
+        for old, expected in (
+            ("node-version: 22", "docs-and-site job must use Node 22"),
+            ("cache: npm", "docs-and-site job must use the npm cache"),
+            ("cache-dependency-path: website/package-lock.json", "docs-and-site job must key the npm cache from website/package-lock.json"),
+            ("run: npm ci\n        working-directory: website", "docs-and-site job must install only website dependencies with npm ci"),
+            ("bash scripts/check-public-docs.sh", "docs-and-site job is missing required check: scripts/check-public-docs.sh"),
+            ("bash scripts/check-docs.sh", "docs-and-site job is missing required check: scripts/check-docs.sh"),
+            ("bash scripts/check-spec-authority.sh", "docs-and-site job is missing required check: scripts/check-spec-authority.sh"),
+            ("bash scripts/check-website.sh", "docs-and-site job is missing required check: scripts/check-website.sh"),
+            ("python3 scripts/check-ci-policy.py", "docs-and-site job is missing required check: scripts/check-ci-policy.py"),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, "removed"),
+                )
+                self.assert_violation(expected)
+
+    def test_docs_job_is_unconditional(self) -> None:
+        for injected in ("    if: false\n", "    needs: compiler-fast\n"):
+            with self.subTest(injected=injected):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(
+                        "  docs-and-site:\n",
+                        "  docs-and-site:\n" + injected,
+                    ),
+                )
+                self.assert_violation("docs-and-site job must run for every pull request")
+
+    def test_docs_job_rejects_compiler_toolchain_and_cabal_commands(self) -> None:
+        injection_point = "        run: bash scripts/check-public-docs.sh\n"
+        for command in (
+            "cabal check",
+            "nix develop --command true",
+            "cachix/install-nix-action@v31",
+            "ghcup/setup@v1",
+        ):
+            with self.subTest(command=command):
+                injected = f"      - run: {command}\n" if "/" not in command or command.startswith("nix") else f"      - uses: {command}\n"
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(injection_point, injected + injection_point),
+                )
+                self.assert_violation("docs-and-site job must not install or invoke the compiler toolchain")
+
+    def test_compiler_job_requires_path_condition_timeout_nix_cache_and_fast_script(self) -> None:
+        for old, expected in (
+            ("if: needs.changes.outputs.compiler == 'true'", "compiler-fast job must run only for compiler-relevant changes"),
+            ("timeout-minutes: 12", "compiler-fast job must have a 12-minute timeout"),
+            ("cachix/install-nix-action@v31", "compiler-fast job must use cachix/install-nix-action@v31"),
+            ("actions/cache@v4", "compiler-fast job must use actions/cache@v4"),
+            ("~/.cabal/store", "compiler-fast cache must include ~/.cabal/store"),
+            ("dist-newstyle", "compiler-fast cache must include dist-newstyle"),
+            ("runner.os", "compiler-fast cache key must include runner.os"),
+            ("hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')", "compiler-fast cache key must include flake.lock, jazz.cabal, and cabal.project"),
+            ("nix develop --command bash scripts/ci/fast-compiler.sh", "compiler-fast job must invoke the fast compiler script"),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, "removed"),
+                )
+                self.assert_violation(expected)
+
+    def test_pull_request_workflow_rejects_every_extended_token(self) -> None:
+        for token in (
+            "cabal bench",
+            "jazz-bench",
+            "full-parser-scale",
+            "profile-hotspots",
+            "profile-stages",
+            "program-corpus-spec",
+        ):
+            with self.subTest(token=token):
+                self.write(".github/workflows/ci-pr.yml", VALID_PR_WORKFLOW + f"# benign section\n{token}\n")
+                self.assert_violation(f"pull-request workflow contains forbidden extended token: {token}")
+
+    def test_pr_gate_requires_all_dependencies_and_always_runs(self) -> None:
+        for old, expected in (
+            ("name: Pull request gate", "pr-gate job must expose the stable name: Pull request gate"),
+            ("if: always()", "pr-gate job must run with if: always()"),
+            ("      - changes\n", "pr-gate job must depend on changes"),
+            ("      - docs-and-site\n", "pr-gate job must depend on docs-and-site"),
+            ("      - compiler-fast\n", "pr-gate job must depend on compiler-fast"),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(old, ""),
+                )
+                self.assert_violation(expected)
+
+    def test_pr_gate_rejects_failed_dependencies(self) -> None:
+        for assertion, expected in (
+            ('[[ "$CHANGES_RESULT" == "success" ]]', "pr-gate job must reject a failed changes dependency"),
+            ('[[ "$DOCS_RESULT" == "success" ]]', "pr-gate job must reject a failed docs-and-site dependency"),
+            ('[[ "$COMPILER_RESULT" == "success" ]]', "pr-gate job must require compiler-fast success for compiler changes"),
+        ):
+            with self.subTest(assertion=assertion):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(assertion, "true"),
+                )
+                self.assert_violation(expected)
+
+    def test_pr_gate_accepts_skip_only_for_docs_only_changes(self) -> None:
+        for assertion, expected in (
+            ('[[ "$COMPILER_REQUIRED" == "false" ]]', "pr-gate job must prove a compiler skip was documentation-only"),
+            ('[[ "$COMPILER_RESULT" == "skipped" ]]', "pr-gate job must require a legitimate compiler-fast skip for docs-only changes"),
+        ):
+            with self.subTest(assertion=assertion):
+                self.write(
+                    ".github/workflows/ci-pr.yml",
+                    VALID_PR_WORKFLOW.replace(assertion, "true"),
+                )
+                self.assert_violation(expected)
+
+    def test_pr_gate_ties_compiler_success_and_skip_to_path_classification(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace(
+                'if [[ "$COMPILER_REQUIRED" == "true" ]]; then',
+                "if true; then",
+            ),
+        )
+        self.assert_violation("pr-gate job must tie compiler result to path classification")
+
+    def test_pr_gate_rejects_disabled_fail_fast_with_trailing_success(self) -> None:
+        masked_gate = VALID_PR_WORKFLOW.replace(
+            '[[ "$CHANGES_RESULT" == "success" ]]',
+            'set +e\n'
+            '          [[ "$CHANGES_RESULT" == "success" ]]',
+        ).replace(
+            "          fi\n",
+            "          fi\n"
+            "          true\n",
+        )
+        self.write(".github/workflows/ci-pr.yml", masked_gate)
+        self.assert_violation(
+            "pr-gate job must not disable fail-fast or mask assertion failures"
+        )
+
+    def test_pr_gate_rejects_pragmatic_result_masking_forms(self) -> None:
+        fixtures = (
+            VALID_PR_WORKFLOW.replace(
+                '[[ "$DOCS_RESULT" == "success" ]]',
+                '[[ "$DOCS_RESULT" == "success" ]] || true',
+            ),
+            VALID_PR_WORKFLOW.replace(
+                "      - name: Require every applicable check\n",
+                "      - name: Require every applicable check\n"
+                "        continue-on-error: true\n",
+            ),
+            VALID_PR_WORKFLOW.replace(
+                '[[ "$CHANGES_RESULT" == "success" ]]',
+                'set +o errexit\n'
+                '          [[ "$CHANGES_RESULT" == "success" ]]',
+            ),
+        )
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture):
+                self.write(".github/workflows/ci-pr.yml", fixture)
+                self.assert_violation(
+                    "pr-gate job must not disable fail-fast or mask assertion failures"
+                )
 
 
 if __name__ == "__main__":

@@ -63,6 +63,31 @@ POLICY_PATHS = (
     "scripts/ci/release-candidate.sh",
 )
 
+PR_WORKFLOW_PATH = ".github/workflows/ci-pr.yml"
+
+PR_FORBIDDEN = (
+    "cabal bench",
+    "jazz-bench",
+    "full-parser-scale",
+    "profile-hotspots",
+    "profile-stages",
+    "program-corpus-spec",
+)
+
+DOCS_ONLY_EXCLUSIONS = (
+    "!README.md",
+    "!docs/**",
+    "!rfcs/**",
+    "!.codex/**",
+    "!website/**",
+    "!CONTRIBUTING.md",
+    "!SECURITY.md",
+    "!CHANGELOG.md",
+    "!RELEASING.md",
+    "!.github/ISSUE_TEMPLATE/**",
+    "!.github/PULL_REQUEST_TEMPLATE.md",
+)
+
 
 def active_text(contents: str) -> str:
     """Return non-comment lines used to enforce executable policy tokens."""
@@ -74,6 +99,41 @@ def active_text(contents: str) -> str:
 def joined_text(contents: str) -> str:
     """Join shell continuation lines so recognizable commands stay checkable."""
     return re.sub(r"\\\s*\n\s*", " ", contents)
+
+
+def indented_block(contents: str, header: str, indent: int) -> str:
+    """Return one trusted-repository YAML block without parsing general YAML."""
+    lines = contents.splitlines()
+    header_line = f"{' ' * indent}{header}:"
+    for index, line in enumerate(lines):
+        if line.rstrip() != header_line:
+            continue
+        block: list[str] = []
+        for candidate in lines[index + 1 :]:
+            if not candidate.strip():
+                block.append(candidate)
+                continue
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            if candidate_indent <= indent:
+                break
+            block.append(candidate)
+        return "\n".join(block)
+    return ""
+
+
+def workflow_job(contents: str, job_name: str) -> str:
+    jobs = indented_block(contents, "jobs", 0)
+    return indented_block(jobs, job_name, 2)
+
+
+def has_yaml_list_item(contents: str, item: str) -> bool:
+    return (
+        re.search(
+            rf"(?m)^\s*-\s+['\"]?{re.escape(item)}['\"]?\s*$",
+            contents,
+        )
+        is not None
+    )
 
 
 def has_command(contents: str, pattern: str) -> bool:
@@ -413,6 +473,253 @@ def check_release(contents: str, violations: list[str]) -> None:
         violations.append("release candidate tier must not invoke scripts/release/build-alpha.sh")
 
 
+def check_pr_changes_job(contents: str, violations: list[str]) -> None:
+    job = workflow_job(contents, "changes")
+    if not job:
+        violations.append("pull-request workflow is missing the changes job")
+        return
+    if not re.search(r"(?m)^\s*(?:-\s+)?uses:\s+dorny/paths-filter@v3\s*$", job):
+        violations.append("changes job must use dorny/paths-filter@v3")
+    if not re.search(r"(?m)^\s*predicate-quantifier:\s*every\s*$", job):
+        violations.append("changes job must apply every docs-only exclusion")
+    if not re.search(r"(?m)^\s*id:\s*filter\s*$", job):
+        violations.append("changes job must give the paths filter the id filter")
+    if not re.search(
+        r"(?m)^\s*compiler:\s*\$\{\{\s*steps\.filter\.outputs\.compiler\s*\}\}\s*$",
+        job,
+    ):
+        violations.append("changes job must publish the compiler path-filter output")
+    if not has_yaml_list_item(job, "**"):
+        violations.append("changes job must default unclassified paths to compiler-relevant")
+    for exclusion in DOCS_ONLY_EXCLUSIONS:
+        if not has_yaml_list_item(job, exclusion):
+            violations.append(f"changes job is missing docs-only exclusion: {exclusion}")
+
+
+def check_pr_docs_job(contents: str, violations: list[str]) -> None:
+    job = workflow_job(contents, "docs-and-site")
+    if not job:
+        violations.append("pull-request workflow is missing the docs-and-site job")
+        return
+    if re.search(r"(?m)^    (?:if|needs):", job):
+        violations.append("docs-and-site job must run for every pull request")
+
+    required = (
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
+            "docs-and-site job must use actions/setup-node@v4",
+        ),
+        (
+            r"(?m)^\s*node-version:\s*22\s*$",
+            "docs-and-site job must use Node 22",
+        ),
+        (
+            r"(?m)^\s*cache:\s*npm\s*$",
+            "docs-and-site job must use the npm cache",
+        ),
+        (
+            r"(?m)^\s*cache-dependency-path:\s*website/package-lock\.json\s*$",
+            "docs-and-site job must key the npm cache from website/package-lock.json",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?run:\s*npm\s+ci\s*\n\s+working-directory:\s*website\s*$",
+            "docs-and-site job must install only website dependencies with npm ci",
+        ),
+    )
+    for pattern, message in required:
+        if not re.search(pattern, job):
+            violations.append(message)
+
+    npm_installs = re.findall(r"(?m)^\s*(?:-\s+)?run:\s*npm\s+(?:ci|install)\b.*$", job)
+    if len(npm_installs) != 1 or not re.search(r"\bnpm\s+ci\s*$", npm_installs[0]):
+        violations.append("docs-and-site job must install only website dependencies with npm ci")
+
+    checks = (
+        ("scripts/check-public-docs.sh", r"bash\s+scripts/check-public-docs\.sh"),
+        ("scripts/check-docs.sh", r"bash\s+scripts/check-docs\.sh"),
+        ("scripts/check-spec-authority.sh", r"bash\s+scripts/check-spec-authority\.sh"),
+        ("scripts/check-website.sh", r"bash\s+scripts/check-website\.sh"),
+        ("scripts/check-ci-policy.py", r"python3\s+scripts/check-ci-policy\.py"),
+    )
+    for token, command in checks:
+        if not re.search(rf"(?m)^\s*(?:-\s+)?run:\s*{command}\s*$", job):
+            violations.append(f"docs-and-site job is missing required check: {token}")
+
+    compiler_toolchain = re.compile(
+        r"(?i)\bcabal\b|\bghc(?:up)?\b|\bnix\b|install-nix-action|setup-haskell"
+    )
+    if compiler_toolchain.search(job):
+        violations.append("docs-and-site job must not install or invoke the compiler toolchain")
+
+
+def check_pr_compiler_job(contents: str, violations: list[str]) -> None:
+    job = workflow_job(contents, "compiler-fast")
+    if not job:
+        violations.append("pull-request workflow is missing the compiler-fast job")
+        return
+    requirements = (
+        (
+            r"(?m)^\s*needs:\s*changes\s*$",
+            "compiler-fast job must depend on changes",
+        ),
+        (
+            r"(?m)^\s*if:\s*needs\.changes\.outputs\.compiler\s*==\s*'true'\s*$",
+            "compiler-fast job must run only for compiler-relevant changes",
+        ),
+        (
+            r"(?m)^\s*timeout-minutes:\s*12\s*$",
+            "compiler-fast job must have a 12-minute timeout",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$",
+            "compiler-fast job must use cachix/install-nix-action@v31",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v4\s*$",
+            "compiler-fast job must use actions/cache@v4",
+        ),
+        (
+            r"(?m)^\s*~/.cabal/store\s*$",
+            "compiler-fast cache must include ~/.cabal/store",
+        ),
+        (
+            r"(?m)^\s*dist-newstyle\s*$",
+            "compiler-fast cache must include dist-newstyle",
+        ),
+        (
+            r"(?m)^\s*key:\s*.*\$\{\{\s*runner\.os\s*\}\}.*$",
+            "compiler-fast cache key must include runner.os",
+        ),
+        (
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
+            "compiler-fast cache key must include flake.lock, jazz.cabal, and cabal.project",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?run:\s*nix\s+develop\s+--command\s+bash\s+scripts/ci/fast-compiler\.sh\s*$",
+            "compiler-fast job must invoke the fast compiler script",
+        ),
+    )
+    for pattern, message in requirements:
+        if not re.search(pattern, job):
+            violations.append(message)
+
+
+def check_pr_gate_job(contents: str, violations: list[str]) -> None:
+    job = workflow_job(contents, "pr-gate")
+    if not job:
+        violations.append("pull-request workflow is missing the pr-gate job")
+        return
+    requirements = (
+        (
+            r"(?m)^\s*name:\s*Pull request gate\s*$",
+            "pr-gate job must expose the stable name: Pull request gate",
+        ),
+        (
+            r"(?m)^\s*if:\s*always\(\)\s*$",
+            "pr-gate job must run with if: always()",
+        ),
+    )
+    for pattern, message in requirements:
+        if not re.search(pattern, job):
+            violations.append(message)
+    for dependency in ("changes", "docs-and-site", "compiler-fast"):
+        if not has_yaml_list_item(job, dependency):
+            violations.append(f"pr-gate job must depend on {dependency}")
+
+    bindings = (
+        "CHANGES_RESULT: ${{ needs.changes.result }}",
+        "DOCS_RESULT: ${{ needs.docs-and-site.result }}",
+        "COMPILER_REQUIRED: ${{ needs.changes.outputs.compiler }}",
+        "COMPILER_RESULT: ${{ needs.compiler-fast.result }}",
+    )
+    if not all(binding in job for binding in bindings):
+        violations.append("pr-gate job must bind every dependency result")
+
+    gate_assertions = (
+        (
+            '[[ "$CHANGES_RESULT" == "success" ]]',
+            "pr-gate job must reject a failed changes dependency",
+        ),
+        (
+            '[[ "$DOCS_RESULT" == "success" ]]',
+            "pr-gate job must reject a failed docs-and-site dependency",
+        ),
+        (
+            '[[ "$COMPILER_RESULT" == "success" ]]',
+            "pr-gate job must require compiler-fast success for compiler changes",
+        ),
+        (
+            '[[ "$COMPILER_REQUIRED" == "false" ]]',
+            "pr-gate job must prove a compiler skip was documentation-only",
+        ),
+        (
+            '[[ "$COMPILER_RESULT" == "skipped" ]]',
+            "pr-gate job must require a legitimate compiler-fast skip for docs-only changes",
+        ),
+    )
+    for assertion, message in gate_assertions:
+        if assertion not in job:
+            violations.append(message)
+
+    failure_masking = (
+        r"(?m)^\s*continue-on-error:\s*true\s*$",
+        r"(?m)^\s*set\s+\+e(?:\s|;|$)",
+        r"(?m)^\s*set\s+\+o\s+errexit(?:\s|;|$)",
+        r"(?m)\|\|\s*(?:true|:)(?:\s*(?:#.*)?)?$",
+    )
+    if any(re.search(pattern, job) for pattern in failure_masking):
+        violations.append(
+            "pr-gate job must not disable fail-fast or mask assertion failures"
+        )
+
+    tied_results = re.compile(
+        r'if\s+\[\[\s+"\$COMPILER_REQUIRED"\s+==\s+"true"\s+\]\];\s+then\s*'
+        r'\[\[\s+"\$COMPILER_RESULT"\s+==\s+"success"\s+\]\]\s*'
+        r'else\s*'
+        r'\[\[\s+"\$COMPILER_REQUIRED"\s+==\s+"false"\s+\]\]\s*'
+        r'\[\[\s+"\$COMPILER_RESULT"\s+==\s+"skipped"\s+\]\]\s*'
+        r'fi',
+        re.MULTILINE,
+    )
+    if not tied_results.search(job):
+        violations.append("pr-gate job must tie compiler result to path classification")
+
+
+def check_pr_workflow(root: Path, violations: list[str]) -> None:
+    path = root / PR_WORKFLOW_PATH
+    if not path.is_file():
+        violations.append(f"missing required pull-request workflow: {PR_WORKFLOW_PATH}")
+        return
+    contents = active_text(path.read_text(encoding="utf-8"))
+    if not re.search(r"(?m)^\s*pull_request\s*:\s*$", contents):
+        violations.append("pull-request workflow must trigger on pull_request")
+
+    permissions = [line.strip() for line in indented_block(contents, "permissions", 0).splitlines() if line.strip()]
+    if permissions != ["contents: read", "pull-requests: read"]:
+        violations.append(
+            "pull-request workflow must grant only read access to contents and pull requests"
+        )
+    if re.search(r"(?m)^    permissions\s*:", contents):
+        violations.append("pull-request workflow must not override permissions in a job")
+
+    concurrency = indented_block(contents, "concurrency", 0)
+    if "${{ github.workflow }}" not in concurrency or "${{ github.event.pull_request.number }}" not in concurrency:
+        violations.append(
+            "pull-request workflow concurrency must include workflow and pull-request number"
+        )
+    if not re.search(r"(?m)^\s*cancel-in-progress:\s*true\s*$", concurrency):
+        violations.append("pull-request workflow must cancel superseded runs")
+
+    for token in PR_FORBIDDEN:
+        if token in joined_text(contents):
+            violations.append(f"pull-request workflow contains forbidden extended token: {token}")
+
+    check_pr_changes_job(contents, violations)
+    check_pr_docs_job(contents, violations)
+    check_pr_compiler_job(contents, violations)
+    check_pr_gate_job(contents, violations)
+
+
 def check_pull_request_workflows(root: Path, violations: list[str]) -> None:
     workflow_root = root / ".github/workflows"
     if not workflow_root.is_dir():
@@ -442,6 +749,7 @@ def check_repository(root: Path) -> list[str]:
         if relative_path in policies:
             checker(policies[relative_path], violations)
 
+    check_pr_workflow(root, violations)
     check_pull_request_workflows(root, violations)
     return sorted(set(violations))
 
