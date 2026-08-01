@@ -73,6 +73,10 @@ require_pattern "docs/jazz-language-state.md" "legacy evidence archive tag" "$ar
 reject_pattern "active specs must not describe deleted implementation trees as read-only" \
   "(${deleted_tree_pattern}.{0,120}(remain|stay|are|is).{0,80}read[- ]only)|(read[- ]only.{0,120}${deleted_tree_pattern})" \
   docs/spec
+generic_legacy_tree_pattern='(legacy|deleted|removed|former).{0,80}(directories|trees|paths)'
+reject_pattern "active specs must not generically describe absent legacy trees as read-only" \
+  "(${generic_legacy_tree_pattern}.{0,120}(remain|stay|are|is).{0,80}read[- ]only)|(read[- ]only.{0,120}${generic_legacy_tree_pattern})" \
+  docs/spec
 reject_pattern "active documentation must not link into deleted implementation trees" \
   "\\]\\([^)]*${deleted_tree_pattern}[^)]*\\)" \
   docs/spec docs/jazz-language-state.md

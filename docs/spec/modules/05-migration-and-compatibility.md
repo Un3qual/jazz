@@ -128,7 +128,9 @@ Implementation batches that change module/import behavior must preserve these ch
 - Module-root order stays deterministic.
 - Dependency expression statements are validated but do not produce runtime output for the entry module.
 - Prelude selection remains independent of module-root lookup.
-- Legacy directories remain read-only reference material.
+- Pre-root-canonicalization implementation trees are absent from the current
+  checkout; historical comparison is anchored to archive tag
+  `archive/pre-root-canonicalization-2026-07-31`.
 
 ## Phase 6 Follow-Up Boundary
 
