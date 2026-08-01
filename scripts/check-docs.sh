@@ -48,6 +48,56 @@ reject_pattern() {
   fi
 }
 
+rfc_index="rfcs/README.md"
+rfc_proposals_index="rfcs/proposed/README.md"
+required_rfcs=(
+  "0001-language-authority-and-change-control"
+  "0002-repository-productization"
+  "0003-bootstrap-interpreter-profile"
+  "0004-hosted-canonical-compiler"
+  "0005-typed-core-elaboration"
+  "0006-lowered-ir-contract"
+  "0007-runtime-host-boundary"
+  "0008-parser-scale-and-performance-tiers"
+)
+
+require_file "$rfc_index"
+require_file "$rfc_proposals_index"
+
+for rfc_name in "${required_rfcs[@]}"; do
+  rfc_file="rfcs/accepted/${rfc_name}.md"
+  require_file "$rfc_file"
+done
+
+if [[ -d "rfcs/accepted" ]]; then
+  while IFS= read -r rfc_file; do
+    rfc_name="$(basename "$rfc_file" .md)"
+    require_pattern "$rfc_file" "accepted status" '^Status: Accepted$'
+    require_pattern "$rfc_file" "decision date" '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    require_pattern "$rfc_file" "superseded decisions" '^Supersedes: .+$'
+    require_pattern "$rfc_file" "decision section" '^## Decision$'
+    require_pattern "$rfc_file" "context section" '^## Context$'
+    require_pattern "$rfc_file" "consequences section" '^## Consequences$'
+    require_pattern "$rfc_index" "accepted RFC ${rfc_name} index entry" "accepted/${rfc_name}\\.md"
+  done < <(find rfcs/accepted -maxdepth 1 -type f -name '*.md' -print | sort)
+fi
+
+if [[ -d "rfcs/proposed" ]]; then
+  proposed_accepted_statuses="$(rg -n '^Status: Accepted$' rfcs/proposed --glob '*.md' || true)"
+  if [[ -n "$proposed_accepted_statuses" ]]; then
+    fail "accepted RFC status is not allowed below rfcs/proposed/"
+    printf '%s\n' "$proposed_accepted_statuses" >&2
+  fi
+fi
+
+if [[ -d "rfcs/accepted" ]]; then
+  nested_accepted_rfcs="$(find rfcs/accepted -mindepth 2 -type f -name '*.md' -print | sort)"
+  if [[ -n "$nested_accepted_rfcs" ]]; then
+    fail "accepted RFC files must live directly below rfcs/accepted/"
+    printf '%s\n' "$nested_accepted_rfcs" >&2
+  fi
+fi
+
 require_file "README.md"
 require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
