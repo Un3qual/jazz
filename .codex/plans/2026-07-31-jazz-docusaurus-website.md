@@ -4,7 +4,7 @@
 
 **Goal:** Ship a distinctive, accessible Docusaurus site that publishes only curated Jazz documentation and deploys repeatably to GitHub Pages.
 
-**Architecture:** `website/` owns the Docusaurus TypeScript application, theme, local assets, and production build. The docs plugin reads the repository-root `docs/` tree through `path: "../docs"`; `rfcs/` and `.codex/` never enter the content pipeline. A custom full-bleed home page and restrained Infima overrides provide the visual identity, while a dedicated GitHub Pages workflow builds and deploys immutable static output.
+**Architecture:** `website/` owns the Docusaurus TypeScript application, theme, local assets, and production build. The docs plugin reads the repository-root `docs/` tree through `path: "../docs"`; `rfcs/` and `.codex/` never enter the content pipeline. The repository is trusted source: a small regression guard checks canonical configuration, obvious authored remote references, and generated resource contexts without attempting to interpret arbitrary TypeScript, JSX, MDX, or YAML. A custom full-bleed home page and restrained Infima overrides provide the visual identity, while a dedicated GitHub Pages workflow builds and deploys immutable static output.
 
 **Tech Stack:** Docusaurus 3 Classic, React, TypeScript, CSS Modules, Prism, npm lockfile, Node.js 22, GitHub Actions, GitHub Pages
 
@@ -18,7 +18,7 @@
 - Use local or bundled assets and fonts. A production page must render without fetching Google Fonts, CDNs, remote images, or runtime APIs.
 - Use no more than two typefaces and one dominant brass accent. Avoid card grids, decorative gradients, floating dashboards, pill clutter, and a stock Docusaurus homepage.
 - Keep the published docs pipeline in plain-Markdown mode: configure `markdown.format` as `md`, publish only `.md` files, and do not permit front matter to enable or auto-detect MDX.
-- Keep resource authoring deliberately static. Resource-bearing JSX/HTML attributes and Docusaurus config properties must use direct local literals; JSX/HTML spreads, interpolated resource templates, and nonlocal URI tokens (including tokens hidden in source comments) are forbidden. The canonical production origin and the explicitly approved repository/site navigation URLs are the only narrow external exceptions.
+- Keep runtime resources local. The boundary guard scans relevant authored site files for obvious `scheme://` and protocol-relative references, allowing only the named GitHub navigation targets and the production site origin/base route. This is a maintainable regression check for reviewed repository code, not a proof against URLs assembled by arbitrary expressions; normal local JSX expressions, imports, and spreads remain permitted.
 - Author plain CSS only. `.scss`, `.sass`, and `.less` sources are outside the website profile, and the post-build boundary check scans generated HTML and CSS resource contexts for remote loads without treating arbitrary dependency JavaScript strings as resources.
 - Motion must respect `prefers-reduced-motion` and cannot delay navigation or content access.
 - Build and structural checks replace browser automation in this workstream. Record a short human visual-review checklist in the PR for desktop, mobile, light, and dark modes.
@@ -53,14 +53,16 @@ All three interactions become static when reduced motion is requested.
 - Create: `scripts/test-check-website-boundary.py`
 - Create: `scripts/check-website.sh`
 
-- [ ] Write fixture-based unit tests that require:
+- [ ] Write focused fixture tests that require:
 
   - `website/docusaurus.config.ts` to set the docs path to exactly `../docs`;
   - the blog plugin to be disabled;
-  - no config, import, symlink, or static copy source to reference `.codex`, `rfcs`, `docs/superpowers`, or `docs/execution`;
+  - no config or authored site source to reference `.codex`, `rfcs`, legacy documentation paths, or legacy compiler identities;
   - broken links and broken Markdown links to fail the production build;
   - `website/build/` output, when present, to contain none of the internal-path or legacy-identity strings;
-  - every asset URL in authored CSS/TSX/Markdown to be local unless it is a deliberate navigation link to the GitHub repository; and
+  - obvious remote references in relevant authored site files to be rejected unless they are exact approved GitHub or production navigation URLs;
+  - generated HTML resource attributes and generated CSS `url()`/`@import` targets to stay local, apart from Docusaurus production metadata and approved navigation;
+  - public documentation to remain `.md`, with symlinks unable to escape `docs/`; and
   - production configuration to use `https://un3qual.github.io` with base URL `/jazz/`.
 
 - [ ] Run the tests before implementing the checker:
@@ -71,7 +73,7 @@ All three interactions become static when reduced motion is requested.
 
   Expected: failures identify missing configuration validation.
 
-- [ ] Implement the checker with standard-library Python only, deterministic sorted violations, and an optional fixture-root argument.
+- [ ] Implement the checker with standard-library Python only, deterministic sorted violations, and an optional fixture-root argument. Keep it concise and explicit: use exact configuration assertions, `HTMLParser` for generated HTML resource attributes, and simple CSS `url()`/`@import` matching. Do not build a JavaScript, MDX, YAML, or arbitrary-expression interpreter.
 
 - [ ] Implement `scripts/check-website.sh` as a strict Bash entrypoint that runs the Python boundary check, `npm run typecheck`, `npm run build`, and a second boundary check against generated output.
 
