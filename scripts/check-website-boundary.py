@@ -140,12 +140,17 @@ def check_public_docs(root: Path, violations: list[str]) -> None:
     boundary = docs.resolve()
     for path in public_doc_entries(docs):
         path_label = label(root, path)
-        if path.suffix.casefold() == ".mdx":
+        if path.is_symlink():
+            if not path.resolve().is_relative_to(boundary):
+                violations.append(
+                    f"{path_label}: public documentation symlink escapes docs"
+                )
+            continue
+        if path.is_file() and path.suffix != ".md":
             violations.append(
-                f"{path_label}: public documentation must use plain .md files"
+                f"{path_label}: public docs regular files must use the .md extension; "
+                "move site assets to website/static"
             )
-        if path.is_symlink() and not path.resolve().is_relative_to(boundary):
-            violations.append(f"{path_label}: public documentation symlink escapes docs")
 
 
 def authored_paths(root: Path) -> list[Path]:
@@ -169,12 +174,11 @@ def authored_paths(root: Path) -> list[Path]:
 
 
 def allowed_authored_remote(url: str) -> bool:
-    cleaned = url.rstrip(".,;:")
     return (
-        cleaned == "http://www.w3.org/2000/svg"
-        or cleaned == PRODUCTION_ORIGIN
-        or cleaned.startswith(f"{PRODUCTION_ORIGIN}{PRODUCTION_BASE}")
-        or cleaned in GITHUB_NAVIGATION
+        url == "http://www.w3.org/2000/svg"
+        or url == PRODUCTION_ORIGIN
+        or url.startswith(f"{PRODUCTION_ORIGIN}{PRODUCTION_BASE}")
+        or url in GITHUB_NAVIGATION
     )
 
 

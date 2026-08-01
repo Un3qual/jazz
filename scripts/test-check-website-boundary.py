@@ -174,11 +174,26 @@ export default function Home(props: object) {
                 self.config.write_text(VALID_CONFIG.replace(old, new), encoding="utf-8")
                 self.assert_violation(f"website/docusaurus.config.ts: {message}")
 
-    def test_public_docs_forbid_mdx(self) -> None:
-        (self.root / "docs/guide/interactive.mdx").write_text("# MDX\n", encoding="utf-8")
-        self.assert_violation(
-            "docs/guide/interactive.mdx: public documentation must use plain .md files"
-        )
+    def test_public_docs_reject_every_non_markdown_regular_file(self) -> None:
+        for name in (
+            "interactive.mdx",
+            "redirect.html",
+            "metadata.json",
+            "notes.txt",
+            "diagram.svg",
+            "photo.png",
+            "README",
+        ):
+            with self.subTest(name=name):
+                path = self.root / "docs/guide" / name
+                path.write_bytes(b"fixture\n")
+                try:
+                    self.assert_violation(
+                        f"docs/guide/{name}: public docs regular files must use the .md "
+                        "extension; move site assets to website/static"
+                    )
+                finally:
+                    path.unlink()
 
     def test_public_doc_symlinks_must_stay_within_docs(self) -> None:
         outside = self.root / "private.md"
@@ -186,7 +201,11 @@ export default function Home(props: object) {
         (self.root / "docs/escape.md").symlink_to(outside)
         self.assert_violation("docs/escape.md: public documentation symlink escapes docs")
 
-    def test_public_doc_symlinks_may_point_within_docs(self) -> None:
+    def test_public_docs_allow_directories_markdown_and_contained_symlinks(self) -> None:
+        (self.root / "docs/nested/deeper").mkdir(parents=True)
+        (self.root / "docs/nested/deeper/page.md").write_text(
+            "# Nested page\n", encoding="utf-8"
+        )
         (self.root / "docs/guide-link.md").symlink_to(self.root / "docs/guide/page.md")
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -229,13 +248,17 @@ export default function Home(props: object) {
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_near_allowlist_remote_url_is_rejected(self) -> None:
-        (self.root / "website/src/pages/index.tsx").write_text(
-            "export const link = 'https://github.com/un3qual/jazzish';\n",
-            encoding="utf-8",
-        )
-        self.assert_violation(
-            "website/src/pages/index.tsx: remote authored reference is not allowlisted"
-        )
+        for url in (
+            "https://github.com/un3qual/jazzish",
+            "https://github.com/un3qual/jazz.",
+        ):
+            with self.subTest(url=url):
+                (self.root / "website/src/pages/index.tsx").write_text(
+                    f"export const link = '{url}';\n", encoding="utf-8"
+                )
+                self.assert_violation(
+                    "website/src/pages/index.tsx: remote authored reference is not allowlisted"
+                )
 
     def test_generated_output_forbids_internal_and_legacy_strings(self) -> None:
         build = self.root / "website/build"
