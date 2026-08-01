@@ -1,0 +1,115 @@
+# Releasing Jazz
+
+Jazz releases are explicit maintainer actions. The repository prepares and
+verifies alpha artifacts, but no workflow automatically creates a tag, GitHub
+release, package-registry upload, or other publication.
+
+## Versioning
+
+Pre-1.0 tags use `v0.<minor>.<patch>-alpha.<n>`, for example
+`v0.1.0-alpha.1`. The corresponding artifact version omits the leading `v`.
+Cabal requires a numeric package version, so update `version` in `jazz.cabal`
+to the numeric release line and record the alpha identifier in the tag,
+changelog, and release notes.
+
+For each candidate:
+
+1. Update `jazz.cabal` when the numeric package version changes.
+2. Promote relevant entries from `Unreleased` into the candidate section in
+   `CHANGELOG.md`; replace `Unreleased` with the release date only when the
+   release is published.
+3. Create or update `release-notes/<version>.md` with implemented behavior,
+   installation instructions, known limitations, and compatibility warnings.
+4. Update public status or installation documentation only when the candidate
+   changes those facts. The editor extension is separately versioned and must
+   not be advanced unless it is actually part of the release.
+
+## Build and verify locally
+
+Start from the intended release commit with a clean tracked and untracked tree.
+Use the pinned Nix environment and an alpha version without the tag prefix:
+
+```bash
+git status --short
+nix --extra-experimental-features 'nix-command flakes' develop
+JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
+python3 scripts/release/verify-artifacts.py artifacts/release/0.1.0-alpha.1
+```
+
+The build script runs the complete ordinary and extended verification tiers,
+package checks, the Nix build, documentation and website checks, and exact
+artifact validation. Benchmark timings are recorded as evidence; timing
+percentages do not determine pass or fail.
+
+A valid candidate directory contains exactly:
+
+```text
+jazz-<version>-source.tar.gz
+jazz-<version>-nix-<system>.tar.gz
+jazz-<version>-docs.tar.gz
+jazz-<version>-benchmark-evidence.tar.gz
+SHA256SUMS
+```
+
+Validate every archive against the generated checksums before publication:
+
+```bash
+cd artifacts/release/0.1.0-alpha.1
+shasum -a 256 -c SHA256SUMS
+```
+
+The source archive must exclude internal `.codex` state, dependency/build
+output, profiles, and benchmark results. The docs archive must contain the
+static site index. Extended evidence must contain normalized corpus output,
+deterministic profiles, benchmark metadata/results, and its SHA-256 manifest.
+
+## Verify in CI
+
+Run the **Release candidate** GitHub Actions workflow with the same version, or
+push the final annotated tag after the candidate has already passed manual
+review. The workflow builds and uploads verified candidate artifacts with
+read-only repository permissions; it does not publish them.
+
+Download the workflow artifact, confirm its version and source revision, run
+`scripts/release/verify-artifacts.py` against it, and verify its own
+`SHA256SUMS`. Compare archives byte-for-byte only when the system and all build
+inputs match. Publish one complete verified artifact set; do not combine local
+and CI archives under a single checksum file.
+
+## Publication checklist
+
+Before creating a public release:
+
+- confirm ordinary, extended, and release-candidate checks passed for the exact
+  commit;
+- review the changelog and release notes for unsupported claims;
+- verify every archive and checksum from a clean checkout;
+- confirm license, source, docs, and benchmark-evidence contents;
+- if the documentation website is part of the announcement, confirm the Pages
+  workflow succeeded for the same commit and that the published homepage,
+  getting-started guide, and language reference resolve; and
+- obtain an explicit maintainer publication decision.
+
+Only then create and push the annotated tag:
+
+```bash
+git tag -a v0.1.0-alpha.1 -m "Jazz 0.1.0-alpha.1"
+git push origin v0.1.0-alpha.1
+```
+
+Create the GitHub prerelease manually from that immutable tag, attach the exact
+verified archives and `SHA256SUMS`, and use the tracked release notes. Do not
+describe an alpha as stable or production-ready.
+
+## Abort or recover
+
+If any gate fails before publication, do not tag or publish. Remove the local
+candidate directory, fix the cause, and rebuild the entire candidate from a
+clean tree. Do not reuse partially generated archives or checksums.
+
+If a tag was pushed but no public release was created, stop and review the
+repository state before taking any destructive action. Never move or overwrite
+a published tag. If faulty artifacts were published, withdraw the affected
+assets or mark the prerelease as affected, document the problem, and prepare a
+new alpha; never silently replace an archive while retaining its filename or
+checksum.

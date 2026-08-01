@@ -1,0 +1,49 @@
+name: Language proposal
+description: Define a semantic problem before drafting a Jazz RFC.
+title: "proposal: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Language semantics are RFC-first. This form establishes the problem and design space; an accepted proposal is not implemented behavior.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or language-design problem needs to be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior
+      description: Describe current documented and implemented behavior with examples.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-semantics
+    attributes:
+      label: Proposed semantics
+      description: Define the observable syntax, typing, evaluation, and diagnostics precisely enough to review.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and migration
+      description: Identify source, runtime, standard-library, and diagnostic compatibility effects.
+    validations:
+      required: true
+  - type: textarea
+    id: implementation-impact
+    attributes:
+      label: Implementation and verification impact
+      description: Identify likely compiler, runtime, library, test, documentation, and performance-tier work.
+    validations:
+      required: true

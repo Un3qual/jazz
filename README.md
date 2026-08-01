@@ -102,8 +102,14 @@ presented as runnable language syntax.
 - [Status](docs/project/status.md) — see what is implemented, partial, and
   planned.
 - [Roadmap](docs/project/roadmap.md) — follow the major development horizons.
-- [Contribution guide](docs/project/contributing.md) — build, test, document, and
-  propose changes.
+- [Contributor orientation](docs/project/contributing.md) — understand how
+  changes move from proposal to implementation.
+- [Contributing](CONTRIBUTING.md) — use the complete setup, verification, and
+  pull-request guide.
+- [Security](SECURITY.md) — report vulnerabilities privately and review the
+  supported-version policy.
+- [Changelog](CHANGELOG.md) and [release process](RELEASING.md) — follow alpha
+  preparation without implying publication.
 - [Issue tracker](https://github.com/un3qual/jazz/issues) — report defects and
   discuss focused improvements.
 - [Website (available after merge and Pages enablement)](https://un3qual.github.io/jazz/)
@@ -112,7 +118,7 @@ presented as runnable language syntax.
 ## Contributing
 
 Contributions are welcome. Start with the
-[contribution guide](docs/project/contributing.md), keep behavior and tests in
+[canonical contribution guide](CONTRIBUTING.md), keep behavior and tests in
 the same change, and use the [issue tracker](https://github.com/un3qual/jazz/issues)
 to coordinate substantial work.
 

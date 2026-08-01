@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible compiler, runtime, CLI, or tooling defect.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Jazz. Search existing issues first. Report security-sensitive behavior through private vulnerability reporting instead.
+  - type: input
+    id: revision
+    attributes:
+      label: Version or revision
+      description: Provide an alpha version or commit SHA.
+      placeholder: 0.1.0-alpha.1 or abc1234
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and toolchain
+      description: Include operating system, architecture, GHC, Cabal, and Nix versions where relevant.
+      placeholder: macOS 15 arm64, GHC 9.14.1, cabal-install 3.x
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest Jazz source and exact command that reproduce the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include complete output, preserving diagnostic codes and locations.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Additional diagnostics
+      description: Add logs, runtime statistics, reduced fixtures, or other context. Remove secrets and personal data.

@@ -330,6 +330,7 @@ export default function Home(props: object) {
             "https://github.com/un3qual/jazz/issues",
             "https://github.com/un3qual/jazz/security/policy",
             "https://github.com/un3qual/jazz/blob/main/LICENSE",
+            "https://github.com/un3qual/jazz/blob/main/CONTRIBUTING.md",
         )
         (self.root / "website/src/pages/index.tsx").write_text(
             "\n".join(f"export const link{index} = '{url}';" for index, url in enumerate(allowed)),
@@ -506,6 +507,7 @@ export default function Home(props: object) {
             """\
 <link rel="canonical" href="https://un3qual.github.io/jazz/">
 <a href="https://github.com/un3qual/jazz">GitHub</a>
+<a href="https://github.com/un3qual/jazz/blob/main/CONTRIBUTING.md">Contributing</a>
 <link rel="stylesheet" href="/jazz/assets/styles.css">
 <img src="data:image/svg+xml;base64,PHN2Zy8+" alt="">
 """,

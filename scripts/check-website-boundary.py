@@ -26,6 +26,7 @@ GITHUB_NAVIGATION = {
     "https://github.com/un3qual/jazz/issues",
     "https://github.com/un3qual/jazz/security/policy",
     "https://github.com/un3qual/jazz/blob/main/LICENSE",
+    "https://github.com/un3qual/jazz/blob/main/CONTRIBUTING.md",
 }
 FORBIDDEN_REFERENCES = (
     ".codex",
