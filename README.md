@@ -100,8 +100,8 @@ presented as runnable language syntax.
   propose changes.
 - [Issue tracker](https://github.com/un3qual/jazz/issues) — report defects and
   discuss focused improvements.
-- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/) — the
-  documentation site will publish with the website workstream.
+- [Website](https://un3qual.github.io/jazz/) — read the published language,
+  standard-library, compiler, and project documentation.
 
 ## Contributing
 

@@ -120,7 +120,7 @@ def valid_readme(*, extra: str = "") -> str:
         "- [Roadmap](docs/project/roadmap.md)",
         "- [Contribution guide](docs/project/contributing.md)",
         "- [Issue tracker](https://github.com/un3qual/jazz/issues)",
-        "- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/)",
+        "- [Website](https://un3qual.github.io/jazz/)",
         "",
         "## Contributing",
         "",
@@ -168,6 +168,13 @@ class PublicDocsCheckerTests(unittest.TestCase):
             target = self.root / "docs" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(page(relative), encoding="utf-8")
+        (self.root / "docs/getting-started/overview.md").write_text(
+            page(
+                "Getting started",
+                "Read the [Jazz documentation site](https://un3qual.github.io/jazz/).\n",
+            ),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -316,6 +323,24 @@ class PublicDocsCheckerTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
+
+    def test_readme_requires_canonical_website_label(self) -> None:
+        readme = valid_readme().replace(
+            "[Website](https://un3qual.github.io/jazz/)",
+            "[Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/)",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation("README.md: website must use the canonical Website label")
+
+    def test_getting_started_requires_canonical_website_link(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page("Getting started", "Read the local language guide.\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing canonical website link"
+        )
 
     def test_readme_rejects_legacy_and_internal_terms(self) -> None:
         (self.root / "README.md").write_text(

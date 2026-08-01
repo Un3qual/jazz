@@ -35,6 +35,8 @@ README_TAGLINE = "A statically typed functional language with practical syntax"
 README_MATURITY_NOTICE = "Experimental / pre-1.0"
 README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
+PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
+README_WEBSITE_LINK = f"[Website]({PUBLIC_WEBSITE_URL})"
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
@@ -729,11 +731,10 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
                 f"README.md: missing required navigation link: {required_target}"
             )
     if (
-        "[Website (publishing with Workstream 3)]"
-        "(https://un3qual.github.io/jazz/)" not in text
+        README_WEBSITE_LINK not in text
     ):
         violations.append(
-            "README.md: website must be labeled as publishing with Workstream 3"
+            "README.md: website must use the canonical Website label"
         )
     if "[GPL-3.0-only](LICENSE)" not in text:
         violations.append("README.md: missing GPL-3.0-only license link")
@@ -868,6 +869,19 @@ def validate(root: Path) -> list[str]:
         if not resolves_within(resolved_required, canonical_docs_root):
             violations.append(
                 f"docs/{required_page}: required public page resolves outside docs/"
+            )
+
+    getting_started_path = docs_root / "getting-started/overview.md"
+    getting_started_text = doc_texts.get(getting_started_path)
+    if getting_started_text is not None:
+        getting_started_links = {
+            markdown_link_target(match.group(1))
+            for match in LINK_RE.finditer(getting_started_text)
+        }
+        getting_started_links.update(used_reference_targets(getting_started_text))
+        if PUBLIC_WEBSITE_URL not in getting_started_links:
+            violations.append(
+                "docs/getting-started/overview.md: missing canonical website link"
             )
 
     public_texts = {
