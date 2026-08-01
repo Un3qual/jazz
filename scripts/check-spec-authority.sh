@@ -57,7 +57,6 @@ authority_candidates="$({
     --glob '*.md' \
     --glob '!docs/plans/**' \
     --glob '!docs/superpowers/**' \
-    --glob '!docs/execution/done-archive.md' \
     -e "$authority_claim_pattern" \
     README.md docs || true
 })"

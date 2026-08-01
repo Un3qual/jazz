@@ -10,7 +10,7 @@ batch boundaries so the ideas are not lost before individual design specs and
 implementation plans are written.
 
 This file does not make an item ready for implementation. The live dispatcher
-remains [`docs/execution/queue.md`](execution/queue.md), and any implementation
+remains [`.codex/execution/queue.md`](../.codex/execution/queue.md), and any implementation
 batch must still receive its own accepted design, plan, target paths, and
 verification contract.
 

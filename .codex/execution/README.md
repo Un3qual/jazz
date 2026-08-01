@@ -6,15 +6,16 @@ This directory is the control surface for "what should the next executor do?" de
 
 - `queue.md`: canonical dispatch source of truth
 - `blocker-contracts.md`: bounded unblocker contracts for blocked rows
-- `done-archive.md`: historical closure evidence moved out of the dispatcher
 - `prompts/curated-next-batch.md`: use while the queue is curated by a human
 - `prompts/autonomous-next-batch.md`: use once enough queue entries are safe for automatic selection
 
-Keep using the rest of `docs/` for their existing roles:
+The surrounding repository keeps separate owners:
 
 - `docs/feature-status.md`: implementation/status truth
-- `docs/plans/*`: plan detail, execution receipts, design records
-- `docs/spec/*`: normative behavior and decision contracts
+- `.codex/plans/*`: active task plans and execution detail
+- `docs/spec/*`: transitional public language contracts
+
+Neither `.codex/execution/` nor `.codex/plans/` defines public language behavior.
 
 ## Queue Rules
 
@@ -25,8 +26,8 @@ Keep using the rest of `docs/` for their existing roles:
 5. Keep `Next Curation Target` to 1-3 candidates and refresh it in the same change that empties `Ready Now`. Leave it empty only when the current executor status explicitly says there is no source-backed next curation target and no named candidate currently.
 6. Every `Blocked` entry must name its blocker directly and have a matching section in `blocker-contracts.md`.
 7. Remove completed items from `Ready Now` immediately.
-8. Move completed-row evidence to `done-archive.md` during the same closeout pass that marks the item done; do not let `queue.md` become a changelog.
-9. Do not use a repo-wide `docs/plans/**` scan to choose work. If `Ready Now` and `Next Curation Target` are empty because the queue explicitly exhausts all source-backed candidates, stop after reporting that terminal state.
+8. Remove completed rows after their verified commit is recorded; do not let `queue.md` become a changelog or retain verification narratives.
+9. Do not use a repo-wide `.codex/plans/**` scan to choose work. If `Ready Now` and `Next Curation Target` are empty because the queue explicitly exhausts all source-backed candidates, stop after reporting that terminal state.
 10. When a queue entry points at an older historical plan, add a new active-path plan before doing new implementation work.
 11. Treat queue, plan, status, and spec updates as required follow-through for an implementation batch, not as a standalone successful batch while executable implementation work exists.
 12. Keep docs-only or coordination items out of `Ready Now` unless they are the smallest verified action that directly restores implementation flow.
@@ -173,10 +174,8 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path, even when they also list planned new child files.
 - `target_paths` never mixes the `-` placeholder with real paths.
 - `verification` never mixes the `-` placeholder with real commands.
-- `done-archive.md` exists before archived id checks are applied.
-- archived ids are unique within `done-archive.md`.
-- active queue rows and curation candidates do not reuse ids from `done-archive.md`.
-- `queue.md#Done` has no body rows; completed ids live in `done-archive.md`, and active `depends_on` values may reference those archived ids.
+- `queue.md#Done` has no body rows; completed rows are removed after closure.
+- active dependencies name live queue ids; completed dependencies are removed from open plan metadata during closeout.
 - `source_contract` anchors point to the matching `blocker-contracts.md` section.
 - a curation row's `candidate_child_id` matches the linked contract section's `Candidate child`.
 - `blocker-contracts.md` headings do not create duplicate markdown anchors.

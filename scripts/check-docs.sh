@@ -11,6 +11,14 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
+if [[ -x "scripts/check-public-docs.sh" ]]; then
+  if ! bash scripts/check-public-docs.sh; then
+    fail "scripts/check-public-docs.sh reported public documentation boundary violations"
+  fi
+else
+  fail "missing executable file: scripts/check-public-docs.sh"
+fi
+
 require_file() {
   local file="$1"
   [[ -f "$file" ]] || fail "missing required file: $file"
@@ -43,8 +51,7 @@ reject_pattern() {
 require_file "README.md"
 require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
-require_file "docs/execution/blocker-contracts.md"
-require_file "docs/execution/done-archive.md"
+require_file ".codex/execution/blocker-contracts.md"
 require_file "scripts/check_legacy_doc_claims.py"
 require_file "scripts/test_check_legacy_doc_claims.py"
 
@@ -58,8 +65,7 @@ require_pattern "docs/feature-status.md" "partial rubric label" '`Partially Impl
 require_pattern "docs/feature-status.md" "planned rubric label" '`Planned / Aspirational`'
 require_pattern "docs/feature-status.md" "maintenance checklist" '^## Maintenance Checklist'
 require_pattern "docs/feature-status.md" "reviewer checklist item" 'Does README status match docs/feature-status.md\?'
-require_pattern "docs/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
-require_pattern "docs/execution/done-archive.md" "done archive heading" '^# Execution Queue Done Archive'
+require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
 
 require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
 require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'
@@ -84,7 +90,7 @@ reject_pattern "active documentation must not link into deleted implementation t
 generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
 reject_pattern "active compiler sources must not reference JavaScript generation artifacts" "$generated_artifact_pattern" src jazz test
 reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
-  docs/execution/queue.md \
+  .codex/execution/queue.md \
   docs/spec/tooling/compiler-warning-flags.md
 if [[ -f "scripts/check-execution-queue.sh" ]]; then
   if ! bash scripts/check-execution-queue.sh; then

@@ -1,11 +1,11 @@
 # Blocker Unblocker Contracts
 
-This file turns `docs/execution/queue.md` blocked rows into promotion-ready
+This file turns `.codex/execution/queue.md` blocked rows into promotion-ready
 handoffs. Use it before opening old plan history.
 
 When `Ready Now` is empty:
 
-1. Read `docs/execution/queue.md`.
+1. Read `.codex/execution/queue.md`.
 2. Use the ordered `Next Curation Target` candidates in that file. If that
    table is empty and the current executor status explicitly says there is no
    source-backed next curation target and no named candidate currently, stop

@@ -12,6 +12,8 @@ Make sure you commit along the way as needed.
 
 ## Execution Rules
 
+- Dispatch work from `.codex/execution/queue.md` and keep active implementation plans under `.codex/plans/`.
+- Treat `.codex/execution/` and `.codex/plans/` as internal project state; neither location defines public language behavior.
 - Implement compiler behavior, APIs, runtime, parser, analyzer, and code generation in the active root paths only.
 - Point implementation documentation to root paths such as `src/Jazz/`, `jazz/`, `app/`, and `test/Jazz/`.
 - Treat `docs/spec/` as the transitional public language contract until the documentation reset establishes `docs/language/` and `docs/reference/`.
