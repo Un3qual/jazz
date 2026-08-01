@@ -401,6 +401,111 @@ export default actual;
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_published_docs_check_html_targets_against_the_docs_boundary(self) -> None:
+        internal = self.root / ".codex/execution"
+        internal.mkdir(parents=True)
+        (internal / "queue.md").write_text("Internal.\n", encoding="utf-8")
+        os.symlink(internal / "queue.md", self.root / "docs/escaped.md")
+        (self.root / "docs/index.mdx").write_text(
+            """\
+<a href="../.codex/execution/queue.md">Internal</a>
+<a href="missing.md">Missing page</a>
+<img src="missing.svg" alt="Missing asset" />
+<img src=missing-unquoted.svg alt="Missing unquoted asset">
+<img src={'missing-expression.svg'} alt="Missing expression asset" />
+<img src="escaped.md" alt="Escaped symlink" />
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertIn(
+            "docs/index.mdx: local HTML link escapes published docs: ../.codex/execution/queue.md",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local HTML link does not exist: missing.md",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local HTML asset does not exist: missing.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local HTML asset does not exist: missing-unquoted.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local HTML asset does not exist: missing-expression.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local HTML asset escapes published docs: escaped.md",
+            result.stdout,
+        )
+
+    def test_published_mdx_checks_static_imports_against_the_docs_boundary(self) -> None:
+        internal = self.root / ".codex/execution"
+        internal.mkdir(parents=True)
+        (internal / "secret.svg").write_text("internal\n", encoding="utf-8")
+        (self.root / "outside.svg").write_text("outside\n", encoding="utf-8")
+        os.symlink(internal / "secret.svg", self.root / "docs/escaped.svg")
+        (self.root / "docs/index.mdx").write_text(
+            """\
+import Missing from './missing.svg';
+import Internal from '../.codex/execution/secret.svg';
+import Escaped from './escaped.svg';
+import SiteAlias from '@site/../outside.svg';
+import FileUrl from 'file:///tmp/private.svg';
+
+# Public docs
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertIn(
+            "docs/index.mdx: local MDX import does not exist: ./missing.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import escapes published docs: ../.codex/execution/secret.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import escapes published docs: ./escaped.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: local MDX import escapes published docs: @site/../outside.svg",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: remote authored URL is not allowed",
+            result.stdout,
+        )
+
+    def test_published_docs_preserve_anchors_routes_and_existing_html_or_mdx_targets(self) -> None:
+        (self.root / "docs/guide.md").write_text("# Guide\n", encoding="utf-8")
+        image = self.root / "docs/img/mark.svg"
+        image.parent.mkdir()
+        image.write_text('<svg xmlns="http://www.w3.org/2000/svg" />\n', encoding="utf-8")
+        (self.root / "docs/index.mdx").write_text(
+            """\
+import mark from './img/mark.svg';
+import Tabs from '@theme/Tabs';
+
+<a href="#local-heading">Anchor</a>
+<a href="guide.md?mode=short#guide">Existing guide</a>
+<a href="/docs/language/overview?mode=full#syntax">Published route</a>
+<img src="img/mark.svg?raw=1#mark" alt="Local mark" />
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_internal_trees_are_not_scanned_as_published_docs(self) -> None:
         for relative_path in (".codex/private.md", "rfcs/accepted/private.md"):
             path = self.root / relative_path
@@ -541,6 +646,92 @@ export default function Home() {
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_exact_production_site_navigation_is_allowed(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import Link from '@docusaurus/Link';
+export default function Home() {
+  return (
+    <>
+      <Link to="https://un3qual.github.io/jazz/">Production site</Link>
+      <a href="https://un3qual.github.io/jazz/docs/language/overview?mode=full#syntax">
+        Language guide
+      </a>
+      <a href=https://un3qual.github.io/jazz/docs/project/status>Unquoted status</a>
+      <a href={'https://un3qual.github.io/jazz/docs/reference/cli#run'}>
+        Expression CLI reference
+      </a>
+    </>
+  );
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            """\
+[Production](https://un3qual.github.io/jazz/)
+<a href="https://un3qual.github.io/jazz/docs/project/status?view=current#status">Status</a>
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_production_site_navigation_requires_the_exact_base_route(self) -> None:
+        for url in (
+            "https://un3qual.github.io/jazz",
+            "https://un3qual.github.io/jazz-lookalike",
+            "https://un3qual.github.io.evil.example/jazz/",
+            "https://un3qual.github.io/jazz/%2e%2e/private",
+            r"https://un3qual.github.io/jazz/\..\private",
+            "https://un3qual.github.io/private",
+        ):
+            with self.subTest(url=url):
+                (self.root / "website/src/pages/index.tsx").write_text(
+                    f'<a href="{url}">Production site</a>\n',
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/src/pages/index.tsx: remote authored URL is not allowed"
+                )
+
+    def test_production_site_urls_are_rejected_in_asset_and_import_contexts(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            "background: url('https://un3qual.github.io/jazz/img/mark.svg');\n",
+            encoding="utf-8",
+        )
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import mark from 'https://un3qual.github.io/jazz/img/mark.svg';
+export default function Home() {
+  return <img src="https://un3qual.github.io/jazz/img/mark.svg" alt="" />;
+}
+""",
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.mdx").write_text(
+            """\
+import mark from 'https://un3qual.github.io/jazz/img/mark.svg';
+![Remote](https://un3qual.github.io/jazz/img/mark.svg)
+""",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/css/custom.css: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/pages/index.tsx: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "docs/index.mdx: remote authored URL is not allowed",
+            result.stdout,
+        )
 
     def test_lowercase_link_resource_is_not_github_navigation(self) -> None:
         (self.root / "website/src/pages/index.tsx").write_text(

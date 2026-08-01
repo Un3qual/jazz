@@ -70,10 +70,26 @@ SHORTCUT_REFERENCE_USAGE_RE = re.compile(
     r"(?P<image>!)?\[(?P<label>[^\]]+)\](?![\[(])"
 )
 MARKDOWN_AUTOLINK_RE = re.compile(r"<(?P<url>https?://[^>\s]+)>", re.IGNORECASE)
-MARKUP_NAVIGATION_RE = re.compile(
-    r"<(?:Link|a)\b[^>]*?\b(?:to|href)\s*=\s*"
-    r"(?P<quote>['\"])(?P<url>https?://[^'\"]+)(?P=quote)",
+HTML_ELEMENT_RE = re.compile(
+    r"<(?P<tag>[A-Za-z][A-Za-z0-9.:_-]*)\b(?P<attributes>[^>]*)>",
     re.DOTALL,
+)
+HTML_TARGET_ATTRIBUTE_RE = re.compile(
+    r"\b(?P<attribute>src|href|to)\s*=\s*"
+    r"(?:"
+    r"(?P<quote>['\"])(?P<quoted_url>[^'\"]+)(?P=quote)"
+    r"|\{\s*(?P<expression_quote>['\"])(?P<expression_url>[^'\"]+)"
+    r"(?P=expression_quote)\s*\}"
+    r"|(?P<bare_url>[^\s\"'=<>`{}]+)"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
+STATIC_MDX_IMPORT_RE = re.compile(
+    r"^[ \t]*import\b"
+    r"(?:[ \t\r\n]+(?:(?!;)[\s\S])*?\bfrom)?"
+    r"[ \t\r\n]*(?P<quote>['\"])(?P<url>[^'\"\r\n]+)(?P=quote)"
+    r"[ \t]*;?",
+    re.MULTILINE,
 )
 PROTOCOL_RELATIVE_CSS_RE = re.compile(
     r"(?:url\s*\(\s*|@import\s+)(?:['\"])?(?P<url>//[^\s\"')]+)",
@@ -235,6 +251,7 @@ class MarkdownTarget:
     is_asset: bool
     start: int
     end: int
+    context: str = "Markdown"
 
 
 def normalize_reference_label(label: str) -> str:
@@ -300,6 +317,56 @@ def markdown_targets(source: str) -> list[MarkdownTarget]:
                 )
             )
     return sorted(targets, key=lambda target: (target.start, target.end, target.target))
+
+
+def html_targets(source: str) -> list[MarkdownTarget]:
+    targets: list[MarkdownTarget] = []
+    for element in HTML_ELEMENT_RE.finditer(source):
+        tag = element.group("tag")
+        attributes = element.group("attributes")
+        attributes_start = element.start("attributes")
+        for attribute in HTML_TARGET_ATTRIBUTE_RE.finditer(attributes):
+            name = attribute.group("attribute").casefold()
+            url_group = next(
+                group
+                for group in ("quoted_url", "expression_url", "bare_url")
+                if attribute.group(group) is not None
+            )
+            is_navigation = (
+                tag.casefold() == "a" and name == "href"
+            ) or (
+                tag == "Link" and name in {"href", "to"}
+            )
+            targets.append(
+                MarkdownTarget(
+                    target=attribute.group(url_group),
+                    is_asset=not is_navigation,
+                    start=attributes_start + attribute.start(url_group),
+                    end=attributes_start + attribute.end(url_group),
+                    context="HTML",
+                )
+            )
+    return targets
+
+
+def published_document_targets(source: str, suffix: str) -> list[MarkdownTarget]:
+    targets = markdown_targets(source)
+    targets.extend(html_targets(source))
+    if suffix == ".mdx":
+        for match in STATIC_MDX_IMPORT_RE.finditer(source):
+            targets.append(
+                MarkdownTarget(
+                    target=match.group("url"),
+                    is_asset=True,
+                    start=match.start("url"),
+                    end=match.end("url"),
+                    context="MDX import",
+                )
+            )
+    return sorted(
+        targets,
+        key=lambda target: (target.start, target.end, target.target, target.context),
+    )
 
 
 def delimited_body(
@@ -563,27 +630,51 @@ def object_property_body(source: str, property_name: str) -> str | None:
     return container_expression_body(expressions[0], "{", "}")
 
 
-def is_github_repository_navigation(url: str) -> bool:
+def is_exact_https_navigation_path(
+    url: str,
+    host: str,
+    path_root: str,
+    *,
+    include_root_without_slash: bool,
+) -> bool:
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.netloc.casefold() != "github.com":
+    if parsed.scheme != "https" or parsed.netloc.casefold() != host:
         return False
     path = parsed.path
-    if unquote(path) != path:
+    if unquote(path) != path or "\\" in path:
         return False
     if any(segment in {".", ".."} for segment in path.split("/")):
         return False
-    return path == "/un3qual/jazz" or path.startswith("/un3qual/jazz/")
+    root_without_slash = path_root.rstrip("/")
+    return (
+        (include_root_without_slash and path == root_without_slash)
+        or path == path_root
+        or path.startswith(path_root)
+    )
+
+
+def is_allowed_navigation(url: str) -> bool:
+    return is_exact_https_navigation_path(
+        url,
+        "github.com",
+        "/un3qual/jazz/",
+        include_root_without_slash=True,
+    ) or is_exact_https_navigation_path(
+        url,
+        "un3qual.github.io",
+        "/jazz/",
+        include_root_without_slash=False,
+    )
 
 
 def navigation_url_spans(text: str, suffix: str) -> set[tuple[int, int]]:
     spans: set[tuple[int, int]] = set()
-    for match in MARKUP_NAVIGATION_RE.finditer(text):
-        url = match.group("url")
-        if is_github_repository_navigation(url):
-            spans.add(match.span("url"))
+    for target in html_targets(text):
+        if not target.is_asset and is_allowed_navigation(target.target):
+            spans.add((target.start, target.end))
     if suffix in {".md", ".mdx"}:
         for target in markdown_targets(text):
-            if not target.is_asset and is_github_repository_navigation(target.target):
+            if not target.is_asset and is_allowed_navigation(target.target):
                 spans.add((target.start, target.end))
     return spans
 
@@ -786,6 +877,16 @@ def check_local_markdown_target(
 ) -> None:
     raw_target = target.target.strip()
     parsed = urlsplit(raw_target)
+    is_site_alias = target.context == "MDX import" and raw_target.startswith(
+        "@site/"
+    )
+    if (
+        target.context == "MDX import"
+        and not raw_target.startswith((".", "/"))
+        and not is_site_alias
+        and not (parsed.scheme or parsed.netloc)
+    ):
+        return
     if raw_target.startswith("//") or parsed.scheme in {"http", "https"}:
         return
     if parsed.scheme or parsed.netloc:
@@ -797,30 +898,44 @@ def check_local_markdown_target(
     path_text = unquote(parsed.path)
     page_label = relative(root, page)
     absolute_target = path_text.startswith("/")
-    if absolute_target:
-        if not target.is_asset:
-            if path_text == "/" or path_text.startswith("/docs/"):
+    if is_site_alias:
+        candidate = root / "website" / path_text.removeprefix("@site/")
+        containment_root = docs_root.resolve()
+    elif absolute_target:
+        if target.context == "MDX import":
+            candidate = docs_root / path_text.lstrip("/")
+            containment_root = docs_root.resolve()
+        elif not target.is_asset:
+            if path_text in {"/", "/docs"} or path_text.startswith("/docs/"):
                 return
             violations.append(
                 f"{page_label}: local Markdown target is outside published routes: {raw_target}"
             )
             return
-        candidate = root / "website/static" / path_text.lstrip("/")
+        else:
+            candidate = root / "website/static" / path_text.lstrip("/")
+            containment_root = (root / "website/static").resolve()
     else:
         candidate = page.parent / path_text
+        containment_root = docs_root.resolve()
 
-    resolved_docs = docs_root.resolve()
     resolved_candidate = candidate.resolve()
-    containment_root = (root / "website/static").resolve() if absolute_target else resolved_docs
+    target_description = (
+        target.context
+        if target.context == "MDX import"
+        else f"{target.context} {'asset' if target.is_asset else 'link'}"
+    )
     if not resolved_candidate.is_relative_to(containment_root):
+        escape_description = (
+            "Markdown target" if target.context == "Markdown" else target_description
+        )
         violations.append(
-            f"{page_label}: local Markdown target escapes published docs: {raw_target}"
+            f"{page_label}: local {escape_description} escapes published docs: {raw_target}"
         )
         return
     if not resolved_candidate.is_file():
-        kind = "asset" if target.is_asset else "link"
         violations.append(
-            f"{page_label}: local Markdown {kind} does not exist: {raw_target}"
+            f"{page_label}: local {target_description} does not exist: {raw_target}"
         )
 
 
@@ -875,7 +990,7 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
         suffix = page.suffix.casefold()
         if has_forbidden_remote_url(authored, suffix):
             violations.append(f"{page_label}: remote authored URL is not allowed")
-        for target in markdown_targets(authored):
+        for target in published_document_targets(authored, suffix):
             check_local_markdown_target(
                 root,
                 docs_root,
