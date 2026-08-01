@@ -265,6 +265,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: missing required tagline", result.stdout)
         self.assertIn("README.md: missing required maturity notice", result.stdout)
 
+    def test_readme_rejects_embellished_tagline(self) -> None:
+        readme = valid_readme().replace(
+            "A statically typed functional language with practical syntax",
+            "**A statically typed functional language with practical syntax**",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation("README.md: missing required tagline")
+
     def test_readme_requires_local_logo_without_raw_query(self) -> None:
         readme = valid_readme().replace(
             './jazz_logo.png',
@@ -325,6 +333,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
             valid_readme().replace("## Available today", "Available now"),
             encoding="utf-8",
         )
+        self.assert_violation(
+            "README.md: missing required section: ## Available today"
+        )
+
+    def test_readme_rejects_section_heading_mentioned_inline(self) -> None:
+        readme = valid_readme().replace(
+            "## Available today",
+            "The required heading would be `## Available today`.",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
         self.assert_violation(
             "README.md: missing required section: ## Available today"
         )

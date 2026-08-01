@@ -69,6 +69,14 @@ README_BANNED_TERMS = (
     "monad is just",
     "### Story",
 )
+README_REQUIRED_SECTIONS = (
+    "## Quick start",
+    "## Available today",
+    "## In development",
+    "## Documentation",
+    "## Contributing",
+    "## License",
+)
 README_ORDERED_TOKENS = (
     "jazz_logo.png",
     README_TAGLINE,
@@ -654,6 +662,14 @@ def validate_jazz_fences(
 
 
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
+    lines_with_endings = text.splitlines(keepends=True)
+    exact_line_positions: dict[str, int] = {}
+    offset = 0
+    for line_with_ending in lines_with_endings:
+        line = line_with_ending.rstrip("\r\n")
+        exact_line_positions.setdefault(line, offset)
+        offset += len(line_with_ending)
+
     line_count = len(text.splitlines())
     if not 100 <= line_count <= 150:
         violations.append(
@@ -661,7 +677,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             f"(found {line_count})"
         )
 
-    if README_TAGLINE not in text:
+    if README_TAGLINE not in exact_line_positions:
         violations.append("README.md: missing required tagline")
     if README_MATURITY_NOTICE not in text:
         violations.append("README.md: missing required maturity notice")
@@ -721,15 +737,8 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if "[GPL-3.0-only](LICENSE)" not in text:
         violations.append("README.md: missing GPL-3.0-only license link")
 
-    for section in (
-        "## Quick start",
-        "## Available today",
-        "## In development",
-        "## Documentation",
-        "## Contributing",
-        "## License",
-    ):
-        if section not in text:
+    for section in README_REQUIRED_SECTIONS:
+        if section not in exact_line_positions:
             violations.append(f"README.md: missing required section: {section}")
 
     for banned in README_BANNED_TERMS:
@@ -738,7 +747,10 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
 
     positions: list[int] = []
     for token in README_ORDERED_TOKENS:
-        position = text.find(token)
+        if token == README_TAGLINE or token in README_REQUIRED_SECTIONS:
+            position = exact_line_positions.get(token, -1)
+        else:
+            position = text.find(token)
         if position < 0:
             break
         positions.append(position)
