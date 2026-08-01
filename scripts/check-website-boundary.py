@@ -7,35 +7,26 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
 CONFIG_PATH = "website/docusaurus.config.ts"
 IGNORED_DIRECTORIES = {"node_modules", "build", ".docusaurus"}
-TEXT_SOURCE_SUFFIXES = {
+AUTHORED_SITE_SUFFIXES = {
     ".css",
-    ".html",
+    ".cjs",
     ".js",
     ".jsx",
-    ".json",
     ".md",
     ".mdx",
     ".mjs",
-    ".scss",
-    ".svg",
     ".ts",
     ".tsx",
-    ".txt",
 }
-AUTHORED_URL_SUFFIXES = {
-    ".css",
-    ".js",
-    ".jsx",
-    ".md",
-    ".mdx",
-    ".scss",
-    ".tsx",
+TEXT_SOURCE_SUFFIXES = AUTHORED_SITE_SUFFIXES | {
+    ".html", ".json", ".scss", ".svg", ".txt"
 }
 FORBIDDEN_SOURCE_REFERENCES = (
     ".codex",
@@ -72,42 +63,37 @@ SHORTCUT_REFERENCE_USAGE_RE = re.compile(
 MARKDOWN_AUTOLINK_RE = re.compile(
     r"<(?P<url>[A-Za-z][A-Za-z0-9+.-]*:[^>\s]+)>"
 )
-HTML_TARGET_ATTRIBUTE_RE = re.compile(
-    r"\b(?P<attribute>src|href|to)\s*=\s*"
-    r"(?:"
-    r"\"(?P<double_quoted_url>(?:\\.|[^\"\\])+)\""
-    r"|'(?P<single_quoted_url>(?:\\.|[^'\\])+)'"
-    r"|\{\s*\"(?P<double_expression_url>(?:\\.|[^\"\\])+)\"\s*\}"
-    r"|\{\s*'(?P<single_expression_url>(?:\\.|[^'\\])+)'\s*\}"
-    r"|(?P<bare_url>[^\s\"'=<>`{}]+)"
-    r")",
+RESOURCE_ATTRIBUTE_RE = re.compile(
+    r"\b(?P<attribute>src|href|to|poster|srcSet)\s*=\s*(?:"
+    r"\"(?P<double>(?:\\.|[^\"\\])*)\""
+    r"|'(?P<single>(?:\\.|[^'\\])*)'"
+    r"|\{\s*\"(?P<double_expression>(?:\\.|[^\"\\])*)\"\s*\}"
+    r"|\{\s*'(?P<single_expression>(?:\\.|[^'\\])*)'\s*\}"
+    r"|(?P<bare>[^\s\"'=<>`{}]+))",
     re.IGNORECASE | re.DOTALL,
 )
-STATIC_MDX_IMPORT_RE = re.compile(
+STATIC_IMPORT_RE = re.compile(
     r"^[ \t]*import\b"
     r"(?:[ \t\r\n]+(?:(?!;)[\s\S])*?\bfrom)?"
-    r"[ \t\r\n]*(?P<quote>['\"])(?P<url>[^'\"\r\n]+)(?P=quote)"
+    r"[ \t\r\n]*(?:"
+    r"\"(?P<double_url>(?:\\.|[^\"\\\r\n])+)\""
+    r"|'(?P<single_url>(?:\\.|[^'\\\r\n])+)'"
+    r")"
     r"[ \t]*;?",
     re.MULTILINE,
 )
 DYNAMIC_IMPORT_RE = re.compile(
-    r"\bimport\s*\(\s*(?P<quote>['\"])(?P<url>[^'\"\r\n]+)(?P=quote)\s*\)",
+    r"\bimport\s*\(\s*(?:"
+    r"\"(?P<double_url>(?:\\.|[^\"\\\r\n])+)\""
+    r"|'(?P<single_url>(?:\\.|[^'\\\r\n])+)'"
+    r")\s*\)",
     re.MULTILINE,
 )
-CSS_URL_RE = re.compile(
-    r"\burl\s*\(\s*(?:"
-    r"(?P<quote>['\"])(?P<quoted_url>[^'\"]+)(?P=quote)"
-    r"|(?P<bare_url>[^\s\"')]+)"
-    r")\s*\)",
-    re.IGNORECASE,
-)
-CSS_IMPORT_RE = re.compile(
-    r"@import\s+(?!url\s*\()"
-    r"(?:"
-    r"(?P<quote>['\"])(?P<quoted_url>[^'\"]+)(?P=quote)"
-    r"|(?P<bare_url>[^\s\"';]+)"
-    r")",
-    re.IGNORECASE,
+STRING_LITERAL_RE = re.compile(
+    r'"(?P<double>(?:\\.|[^"\\])*)"|'
+    r"'(?P<single>(?:\\.|[^'\\])*)'|"
+    r"`(?P<template>(?:\\.|[^`\\])*)`",
+    re.DOTALL,
 )
 
 
@@ -167,7 +153,7 @@ def mask_markdown_noncontent(source: str) -> str:
     return "".join(characters)
 
 
-def strip_css_comments(source: str) -> str:
+def strip_comments(source: str, *, line_comments: bool = False) -> str:
     characters = list(source)
     quote: str | None = None
     escaped = False
@@ -184,9 +170,21 @@ def strip_css_comments(source: str) -> str:
                 quote = None
             index += 1
             continue
-        if char in {"'", '"'}:
+        if char in {"'", '"', "`"}:
             quote = char
             index += 1
+            continue
+        if (
+            line_comments
+            and char == "/"
+            and following == "/"
+            and (index == 0 or source[index - 1] != ":")
+        ):
+            end = index + 2
+            while end < len(source) and source[end] not in "\r\n":
+                end += 1
+            mask_range(characters, index, end)
+            index = end
             continue
         if char == "/" and following == "*":
             end = source.find("*/", index + 2)
@@ -196,58 +194,6 @@ def strip_css_comments(source: str) -> str:
             continue
         index += 1
     return "".join(characters)
-
-
-def strip_javascript_comments(source: str) -> str:
-    """Remove JavaScript comments without treating comment markers in strings as syntax."""
-
-    result: list[str] = []
-    index = 0
-    quote: str | None = None
-    escaped = False
-    while index < len(source):
-        char = source[index]
-        following = source[index + 1] if index + 1 < len(source) else ""
-        if quote is not None:
-            result.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"', "`"}:
-            quote = char
-            result.append(char)
-            index += 1
-            continue
-        if (
-            char == "/"
-            and following == "/"
-            and (index == 0 or source[index - 1] != ":")
-        ):
-            result.extend("  ")
-            index += 2
-            while index < len(source) and source[index] not in "\r\n":
-                result.append(" ")
-                index += 1
-            continue
-        if char == "/" and following == "*":
-            result.extend("  ")
-            index += 2
-            while index < len(source):
-                if source[index] == "*" and index + 1 < len(source) and source[index + 1] == "/":
-                    result.extend("  ")
-                    index += 2
-                    break
-                result.append("\n" if source[index] == "\n" else " ")
-                index += 1
-            continue
-        result.append(char)
-        index += 1
-    return "".join(result)
 
 
 @dataclass(frozen=True)
@@ -324,35 +270,64 @@ def markdown_targets(source: str) -> list[MarkdownTarget]:
     return sorted(targets, key=lambda target: (target.start, target.end, target.target))
 
 
+def quoted_value(source: str, opening: int) -> tuple[str, int, int] | None:
+    """Read one quote-delimited value, preserving escapes for validation."""
+
+    quote = source[opening]
+    cursor = opening + 1
+    while cursor < len(source):
+        if source[cursor] == "\\":
+            cursor += 2
+            continue
+        if source[cursor] == quote:
+            return source[opening + 1 : cursor], opening + 1, cursor
+        cursor += 1
+    return None
+
+
+def srcset_targets(value: str) -> list[str]:
+    """Return URL tokens from a literal srcSet value."""
+
+    decoded = unescape(value).strip()
+    if decoded.startswith("//") or urlsplit(decoded).scheme:
+        return [value]
+    return [
+        candidate.strip().split(maxsplit=1)[0]
+        for candidate in value.split(",")
+        if candidate.strip()
+    ]
+
+
 def html_targets(source: str) -> list[MarkdownTarget]:
     targets: list[MarkdownTarget] = []
     for tag, attributes, attributes_start in html_elements(source):
-        for attribute in HTML_TARGET_ATTRIBUTE_RE.finditer(attributes):
-            name = attribute.group("attribute").casefold()
-            url_group = next(
-                group
-                for group in (
-                    "double_quoted_url",
-                    "single_quoted_url",
-                    "double_expression_url",
-                    "single_expression_url",
-                    "bare_url",
+        for attribute in RESOURCE_ATTRIBUTE_RE.finditer(attributes):
+            name = attribute.group("attribute")
+            group = next(
+                group_name
+                for group_name in (
+                    "double",
+                    "single",
+                    "double_expression",
+                    "single_expression",
+                    "bare",
                 )
-                if attribute.group(group) is not None
+                if attribute.group(group_name) is not None
             )
-            is_navigation = (
-                tag.casefold() == "a" and name == "href"
-            ) or (
-                tag == "Link" and name in {"href", "to"}
+            value = attribute.group(group)
+            is_navigation = (tag.casefold() == "a" and name.casefold() == "href") or (
+                tag == "Link" and name.casefold() in {"href", "to"}
             )
-            targets.append(
+            values = srcset_targets(value) if name.casefold() == "srcset" else [value]
+            targets.extend(
                 MarkdownTarget(
-                    target=attribute.group(url_group),
+                    target=target,
                     is_asset=not is_navigation,
-                    start=attributes_start + attribute.start(url_group),
-                    end=attributes_start + attribute.end(url_group),
+                    start=attributes_start + attribute.start(group),
+                    end=attributes_start + attribute.end(group),
                     context="HTML",
                 )
+                for target in values
             )
     return targets
 
@@ -404,62 +379,99 @@ def html_elements(source: str) -> list[tuple[str, str, int]]:
 
 
 def css_resource_targets(source: str) -> list[str]:
+    """Scan CSS url() and @import literals with quote/escape awareness."""
+
     targets: list[str] = []
-    for pattern in (CSS_URL_RE, CSS_IMPORT_RE):
-        for match in pattern.finditer(source):
-            group = (
-                "quoted_url"
-                if match.group("quoted_url") is not None
-                else "bare_url"
-            )
-            targets.append(match.group(group))
+    cursor = 0
+    while cursor < len(source):
+        token = re.search(r"(?i)(?<![-\w])url\s*\(|@import\b", source[cursor:])
+        if token is None:
+            break
+        start = cursor + token.start()
+        cursor += token.end()
+        is_url = source[start:cursor].lstrip().casefold().startswith("url")
+        while cursor < len(source) and source[cursor].isspace():
+            cursor += 1
+        if not is_url and source[cursor : cursor + 3].casefold() == "url":
+            continue
+        if cursor >= len(source):
+            break
+        if source[cursor] in {'"', "'"}:
+            result = quoted_value(source, cursor)
+            if result is None:
+                break
+            value, _, end = result
+            targets.append(value)
+            cursor = end + 1
+            continue
+        if not is_url:
+            start = cursor
+            while cursor < len(source) and source[cursor] not in ";\r\n\t ":
+                cursor += 1
+            if cursor > start:
+                targets.append(source[start:cursor])
+            continue
+        start = cursor
+        escaped = False
+        while cursor < len(source):
+            char = source[cursor]
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == ")" or char.isspace():
+                break
+            cursor += 1
+        if cursor > start:
+            targets.append(source[start:cursor])
     return targets
 
 
+def import_occurrences(source: str) -> list[tuple[str, int, int]]:
+    occurrences: list[tuple[str, int, int]] = []
+    for pattern in (STATIC_IMPORT_RE, DYNAMIC_IMPORT_RE):
+        for match in pattern.finditer(source):
+            group = "double_url" if match.group("double_url") else "single_url"
+            occurrences.append((match.group(group), *match.span(group)))
+    return occurrences
+
+
 def imported_targets(source: str) -> list[str]:
-    return [
-        match.group("url")
-        for pattern in (STATIC_MDX_IMPORT_RE, DYNAMIC_IMPORT_RE)
-        for match in pattern.finditer(source)
-    ]
+    return [value for value, _, _ in import_occurrences(source)]
+
+
+def config_literal_targets(source: str) -> list[MarkdownTarget]:
+    import_spans = {(start, end) for _, start, end in import_occurrences(source)}
+    targets: list[MarkdownTarget] = []
+    for match in STRING_LITERAL_RE.finditer(source):
+        group = next(name for name in ("double", "single", "template") if match.group(name) is not None)
+        value = match.group(group)
+        prefix = source[: match.start()]
+        if value == "https://un3qual.github.io" and re.search(r"\burl\s*:\s*$", prefix):
+            continue
+        is_navigation = bool(re.search(r"\b(?:href|to)\s*:\s*$", prefix))
+        context = "import" if match.span(group) in import_spans else "config"
+        targets.append(
+            MarkdownTarget(value, not is_navigation, *match.span(group), context)
+        )
+    return targets
 
 
 def contextual_authored_targets(source: str, suffix: str) -> list[MarkdownTarget]:
-    targets: list[MarkdownTarget] = []
-    if suffix in {".css", ".js", ".jsx", ".scss", ".tsx"}:
-        targets.extend(
-            MarkdownTarget(url, True, -1, -1, "CSS")
-            for url in css_resource_targets(source)
-        )
-    if suffix in {".js", ".jsx", ".tsx"}:
-        targets.extend(html_targets(source))
+    targets = [
+        MarkdownTarget(url, True, -1, -1, "CSS")
+        for url in css_resource_targets(source)
+    ]
+    if suffix in {".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx", ".mdx"}:
         targets.extend(
             MarkdownTarget(url, True, -1, -1, "import")
             for url in imported_targets(source)
         )
     if suffix in {".md", ".mdx"}:
-        targets.extend(published_document_targets(source, suffix))
+        targets.extend(markdown_targets(source))
+    if suffix != ".css":
+        targets.extend(html_targets(source))
     return targets
-
-
-def published_document_targets(source: str, suffix: str) -> list[MarkdownTarget]:
-    targets = markdown_targets(source)
-    targets.extend(html_targets(source))
-    if suffix == ".mdx":
-        for match in STATIC_MDX_IMPORT_RE.finditer(source):
-            targets.append(
-                MarkdownTarget(
-                    target=match.group("url"),
-                    is_asset=True,
-                    start=match.start("url"),
-                    end=match.end("url"),
-                    context="MDX import",
-                )
-            )
-    return sorted(
-        targets,
-        key=lambda target: (target.start, target.end, target.target, target.context),
-    )
 
 
 def delimited_body(
@@ -760,31 +772,56 @@ def is_allowed_navigation(url: str) -> bool:
     )
 
 
-def navigation_url_spans(text: str, suffix: str) -> set[tuple[int, int]]:
-    spans: set[tuple[int, int]] = set()
-    for target in html_targets(text):
-        if not target.is_asset and is_allowed_navigation(target.target):
-            spans.add((target.start, target.end))
-    if suffix in {".md", ".mdx"}:
-        for target in markdown_targets(text):
-            if not target.is_asset and is_allowed_navigation(target.target):
-                spans.add((target.start, target.end))
-    return spans
+def target_violation(
+    target: MarkdownTarget,
+    *,
+    site_source: bool,
+    root: Path | None = None,
+) -> str | None:
+    raw_target = target.target.strip()
+    decoded = unescape(raw_target)
+    percent_decoded = unquote(decoded)
+    if "\\" in raw_target or "\\" in decoded or "\\" in percent_decoded:
+        return f"local target contains a backslash: {raw_target}"
+
+    if decoded.startswith("@site/"):
+        if not site_source or target.context != "import":
+            return f"@site is authorized only for site source imports: {raw_target}"
+        alias_path = urlsplit(percent_decoded).path
+        if not alias_path.startswith("@site/static/") or any(
+            segment in {".", ".."} for segment in alias_path.split("/")
+        ):
+            return f"site import uses an unauthorized @site root: {raw_target}"
+        if root is not None:
+            static_root = (root / "website/static").resolve()
+            candidate = (root / "website" / alias_path.removeprefix("@site/")).resolve()
+            if not candidate.is_relative_to(static_root) or not candidate.is_file():
+                return f"site import does not resolve to a contained static asset: {raw_target}"
+        return None
+
+    parsed = urlsplit(decoded)
+    if not (decoded.startswith("//") or parsed.scheme or parsed.netloc):
+        return None
+    if not target.is_asset and is_allowed_navigation(decoded):
+        return None
+    return "remote authored URL is not allowed"
 
 
-def has_forbidden_remote_url(text: str, suffix: str) -> bool:
-    allowed_spans = navigation_url_spans(text, suffix)
+def authored_target_violations(text: str, suffix: str, *, root: Path) -> list[str]:
+    targets = contextual_authored_targets(text, suffix)
+    violations: list[str] = []
+    allowed_spans = {
+        (target.start, target.end)
+        for target in targets
+        if not target.is_asset and is_allowed_navigation(unescape(target.target.strip()))
+    }
     if any(match.span() not in allowed_spans for match in REMOTE_URL_RE.finditer(text)):
-        return True
-    for target in contextual_authored_targets(text, suffix):
-        raw_target = target.target.strip()
-        parsed = urlsplit(raw_target)
-        if not (raw_target.startswith("//") or parsed.scheme or parsed.netloc):
-            continue
-        if not target.is_asset and is_allowed_navigation(raw_target):
-            continue
-        return True
-    return False
+        violations.append("remote authored URL is not allowed")
+    for target in targets:
+        violation = target_violation(target, site_source=True, root=root)
+        if violation is not None:
+            violations.append(violation)
+    return sorted(set(violations))
 
 
 def check_config(root: Path, violations: list[str]) -> None:
@@ -795,13 +832,18 @@ def check_config(root: Path, violations: list[str]) -> None:
     raw_config = read_utf8(config_path, root, violations)
     if raw_config is None:
         return
-    config = strip_javascript_comments(raw_config)
+    config = strip_comments(raw_config, line_comments=True)
     config_body = default_export_config_body(config)
     if config_body is None:
         violations.append(
             f"{CONFIG_PATH}: default export must resolve unambiguously to a literal Config object"
         )
         return
+
+    for target in config_literal_targets(config):
+        violation = target_violation(target, site_source=True, root=root)
+        if violation is not None:
+            violations.append(f"{CONFIG_PATH}: {violation}")
 
     if has_dynamic_object_entries(config_body):
         violations.append(
@@ -944,16 +986,20 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
                     f"{path_label}: forbidden publication source reference: {forbidden}"
                 )
         suffix = path.suffix.casefold()
-        if suffix in AUTHORED_URL_SUFFIXES:
+        if suffix in AUTHORED_SITE_SUFFIXES and path_label != CONFIG_PATH:
             url_source = text
-            if suffix in {".js", ".jsx", ".tsx"}:
-                url_source = strip_javascript_comments(url_source)
-            elif suffix in {".css", ".scss"}:
-                url_source = strip_css_comments(url_source)
+            if suffix in {".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx"}:
+                url_source = strip_comments(url_source, line_comments=True)
+            elif suffix == ".css":
+                url_source = strip_comments(url_source)
             elif suffix in {".md", ".mdx"}:
                 url_source = mask_markdown_noncontent(url_source)
-            if has_forbidden_remote_url(url_source, suffix):
-                violations.append(f"{path_label}: remote authored URL is not allowed")
+            for violation in authored_target_violations(
+                url_source,
+                suffix,
+                root=root,
+            ):
+                violations.append(f"{path_label}: {violation}")
 
 
 def check_local_markdown_target(
@@ -964,50 +1010,23 @@ def check_local_markdown_target(
     violations: list[str],
 ) -> None:
     raw_target = target.target.strip()
-    parsed = urlsplit(raw_target)
     page_label = relative(root, page)
-    is_local = not (
-        raw_target.startswith("//") or parsed.scheme or parsed.netloc
-    )
-    if is_local and ("\\" in raw_target or "\\" in unquote(raw_target)):
-        violations.append(
-            f"{page_label}: local target contains a backslash: {raw_target}"
-        )
+    boundary_violation = target_violation(target, site_source=False)
+    if boundary_violation is not None:
+        violations.append(f"{page_label}: {boundary_violation}")
         return
 
-    is_site_alias = (
-        target.context == "MDX import" and raw_target.startswith("@site/")
-    )
-    if (
-        target.context == "MDX import"
-        and not raw_target.startswith((".", "/"))
-        and not is_site_alias
-        and not (parsed.scheme or parsed.netloc)
-    ):
-        return
-    if raw_target.startswith("//") or parsed.scheme in {"http", "https"}:
-        return
-    if parsed.scheme or parsed.netloc:
-        violations.append(f"{relative(root, page)}: remote authored URL is not allowed")
+    decoded = unescape(raw_target)
+    parsed = urlsplit(decoded)
+    if decoded.startswith("//") or parsed.scheme or parsed.netloc:
         return
     if not parsed.path:
         return
 
     path_text = unquote(parsed.path)
     absolute_target = path_text.startswith("/")
-    if is_site_alias:
-        if not raw_target.startswith("@site/static/"):
-            violations.append(
-                f"{page_label}: local MDX import uses an unauthorized @site root: {raw_target}"
-            )
-            return
-        candidate = root / "website" / path_text.removeprefix("@site/")
-        containment_root = (root / "website/static").resolve()
-    elif absolute_target:
-        if target.context == "MDX import":
-            candidate = docs_root / path_text.lstrip("/")
-            containment_root = docs_root.resolve()
-        elif not target.is_asset:
+    if absolute_target:
+        if not target.is_asset:
             if path_text in {"/", "/docs"} or path_text.startswith("/docs/"):
                 return
             violations.append(
@@ -1022,20 +1041,13 @@ def check_local_markdown_target(
         containment_root = docs_root.resolve()
 
     resolved_candidate = candidate.resolve()
-    target_description = (
-        target.context
-        if target.context == "MDX import"
-        else f"{target.context} {'asset' if target.is_asset else 'link'}"
-    )
+    target_description = f"{target.context} {'asset' if target.is_asset else 'link'}"
     if not resolved_candidate.is_relative_to(containment_root):
         escape_description = (
             "Markdown target" if target.context == "Markdown" else target_description
         )
-        containment_description = (
-            "published static assets" if is_site_alias else "published docs"
-        )
         violations.append(
-            f"{page_label}: local {escape_description} escapes {containment_description}: {raw_target}"
+            f"{page_label}: local {escape_description} escapes published docs: {raw_target}"
         )
         return
     if not resolved_candidate.is_file():
@@ -1044,8 +1056,9 @@ def check_local_markdown_target(
         )
 
 
-def published_doc_paths(docs_root: Path) -> tuple[list[Path], list[Path]]:
+def published_doc_paths(docs_root: Path) -> tuple[list[Path], list[Path], list[Path]]:
     pages: list[Path] = []
+    mdx_pages: list[Path] = []
     symlinks: list[Path] = []
     for directory, directory_names, file_names in os.walk(
         docs_root,
@@ -1062,10 +1075,13 @@ def published_doc_paths(docs_root: Path) -> tuple[list[Path], list[Path]]:
             path = current / name
             if path.is_symlink():
                 symlinks.append(path)
-            elif path.suffix.casefold() in {".md", ".mdx"}:
+            elif path.suffix.casefold() == ".md":
                 pages.append(path)
+            elif path.suffix.casefold() == ".mdx":
+                mdx_pages.append(path)
     return (
         sorted(pages, key=lambda path: path.as_posix()),
+        sorted(mdx_pages, key=lambda path: path.as_posix()),
         sorted(symlinks, key=lambda path: path.as_posix()),
     )
 
@@ -1075,10 +1091,14 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
     if not docs_root.is_dir():
         violations.append("docs: configured public documentation directory is missing")
         return
-    pages, symlinks = published_doc_paths(docs_root)
+    pages, mdx_pages, symlinks = published_doc_paths(docs_root)
     for symlink in symlinks:
         violations.append(
             f"{relative(root, symlink)}: symlink is not allowed in published docs"
+        )
+    for page in mdx_pages:
+        violations.append(
+            f"{relative(root, page)}: published documentation must use plain .md files; .mdx is forbidden"
         )
     for page in pages:
         page_label = relative(root, page)
@@ -1092,10 +1112,10 @@ def check_published_docs(root: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{page_label}: forbidden publication source reference: {forbidden}"
                 )
-        suffix = page.suffix.casefold()
-        if has_forbidden_remote_url(authored, suffix):
-            violations.append(f"{page_label}: remote authored URL is not allowed")
-        for target in published_document_targets(authored, suffix):
+        for violation in authored_target_violations(authored, ".md", root=root):
+            violations.append(f"{page_label}: {violation}")
+        targets = markdown_targets(authored) + html_targets(authored)
+        for target in targets:
             check_local_markdown_target(
                 root,
                 docs_root,

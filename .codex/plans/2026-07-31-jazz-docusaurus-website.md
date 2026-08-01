@@ -13,6 +13,7 @@
 - Execute on `codex/docusaurus-website`, based on the merged documentation-reset workstream.
 - Scaffold the current Docusaurus 3 Classic TypeScript template, then commit the exact resolved versions in `website/package-lock.json`. Do not leave `latest` ranges in the committed manifest.
 - Docusaurus may read only `docs/`. Do not copy, symlink, import, transform, or publish `rfcs/` or `.codex/`.
+- Public documentation inputs under root `docs/` must be plain `.md` files. `.mdx` is forbidden there; the current public documentation has no required MDX content. Interactive React and TypeScript remain authored only inside `website/`.
 - Do not add a blog, documentation versioning, analytics, search service, playground, user accounts, or remote runtime content.
 - Use local or bundled assets and fonts. A production page must render without fetching Google Fonts, CDNs, remote images, or runtime APIs.
 - Use no more than two typefaces and one dominant brass accent. Avoid card grids, decorative gradients, floating dashboards, pill clutter, and a stock Docusaurus homepage.

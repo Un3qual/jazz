@@ -214,6 +214,42 @@ export default actual;
             "website/docusaurus.config.ts: default export must resolve unambiguously to a literal Config object"
         )
 
+    def test_config_static_imports_share_the_authored_scheme_policy(self) -> None:
+        config_path = self.root / "website/docusaurus.config.ts"
+        config_path.write_text(
+            "import remote from 'd&#97;ta:text/javascript,remote';\n" + VALID_CONFIG,
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/docusaurus.config.ts: remote authored URL is not allowed"
+        )
+
+    def test_config_non_navigation_targets_share_the_authored_scheme_policy(self) -> None:
+        self.replace_config(
+            "  title: 'Jazz',",
+            "  title: 'Jazz',\n  favicon: `d&#97;ta:image/svg+xml,remote`,",
+        )
+        self.assert_violation(
+            "website/docusaurus.config.ts: remote authored URL is not allowed"
+        )
+
+    def test_config_site_alias_authorization_is_bound_to_the_import_occurrence(self) -> None:
+        config_path = self.root / "website/docusaurus.config.ts"
+        config = VALID_CONFIG.replace(
+            "import type {Config} from '@docusaurus/types';",
+            """\
+import type {Config} from '@docusaurus/types';
+import mark from '@site/static/img/mark.svg';
+""",
+        ).replace(
+            "  title: 'Jazz',",
+            "  title: 'Jazz',\n  favicon: '@site/static/img/mark.svg',",
+        )
+        config_path.write_text(config, encoding="utf-8")
+        self.assert_violation(
+            "website/docusaurus.config.ts: @site is authorized only for site source imports"
+        )
+
     def test_boundary_objects_reject_spreads_and_computed_overrides(self) -> None:
         mutations = (
             (
@@ -401,187 +437,76 @@ export default actual;
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
-    def test_published_docs_check_html_targets_against_the_docs_boundary(self) -> None:
-        internal = self.root / ".codex/execution"
-        internal.mkdir(parents=True)
-        (internal / "queue.md").write_text("Internal.\n", encoding="utf-8")
-        os.symlink(internal / "queue.md", self.root / "docs/escaped.md")
-        (self.root / "docs/index.mdx").write_text(
+    def test_published_docs_reject_mdx_even_when_it_is_benign(self) -> None:
+        (self.root / "docs/index.mdx").write_text("# Public docs\n", encoding="utf-8")
+        self.assert_violation(
+            "docs/index.mdx: published documentation must use plain .md files; .mdx is forbidden"
+        )
+
+    def test_published_markdown_checks_all_html_resource_attributes(self) -> None:
+        (self.root / "docs/index.md").write_text(
             """\
-<a href="../.codex/execution/queue.md">Internal</a>
 <a href="missing.md">Missing page</a>
 <img src="missing.svg" alt="Missing asset" />
-<img src=missing-unquoted.svg alt="Missing unquoted asset">
-<img src={'missing-expression.svg'} alt="Missing expression asset" />
-<img src="escaped.md" alt="Escaped symlink" />
+<Link to="missing-link.md">Missing Link target</Link>
+<video poster="missing-poster.svg"></video>
+<source srcSet="missing-one.svg 1x, missing-two.svg 2x" />
 """,
             encoding="utf-8",
         )
-
-        result = self.run_checker()
-        self.assertIn(
-            "docs/index.mdx: local HTML link escapes published docs: ../.codex/execution/queue.md",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local HTML link does not exist: missing.md",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local HTML asset does not exist: missing.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local HTML asset does not exist: missing-unquoted.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local HTML asset does not exist: missing-expression.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local HTML asset escapes published docs: escaped.md",
-            result.stdout,
-        )
-
-    def test_published_mdx_checks_static_imports_against_the_docs_boundary(self) -> None:
-        internal = self.root / ".codex/execution"
-        internal.mkdir(parents=True)
-        (internal / "secret.svg").write_text("internal\n", encoding="utf-8")
-        (self.root / "outside.svg").write_text("outside\n", encoding="utf-8")
-        os.symlink(internal / "secret.svg", self.root / "docs/escaped.svg")
-        (self.root / "docs/index.mdx").write_text(
-            """\
-import Missing from './missing.svg';
-import Internal from '../.codex/execution/secret.svg';
-import Escaped from './escaped.svg';
-import SiteAlias from '@site/../outside.svg';
-import FileUrl from 'file:///tmp/private.svg';
-
-# Public docs
-""",
-            encoding="utf-8",
-        )
-
-        result = self.run_checker()
-        self.assertIn(
-            "docs/index.mdx: local MDX import does not exist: ./missing.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import escapes published docs: ../.codex/execution/secret.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import escapes published docs: ./escaped.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/../outside.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: remote authored URL is not allowed",
-            result.stdout,
-        )
-
-    def test_published_mdx_allows_existing_site_static_imports(self) -> None:
-        (self.root / "docs/index.mdx").write_text(
-            "import mark from '@site/static/img/mark.svg';\n\n# Public docs\n",
-            encoding="utf-8",
-        )
-
-        result = self.run_checker()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-
-    def test_site_import_alias_is_limited_to_contained_existing_static_assets(self) -> None:
-        outside = self.root / "outside.svg"
-        outside.write_text("outside\n", encoding="utf-8")
-        os.symlink(outside, self.root / "website/static/img/escaped.svg")
-        (self.root / "website/src/private.svg").write_text(
-            "private\n",
-            encoding="utf-8",
-        )
-        (self.root / "docs/index.mdx").write_text(
-            """\
-import Missing from '@site/static/img/missing.svg';
-import Escaped from '@site/static/img/escaped.svg';
-import Traversal from '@site/../outside.svg';
-import Source from '@site/src/private.svg';
-
-# Public docs
-""",
-            encoding="utf-8",
-        )
-
-        result = self.run_checker()
-        self.assertIn(
-            "docs/index.mdx: local MDX import does not exist: @site/static/img/missing.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import escapes published static assets: @site/static/img/escaped.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/../outside.svg",
-            result.stdout,
-        )
-        self.assertIn(
-            "docs/index.mdx: local MDX import uses an unauthorized @site root: @site/src/private.svg",
-            result.stdout,
-        )
-
-    def test_html_target_parser_keeps_greater_than_signs_inside_attributes(self) -> None:
-        (self.root / "docs/index.mdx").write_text(
-            '<img alt="2 > 1" src="missing-after-angle.svg" />\n',
-            encoding="utf-8",
-        )
-
-        self.assert_violation(
-            "docs/index.mdx: local HTML asset does not exist: missing-after-angle.svg"
-        )
-
-    def test_local_targets_reject_raw_and_percent_decoded_backslashes(self) -> None:
-        for filename in (r"raw\mark.svg", r"encoded\mark.svg"):
-            (self.root / "docs" / filename).write_text("asset\n", encoding="utf-8")
-        (self.root / "docs/index.mdx").write_text(
-            r"""\
-![Raw](raw\mark.svg)
-<img src="encoded%5Cmark.svg" alt="Encoded" />
-import RawImport from './raw\mark.svg';
-import EncodedImport from './encoded%5Cmark.svg';
-""",
-            encoding="utf-8",
-        )
-
         result = self.run_checker()
         for target in (
-            r"raw\mark.svg",
-            "encoded%5Cmark.svg",
-            r"./raw\mark.svg",
-            "./encoded%5Cmark.svg",
+            "missing.md",
+            "missing.svg",
+            "missing-link.md",
+            "missing-poster.svg",
+            "missing-one.svg",
+            "missing-two.svg",
         ):
             with self.subTest(target=target):
+                self.assertIn(target, result.stdout)
+
+    def test_html_targets_decode_entities_before_scheme_classification(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            """\
+<img src="jav&#x61;script:alert(1)" alt="Remote" />
+<video poster="d&#97;ta:text/plain,remote"></video>
+<source srcSet="ftp&colon;//assets.example.invalid/one.svg 1x" />
+""",
+            encoding="utf-8",
+        )
+        self.assert_violation("docs/index.md: remote authored URL is not allowed")
+
+    def test_local_targets_reject_raw_html_and_percent_decoded_backslashes(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            r"""\
+![Raw](raw\mark.svg)
+<img src="html&#92;mark.svg" alt="HTML encoded" />
+<img src="percent%5Cmark.svg" alt="Percent encoded" />
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        for target in (r"raw\mark.svg", "html&#92;mark.svg", "percent%5Cmark.svg"):
+            with self.subTest(target=target):
                 self.assertIn(
-                    f"docs/index.mdx: local target contains a backslash: {target}",
+                    f"docs/index.md: local target contains a backslash: {target}",
                     result.stdout,
                 )
 
-    def test_published_docs_preserve_anchors_routes_and_existing_html_or_mdx_targets(self) -> None:
+    def test_published_docs_preserve_anchors_routes_and_existing_html_targets(self) -> None:
         (self.root / "docs/guide.md").write_text("# Guide\n", encoding="utf-8")
         image = self.root / "docs/img/mark.svg"
         image.parent.mkdir()
         image.write_text('<svg xmlns="http://www.w3.org/2000/svg" />\n', encoding="utf-8")
-        (self.root / "docs/index.mdx").write_text(
+        (self.root / "docs/index.md").write_text(
             """\
-import mark from './img/mark.svg';
-import Tabs from '@theme/Tabs';
-
 <a href="#local-heading">Anchor</a>
 <a href="guide.md?mode=short#guide">Existing guide</a>
 <a href="/docs/language/overview?mode=full#syntax">Published route</a>
 <img src="img/mark.svg?raw=1#mark" alt="Local mark" />
+<video poster="img/mark.svg"></video>
+<source srcSet="img/mark.svg 1x, img/mark.svg 2x" />
 """,
             encoding="utf-8",
         )
@@ -656,6 +581,134 @@ import Tabs from '@theme/Tabs';
             result.stdout,
         )
 
+    def test_all_authored_site_extensions_apply_the_url_boundary(self) -> None:
+        cases = {
+            ".css": '.remote { background: url("d&#97;ta:image/svg+xml,x"); }\n',
+            ".ts": "import 'd&#97;ta:text/javascript,x';\n",
+            ".tsx": '<img src="d&#97;ta:image/svg+xml,x" />;\n',
+            ".js": "import('d&#97;ta:text/javascript,x');\n",
+            ".jsx": '<img src="d&#97;ta:image/svg+xml,x" />;\n',
+            ".mjs": "import 'd&#97;ta:text/javascript,x';\n",
+            ".cjs": "import('d&#97;ta:text/javascript,x');\n",
+            ".md": "![Remote](d&#97;ta:image/svg+xml,x)\n",
+            ".mdx": '<img src="d&#97;ta:image/svg+xml,x" />\n',
+        }
+        for suffix, source in cases.items():
+            path = self.root / f"website/src/remote{suffix}"
+            path.write_text(source, encoding="utf-8")
+        result = self.run_checker()
+        for suffix in cases:
+            with self.subTest(suffix=suffix):
+                self.assertIn(
+                    f"website/src/remote{suffix}: remote authored URL is not allowed",
+                    result.stdout,
+                )
+
+    def test_resource_attributes_cover_poster_and_srcset_with_quote_aware_values(self) -> None:
+        (self.root / "website/src/pages/media.tsx").write_text(
+            """\
+export default function Media() {
+  return <>
+    <video poster="d&#97;ta:image/svg+xml,<svg id='poster' />" />
+    <source srcSet='local.svg 1x, d&#97;ta:image/svg+xml,<svg id="remote" /> 2x' />
+  </>;
+}
+""",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/media.tsx: remote authored URL is not allowed"
+        )
+
+    def test_css_scanner_handles_opposite_quotes_escapes_and_imports(self) -> None:
+        (self.root / "website/src/css/custom.css").write_text(
+            r'''\
+.opposite { background: url("d&#97;ta:image/svg+xml,<svg id='remote' />"); }
+.escaped { background: url('local\'escaped.svg'); }
+@import 'd&#97;ta:text/css,"remote"';
+''',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/css/custom.css: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            r"website/src/css/custom.css: local target contains a backslash: local\'escaped.svg",
+            result.stdout,
+        )
+
+    def test_static_and_dynamic_imports_share_scheme_and_alias_rules(self) -> None:
+        (self.root / "website/src/imports.ts").write_text(
+            """\
+import remote from 'f&#105;le:///tmp/private.svg';
+const dynamic = import('jav&#x61;script:alert(1)');
+import mark from '@site/static/img/mark.svg';
+import privateSource from '@site/src/private.svg';
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertIn(
+            "website/src/imports.ts: remote authored URL is not allowed",
+            result.stdout,
+        )
+        self.assertIn(
+            "website/src/imports.ts: site import uses an unauthorized @site root: @site/src/private.svg",
+            result.stdout,
+        )
+
+    def test_site_imports_allow_packages_relative_paths_and_static_alias(self) -> None:
+        (self.root / "website/src/imports.ts").write_text(
+            """\
+import type {Config} from '@docusaurus/types';
+import './css/custom.css';
+import mark from '@site/static/img/mark.svg';
+const page = import('./pages/index');
+""",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_navigation_entities_are_decoded_only_in_navigation_contexts(self) -> None:
+        (self.root / "website/src/pages/index.tsx").write_text(
+            """\
+import Link from '@docusaurus/Link';
+export default function Home() {
+  return <>
+    <a href="https&colon;//github.com/un3qual/jazz/issues">Issues</a>
+    <Link to="https&colon;//un3qual.github.io/jazz/docs/">Docs</Link>
+    <img src="https&colon;//github.com/un3qual/jazz/blob/main/mark.svg" />
+  </>;
+}
+""",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/src/pages/index.tsx: remote authored URL is not allowed"
+        )
+
+    def test_site_targets_reject_raw_and_decoded_backslashes(self) -> None:
+        (self.root / "website/src/pages/paths.tsx").write_text(
+            r'''\
+import raw from '.\private.svg';
+const encoded = import('./percent%5Cprivate.svg');
+export default function Paths() {
+  return <img src="html&#92;private.svg" />;
+}
+''',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        for target in (r".\private.svg", "./percent%5Cprivate.svg", "html&#92;private.svg"):
+            with self.subTest(target=target):
+                self.assertIn(
+                    f"website/src/pages/paths.tsx: local target contains a backslash: {target}",
+                    result.stdout,
+                )
+
     def test_non_local_schemes_are_rejected_in_asset_and_import_contexts(self) -> None:
         (self.root / "website/src/css/custom.css").write_text(
             "background-image: url('data:image/svg+xml,remote');\n",
@@ -674,11 +727,8 @@ export default function Home() {
             "![Remote](ftp://assets.example.invalid/photo.png)\n",
             encoding="utf-8",
         )
-        (self.root / "docs/index.mdx").write_text(
-            """\
-import Remote from 'data:image/svg+xml,remote';
-![Remote](file:///tmp/private.svg)
-""",
+        (self.root / "docs/index.md").write_text(
+            "![Remote](file:///tmp/private.svg)\n",
             encoding="utf-8",
         )
 
@@ -687,7 +737,7 @@ import Remote from 'data:image/svg+xml,remote';
             "website/src/css/custom.css",
             "website/src/pages/index.tsx",
             "website/src/remote.md",
-            "docs/index.mdx",
+            "docs/index.md",
         ):
             with self.subTest(path=path):
                 self.assertIn(
@@ -867,11 +917,8 @@ export default function Home() {
 """,
             encoding="utf-8",
         )
-        (self.root / "docs/index.mdx").write_text(
-            """\
-import mark from 'https://un3qual.github.io/jazz/img/mark.svg';
-![Remote](https://un3qual.github.io/jazz/img/mark.svg)
-""",
+        (self.root / "docs/index.md").write_text(
+            "![Remote](https://un3qual.github.io/jazz/img/mark.svg)\n",
             encoding="utf-8",
         )
 
@@ -885,7 +932,7 @@ import mark from 'https://un3qual.github.io/jazz/img/mark.svg';
             result.stdout,
         )
         self.assertIn(
-            "docs/index.mdx: remote authored URL is not allowed",
+            "docs/index.md: remote authored URL is not allowed",
             result.stdout,
         )
 
