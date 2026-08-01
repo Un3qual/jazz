@@ -13,6 +13,7 @@ from pathlib import Path
 CHECKER_PATH = Path(__file__).with_name("check-public-docs.py")
 
 FACTORIAL_PATH = "examples/functions/factorial.jz"
+WORDMARK_PATH = "website/static/img/jazz-wordmark.svg"
 FACTORIAL_SOURCE = (
     "factorial :: Int -> Int.\n"
     "factorial =\n"
@@ -71,7 +72,7 @@ def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
 
 def valid_readme(*, extra: str = "") -> str:
     lines = [
-        '<img src="./jazz_logo.png" alt="Jazz" width="120" />',
+        f'<img src="./{WORDMARK_PATH}" alt="Jazz" width="240" />',
         "",
         "# Jazz",
         "",
@@ -146,7 +147,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
         self.write_example_runner()
-        (self.root / "jazz_logo.png").write_bytes(b"fixture")
+        wordmark = self.root / WORDMARK_PATH
+        wordmark.parent.mkdir(parents=True)
+        wordmark.write_text("<svg></svg>\n", encoding="utf-8")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
         factorial.write_text(FACTORIAL_SOURCE, encoding="utf-8")
@@ -275,14 +278,21 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_readme_requires_local_logo_without_raw_query(self) -> None:
         readme = valid_readme().replace(
-            './jazz_logo.png',
-            "https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true",
+            f'./{WORDMARK_PATH}',
+            "https://github.com/un3qual/jazz/blob/main/website/static/img/jazz-wordmark.svg?raw=true",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
         result = self.run_checker()
         self.assertIn("README.md: logo must use a repository-local path", result.stdout)
         self.assertIn("README.md: image must use a repository-local path", result.stdout)
         self.assertIn("README.md: image URLs must not use ?raw=true", result.stdout)
+
+    def test_readme_requires_canonical_wordmark_path(self) -> None:
+        alternate = self.root / "website/static/img/alternate.svg"
+        alternate.write_text("<svg></svg>\n", encoding="utf-8")
+        readme = valid_readme().replace(WORDMARK_PATH, "website/static/img/alternate.svg")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation("README.md: logo must use a repository-local path")
 
     def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
         readme = valid_readme().replace(

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./jazz_logo.png" alt="Jazz logo" width="132" />
+  <img src="./website/static/img/jazz-wordmark.svg" alt="Jazz" width="280" />
 </p>
 
 # Jazz

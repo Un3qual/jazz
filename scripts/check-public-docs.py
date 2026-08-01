@@ -33,6 +33,7 @@ BANNED_REFERENCES = (
 
 README_TAGLINE = "A statically typed functional language with practical syntax"
 README_MATURITY_NOTICE = "Experimental / pre-1.0"
+README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
@@ -78,7 +79,7 @@ README_REQUIRED_SECTIONS = (
     "## License",
 )
 README_ORDERED_TOKENS = (
-    "jazz_logo.png",
+    README_LOGO_PATH,
     README_TAGLINE,
     README_MATURITY_NOTICE,
     README_FACTORIAL_MARKER,
@@ -701,7 +702,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
                 f"README.md: local image does not exist in repository: {target}"
             )
             continue
-        if candidate.name == "jazz_logo.png":
+        if candidate == (root / README_LOGO_PATH).resolve():
             local_logo_found = True
     if not local_logo_found:
         violations.append("README.md: logo must use a repository-local path")
