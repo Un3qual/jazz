@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+*.vsix
 dist-newstyle/
 dist-newstyle-profile-*/
 benchmark-results/

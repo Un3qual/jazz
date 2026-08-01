@@ -12,6 +12,8 @@ homepage motif.
 - `jazz-wordmark.svg` and `jazz-wordmark-dark.svg` pair the mark with original
   geometric `azz` lettering. The wordmark contains no converted font outlines.
 - `favicon.svg` is a deliberately simplified mark on a deep-ink field.
+- `editors/vscode-jazz/icon.png` is the deterministic 128×128 editor raster
+  generated from the canonical light-surface `jazz-mark.svg`.
 - `social-card.svg` is the editable 1200×630 source; `social-card.png` is its
   deterministic rendered counterpart.
 
@@ -55,6 +57,7 @@ npm --prefix website run render:brand
 ```
 
 The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
-writes `social-card.png` through Sharp, and fails unless both source and output
-are exactly 1200×630 pixels. `npm --prefix website run test:brand` validates
-the outline source, transparent asset padding, and favicon legibility.
+writes `social-card.png` and the editor icon through Sharp, and fails unless
+their dimensions and formats match their contracts. `npm --prefix website run
+test:brand` validates the outline source, transparent asset padding, favicon
+legibility, and the editor icon's exact provenance.

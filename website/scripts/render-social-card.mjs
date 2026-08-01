@@ -12,6 +12,11 @@ const websiteDirectory = path.resolve(scriptDirectory, '..');
 const imageDirectory = path.join(websiteDirectory, 'static/img');
 const sourcePath = path.join(imageDirectory, 'social-card.svg');
 const outputPath = path.join(imageDirectory, 'social-card.png');
+const editorIconSourcePath = path.join(imageDirectory, 'jazz-mark.svg');
+const editorIconOutputPath = path.resolve(
+  websiteDirectory,
+  '../editors/vscode-jazz/icon.png',
+);
 const defaultFontPath = path.join(
   websiteDirectory,
   'node_modules/@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2',
@@ -23,6 +28,7 @@ const taglineStart = '<!-- manrope-tagline:start -->';
 const taglineEnd = '<!-- manrope-tagline:end -->';
 const requiredWidth = 1200;
 const requiredHeight = 630;
+const editorIconSize = 128;
 
 function coordinate(value) {
   return Number(value.toFixed(3)).toString();
@@ -128,6 +134,54 @@ export async function renderSocialCard({
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+export async function renderEditorIcon({
+  svgPath = editorIconSourcePath,
+  pngPath = editorIconOutputPath,
+} = {}) {
+  const temporaryPath = path.join(
+    path.dirname(pngPath),
+    `.${path.basename(pngPath)}.tmp`,
+  );
+  try {
+    await sharp(svgPath, {density: 72})
+      .resize(editorIconSize, editorIconSize, {
+        fit: 'contain',
+        background: {r: 0, g: 0, b: 0, alpha: 0},
+      })
+      .png({
+        adaptiveFiltering: false,
+        compressionLevel: 9,
+        effort: 10,
+        palette: false,
+      })
+      .toFile(temporaryPath);
+
+    const output = await sharp(temporaryPath).metadata();
+    if (
+      output.format !== 'png'
+      || output.width !== editorIconSize
+      || output.height !== editorIconSize
+      || !output.hasAlpha
+    ) {
+      throw new Error(
+        `rendered editor icon must be a transparent ${editorIconSize}x${editorIconSize} PNG`,
+      );
+    }
+
+    await rename(temporaryPath, pngPath);
+    console.log(
+      `Rendered ${path.relative(process.cwd(), pngPath)} (${editorIconSize}x${editorIconSize}).`,
+    );
+  } finally {
+    await rm(temporaryPath, {force: true});
+  }
+}
+
+export async function renderBrandAssets() {
   await renderSocialCard();
+  await renderEditorIcon();
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  await renderBrandAssets();
 }
