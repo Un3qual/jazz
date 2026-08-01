@@ -51,6 +51,8 @@ ALLOWED_DOCS_ENTRIES = {
     "index.md",
 }
 
+IGNORED_DOCS_ENTRIES = {".DS_Store"}
+
 PUBLIC_IDENTITY_BANNED_TERMS = (
     "docs/superpowers",
     "docs/execution",
@@ -1241,7 +1243,10 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
             unsafe_doc_paths.add(path)
 
     for entry in sorted(docs_root.iterdir(), key=lambda path: path.name):
-        if entry.name not in ALLOWED_DOCS_ENTRIES:
+        if (
+            entry.name not in ALLOWED_DOCS_ENTRIES
+            and entry.name not in IGNORED_DOCS_ENTRIES
+        ):
             violations.append(f"docs/{entry.name}: disallowed top-level docs entry")
 
     doc_texts: dict[Path, str] = {}

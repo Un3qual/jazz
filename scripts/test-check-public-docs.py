@@ -1335,6 +1335,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
         target.write_text(page(), encoding="utf-8")
         self.assert_violation("docs/superpowers: disallowed top-level docs entry")
 
+    def test_ignores_macos_directory_metadata(self) -> None:
+        (self.root / "docs/.DS_Store").write_bytes(b"macOS metadata")
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Public documentation checks passed.\n", result.stdout)
+
     def test_rejects_mdx_pages_in_the_public_documentation_tree(self) -> None:
         (self.root / "docs/language/unvalidated.mdx").write_text(
             "---\ntitle: Unvalidated\n---\n\n"
