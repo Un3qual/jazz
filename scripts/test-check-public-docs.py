@@ -361,6 +361,26 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "README.md: website must use the prospective canonical Website label"
         )
 
+    def test_readme_inline_code_decoy_cannot_hide_stale_visible_wording(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"[Website]({PUBLIC_WEBSITE_URL})\n\n``{README_WEBSITE_LINK}``",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: website must use the prospective canonical Website label"
+        )
+
+    def test_readme_escaped_link_decoy_is_not_a_visible_link(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"[Website]({PUBLIC_WEBSITE_URL})\n\n\\{README_WEBSITE_LINK}",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: website must use the prospective canonical Website label"
+        )
+
     def test_readme_requires_post_merge_pages_follow_up(self) -> None:
         readme = valid_readme().replace(
             "enabling GitHub Pages for GitHub Actions is a post-merge follow-up",
@@ -395,7 +415,51 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/getting-started/overview.md: missing visible prospective website link"
         )
 
+    def test_getting_started_inline_code_decoy_is_not_visible(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The future address is ```{GETTING_STARTED_WEBSITE_LINK}```.\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
+    def test_getting_started_escaped_link_decoy_is_not_visible(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"\\{GETTING_STARTED_WEBSITE_LINK}\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
     def test_visible_prospective_website_links_pass(self) -> None:
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_visible_links_remain_valid_beside_inline_code_decoys(self) -> None:
+        readme = valid_readme(extra=f"`[Not the website]({PUBLIC_WEBSITE_URL})`")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
+                f"Ignore ``[Example]({PUBLIC_WEBSITE_URL})``.\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 

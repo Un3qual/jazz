@@ -180,7 +180,10 @@ def validate(root: Path) -> list[str]:
         deploy_block = ""
 
     for job_name, job_block in (("build", build_block), ("deploy", deploy_block)):
-        if re.search(r"(?m)^ {4}permissions\s*:", job_block):
+        if re.search(
+            r'''(?m)^ {4}(?:permissions|'permissions'|"permissions")\s*:''',
+            job_block,
+        ):
             violations.append(f"job-level permissions are forbidden: {job_name}")
 
     if "    runs-on: ubuntu-latest" not in build_block:

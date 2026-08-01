@@ -37,12 +37,9 @@ README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
 PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
 PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
-README_WEBSITE_LINK = (
-    f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
-)
-GETTING_STARTED_WEBSITE_LINK = (
-    f"[Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})]"
-    f"({PUBLIC_WEBSITE_URL})"
+README_WEBSITE_LABEL = f"Website ({PROSPECTIVE_WEBSITE_LABEL})"
+GETTING_STARTED_WEBSITE_LABEL = (
+    f"Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})"
 )
 PAGES_ACTIVATION_FOLLOW_UP = (
     "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up"
@@ -144,8 +141,6 @@ REQUIRED_PAGES = (
     "project/contributing.md",
 )
 
-LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 HTML_IMAGE_RE = re.compile(
     r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
 )
@@ -191,6 +186,13 @@ class MarkdownFence:
     closed: bool
 
 
+@dataclass(frozen=True)
+class MarkdownLink:
+    label: str
+    raw_target: str
+    is_image: bool
+
+
 def relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -231,6 +233,69 @@ def normalize_reference_label(label: str) -> str:
     return re.sub(r"\s+", " ", label.strip()).casefold()
 
 
+def is_escaped(text: str, position: int) -> bool:
+    backslashes = 0
+    position -= 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 1
+
+
+def markdown_inline_links(text: str) -> list[MarkdownLink]:
+    """Extract unescaped inline links and images from already-masked Markdown."""
+    links: list[MarkdownLink] = []
+    index = 0
+    while index < len(text):
+        if text[index] != "[" or is_escaped(text, index):
+            index += 1
+            continue
+
+        label_start = index + 1
+        label_end = label_start
+        bracket_depth = 1
+        while label_end < len(text) and bracket_depth:
+            if not is_escaped(text, label_end):
+                if text[label_end] == "[":
+                    bracket_depth += 1
+                elif text[label_end] == "]":
+                    bracket_depth -= 1
+            label_end += 1
+        if bracket_depth or label_end >= len(text) or text[label_end] != "(":
+            index += 1
+            continue
+
+        target_start = label_end + 1
+        target_end = target_start
+        parenthesis_depth = 1
+        while target_end < len(text) and parenthesis_depth:
+            if not is_escaped(text, target_end):
+                if text[target_end] == "(":
+                    parenthesis_depth += 1
+                elif text[target_end] == ")":
+                    parenthesis_depth -= 1
+            target_end += 1
+        if parenthesis_depth:
+            index += 1
+            continue
+
+        image_marker = index - 1
+        is_image = (
+            image_marker >= 0
+            and text[image_marker] == "!"
+            and not is_escaped(text, image_marker)
+        )
+        links.append(
+            MarkdownLink(
+                label=text[label_start : label_end - 1],
+                raw_target=text[target_start : target_end - 1],
+                is_image=is_image,
+            )
+        )
+        index = target_end
+    return links
+
+
 def used_reference_targets(text: str) -> list[str]:
     definitions: dict[str, list[str]] = {}
     definition_spans: list[tuple[int, int]] = []
@@ -250,6 +315,8 @@ def used_reference_targets(text: str) -> list[str]:
     used_labels: set[str] = set()
     full_reference_spans: list[tuple[int, int]] = []
     for match in FULL_REFERENCE_RE.finditer(usages):
+        if is_escaped(usages, match.start()):
+            continue
         label = match.group(2) or match.group(1)
         used_labels.add(normalize_reference_label(label))
         full_reference_spans.append(match.span())
@@ -257,7 +324,10 @@ def used_reference_targets(text: str) -> list[str]:
     shortcut_text = list(usages)
     for start, end in full_reference_spans:
         shortcut_text[start:end] = " " * (end - start)
-    for match in SHORTCUT_REFERENCE_RE.finditer("".join(shortcut_text)):
+    shortcut_usages = "".join(shortcut_text)
+    for match in SHORTCUT_REFERENCE_RE.finditer(shortcut_usages):
+        if is_escaped(shortcut_usages, match.start()):
+            continue
         label = normalize_reference_label(match.group(1))
         if label in definitions:
             used_labels.add(label)
@@ -450,7 +520,7 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
 
 
 def visible_markdown(text: str) -> str:
-    """Blank fenced code and HTML comments before checking rendered links."""
+    """Blank fenced/inline code and HTML comments before rendered-link checks."""
     hidden_ranges = [
         (fence.start, fence.end) for fence in markdown_fences(text)
     ]
@@ -463,13 +533,61 @@ def visible_markdown(text: str) -> str:
         for index in range(start, end):
             if characters[index] not in "\r\n":
                 characters[index] = " "
+    without_blocks = "".join(characters)
+    for start, end in inline_code_spans(without_blocks):
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
     return "".join(characters)
+
+
+def inline_code_spans(text: str) -> list[tuple[int, int]]:
+    """Return CommonMark backtick spans with matching variable-length runs."""
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(text):
+        if text[index] != "`" or is_escaped(text, index):
+            index += 1
+            continue
+        opener_end = index
+        while opener_end < len(text) and text[opener_end] == "`":
+            opener_end += 1
+        delimiter_length = opener_end - index
+        candidate = opener_end
+        closing_end: int | None = None
+        while candidate < len(text):
+            candidate = text.find("`", candidate)
+            if candidate < 0:
+                break
+            run_end = candidate
+            while run_end < len(text) and text[run_end] == "`":
+                run_end += 1
+            if run_end - candidate == delimiter_length:
+                closing_end = run_end
+                break
+            candidate = run_end
+        if closing_end is None:
+            index = opener_end
+            continue
+        spans.append((index, closing_end))
+        index = closing_end
+    return spans
 
 
 def contains_visible_phrase(visible_text: str, phrase: str) -> bool:
     normalized_text = " ".join(visible_text.casefold().split())
     normalized_phrase = " ".join(phrase.casefold().split())
     return normalized_phrase in normalized_text
+
+
+def has_inline_link(links: list[MarkdownLink], label: str, target: str) -> bool:
+    normalized_label = " ".join(label.split())
+    return any(
+        not link.is_image
+        and " ".join(link.label.split()) == normalized_label
+        and markdown_link_target(link.raw_target) == target
+        for link in links
+    )
 
 
 def example_case_loop_executes_rows(script_text: str) -> bool:
@@ -699,6 +817,7 @@ def validate_jazz_fences(
 
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     visible_text = visible_markdown(text)
+    inline_links = markdown_inline_links(visible_text)
     lines_with_endings = text.splitlines(keepends=True)
     exact_line_positions: dict[str, int] = {}
     offset = 0
@@ -719,9 +838,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if README_MATURITY_NOTICE not in text:
         violations.append("README.md: missing required maturity notice")
 
-    image_targets = [
-        match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(visible_text)
-    ]
+    image_targets = [link.raw_target for link in inline_links if link.is_image]
     image_targets.extend(
         match.group(1) for match in HTML_IMAGE_RE.finditer(visible_text)
     )
@@ -761,15 +878,18 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             violations.append(f"README.md: missing quick-start command: {command}")
 
     link_targets = {
-        markdown_link_target(match.group(1))
-        for match in LINK_RE.finditer(visible_text)
+        markdown_link_target(link.raw_target)
+        for link in inline_links
+        if not link.is_image
     }
     for required_target in README_REQUIRED_LINKS:
         if required_target not in link_targets:
             violations.append(
                 f"README.md: missing required navigation link: {required_target}"
             )
-    if README_WEBSITE_LINK not in visible_text:
+    if not has_inline_link(
+        inline_links, README_WEBSITE_LABEL, PUBLIC_WEBSITE_URL
+    ):
         violations.append(
             "README.md: website must use the prospective canonical Website label"
         )
@@ -777,7 +897,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         violations.append(
             "README.md: missing post-merge GitHub Pages activation follow-up"
         )
-    if "[GPL-3.0-only](LICENSE)" not in visible_text:
+    if not has_inline_link(inline_links, "GPL-3.0-only", "LICENSE"):
         violations.append("README.md: missing GPL-3.0-only license link")
 
     for section in README_REQUIRED_SECTIONS:
@@ -881,7 +1001,7 @@ def validate(root: Path) -> list[str]:
 
         visible_text = visible_markdown(text)
         raw_link_targets = [
-            match.group(1) for match in LINK_RE.finditer(visible_text)
+            link.raw_target for link in markdown_inline_links(visible_text)
         ]
         raw_link_targets.extend(used_reference_targets(visible_text))
         for raw_link_target in raw_link_targets:
@@ -919,14 +1039,13 @@ def validate(root: Path) -> list[str]:
     getting_started_text = doc_texts.get(getting_started_path)
     if getting_started_text is not None:
         visible_getting_started = visible_markdown(getting_started_text)
-        getting_started_links = {
-            markdown_link_target(match.group(1))
-            for match in LINK_RE.finditer(visible_getting_started)
-        }
-        getting_started_links.update(used_reference_targets(visible_getting_started))
-        if (
-            PUBLIC_WEBSITE_URL not in getting_started_links
-            or GETTING_STARTED_WEBSITE_LINK not in visible_getting_started
+        getting_started_inline_links = markdown_inline_links(
+            visible_getting_started
+        )
+        if not has_inline_link(
+            getting_started_inline_links,
+            GETTING_STARTED_WEBSITE_LABEL,
+            PUBLIC_WEBSITE_URL,
         ):
             violations.append(
                 "docs/getting-started/overview.md: missing visible prospective website link"

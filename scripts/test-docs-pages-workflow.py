@@ -152,6 +152,23 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         )
         self.assert_violation("job-level permissions are forbidden: deploy")
 
+    def test_rejects_single_quoted_build_permission_map(self) -> None:
+        self.replace(
+            "  build:\n    runs-on: ubuntu-latest",
+            "  build:\n"
+            "    'permissions':\n"
+            "      contents: write\n"
+            "    runs-on: ubuntu-latest",
+        )
+        self.assert_violation("job-level permissions are forbidden: build")
+
+    def test_rejects_double_quoted_deploy_permission_value(self) -> None:
+        self.replace(
+            "  deploy:\n    needs: build",
+            '  deploy:\n    "permissions": write-all\n    needs: build',
+        )
+        self.assert_violation("job-level permissions are forbidden: deploy")
+
     def test_requires_pages_concurrency(self) -> None:
         self.replace("  group: pages", "  group: documentation")
         self.assert_violation("concurrency must use group pages")
