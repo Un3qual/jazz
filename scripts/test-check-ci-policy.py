@@ -262,6 +262,68 @@ VALID_PR_WORKFLOW = textwrap.dedent(
     """
 ).lstrip()
 
+VALID_MAIN_WORKFLOW = textwrap.dedent(
+    """
+    name: Main branch checks
+
+    on:
+      push:
+        branches:
+          - main
+      workflow_dispatch:
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+    jobs:
+      ordinary:
+        name: Complete ordinary verification
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        steps:
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Install Nix
+            uses: cachix/install-nix-action@v31
+          - name: Cache Cabal dependencies and build output
+            uses: actions/cache@v4
+            with:
+              path: |
+                ~/.cabal/store
+                dist-newstyle
+              key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+              restore-keys: |
+                ${{ runner.os }}-cabal-
+          - name: Remove cached test logs
+            run: |
+              if [[ -d dist-newstyle ]]; then
+                find dist-newstyle -type f -name '*.log' -delete
+              fi
+          - name: Run complete ordinary verification
+            id: ordinary
+            run: nix develop --command bash scripts/ci/main-functional.sh
+          - name: Collect ordinary test logs
+            if: failure() && steps.ordinary.outcome == 'failure'
+            run: |
+              mkdir -p artifacts/ordinary-test-logs
+              if [[ -d dist-newstyle ]]; then
+                find dist-newstyle -type f -name '*.log' -exec cp --parents {} artifacts/ordinary-test-logs \\;
+              fi
+          - name: Upload ordinary test logs
+            if: failure() && steps.ordinary.outcome == 'failure'
+            uses: actions/upload-artifact@v4
+            with:
+              name: ordinary-test-logs-${{ github.run_id }}
+              path: artifacts/ordinary-test-logs
+              if-no-files-found: ignore
+              retention-days: 7
+    """
+).lstrip()
+
 
 class CiPolicyCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -273,6 +335,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.write("scripts/ci/extended.sh", VALID_EXTENDED)
         self.write("scripts/ci/release-candidate.sh", VALID_RELEASE)
         self.write(".github/workflows/ci-pr.yml", VALID_PR_WORKFLOW)
+        self.write(".github/workflows/ci-main.yml", VALID_MAIN_WORKFLOW)
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -369,6 +432,22 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.write("scripts/ci/main-functional.sh", VALID_MAIN + forbidden + "\n")
                 self.assert_violation(f"main functional tier contains forbidden token: {forbidden}")
+
+    def test_main_tier_rejects_indirect_extended_and_release_entry_points(self) -> None:
+        for forbidden in (
+            "scripts/ci/extended.sh",
+            "scripts/ci/release-candidate.sh",
+            "scripts/ci/determinism.sh",
+            "scripts/release/build-alpha.sh",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.write(
+                    "scripts/ci/main-functional.sh",
+                    VALID_MAIN + f"bash {forbidden}\n",
+                )
+                self.assert_violation(
+                    f"main functional tier contains forbidden token: {forbidden}"
+                )
 
     def test_main_tier_rejects_spaced_and_continued_benchmark_commands(self) -> None:
         for forbidden_command in ("cabal  bench jazz-bench\n", "cabal \\\n  bench jazz-bench\n"):
@@ -579,6 +658,252 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_pull_request_workflow_is_required(self) -> None:
         (self.root / ".github/workflows/ci-pr.yml").unlink()
         self.assert_violation("missing required pull-request workflow: .github/workflows/ci-pr.yml")
+
+    def test_main_workflow_is_required(self) -> None:
+        (self.root / ".github/workflows/ci-main.yml").unlink()
+        self.assert_violation("missing required main workflow: .github/workflows/ci-main.yml")
+
+    def test_main_workflow_requires_main_push_and_manual_triggers(self) -> None:
+        fixtures = (
+            (
+                VALID_MAIN_WORKFLOW.replace("      - main\n", "      - feature\n"),
+                "main workflow push trigger must be restricted to main",
+            ),
+            (
+                VALID_MAIN_WORKFLOW.replace("  workflow_dispatch:\n", ""),
+                "main workflow must support workflow_dispatch",
+            ),
+        )
+        for fixture, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.write(".github/workflows/ci-main.yml", fixture)
+                self.assert_violation(expected)
+
+    def test_main_workflow_rejects_non_main_triggers(self) -> None:
+        for trigger in ("  pull_request:\n", "  schedule:\n    - cron: '17 7 * * 0'\n"):
+            with self.subTest(trigger=trigger):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(
+                        "  workflow_dispatch:\n",
+                        "  workflow_dispatch:\n" + trigger,
+                    ),
+                )
+                self.assert_violation("main workflow must trigger only on main pushes and manual dispatch")
+
+    def test_main_workflow_requires_read_only_permissions_without_overrides(self) -> None:
+        fixtures = (
+            VALID_MAIN_WORKFLOW.replace("contents: read", "contents: write"),
+            VALID_MAIN_WORKFLOW.replace(
+                "  ordinary:\n    name:",
+                "  ordinary:\n    permissions:\n      contents: write\n    name:",
+            ),
+        )
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture):
+                self.write(".github/workflows/ci-main.yml", fixture)
+                self.assert_violation("main workflow must grant only read access to contents")
+
+    def test_main_workflow_requires_branch_scoped_cancellation(self) -> None:
+        for old, expected in (
+            (
+                "${{ github.workflow }}-${{ github.ref }}",
+                "main workflow concurrency must include workflow and branch ref",
+            ),
+            (
+                "cancel-in-progress: true",
+                "main workflow must cancel superseded branch runs",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(old, "removed"),
+                )
+                self.assert_violation(expected)
+
+    def test_main_job_requires_timeout_nix_safe_caches_and_owned_script(self) -> None:
+        for old, expected in (
+            ("timeout-minutes: 60", "main ordinary job must have a 60-minute timeout"),
+            ("cachix/install-nix-action@v31", "main ordinary job must use cachix/install-nix-action@v31"),
+            ("actions/cache@v4", "main ordinary job must use actions/cache@v4"),
+            ("~/.cabal/store", "main ordinary cache must include ~/.cabal/store"),
+            ("dist-newstyle", "main ordinary cache must include dist-newstyle"),
+            ("runner.os", "main ordinary cache key must include runner.os"),
+            (
+                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')",
+                "main ordinary cache key must include flake.lock, jazz.cabal, and cabal.project",
+            ),
+            (
+                "restore-keys: |\n            ${{ runner.os }}-cabal-",
+                "main ordinary cache must restore only the operating-system Cabal prefix",
+            ),
+            (
+                "nix develop --command bash scripts/ci/main-functional.sh",
+                "main ordinary job must invoke the complete ordinary script",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(old, "removed", 1),
+                )
+                self.assert_violation(expected)
+
+    def test_main_workflow_collects_only_logs_without_filename_collisions(self) -> None:
+        for old, expected in (
+            (
+                "find dist-newstyle -type f -name '*.log' -exec cp --parents {} artifacts/ordinary-test-logs \\;",
+                "main workflow must stage only ordinary logs with their source paths",
+            ),
+            (
+                "cp --parents",
+                "main workflow must stage only ordinary logs with their source paths",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(old, "removed", 1),
+                )
+                self.assert_violation(
+                    "main workflow must stage only ordinary logs with their source paths"
+                )
+
+    def test_main_workflow_uploads_only_staged_logs_on_failure_for_seven_days(self) -> None:
+        for old, expected in (
+            (
+                "      - name: Collect ordinary test logs\n        if: failure() && steps.ordinary.outcome == 'failure'",
+                "main workflow must collect ordinary test logs only for ordinary failure",
+            ),
+            (
+                "      - name: Upload ordinary test logs\n        if: failure() && steps.ordinary.outcome == 'failure'",
+                "main workflow must upload ordinary test logs only for ordinary failure",
+            ),
+            (
+                "uses: actions/upload-artifact@v4",
+                "main workflow must use actions/upload-artifact@v4 for ordinary logs",
+            ),
+            (
+                "path: artifacts/ordinary-test-logs",
+                "main workflow must upload only staged ordinary test logs",
+            ),
+            (
+                "retention-days: 7",
+                "main workflow ordinary logs must have seven-day retention",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(old, old.replace("failure()", "always()").replace("@v4", "@v3").replace("artifacts/ordinary-test-logs", "dist-newstyle").replace("7", "30"), 1),
+                )
+                self.assert_violation(expected)
+
+    def test_main_workflow_ties_failure_logs_to_the_ordinary_step(self) -> None:
+        fixtures = (
+            (
+                VALID_MAIN_WORKFLOW.replace("        id: ordinary\n", ""),
+                "main ordinary step must expose the ordinary id",
+            ),
+            (
+                VALID_MAIN_WORKFLOW.replace(
+                    "if: failure() && steps.ordinary.outcome == 'failure'",
+                    "if: failure()",
+                    1,
+                ),
+                "main workflow must collect ordinary test logs only for ordinary failure",
+            ),
+            (
+                VALID_MAIN_WORKFLOW.replace(
+                    "if: failure() && steps.ordinary.outcome == 'failure'",
+                    "if: failure()",
+                    2,
+                ),
+                "main workflow must upload ordinary test logs only for ordinary failure",
+            ),
+            (
+                VALID_MAIN_WORKFLOW.replace(
+                    "        id: ordinary\n",
+                    "        id: ordinary\n        if: always()\n",
+                ),
+                "main ordinary step must retain implicit success gating",
+            ),
+        )
+        for fixture, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.write(".github/workflows/ci-main.yml", fixture)
+                self.assert_violation(expected)
+
+    def test_main_workflow_uploads_logs_after_collection(self) -> None:
+        collect_marker = "      - name: Collect ordinary test logs\n"
+        upload_marker = "      - name: Upload ordinary test logs\n"
+        collect_start = VALID_MAIN_WORKFLOW.index(collect_marker)
+        upload_start = VALID_MAIN_WORKFLOW.index(upload_marker)
+        reordered = (
+            VALID_MAIN_WORKFLOW[:collect_start]
+            + VALID_MAIN_WORKFLOW[upload_start:]
+            + VALID_MAIN_WORKFLOW[collect_start:upload_start]
+        )
+        self.write(".github/workflows/ci-main.yml", reordered)
+        self.assert_violation("main workflow must upload ordinary logs after collection")
+
+    def test_main_workflow_never_uploads_build_or_dependency_caches(self) -> None:
+        for forbidden_path in ("dist-newstyle", "~/.cabal/store"):
+            with self.subTest(forbidden_path=forbidden_path):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW.replace(
+                        "path: artifacts/ordinary-test-logs",
+                        f"path: {forbidden_path}",
+                    ),
+                )
+                self.assert_violation(
+                    f"main workflow must not upload build or dependency cache: {forbidden_path}"
+                )
+
+    def test_main_workflow_rejects_a_second_build_cache_artifact(self) -> None:
+        for forbidden_path in ("dist-newstyle", "~/.cabal/store"):
+            with self.subTest(forbidden_path=forbidden_path):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW
+                    + "      - name: Upload build cache\n"
+                    + "        if: failure()\n"
+                    + "        uses: actions/upload-artifact@v4\n"
+                    + "        with:\n"
+                    + "          name: forbidden-build-cache\n"
+                    + f"          path: {forbidden_path}\n",
+                )
+                self.assert_violation(
+                    f"main workflow must not upload build or dependency cache: {forbidden_path}"
+                )
+
+    def test_main_workflow_rejects_exhaustive_and_performance_work(self) -> None:
+        for token in (
+            "cabal bench",
+            "jazz-bench",
+            "full-parser-scale",
+            "profile-hotspots",
+            "profile-stages",
+        ):
+            with self.subTest(token=token):
+                self.write(".github/workflows/ci-main.yml", VALID_MAIN_WORKFLOW + token + "\n")
+                self.assert_violation(f"main workflow contains forbidden token: {token}")
+
+    def test_main_workflow_rejects_indirect_extended_and_release_entry_points(self) -> None:
+        for forbidden in (
+            "scripts/ci/extended.sh",
+            "scripts/ci/release-candidate.sh",
+            "scripts/ci/determinism.sh",
+            "scripts/release/build-alpha.sh",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.write(
+                    ".github/workflows/ci-main.yml",
+                    VALID_MAIN_WORKFLOW + f"      - run: bash {forbidden}\n",
+                )
+                self.assert_violation(f"main workflow contains forbidden token: {forbidden}")
 
     def test_pull_request_workflow_requires_read_only_permissions(self) -> None:
         for old in ("contents: read", "pull-requests: read"):

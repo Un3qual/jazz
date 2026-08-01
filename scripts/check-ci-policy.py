@@ -53,6 +53,10 @@ MAIN_FORBIDDEN = (
     "full-parser-scale",
     "profile-hotspots",
     "profile-stages",
+    "scripts/ci/extended.sh",
+    "scripts/ci/release-candidate.sh",
+    "scripts/ci/determinism.sh",
+    "scripts/release/build-alpha.sh",
 )
 
 POLICY_PATHS = (
@@ -64,6 +68,7 @@ POLICY_PATHS = (
 )
 
 PR_WORKFLOW_PATH = ".github/workflows/ci-pr.yml"
+MAIN_WORKFLOW_PATH = ".github/workflows/ci-main.yml"
 
 PR_FORBIDDEN = (
     "cabal bench",
@@ -124,6 +129,32 @@ def indented_block(contents: str, header: str, indent: int) -> str:
 def workflow_job(contents: str, job_name: str) -> str:
     jobs = indented_block(contents, "jobs", 0)
     return indented_block(jobs, job_name, 2)
+
+
+def workflow_step(contents: str, step_name: str) -> str:
+    """Return one named workflow step from trusted repository YAML."""
+    lines = contents.splitlines()
+    target = re.compile(
+        rf"^(?P<indent>\s*)-\s+name:\s*['\"]?{re.escape(step_name)}['\"]?\s*$"
+    )
+    for index, line in enumerate(lines):
+        match = target.match(line)
+        if not match:
+            continue
+        indent = len(match.group("indent"))
+        block = [line]
+        for candidate in lines[index + 1 :]:
+            if not candidate.strip():
+                block.append(candidate)
+                continue
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            if candidate_indent < indent or (
+                candidate_indent == indent and candidate.lstrip().startswith("- ")
+            ):
+                break
+            block.append(candidate)
+        return "\n".join(block)
+    return ""
 
 
 def has_yaml_list_item(contents: str, item: str) -> bool:
@@ -720,6 +751,154 @@ def check_pr_workflow(root: Path, violations: list[str]) -> None:
     check_pr_gate_job(contents, violations)
 
 
+def check_main_workflow(root: Path, violations: list[str]) -> None:
+    path = root / MAIN_WORKFLOW_PATH
+    if not path.is_file():
+        violations.append(f"missing required main workflow: {MAIN_WORKFLOW_PATH}")
+        return
+
+    contents = active_text(path.read_text(encoding="utf-8"))
+    trigger_block = indented_block(contents, "on", 0)
+    events = re.findall(r"(?m)^  ([a-z][a-z0-9_-]*):\s*$", trigger_block)
+    if "workflow_dispatch" not in events:
+        violations.append("main workflow must support workflow_dispatch")
+    if any(event not in {"push", "workflow_dispatch"} for event in events):
+        violations.append(
+            "main workflow must trigger only on main pushes and manual dispatch"
+        )
+
+    push = indented_block(trigger_block, "push", 2)
+    branches = indented_block(push, "branches", 4)
+    branch_names = re.findall(
+        r"(?m)^\s*-\s+['\"]?([^'\"\s]+)['\"]?\s*$",
+        branches,
+    )
+    if branch_names != ["main"]:
+        violations.append("main workflow push trigger must be restricted to main")
+
+    permissions = [
+        line.strip()
+        for line in indented_block(contents, "permissions", 0).splitlines()
+        if line.strip()
+    ]
+    if permissions != ["contents: read"] or re.search(
+        r"(?m)^    permissions\s*:", contents
+    ):
+        violations.append("main workflow must grant only read access to contents")
+
+    concurrency = indented_block(contents, "concurrency", 0)
+    if "${{ github.workflow }}" not in concurrency or "${{ github.ref }}" not in concurrency:
+        violations.append(
+            "main workflow concurrency must include workflow and branch ref"
+        )
+    if not re.search(r"(?m)^\s*cancel-in-progress:\s*true\s*$", concurrency):
+        violations.append("main workflow must cancel superseded branch runs")
+
+    job = workflow_job(contents, "ordinary")
+    if not job:
+        violations.append("main workflow is missing the ordinary job")
+        return
+
+    requirements = (
+        (
+            r"(?m)^\s*timeout-minutes:\s*60\s*$",
+            "main ordinary job must have a 60-minute timeout",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$",
+            "main ordinary job must use cachix/install-nix-action@v31",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v4\s*$",
+            "main ordinary job must use actions/cache@v4",
+        ),
+        (
+            r"(?m)^\s*~/.cabal/store\s*$",
+            "main ordinary cache must include ~/.cabal/store",
+        ),
+        (
+            r"(?m)^\s*dist-newstyle\s*$",
+            "main ordinary cache must include dist-newstyle",
+        ),
+        (
+            r"(?m)^\s*key:\s*.*\$\{\{\s*runner\.os\s*\}\}.*$",
+            "main ordinary cache key must include runner.os",
+        ),
+        (
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
+            "main ordinary cache key must include flake.lock, jazz.cabal, and cabal.project",
+        ),
+        (
+            r"(?m)^\s*restore-keys:\s*\|\s*\n\s*\$\{\{\s*runner\.os\s*\}\}-cabal-\s*$",
+            "main ordinary cache must restore only the operating-system Cabal prefix",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?run:\s*nix\s+develop\s+--command\s+bash\s+scripts/ci/main-functional\.sh\s*$",
+            "main ordinary job must invoke the complete ordinary script",
+        ),
+    )
+    for pattern, message in requirements:
+        if not re.search(pattern, job):
+            violations.append(message)
+
+    ordinary_step = workflow_step(job, "Run complete ordinary verification")
+    if not re.search(r"(?m)^\s*id:\s*ordinary\s*$", ordinary_step):
+        violations.append("main ordinary step must expose the ordinary id")
+    if re.search(r"(?m)^\s*if\s*:", ordinary_step):
+        violations.append("main ordinary step must retain implicit success gating")
+
+    collect_step = workflow_step(job, "Collect ordinary test logs")
+    ordinary_failure = (
+        r"(?m)^\s*if:\s*failure\(\)\s*&&\s*"
+        r"steps\.ordinary\.outcome\s*==\s*'failure'\s*$"
+    )
+    if not collect_step or not re.search(ordinary_failure, collect_step):
+        violations.append(
+            "main workflow must collect ordinary test logs only for ordinary failure"
+        )
+    collection_command = (
+        "find dist-newstyle -type f -name '*.log' -exec cp --parents {} "
+        "artifacts/ordinary-test-logs \\;"
+    )
+    if collection_command not in collect_step:
+        violations.append(
+            "main workflow must stage only ordinary logs with their source paths"
+        )
+
+    upload_step = workflow_step(job, "Upload ordinary test logs")
+    if not upload_step or not re.search(ordinary_failure, upload_step):
+        violations.append(
+            "main workflow must upload ordinary test logs only for ordinary failure"
+        )
+    if not re.search(
+        r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$", upload_step
+    ):
+        violations.append(
+            "main workflow must use actions/upload-artifact@v4 for ordinary logs"
+        )
+    if not re.search(
+        r"(?m)^\s*path:\s*artifacts/ordinary-test-logs\s*$", upload_step
+    ):
+        violations.append("main workflow must upload only staged ordinary test logs")
+    if not re.search(r"(?m)^\s*retention-days:\s*7\s*$", upload_step):
+        violations.append("main workflow ordinary logs must have seven-day retention")
+    for forbidden_path in ("dist-newstyle", "~/.cabal/store"):
+        if re.search(
+            rf"(?m)^\s*path:\s*{re.escape(forbidden_path)}/?\s*$",
+            job,
+        ):
+            violations.append(
+                f"main workflow must not upload build or dependency cache: {forbidden_path}"
+            )
+
+    collect_marker = "- name: Collect ordinary test logs"
+    upload_marker = "- name: Upload ordinary test logs"
+    if job.find(collect_marker) > job.find(upload_marker):
+        violations.append("main workflow must upload ordinary logs after collection")
+
+    reject_tokens(violations, "main workflow", contents, MAIN_FORBIDDEN)
+
+
 def check_pull_request_workflows(root: Path, violations: list[str]) -> None:
     workflow_root = root / ".github/workflows"
     if not workflow_root.is_dir():
@@ -750,6 +929,7 @@ def check_repository(root: Path) -> list[str]:
             checker(policies[relative_path], violations)
 
     check_pr_workflow(root, violations)
+    check_main_workflow(root, violations)
     check_pull_request_workflows(root, violations)
     return sorted(set(violations))
 

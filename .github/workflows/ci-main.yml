@@ -1,0 +1,63 @@
+name: Main branch checks
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ordinary:
+    name: Complete ordinary verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Cache Cabal dependencies and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
+
+      - name: Remove cached test logs
+        run: |
+          if [[ -d dist-newstyle ]]; then
+            find dist-newstyle -type f -name '*.log' -delete
+          fi
+
+      - name: Run complete ordinary verification
+        id: ordinary
+        run: nix develop --command bash scripts/ci/main-functional.sh
+
+      - name: Collect ordinary test logs
+        if: failure() && steps.ordinary.outcome == 'failure'
+        run: |
+          mkdir -p artifacts/ordinary-test-logs
+          if [[ -d dist-newstyle ]]; then
+            find dist-newstyle -type f -name '*.log' -exec cp --parents {} artifacts/ordinary-test-logs \;
+          fi
+
+      - name: Upload ordinary test logs
+        if: failure() && steps.ordinary.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordinary-test-logs-${{ github.run_id }}
+          path: artifacts/ordinary-test-logs
+          if-no-files-found: ignore
+          retention-days: 7
