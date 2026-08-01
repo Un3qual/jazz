@@ -19,7 +19,9 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 ## Implementation Target
 
 - All new parser/analyzer/codegen work for this decision must land in the repository root.
-- `jazz-hs/` and `jazz2/` are read-only legacy references and may only be used as historical evidence.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Canonical Syntax Contract
 
@@ -101,10 +103,14 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 
 - `README.md` (top-level syntax claims and examples)
 - `docs/jazz-language-state.md` (recorded mismatch inventory)
-- `jazz-hs/src/Parser/Lang.hs` (legacy parser evidence)
-- `jazz-hs/test/ParserSpec.hs` (legacy parser behavior evidence)
-- `jazz-hs/static/Prelude.jz` (legacy reference syntax samples)
-- `jazz-hs/src/Types.hs` (legacy builtin collection signature evidence)
+- `archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Parser/Lang.hs`
+  (historical parser evidence)
+- `archive/pre-root-canonicalization-2026-07-31:jazz-hs/test/ParserSpec.hs`
+  (historical parser behavior evidence)
+- `archive/pre-root-canonicalization-2026-07-31:jazz-hs/static/Prelude.jz`
+  (historical syntax samples)
+- `archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Types.hs`
+  (historical builtin collection signature evidence)
 
 ## Progress Checklist
 

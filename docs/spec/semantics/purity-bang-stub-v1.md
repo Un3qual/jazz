@@ -11,7 +11,10 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
 ## Implementation Target
 
 - Enforcement is implemented in the repository root.
-- `jazz-hs/` and `jazz2/` are legacy reference implementations and are non-normative for this contract.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical and
+  non-normative; the archived implementation trees are absent from the current
+  checkout.
 
 ## Stub-V1 Contract
 

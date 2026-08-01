@@ -64,6 +64,18 @@ require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/f
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
 require_pattern "docs/feature-status.md" "active compiler path reference" 'src/Jazz/'
 require_pattern "README.md" "active compiler path reference" 'src/Jazz/'
+archive_tag='archive/pre-root-canonicalization-2026-07-31'
+former_package='jazz-''next'
+former_reference='jazz-''hs'
+former_rewrite='jazz''2'
+deleted_tree_pattern="(${former_package}|${former_reference}|${former_rewrite})"
+require_pattern "docs/jazz-language-state.md" "legacy evidence archive tag" "$archive_tag"
+reject_pattern "active specs must not describe deleted implementation trees as read-only" \
+  "(${deleted_tree_pattern}.{0,120}(remain|stay|are|is).{0,80}read[- ]only)|(read[- ]only.{0,120}${deleted_tree_pattern})" \
+  docs/spec
+reject_pattern "active documentation must not link into deleted implementation trees" \
+  "\\]\\([^)]*${deleted_tree_pattern}[^)]*\\)" \
+  docs/spec docs/jazz-language-state.md
 generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
 reject_pattern "active compiler sources must not reference JavaScript generation artifacts" "$generated_artifact_pattern" src jazz test
 reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \

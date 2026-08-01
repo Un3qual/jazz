@@ -11,7 +11,9 @@ Define `if` as a canonical surface construct with explicit parsing, typing, eval
 ## Implementation Target
 
 - New implementation work for this contract lands in the repository root.
-- `jazz-hs/` and `jazz2/` remain read-only legacy evidence.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Canonical Surface Form
 
@@ -115,4 +117,7 @@ Reason: condition is not `Bool`.
 
 ## Legacy Drift Notes
 
-Legacy `jazz-hs` has an `EIf` AST constructor and codegen branch but no parser/analyzer path. This document is the canonical source for converging implementation and tests in `Jazz`.
+At archive tag `archive/pre-root-canonicalization-2026-07-31`, the legacy
+compiler had an `EIf` AST constructor and codegen branch but no parser/analyzer
+path. This document is the canonical source for converging implementation and
+tests in `Jazz`.

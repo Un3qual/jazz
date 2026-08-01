@@ -13,7 +13,9 @@ pattern subset in `Jazz`.
 
 - All new parser/analyzer/type/runtime work for this contract lands in
   the repository root.
-- `jazz-hs/` and `jazz2/` are read-only legacy evidence only.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Current Active Slice
 
@@ -350,4 +352,5 @@ diagnostics, target paths, and focused verification.
    multiple guard clauses per arm.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.
 3. Match-compilation optimizations or decision-tree lowering.
-4. Any new parser/type/runtime behavior under `jazz-hs/` or `jazz2/`.
+4. Restoring or changing implementation trees preserved only at archive tag
+   `archive/pre-root-canonicalization-2026-07-31`.

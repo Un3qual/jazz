@@ -144,7 +144,8 @@ Out of scope for this accepted contract:
 - arrow associativity,
 - concrete or monomorphic constrained-signature behavior,
 - generic ADT constructor schemes,
-- any `jazz-hs/` or `jazz2/` work.
+- restoring or changing implementation trees preserved only at archive tag
+  `archive/pre-root-canonicalization-2026-07-31`.
 
 ## Decision Matrix: Baseline vs Canonical
 

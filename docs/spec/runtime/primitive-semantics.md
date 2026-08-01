@@ -11,7 +11,9 @@ Define backend-independent language semantics for primitive operations and value
 ## Implementation Target
 
 - New runtime/typechecker implementation work for this contract lands in the repository root.
-- `jazz-hs/` and `jazz2/` are legacy evidence only.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Boundary Contract Link
 
@@ -220,5 +222,7 @@ Rules:
 
 ## Migration Notes
 
-1. Legacy `jazz-hs` behavior such as JS loose equality is historical evidence, not normative behavior.
+1. Behavior preserved at archive tag
+   `archive/pre-root-canonicalization-2026-07-31`, such as JS loose equality,
+   is historical evidence rather than normative behavior.
 2. Convergence work should prioritize equality and primitive failure consistency first.

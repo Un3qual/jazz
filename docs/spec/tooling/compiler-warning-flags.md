@@ -11,7 +11,9 @@ Define a stable warning-flag contract so semantically valid same-scope rebinding
 ## Implementation Target
 
 - New warning infrastructure implementation lands in the repository root.
-- `jazz-hs/` and `jazz2/` remain read-only legacy evidence.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Warning Categories and IDs
 

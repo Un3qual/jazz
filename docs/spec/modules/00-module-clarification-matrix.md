@@ -10,7 +10,9 @@ Capture the active `Jazz` module/import baseline and separate locked behavior fr
 ## Baseline Scope
 
 - Active implementation path: the repository root.
-- Legacy `jazz-hs/` and `jazz2/` module behavior is evidence only.
+- Pre-root-canonicalization module behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 - Brace-bodied modules remain the canonical/compatible module declaration form.
 
 ## Clarification Matrix

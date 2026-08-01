@@ -12,7 +12,9 @@ so upcoming `Jazz` parser, type, and runtime work converges on one model.
 ## Implementation Target
 
 - All new ADT implementation work for this contract lands in the repository root.
-- `jazz-hs/` and `jazz2/` are read-only legacy evidence only.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Rebase Closure Status
 

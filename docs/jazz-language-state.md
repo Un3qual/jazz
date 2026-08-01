@@ -129,24 +129,40 @@ The README examples also imply:
 - lists use `[ ... ]`
 - function application can be space-separated
 
-## What Legacy `jazz-hs` Actually Implements
+## What Archived `jazz-hs` Implemented
 
-`jazz-hs` is a legacy reference implementation. Its local [README](../jazz-hs/README.md) is empty, so its behavior is visible through parser, AST, type inference, tests, and example programs, but new compiler work should not target it.
+The legacy comparison sections below describe evidence preserved at archive tag
+`archive/pre-root-canonicalization-2026-07-31`. Git object names such as
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Lib.hs` are historical
+references, not links or paths in the current checkout.
+
+At that archive tag, `jazz-hs/` is a legacy reference implementation. Its
+`jazz-hs/README.md` is empty, so its behavior is visible through parser, AST,
+type inference, tests, and example programs, but new compiler work must use the
+repository root.
 
 ### Legacy Pipeline
 
-The implemented pipeline in [jazz-hs/src/Lib.hs](../jazz-hs/src/Lib.hs) is:
+The pipeline in
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Lib.hs` was:
 
 1. parse source text
 2. run analysis (currently type inference only)
 3. run optimizer
 4. generate JavaScript
 
-The Haskell interpreter in [jazz-hs/src/Interpreter.hs](../jazz-hs/src/Interpreter.hs) is mostly commented out and should be treated as non-functional.
+The Haskell interpreter at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Interpreter.hs` is
+mostly commented out and should be treated as non-functional historical
+evidence.
 
-### Concrete Syntax In `jazz-hs`
+### Concrete Syntax In Archived `jazz-hs`
 
-The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and tests in [jazz-hs/test/ParserSpec.hs](../jazz-hs/test/ParserSpec.hs) define this surface syntax:
+The parser at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Parser/Lang.hs` and
+tests at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/test/ParserSpec.hs`
+record this historical surface syntax:
 
 - A program is a sequence of root expressions separated by `.`.
 - Blocks use `{ ... }` and contain the same dot-separated program form.
@@ -265,7 +281,7 @@ The parser accepts:
 - class implementation:
   - `impl @{Ord(a)}: Eq(Integer) { ... }`
 
-### Type Syntax In `jazz-hs`
+### Type Syntax In Archived `jazz-hs`
 
 The parser supports:
 
@@ -293,9 +309,11 @@ The older left-associative behavior should be treated as legacy-reference drift 
 
 Active-path note: `Jazz` now carries one recursive signature tree through ordinary and constrained signatures, class methods, impl targets, explicit type application, module interfaces, and runtime evidence. The accepted rank-1 grammar includes lower-case variables; primitives; exact-arity named applications such as `Maybe(Char)` and `Result(IOError, Text)`; applications nested in lists, tuples, and functions; and right-associative arrows. Adjacent generic signatures implicitly quantify variables in deterministic first-occurrence order, rigidly check those variables at the definition, reject implementation constraints not entailed by the declared contract, and instantiate them freshly at each use; explicit signatures also make direct constructor aliases polymorphic. Named types resolve through the visible type namespace, preserve nominal module identity, and reject unknown, partial, or wrong-arity applications with `E2009` at the owning signature or explicit-argument span. Existing constraint policy remains: visible class arity and impl facts are required, duplicate or unused constraints reject, constrained variables must occur in the body, and class method signatures cannot introduce method-local variables. Explicit type application binds the first quantified variable and records runtime evidence only when the instantiated type is concrete; polymorphic templates preserve real type-variable nodes rather than nominal sentinels. Higher-rank types, higher-kinded variables, method-local quantification, type lambdas, aliases, and explicit `forall` remain outside the active contract.
 
-### Builtins And Type Environment In `jazz-hs`
+### Builtins And Type Environment In Archived `jazz-hs`
 
-The hardcoded builtin type environment in [jazz-hs/src/Types.hs](../jazz-hs/src/Types.hs) only includes:
+The hardcoded builtin type environment at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/Types.hs` only
+included:
 
 - `+`
 - `-`
@@ -342,11 +360,15 @@ The only features that clearly work through parse -> type inference -> optimizat
 - `tl`
 - `$` application
 
-Example programs in [jazz-hs/ExamplePrograms](../jazz-hs/ExamplePrograms) mostly stay within this subset.
+Example programs at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/ExamplePrograms` mostly
+stay within this subset.
 
-### JavaScript Runtime Semantics In `jazz-hs`
+### JavaScript Runtime Semantics In Archived `jazz-hs`
 
-The JS backend in [jazz-hs/src/CodeGen/Javascript.hs](../jazz-hs/src/CodeGen/Javascript.hs) lowers builtins to a tiny JS prelude:
+The JS backend at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/src/CodeGen/Javascript.hs`
+lowered builtins to a tiny JS prelude:
 
 - `+`, `-`, `*`, `/` become curried JS helpers
 - `map` becomes `xs.map(f)`
@@ -357,11 +379,11 @@ The JS backend in [jazz-hs/src/CodeGen/Javascript.hs](../jazz-hs/src/CodeGen/Jav
 
 Constant folding in the optimizer only handles integer `+`, `-`, and `*`.
 
-## Legacy `jazz-hs` Features That Exist Mostly As Scaffolding
+## Archived `jazz-hs` Features Preserved Mostly As Scaffolding
 
-A large part of the richer language exists in legacy `jazz-hs` AST and parser
-form, but is not fully supported by analysis and code generation. This is
-historical evidence only; active feature work must use `Jazz` contracts.
+A large part of the richer language existed in the archived `jazz-hs` AST and
+parser form, but was not fully supported by analysis and code generation. This
+is historical evidence only; active feature work must use `Jazz` contracts.
 
 These features appear partially implemented or parse-only:
 
@@ -385,7 +407,7 @@ Key examples:
 - type signatures parse and are analyzed, but JS generation has no branch for `ETypeSignature`.
 - `if` exists in the AST and code generator, but there is no parser for `if ... else ...`, so it is not currently reachable from source code.
 
-## Top-Level README vs `jazz-hs` Mismatches
+## Top-Level README vs Archived `jazz-hs` Mismatches
 
 Several important inconsistencies exist between the aspirational README and the concrete Haskell implementation.
 
@@ -441,7 +463,7 @@ Normative stub-v1 contract:
 
 The top-level README describes approachable typeclasses like `Collection` and `Orderable`.
 
-`jazz-hs` instead contains:
+The archived implementation instead contained:
 
 - parser syntax centered on `class` / `impl`
 - traits in the type system named `Num`, `Eq`, `Ord`, etc.
@@ -452,7 +474,7 @@ The names and abstraction model are related, but not stable or consistent.
 
 The top-level README strongly presents ADTs, pattern matching, tuples, and modules as language features.
 
-`jazz-hs` only partially supports them:
+The archived implementation only partially supported them:
 
 - many of them parse
 - several infer partially
@@ -460,7 +482,10 @@ The top-level README strongly presents ADTs, pattern matching, tuples, and modul
 
 ## `static/Prelude.jz` Looks Like A Different Dialect
 
-The file [jazz-hs/static/Prelude.jz](../jazz-hs/static/Prelude.jz) is valuable because it shows intended direction, but it does not cleanly match the currently working parser/compiler.
+The file at
+`archive/pre-root-canonicalization-2026-07-31:jazz-hs/static/Prelude.jz` is
+valuable historical evidence because it shows intended direction, but it does
+not cleanly match the compiler preserved in that archive.
 
 It includes:
 
@@ -480,11 +505,16 @@ But there are multiple mismatches with the active parser:
 
 Best interpretation: `Prelude.jz` captures intended future language/library design more than current executable behavior.
 
-## What `jazz2` Adds
+## What Archived `jazz2` Contained
 
-`jazz2` is a reference-only design source and is non-normative for current Jazz behavior. It is also a mostly unfinished rewrite: its local [README](../jazz2/README.md) is empty, the parser entrypoint is effectively empty, the lexer is `undefined`, and the standard library `.jz` files are empty placeholders.
+At archive tag `archive/pre-root-canonicalization-2026-07-31`, `jazz2/` is a
+reference-only design source and is non-normative for current Jazz behavior. It
+is also a mostly unfinished rewrite: `jazz2/README.md` is empty, the parser
+entrypoint is effectively empty, the lexer is `undefined`, and the standard
+library `.jz` files are empty placeholders.
 
-The meaningful information in `jazz2` is mostly in [jazz2/src/Jazz/AST.hs](../jazz2/src/Jazz/AST.hs):
+The meaningful archived information is mostly at
+`archive/pre-root-canonicalization-2026-07-31:jazz2/src/Jazz/AST.hs`:
 
 - qualified names are clearly intended
 - there is an expression core with:
@@ -514,7 +544,8 @@ However:
 - there is no operator system yet
 - stdlib files are empty
 
-Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, but not a usable language definition.
+Best interpretation: the archived `jazz2` tree shows the shape of a potential
+cleaner redesign, but not a usable language definition.
 
 ## Things That Are Still Unsettled Or Implementation-Pending
 

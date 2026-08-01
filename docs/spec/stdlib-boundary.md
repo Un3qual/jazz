@@ -14,7 +14,9 @@ planned.
 ## Implementation Target
 
 - New boundary implementation work lands in the repository root.
-- `jazz-hs/` and `jazz2/` are legacy evidence only.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Ownership Model (Current Contract)
 

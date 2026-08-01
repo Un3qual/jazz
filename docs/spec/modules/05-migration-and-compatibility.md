@@ -13,7 +13,10 @@ Depends on:
 
 This document defines the compatibility policy for the active `Jazz` module/import path. It documents existing parser, CLI, resolver, and driver behavior without introducing new compiler behavior.
 
-Legacy `jazz-hs/` and `jazz2/` behavior is historical evidence only. New module/import behavior belongs in the repository root.
+Pre-root-canonicalization behavior preserved at archive tag
+`archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+the archived implementation trees are absent from the current checkout. New
+module/import behavior belongs in the repository root.
 
 ## Compatibility Baseline
 
@@ -137,9 +140,10 @@ as active `Jazz` child implementation batches:
 - `JN-MODULE-LOADER-MIGRATION-HARNESS-001`
 
 Those rows name concrete `Jazz` parser, resolver, loader, CLI, and
-default-suite targets plus focused verification commands. Legacy `jazz-hs/` and
-`jazz2/` paths remain read-only reference material and are not valid targets for
-new module verification closure.
+default-suite targets plus focused verification commands. Earlier implementation
+trees survive only at archive tag
+`archive/pre-root-canonicalization-2026-07-31`; they are absent from the current
+checkout and are not valid targets for new module verification closure.
 
 Status update (2026-05-30): `JN-MODULE-FILE-LAYOUT-HARNESS-001` is complete.
 The active parser/resolver harness now covers the file-layout and rejected-form
@@ -161,4 +165,5 @@ This migration slice does not define:
 - compatibility mode for dot-only module declarations;
 - warning-based migration for rejected module/import syntax;
 - re-export or package-level migration behavior;
-- any implementation change in `jazz-hs/` or `jazz2/`.
+- restoring or changing implementation trees preserved only at archive tag
+  `archive/pre-root-canonicalization-2026-07-31`.
