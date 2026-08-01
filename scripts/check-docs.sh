@@ -62,13 +62,12 @@ require_pattern "docs/execution/done-archive.md" "done archive heading" '^# Exec
 require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
 require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
-require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
-require_pattern "README.md" "active compiler path reference" 'jazz-next/'
+require_pattern "docs/feature-status.md" "active compiler path reference" 'src/Jazz/'
+require_pattern "README.md" "active compiler path reference" 'src/Jazz/'
 generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
-reject_pattern "jazz-next must not reference JavaScript generation artifacts" "$generated_artifact_pattern" jazz-next
+reject_pattern "active compiler sources must not reference JavaScript generation artifacts" "$generated_artifact_pattern" src jazz test
 reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
   docs/execution/queue.md \
-  docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md \
   docs/spec/tooling/compiler-warning-flags.md
 if [[ -f "scripts/check-execution-queue.sh" ]]; then
   if ! bash scripts/check-execution-queue.sh; then

@@ -5,7 +5,7 @@ Primary plan: `docs/plans/spec-clarification/2026-03-02/modules/09-module-loader
 
 ## Scope
 
-This document defines the v1 source layout contract for active `jazz-next` module-graph compilation and execution. It documents existing resolver behavior and does not introduce new compiler behavior.
+This document defines the v1 source layout contract for active `Jazz` module-graph compilation and execution. It documents existing resolver behavior and does not introduce new compiler behavior.
 
 ## Module Paths
 
@@ -69,7 +69,7 @@ Multiple module declarations in one resolved source are `E4005`. A declaration t
 Nested module declarations and legacy dot-only module declarations are invalid parser surfaces. Brace-bodied declarations remain the compatibility target because they are already used in public examples and active parser tests.
 
 Implementation evidence (2026-05-30): `ModuleImportParserSpec.hs` and
-`ModuleResolutionSpec.hs` now lock the active `jazz-next` harness for
+`ModuleResolutionSpec.hs` now lock the active `Jazz` harness for
 brace-bodied module boundaries, rejected legacy declaration shapes, exact path
 segment preservation, canonical nested `.jz` mapping, declaration omission,
 declaration/path match and mismatch, duplicate-root dedupe, and deterministic

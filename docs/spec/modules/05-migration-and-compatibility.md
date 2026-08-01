@@ -11,9 +11,9 @@ Depends on:
 
 ## Scope
 
-This document defines the compatibility policy for the active `jazz-next` module/import path. It documents existing parser, CLI, resolver, and driver behavior without introducing new compiler behavior.
+This document defines the compatibility policy for the active `Jazz` module/import path. It documents existing parser, CLI, resolver, and driver behavior without introducing new compiler behavior.
 
-Legacy `jazz-hs/` and `jazz2/` behavior is historical evidence only. New module/import behavior belongs in `jazz-next/`.
+Legacy `jazz-hs/` and `jazz2/` behavior is historical evidence only. New module/import behavior belongs in the repository root.
 
 ## Compatibility Baseline
 
@@ -130,13 +130,13 @@ Implementation batches that change module/import behavior must preserve these ch
 ## Phase 6 Follow-Up Boundary
 
 The historical plan's Phase 6 verification-harness checklist has been rewritten
-as active `jazz-next` child implementation batches:
+as active `Jazz` child implementation batches:
 
 - `JN-MODULE-FILE-LAYOUT-HARNESS-001`
 - `JN-MODULE-RESOLUTION-BINDING-HARNESS-001`
 - `JN-MODULE-LOADER-MIGRATION-HARNESS-001`
 
-Those rows name concrete `jazz-next` parser, resolver, loader, CLI, and
+Those rows name concrete `Jazz` parser, resolver, loader, CLI, and
 default-suite targets plus focused verification commands. Legacy `jazz-hs/` and
 `jazz2/` paths remain read-only reference material and are not valid targets for
 new module verification closure.

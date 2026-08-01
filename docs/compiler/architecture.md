@@ -1,22 +1,17 @@
-# jazz-next
+# Jazz Compiler Architecture
 
-This directory is the only active target for new compiler implementation work.
+The compiler is the root `jazz` Cabal package. Active Haskell implementation,
+Jazz-authored sources, CLI code, and tests live under `src/`, `jazz/`, `app/`,
+and `test/`, respectively.
 
-Legacy references:
-
-- `jazz-hs/` is read-only historical reference code.
-- `jazz2/` is read-only experimental/reference code.
-
-Do not implement new compiler functionality in legacy directories.
-
-`jazz-next` is currently a CLI/compiler package. Its Haskell implementation is
-provided through the private `jazz-next-internal` package library solely for the
+Jazz is currently a CLI/compiler package. Its Haskell implementation is
+provided through the private `jazz-internal` package library solely for the
 executable and test components; there is no supported Haskell embedding API yet.
 
 The shared production-shaped program corpus is documented in
-[`programs/README.md`](programs/README.md). Benchmarking, deterministic runtime
+[`programs/README.md`](../../programs/README.md). Benchmarking, deterministic runtime
 statistics, Jazz semantic flame graphs, and GHC profiling are documented in
-[`PERFORMANCE.md`](PERFORMANCE.md).
+[`PERFORMANCE.md`](../../PERFORMANCE.md).
 
 ## Current architecture
 
@@ -44,8 +39,8 @@ statistics, Jazz semantic flame graphs, and GHC profiling are documented in
   run results each store one ordered diagnostic stream; severity/origin accessors
   provide warning, compile-error, and runtime-error views without duplicate
   storage.
-- `jazz-next.cabal` defines the private `jazz-next-internal` implementation
-  library, the `jazz-next` executable, and the registered test suites.
+- `jazz.cabal` defines the private `jazz-internal` implementation library, the
+  `jazz` executable, and the registered test suites.
 - Cabal discovers and runs every registered test suite; `repository-audit-spec`
   owns stdlib formatting and private-package policy.
 
@@ -56,7 +51,7 @@ to Jazz programs is unchanged by the internal module pipeline.
 
 Shipped Jazz source lives under one package-owned root:
 
-- [`jazz/stdlib/`](jazz/stdlib/README.md) contains the bundled prelude and
+- [`jazz/stdlib/`](../../jazz/stdlib/README.md) contains the bundled prelude and
   general user-facing standard-library modules, including total list and text
   utilities plus persistent `Dictionary`, `Queue`, `Map`, and `Set` values.
 - `jazz/compiler/` contains the Jazz-authored compiler implementation. Alongside
@@ -153,8 +148,8 @@ smoke case.
 
 ### Backend-neutral lowered IR
 
-`JazzNext.Compiler.LoweredIR` owns the stage-0 backend-neutral CFG schema and
-stable identifiers. `JazzNext.Compiler.LoweredIR.Validate` validates complete
+`Jazz.Compiler.LoweredIR` owns the stage-0 backend-neutral CFG schema and
+stable identifiers. `Jazz.Compiler.LoweredIR.Validate` validates complete
 untrusted programs into ordered structured failures. The ordinary Jazz mirrors
 are `LoweredIRTypes.jz` and `LoweredIRValidate.jz`; neither schema contains LLVM
 types, target layouts, object/link details, or native-runtime implementation
@@ -177,11 +172,11 @@ remain separate unpromoted gates.
 
 ### Typed core
 
-`JazzNext.Compiler.TypedCore` owns the stage-0 semantic typed-core schema:
+`Jazz.Compiler.TypedCore` owns the stage-0 semantic typed-core schema:
 stable resolved names and binder/evidence identities, final semantic types,
 representation recipes, schemes, instantiations, capability evidence, typed
 patterns and expressions, declarations, interfaces, modules, programs, and
-structured validation results. `JazzNext.Compiler.TypedCore.Validate` performs
+structured validation results. `Jazz.Compiler.TypedCore.Validate` performs
 complete structural and annotation validation into stable ordered failures.
 The ordinary Jazz mirrors are `TypedCoreTypes.jz` and
 `TypedCoreValidate.jz`; they use ordinary ADTs and list traversal without host
@@ -202,20 +197,20 @@ it is not an implemented runtime or bootstrap stage.
 
 ## Editor support
 
-The dependency-free [`editors/vscode-jazz`](editors/vscode-jazz/README.md)
+The dependency-free [`editors/vscode-jazz`](../../editors/vscode-jazz/README.md)
 package registers `.jz` files and supplies TextMate syntax highlighting plus
 basic VS Code language configuration. It is syntax-only; language-server and
 semantic editor features remain future work.
 
 ## Test layout
 
-- `test/JazzNext/TestHarness.hs`: shared assertion helpers and test runner plumbing.
-- `test/JazzNext/CLI/`: CLI entrypoint coverage.
-- `test/JazzNext/Compiler/Config/`: warning/config parsing coverage.
-- `test/JazzNext/Compiler/Diagnostics/`: diagnostic rendering and metadata coverage.
-- `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
-- `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
-- `test/JazzNext/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
+- `test/Jazz/TestHarness.hs`: shared assertion helpers and test runner plumbing.
+- `test/Jazz/CLI/`: CLI entrypoint coverage.
+- `test/Jazz/Compiler/Config/`: warning/config parsing coverage.
+- `test/Jazz/Compiler/Diagnostics/`: diagnostic rendering and metadata coverage.
+- `test/Jazz/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
+- `test/Jazz/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
+- `test/Jazz/Compiler/Bootstrap/`: canonical Haskell/Jazz comparison
   adapters plus hosted lexer/parser/core component coverage; the complete core
   schema, all four private lowering profiles, source-to-core facade, and
   17-direct / 13-composed / 196-accepted core closure; exact 52-case
@@ -223,7 +218,7 @@ semantic editor features remain future work.
   operator, 26-case mixed operator/control-flow, and 56-case corpus-closure
   families; complete repeated 365-case parity; and deterministic
   expression/declarations/control-flow/operator scale profiles.
-- `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
+- `test/Jazz/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 - `programs/`: shared multi-module correctness and benchmark corpus.
 
 ## Run a first program
@@ -238,13 +233,13 @@ answer.
 Compile it:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- first.jz
+cabal run jazz -- first.jz
 ```
 
 Successful compile output is quiet. Run it:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- --run first.jz
+cabal run jazz -- --run first.jz
 ```
 
 Expected output:
@@ -256,13 +251,13 @@ Expected output:
 Run source from stdin explicitly:
 
 ```bash
-printf '40 + 2.' | cabal run --project-dir=jazz-next jazz-next -- --run -
+printf '40 + 2.' | cabal run jazz -- --run -
 ```
 
 Show CLI help:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- --help
+cabal run jazz -- --help
 ```
 
 The help path prints usage to stdout and does not read stdin, source files,
@@ -273,12 +268,12 @@ warning config files, or Prelude files.
 ```bash
 # from repository root:
 nix --extra-experimental-features 'nix-command flakes' develop
-cabal build --project-dir=jazz-next all
-cabal test --project-dir=jazz-next all --test-show-details=failures
-cabal test --project-dir=jazz-next repository-audit-spec --test-show-details=failures
+cabal build all
+cabal test all --test-show-details=failures
+cabal test repository-audit-spec --test-show-details=failures
 ```
 
-`cabal test --project-dir=jazz-next all` is the routine matrix. It includes
+`cabal test all` is the routine matrix. It includes
 `jazz-parser-scale-spec`, which runs all four 65-statement hosted-parser smoke
 profiles twice and requires deterministic semantic observations. The four
 preserved 513-statement profiles are a niche manual diagnostic and are excluded
@@ -286,7 +281,7 @@ from the default matrix. When a maintainer explicitly requests full-scale
 diagnosis, enable and select all four gated targets:
 
 ```bash
-cabal test --project-dir=jazz-next -ffull-parser-scale \
+cabal test -ffull-parser-scale \
   jazz-parser-scale-full-expression-spec \
   jazz-parser-scale-full-declarations-spec \
   jazz-parser-scale-full-control-flow-spec \

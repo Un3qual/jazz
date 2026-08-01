@@ -44,7 +44,7 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Active Implementation
 
-`jazz-next` parses and lowers class declarations with explicit lowercase
+`Jazz` parses and lowers class declarations with explicit lowercase
 parameter metadata plus signature-only method metadata, and concrete impl
 declarations with method binding metadata as declaration nodes. Duplicate class
 method signatures and duplicate impl method bindings reject deterministically.

@@ -1,13 +1,18 @@
-# Agent Guardrails
+# Jazz Repository Guidance
 
-## Compiler Workspace Policy
+Make sure you commit along the way as needed.
 
-- `jazz-hs/` is a legacy reference implementation and must be treated as **read-only**.
-- `jazz2/` is a legacy/experimental reference and must be treated as **read-only**.
-- All new compiler implementation work must be created under `jazz-next/`.
+## Active Compiler Paths
+
+- `src/` contains the active Haskell compiler and runtime implementation.
+- `jazz/` contains the active Jazz-authored standard library and hosted compiler sources.
+- `app/` contains the active command-line entry point.
+- `test/` contains the active compiler, runtime, CLI, and repository tests.
+- These root directories are the only active compiler paths.
 
 ## Execution Rules
 
-- Do not modify files under `jazz-hs/` or `jazz2/` unless the user explicitly asks for legacy maintenance.
-- If a task involves net-new compiler behavior, APIs, runtime, parser, analyzer, or codegen changes, implement them only in `jazz-next/`.
-- If documentation references implementation work, point to `jazz-next/` as the active compiler path.
+- Implement compiler behavior, APIs, runtime, parser, analyzer, and code generation in the active root paths only.
+- Point implementation documentation to root paths such as `src/Jazz/`, `jazz/`, `app/`, and `test/Jazz/`.
+- Treat `docs/spec/` as the transitional public language contract until the documentation reset establishes `docs/language/` and `docs/reference/`.
+- Treat current `src/`, `jazz/`, and `test/` behavior as implementation evidence. After Workstream 2, accepted RFCs become authoritative durable decisions; roadmap material remains non-normative.

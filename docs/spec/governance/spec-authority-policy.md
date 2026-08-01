@@ -1,68 +1,69 @@
 # Jazz Spec Authority Policy
 
-Status: active
-Locked decisions: 2026-03-03
-Primary plan: `docs/plans/spec-clarification/2026-03-03/governance/17-jazz2-alignment-and-spec-authority.md`
+Status: active transitional policy
+Locked decisions: 2026-07-31
 
 ## Purpose
 
-Prevent spec drift between repository docs, `jazz-hs`, and `jazz2` by defining one authority model and one change-control workflow.
+Keep public language contracts, current behavior, durable decisions, and roadmap
+material in a clear authority order during the repository productization work.
 
 ## Authority Model
 
-### 1) Canonical language spec (`docs/spec/*`)
+### 1) Public language contracts
 
-- Normative language rules must be written under `docs/spec/*`.
-- When a canonical spec section exists, it is the source of truth for that semantic area.
+- During the current repository-canonicalization workstream, `docs/spec/` is
+  the transitional public contract for language and runtime behavior.
+- Once Workstream 2 creates `docs/language/` and `docs/reference/`, those paths
+  become the highest public authority and the transition allowance ends.
 
-### 2) Active implementation authority (`jazz-hs`)
+### 2) Current implementation evidence
 
-- Until a semantic area is fully specified under `docs/spec/*`, `jazz-hs` behavior and tests are the temporary behavioral authority.
-- Conflicts between desired semantics and current `jazz-hs` behavior must be resolved by decision records, then implemented to converge.
+- Current `src/`, `jazz/`, and `test/` behavior is the next source of evidence
+  for implemented semantics not yet covered by a public contract.
+- Conflicts between desired semantics and current behavior require an accepted
+  decision before implementation converges on the new contract.
 
-### 3) Repository summaries (non-primary)
+### 3) Accepted RFCs
 
-- `README.md` and `docs/jazz-language-state.md` summarize status and direction.
-- These files must stay aligned with canonical spec + implementation, but they are not the primary normative source.
+- Workstream 2 establishes accepted RFCs as authoritative durable decisions.
+- An accepted RFC may refine or supersede an earlier decision, but does not make
+  unimplemented syntax or runtime behavior available by itself.
 
-### 4) `jazz2` status
+### 4) Roadmap material
 
-- `jazz2` is reference-only and non-normative in the current phase.
-- `jazz2` may inform design direction (for example AST organization or future type-system ideas), but it does not define current language behavior.
+- Roadmap material is informative and non-normative.
+- A roadmap item does not override public contracts, verified behavior, or an
+  accepted RFC.
+
+### 5) Repository summaries
+
+- `README.md`, `docs/feature-status.md`, and `docs/jazz-language-state.md`
+  summarize status and direction.
+- These files must stay aligned with the authority order above, but they are not
+  independent normative sources.
 
 ## Hybrid Change-Acceptance Workflow
 
 ### Semantic language changes
 
-- Semantic changes require a decision record or RFC before implementation.
-- Required artifacts in the same change series:
-  - decision doc with rationale and migration notes,
-  - canonical spec update in `docs/spec/*`,
-  - tests and implementation updates.
+- Semantic changes require an RFC or decision record before implementation.
+- The same change series must update the governing contract, tests,
+  implementation, rationale, and migration notes.
 
-### Non-semantic/internal changes
+### Non-semantic or internal changes
 
-- Implementation-first is allowed for refactors, tooling, and internal cleanup that does not change language semantics.
-- If observable behavior, docs, or test expectations change, docs and tests must be updated in the same change.
-
-## Allowed vs Disallowed Claims
-
-Allowed:
-- "`jazz2` is a reference-only design source."
-- "Current behavior is defined by `docs/spec/*` and active `jazz-hs` tests."
-- "This README is descriptive, not the canonical spec."
-
-Disallowed:
-- "`jazz2` is the authoritative implementation."
-- "`jazz2` defines the canonical syntax/semantics today."
-- "README examples are normative by default without spec alignment."
+- Implementation-first work is allowed for refactors, tooling, and internal
+  cleanup that does not change language semantics.
+- If observable behavior, documentation, or test expectations change, docs and
+  tests must be updated in the same change.
 
 ## Maintenance Checklist
 
 For any semantic change:
-1. Add or update decision record.
-2. Update canonical spec section in `docs/spec/*`.
-3. Update tests and implementation in the normative path.
-4. Update summary docs (`README.md`, `docs/jazz-language-state.md`) to match.
-5. Run `scripts/check-spec-authority.sh`.
 
+1. Add or update the RFC or decision record.
+2. Update the public contract.
+3. Update tests and implementation in the root paths.
+4. Update summary documentation to match.
+5. Run `scripts/check-spec-authority.sh`.

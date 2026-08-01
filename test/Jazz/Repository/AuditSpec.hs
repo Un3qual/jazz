@@ -61,7 +61,7 @@ import Jazz.TestHarness
     runTestSuite,
   )
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
+import System.FilePath (makeRelative, takeExtension, (</>))
 
 main :: IO ()
 main = runTestSuite "RepositoryAudit" tests
@@ -97,7 +97,8 @@ tests =
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
     ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
     ("documents the shared program corpus and performance workflows", testPerformanceDocumentation),
-    ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths)
+    ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths),
+    ("keeps repository infrastructure on the canonical Jazz identity", testCanonicalRepositoryInfrastructure)
   ]
 
 testAuthoredSourceInventory :: IO ()
@@ -788,8 +789,7 @@ testPackageRoot =
 
 testCanonicalRepositoryLayout :: IO ()
 testCanonicalRepositoryLayout =
-  withPackageRoot $ \packageRoot -> do
-    repositoryRoot <- findRepositoryRoot packageRoot
+  withPackageRoot $ \repositoryRoot -> do
     forM_ ["jazz-hs", "jazz2", "jazz" <> "-next"] $ \relativePath -> do
       exists <- doesDirectoryExist (repositoryRoot </> relativePath)
       assertEqual (Text.pack relativePath <> " is absent") False exists
@@ -808,18 +808,6 @@ testCanonicalRepositoryLayout =
       $ \relativePath -> do
         exists <- doesDirectoryExist (repositoryRoot </> relativePath)
         assertEqual (Text.pack relativePath <> " exists at the repository root") True exists
-
-findRepositoryRoot :: FilePath -> IO FilePath
-findRepositoryRoot directory = do
-  gitFileExists <- doesFileExist (directory </> ".git")
-  gitDirectoryExists <- doesDirectoryExist (directory </> ".git")
-  if gitFileExists || gitDirectoryExists
-    then pure directory
-    else do
-      let parent = takeDirectory directory
-      if parent == directory
-        then failTest "could not locate the Git repository root"
-        else findRepositoryRoot parent
 
 testCheckedInJazzSources :: IO ()
 testCheckedInJazzSources =
@@ -933,6 +921,76 @@ testCanonicalDocumentationPaths =
     assertTextOmits "nested program fixture path" "`jazz/test/fixtures/`" programDocumentation
     assertTextContains "editor extension path" "`editors/vscode-jazz`" editorDocumentation
     assertTextOmits "nested editor extension path" "`jazz/editors/vscode-jazz`" editorDocumentation
+
+testCanonicalRepositoryInfrastructure :: IO ()
+testCanonicalRepositoryInfrastructure =
+  withPackageRoot $ \repositoryRoot -> do
+    infrastructureSources <-
+      forM infrastructurePaths $ \relativePath -> do
+        source <- TextIO.readFile (repositoryRoot </> relativePath)
+        pure (relativePath, source)
+    forM_ infrastructureSources $ \(relativePath, source) ->
+      forM_ obsoleteProductIdentities $ \obsoleteIdentity ->
+        assertTextOmits
+          (Text.pack relativePath <> " omits obsolete product identity " <> obsoleteIdentity)
+          obsoleteIdentity
+          source
+    flakeSource <- TextIO.readFile (repositoryRoot </> "flake.nix")
+    assertTextContains "root Nix package" "callCabal2nix \"jazz\" ./. { }" flakeSource
+    assertTextContains "root Nix test check" "checks.jazz-test-suite" flakeSource
+    assertTextOmits "release package remains deferred" "packages.default" flakeSource
+    assertTextOmits "release app remains deferred" "apps.default" flakeSource
+    ignoreSource <- TextIO.readFile (repositoryRoot </> ".gitignore")
+    forM_
+      [ "__pycache__/",
+        "*.py[cod]",
+        "dist-newstyle/",
+        "dist-newstyle-profile-*/",
+        "benchmark-results/",
+        "profile-results/",
+        "website/node_modules/",
+        "website/build/"
+      ]
+      (\entry -> assertTextContains (Text.pack entry <> " is ignored") (Text.pack entry) ignoreSource)
+    guidanceSource <- TextIO.readFile (repositoryRoot </> "AGENTS.md")
+    forM_
+      [ "commit along the way",
+        "`src/`",
+        "`jazz/`",
+        "`app/`",
+        "`test/`"
+      ]
+      (\guidance -> assertTextContains (guidance <> " guidance") guidance guidanceSource)
+    cabalSource <- TextIO.readFile (repositoryRoot </> "jazz.cabal")
+    assertTextContains "canonical Cabal package" "name: jazz" cabalSource
+    assertTextContains "canonical private Cabal library" "library jazz-internal" cabalSource
+    assertTextContains "canonical generated Cabal module" "Paths_jazz" cabalSource
+
+infrastructurePaths :: [FilePath]
+infrastructurePaths =
+  [ "flake.nix",
+    ".gitignore",
+    "AGENTS.md",
+    "jazz.cabal",
+    "cabal.project",
+    "cabal.project.profile-hotspots",
+    "cabal.project.profile-stages",
+    "scripts/check-docs.sh",
+    "scripts/check-spec-authority.sh",
+    "scripts/check-clarification-specs.sh",
+    "scripts/check-execution-queue.py",
+    "scripts/check-execution-queue.sh",
+    "scripts/test-check-execution-queue.sh"
+  ]
+
+obsoleteProductIdentities :: [Text]
+obsoleteProductIdentities =
+  [ "jazz-next",
+    "JazzNext",
+    "Paths_jazz_next",
+    "jazz-hs",
+    "jazz2"
+  ]
 
 assertTextContains :: Text -> Text -> Text -> IO ()
 assertTextContains description expected source =

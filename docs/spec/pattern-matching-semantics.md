@@ -1,18 +1,18 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, ordered multi-body pattern-lambda clauses, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next`; Haskell-style function equations, lambda-parameter guards, and nested/grouped or-patterns are out of scope)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, ordered multi-body pattern-lambda clauses, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `Jazz`; Haskell-style function equations, lambda-parameter guards, and nested/grouped or-patterns are out of scope)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
 ## Purpose
 
 Define the active-path contract for `case` expressions and the first executable
-pattern subset in `jazz-next`.
+pattern subset in `Jazz`.
 
 ## Implementation Target
 
 - All new parser/analyzer/type/runtime work for this contract lands in
-  `jazz-next/`.
+  the repository root.
 - `jazz-hs/` and `jazz2/` are read-only legacy evidence only.
 
 ## Current Active Slice
@@ -175,7 +175,7 @@ positiveAlt = case input {
 ## Current Active Execution State
 
 1. Parser, surface AST, and core AST now represent constructor, bracketed-list,
-   tuple, and top-level or-patterns in `jazz-next` case arms and
+   tuple, and top-level or-patterns in `Jazz` case arms and
    pattern-shaped lambda parameters.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
    variable / constructor / exact-length bracketed-list / cons-like list /

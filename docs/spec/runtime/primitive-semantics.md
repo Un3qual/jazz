@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, `Char`/`Text` literals and strict equality execute end to end, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
+Status: active (phase 1 partial implementation in `Jazz`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, `Char`/`Text` literals and strict equality execute end to end, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -10,7 +10,7 @@ Define backend-independent language semantics for primitive operations and value
 
 ## Implementation Target
 
-- New runtime/typechecker implementation work for this contract lands in `jazz-next/`.
+- New runtime/typechecker implementation work for this contract lands in the repository root.
 - `jazz-hs/` and `jazz2/` are legacy evidence only.
 
 ## Boundary Contract Link
@@ -111,7 +111,7 @@ Box f == Box f
 - Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison and equality/inequality, plus structural list/tuple/ADT equality when nested element or declared constructor payload types are equality-supported. `Float16` and `Float32` arithmetic preserves the selected runtime target width for arithmetic results.
+- `Jazz` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison and equality/inequality, plus structural list/tuple/ADT equality when nested element or declared constructor payload types are equality-supported. `Float16` and `Float32` arithmetic preserves the selected runtime target width for arithmetic results.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
 - Direct binary `+`, `-`, `*`, and `/` have one narrow Float64-domain
   integer-literal targeting exception: when exactly one operand is an
@@ -127,7 +127,7 @@ Box f == Box f
   callable identity, or user-defined operator behavior.
 - Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, can target direct binding signatures for `Float16` and `Float32`, and evaluate/render through the active floating runtime value path with the same finite-target bounds checks and rounding used by explicit float conversions.
 - Fractional literal suffix syntax is parser-owned syntax implemented in
-  `jazz-next`, not an ordinary prelude API. It works independently of imports
+  `Jazz`, not an ordinary prelude API. It works independently of imports
   and no-prelude mode. Existing `toFloat16`, `toFloat32`, and `toFloat64`
   conversions stay prelude-owned.
 - The accepted suffix spellings are lowercase `f16`, `f32`, and `f64`, attached
@@ -152,7 +152,7 @@ Box f == Box f
 ### Explicit Conversion Contract
 
 Explicit numeric conversions are ordinary prelude-owned APIs backed by
-catalog/kernel bridge names, not parser magic. The active `jazz-next`
+catalog/kernel bridge names, not parser magic. The active `Jazz`
 implementation exposes the public aliases from the bundled prelude and keeps
 the corresponding `__kernel_*` bridge names available only to no-prelude and
 low-level paths.
@@ -216,7 +216,7 @@ Rules:
 
 1. Backend implementation shortcuts must not change canonical primitive semantics.
 2. JavaScript or other host-language coercions are non-authoritative.
-3. Conformance tests in `jazz-next` must validate language semantics, not backend quirks.
+3. Conformance tests in `Jazz` must validate language semantics, not backend quirks.
 
 ## Migration Notes
 

@@ -14,8 +14,8 @@
         toolPkgs = import nixpkgs-tools { inherit system; };
         ghc = pkgs.haskell.compiler.ghc9141;
         hsPkgs = pkgs.haskell.packages.ghc9141;
-        jazzNext = pkgs.haskell.lib.enableCabalFlag
-          (hsPkgs.callCabal2nix "jazz-next" ./jazz-next { })
+        jazz = pkgs.haskell.lib.enableCabalFlag
+          (hsPkgs.callCabal2nix "jazz" ./. { })
           "development";
       in {
         devShells.default = pkgs.mkShell {
@@ -30,7 +30,7 @@
           ];
         };
 
-        checks.jazz-next-test-suite = pkgs.haskell.lib.overrideCabal jazzNext (_: {
+        checks.jazz-test-suite = pkgs.haskell.lib.overrideCabal jazz (_: {
           doCheck = true;
         });
       });

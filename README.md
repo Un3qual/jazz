@@ -32,13 +32,13 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 
 Detailed status/evidence matrix: [docs/feature-status.md](docs/feature-status.md)  
 Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-language-state.md)
-Active compiler implementation path: `jazz-next/`
+Active compiler implementation paths: `src/Jazz/`, `jazz/`, `app/`, and `test/Jazz/`
 
 ### Repository Governance (Spec Authority)
 
-- `jazz2` is a reference-only design source for future ideas and is non-normative for current language behavior.
-- The canonical language authority is `docs/spec/*` plus the implemented subset behavior/tests in `jazz-next/`; treat `jazz-hs/` as historical reference evidence only.
-- Active compiler implementation work lands in `jazz-next/`.
+- `docs/spec/*` is the transitional public contract during repository productization.
+- Current `src/`, `jazz/`, and `test/` behavior is the next implementation evidence; accepted RFCs become authoritative durable decisions after the documentation reset, while roadmap material is non-normative.
+- Active compiler implementation work lands in the root paths listed above.
 - This top-level README is a project pitch and usage overview, not the normative language specification.
 - Semantic language changes require a decision record or RFC before implementation.
 - Non-semantic/internal changes may be implementation-first only when docs and tests are updated in the same change.
@@ -50,7 +50,7 @@ Active compiler implementation path: `jazz-next/`
 
 #### Hello World
 
-`jazz-next/` loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
+The root `jazz` package loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
 
 ##### Jazz
 
@@ -118,7 +118,7 @@ let powersOf2 = myArr.map((i) => Math.pow(2, i));
 
 #### Functions
 
-In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and cannot be called from pure functions (stub-v1 direct-call enforcement in `jazz-next`; full effect typing remains planned).
+In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and cannot be called from pure functions (stub-v1 direct-call enforcement in `src/Jazz/`; full effect typing remains planned).
 
 - Multiline functions must use curly braces
 - Impure functions must end with a `!` e.g:

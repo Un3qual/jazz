@@ -122,12 +122,12 @@ depends_on: []
 last_verified: 2026-03-19
 plan_section: "Task 2"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - src/Jazz/Compiler/Runtime.hs
+  - test/Jazz/Compiler/Semantics/AdtPatternRuntimeSpec.hs
 verification:
-  - cabal build --project-dir=jazz-next all
-  - cabal test --project-dir=jazz-next all --test-show-details=failures
-deliverable: Constructor-pattern `case` runtime evaluation works in `jazz-next`.
+  - cabal build all
+  - cabal test all --test-show-details=failures
+deliverable: Constructor-pattern `case` runtime evaluation works in `Jazz`.
 supersedes: []
 ---
 ```

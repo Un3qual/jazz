@@ -10,7 +10,7 @@ Define one canonical, testable operator model for fixity, precedence, associativ
 
 ## Implementation Target
 
-- New parser/analyzer/desugar work for this contract lands in `jazz-next/`.
+- New parser/analyzer/desugar work for this contract lands in the repository root.
 - `jazz-hs/` and `jazz2/` stay read-only legacy evidence.
 
 ## Built-in Operator Table (v1 Frozen Set)
@@ -366,4 +366,4 @@ operators.
 
 ## Legacy Drift Notes
 
-Legacy `jazz-hs` currently leaks a synthetic lambda parameter (`__partialInfixLambdaParam0`) in section parsing. This document locks the target behavior for `jazz-next` convergence.
+Legacy `jazz-hs` currently leaks a synthetic lambda parameter (`__partialInfixLambdaParam0`) in section parsing. This document locks the target behavior for `Jazz` convergence.
