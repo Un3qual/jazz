@@ -5,15 +5,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
+if [[ -n "${NIX_CONFIG:-}" ]]; then
+  NIX_CONFIG+=$'\n'
+fi
+NIX_CONFIG+='extra-experimental-features = nix-command flakes'
+export NIX_CONFIG
+
 : "${JAZZ_RELEASE_VERSION:?JAZZ_RELEASE_VERSION is required}"
 if [[ ! "$JAZZ_RELEASE_VERSION" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
   printf 'FAIL: JAZZ_RELEASE_VERSION must match 0.<minor>.<patch>-alpha.<n>\n' >&2
   exit 1
 fi
 
-JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/release-candidate}"
+JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/release-candidate/$JAZZ_RELEASE_VERSION/extended}"
 JAZZ_BENCHMARK_LABEL="${JAZZ_BENCHMARK_LABEL:-release-candidate}"
-export JAZZ_ARTIFACT_ROOT JAZZ_BENCHMARK_LABEL
+JAZZ_RELEASE_OUTPUT_ROOT="${JAZZ_RELEASE_OUTPUT_ROOT:-artifacts/release/$JAZZ_RELEASE_VERSION}"
+JAZZ_RELEASE_SDIST_ROOT="${JAZZ_RELEASE_SDIST_ROOT:-dist-newstyle/sdist}"
+JAZZ_NIX_RESULT="${JAZZ_NIX_RESULT:-result}"
+export JAZZ_ARTIFACT_ROOT JAZZ_BENCHMARK_LABEL JAZZ_RELEASE_OUTPUT_ROOT
+
+python3 - "$JAZZ_ARTIFACT_ROOT" "$JAZZ_RELEASE_OUTPUT_ROOT" <<'PY'
+import os
+import sys
+
+evidence_root, release_root = (os.path.realpath(path) for path in sys.argv[1:])
+common = os.path.commonpath((evidence_root, release_root))
+if evidence_root == release_root or common in (evidence_root, release_root):
+    raise SystemExit("release evidence root must be fresh and outside the final release directory")
+PY
 
 require_path() {
   local path="$1"
@@ -139,21 +158,22 @@ bash scripts/ci/extended.sh
 
 bash scripts/check-docs.sh
 npm --prefix website ci
+npm --prefix website run clear
 npm --prefix website run build
 bash scripts/check-website.sh
 
-cabal sdist all
-nix build .#jazz
+cabal sdist all --output-directory="$JAZZ_RELEASE_SDIST_ROOT"
+nix build .#jazz --out-link "$JAZZ_NIX_RESULT"
 
 require_path website/build/index.html
-require_path dist-newstyle/sdist
-require_path result
+require_path "$JAZZ_RELEASE_SDIST_ROOT"
+require_path "$JAZZ_NIX_RESULT"
 validate_artifact_manifest "$JAZZ_ARTIFACT_ROOT/manifest.json" "$JAZZ_BENCHMARK_LABEL"
 
 shopt -s nullglob
-sdist_archives=(dist-newstyle/sdist/*.tar.gz)
-if (( ${#sdist_archives[@]} == 0 )); then
-  printf 'FAIL: cabal sdist did not produce a source archive\n' >&2
+sdist_archives=("$JAZZ_RELEASE_SDIST_ROOT"/*.tar.gz)
+if (( ${#sdist_archives[@]} != 1 )); then
+  printf 'FAIL: cabal sdist did not produce exactly one source archive\n' >&2
   exit 1
 fi
 

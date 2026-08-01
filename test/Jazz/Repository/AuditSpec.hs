@@ -1124,11 +1124,13 @@ testSourceDistributionInventory =
 testSourceDistributionIgnoresUntrackedFiles :: IO ()
 testSourceDistributionIgnoresUntrackedFiles =
   withPackageRoot $ \packageRoot -> do
-    let editorRoot = packageRoot </> "editors" </> "vscode-jazz"
-    bracket
-      (createUniqueScratchFile editorRoot)
-      removeFile
-      (const testSourceDistributionInventory)
+    actualGitRoot <- isActualGitRoot packageRoot
+    when actualGitRoot $ do
+      let editorRoot = packageRoot </> "editors" </> "vscode-jazz"
+      bracket
+        (createUniqueScratchFile editorRoot)
+        removeFile
+        (const testSourceDistributionInventory)
 
 testSourceDistributionFallback :: IO ()
 testSourceDistributionFallback =
@@ -1231,14 +1233,20 @@ testVsixArtifactsIgnored =
 listRepositoryFiles :: FilePath -> [FilePath] -> IO [FilePath]
 listRepositoryFiles packageRoot relativeRoots = do
   let normalizedRoots = map normalizeSourceDistributionPath relativeRoots
-      rootCommand = (proc "git" ["rev-parse", "--show-toplevel"]) {cwd = Just packageRoot}
+  actualGitRoot <- isActualGitRoot packageRoot
+  if actualGitRoot
+    then listTrackedRepositoryFiles packageRoot normalizedRoots
+    else listScopedSourceTreeFiles packageRoot normalizedRoots
+
+isActualGitRoot :: FilePath -> IO Bool
+isActualGitRoot packageRoot = do
+  let rootCommand = (proc "git" ["rev-parse", "--show-toplevel"]) {cwd = Just packageRoot}
   rootResult <-
     try (readCreateProcessWithExitCode rootCommand "") :: IO (Either IOException (ExitCode, String, String))
-  case rootResult of
-    Right (ExitSuccess, standardOutput, _)
-      | normalise (Text.unpack (Text.strip (Text.pack standardOutput))) == normalise packageRoot ->
-          listTrackedRepositoryFiles packageRoot normalizedRoots
-    _ -> listScopedSourceTreeFiles packageRoot normalizedRoots
+  pure $ case rootResult of
+    Right (ExitSuccess, standardOutput, _) ->
+      normalise (Text.unpack (Text.strip (Text.pack standardOutput))) == normalise packageRoot
+    _ -> False
 
 listTrackedRepositoryFiles :: FilePath -> [FilePath] -> IO [FilePath]
 listTrackedRepositoryFiles packageRoot relativeRoots = do
@@ -1428,9 +1436,15 @@ testCanonicalRepositoryInfrastructure =
     flakeSource <- TextIO.readFile (repositoryRoot </> "flake.nix")
     assertTextContains "filtered Nix package source" "jazzSource = pkgs.lib.fileset.toSource" flakeSource
     assertTextContains "root Nix package" "callCabal2nix \"jazz\" jazzSource { }" flakeSource
-    assertTextContains "root Nix test check" "checks.jazz-test-suite" flakeSource
-    assertTextOmits "release package remains deferred" "packages.default" flakeSource
-    assertTextOmits "release app remains deferred" "apps.default" flakeSource
+    assertTextContains "root Nix package owns its check tools" "overrideCabal jazzBase" flakeSource
+    assertTextContains "root Nix test check shares the package derivation" "checks.jazz-test-suite = jazz" flakeSource
+    assertTextContains "release package is exported" "default = jazz" flakeSource
+    assertTextContains "release app is exported" "apps.default" flakeSource
+    assertTextContains "Nix test check owns test tool dependencies" "testToolDepends" flakeSource
+    assertTextContains "Nix test check provides cabal-install" "pkgs.cabal-install" flakeSource
+    assertTextContains "Nix test check provides Git" "pkgs.git" flakeSource
+    assertTextContains "Nix test check creates a writable home" "mkdir -p \"$HOME\"" flakeSource
+    assertTextContains "Nix test check exports its writable home" "export HOME=\"$TMPDIR/home\"" flakeSource
     ignoreSource <- TextIO.readFile (repositoryRoot </> ".gitignore")
     forM_
       [ "__pycache__/",

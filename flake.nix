@@ -38,10 +38,31 @@
             ./test
           ];
         };
-        jazz = pkgs.haskell.lib.enableCabalFlag
+        jazzBase = pkgs.haskell.lib.enableCabalFlag
           (hsPkgs.callCabal2nix "jazz" jazzSource { })
           "development";
+        jazz = pkgs.haskell.lib.overrideCabal jazzBase (previous: {
+          doCheck = true;
+          testToolDepends = (previous.testToolDepends or [ ]) ++ [
+            pkgs.cabal-install
+            pkgs.git
+          ];
+          preCheck = (previous.preCheck or "") + ''
+            export HOME="$TMPDIR/home"
+            mkdir -p "$HOME"
+          '';
+        });
       in {
+        packages = {
+          inherit jazz;
+          default = jazz;
+        };
+
+        apps.default = flake-utils.lib.mkApp {
+          drv = jazz;
+          exePath = "/bin/jazz";
+        };
+
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             ghc
@@ -56,8 +77,6 @@
           ];
         };
 
-        checks.jazz-test-suite = pkgs.haskell.lib.overrideCabal jazz (_: {
-          doCheck = true;
-        });
+        checks.jazz-test-suite = jazz;
       });
 }

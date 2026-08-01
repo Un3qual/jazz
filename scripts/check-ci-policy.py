@@ -65,11 +65,13 @@ POLICY_PATHS = (
     "scripts/ci/fast-compiler.sh",
     "scripts/ci/main-functional.sh",
     "scripts/ci/release-candidate.sh",
+    "scripts/release/build-alpha.sh",
 )
 
 PR_WORKFLOW_PATH = ".github/workflows/ci-pr.yml"
 MAIN_WORKFLOW_PATH = ".github/workflows/ci-main.yml"
 EXTENDED_WORKFLOW_PATH = ".github/workflows/ci-extended.yml"
+RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml"
 
 PR_FORBIDDEN = (
     "cabal bench",
@@ -240,6 +242,29 @@ def reject_tokens(
             found = token in executable_text
         if found:
             violations.append(f"{tier} contains forbidden token: {token}")
+
+
+def require_nix_features_before(
+    contents: str,
+    relative_path: str,
+    before_token: str,
+    violations: list[str],
+) -> None:
+    feature_token = "extra-experimental-features = nix-command flakes"
+    executable = joined_text(contents)
+    feature_index = executable.find(feature_token)
+    export_index = executable.find("export NIX_CONFIG")
+    invocation_index = executable.find(before_token)
+    if (
+        feature_index < 0
+        or export_index < feature_index
+        or invocation_index < 0
+        or feature_index > invocation_index
+        or export_index > invocation_index
+    ):
+        violations.append(
+            f"{relative_path} must enable nix-command and flakes before nested Nix invocations"
+        )
 
 
 def load_policy_files(root: Path, violations: list[str]) -> dict[str, str]:
@@ -535,6 +560,81 @@ def check_release(contents: str, violations: list[str]) -> None:
         )
     if "scripts/release/build-alpha.sh" in contents:
         violations.append("release candidate tier must not invoke scripts/release/build-alpha.sh")
+    fresh_evidence_tokens = (
+        'artifacts/release-candidate/$JAZZ_RELEASE_VERSION/extended',
+        "os.path.commonpath((evidence_root, release_root))",
+        "evidence_root == release_root or common in (evidence_root, release_root)",
+    )
+    if not all(token in contents for token in fresh_evidence_tokens):
+        violations.append(
+            "release candidate tier must use a fresh evidence root outside final artifacts"
+        )
+    require_nix_features_before(
+        contents,
+        "scripts/ci/release-candidate.sh",
+        "bash scripts/ci/main-functional.sh",
+        violations,
+    )
+
+
+def check_alpha_build(contents: str, violations: list[str]) -> None:
+    tier = "alpha artifact builder"
+    if re.search(
+        r"(?m)\bbash\s+scripts/ci/release-candidate\.sh(?:\s|$)",
+        joined_text(contents),
+    ) is None:
+        violations.append(
+            "alpha artifact builder must invoke the complete release-candidate tier"
+        )
+    executable = joined_text(contents)
+    owns_fresh_evidence = 'JAZZ_ARTIFACT_ROOT="$work_root/extended"' in executable or (
+        'evidence_root="$work_root/extended"' in contents
+        and 'JAZZ_ARTIFACT_ROOT="$evidence_root"' in executable
+    )
+    if not owns_fresh_evidence or (
+        'JAZZ_RELEASE_OUTPUT_ROOT="$release_directory"' not in executable
+    ):
+        violations.append(
+            "alpha artifact builder must use a fresh evidence root outside the final release directory"
+        )
+    if not has_command(
+        contents,
+        r'python3\s+scripts/release/verify-artifacts\.py\s+"\$release_directory"',
+    ):
+        violations.append("alpha artifact builder must verify the final release directory")
+    required_artifact_tokens = (
+        "-source.tar.gz",
+        "-nix-$system.tar.gz",
+        "-docs.tar.gz",
+        "-benchmark-evidence.tar.gz",
+        "SHA256SUMS",
+    )
+    for token in required_artifact_tokens:
+        if token not in contents:
+            violations.append(f"{tier} is missing required token: {token}")
+    closure_tokens = (
+        'nix-store --query --requisites "$nix_result"',
+        "LC_ALL=C sort -u",
+        'nix-store --export "${closure_paths[@]}"',
+        '"$nix_closure_stage/root-store-path"',
+        '"$nix_closure_stage/system"',
+    )
+    if not all(token in executable for token in closure_tokens):
+        violations.append(
+            "alpha artifact builder must export a sorted same-system Nix runtime closure"
+        )
+    if re.search(r"(?m)^\s*JAZZ_ARTIFACT_ROOT=\"\$release_directory", contents):
+        violations.append(
+            "alpha artifact builder must use a fresh evidence root outside the final release directory"
+        )
+    if re.search(r"(?m)\|\|\s*(?:true|:)(?:\s*(?:#.*)?)?$", contents):
+        violations.append("alpha artifact builder must not mask release-candidate failure")
+    require_nix_features_before(
+        contents,
+        "scripts/release/build-alpha.sh",
+        "bash scripts/ci/release-candidate.sh",
+        violations,
+    )
 
 
 def check_pr_changes_job(contents: str, violations: list[str]) -> None:
@@ -1142,6 +1242,151 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
         )
 
 
+def check_release_workflow(root: Path, violations: list[str]) -> None:
+    path = root / RELEASE_WORKFLOW_PATH
+    if not path.is_file():
+        violations.append(f"missing required release workflow: {RELEASE_WORKFLOW_PATH}")
+        return
+
+    contents = active_text(path.read_text(encoding="utf-8"))
+    trigger_block = indented_block(contents, "on", 0)
+    events = yaml_mapping_keys(trigger_block, 2)
+    if set(events) != {"workflow_dispatch", "push"} or len(events) != 2:
+        violations.append("release workflow must trigger only on alpha tags and manual dispatch")
+    dispatch = indented_block(trigger_block, "workflow_dispatch", 2)
+    version_input = indented_block(indented_block(dispatch, "inputs", 4), "version", 6)
+    if not (
+        re.search(r"(?m)^\s*required:\s*true\s*$", version_input)
+        and re.search(r"(?m)^\s*type:\s*string\s*$", version_input)
+    ):
+        violations.append(
+            "release workflow must support workflow_dispatch with a required version input"
+        )
+    push = indented_block(trigger_block, "push", 2)
+    tags = indented_block(push, "tags", 4)
+    tag_patterns = re.findall(
+        r"(?m)^\s*-\s+['\"]?([^'\"\s]+)['\"]?\s*$",
+        tags,
+    )
+    if tag_patterns != ["v*"]:
+        violations.append("release workflow tag trigger must be restricted to v*")
+
+    permissions = [
+        line.strip()
+        for line in indented_block(contents, "permissions", 0).splitlines()
+        if line.strip()
+    ]
+    publication_tokens = (
+        "contents: write",
+        "packages: write",
+        "gh release",
+        "action-gh-release",
+        "actions/create-release",
+        "cabal upload",
+        "npm publish",
+    )
+    if (
+        permissions != ["contents: read"]
+        or "permissions" in yaml_mapping_keys(contents, 4)
+        or any(token in joined_text(contents) for token in publication_tokens)
+    ):
+        violations.append("release workflow must be read-only and must not publish")
+
+    job = workflow_job(contents, "release")
+    if not job:
+        violations.append("release workflow is missing the release job")
+        return
+    requirements = (
+        (
+            r"(?m)^\s*timeout-minutes:\s*480\s*$",
+            "release job must have a 480-minute timeout",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$",
+            "release job must install Nix",
+        ),
+        (
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
+            "release job must set up Node.js",
+        ),
+        (
+            r"(?m)^\s*node-version:\s*22\s*$",
+            "release job must use Node 22",
+        ),
+    )
+    for pattern, message in requirements:
+        if not re.search(pattern, job):
+            violations.append(message)
+    job_environment = indented_block(job, "env", 4)
+    nix_config = yaml_literal_block(job_environment, "NIX_CONFIG", 6)
+    if "extra-experimental-features = nix-command flakes" not in nix_config:
+        violations.append(
+            "release job must propagate nix-command and flakes to every nested Nix invocation"
+        )
+
+    resolve_step = workflow_step(job, "Resolve alpha version")
+    resolve_tokens = (
+        "${{ inputs.version }}",
+        "${{ github.ref_name }}",
+        "${TAG_NAME#v}",
+        r"^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$",
+        'JAZZ_RELEASE_VERSION=$version',
+        '>> "$GITHUB_ENV"',
+    )
+    if not resolve_step or not all(token in resolve_step for token in resolve_tokens):
+        violations.append("release workflow must derive and validate the alpha version from input or tag")
+
+    run_step = workflow_step(job, "Build and verify alpha artifacts")
+    if not re.search(
+        r"(?m)^\s*run:\s*nix\s+develop\s+--command\s+bash\s+scripts/release/build-alpha\.sh\s*$",
+        run_step,
+    ):
+        violations.append("release job must invoke scripts/release/build-alpha.sh")
+    if not re.search(r"(?m)^\s*id:\s*release\s*$", run_step):
+        violations.append("release job must expose the release step outcome")
+
+    upload_step = workflow_step(job, "Upload verified alpha artifacts")
+    upload_requirements = (
+        (
+            r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$",
+            "release workflow must upload verified artifacts with actions/upload-artifact@v4",
+        ),
+        (
+            r"(?m)^\s*path:\s*artifacts/release/\$\{\{\s*env\.JAZZ_RELEASE_VERSION\s*\}\}/\s*$",
+            "release artifact upload must use the verified version directory",
+        ),
+        (
+            r"(?m)^\s*if-no-files-found:\s*error\s*$",
+            "release artifact upload must fail when files are missing",
+        ),
+        (
+            r"(?m)^\s*retention-days:\s*30\s*$",
+            "release artifact upload must retain artifacts for 30 days",
+        ),
+    )
+    for pattern, message in upload_requirements:
+        if not re.search(pattern, upload_step):
+            violations.append(message)
+    if not all(
+        token in upload_step
+        for token in ("${{ env.JAZZ_RELEASE_VERSION }}", "${{ github.sha }}", "${{ github.run_id }}")
+    ):
+        violations.append("release artifact name must include version and run provenance")
+    if job.find("- name: Build and verify alpha artifacts") > job.find(
+        "- name: Upload verified alpha artifacts"
+    ):
+        violations.append("release artifact upload must follow successful verification")
+
+    failure_masking = (
+        r"(?m)^\s*continue-on-error\s*:",
+        r"(?m)^\s*if:\s*always\(\)\s*$",
+        r"(?m)\|\|\s*(?:true|:)(?:\s*(?:#.*)?)?$",
+        r"(?m)^\s*set\s+\+e(?:\s|;|$)",
+    )
+    if any(re.search(pattern, job) for pattern in failure_masking):
+        violations.append("release workflow must not mask or skip release verification")
+
+
 def check_pull_request_workflows(root: Path, violations: list[str]) -> None:
     workflow_root = root / ".github/workflows"
     if not workflow_root.is_dir():
@@ -1156,6 +1401,20 @@ def check_pull_request_workflows(root: Path, violations: list[str]) -> None:
             )
 
 
+def check_generated_release_ignores(root: Path, violations: list[str]) -> None:
+    path = root / ".gitignore"
+    lines = (
+        {line.strip() for line in path.read_text(encoding="utf-8").splitlines()}
+        if path.is_file()
+        else set()
+    )
+    for required in ("/artifacts/", "/result"):
+        if required not in lines:
+            violations.append(
+                f"generated release output must be ignored at the repository root: {required}"
+            )
+
+
 def check_repository(root: Path) -> list[str]:
     violations: list[str] = []
     policies = load_policy_files(root, violations)
@@ -1166,6 +1425,7 @@ def check_repository(root: Path) -> list[str]:
         ("scripts/ci/determinism.sh", check_determinism),
         ("scripts/ci/extended.sh", check_extended),
         ("scripts/ci/release-candidate.sh", check_release),
+        ("scripts/release/build-alpha.sh", check_alpha_build),
     )
     for relative_path, checker in checks:
         if relative_path in policies:
@@ -1174,7 +1434,9 @@ def check_repository(root: Path) -> list[str]:
     check_pr_workflow(root, violations)
     check_main_workflow(root, violations)
     check_extended_workflow(root, violations)
+    check_release_workflow(root, violations)
     check_pull_request_workflows(root, violations)
+    check_generated_release_ignores(root, violations)
     return sorted(set(violations))
 
 

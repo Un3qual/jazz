@@ -3,6 +3,8 @@ __pycache__/
 *.vsix
 dist-newstyle/
 dist-newstyle-profile-*/
+/artifacts/
+/result
 benchmark-results/
 profile-results/
 website/node_modules/

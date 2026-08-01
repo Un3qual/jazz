@@ -54,7 +54,7 @@ tests =
     ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
     ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
     ("Jazz lexer traverses large whitespace and token inputs stack safely", testLargeTraversal),
-    ("Jazz lexer handles long token and quoted-literal runs within the traversal budget", testLongRuns),
+    ("Jazz lexer preserves parity across long token and quoted-literal runs", testLongRunParity),
     ("Jazz lexer timeout wrapper preserves timeout classification", testTimeoutClassification)
   ]
 
@@ -108,12 +108,12 @@ testLargeTraversal = do
   assertLargeTokenCount "large whitespace" (Text.replicate 20000 " ") 0
   assertLargeTokenCount "large token list" (Text.replicate 10000 "x ") 10000
 
-testLongRuns :: IO ()
-testLongRuns = do
+testLongRunParity :: IO ()
+testLongRunParity = do
   interpretedRun <- lookupEnv "JAZZ_NEXT_RUNGHC_IN_CABAL"
   let runLength = maybe 200000 (const 20000) interpretedRun
-  assertLongRunParity "long identifier" (Text.replicate runLength "x")
-  assertLongRunParity "long quoted text" ("\"" <> Text.replicate runLength "x" <> "\"")
+  assertJazzParity "fixtures/lexer/long-identifier.jz" (Text.replicate runLength "x")
+  assertJazzParity "fixtures/lexer/long-quoted-text.jz" ("\"" <> Text.replicate runLength "x" <> "\"")
 
 testTimeoutClassification :: IO ()
 testTimeoutClassification = do
@@ -133,14 +133,6 @@ assertLargeTokenCount label source expectedCount = do
       assertEqual (label <> " compile errors") [] (runCompileErrors result)
       assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
       assertEqual (label <> " token count") (Just (Text.pack (show expectedCount))) (runOutput result)
-
-assertLongRunParity :: Text -> Text -> IO ()
-assertLongRunParity label source = do
-  timedResult <- tryWithin 30000000 (assertJazzParity "fixtures/lexer/long-run.jz" source)
-  case timedResult of
-    Right Nothing -> failTest (label <> " timed out")
-    Left err -> failTest (label <> " leaked host exception: " <> Text.pack (show err))
-    Right (Just ()) -> pure ()
 
 tryWithin :: Int -> IO a -> IO (Either SomeException (Maybe a))
 tryWithin microseconds action = try (timeout microseconds action)

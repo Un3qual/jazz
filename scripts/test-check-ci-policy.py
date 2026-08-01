@@ -125,8 +125,15 @@ VALID_EXTENDED = script(
 
 VALID_RELEASE = script(
     r"""
+    NIX_CONFIG+='extra-experimental-features = nix-command flakes'
+    export NIX_CONFIG
     : "${JAZZ_RELEASE_VERSION:?JAZZ_RELEASE_VERSION is required}"
     if [[ ! "$JAZZ_RELEASE_VERSION" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then exit 1; fi
+    JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/release-candidate/$JAZZ_RELEASE_VERSION/extended}"
+    JAZZ_RELEASE_OUTPUT_ROOT="${JAZZ_RELEASE_OUTPUT_ROOT:-artifacts/release/$JAZZ_RELEASE_VERSION}"
+    evidence_root, release_root = (os.path.realpath(path) for path in sys.argv[1:])
+    common = os.path.commonpath((evidence_root, release_root))
+    if evidence_root == release_root or common in (evidence_root, release_root): raise SystemExit(1)
     bash scripts/ci/main-functional.sh
     bash scripts/ci/extended.sh
     bash scripts/check-docs.sh
@@ -395,6 +402,98 @@ VALID_EXTENDED_WORKFLOW = textwrap.dedent(
     """
 ).lstrip()
 
+VALID_ALPHA_BUILD = script(
+    r"""
+    NIX_CONFIG+='extra-experimental-features = nix-command flakes'
+    export NIX_CONFIG
+    : "${JAZZ_RELEASE_VERSION:?JAZZ_RELEASE_VERSION is required}"
+    release_directory="artifacts/release/$JAZZ_RELEASE_VERSION"
+    work_root="$(mktemp -d)"
+    source_name="jazz-$JAZZ_RELEASE_VERSION-source.tar.gz"
+    nix_name="jazz-$JAZZ_RELEASE_VERSION-nix-$system.tar.gz"
+    docs_name="jazz-$JAZZ_RELEASE_VERSION-docs.tar.gz"
+    evidence_name="jazz-$JAZZ_RELEASE_VERSION-benchmark-evidence.tar.gz"
+    checksum_name="SHA256SUMS"
+    JAZZ_ARTIFACT_ROOT="$work_root/extended" \
+    JAZZ_BENCHMARK_LABEL="release-$JAZZ_RELEASE_VERSION" \
+    JAZZ_RELEASE_OUTPUT_ROOT="$release_directory" \
+      bash scripts/ci/release-candidate.sh
+    nix-store --query --requisites "$nix_result" | LC_ALL=C sort -u > "$nix_closure_stage/store-paths"
+    nix-store --export "${closure_paths[@]}" > "$nix_closure_stage/closure.nar"
+    printf '%s\n' "$root_store_path" > "$nix_closure_stage/root-store-path"
+    printf '%s\n' "$system" > "$nix_closure_stage/system"
+    python3 scripts/release/verify-artifacts.py "$work_root/$JAZZ_RELEASE_VERSION"
+    python3 scripts/release/verify-artifacts.py "$release_directory"
+    """
+)
+
+VALID_RELEASE_WORKFLOW = textwrap.dedent(
+    r"""
+    name: Release candidate
+
+    on:
+      workflow_dispatch:
+        inputs:
+          version:
+            description: Alpha version without the v prefix
+            required: true
+            type: string
+      push:
+        tags:
+          - 'v*'
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+
+    jobs:
+      release:
+        name: Build verified alpha artifacts
+        runs-on: ubuntu-latest
+        timeout-minutes: 480
+        env:
+          NIX_CONFIG: |
+            extra-experimental-features = nix-command flakes
+        steps:
+          - name: Check out repository
+            uses: actions/checkout@v4
+          - name: Install Nix
+            uses: cachix/install-nix-action@v31
+          - name: Set up Node.js
+            uses: actions/setup-node@v4
+            with:
+              node-version: 22
+              cache: npm
+              cache-dependency-path: website/package-lock.json
+          - name: Resolve alpha version
+            env:
+              EVENT_NAME: ${{ github.event_name }}
+              DISPATCH_VERSION: ${{ inputs.version }}
+              TAG_NAME: ${{ github.ref_name }}
+            run: |
+              if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                version="$DISPATCH_VERSION"
+              else
+                version="${TAG_NAME#v}"
+              fi
+              [[ "$version" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+              echo "JAZZ_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          - name: Build and verify alpha artifacts
+            id: release
+            run: nix develop --command bash scripts/release/build-alpha.sh
+          - name: Upload verified alpha artifacts
+            uses: actions/upload-artifact@v4
+            with:
+              name: jazz-${{ env.JAZZ_RELEASE_VERSION }}-${{ github.sha }}-${{ github.run_id }}
+              path: artifacts/release/${{ env.JAZZ_RELEASE_VERSION }}/
+              if-no-files-found: error
+              retention-days: 30
+    """
+).lstrip()
+
 
 class CiPolicyCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -405,9 +504,12 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.write("scripts/ci/determinism.sh", VALID_DETERMINISM)
         self.write("scripts/ci/extended.sh", VALID_EXTENDED)
         self.write("scripts/ci/release-candidate.sh", VALID_RELEASE)
+        self.write("scripts/release/build-alpha.sh", VALID_ALPHA_BUILD)
         self.write(".github/workflows/ci-pr.yml", VALID_PR_WORKFLOW)
         self.write(".github/workflows/ci-main.yml", VALID_MAIN_WORKFLOW)
         self.write(".github/workflows/ci-extended.yml", VALID_EXTENDED_WORKFLOW)
+        self.write(".github/workflows/release.yml", VALID_RELEASE_WORKFLOW)
+        self.write(".gitignore", "/artifacts/\n/result\n")
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -717,6 +819,35 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("release candidate tier must enforce the 0.<minor>.<patch>-alpha.<n> version shape")
 
+    def test_release_candidate_owns_fresh_evidence_outside_final_artifacts(self) -> None:
+        for token in (
+            'artifacts/release-candidate/$JAZZ_RELEASE_VERSION/extended',
+            'evidence_root == release_root or common in (evidence_root, release_root)',
+        ):
+            with self.subTest(token=token):
+                self.write("scripts/ci/release-candidate.sh", VALID_RELEASE.replace(token, "removed", 1))
+                self.assert_violation(
+                    "release candidate tier must use a fresh evidence root outside final artifacts"
+                )
+
+    def test_release_scripts_enable_required_nix_features_before_nested_nix(self) -> None:
+        fixtures = (
+            (
+                "scripts/ci/release-candidate.sh",
+                VALID_RELEASE.replace("extra-experimental-features = nix-command flakes", "removed", 1),
+            ),
+            (
+                "scripts/release/build-alpha.sh",
+                VALID_ALPHA_BUILD.replace("extra-experimental-features = nix-command flakes", "removed", 1),
+            ),
+        )
+        for path, fixture in fixtures:
+            with self.subTest(path=path):
+                self.write(path, fixture)
+                self.assert_violation(
+                    f"{path} must enable nix-command and flakes before nested Nix invocations"
+                )
+
     def test_pull_request_workflow_cannot_inline_long_commands(self) -> None:
         for command in (
             "cabal test all --test-show-details=direct",
@@ -740,6 +871,132 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.assert_violation(
             "missing required extended workflow: .github/workflows/ci-extended.yml"
         )
+
+    def test_release_workflow_is_required(self) -> None:
+        (self.root / ".github/workflows/release.yml").unlink()
+        self.assert_violation("missing required release workflow: .github/workflows/release.yml")
+
+    def test_release_workflow_requires_manual_and_tag_alpha_inputs(self) -> None:
+        fixtures = (
+            (
+                VALID_RELEASE_WORKFLOW.replace("  workflow_dispatch:\n", "  repository_dispatch:\n"),
+                "release workflow must support workflow_dispatch with a required version input",
+            ),
+            (
+                VALID_RELEASE_WORKFLOW.replace("        required: true", "        required: false"),
+                "release workflow must support workflow_dispatch with a required version input",
+            ),
+            (
+                VALID_RELEASE_WORKFLOW.replace("      - 'v*'", "      - '*'"),
+                "release workflow tag trigger must be restricted to v*",
+            ),
+        )
+        for fixture, expected in fixtures:
+            with self.subTest(expected=expected):
+                self.write(".github/workflows/release.yml", fixture)
+                self.assert_violation(expected)
+
+    def test_release_workflow_is_read_only_and_never_publishes(self) -> None:
+        fixtures = (
+            VALID_RELEASE_WORKFLOW.replace("contents: read", "contents: write"),
+            VALID_RELEASE_WORKFLOW.replace(
+                "  release:\n    name:",
+                "  release:\n    permissions:\n      contents: write\n    name:",
+            ),
+            VALID_RELEASE_WORKFLOW + "          - run: gh release create v0.1.0-alpha.1\n",
+        )
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture):
+                self.write(".github/workflows/release.yml", fixture)
+                self.assert_violation("release workflow must be read-only and must not publish")
+
+    def test_release_workflow_requires_toolchains_timeout_owned_script_and_upload(self) -> None:
+        requirements = (
+            ("timeout-minutes: 480", "release job must have a 480-minute timeout"),
+            ("cachix/install-nix-action@v31", "release job must install Nix"),
+            ("actions/setup-node@v4", "release job must set up Node.js"),
+            ("node-version: 22", "release job must use Node 22"),
+            (
+                "nix develop --command bash scripts/release/build-alpha.sh",
+                "release job must invoke scripts/release/build-alpha.sh",
+            ),
+            ("actions/upload-artifact@v4", "release workflow must upload verified artifacts with actions/upload-artifact@v4"),
+            ("if-no-files-found: error", "release artifact upload must fail when files are missing"),
+            ("retention-days: 30", "release artifact upload must retain artifacts for 30 days"),
+        )
+        for token, expected in requirements:
+            with self.subTest(token=token):
+                self.write(".github/workflows/release.yml", VALID_RELEASE_WORKFLOW.replace(token, "removed", 1))
+                self.assert_violation(expected)
+
+    def test_release_workflow_propagates_required_nix_features(self) -> None:
+        self.write(
+            ".github/workflows/release.yml",
+            VALID_RELEASE_WORKFLOW.replace(
+                "extra-experimental-features = nix-command flakes", "removed", 1
+            ),
+        )
+        self.assert_violation(
+            "release job must propagate nix-command and flakes to every nested Nix invocation"
+        )
+
+    def test_release_workflow_cannot_mask_or_skip_the_release_gates(self) -> None:
+        for injection in (
+            "        continue-on-error: true\n",
+            "        if: always()\n",
+            "        run: nix develop --command bash scripts/release/build-alpha.sh || true\n",
+        ):
+            with self.subTest(injection=injection):
+                fixture = VALID_RELEASE_WORKFLOW.replace(
+                    "        id: release\n        run: nix develop --command bash scripts/release/build-alpha.sh\n",
+                    "        id: release\n" + injection,
+                )
+                self.write(".github/workflows/release.yml", fixture)
+                self.assert_violation("release workflow must not mask or skip release verification")
+
+    def test_alpha_builder_requires_release_candidate_evidence_and_final_verification(self) -> None:
+        for token, expected in (
+            (
+                "bash scripts/ci/release-candidate.sh",
+                "alpha artifact builder must invoke the complete release-candidate tier",
+            ),
+            (
+                'JAZZ_ARTIFACT_ROOT="$work_root/extended"',
+                "alpha artifact builder must use a fresh evidence root outside the final release directory",
+            ),
+            (
+                'python3 scripts/release/verify-artifacts.py "$release_directory"',
+                "alpha artifact builder must verify the final release directory",
+            ),
+        ):
+            with self.subTest(token=token):
+                self.write("scripts/release/build-alpha.sh", VALID_ALPHA_BUILD.replace(token, "removed", 1))
+                self.assert_violation(expected)
+
+    def test_alpha_builder_exports_a_sorted_same_system_nix_runtime_closure(self) -> None:
+        for token in (
+            'nix-store --query --requisites "$nix_result"',
+            "LC_ALL=C sort -u",
+            'nix-store --export "${closure_paths[@]}"',
+            '"$nix_closure_stage/root-store-path"',
+            '"$nix_closure_stage/system"',
+        ):
+            with self.subTest(token=token):
+                self.write(
+                    "scripts/release/build-alpha.sh",
+                    VALID_ALPHA_BUILD.replace(token, "removed", 1),
+                )
+                self.assert_violation(
+                    "alpha artifact builder must export a sorted same-system Nix runtime closure"
+                )
+
+    def test_generated_release_outputs_are_ignored_at_narrow_root_paths(self) -> None:
+        for token in ("/artifacts/", "/result"):
+            with self.subTest(token=token):
+                self.write(".gitignore", "/artifacts/\n/result\n".replace(token + "\n", ""))
+                self.assert_violation(
+                    f"generated release output must be ignored at the repository root: {token}"
+                )
 
     def test_extended_workflow_requires_the_weekly_and_manual_triggers(self) -> None:
         fixtures = (

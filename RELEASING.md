@@ -31,8 +31,8 @@ Use the pinned Nix environment and an alpha version without the tag prefix:
 
 ```bash
 git status --short
-nix --extra-experimental-features 'nix-command flakes' develop
-JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  env JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
 python3 scripts/release/verify-artifacts.py artifacts/release/0.1.0-alpha.1
 ```
 
@@ -40,6 +40,14 @@ The build script runs the complete ordinary and extended verification tiers,
 package checks, the Nix build, documentation and website checks, and exact
 artifact validation. Benchmark timings are recorded as evidence; timing
 percentages do not determine pass or fail.
+
+The builder rejects a dirty worktree and an existing final artifact directory.
+It gives the extended tier a fresh temporary evidence root, creates the Cabal
+source archive and Nix result through fresh caller-owned output paths, exports
+the Nix result's complete runtime closure in sorted store-path order, and moves
+the verified set into `artifacts/release/<version>/` only after every gate
+passes. Generated `artifacts/`, website output, Cabal output, and the default
+Nix `result` link are ignored; none belong in a release-preparation commit.
 
 A valid candidate directory contains exactly:
 
@@ -63,12 +71,33 @@ output, profiles, and benchmark results. The docs archive must contain the
 static site index. Extended evidence must contain normalized corpus output,
 deterministic profiles, benchmark metadata/results, and its SHA-256 manifest.
 
+The Nix archive is a same-system runtime closure, not a copied result tree. It
+contains `nix-closure/closure.nar`, the sorted `store-paths` used for the
+export, `root-store-path`, and `system`. On a machine with that same Nix system,
+verify the artifact set, extract the archive, import the closure, and run the
+recorded root executable:
+
+```bash
+tar -xzf jazz-0.1.0-alpha.1-nix-<system>.tar.gz
+cat nix-closure/system
+nix-store --import < nix-closure/closure.nar
+root_store_path="$(cat nix-closure/root-store-path)"
+"$root_store_path/bin/jazz" --help
+```
+
+Do not import an artifact whose recorded system differs from the target
+machine. `verify-artifacts.py` checks that the recorded root is a valid member
+of the sorted exported closure and that the recorded system matches the
+artifact filename.
+
 ## Verify in CI
 
-Run the **Release candidate** GitHub Actions workflow with the same version, or
-push the final annotated tag after the candidate has already passed manual
-review. The workflow builds and uploads verified candidate artifacts with
-read-only repository permissions; it does not publish them.
+Run the **Release candidate** GitHub Actions workflow with the same version.
+Its required `version` input omits the leading `v`. A pushed `v*` tag also
+starts the same read-only build, deriving the candidate version from the tag.
+In either case the workflow runs `scripts/release/build-alpha.sh` through the
+Nix development shell and uploads the complete verified directory for 30 days.
+It does not create a GitHub release, push a tag, or publish a package.
 
 Download the workflow artifact, confirm its version and source revision, run
 `scripts/release/verify-artifacts.py` against it, and verify its own

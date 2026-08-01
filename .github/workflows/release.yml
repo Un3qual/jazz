@@ -1,0 +1,67 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Alpha version without the v prefix
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build verified alpha artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    env:
+      NIX_CONFIG: |
+        extra-experimental-features = nix-command flakes
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Resolve alpha version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$DISPATCH_VERSION"
+          else
+            version="${TAG_NAME#v}"
+          fi
+          [[ "$version" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          echo "JAZZ_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build and verify alpha artifacts
+        id: release
+        run: nix develop --command bash scripts/release/build-alpha.sh
+
+      - name: Upload verified alpha artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jazz-${{ env.JAZZ_RELEASE_VERSION }}-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/release/${{ env.JAZZ_RELEASE_VERSION }}/
+          if-no-files-found: error
+          retention-days: 30
