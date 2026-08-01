@@ -976,10 +976,12 @@ infrastructurePaths =
     "cabal.project.profile-hotspots",
     "cabal.project.profile-stages",
     "scripts/check-docs.sh",
+    "scripts/check_legacy_doc_claims.py",
     "scripts/check-spec-authority.sh",
     "scripts/check-clarification-specs.sh",
     "scripts/check-execution-queue.py",
     "scripts/check-execution-queue.sh",
+    "scripts/test_check_legacy_doc_claims.py",
     "scripts/test-check-execution-queue.sh"
   ]
 

@@ -45,6 +45,8 @@ require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
 require_file "docs/execution/blocker-contracts.md"
 require_file "docs/execution/done-archive.md"
+require_file "scripts/check_legacy_doc_claims.py"
+require_file "scripts/test_check_legacy_doc_claims.py"
 
 require_pattern "README.md" "implemented section heading" '^### Implemented Today \(verified\)'
 require_pattern "README.md" "planned section heading" '^### Planned / Aspirational'
@@ -70,13 +72,12 @@ former_reference='jazz-''hs'
 former_rewrite='jazz''2'
 deleted_tree_pattern="(${former_package}|${former_reference}|${former_rewrite})"
 require_pattern "docs/jazz-language-state.md" "legacy evidence archive tag" "$archive_tag"
-reject_pattern "active specs must not describe deleted implementation trees as read-only" \
-  "(${deleted_tree_pattern}.{0,120}(remain|stay|are|is).{0,80}read[- ]only)|(read[- ]only.{0,120}${deleted_tree_pattern})" \
-  docs/spec
-generic_legacy_tree_pattern='(legacy|deleted|removed|former).{0,80}(directories|trees|paths)'
-reject_pattern "active specs must not generically describe absent legacy trees as read-only" \
-  "(${generic_legacy_tree_pattern}.{0,120}(remain|stay|are|is).{0,80}read[- ]only)|(read[- ]only.{0,120}${generic_legacy_tree_pattern})" \
-  docs/spec
+if ! python3 scripts/test_check_legacy_doc_claims.py; then
+  fail "legacy documentation claim regressions failed"
+fi
+if ! python3 scripts/check_legacy_doc_claims.py docs/spec; then
+  fail "active specs describe removed implementation trees as live read-only paths"
+fi
 reject_pattern "active documentation must not link into deleted implementation trees" \
   "\\]\\([^)]*${deleted_tree_pattern}[^)]*\\)" \
   docs/spec docs/jazz-language-state.md
