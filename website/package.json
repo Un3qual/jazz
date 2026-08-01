@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "clear": "docusaurus clear",
     "render:brand": "node scripts/render-social-card.mjs",
+    "test:brand": "node --test scripts/test-brand-assets.mjs",
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
     "@types/react": "19.2.18",
+    "fontkit": "2.0.4",
     "sharp": "0.35.3",
     "typescript": "6.0.2"
   },

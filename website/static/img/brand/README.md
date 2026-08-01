@@ -30,6 +30,21 @@ standalone informative images should keep the descriptions embedded here.
 Warm brass is the single accent. Paper and score-line colors are neutral
 contrast surfaces, not additional accents.
 
+## Typography provenance
+
+The social-card tagline is derived from the Latin variable WOFF2 in the pinned
+`@fontsource-variable/manrope@5.3.0` package. Manrope is copyright 2019 The
+Manrope Project Authors and distributed under the SIL Open Font License 1.1;
+the complete license is installed at
+`website/node_modules/@fontsource-variable/manrope/LICENSE` by `npm ci`.
+
+The renderer verifies the font asset SHA-256, uses pinned `fontkit@2.0.4` to
+lay out the tagline, and replaces the paths between the
+`manrope-tagline` markers in `social-card.svg`. Sharp receives only that
+path-based SVG, so host fonts and host font configuration cannot affect the
+PNG. The expected font SHA-256 is
+`a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972`.
+
 ## Regenerating the social card
 
 From the repository root, install the pinned website dependencies and render:
@@ -39,5 +54,7 @@ npm --prefix website ci
 npm --prefix website run render:brand
 ```
 
-The renderer reads `social-card.svg`, writes `social-card.png` through Sharp,
-and fails unless both source and output are exactly 1200×630 pixels.
+The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
+writes `social-card.png` through Sharp, and fails unless both source and output
+are exactly 1200×630 pixels. `npm --prefix website run test:brand` validates
+the outline source, transparent asset padding, and favicon legibility.
