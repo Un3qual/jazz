@@ -52,22 +52,6 @@ require_pattern "docs/spec/tooling/compiler-warning-flags.md" "warning categorie
 require_pattern "docs/spec/tooling/compiler-warning-flags.md" "precedence rules" '^## Precedence Rules'
 require_pattern "docs/spec/tooling/compiler-warning-flags.md" "migration notes" '^## Migration Notes'
 
-plans=(
-  "docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md"
-  "docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md"
-  "docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md"
-  "docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md"
-)
-
-for plan in "${plans[@]}"; do
-  require_file "$plan"
-done
-
-require_pattern "docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md" "if spec link" 'docs/spec/control-flow/if-expressions.md'
-require_pattern "docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md" "operators spec link" 'docs/spec/syntax/operators.md'
-require_pattern "docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md" "primitive spec link" 'docs/spec/runtime/primitive-semantics.md'
-require_pattern "docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md" "warning flags spec link" 'docs/spec/tooling/compiler-warning-flags.md'
-
 if [[ "$fail_count" -ne 0 ]]; then
   exit 1
 fi

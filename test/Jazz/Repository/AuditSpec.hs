@@ -979,6 +979,7 @@ infrastructurePaths =
     "scripts/check_legacy_doc_claims.py",
     "scripts/check-spec-authority.sh",
     "scripts/check-clarification-specs.sh",
+    "scripts/test-check-clarification-specs.sh",
     "scripts/check-execution-queue.py",
     "scripts/check-execution-queue.sh",
     "scripts/test_check_legacy_doc_claims.py",
