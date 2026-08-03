@@ -936,7 +936,8 @@ testCanonicalRepositoryInfrastructure =
           obsoleteIdentity
           source
     flakeSource <- TextIO.readFile (repositoryRoot </> "flake.nix")
-    assertTextContains "root Nix package" "callCabal2nix \"jazz\" ./. { }" flakeSource
+    assertTextContains "filtered Nix package source" "jazzSource = pkgs.lib.fileset.toSource" flakeSource
+    assertTextContains "root Nix package" "callCabal2nix \"jazz\" jazzSource { }" flakeSource
     assertTextContains "root Nix test check" "checks.jazz-test-suite" flakeSource
     assertTextOmits "release package remains deferred" "packages.default" flakeSource
     assertTextOmits "release app remains deferred" "apps.default" flakeSource

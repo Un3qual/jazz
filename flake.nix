@@ -14,8 +14,32 @@
         toolPkgs = import nixpkgs-tools { inherit system; };
         ghc = pkgs.haskell.compiler.ghc9141;
         hsPkgs = pkgs.haskell.packages.ghc9141;
+        jazzSource = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            ./.gitignore
+            ./AGENTS.md
+            ./LICENSE
+            ./PERFORMANCE.md
+            ./app
+            ./benchmark
+            ./cabal.project
+            ./cabal.project.profile-hotspots
+            ./cabal.project.profile-stages
+            ./docs/compiler/architecture.md
+            ./editors/vscode-jazz
+            ./flake.nix
+            ./jazz
+            ./jazz.cabal
+            ./program-support
+            ./programs
+            ./scripts
+            ./src
+            ./test
+          ];
+        };
         jazz = pkgs.haskell.lib.enableCabalFlag
-          (hsPkgs.callCabal2nix "jazz" ./. { })
+          (hsPkgs.callCabal2nix "jazz" jazzSource { })
           "development";
       in {
         devShells.default = pkgs.mkShell {
