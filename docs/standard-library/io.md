@@ -21,8 +21,10 @@ The `IO` module exports:
 
 Files and streams use strict UTF-8. Recoverable operations return `Result`;
 file errors attach a path and stream errors do not. Arguments preserve process
-order. Exit delegates to the installed runtime host. Cost depends on the host
-and payload and has no collection-style complexity promise.
+order. `exit!` accepts statuses from `0` through `255`; an out-of-range status
+fails with fatal diagnostic `E3030` before the host is called. Valid statuses
+delegate to the installed runtime host. Cost depends on the host and payload
+and has no collection-style complexity promise.
 
 The `!` suffix participates in Jazz's current [purity contract](../language/purity.md).
 Use [Result](maybe-result-nonempty.md) to handle recoverable failures.

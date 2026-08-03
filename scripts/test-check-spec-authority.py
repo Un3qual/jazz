@@ -56,20 +56,23 @@ class AuthorityCheckerTests(unittest.TestCase):
         ):
             with self.subTest(relative=relative):
                 target = self.root / relative
-                if is_directory:
-                    target.mkdir()
-                else:
-                    target.write_text("obsolete\n", encoding="utf-8")
-                result = self.run_checker()
-                self.assertNotEqual(0, result.returncode)
-                self.assertIn(
-                    f"superseded authority path still exists: {relative}",
-                    result.stderr,
-                )
-                if is_directory:
-                    target.rmdir()
-                else:
-                    target.unlink()
+                try:
+                    if is_directory:
+                        target.mkdir()
+                    else:
+                        target.write_text("obsolete\n", encoding="utf-8")
+                    result = self.run_checker()
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(
+                        f"superseded authority path still exists: {relative}",
+                        result.stderr,
+                    )
+                finally:
+                    if target.exists():
+                        if is_directory:
+                            target.rmdir()
+                        else:
+                            target.unlink()
 
     def test_rejects_truncated_wrapped_authority_statements(self) -> None:
         mutations = (
@@ -99,11 +102,13 @@ class AuthorityCheckerTests(unittest.TestCase):
                 path = self.root / relative
                 original = path.read_text(encoding="utf-8")
                 self.assertIn(old, original)
-                path.write_text(original.replace(old, new), encoding="utf-8")
-                result = self.run_checker()
-                self.assertNotEqual(0, result.returncode)
-                self.assertIn("missing authority statement", result.stderr)
-                path.write_text(original, encoding="utf-8")
+                try:
+                    path.write_text(original.replace(old, new), encoding="utf-8")
+                    result = self.run_checker()
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("missing authority statement", result.stderr)
+                finally:
+                    path.write_text(original, encoding="utf-8")
 
     def test_incidental_phrases_cannot_replace_authority_decision_bullets(self) -> None:
         path = self.root / "rfcs/accepted/0001-language-authority-and-change-control.md"
@@ -165,15 +170,17 @@ class AuthorityCheckerTests(unittest.TestCase):
                 path = self.root / relative
                 original = path.read_text(encoding="utf-8")
                 self.assertIn(old, original)
-                path.write_text(
-                    original.replace(old, replacement, 1), encoding="utf-8"
-                )
+                try:
+                    path.write_text(
+                        original.replace(old, replacement, 1), encoding="utf-8"
+                    )
 
-                result = self.run_checker()
+                    result = self.run_checker()
 
-                self.assertNotEqual(0, result.returncode)
-                self.assertIn("missing authority statement", result.stderr)
-                path.write_text(original, encoding="utf-8")
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("missing authority statement", result.stderr)
+                finally:
+                    path.write_text(original, encoding="utf-8")
 
 
 if __name__ == "__main__":

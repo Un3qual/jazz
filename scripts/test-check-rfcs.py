@@ -104,6 +104,30 @@ class RfcCheckerTests(unittest.TestCase):
             "rfcs/accepted/0001-fixture.md: missing required heading: ## Context"
         )
 
+    def test_every_required_section_needs_visible_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        original = rfc("Accepted")
+        for heading, content in (
+            ("## Decision", "Decision."),
+            ("## Context", "Context."),
+            ("## Consequences", "Consequences and explicit non-goals."),
+        ):
+            with self.subTest(heading=heading):
+                try:
+                    path.write_text(
+                        original.replace(
+                            f"{heading}\n\n{content}",
+                            heading,
+                        ),
+                        encoding="utf-8",
+                    )
+                    self.assert_violation(
+                        "rfcs/accepted/0001-fixture.md: "
+                        f"required section is empty: {heading}"
+                    )
+                finally:
+                    path.write_text(original, encoding="utf-8")
+
     def test_backtick_in_fence_info_does_not_hide_following_headings(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(
@@ -140,6 +164,17 @@ class RfcCheckerTests(unittest.TestCase):
         self.assert_violation(
             "rfcs/README.md: missing accepted RFC index entry: "
             "accepted/0001-fixture.md"
+        )
+
+    def test_accepted_rfc_index_rejects_missing_targets(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture](accepted/0001-fixture.md)\n"
+            "[Missing](accepted/9999-missing.md)\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/README.md: stale accepted RFC index entry: "
+            "accepted/9999-missing.md"
         )
 
     def test_rfc_numbers_are_unique_across_status_directories(self) -> None:

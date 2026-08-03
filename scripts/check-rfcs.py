@@ -8,7 +8,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from markdown_visibility import visible_markdown
+from markdown_visibility import rendered_markdown, visible_markdown
 
 
 RFC_NAME_RE = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
@@ -26,6 +26,25 @@ def visible_heading_lines(text: str) -> list[str]:
         for line in visible_markdown(text).splitlines()
         if line.startswith("## ")
     ]
+
+
+def required_section_body(text: str, heading: str) -> str | None:
+    structural_lines = visible_markdown(text).splitlines()
+    heading_lines = [
+        index for index, line in enumerate(structural_lines) if line == heading
+    ]
+    if len(heading_lines) != 1:
+        return None
+    start = heading_lines[0] + 1
+    end = next(
+        (
+            index
+            for index in range(start, len(structural_lines))
+            if structural_lines[index].startswith("## ")
+        ),
+        len(structural_lines),
+    )
+    return "\n".join(rendered_markdown(text).splitlines()[start:end]).strip()
 
 
 def visible_inline_link_targets(text: str) -> set[str]:
@@ -81,6 +100,10 @@ def validate_rfc(root: Path, candidate: Path, status: str) -> list[str]:
             violations.append(f"{display}: missing required heading: {heading}")
         else:
             positions.append(headings.index(heading))
+            if not required_section_body(text, heading):
+                violations.append(
+                    f"{display}: required section is empty: {heading}"
+                )
     if len(positions) == len(REQUIRED_HEADINGS) and positions != sorted(positions):
         violations.append(f"{display}: required headings are out of order")
     return violations
@@ -89,6 +112,7 @@ def validate_rfc(root: Path, candidate: Path, status: str) -> list[str]:
 def validate(root: Path) -> list[str]:
     violations: list[str] = []
     rfc_number_owners: dict[str, str] = {}
+    accepted_targets: set[str] = set()
     accepted_index = root / "rfcs/README.md"
     try:
         accepted_index_targets = visible_inline_link_targets(
@@ -134,10 +158,17 @@ def validate(root: Path) -> list[str]:
             violations.extend(validate_rfc(root, candidate, status))
             if status == "Accepted":
                 target = f"accepted/{candidate.name}"
+                accepted_targets.add(target)
                 if target not in accepted_index_targets:
                     violations.append(
                         f"rfcs/README.md: missing accepted RFC index entry: {target}"
                     )
+    for target in sorted(accepted_index_targets):
+        target_path = re.split(r"[?#]", target, maxsplit=1)[0]
+        if target.startswith("accepted/") and target_path not in accepted_targets:
+            violations.append(
+                f"rfcs/README.md: stale accepted RFC index entry: {target_path}"
+            )
     return sorted(set(violations))
 
 
