@@ -142,6 +142,16 @@ class RfcCheckerTests(unittest.TestCase):
             "accepted/0001-fixture.md"
         )
 
+    def test_rfc_numbers_are_unique_across_status_directories(self) -> None:
+        (self.root / "rfcs/proposed/0001-copy.md").write_text(
+            rfc("Proposed"), encoding="utf-8"
+        )
+
+        self.assert_violation(
+            "rfcs/proposed/0001-copy.md: duplicate RFC number 0001; "
+            "already used by rfcs/accepted/0001-fixture.md"
+        )
+
     def test_rfc_symlink_is_rejected(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         target = self.root / "outside.md"

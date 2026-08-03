@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 fail_count=0
@@ -10,6 +11,14 @@ fail_count=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   fail_count=$((fail_count + 1))
+}
+
+rendered_markdown() {
+  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
+}
+
+rendered_markdown_with_code() {
+  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-code "$1"
 }
 
 require_file() {
@@ -21,7 +30,7 @@ require_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -e "$pattern" "$file" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | rg -n -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing required section: $label"
   fi
 }
@@ -30,7 +39,16 @@ require_contract_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! tr '\n' ' ' <"$file" | rg -n -e "$pattern" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | tr '\n' ' ' | rg -n -e "$pattern" >/dev/null 2>&1; then
+    fail "$file missing required contract: $label"
+  fi
+}
+
+require_rendered_code_pattern() {
+  local file="$1"
+  local label="$2"
+  local pattern="$3"
+  if ! rendered_markdown_with_code "$file" | tr '\n' ' ' | rg -n -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing required contract: $label"
   fi
 }
@@ -77,7 +95,7 @@ require_contract_pattern "docs/standard-library/prelude.md" "stub-v1 print behav
 
 require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "top-level pattern alternatives" 'Alternatives are supported only at the top level of a case arm or lambda parameter\.'
 require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "nested and grouped alternatives unsupported" 'Grouped or nested alternatives are not supported, and lambda-parameter guards are not supported\.'
-require_contract_pattern "docs/reference/expression-grammar.md" "case-arm alternative grammar" 'case-arm-pattern[[:space:]]+:= pattern \("\|" pattern\)\*'
+require_rendered_code_pattern "docs/reference/expression-grammar.md" "case-arm alternative grammar" 'case-arm-pattern[[:space:]]+:= pattern \("\|" pattern\)\*'
 require_contract_pattern "docs/reference/expression-grammar.md" "lambda guards unsupported" 'Lambda parameters do not accept guards\.'
 
 require_pattern "docs/reference/runtime-values.md" "value families" '^## Value families and rendering$'

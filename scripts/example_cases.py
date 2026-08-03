@@ -79,6 +79,8 @@ def module_source_binding_violation(
     entry_module: str,
     sources: list[str],
 ) -> str | None:
+    if len(set(sources)) != len(sources):
+        return "module case contains duplicate declared sources"
     declared_sources = set(sources)
     reachable_sources: set[str] = set()
     visited_modules: set[str] = set()

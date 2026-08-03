@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -117,22 +119,36 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
     return fences
 
 
-def visible_markdown(text: str) -> str:
-    """Blank fenced/inline code and HTML comments before rendered checks."""
-    hidden_ranges = [(fence.start, fence.end) for fence in markdown_fences(text)]
-    hidden_ranges.extend(
-        match.span()
-        for match in re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL)
-    )
+def blank_range(characters: list[str], start: int, end: int) -> None:
+    for index in range(start, end):
+        if characters[index] not in "\r\n":
+            characters[index] = " "
+
+
+def markdown_visibility(
+    text: str, *, mask_fenced_code: bool, mask_inline_code: bool
+) -> str:
+    """Mask non-rendered Markdown while respecting delimiter nesting."""
     characters = list(text)
-    for start, end in hidden_ranges:
-        for index in range(start, end):
-            if characters[index] not in "\r\n":
-                characters[index] = " "
+    fences = markdown_fences(text)
+    fence_ends = {fence.start: fence.end for fence in fences}
+    if mask_fenced_code:
+        for fence in fences:
+            blank_range(characters, fence.start, fence.end)
 
     partially_visible = "".join(characters)
     index = 0
     while index < len(partially_visible):
+        fence_end = fence_ends.get(index)
+        if fence_end is not None:
+            index = fence_end
+            continue
+        if partially_visible.startswith("<!--", index):
+            closer = partially_visible.find("-->", index + 4)
+            comment_end = len(partially_visible) if closer < 0 else closer + 3
+            blank_range(characters, index, comment_end)
+            index = comment_end
+            continue
         if partially_visible[index] != "`":
             index += 1
             continue
@@ -164,12 +180,58 @@ def visible_markdown(text: str) -> str:
                 closer_length += 1
             if closer_length == delimiter_length:
                 closer_end = closer_start + closer_length
-                for hidden_index in range(index, closer_end):
-                    if characters[hidden_index] not in "\r\n":
-                        characters[hidden_index] = " "
+                if mask_inline_code:
+                    blank_range(characters, index, closer_end)
                 index = closer_end
                 break
             closer_start += closer_length
         else:
             index += delimiter_length
     return "".join(characters)
+
+
+def visible_markdown(text: str) -> str:
+    """Blank fenced/inline code and HTML comments before structural checks."""
+    return markdown_visibility(
+        text, mask_fenced_code=True, mask_inline_code=True
+    )
+
+
+def rendered_markdown(text: str) -> str:
+    """Blank fenced code and comments while preserving visible inline code text."""
+    return markdown_visibility(
+        text, mask_fenced_code=True, mask_inline_code=False
+    )
+
+
+def rendered_markdown_with_code(text: str) -> str:
+    """Blank comments while preserving rendered prose and code content."""
+    return markdown_visibility(
+        text, mask_fenced_code=False, mask_inline_code=False
+    )
+
+
+def main(argv: list[str]) -> int:
+    modes = {
+        "--preserve-inline-code": rendered_markdown,
+        "--preserve-code": rendered_markdown_with_code,
+    }
+    if len(argv) != 3 or argv[1] not in modes:
+        print(
+            "usage: markdown_visibility.py "
+            "(--preserve-inline-code|--preserve-code) MARKDOWN_FILE",
+            file=sys.stderr,
+        )
+        return 2
+    path = Path(argv[2])
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        print(f"cannot read Markdown file {path}: {exc}", file=sys.stderr)
+        return 1
+    sys.stdout.write(modes[argv[1]](text))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

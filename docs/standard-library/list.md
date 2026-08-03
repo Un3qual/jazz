@@ -32,7 +32,7 @@ Fragment:
 
 ```jazz
 import List.
-listMap (\\(item) -> item * 2) [1, 2, 3].
+listMap (\(item) -> item * 2) [1, 2, 3].
 ```
 
 Use [Maybe and Result](maybe-result-nonempty.md) to handle total queries.

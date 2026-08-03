@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 fail_count=0
@@ -11,11 +12,15 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
+rendered_markdown() {
+  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
+}
+
 require_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -i -e "$pattern" "$file" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | rg -n -i -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing authority statement: $label"
   fi
 }
@@ -24,7 +29,7 @@ require_block() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -i -U -e "$pattern" "$file" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | rg -n -i -U -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing authority statement: $label"
   fi
 }

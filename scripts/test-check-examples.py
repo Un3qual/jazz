@@ -168,6 +168,24 @@ class ExampleRunnerTests(unittest.TestCase):
             result.stderr,
         )
 
+    def test_module_sources_cannot_repeat_the_same_declaration(self) -> None:
+        module_root = self.root / "examples/modules"
+        (module_root / "Example").mkdir(parents=True)
+        source = "examples/modules/Example/Main.jz"
+        (self.root / source).write_text(
+            "module Example::Main {\n  0.\n}\n", encoding="utf-8"
+        )
+        self.write_cases(
+            f"module\t{source},{source}\t0\t"
+            "--run --entry-module Example::Main --module-root examples/modules\n"
+        )
+        self.write_fake_jazz("print('0')")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("module case contains duplicate declared sources", result.stderr)
+
     def test_module_imports_must_be_declared_by_the_same_case(self) -> None:
         module_root = self.root / "examples/modules"
         (module_root / "Example").mkdir(parents=True)

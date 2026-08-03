@@ -88,6 +88,7 @@ def validate_rfc(root: Path, candidate: Path, status: str) -> list[str]:
 
 def validate(root: Path) -> list[str]:
     violations: list[str] = []
+    rfc_number_owners: dict[str, str] = {}
     accepted_index = root / "rfcs/README.md"
     try:
         accepted_index_targets = visible_inline_link_targets(
@@ -120,6 +121,16 @@ def validate(root: Path) -> list[str]:
                         f"{candidate.relative_to(root).as_posix()}: invalid RFC filename"
                     )
                 continue
+            display = candidate.relative_to(root).as_posix()
+            number = name_match.group(1)
+            previous_owner = rfc_number_owners.get(number)
+            if previous_owner is None:
+                rfc_number_owners[number] = display
+            else:
+                violations.append(
+                    f"{display}: duplicate RFC number {number}; "
+                    f"already used by {previous_owner}"
+                )
             violations.extend(validate_rfc(root, candidate, status))
             if status == "Accepted":
                 target = f"accepted/{candidate.name}"

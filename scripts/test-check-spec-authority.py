@@ -121,6 +121,60 @@ class AuthorityCheckerTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("missing authority statement", result.stderr)
 
+    def test_hidden_markdown_cannot_satisfy_authority_statements(self) -> None:
+        mutations = (
+            (
+                "docs/project/governance.md",
+                "1. curated public language and reference documentation;",
+                "<!--\n"
+                "1. curated public language and reference documentation;\n"
+                "-->\n"
+                "1. private notes;",
+            ),
+            (
+                "docs/project/governance.md",
+                "Semantic language changes require a reviewed decision record before\n"
+                "implementation.",
+                "```text\n"
+                "Semantic language changes require a reviewed decision record before\n"
+                "implementation.\n"
+                "```\n"
+                "Semantic language changes require no review before implementation.",
+            ),
+            (
+                "rfcs/accepted/0001-language-authority-and-change-control.md",
+                "1. Canonical public language contracts under `docs/language/` and\n"
+                "   `docs/reference/`.",
+                "<!--\n"
+                "1. Canonical public language contracts under `docs/language/` and\n"
+                "   `docs/reference/`.\n"
+                "-->\n"
+                "1. Internal plans are canonical.",
+            ),
+            (
+                "rfcs/accepted/0001-language-authority-and-change-control.md",
+                "3. Accepted durable decisions under `rfcs/accepted/`.",
+                "```text\n"
+                "3. Accepted durable decisions under `rfcs/accepted/`.\n"
+                "```\n"
+                "3. Draft plans are durable decisions.",
+            ),
+        )
+        for relative, old, replacement in mutations:
+            with self.subTest(relative=relative, hidden=old):
+                path = self.root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(
+                    original.replace(old, replacement, 1), encoding="utf-8"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("missing authority statement", result.stderr)
+                path.write_text(original, encoding="utf-8")
+
 
 if __name__ == "__main__":
     unittest.main()

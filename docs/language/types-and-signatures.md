@@ -40,7 +40,7 @@ Fragment:
 contains :: @{Eq(a)}: [a] -> a -> Bool.
 
 identity :: a -> a.
-identity = \\(value) -> value.
+identity = \(item) -> item.
 identity @Int 1.
 ```
 

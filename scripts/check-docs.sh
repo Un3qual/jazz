@@ -31,6 +31,9 @@ fi
 if ! python3 scripts/test-check-public-docs.py; then
   fail "scripts/test-check-public-docs.py reported public documentation checker regressions"
 fi
+if ! python3 scripts/test-markdown-visibility.py; then
+  fail "scripts/test-markdown-visibility.py reported rendered Markdown visibility regressions"
+fi
 if ! python3 scripts/test-check-examples.py; then
   fail "scripts/test-check-examples.py reported executable-example checker regressions"
 fi

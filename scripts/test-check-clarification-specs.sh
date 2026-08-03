@@ -84,6 +84,22 @@ if ! rg -F 'docs/language/control-flow.md missing required section: conditionals
   exit 1
 fi
 
+hidden_heading_root="$fixture_root/hidden-heading"
+copy_complete_fixture "$hidden_heading_root"
+replace_literal \
+  "$hidden_heading_root/docs/language/control-flow.md" \
+  '## Conditionals' \
+  $'<!--\n## Conditionals\n-->\n## Conditional expressions'
+if hidden_heading_output="$(cd "$hidden_heading_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a required heading hidden in Markdown\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/control-flow.md missing required section: conditionals' <<<"$hidden_heading_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a required heading hidden in Markdown\n' >&2
+  printf '%s\n' "$hidden_heading_output" >&2
+  exit 1
+fi
+
 missing_contract_root="$fixture_root/missing-contract"
 copy_complete_fixture "$missing_contract_root"
 replace_literal \
@@ -97,6 +113,22 @@ fi
 if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$missing_contract_output" >/dev/null; then
   printf 'FAIL: clarification checker did not identify the weakened public contract\n' >&2
   printf '%s\n' "$missing_contract_output" >&2
+  exit 1
+fi
+
+hidden_contract_root="$fixture_root/hidden-contract"
+copy_complete_fixture "$hidden_contract_root"
+replace_literal \
+  "$hidden_contract_root/docs/language/operators.md" \
+  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
+  $'<!--\n`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.\n-->\n`|` executes as a built-in Boolean operator.'
+if hidden_contract_output="$(cd "$hidden_contract_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a public contract hidden in Markdown\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$hidden_contract_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a public contract hidden in Markdown\n' >&2
+  printf '%s\n' "$hidden_contract_output" >&2
   exit 1
 fi
 
