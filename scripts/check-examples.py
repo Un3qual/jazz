@@ -96,7 +96,7 @@ def run_case(
 ) -> int:
     try:
         result = subprocess.run(
-            [str(jazz_binary), *arguments],
+            [str(jazz_binary), *arguments, "--warnings-config", os.devnull],
             cwd=root,
             env=checked_environment(),
             check=False,

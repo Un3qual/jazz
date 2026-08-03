@@ -182,6 +182,28 @@ class AuthorityCheckerTests(unittest.TestCase):
                 finally:
                     path.write_text(original, encoding="utf-8")
 
+    def test_raw_html_block_cannot_satisfy_an_authority_statement(self) -> None:
+        path = self.root / "docs/project/governance.md"
+        original = path.read_text(encoding="utf-8")
+        required = "1. curated public language and reference documentation;"
+        self.assertIn(required, original)
+        path.write_text(
+            original.replace(
+                required,
+                '<script type="text/plain">\n'
+                f"{required}\n"
+                "</script>\n"
+                "1. private notes;",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("missing authority statement", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

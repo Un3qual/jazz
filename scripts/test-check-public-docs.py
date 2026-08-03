@@ -147,6 +147,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
         (self.root / "jazz_logo.png").write_bytes(b"fixture")
+        (self.root / "LICENSE").write_text("Fixture license.\n", encoding="utf-8")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
         factorial.write_text(FACTORIAL_SOURCE, encoding="utf-8")
@@ -305,6 +306,36 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
 
+    def test_readme_rejects_invalid_local_link_targets(self) -> None:
+        outside = self.root.parent / "outside.md"
+        outside.write_text("Outside.\n", encoding="utf-8")
+        for markup, expected in (
+            (
+                "[Broken](docs/does-not-exist.md)",
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+            (
+                "[Broken](../outside.md)",
+                "README.md: local link leaves repository: ../outside.md",
+            ),
+            (
+                "[Broken][missing]\n\n[missing]: docs/does-not-exist.md",
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+            (
+                '<a href="docs/does-not-exist.md">\nBroken\n</a>',
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+        ):
+            with self.subTest(markup=markup):
+                (self.root / "README.md").write_text(
+                    valid_readme(extra=markup), encoding="utf-8"
+                )
+                self.assert_violation(expected)
+
     def test_readme_rejects_legacy_and_internal_terms(self) -> None:
         (self.root / "README.md").write_text(
             valid_readme(extra="See jazz2 and .codex/plans for Spec Authority."),
@@ -449,6 +480,15 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_rejects_unquoted_wrapped_html_links_to_internal_trees(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="<a\n  href=../rfcs/accepted/0001.md>Decision</a>\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_multiline_html_block_links_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<a href="../rfcs/accepted/0001.md">\nDecision\n</a>\n'),
             encoding="utf-8",
         )
         self.assert_violation(

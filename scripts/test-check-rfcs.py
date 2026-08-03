@@ -157,6 +157,8 @@ class RfcCheckerTests(unittest.TestCase):
         )
 
     def test_tab_indented_reference_shape_counts_as_visible_code(self) -> None:
+        # A leading tab expands to a four-space CommonMark indented code block;
+        # it does not satisfy the 0-3-space reference-definition prefix.
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(
             rfc("Accepted").replace(
@@ -168,17 +170,32 @@ class RfcCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
-    def test_tab_indented_reference_destination_is_not_hidden(self) -> None:
+    def test_tab_indented_reference_destination_is_not_visible_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(
             rfc("Accepted").replace(
                 "Decision.",
-                "[visible-text]:\n\thttps://example.com",
+                "[hidden]:\n\thttps://example.com",
             ),
             encoding="utf-8",
         )
-        result = self.run_checker()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: "
+            "required section is empty: ## Decision"
+        )
+
+    def test_raw_html_block_cannot_supply_a_required_heading(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "## Decision\n\nDecision.",
+                '<script type="text/plain">\n## Decision\n\nDecision.\n</script>',
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: missing required heading: ## Decision"
+        )
 
     def test_visible_reference_link_counts_as_section_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"

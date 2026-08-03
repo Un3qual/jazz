@@ -115,6 +115,31 @@ class ExampleRunnerTests(unittest.TestCase):
         result = self.run_checker(env=env)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_uses_a_final_explicit_empty_warning_config(self) -> None:
+        (self.root / ".jazz-warnings").write_text(
+            "invalid-ambient-warning\n", encoding="utf-8"
+        )
+        custom_config = self.root / "custom-warnings"
+        custom_config.write_text("invalid-manifest-warning\n", encoding="utf-8")
+        self.write_cases(
+            "hello\texamples/hello.jz\t\"Hello\"\t"
+            f"--run examples/hello.jz --warnings-config {custom_config}\n"
+        )
+        self.write_fake_jazz(
+            "selected = '.jazz-warnings'\n"
+            "for index, argument in enumerate(sys.argv[:-1]):\n"
+            "    if argument == '--warnings-config':\n"
+            "        selected = sys.argv[index + 1]\n"
+            "if open(selected, encoding='utf-8').read():\n"
+            "    print(f'non-empty warning config: {selected}', file=sys.stderr)\n"
+            "    raise SystemExit(9)\n"
+            "print('\"Hello\"')"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_times_out_non_terminating_example(self) -> None:
         self.write_fake_jazz("time.sleep(5)\nprint('\"Hello\"')")
         started = time.monotonic()

@@ -9,6 +9,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+HTML_BLOCK_TAG_NAMES = """
+address article aside base basefont blockquote body caption center col colgroup
+dd details dialog dir div dl dt fieldset figcaption figure footer form frame
+frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu
+menuitem nav noframes ol optgroup option p param search section summary table
+tbody td tfoot th thead title tr track ul
+""".split()
+HTML_BLOCK_TAG_RE = re.compile(
+    r"^</?(" + "|".join(HTML_BLOCK_TAG_NAMES) + r")(?=[ \t]|/?>|$)",
+    re.IGNORECASE,
+)
+HTML_OPEN_TAG_RE = re.compile(
+    r"^<[A-Za-z][A-Za-z0-9-]*"
+    r"(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^ \t\n\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"[ \t]*/?>[ \t]*$"
+)
+HTML_CLOSING_TAG_RE = re.compile(
+    r"^</[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$"
+)
+
+
 @dataclass(frozen=True)
 class MarkdownFence:
     start: int
@@ -125,8 +147,126 @@ def blank_range(characters: list[str], start: int, end: int) -> None:
             characters[index] = " "
 
 
+def raw_html_block_spec(
+    candidate: str, *, type_seven_can_start: bool
+) -> tuple[str, str | re.Pattern[str]] | None:
+    type_one = re.match(
+        r"^<(script|pre|style|textarea)(?=[ \t]|>|$)",
+        candidate,
+        re.IGNORECASE,
+    )
+    if type_one is not None:
+        return (
+            "marker",
+            re.compile(rf"</{re.escape(type_one.group(1))}>", re.IGNORECASE),
+        )
+    if candidate.startswith("<?"):
+        return "marker", "?>"
+    if candidate.startswith("<![CDATA["):
+        return "marker", "]]>"
+    if re.match(r"^<![A-Za-z]", candidate) is not None:
+        return "marker", ">"
+    if HTML_BLOCK_TAG_RE.match(candidate) is not None:
+        return "blank", ""
+    if type_seven_can_start and (
+        HTML_OPEN_TAG_RE.fullmatch(candidate) is not None
+        or HTML_CLOSING_TAG_RE.fullmatch(candidate) is not None
+    ):
+        return "blank", ""
+    return None
+
+
+def line_end_offset(text: str, start: int) -> int:
+    cursor = start
+    while cursor < len(text):
+        if text[cursor] == "\n":
+            return cursor + 1
+        if text[cursor] == "\r":
+            return cursor + 2 if text[cursor : cursor + 2] == "\r\n" else cursor + 1
+        cursor += 1
+    return len(text)
+
+
+def previous_line_content(text: str, line_start: int) -> str | None:
+    if line_start == 0:
+        return None
+    previous_end = line_start - 1
+    if previous_end > 0 and text[previous_end - 1 : line_start] == "\r\n":
+        previous_end -= 1
+    previous_start = max(
+        text.rfind("\n", 0, previous_end),
+        text.rfind("\r", 0, previous_end),
+    ) + 1
+    return text[previous_start:previous_end]
+
+
+def type_seven_html_block_can_start(text: str, line_start: int) -> bool:
+    previous = previous_line_content(text, line_start)
+    if previous is None or not previous.strip():
+        return True
+    if re.match(r"^ {0,3}#{1,6}(?:[ \t]+|$)", previous) is not None:
+        return True
+    if fence_opener(previous) is not None:
+        return True
+    if re.fullmatch(
+        r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
+        previous,
+    ) is not None:
+        return True
+    if re.fullmatch(r" {0,3}(?:=+|-+)[ \t]*", previous) is not None:
+        return True
+    if previous.startswith("\t") or leading_spaces(previous) >= 4:
+        return True
+    candidate = previous[leading_spaces(previous) :]
+    return (
+        leading_spaces(previous) <= 3
+        and HTML_CLOSING_TAG_RE.fullmatch(candidate) is not None
+    )
+
+
+def raw_html_block_end(text: str, opener_start: int) -> tuple[int, int] | None:
+    line_start = max(
+        text.rfind("\n", 0, opener_start),
+        text.rfind("\r", 0, opener_start),
+    ) + 1
+    prefix = text[line_start:opener_start]
+    if len(prefix) > 3 or prefix.strip(" "):
+        return None
+    first_line_end = line_end_offset(text, line_start)
+    candidate = without_line_ending(text[opener_start:first_line_end])
+    block_spec = raw_html_block_spec(
+        candidate,
+        type_seven_can_start=type_seven_html_block_can_start(text, line_start),
+    )
+    if block_spec is None:
+        return None
+
+    mode, terminator = block_spec
+    cursor = line_start
+    while cursor < len(text):
+        current_end = line_end_offset(text, cursor)
+        line = without_line_ending(text[cursor:current_end])
+        if mode == "blank":
+            if cursor != line_start and not line.strip():
+                return line_start, cursor
+        else:
+            found = (
+                terminator.search(line) is not None
+                if isinstance(terminator, re.Pattern)
+                else terminator in line
+            )
+            if found:
+                return line_start, current_end
+        cursor = current_end
+    return line_start, len(text)
+
+
 def markdown_visibility(
-    text: str, *, mask_fenced_code: bool, mask_inline_code: bool
+    text: str,
+    *,
+    mask_fenced_code: bool,
+    mask_inline_code: bool,
+    mask_raw_html_blocks: bool = True,
 ) -> str:
     """Mask non-rendered Markdown while respecting delimiter nesting."""
     characters = list(text)
@@ -149,6 +289,13 @@ def markdown_visibility(
             blank_range(characters, index, comment_end)
             index = comment_end
             continue
+        if mask_raw_html_blocks and partially_visible[index] == "<":
+            html_block = raw_html_block_end(partially_visible, index)
+            if html_block is not None:
+                block_start, block_end = html_block
+                blank_range(characters, block_start, block_end)
+                index = block_end
+                continue
         if partially_visible[index] != "`":
             index += 1
             continue
@@ -208,6 +355,16 @@ def rendered_markdown_with_code(text: str) -> str:
     """Blank comments while preserving rendered prose and code content."""
     return markdown_visibility(
         text, mask_fenced_code=False, mask_inline_code=False
+    )
+
+
+def html_source_markdown(text: str) -> str:
+    """Preserve HTML tags while masking Markdown code and comment decoys."""
+    return markdown_visibility(
+        text,
+        mask_fenced_code=True,
+        mask_inline_code=True,
+        mask_raw_html_blocks=False,
     )
 
 

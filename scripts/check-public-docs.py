@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
-from markdown_visibility import markdown_fences, visible_markdown
+from markdown_visibility import html_source_markdown, markdown_fences, visible_markdown
 
 
 ALLOWED_DOCS_ENTRIES = {
@@ -174,15 +174,24 @@ class HtmlLinkTargetParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.targets: list[str] = []
+        self.inert_depth = 0
 
     def handle_starttag(
         self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
-        if tag.casefold() != "a":
+        folded_tag = tag.casefold()
+        if folded_tag in {"script", "style", "textarea"}:
+            self.inert_depth += 1
+            return
+        if self.inert_depth or folded_tag != "a":
             return
         for name, value in attributes:
             if name.casefold() == "href":
                 self.targets.append(value or "")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() in {"script", "style", "textarea"} and self.inert_depth:
+            self.inert_depth -= 1
 
 
 def html_link_targets(text: str) -> list[str]:
@@ -316,6 +325,20 @@ def local_docs_link_violation(
         return f"public link leaves docs/: {markdown_link_target(raw_target)}"
     if not candidate.is_file():
         return f"public link target does not exist: {markdown_link_target(raw_target)}"
+    return None
+
+
+def local_readme_link_violation(root: Path, raw_target: str) -> str | None:
+    target = unquote(markdown_link_target(raw_target))
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc or not parsed.path:
+        return None
+    canonical_root = root.resolve()
+    candidate = (root / parsed.path).resolve()
+    if not resolves_within(candidate, canonical_root):
+        return f"local link leaves repository: {markdown_link_target(raw_target)}"
+    if not candidate.is_file():
+        return f"local link target does not exist: {markdown_link_target(raw_target)}"
     return None
 
 
@@ -726,6 +749,18 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             violations.append(
                 f"README.md: missing required navigation link: {required_target}"
             )
+    visible_text = visible_markdown(text)
+    raw_link_targets = [
+        match.group(1)
+        for match in LINK_RE.finditer(visible_text)
+        if not match.group(0).startswith("!")
+    ]
+    raw_link_targets.extend(used_reference_targets(visible_text))
+    raw_link_targets.extend(html_link_targets(html_source_markdown(text)))
+    for raw_link_target in raw_link_targets:
+        link_violation = local_readme_link_violation(root, raw_link_target)
+        if link_violation is not None:
+            violations.append(f"README.md: {link_violation}")
     if (
         "[Website (publishing with Workstream 3)]"
         "(https://un3qual.github.io/jazz/)" not in text
@@ -847,7 +882,7 @@ def validate(root: Path) -> list[str]:
             match.group(1) for match in LINK_RE.finditer(visible_body)
         ]
         raw_link_targets.extend(used_reference_targets(visible_body))
-        raw_link_targets.extend(html_link_targets(visible_body))
+        raw_link_targets.extend(html_link_targets(html_source_markdown(markdown_body)))
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
             if not raw_target:
