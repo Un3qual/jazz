@@ -34,18 +34,19 @@
 
 - [ ] Write unit tests around a temporary fixture tree for these rules:
 
-  - every Markdown file below `docs/` has `title` and `description` front matter;
+  - every Markdown file below `docs/` has nonempty `title`, `description`, and `sidebar_position` front matter;
   - only `getting-started`, `language`, `standard-library`, `reference`, `compiler`, `project`, and `index.md` may exist directly under `docs/`;
   - public Markdown rejects `docs/superpowers`, `docs/execution`, `.codex/`, `jazz-next`, `JazzNext`, `jazz-hs`, and `jazz2` path references;
   - Markdown links cannot escape from `docs/` into `.codex/` or `rfcs/`;
-  - each marker `<!-- jazz-example: executable path=examples/... -->` names a tracked `.jz` file below root `examples/`;
+  - each marker `<!-- jazz-example: executable path=examples/... -->` names a tracked `.jz` file below root `examples/`, immediately classifies the adjacent Jazz fence, and that fence matches the tracked source byte-for-byte;
+  - every other Jazz fence is explicitly classified with `<!-- jazz-example: fragment -->`, so runnable-looking blocks cannot bypass source validation;
   - every tracked `examples/**/*.jz` is referenced by at least one public page or the root README; and
   - required public pages listed in Task 5 exist.
 
 - [ ] Run the new tests before implementing the checker:
 
   ```bash
-  python3 -m unittest scripts/test-check-public-docs.py
+  python3 scripts/test-check-public-docs.py
   ```
 
   Expected: failures report the missing checker behavior.
@@ -57,7 +58,7 @@
 - [ ] Re-run the checker tests:
 
   ```bash
-  python3 -m unittest scripts/test-check-public-docs.py
+  python3 scripts/test-check-public-docs.py
   ```
 
   Expected: all fixture cases pass.
@@ -129,7 +130,7 @@
 - Delete after consolidation: `docs/superpowers/plans/**`
 - Delete after consolidation: `docs/plans/**`
 
-- [ ] Add an RFC template to `rfcs/README.md` with required fields `Status`, `Date`, `Decision`, `Context`, `Consequences`, and `Supersedes`. Define `accepted/` as durable decisions and `proposed/` as reviewable proposals; task plans remain under `.codex/plans/`.
+- [ ] Add an RFC template to `rfcs/README.md` with scalar header fields `Status:`, `Date:`, and `Supersedes:`, followed by `## Decision`, `## Context`, and `## Consequences` sections. Define `accepted/` as durable decisions and `proposed/` as reviewable proposals; task plans remain under `.codex/plans/`. Reuse these exact forms in `scripts/check-docs.sh` and its fixtures.
 
 - [ ] Write RFC 0001 from the durable authority and governance rules. It must establish public docs, implementation/tests, accepted RFCs, and roadmap as the descending authority order and require an RFC before semantic language changes.
 
@@ -155,13 +156,27 @@
 - [ ] Audit RFC completeness:
 
   ```bash
-  rg -L '^Status: Accepted$' rfcs/accepted/*.md
-  rg -L '^## Decision$' rfcs/accepted/*.md
-  rg -L '^## Consequences$' rfcs/accepted/*.md
-  find docs/superpowers docs/plans -type f -print 2>/dev/null
+  require_all_rfc_files_match() {
+    local missing status
+    if missing="$(rg --files-without-match "$1" rfcs/accepted/*.md)"; then
+      printf '%s\n' "$missing" >&2
+      return 1
+    else
+      status=$?
+      test "$status" -eq 1
+    fi
+  }
+  require_all_rfc_files_match '^Status: Accepted$'
+  require_all_rfc_files_match '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
+  require_all_rfc_files_match '^Supersedes: .+$'
+  require_all_rfc_files_match '^## Decision$'
+  require_all_rfc_files_match '^## Context$'
+  require_all_rfc_files_match '^## Consequences$'
+  test ! -e docs/superpowers
+  test ! -e docs/plans
   ```
 
-  Expected: the first three commands print nothing and the deleted documentation trees contain no files.
+  Expected: all six `rg --files-without-match` commands print nothing and both deleted-tree assertions succeed.
 
 - [ ] Commit RFC curation separately:
 
@@ -236,7 +251,7 @@
   }
   ```
 
-  Run it with `--entry-module Example::Main --module-root examples/modules/src`; expected output is `"Hello from a Jazz module"` followed by a newline.
+  Run it with `--run --entry-module Example::Main --module-root examples/modules/src`; expected output is `"Hello from a Jazz module"` followed by a newline.
 
 - [ ] Document exact compile, run, and module-graph commands in `examples/README.md`. State that these are teaching examples; `programs/` remains the production-shaped correctness and benchmark corpus.
 
@@ -299,6 +314,7 @@
 - Rewrite then delete: `docs/feature-status.md`
 - Rewrite then delete: `docs/jazz-language-state.md`
 - Rewrite then delete: `docs/jazz-improvement-backlog.md`
+- Modify: `scripts/check-spec-authority.sh`
 
 - [ ] Give every new page Docusaurus-compatible `title`, `description`, and `sidebar_position` front matter. Use sentence-case titles and relative links that remain inside `docs/`.
 
@@ -326,11 +342,11 @@
 
 - [ ] Rewrite `docs/compiler/architecture.md` from the active compiler README and accepted RFCs. Describe major stages and ownership without embedding implementation task history.
 
-- [ ] Build `docs/project/status.md` from live tests and source. Give it an `Updated: 2026-07-31` field and a current commit field populated with the implementation commit that finalizes this workstream. Use only `Implemented`, `Partial`, and `Planned` labels with concise evidence links to public pages.
+- [ ] Build `docs/project/status.md` from live tests and source. Give it an `Updated: 2026-07-31` field and an `Implementation snapshot:` field populated with the reviewed canonicalization baseline commit on which this documentation workstream is based. Do not attempt to embed the hash of the commit that contains the status page; that hash would be self-referential. Use only `Implemented`, `Partial`, and `Planned` labels with concise evidence links to public pages.
 
 - [ ] Condense the backlog into `docs/project/roadmap.md` with four horizons: language completion, self-hosting, native backend, and ecosystem. Do not promise dates.
 
-- [ ] Delete the old source files only after every mapping row has a reviewed final owner. Remove empty `docs/spec/` and obsolete top-level document paths.
+- [ ] Delete the old source files only after every mapping row has a reviewed final owner. Remove empty `docs/spec/` and obsolete top-level document paths. Rewrite `scripts/check-spec-authority.sh` in the same change to validate the new governance page and authority RFC, reject the removed paths, and stop requiring legacy authority vocabulary.
 
 - [ ] Run the public-boundary checker:
 
@@ -422,7 +438,11 @@
   test ! -e docs/plans
   test ! -e docs/execution
   test ! -e docs/spec
-  rg -n "superpowers|\.codex/|docs/execution|jazz-next|JazzNext|jazz-hs|jazz2" README.md docs
+  if rg -n "superpowers|\.codex/|docs/execution|jazz-next|JazzNext|jazz-hs|jazz2" README.md docs; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
   ```
 
   Expected: all `test` commands succeed and `rg` prints nothing.

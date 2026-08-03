@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Execute on `codex/docusaurus-website`, based on the merged documentation-reset workstream.
-- Scaffold the current Docusaurus 3 Classic TypeScript template, then commit the exact resolved versions in `website/package-lock.json`. Do not leave `latest` ranges in the committed manifest.
+- Scaffold with `create-docusaurus@3.10.2` and the Classic TypeScript template, then commit the exact resolved versions in `website/package-lock.json`. Do not leave `latest` ranges in the committed manifest.
 - Docusaurus may read only `docs/`. Do not copy, symlink, import, transform, or publish `rfcs/` or `.codex/`.
 - Do not add a blog, documentation versioning, analytics, search service, playground, user accounts, or remote runtime content.
 - Use local or bundled assets and fonts. A production page must render without fetching Google Fonts, CDNs, remote images, or runtime APIs.
@@ -69,7 +69,7 @@ All three interactions become static when reduced motion is requested.
 
 - [ ] Implement the checker with standard-library Python only, deterministic sorted violations, and an optional fixture-root argument.
 
-- [ ] Implement `scripts/check-website.sh` as a strict Bash entrypoint that runs the Python boundary check, `npm run typecheck`, `npm run build`, and a second boundary check against generated output.
+- [ ] Implement `scripts/check-website.sh` as a strict Bash entrypoint that runs the Python boundary check, `npm --prefix website run typecheck`, `npm --prefix website run build`, and a second boundary check against generated output. Every package command must explicitly target `website/`.
 
 - [ ] Re-run unit tests:
 
@@ -99,7 +99,7 @@ All three interactions become static when reduced motion is requested.
 - [ ] Create the TypeScript Classic scaffold under a temporary directory with npm, inspect it, then move only the needed application files into `website/`. Do not retain template blog pages, tutorial docs, or sample assets:
 
   ```bash
-  npm create docusaurus@latest /tmp/jazz-docusaurus classic -- --typescript --package-manager npm --skip-install
+  npm create docusaurus@3.10.2 /tmp/jazz-docusaurus classic -- --typescript --package-manager npm --skip-install
   ```
 
 - [ ] Set `website/.nvmrc` to `22`. In `website/package.json`, set `private: true`, `engines.node` to `>=22 <23`, and scripts:
@@ -138,7 +138,7 @@ All three interactions become static when reduced motion is requested.
   - `baseUrl: "/jazz/"`;
   - `organizationName: "un3qual"` and `projectName: "jazz"`;
   - `trailingSlash: false`;
-  - `onBrokenLinks: "throw"` and broken Markdown links treated as errors;
+  - `onBrokenLinks: "throw"` and `onBrokenMarkdownLinks: "throw"`;
   - docs `path: "../docs"`, `routeBasePath: "docs"`, and `sidebarPath` pointing to `sidebars.ts`;
   - blog disabled;
   - navbar links for Docs, Language, Standard Library, Status, and GitHub; and
@@ -201,8 +201,16 @@ All three interactions become static when reduced motion is requested.
 - [ ] Validate assets:
 
   ```bash
-  rg -n "https?://|data:image" website/static/img --glob '*.svg'
-  rg -n "jazz_logo\.png" .
+  if rg -n "https?://|data:image" website/static/img --glob '*.svg'; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
+  if rg -n "jazz_logo\.png" .; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
   file website/static/img/social-card.png
   ```
 
@@ -296,9 +304,9 @@ All three interactions become static when reduced motion is requested.
 
   ```bash
   test -f website/build/index.html
-  test -f website/build/docs/getting-started/overview/index.html
-  test -f website/build/docs/language/types-and-signatures/index.html
-  test -f website/build/docs/project/status/index.html
+  test -f website/build/docs/getting-started/overview.html
+  test -f website/build/docs/language/types-and-signatures.html
+  test -f website/build/docs/project/status.html
   rg -n "Jazz|Get started|A statically typed functional language" website/build/index.html
   ```
 
@@ -319,20 +327,18 @@ All three interactions become static when reduced motion is requested.
 - Modify: `README.md`
 - Modify: `docs/getting-started/overview.md`
 
-- [ ] Add a Pages workflow triggered by pushes to `main` affecting `docs/**`, `website/**`, `README.md`, or the workflow itself, plus `workflow_dispatch`.
+- [ ] Add a Pages workflow triggered by pushes to `main` affecting `docs/**`, `website/**`, `examples/functions/factorial.jz`, `scripts/check-website.sh`, `scripts/check-website-boundary.py`, `README.md`, or the workflow itself, plus `workflow_dispatch`. These paths are the complete direct input and validation boundary for the generated site.
 
 - [ ] Configure least-privilege permissions:
 
   ```yaml
   permissions:
     contents: read
-    pages: write
-    id-token: write
   ```
 
-  Add `concurrency.group: pages` and `cancel-in-progress: true`.
+  Give only the deploy job `pages: write` and `id-token: write`; the build job inherits only `contents: read`. Add `concurrency.group: pages` and `cancel-in-progress: true`.
 
-- [ ] The build job must use Ubuntu, `actions/checkout@v4`, `actions/setup-node@v4` with Node 22 and npm cache keyed by `website/package-lock.json`, `npm ci`, `npm run typecheck`, `npm run build`, the generated-output boundary check, `actions/configure-pages@v5`, and `actions/upload-pages-artifact@v3` with path `website/build`.
+- [ ] The build job must use Ubuntu, `actions/checkout@v4`, `actions/setup-node@v4` with Node 22 and npm cache keyed by `website/package-lock.json`, package commands with `working-directory: website`, the generated-output boundary check, `actions/configure-pages@v5`, and `actions/upload-pages-artifact@v5` with path `website/build`.
 
 - [ ] The deploy job must use the `github-pages` environment and `actions/deploy-pages@v4`, exposing the returned `page_url` as the environment URL.
 
@@ -341,7 +347,11 @@ All three interactions become static when reduced motion is requested.
 - [ ] Validate workflow syntax structurally and run the same build locally:
 
   ```bash
-  rg -n "pull_request|cabal bench|full-parser-scale|profil" .github/workflows/docs-pages.yml
+  if rg -n "pull_request|cabal bench|full-parser-scale|profil" .github/workflows/docs-pages.yml; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
   npm --prefix website ci
   bash scripts/check-website.sh
   git diff --check
