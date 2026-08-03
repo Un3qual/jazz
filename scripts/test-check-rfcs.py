@@ -156,6 +156,30 @@ class RfcCheckerTests(unittest.TestCase):
             "required section is empty: ## Decision"
         )
 
+    def test_tab_indented_reference_shape_counts_as_visible_code(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                "\t[visible-code]: https://example.com",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_tab_indented_reference_destination_is_not_hidden(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                "[visible-text]:\n\thttps://example.com",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_visible_reference_link_counts_as_section_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(

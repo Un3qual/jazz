@@ -3,15 +3,21 @@
 
 from __future__ import annotations
 
-import re
 import shlex
 from pathlib import Path, PurePosixPath
 
 
-IMPORT_RE = re.compile(
-    r"^[ \t]*import[ \t]+([A-Z][A-Za-z0-9_]*(?:::[A-Z][A-Za-z0-9_]*)*)",
-    re.MULTILINE,
-)
+RESERVED_WORDS = {
+    "module",
+    "import",
+    "as",
+    "data",
+    "value",
+    "if",
+    "then",
+    "else",
+    "case",
+}
 
 
 OPTIONS_WITH_VALUES = {
@@ -21,6 +27,79 @@ OPTIONS_WITH_VALUES = {
     "--entry-module",
     "--module-root",
 }
+
+
+def jazz_source_tokens(source: str) -> list[tuple[str, str]]:
+    """Tokenize the source shapes needed to identify real import declarations."""
+    tokens: list[tuple[str, str]] = []
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if character.isspace():
+            index += 1
+            continue
+        if character == "#":
+            newline = source.find("\n", index)
+            index = len(source) if newline == -1 else newline + 1
+            continue
+        if character in {"'", '"'}:
+            delimiter = character
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == delimiter:
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if character.isalpha() or character == "_":
+            end = index + 1
+            while end < len(source) and (
+                source[end].isalnum() or source[end] in {"_", "'", "!"}
+            ):
+                end += 1
+            identifier = source[index:end]
+            kind = "keyword" if identifier in RESERVED_WORDS else "identifier"
+            tokens.append((kind, identifier))
+            index = end
+            continue
+        if source.startswith("::", index):
+            tokens.append(("symbol", "::"))
+            index += 2
+            continue
+        tokens.append(("symbol", character))
+        index += 1
+    return tokens
+
+
+def imported_module_paths(source: str) -> list[str]:
+    """Return import paths using the Jazz lexer token boundaries."""
+    tokens = jazz_source_tokens(source)
+    imports: list[str] = []
+    for index, token in enumerate(tokens):
+        if token != ("keyword", "import"):
+            continue
+        cursor = index + 1
+        if cursor >= len(tokens) or tokens[cursor][0] != "identifier":
+            continue
+        segments = [tokens[cursor][1]]
+        cursor += 1
+        while (
+            cursor + 1 < len(tokens)
+            and tokens[cursor] == ("symbol", "::")
+            and tokens[cursor + 1][0] == "identifier"
+        ):
+            segments.append(tokens[cursor + 1][1])
+            cursor += 2
+        if cursor < len(tokens) and tokens[cursor] in {
+            ("symbol", "."),
+            ("symbol", "("),
+            ("keyword", "as"),
+        }:
+            imports.append("::".join(segments))
+    return imports
 
 
 def parsed_source_selection(
@@ -106,7 +185,7 @@ def module_source_binding_violation(
             text = (root / source).read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             return f"cannot read declared module source: {source}"
-        pending.extend(IMPORT_RE.findall(text))
+        pending.extend(imported_module_paths(text))
     if reachable_sources != declared_sources:
         return "declared module sources are not reachable from --entry-module"
     return None

@@ -16,9 +16,9 @@ TITLE_RE = re.compile(r"^# RFC (\d{4}): .+$")
 DATE_RE = re.compile(r"^Date: (\d{4}-\d{2}-\d{2})$")
 REQUIRED_HEADINGS = ("## Decision", "## Context", "## Consequences")
 REFERENCE_DEFINITION_RE = re.compile(
-    r"^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]{0,3})?"
+    r"^ {0,3}\[[^\]\n]+\]:[ \t]*(?:\n {0,3})?"
     r"(?:<[^>\n]+>|\S+)"
-    r"(?:[ \t]+|\n[ \t]{0,3})?"
+    r"(?:[ \t]+|\n {0,3})?"
     r"(?:\"[^\"\n]*\"|'[^'\n]*'|\([^\)\n]*\))?[ \t]*$",
     re.MULTILINE,
 )

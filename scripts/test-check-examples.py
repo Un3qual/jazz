@@ -209,6 +209,48 @@ class ExampleRunnerTests(unittest.TestCase):
             result.stderr,
         )
 
+    def test_module_import_scanning_uses_jazz_token_boundaries(self) -> None:
+        module_root = self.root / "examples/modules"
+        (module_root / "Example").mkdir(parents=True)
+        source = "examples/modules/Example/Main.jz"
+        for layout in (
+            "module Example::Main { import Example::Greeting. greeting. }\n",
+            "module Example::Main {\n\u2003import Example::Greeting.\n  greeting.\n}\n",
+        ):
+            with self.subTest(layout=layout):
+                (self.root / source).write_text(layout, encoding="utf-8")
+                self.write_cases(
+                    f'module\t{source}\t"Hello"\t'
+                    "--run --entry-module Example::Main "
+                    "--module-root examples/modules\n"
+                )
+                result = self.run_checker()
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "module does not resolve under --module-root: "
+                    "Example::Greeting",
+                    result.stderr,
+                )
+
+    def test_import_text_in_literals_and_comments_is_not_a_dependency(self) -> None:
+        module_root = self.root / "examples/modules"
+        (module_root / "Example").mkdir(parents=True)
+        source = "examples/modules/Example/Main.jz"
+        (self.root / source).write_text(
+            'module Example::Main {\n  text = "import Example::Missing.".\n'
+            "  # import Example::AlsoMissing.\n  text.\n}\n",
+            encoding="utf-8",
+        )
+        self.write_cases(
+            f'module\t{source}\t"import Example::Missing."\t'
+            "--run --entry-module Example::Main --module-root examples/modules\n"
+        )
+        self.write_fake_jazz("print('\"import Example::Missing.\"')")
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_module_sources_follow_ordered_module_roots(self) -> None:
         first_root = self.root / "examples/modules/first"
         second_root = self.root / "examples/modules/second"

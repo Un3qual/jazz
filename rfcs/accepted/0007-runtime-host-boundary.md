@@ -35,12 +35,14 @@ numbers, locale-specific messages, and Haskell values do not enter the Jazz
 contract.
 
 Pure evaluator entry points use the same implementation with a disabled host.
-The disabled host deterministically reports unsupported operations and
-preserves pure-program behavior. Focused tests inject deterministic hosts that
-record operation order and synthesize every public failure category without
-depending on ambient arguments, terminals, locale, or platform error wording.
-Only CLI run mode installs the production host; compile-only paths perform no
-host effects.
+The disabled host deterministically reports unsupported file, stream, and exit
+operations. Process-argument lookup is the deliberate exception: it succeeds
+with an empty list so non-CLI evaluation remains deterministic and does not
+observe ambient process arguments. Focused tests inject deterministic hosts
+that record operation order and synthesize every public failure category
+without depending on ambient arguments, terminals, locale, or platform error
+wording. Only CLI run mode installs the production host; compile-only paths
+perform no host effects.
 
 The runtime owns one private explicit evaluation machine shared by disabled-
 host and host-backed execution. It preserves call-by-value, left-to-right
