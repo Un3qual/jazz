@@ -15,6 +15,13 @@ RFC_NAME_RE = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 TITLE_RE = re.compile(r"^# RFC (\d{4}): .+$")
 DATE_RE = re.compile(r"^Date: (\d{4}-\d{2}-\d{2})$")
 REQUIRED_HEADINGS = ("## Decision", "## Context", "## Consequences")
+REFERENCE_DEFINITION_RE = re.compile(
+    r"^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]{0,3})?"
+    r"(?:<[^>\n]+>|\S+)"
+    r"(?:[ \t]+|\n[ \t]{0,3})?"
+    r"(?:\"[^\"\n]*\"|'[^'\n]*'|\([^\)\n]*\))?[ \t]*$",
+    re.MULTILINE,
+)
 MARKDOWN_LINK_RE = re.compile(
     r"(?<!!)\[[^\]]+\]\((?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)"
 )
@@ -44,7 +51,8 @@ def required_section_body(text: str, heading: str) -> str | None:
         ),
         len(structural_lines),
     )
-    return "\n".join(rendered_markdown(text).splitlines()[start:end]).strip()
+    rendered_body = "\n".join(rendered_markdown(text).splitlines()[start:end])
+    return REFERENCE_DEFINITION_RE.sub("", rendered_body).strip()
 
 
 def visible_inline_link_targets(text: str) -> set[str]:

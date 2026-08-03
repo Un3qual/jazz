@@ -37,7 +37,9 @@ Expected output:
 720
 ```
 
-Every statement ends in a period. `Int -> Int` is the function type, and the
-two `\|` clauses are tried from top to bottom. Learn more in
+The signature, binding, and final expression shown here each end in a period.
+A module declaration is the exception: it ends at its closing `}` without a
+trailing period. `Int -> Int` is the function type, and the two `\|` clauses
+are tried from top to bottom. Learn more in
 [bindings and functions](../language/bindings-and-functions.md) and
 [control flow](../language/control-flow.md).

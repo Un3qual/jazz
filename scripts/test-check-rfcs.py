@@ -128,6 +128,47 @@ class RfcCheckerTests(unittest.TestCase):
                 finally:
                     path.write_text(original, encoding="utf-8")
 
+    def test_required_section_reference_definition_is_not_visible_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                "[hidden]: https://example.com",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: "
+            "required section is empty: ## Decision"
+        )
+
+    def test_multiline_reference_definition_is_not_visible_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                '[hidden]:\n  https://example.com\n  "Reference title"',
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: "
+            "required section is empty: ## Decision"
+        )
+
+    def test_visible_reference_link_counts_as_section_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                "Adopt the [documented behavior][source].\n\n"
+                "[source]: https://example.com",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_backtick_in_fence_info_does_not_hide_following_headings(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(

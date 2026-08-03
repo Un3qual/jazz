@@ -5,7 +5,15 @@ sidebar_position: 1
 ---
 
 The bundled [Prelude](prelude.md) loads automatically unless the CLI uses
-`--no-prelude`. Other modules require an explicit import.
+`--no-prelude`. Other modules require an explicit import and module mode must
+search the bundled library root. From the repository root, include both the
+application root and `jazz/stdlib`, in that order:
+
+```bash
+cabal run jazz -- --run --entry-module App::Main \
+  --module-root path/to/app/src \
+  --module-root jazz/stdlib
+```
 
 | Module            | Public abstraction          | Purpose                                                                  |
 | ----------------- | --------------------------- | ------------------------------------------------------------------------ |
