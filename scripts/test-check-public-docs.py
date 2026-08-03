@@ -88,6 +88,7 @@ def valid_readme(*, extra: str = "") -> str:
         "",
         "Expected output:",
         "",
+        "<!-- jazz-example-output: case=factorial -->",
         "```text",
         "720",
         "```",
@@ -381,6 +382,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: top-level heading duplicates front matter title"
         )
 
+    def test_front_matter_comment_is_not_a_rendered_heading(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            (
+                "---\n"
+                "title: Fixture\n"
+                "# This comment is valid YAML front matter.\n"
+                "description: Test fixture.\n"
+                "sidebar_position: 1\n"
+                "---\n\n"
+                "Fixture body.\n"
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_rejects_missing_relative_link_targets(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="[Missing](language/not-there.md)\n"), encoding="utf-8"
@@ -423,6 +440,15 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_rejects_html_links_that_escape_to_internal_trees(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body='<a href="../rfcs/accepted/0001.md">Decision</a>\n'),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_unquoted_wrapped_html_links_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<a\n  href=../rfcs/accepted/0001.md>Decision</a>\n"),
             encoding="utf-8",
         )
         self.assert_violation(
@@ -578,17 +604,61 @@ class PublicDocsCheckerTests(unittest.TestCase):
         source = '"Hello".\n'
         self.add_tracked_example("examples/hello.jz", source)
         (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
+            page(
+                body=(
+                    self.executable_example("examples/hello.jz", source)
+                    + "\n<!-- jazz-example-output: case=case-2 -->\n"
+                    + "```text\n0\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_rejects_documented_output_that_differs_from_manifest(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme().replace(
+                "<!-- jazz-example-output: case=factorial -->\n```text\n720",
+                "<!-- jazz-example-output: case=factorial -->\n```text\n721",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "README.md: documented output for case factorial differs from "
+            "scripts/example-cases.tsv"
+        )
+
+    def test_every_example_case_has_documented_expected_output(self) -> None:
+        source = '"Extra".\n'
+        path = "examples/extra.jz"
+        self.add_tracked_example(path, source)
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(path, source)),
+            encoding="utf-8",
+        )
+        status_path = self.root / "docs/project/status.md"
+        status_path.write_text(
+            status_path.read_text(encoding="utf-8")
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output"
+        )
+
     def test_readme_executable_fence_can_cover_a_tracked_example(self) -> None:
         source = '"Hello".\n'
         self.add_tracked_example("examples/hello.jz", source)
         (self.root / "README.md").write_text(
-            valid_readme(extra=self.executable_example("examples/hello.jz", source)),
+            valid_readme(
+                extra=(
+                    self.executable_example("examples/hello.jz", source)
+                    + "\n<!-- jazz-example-output: case=case-2 -->\n"
+                    + "```text\n0\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         result = self.run_checker()
@@ -892,6 +962,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
             greeting_path, greeting
         ) + self.executable_example(
             main_path, main
+        ) + (
+            "\n<!-- jazz-example-output: case=module -->\n"
+            "```text\n\"Hello\"\n```\n"
         )
         (self.root / "docs/index.md").write_text(page(body=body), encoding="utf-8")
         result = self.run_checker()

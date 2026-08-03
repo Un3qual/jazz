@@ -8,33 +8,32 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from markdown_visibility import visible_markdown
+
 
 RFC_NAME_RE = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 TITLE_RE = re.compile(r"^# RFC (\d{4}): .+$")
 DATE_RE = re.compile(r"^Date: (\d{4}-\d{2}-\d{2})$")
 REQUIRED_HEADINGS = ("## Decision", "## Context", "## Consequences")
+MARKDOWN_LINK_RE = re.compile(
+    r"(?<!!)\[[^\]]+\]\((?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)"
+)
 
 
 def visible_heading_lines(text: str) -> list[str]:
-    headings: list[str] = []
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines():
-        stripped = line.lstrip(" ")
-        indent = len(line) - len(stripped)
-        match = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
-        if match is not None:
-            delimiter = match.group(1)
-            marker = delimiter[0]
-            length = len(delimiter)
-            if fence is None:
-                fence = (marker, length)
-                continue
-            if marker == fence[0] and length >= fence[1]:
-                fence = None
-                continue
-        if fence is None and line.startswith("## "):
-            headings.append(line)
-    return headings
+    return [
+        line
+        for line in visible_markdown(text).splitlines()
+        if line.startswith("## ")
+    ]
+
+
+def visible_inline_link_targets(text: str) -> set[str]:
+    visible = visible_markdown(text)
+    return {
+        match.group(1) or match.group(2)
+        for match in MARKDOWN_LINK_RE.finditer(visible)
+    }
 
 
 def validate_metadata(path: str, lines: list[str], status: str) -> list[str]:
@@ -91,10 +90,12 @@ def validate(root: Path) -> list[str]:
     violations: list[str] = []
     accepted_index = root / "rfcs/README.md"
     try:
-        accepted_index_text = accepted_index.read_text(encoding="utf-8")
+        accepted_index_targets = visible_inline_link_targets(
+            accepted_index.read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeError) as exc:
         violations.append(f"rfcs/README.md: cannot read RFC index: {exc}")
-        accepted_index_text = ""
+        accepted_index_targets = set()
 
     for directory_name, status in (
         ("rfcs/accepted", "Accepted"),
@@ -122,7 +123,7 @@ def validate(root: Path) -> list[str]:
             violations.extend(validate_rfc(root, candidate, status))
             if status == "Accepted":
                 target = f"accepted/{candidate.name}"
-                if target not in accepted_index_text:
+                if target not in accepted_index_targets:
                     violations.append(
                         f"rfcs/README.md: missing accepted RFC index entry: {target}"
                     )

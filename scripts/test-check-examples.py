@@ -50,17 +50,14 @@ class ExampleRunnerTests(unittest.TestCase):
         env: dict[str, str] | None = None,
         timeout_seconds: str = "1",
         cwd: Path | None = None,
+        explicit_binary: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        command = [sys.executable, str(CHECKER), str(self.root)]
+        if explicit_binary:
+            command.extend(["--jazz-bin", str(self.jazz_bin)])
+        command.extend(["--timeout-seconds", timeout_seconds])
         return subprocess.run(
-            [
-                sys.executable,
-                str(CHECKER),
-                str(self.root),
-                "--jazz-bin",
-                str(self.jazz_bin),
-                "--timeout-seconds",
-                timeout_seconds,
-            ],
+            command,
             cwd=cwd,
             env=env,
             check=False,
@@ -83,6 +80,18 @@ class ExampleRunnerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("--run source does not match declared sources", result.stderr)
+
+    def test_accepts_order_independent_standalone_source_selection(self) -> None:
+        for arguments in (
+            "examples/hello.jz --run --runtime-stats=json",
+            "--run --runtime-stats=json examples/hello.jz",
+        ):
+            with self.subTest(arguments=arguments):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t" + arguments + "\n"
+                )
+                result = self.run_checker()
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_clears_cli_environment_overrides(self) -> None:
         self.write_fake_jazz(
@@ -115,6 +124,29 @@ class ExampleRunnerTests(unittest.TestCase):
         self.assertLess(elapsed, 2)
         self.assertIn("FAIL: hello timed out after 0.05 seconds", result.stderr)
 
+    def test_rejects_non_finite_timeout_without_traceback(self) -> None:
+        for timeout in ("nan", "inf"):
+            with self.subTest(timeout=timeout):
+                result = self.run_checker(timeout_seconds=timeout)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("timeout must be finite and greater than zero", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_header_only_manifest_is_not_a_successful_check(self) -> None:
+        self.write_cases("")
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("scripts/example-cases.tsv has no example cases", result.stderr)
+
+    def test_missing_cabal_is_reported_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as empty_path:
+            environment = os.environ.copy()
+            environment["PATH"] = empty_path
+            result = self.run_checker(env=environment, explicit_binary=False)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("could not start cabal", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_module_sources_must_be_reachable_from_entry_module(self) -> None:
         module_root = self.root / "examples/modules"
         (module_root / "Example").mkdir(parents=True)
@@ -135,6 +167,52 @@ class ExampleRunnerTests(unittest.TestCase):
             "declared module sources are not reachable from --entry-module",
             result.stderr,
         )
+
+    def test_module_imports_must_be_declared_by_the_same_case(self) -> None:
+        module_root = self.root / "examples/modules"
+        (module_root / "Example").mkdir(parents=True)
+        (module_root / "Example/Main.jz").write_text(
+            "module Example::Main {\n  import Example::Greeting.\n  greeting.\n}\n",
+            encoding="utf-8",
+        )
+        (module_root / "Example/Greeting.jz").write_text(
+            "module Example::Greeting {\n  greeting = \"Hello\".\n}\n",
+            encoding="utf-8",
+        )
+        self.write_cases(
+            "module\texamples/modules/Example/Main.jz\t\"Hello\"\t"
+            "--run --entry-module Example::Main --module-root examples/modules\n"
+        )
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "imported module source is not declared: "
+            "examples/modules/Example/Greeting.jz",
+            result.stderr,
+        )
+
+    def test_module_sources_follow_ordered_module_roots(self) -> None:
+        first_root = self.root / "examples/modules/first"
+        second_root = self.root / "examples/modules/second"
+        (first_root / "Example").mkdir(parents=True)
+        (second_root / "Example").mkdir(parents=True)
+        (first_root / "Example/Main.jz").write_text(
+            "module Example::Main {\n  import Example::Greeting.\n  greeting.\n}\n",
+            encoding="utf-8",
+        )
+        (second_root / "Example/Greeting.jz").write_text(
+            "module Example::Greeting {\n  greeting = \"Hello\".\n}\n",
+            encoding="utf-8",
+        )
+        self.write_cases(
+            "module\texamples/modules/first/Example/Main.jz,"
+            "examples/modules/second/Example/Greeting.jz\t\"Hello\"\t"
+            "--run --module-root examples/modules/first "
+            "--entry-module Example::Main "
+            "--module-root examples/modules/second\n"
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

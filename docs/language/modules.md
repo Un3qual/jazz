@@ -34,6 +34,14 @@ cabal run jazz -- --run --entry-module Example::Main \
   --module-root examples/modules/src
 ```
 
+Expected output:
+
+<!-- jazz-example-output: case=module -->
+
+```text
+"Hello from a Jazz module"
+```
+
 Imports may load all public names, select names with `import A::B (x, y).`, or
 bind a qualifier with `import A::B as B.`. Symbol lists and aliases cannot be
 combined. Explicit module export lists can select `value`, `type`,

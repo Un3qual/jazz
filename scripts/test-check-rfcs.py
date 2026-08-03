@@ -91,6 +91,57 @@ class RfcCheckerTests(unittest.TestCase):
             "rfcs/accepted/0001-fixture.md: missing required heading: ## Context"
         )
 
+    def test_required_section_inside_html_comment_is_not_a_heading(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "## Context\n\nContext.",
+                "<!--\n## Context\n-->\n\nContext.",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: missing required heading: ## Context"
+        )
+
+    def test_backtick_in_fence_info_does_not_hide_following_headings(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "## Decision",
+                "```text`invalid\n\n## Decision",
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_fence_closer_with_suffix_does_not_expose_hidden_heading(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "## Context\n\nContext.",
+                "```text\n```invalid\n## Context\n```\n\nContext.",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: missing required heading: ## Context"
+        )
+
+    def test_accepted_rfc_requires_an_exact_visible_index_link(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "The old artifact was accepted/0001-fixture.md.backup.\n"
+            "Inline code is not an index entry: "
+            "`[Decoy](accepted/0001-fixture.md)`.\n"
+            "```text\n[Decoy](accepted/0001-fixture.md)\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "rfcs/README.md: missing accepted RFC index entry: "
+            "accepted/0001-fixture.md"
+        )
+
     def test_rfc_symlink_is_rejected(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         target = self.root / "outside.md"

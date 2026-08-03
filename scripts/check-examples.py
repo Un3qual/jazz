@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import shlex
 import subprocess
@@ -54,16 +55,22 @@ def resolve_jazz_binary(root: Path, explicit: str | None) -> tuple[Path | None, 
             return None, fail(f"Jazz executable does not exist: {binary}")
         return binary, 0
 
-    build = subprocess.run(["cabal", "build", "jazz"], cwd=root, check=False)
+    try:
+        build = subprocess.run(["cabal", "build", "jazz"], cwd=root, check=False)
+    except OSError as exc:
+        return None, fail(f"could not start cabal build jazz: {exc}")
     if build.returncode != 0:
         return None, fail("cabal build jazz failed")
-    listed = subprocess.run(
-        ["cabal", "list-bin", "jazz"],
-        cwd=root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        listed = subprocess.run(
+            ["cabal", "list-bin", "jazz"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return None, fail(f"could not start cabal list-bin jazz: {exc}")
     if listed.returncode != 0 or not listed.stdout.strip():
         return None, fail("cabal list-bin jazz failed")
     binary = Path(listed.stdout.strip()).resolve()
@@ -138,6 +145,8 @@ def run(root: Path, jazz_binary: Path, timeout_seconds: float) -> int:
         return fail(f"cannot read scripts/example-cases.tsv: {exc}")
     if not rows or tuple(rows[0]) != HEADER:
         return fail("scripts/example-cases.tsv has an invalid header")
+    if len(rows) == 1:
+        return fail("scripts/example-cases.tsv has no example cases")
 
     for line_number, fields in enumerate(rows[1:], 2):
         if len(fields) != len(HEADER):
@@ -180,8 +189,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--jazz-bin")
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     arguments = parser.parse_args(argv[1:])
-    if arguments.timeout_seconds <= 0:
-        return fail("timeout must be greater than zero")
+    if not math.isfinite(arguments.timeout_seconds) or arguments.timeout_seconds <= 0:
+        return fail("timeout must be finite and greater than zero")
     root = arguments.repository_root.resolve()
     jazz_binary, status = resolve_jazz_binary(root, arguments.jazz_bin)
     if status != 0 or jazz_binary is None:

@@ -32,6 +32,8 @@ factorial 6.
 
 Expected output:
 
+<!-- jazz-example-output: case=factorial -->
+
 ```text
 720
 ```

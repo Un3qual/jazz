@@ -7,10 +7,12 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
+from markdown_visibility import markdown_fences, visible_markdown
 
 
 ALLOWED_DOCS_ENTRIES = {
@@ -39,6 +41,7 @@ README_FACTORIAL_PATH = "examples/functions/factorial.jz"
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
+README_FACTORIAL_OUTPUT_MARKER = "<!-- jazz-example-output: case=factorial -->"
 README_REQUIRED_LINKS = (
     "docs/getting-started/overview.md",
     "docs/language/overview.md",
@@ -84,7 +87,7 @@ README_ORDERED_TOKENS = (
     README_TAGLINE,
     README_MATURITY_NOTICE,
     README_FACTORIAL_MARKER,
-    "```text\n720\n```",
+    README_FACTORIAL_OUTPUT_MARKER,
     "## Quick start",
     "## Available today",
     "## In development",
@@ -138,10 +141,6 @@ MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 HTML_IMAGE_RE = re.compile(
     r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
 )
-HTML_LINK_RE = re.compile(
-    r"<a\b[^>]*\bhref[ \t]*=[ \t]*[\"']([^\"']*)[\"'][^>]*>",
-    re.IGNORECASE,
-)
 REFERENCE_DEFINITION_RE = re.compile(
     r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
     re.MULTILINE,
@@ -157,18 +156,40 @@ EXECUTABLE_MARKER_RE = re.compile(
 FRAGMENT_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:\s*fragment\s*-->"
 )
+EXAMPLE_OUTPUT_MARKER_RE = re.compile(
+    r"<!--\s*jazz-example-output:\s*case=([A-Za-z0-9][A-Za-z0-9_-]*)\s*-->"
+)
 EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
 EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
 EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 @dataclass(frozen=True)
-class MarkdownFence:
-    start: int
-    end: int
-    source: str
-    is_jazz: bool
-    closed: bool
+class ExampleCase:
+    sources: frozenset[str]
+    expected: str
+
+
+class HtmlLinkTargetParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.targets: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attributes: list[tuple[str, str | None]]
+    ) -> None:
+        if tag.casefold() != "a":
+            return
+        for name, value in attributes:
+            if name.casefold() == "href":
+                self.targets.append(value or "")
+
+
+def html_link_targets(text: str) -> list[str]:
+    parser = HtmlLinkTargetParser()
+    parser.feed(text)
+    parser.close()
+    return parser.targets
 
 
 def relative(root: Path, path: Path) -> str:
@@ -183,8 +204,8 @@ def read_text(path: Path, root: Path, violations: list[str]) -> str | None:
         return None
 
 
-def front_matter_fields(text: str) -> set[str] | None:
-    lines = text.splitlines()
+def front_matter(text: str) -> tuple[set[str], str] | None:
+    lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
         return None
     try:
@@ -207,7 +228,7 @@ def front_matter_fields(text: str) -> set[str] | None:
         if value[0] in ("'", '"') and (len(value) < 2 or value[-1] != value[0]):
             return None
         fields.add(field)
-    return fields
+    return fields, "".join(lines[end + 1 :])
 
 
 def markdown_link_target(raw_target: str) -> str:
@@ -343,120 +364,6 @@ def without_one_final_newline(text: str) -> str:
     return text
 
 
-def without_line_ending(line: str) -> str:
-    if line.endswith("\r\n"):
-        return line[:-2]
-    if line.endswith(("\n", "\r")):
-        return line[:-1]
-    return line
-
-
-def leading_spaces(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def fence_opener(line: str) -> tuple[str, int, int, bool] | None:
-    content = without_line_ending(line)
-    indent = leading_spaces(content)
-    if indent > 3:
-        return None
-    candidate = content[indent:]
-    if not candidate or candidate[0] not in ("`", "~"):
-        return None
-
-    delimiter = candidate[0]
-    length = len(candidate) - len(candidate.lstrip(delimiter))
-    if length < 3:
-        return None
-
-    info = candidate[length:]
-    if delimiter == "`" and "`" in info:
-        return None
-    first_info_token = re.match(r"([^ \t]+)", info.strip(" \t"))
-    is_jazz = (
-        first_info_token is not None
-        and first_info_token.group(1) == "jazz"
-    )
-    return delimiter, length, indent, is_jazz
-
-
-def is_fence_closer(line: str, delimiter: str, minimum_length: int) -> bool:
-    content = without_line_ending(line)
-    indent = leading_spaces(content)
-    if indent > 3:
-        return False
-    candidate = content[indent:]
-    length = len(candidate) - len(candidate.lstrip(delimiter))
-    return (
-        length >= minimum_length
-        and candidate[length:].strip(" \t") == ""
-    )
-
-
-def strip_fence_indent(line: str, indent: int) -> str:
-    removable = min(leading_spaces(line), indent)
-    return line[removable:]
-
-
-def markdown_fences(text: str) -> list[MarkdownFence]:
-    """Parse CommonMark-style fenced code blocks while preserving source text."""
-    lines = text.splitlines(keepends=True)
-    offsets: list[int] = []
-    offset = 0
-    for line in lines:
-        offsets.append(offset)
-        offset += len(line)
-
-    fences: list[MarkdownFence] = []
-    line_index = 0
-    while line_index < len(lines):
-        opener = fence_opener(lines[line_index])
-        if opener is None:
-            line_index += 1
-            continue
-
-        delimiter, minimum_length, indent, is_jazz = opener
-        start = offsets[line_index]
-        source_lines: list[str] = []
-        line_index += 1
-        closed = False
-        while line_index < len(lines):
-            if is_fence_closer(lines[line_index], delimiter, minimum_length):
-                line_index += 1
-                closed = True
-                break
-            source_lines.append(strip_fence_indent(lines[line_index], indent))
-            line_index += 1
-
-        end = offsets[line_index] if line_index < len(lines) else len(text)
-        fences.append(
-            MarkdownFence(
-                start=start,
-                end=end,
-                source="".join(source_lines),
-                is_jazz=is_jazz,
-                closed=closed,
-            )
-        )
-
-    return fences
-
-
-def visible_markdown(text: str) -> str:
-    """Blank fenced code and HTML comments before rendered-content checks."""
-    hidden_ranges = [(fence.start, fence.end) for fence in markdown_fences(text)]
-    hidden_ranges.extend(
-        match.span()
-        for match in re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL)
-    )
-    characters = list(text)
-    for start, end in hidden_ranges:
-        for index in range(start, end):
-            if characters[index] not in "\r\n":
-                characters[index] = " "
-    return "".join(characters)
-
-
 def has_top_level_heading(text: str) -> bool:
     return re.search(r"^#[ \t]+", visible_markdown(text), re.MULTILINE) is not None
 
@@ -480,7 +387,7 @@ def has_bound_executable_marker(text: str, example_path: str) -> bool:
 
 def validate_example_cases(
     root: Path, tracked_example_paths: set[str], violations: list[str]
-) -> set[str]:
+) -> dict[str, ExampleCase]:
     cases_path = root / EXAMPLE_CASES_PATH
     try:
         cases_text = cases_path.read_bytes().decode("utf-8")
@@ -490,6 +397,7 @@ def validate_example_cases(
 
     declared_sources: set[str] = set()
     case_names: set[str] = set()
+    example_cases: dict[str, ExampleCase] = {}
     if cases_text and not cases_text.endswith("\n"):
         violations.append(
             f"{EXAMPLE_CASES_PATH}: file must end with a newline"
@@ -511,6 +419,7 @@ def validate_example_cases(
                 continue
 
             case_name, raw_sources, expected, args = fields
+            case_name_is_valid = False
             if case_name == EXAMPLE_CASE_HEADER[0]:
                 violations.append(
                     f"{EXAMPLE_CASES_PATH}:{line_number}: case name is reserved "
@@ -528,6 +437,7 @@ def validate_example_cases(
                 )
             else:
                 case_names.add(case_name)
+                case_name_is_valid = True
 
             if not expected:
                 violations.append(
@@ -569,13 +479,18 @@ def validate_example_cases(
                     violations.append(
                         f"{EXAMPLE_CASES_PATH}:{line_number}: {binding_violation}"
                     )
+            if case_name_is_valid and sources and expected:
+                example_cases[case_name] = ExampleCase(
+                    sources=frozenset(sources),
+                    expected=expected,
+                )
 
     for example_path in sorted(tracked_example_paths - declared_sources):
         violations.append(
             f"{example_path}: tracked example is missing from {EXAMPLE_CASES_PATH}"
         )
 
-    return declared_sources
+    return example_cases
 
 
 def validate_jazz_fences(
@@ -684,6 +599,69 @@ def validate_jazz_fences(
     return documented_examples
 
 
+def validate_example_outputs(
+    display: str,
+    text: str,
+    example_cases: dict[str, ExampleCase],
+    documented_examples: set[str],
+    violations: list[str],
+) -> set[str]:
+    documented_cases: set[str] = set()
+    fences = markdown_fences(text)
+    comments = list(re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL))
+    markers = [
+        comment
+        for comment in comments
+        if "jazz-example-output:" in comment.group(0)
+        and not any(fence.start <= comment.start() < fence.end for fence in fences)
+    ]
+
+    for marker in markers:
+        parsed_marker = EXAMPLE_OUTPUT_MARKER_RE.fullmatch(marker.group(0))
+        if parsed_marker is None:
+            violations.append(
+                f"{display}: invalid jazz-example-output marker: {marker.group(0)}"
+            )
+            continue
+        case_name = parsed_marker.group(1)
+        example_case = example_cases.get(case_name)
+        if example_case is None:
+            violations.append(
+                f"{display}: jazz-example-output names unknown case: {case_name}"
+            )
+            continue
+        if not example_case.sources.issubset(documented_examples):
+            violations.append(
+                f"{display}: documented output for case {case_name} must be "
+                "alongside all of its executable source fences"
+            )
+            continue
+        output_fence = next(
+            (fence for fence in fences if marker.end() <= fence.start),
+            None,
+        )
+        if (
+            output_fence is None
+            or output_fence.info != "text"
+            or not output_fence.closed
+            or text[marker.end() : output_fence.start].strip()
+        ):
+            violations.append(
+                f"{display}: jazz-example-output marker for case {case_name} "
+                "must be immediately followed by a closed text fence"
+            )
+            continue
+        if without_one_final_newline(output_fence.source) != example_case.expected:
+            violations.append(
+                f"{display}: documented output for case {case_name} differs from "
+                f"{EXAMPLE_CASES_PATH}"
+            )
+            continue
+        documented_cases.add(case_name)
+
+    return documented_cases
+
+
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     lines_with_endings = text.splitlines(keepends=True)
     exact_line_positions: dict[str, int] = {}
@@ -731,8 +709,6 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
 
     if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
-    if re.search(r"```text\r?\n720\r?\n```", text) is None:
-        violations.append("README.md: missing expected factorial output")
 
     for command in (
         "nix develop",
@@ -789,7 +765,7 @@ def validate(root: Path) -> list[str]:
     canonical_docs_root = root.resolve() / "docs"
     canonical_examples_root = root.resolve() / "examples"
     tracked_example_paths = set(tracked_examples(root, violations))
-    validate_example_cases(root, tracked_example_paths, violations)
+    example_cases = validate_example_cases(root, tracked_example_paths, violations)
 
     for example_path in sorted(tracked_example_paths):
         candidate = root / example_path
@@ -845,17 +821,19 @@ def validate(root: Path) -> list[str]:
             continue
         doc_texts[path] = text
         display = relative(root, path)
-        fields = front_matter_fields(text)
-        if fields is None:
+        parsed_front_matter = front_matter(text)
+        markdown_body = text
+        if parsed_front_matter is None:
             violations.append(f"{display}: missing valid YAML front matter")
         else:
+            fields, markdown_body = parsed_front_matter
             for required_field in ("title", "description", "sidebar_position"):
                 if required_field not in fields:
                     violations.append(
                         f"{display}: front matter is missing {required_field}"
                     )
 
-        if has_top_level_heading(text):
+        if has_top_level_heading(markdown_body):
             violations.append(
                 f"{display}: top-level heading duplicates front matter title"
             )
@@ -864,11 +842,12 @@ def validate(root: Path) -> list[str]:
             if banned.casefold() in text.casefold():
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        raw_link_targets = [match.group(1) for match in LINK_RE.finditer(text)]
-        raw_link_targets.extend(used_reference_targets(text))
-        raw_link_targets.extend(
-            match.group(1) for match in HTML_LINK_RE.finditer(visible_markdown(text))
-        )
+        visible_body = visible_markdown(markdown_body)
+        raw_link_targets = [
+            match.group(1) for match in LINK_RE.finditer(visible_body)
+        ]
+        raw_link_targets.extend(used_reference_targets(visible_body))
+        raw_link_targets.extend(html_link_targets(visible_body))
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
             if not raw_target:
@@ -918,20 +897,33 @@ def validate(root: Path) -> list[str]:
         violations.append("README.md: missing project front door")
 
     documented_examples: set[str] = set()
+    documented_output_cases: set[str] = set()
+    readme_output_cases: set[str] = set()
     for display, text in public_texts.items():
-        documented_examples.update(
-            validate_jazz_fences(
-                root,
-                display,
-                text,
-                tracked_example_paths,
-                canonical_examples_root,
-                violations,
-            )
+        document_examples = validate_jazz_fences(
+            root,
+            display,
+            text,
+            tracked_example_paths,
+            canonical_examples_root,
+            violations,
         )
+        documented_examples.update(document_examples)
+        output_cases = validate_example_outputs(
+            display, text, example_cases, document_examples, violations
+        )
+        documented_output_cases.update(output_cases)
+        if display == "README.md":
+            readme_output_cases.update(output_cases)
     for example_path in sorted(tracked_example_paths - documented_examples):
         violations.append(
             f"{example_path}: tracked example has no executable public-docs fence"
+        )
+    if "factorial" not in readme_output_cases:
+        violations.append("README.md: missing expected factorial output")
+    for case_name in sorted(set(example_cases) - documented_output_cases):
+        violations.append(
+            f"{EXAMPLE_CASES_PATH}: case {case_name} has no documented expected output"
         )
 
     return sorted(set(violations))

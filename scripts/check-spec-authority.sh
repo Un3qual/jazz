@@ -20,6 +20,15 @@ require_pattern() {
   fi
 }
 
+require_block() {
+  local file="$1"
+  local label="$2"
+  local pattern="$3"
+  if ! rg -n -i -U -e "$pattern" "$file" >/dev/null 2>&1; then
+    fail "$file missing authority statement: $label"
+  fi
+}
+
 governance_file="docs/project/governance.md"
 authority_rfc="rfcs/accepted/0001-language-authority-and-change-control.md"
 
@@ -28,13 +37,13 @@ for file in "$governance_file" "$authority_rfc"; do
 done
 
 require_pattern "$governance_file" "public documentation authority" '^1\. curated public language and reference documentation;$'
-require_pattern "$governance_file" "implementation and tests evidence" '^2\. current compiler, standard-library, and test behavior as implementation$'
+require_block "$governance_file" "implementation and tests evidence" '^2\. current compiler, standard-library, and test behavior as implementation\r?\n[ \t]+evidence;$'
 require_pattern "$governance_file" "accepted durable decisions" '^3\. accepted durable decision records; and$'
 require_pattern "$governance_file" "non-normative roadmap" '^4\. roadmap material, which is non-normative\.$'
-require_pattern "$governance_file" "semantic change control" '^Semantic language changes require a reviewed decision record before$'
+require_block "$governance_file" "semantic change control" '^Semantic language changes require a reviewed decision record before\r?\nimplementation\.'
 
-require_pattern "$authority_rfc" "public documentation authority" '^1\. Canonical public language contracts under `docs/language/` and$'
-require_pattern "$authority_rfc" "implementation and tests evidence" '^2\. Behavior verified by the current implementation and tests under `src/`,$'
+require_block "$authority_rfc" "public documentation authority" '^1\. Canonical public language contracts under `docs/language/` and\r?\n[ \t]+`docs/reference/`\.$'
+require_block "$authority_rfc" "implementation and tests evidence" '^2\. Behavior verified by the current implementation and tests under `src/`,\r?\n[ \t]+`jazz/`, and `test/` when the public contract does not yet cover a detail\.$'
 require_pattern "$authority_rfc" "accepted RFC authority" '^3\. Accepted durable decisions under `rfcs/accepted/`\.$'
 require_pattern "$authority_rfc" "non-normative roadmap" '^4\. Roadmap material, which is informative and non-normative\.$'
 require_pattern "$authority_rfc" "semantic change control" '^Every semantic language change requires an accepted RFC before implementation\.$'

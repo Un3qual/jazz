@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-07-31
-Supersedes: Pre-RFC authority and governance decisions recorded on 2026-03-03 and earlier on 2026-07-31.
+Supersedes: Pre-RFC authority and governance decisions recorded on 2026-03-03 and 2026-07-31.
 
 ## Decision
 

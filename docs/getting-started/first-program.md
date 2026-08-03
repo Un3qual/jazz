@@ -31,6 +31,8 @@ cabal run jazz -- --run examples/functions/factorial.jz
 
 Expected output:
 
+<!-- jazz-example-output: case=factorial -->
+
 ```text
 720
 ```

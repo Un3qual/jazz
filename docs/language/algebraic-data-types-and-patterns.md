@@ -21,6 +21,14 @@ unwrapOr = \(fallback, result) -> case result {
 unwrapOr 0 (Ok 41).
 ```
 
+Expected output:
+
+<!-- jazz-example-output: case=result -->
+
+```text
+41
+```
+
 Patterns cover literals, variables, `_`, constructors, tuples, fixed lists,
 cons-like `[head | tail]`, alternatives, and `name @ pattern` as-patterns.
 Constructor patterns are structural and bind their payload patterns.

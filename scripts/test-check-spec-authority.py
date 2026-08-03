@@ -26,6 +26,8 @@ class AuthorityCheckerTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text((ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
         (self.root / "README.md").write_text("# Fixture\n", encoding="utf-8")
+        baseline = self.run_checker()
+        self.assertEqual(0, baseline.returncode, baseline.stdout + baseline.stderr)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -46,15 +48,62 @@ class AuthorityCheckerTests(unittest.TestCase):
         self.assertIn("removed implementation identity", result.stderr)
 
     def test_rejects_every_superseded_authority_path(self) -> None:
-        (self.root / "docs/jazz-improvement-backlog.md").write_text(
-            "obsolete\n", encoding="utf-8"
+        for relative, is_directory in (
+            ("docs/spec", True),
+            ("docs/feature-status.md", False),
+            ("docs/jazz-language-state.md", False),
+            ("docs/jazz-improvement-backlog.md", False),
+        ):
+            with self.subTest(relative=relative):
+                target = self.root / relative
+                if is_directory:
+                    target.mkdir()
+                else:
+                    target.write_text("obsolete\n", encoding="utf-8")
+                result = self.run_checker()
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    f"superseded authority path still exists: {relative}",
+                    result.stderr,
+                )
+                if is_directory:
+                    target.rmdir()
+                else:
+                    target.unlink()
+
+    def test_rejects_truncated_wrapped_authority_statements(self) -> None:
+        mutations = (
+            (
+                "docs/project/governance.md",
+                "   evidence;",
+                "   claims;",
+            ),
+            (
+                "docs/project/governance.md",
+                "implementation. A proposal",
+                "delivery. A proposal",
+            ),
+            (
+                "rfcs/accepted/0001-language-authority-and-change-control.md",
+                "   `docs/reference/`.",
+                "   `docs/guide/`.",
+            ),
+            (
+                "rfcs/accepted/0001-language-authority-and-change-control.md",
+                "   `jazz/`, and `test/` when the public contract does not yet cover a detail.",
+                "   `src/` alone when the public contract does not yet cover a detail.",
+            ),
         )
-        result = self.run_checker()
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn(
-            "superseded authority path still exists: docs/jazz-improvement-backlog.md",
-            result.stderr,
-        )
+        for relative, old, new in mutations:
+            with self.subTest(relative=relative, removed=old):
+                path = self.root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new), encoding="utf-8")
+                result = self.run_checker()
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("missing authority statement", result.stderr)
+                path.write_text(original, encoding="utf-8")
 
     def test_incidental_phrases_cannot_replace_authority_decision_bullets(self) -> None:
         path = self.root / "rfcs/accepted/0001-language-authority-and-change-control.md"

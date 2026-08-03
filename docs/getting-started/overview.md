@@ -24,6 +24,8 @@ cabal run jazz -- --run examples/hello.jz
 
 Expected output:
 
+<!-- jazz-example-output: case=hello -->
+
 ```text
 "Hello, Jazz"
 ```
