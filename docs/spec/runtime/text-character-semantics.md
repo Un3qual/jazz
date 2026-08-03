@@ -54,11 +54,11 @@ The first child does not add interpolation or multiline text.
 
 ## Explicit-Import Character and Text APIs
 
-Programs import [`Char`](../../../jazz-next/jazz/stdlib/Char.jz) and
-[`Text`](../../../jazz-next/jazz/stdlib/Text.jz) explicitly. Imports are not
+Programs import [`Char`](../../../jazz/stdlib/Char.jz) and
+[`Text`](../../../jazz/stdlib/Text.jz) explicitly. Imports are not
 re-exported. The complete public operation inventory, edge behavior, and
 complexity promises are maintained in the
-[standard-library reference](../../../jazz-next/jazz/stdlib/README.md).
+[standard-library reference](../../../jazz/stdlib/README.md).
 
 `Char` exposes scalar conversion, Unicode classification, newline detection,
 and simple one-scalar case mapping. Checked `charFromUInt32` rejects values

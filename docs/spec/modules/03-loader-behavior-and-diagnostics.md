@@ -9,7 +9,7 @@ Depends on:
 
 ## Scope
 
-This document defines the v1 loader pipeline for active `jazz-next` standalone and module-graph compile/run entrypoints. It documents existing driver and CLI behavior without introducing new compiler behavior.
+This document defines the v1 loader pipeline for active `Jazz` standalone and module-graph compile/run entrypoints. It documents existing driver and CLI behavior without introducing new compiler behavior.
 
 Qualified import binding details, future package metadata, persistent cache design, and migration policy remain separate module spec slices.
 
@@ -197,9 +197,9 @@ retain their existing `line:column` rendering.
 | same file is requested more than once during graph resolution | first source lookup result is reused |
 
 Implementation evidence (updated 2026-07-14):
-`jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`,
-`jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and
-`jazz-next/test/JazzNext/CLI/CLISpec.hs` lock parse-once graph retention,
+`test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`,
+`test/Jazz/Compiler/Modules/LoaderSpec.hs`, and
+`test/Jazz/CLI/CLISpec.hs` lock parse-once graph retention,
 explicit compile/runtime export boundaries, module-graph default roots,
 exclusive CLI source selection, dependency expression validation and runtime
 isolation, memoized source lookup, resolver diagnostics, fail-fast module

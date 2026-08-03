@@ -22,7 +22,7 @@ Status: completed on 2026-07-13.
 
 Items: 6 and 15.
 
-- Upgrade the active `jazz-next` project to GHC 9.14.1 and its matching
+- Upgrade the active `Jazz` project to GHC 9.14.1 and its matching
   `base-4.22` range before rewriting embedded test programs.
 - Replace the warning-named shell mega-gate with Cabal-owned test execution and
   focused Haskell repository-audit coverage.
@@ -35,7 +35,7 @@ Status: completed on 2026-07-13.
 Items: 10, 1, and 9.
 
 - Move shipped Jazz-authored sources under the locked
-  `jazz-next/jazz/{stdlib,compiler}` root.
+  `jazz/{stdlib,compiler}` root.
 - Rewrite existing Jazz code to use the already-supported compact
   multi-parameter lambda form.
 - Add TextMate-compatible syntax highlighting after the canonical source tree
@@ -44,8 +44,8 @@ Items: 10, 1, and 9.
 ### Batch 3: Program corpus, benchmarks, and observability
 
 Status: completed on 2026-07-14. See the
-[`jazz-next` performance guide](../jazz-next/PERFORMANCE.md) and
-[`programs` corpus guide](../jazz-next/programs/README.md).
+[`Jazz` performance guide](../PERFORMANCE.md) and
+[`programs` corpus guide](../programs/README.md).
 
 Items: 2, 3, and 4.
 
@@ -80,8 +80,8 @@ Status: completed on 2026-07-15. See the
 [approved design](superpowers/specs/2026-07-15-jazz-next-constructor-exports-broad-stdlib-design.md),
 [implementation plan](superpowers/plans/2026-07-15-jazz-next-constructor-exports-broad-stdlib.md),
 [module export contract](spec/modules/06-explicit-export-lists.md),
-[standard-library reference](../jazz-next/jazz/stdlib/README.md), and
-[performance guide](../jazz-next/PERFORMANCE.md).
+[standard-library reference](../jazz/stdlib/README.md), and
+[performance guide](../PERFORMANCE.md).
 
 Items: 5 and 8.
 
@@ -183,7 +183,7 @@ available. The flat typed export inventory remains the internal boundary.
 
 ### 6. Upgrade to GHC 9.14.1 and use `MultilineStrings`
 
-Upgrade the active `jazz-next` toolchain, package bounds, development shell, and
+Upgrade the active `Jazz` toolchain, package bounds, development shell, and
 verification environment to GHC 9.14.1 and `base-4.22`. Treat any broader
 Haskell language-edition change as a separate decision rather than silently
 coupling it to the compiler upgrade.
@@ -246,7 +246,7 @@ future work.
 Use the locked layout:
 
 ```text
-jazz-next/jazz/
+jazz/
   stdlib/
   compiler/
 ```
@@ -257,8 +257,8 @@ bootstrap implementation. Compiler modules may depend on the stdlib; the stdlib
 must not depend on compiler implementation modules.
 
 Production-shaped correctness and benchmark inputs share the
-`jazz-next/programs/` corpus rather than being moved under the shipped-source
-root. Small, focused fixtures remain under `jazz-next/test/`.
+`programs/` corpus rather than being moved under the shipped-source
+root. Small, focused fixtures remain under `test/`.
 
 ### 11. Remove or justify trivial Haskell aliases
 

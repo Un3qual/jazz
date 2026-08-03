@@ -168,7 +168,7 @@ Each blocked item should answer these questions:
   control flow, patterns, multi-module or import integration, managed values,
   layouts, runtime services, tail calls, LLVM emission, object generation,
   linking, native-runtime or ABI implementation, a public compiler embedding
-  API, bytecode or a VM, or edits to `jazz-hs/` or `jazz2/`.
+  API, bytecode or a VM, or revival of removed legacy implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
@@ -267,8 +267,8 @@ Each blocked item should answer these questions:
   `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`, re-promoting
   `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`, default methods,
   superclasses, abstraction method import/export behavior, higher-rank
-  polymorphism, primitive mixed-width or implicit promotion, or any `jazz-hs`/
-  `jazz2` work.
+  polymorphism, primitive mixed-width or implicit promotion, or revival of
+  removed legacy implementations.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
@@ -323,14 +323,14 @@ Each blocked item should answer these questions:
 - Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
   `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
   `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
-  `cabal build --project-dir=jazz-next all`;
-  `cabal test --project-dir=jazz-next all --test-show-details=failures`;
+  `cabal build all`;
+  `cabal test all --test-show-details=failures`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the
+- Landed evidence: `src/Jazz/Compiler/ModuleExports.hs` owns the
   typed inventory and structured selectors; module headers accept exact
   `value`, `constructor`, `type`, and `class` prefixes plus bare compatibility;
-  `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` separates local and public
+  `src/Jazz/Compiler/ModuleResolver.hs` separates local and public
   inventories; compiler imports and runtime publication consume the public
   inventory; focused and full verification passed on `2026-07-10`.
 - Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
@@ -373,15 +373,15 @@ Each blocked item should answer these questions:
 
 - Smallest unblocker: none; the legacy trait/class cleanup plan is closed as
   reference-only by `JN-TRAIT-CLASS-LEGACY-CLOSURE-001`.
-- Decision needed: none; active `jazz-next` permanently rejects
+- Decision needed: none; active `Jazz` permanently rejects
   declaration-shaped `trait` syntax and uses canonical `class`/`impl`.
 - Recommended default: do not create new implementation work from this blocker.
 - Candidate child: none currently.
 - Target paths: not set; future abstraction work should use the active
-  abstraction semantics blockers and `jazz-next` target paths.
+  abstraction semantics blockers and root target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: editing `jazz-hs/`, accepting `trait`, or adding a compatibility
+- Not in scope: reviving removed legacy code, accepting `trait`, or adding a compatibility
   alias.
 
 ### JN-BACKEND-TARGET-LEGACY-REBASE-001
@@ -394,7 +394,7 @@ Each blocked item should answer these questions:
   `JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001` for any real product delta.
 - Candidate child: none currently.
 - Target paths: not set; future runtime product work should use active
-  `jazz-next` runtime product contracts and target paths.
+  `Jazz` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: backend implementation, codegen policy, or legacy runtime edits.
@@ -407,10 +407,10 @@ Each blocked item should answer these questions:
 - Recommended default: do not promote this blocker.
 - Candidate child: none currently.
 - Target paths: not set; future runtime product work should use active
-  `jazz-next` runtime product contracts and target paths.
+  `Jazz` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: editing `jazz-hs/`, adding a second runtime path, or changing the
+- Not in scope: reviving removed legacy code, adding a second runtime path, or changing the
   active compile/run contract.
 
 ### JN-MAP-FILTER-COMPAT-PLAN-001
@@ -422,7 +422,7 @@ Each blocked item should answer these questions:
 - Recommended default: do not promote this blocker.
 - Candidate child: none currently.
 - Target paths: not set; future collection primitive work should use active
-  `jazz-next` primitive, stdlib-boundary, or runtime-product contracts.
+  `Jazz` primitive, stdlib-boundary, or runtime-product contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: parser changes, compatibility aliases, or runtime behavior
@@ -431,7 +431,7 @@ Each blocked item should answer these questions:
 ### JN-PARSE-ONLY-LEGACY-REBASE-001
 
 - Smallest unblocker: none; the active matrix check found no standalone
-  implementation-ready `jazz-next` parse-only feature, and the legacy cleanup
+  implementation-ready `Jazz` parse-only feature, and the legacy cleanup
   item was closed by `JN-PARSE-ONLY-ACTIVE-MATRIX-001`.
 - Decision needed: none.
 - Recommended default: do not promote this blocker.
@@ -440,7 +440,7 @@ Each blocked item should answer these questions:
   use their owning active blockers and contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: editing `jazz-hs/`, reviving legacy codegen, or broad parser
+- Not in scope: reviving removed legacy code or codegen, or broad parser
   parity work.
 
 ### JN-PURITY-EFFECT-TYPING-PLAN-001

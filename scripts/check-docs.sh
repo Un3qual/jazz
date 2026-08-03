@@ -45,6 +45,8 @@ require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
 require_file "docs/execution/blocker-contracts.md"
 require_file "docs/execution/done-archive.md"
+require_file "scripts/check_legacy_doc_claims.py"
+require_file "scripts/test_check_legacy_doc_claims.py"
 
 require_pattern "README.md" "implemented section heading" '^### Implemented Today \(verified\)'
 require_pattern "README.md" "planned section heading" '^### Planned / Aspirational'
@@ -62,13 +64,27 @@ require_pattern "docs/execution/done-archive.md" "done archive heading" '^# Exec
 require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
 require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
-require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
-require_pattern "README.md" "active compiler path reference" 'jazz-next/'
+require_pattern "docs/feature-status.md" "active compiler path reference" 'src/Jazz/'
+require_pattern "README.md" "active compiler path reference" 'src/Jazz/'
+archive_tag='archive/pre-root-canonicalization-2026-07-31'
+former_package='jazz-''next'
+former_reference='jazz-''hs'
+former_rewrite='jazz''2'
+deleted_tree_pattern="(${former_package}|${former_reference}|${former_rewrite})"
+require_pattern "docs/jazz-language-state.md" "legacy evidence archive tag" "$archive_tag"
+if ! python3 scripts/test_check_legacy_doc_claims.py; then
+  fail "legacy documentation claim regressions failed"
+fi
+if ! python3 scripts/check_legacy_doc_claims.py docs/spec; then
+  fail "active specs describe removed implementation trees as live read-only paths"
+fi
+reject_pattern "active documentation must not link into deleted implementation trees" \
+  "\\]\\([^)]*${deleted_tree_pattern}[^)]*\\)" \
+  docs/spec docs/jazz-language-state.md
 generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
-reject_pattern "jazz-next must not reference JavaScript generation artifacts" "$generated_artifact_pattern" jazz-next
+reject_pattern "active compiler sources must not reference JavaScript generation artifacts" "$generated_artifact_pattern" src jazz test
 reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
   docs/execution/queue.md \
-  docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md \
   docs/spec/tooling/compiler-warning-flags.md
 if [[ -f "scripts/check-execution-queue.sh" ]]; then
   if ! bash scripts/check-execution-queue.sh; then

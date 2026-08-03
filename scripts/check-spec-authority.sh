@@ -23,40 +23,53 @@ require_pattern() {
 required_files=(
   "README.md"
   "docs/jazz-language-state.md"
+  "docs/spec/governance/spec-authority-policy.md"
 )
 
-for f in "${required_files[@]}"; do
-  [[ -f "$f" ]] || fail "missing required file: $f"
+for file in "${required_files[@]}"; do
+  [[ -f "$file" ]] || fail "missing required file: $file"
 done
 
-# Required policy statements in both top-level summary docs.
-RE_JAZZ2_NON_NORMATIVE='jazz2.{0,200}(reference[- ]only|non[- ]normative|not (normative|authoritative|source of truth|implementation target))'
-RE_AUTHORITY_HIERARCHY='(docs/spec/\*|docs/spec/.{0,160}(canonical|normative|source of truth|authoritative))|(jazz-hs.{0,160}(behavior|tests|temporary authority|source of truth|authoritative|normative))'
-RE_CHANGE_CONTROL='(semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}(before implementation))|((non[- ]semantic|internal).{0,160}changes?.{0,120}(implementation-first|may be implementation-first).{0,160}(docs|tests).{0,120}(same change|same commit|same pr))'
+policy_file="docs/spec/governance/spec-authority-policy.md"
+require_pattern "$policy_file" "transitional contract path" 'docs/spec/'
+require_pattern "$policy_file" "transitional public contract" 'transitional public contract'
+require_pattern "$policy_file" "future public language and reference authority" 'docs/language/.{0,160}docs/reference/'
+require_pattern "$policy_file" "current implementation evidence" 'src/.{0,160}jazz/.{0,160}test/.{0,160}(behavior|evidence)'
+require_pattern "$policy_file" "accepted RFC authority" 'accepted rfcs?.{0,160}(authoritative|authority|durable decisions?)'
+require_pattern "$policy_file" "non-normative roadmap" 'roadmap.{0,160}non[- ]normative'
+require_pattern "$policy_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
 
-for f in "${required_files[@]}"; do
-  require_pattern "$f" "jazz2 is reference-only and non-normative" "$RE_JAZZ2_NON_NORMATIVE"
-  require_pattern "$f" "authority anchored to docs/spec plus jazz-hs behavior/tests" "$RE_AUTHORITY_HIERARCHY"
-  require_pattern "$f" "hybrid semantic-change workflow is documented" "$RE_CHANGE_CONTROL"
+for summary_file in "README.md" "docs/jazz-language-state.md"; do
+  require_pattern "$summary_file" "governance policy link" 'docs/spec/governance/spec-authority-policy.md'
+  require_pattern "$summary_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
 done
 
-# Reject unsupported normative claims tied to jazz2 paths in summary docs.
-CANDIDATES="$(
+# Construct removed identities at runtime so this active audit script does not
+# itself present superseded product paths as live repository text.
+former_package='jazz-''next'
+former_reference='jazz-''hs'
+former_rewrite='jazz''2'
+obsolete_identity_pattern="(${former_package}|${former_reference}|${former_rewrite})"
+authority_claim_pattern="(${obsolete_identity_pattern}.{0,160}(active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target))|((active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target).{0,160}${obsolete_identity_pattern})"
+
+authority_candidates="$({
   rg -n -i \
     --glob '*.md' \
     --glob '!docs/plans/**' \
-    '(jazz2/[[:alnum:]_./-]+.{0,120}\b(is|are|serves as|acts as|defines|specifies|governs)\b.{0,120}\b(authoritative|normative|canonical|source of truth|official)\b)|(\b(authoritative|normative|canonical|source of truth|official)\b.{0,120}jazz2/[[:alnum:]_./-]+)' \
+    --glob '!docs/superpowers/**' \
+    --glob '!docs/execution/done-archive.md' \
+    -e "$authority_claim_pattern" \
     README.md docs || true
-)"
+})"
 
-if [[ -n "$CANDIDATES" ]]; then
-  UNSUPPORTED="$(
-    printf '%s\n' "$CANDIDATES" | rg -v -i \
-      '(not[^[:alpha:]]{0,6}(authoritative|normative|canonical|source of truth|official)|non[- ]normative|reference[- ]only|design source|redesign stub|unfinished|placeholder|sketch)' || true
-  )"
-  if [[ -n "$UNSUPPORTED" ]]; then
-    fail "unsupported normative claims about jazz2 paths detected"
-    printf '%s\n' "$UNSUPPORTED" >&2
+if [[ -n "$authority_candidates" ]]; then
+  unsupported_claims="$({
+    printf '%s\n' "$authority_candidates" | rg -v -i \
+      '(removed|legacy|historical|pre-migration|not[^[:alpha:]]{0,6}(active|authoritative|normative|source of truth|implementation target)|non[- ]normative)' || true
+  })"
+  if [[ -n "$unsupported_claims" ]]; then
+    fail "removed implementation identity claimed as live authority"
+    printf '%s\n' "$unsupported_claims" >&2
   fi
 fi
 

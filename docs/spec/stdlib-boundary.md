@@ -1,7 +1,7 @@
 # Standard Library Boundary
 
-Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
-Locked decisions (initial `jazz-next` contract): 2026-03-04
+Status: active (closure verified for the current `Jazz` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
+Locked decisions (initial `Jazz` contract): 2026-03-04
 Updated: 2026-06-27
 Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
@@ -13,14 +13,16 @@ planned.
 
 ## Implementation Target
 
-- New boundary implementation work lands in `jazz-next/`.
-- `jazz-hs/` and `jazz2/` are legacy evidence only.
+- New boundary implementation work lands in the repository root.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Ownership Model (Current Contract)
 
 1. `kernel` symbols are compiler/runtime owned and may be hardcoded.
 2. `prelude` symbols are user-visible APIs and are prelude-owned by default.
-3. `jazz-next` now supports a bundled default prelude load path in CLI and
+3. `Jazz` now supports a bundled default prelude load path in CLI and
    driver-default source/module-graph modes:
    - resolution order: `--prelude` flag > `JAZZ_PRELUDE` env > bundled default path.
    - `--no-prelude` disables all prelude loading.
@@ -35,7 +37,7 @@ planned.
    no-prelude module graph harness covers both compile and run paths across
    imported modules.
 
-## Kernel Catalog (Current `jazz-next` Runtime Subset)
+## Kernel Catalog (Current `Jazz` Runtime Subset)
 
 | Symbol | Arity | Type Contract | Current Owner | Migration Target |
 | --- | --- | --- | --- | --- |
@@ -48,9 +50,9 @@ planned.
 ## Bundled Prelude Contract
 
 - Checked-in bundled prelude mirror: `jazz/stdlib/Prelude.jz`, relative to the
-  `jazz-next` package root.
+  repository root.
 - Active tests resolve that mirror through the shared, role-aware
-  `JazzNext.TestSource` package-root loader rather than a repository-relative
+  `Jazz.TestSource` package-root loader rather than a repository-relative
   compiler constant.
 - Current bridge declarations use the `__kernel_` prefix, remain kernel
   self-bridges, and satisfy `PreludeContract` validation.
@@ -70,7 +72,7 @@ planned.
   Explicit-prelude and no-prelude entry points do not inherit those bundled
   capability facts.
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
-  is declared in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
+  is declared in `src/Jazz/Compiler/BuiltinCatalog.hs`.
 
 Explicit numeric conversions:
 
@@ -98,7 +100,7 @@ This boundary contract is constrained by previously locked language decisions:
 
 ## Intrinsic Bridge Contract
 
-`jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs` is the single source of truth
+`src/Jazz/Compiler/BuiltinCatalog.hs` is the single source of truth
 for builtin symbol identity, names, and arities.
 
 Required invariants:

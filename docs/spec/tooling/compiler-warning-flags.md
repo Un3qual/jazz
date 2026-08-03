@@ -10,8 +10,10 @@ Define a stable warning-flag contract so semantically valid same-scope rebinding
 
 ## Implementation Target
 
-- New warning infrastructure implementation lands in `jazz-next/`.
-- `jazz-hs/` and `jazz2/` remain read-only legacy evidence.
+- New warning infrastructure implementation lands in the repository root.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Warning Categories and IDs
 
@@ -36,7 +38,7 @@ surface until an accepted active-path syntax surface is both implemented and
 deprecated enough to warn on.
 
 Policy lock (2026-06-24): non-canonical `trait` declarations are never an
-accepted compatibility surface in active `jazz-next`, so they must not emit
+accepted compatibility surface in active `Jazz`, so they must not emit
 `W0004`. Syntax rejected by the parser is an error, not a deprecation warning.
 `deprecated-syntax` remains reserved for a future surface that is first
 accepted by the active parser/analyzer and then intentionally deprecated.

@@ -1,18 +1,20 @@
 # CLI Source Input
 
-Status: active (implemented in `jazz-next`)
+Status: active (implemented in `Jazz`)
 Locked decisions: 2026-05-24
 Primary plan: `docs/plans/2026-05-23-jazz-next-first-program-cli-flow.md`
 
 ## Purpose
 
-Define the active `jazz-next` CLI source-selection contract for standalone
+Define the active `Jazz` CLI source-selection contract for standalone
 compile and run invocations.
 
 ## Implementation Target
 
-- Source-input behavior is implemented in `jazz-next/src/JazzNext/CLI/Main.hs`.
-- `jazz-hs/` and `jazz2/` remain read-only legacy evidence.
+- Source-input behavior is implemented in `src/Jazz/CLI/Main.hs`.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Source Selection Contract
 
@@ -45,11 +47,11 @@ compile and run invocations.
 Compile a file quietly:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- first.jz
+cabal run jazz -- first.jz
 ```
 
 Run a file:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- --run first.jz
+cabal run jazz -- --run first.jz
 ```

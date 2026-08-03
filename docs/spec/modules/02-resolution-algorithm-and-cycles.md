@@ -6,7 +6,7 @@ Depends on: `docs/spec/modules/01-file-layout-and-package-roots.md`
 
 ## Scope
 
-This document defines the deterministic v1 module resolution algorithm for active `jazz-next` module-graph compilation and execution. It documents existing resolver behavior and does not introduce new compiler behavior.
+This document defines the deterministic v1 module resolution algorithm for active `Jazz` module-graph compilation and execution. It documents existing resolver behavior and does not introduce new compiler behavior.
 
 Name binding for qualified imports, per-module compile/runtime behavior, cache policy, and future package metadata remain separate module spec slices.
 
@@ -133,7 +133,7 @@ visit(call_stack, state, module_path):
 | Already resolved module is imported again by another module | resolved result is reused |
 
 Implementation evidence (2026-05-30): `ModuleResolutionSpec.hs` now locks the
-active `jazz-next` harness for lexical rendered-path traversal when source
+active `Jazz` harness for lexical rendered-path traversal when source
 imports appear in reverse order, duplicate import collapse, already-resolved
 shared dependency reuse across branches, and nested minimal cycle traces.
 

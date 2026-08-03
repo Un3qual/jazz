@@ -1,24 +1,26 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm and lambda-parameter or-pattern typing and runtime matching, ordered multi-body pattern-lambda clauses, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm and lambda-parameter or-pattern typing and runtime matching, ordered multi-body pattern-lambda clauses, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `Jazz`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
 ## Purpose
 
 Define the active-path contract for algebraic data types and constructor values
-so upcoming `jazz-next` parser, type, and runtime work converges on one model.
+so upcoming `Jazz` parser, type, and runtime work converges on one model.
 
 ## Implementation Target
 
-- All new ADT implementation work for this contract lands in `jazz-next/`.
-- `jazz-hs/` and `jazz2/` are read-only legacy evidence only.
+- All new ADT implementation work for this contract lands in the repository root.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical evidence only;
+  the archived implementation trees are absent from the current checkout.
 
 ## Rebase Closure Status
 
 The active ADT/pattern rebase is closed for the monomorphic
 constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
-`jazz-next`, with top-level or-patterns implemented for `case` arms and
+`Jazz`, with top-level or-patterns implemented for `case` arms and
 pattern-shaped lambda parameters and ordered multi-body pattern-lambda
 clauses.
 
@@ -33,10 +35,10 @@ or-patterns have landed as pattern-matching extensions.
 
 ## Current Active-Path Status
 
-1. `jazz-next` implements canonical surface and lowered `data` declarations
+1. `Jazz` implements canonical surface and lowered `data` declarations
    with constructor arity metadata, plus lowercase generic type parameters
    preserved in declaration metadata.
-2. `jazz-next` implements constructor values and ordinary constructor
+2. `Jazz` implements constructor values and ordinary constructor
    application with first-order typing and runtime constructor values. Generic
    constructor values/applications instantiate declaration-owned type
    parameters freshly at each direct constructor use.
@@ -57,7 +59,7 @@ or-patterns have landed as pattern-matching extensions.
 8. The end-to-end runtime-executed `case` subset is defined in
    `docs/spec/pattern-matching-semantics.md`.
 9. Tuple literal values, concrete tuple signature types, and fixed-arity tuple
-   case patterns are active core runtime/type features in `jazz-next`. They
+   case patterns are active core runtime/type features in `Jazz`. They
    include `()` as the zero-element Unit value, signature type, and pattern;
    `(expression)` remains grouping rather than a one-element tuple.
 10. Cons-like list patterns such as `[head | tail]` are active `case` patterns:
@@ -146,7 +148,7 @@ application. Parentheses are grouping only, so legacy-looking
 
 ## Staged First Slice
 
-1. The first executable ADT slice in `jazz-next` is limited to plain sum types
+1. The first executable ADT slice in `Jazz` is limited to plain sum types
    with positional constructors.
 2. Constructor type syntax must align with the active type-grammar rebase work
    before the full surface is executable.

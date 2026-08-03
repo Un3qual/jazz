@@ -14,8 +14,32 @@
         toolPkgs = import nixpkgs-tools { inherit system; };
         ghc = pkgs.haskell.compiler.ghc9141;
         hsPkgs = pkgs.haskell.packages.ghc9141;
-        jazzNext = pkgs.haskell.lib.enableCabalFlag
-          (hsPkgs.callCabal2nix "jazz-next" ./jazz-next { })
+        jazzSource = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            ./.gitignore
+            ./AGENTS.md
+            ./LICENSE
+            ./PERFORMANCE.md
+            ./app
+            ./benchmark
+            ./cabal.project
+            ./cabal.project.profile-hotspots
+            ./cabal.project.profile-stages
+            ./docs/compiler/architecture.md
+            ./editors/vscode-jazz
+            ./flake.nix
+            ./jazz
+            ./jazz.cabal
+            ./program-support
+            ./programs
+            ./scripts
+            ./src
+            ./test
+          ];
+        };
+        jazz = pkgs.haskell.lib.enableCabalFlag
+          (hsPkgs.callCabal2nix "jazz" jazzSource { })
           "development";
       in {
         devShells.default = pkgs.mkShell {
@@ -30,7 +54,7 @@
           ];
         };
 
-        checks.jazz-next-test-suite = pkgs.haskell.lib.overrideCabal jazzNext (_: {
+        checks.jazz-test-suite = pkgs.haskell.lib.overrideCabal jazz (_: {
           doCheck = true;
         });
       });

@@ -27,7 +27,7 @@ The canonical declaration keyword is `class`. Implementations use `impl`.
 
 ## Implementation Status
 
-`jazz-next` parses and lowers canonical explicit-parameter `class`
+`Jazz` parses and lowers canonical explicit-parameter `class`
 declarations with signature-only method metadata and concrete `impl`
 declarations with inert method binding metadata, validates duplicate class
 declarations, duplicate class method signatures, duplicate impl method
@@ -45,6 +45,6 @@ Explicit `Class::method` references can select visible concrete impl method
 bodies, and runtime method candidates carry compiler-owned evidence identifying
 the class, concrete impl target, and method key. Broader method lookup,
 dictionary optimization, default methods, superclasses, and module method
-visibility remain future work. `jazz-next` rejects non-canonical `trait`
+visibility remain future work. `Jazz` rejects non-canonical `trait`
 declarations. Ordinary bindings, signatures, and qualified import aliases may
 still use these words where the parser permits them.

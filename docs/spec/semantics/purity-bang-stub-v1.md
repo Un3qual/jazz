@@ -1,6 +1,6 @@
 # Purity Marker `!` (Stub V1)
 
-Status: active (stub-v1 enforcement in `jazz-next`)
+Status: active (stub-v1 enforcement in `Jazz`)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`
 
@@ -10,8 +10,11 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
 
 ## Implementation Target
 
-- Enforcement is implemented in `jazz-next/`.
-- `jazz-hs/` and `jazz2/` are legacy reference implementations and are non-normative for this contract.
+- Enforcement is implemented in the repository root.
+- Pre-root-canonicalization behavior preserved at archive tag
+  `archive/pre-root-canonicalization-2026-07-31` is historical and
+  non-normative; the archived implementation trees are absent from the current
+  checkout.
 
 ## Stub-V1 Contract
 
@@ -25,10 +28,10 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
 ## Current Enforcement Scope
 
 - Enforced in analyzer/type pipeline diagnostics:
-  - `jazz-next/src/JazzNext/Compiler/Purity.hs`
-  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `src/Jazz/Compiler/Purity.hs`
+  - `src/Jazz/Compiler/Analyzer.hs`
 - Verified by:
-  - `jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs`
+  - `test/Jazz/Compiler/Semantics/PuritySemanticsSpec.hs`
 
 ## Non-Goals (Still Planned)
 

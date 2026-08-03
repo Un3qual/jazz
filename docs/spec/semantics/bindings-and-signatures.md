@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, final inferred-constraint ambiguity diagnostics, expression-level explicit type application for generalized schemes, and compiler-owned runtime evidence for qualified method candidates are implemented)
+Status: active (`Jazz` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, final inferred-constraint ambiguity diagnostics, expression-level explicit type application for generalized schemes, and compiler-owned runtime evidence for qualified method candidates are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -144,7 +144,8 @@ Out of scope for this accepted contract:
 - arrow associativity,
 - concrete or monomorphic constrained-signature behavior,
 - generic ADT constructor schemes,
-- any `jazz-hs/` or `jazz2/` work.
+- restoring or changing implementation trees preserved only at archive tag
+  `archive/pre-root-canonicalization-2026-07-31`.
 
 ## Decision Matrix: Baseline vs Canonical
 

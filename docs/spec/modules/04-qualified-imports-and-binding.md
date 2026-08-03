@@ -13,7 +13,7 @@ publication boundary consumed by the import forms in this document.
 
 ## Scope
 
-This document defines v1 import binding behavior for active `jazz-next` module-graph compilation and execution. It documents existing parser, resolver, and loader behavior without introducing new compiler behavior.
+This document defines v1 import binding behavior for active `Jazz` module-graph compilation and execution. It documents existing parser, resolver, and loader behavior without introducing new compiler behavior.
 
 Future package metadata, additional import forms, and migration policy remain
 separate module spec slices. Explicit module export lists are defined by
@@ -205,7 +205,7 @@ Diagnostics include importer module context, imported module context when applic
 | `Lib::Wrapper` imports `Eq`, then another module requests `import Lib::Wrapper (Eq).` | `E4007`; consumed classes are not re-exported |
 
 Implementation evidence (2026-05-30): `ModuleResolutionSpec.hs` now locks the
-active `jazz-next` harness for the v1 import truth table, including bare import
+active `Jazz` harness for the v1 import truth table, including bare import
 unqualified visibility, symbol-list visibility and hidden-export diagnostics,
 local binding precedence over hidden imports, alias references before alias
 declarations, local value names sharing alias identifiers, data-constructor
@@ -213,14 +213,14 @@ imports, and the `E4007`/`E4008`/`E4009`/`E4011`/`E4012`/`E4013`/`E4014`
 diagnostic contexts and metadata exposed by the resolver.
 
 Implementation evidence (2026-07-09):
-`jazz-next/src/JazzNext/Compiler/ModuleExports.hs` now owns the typed inventory
+`src/Jazz/Compiler/ModuleExports.hs` now owns the typed inventory
 and shared selection policy used by
-`jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`,
-`jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`, and
-`jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`.
-`jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs`,
-`jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`,
-`jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`, and
+`src/Jazz/Compiler/ModuleResolver.hs`,
+`src/Jazz/Compiler/ModuleCompiler.hs`, and
+`src/Jazz/Compiler/ModuleRuntime.hs`.
+`test/Jazz/Compiler/Modules/ModuleExportsSpec.hs`,
+`test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`,
+`test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`, and
 loader capability tests lock namespace identity, type-only selector rejection,
 explicit class selection, class collisions, alias-hidden capabilities,
 non-transitive class exports, and repeated-import idempotence while preserving
