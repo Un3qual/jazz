@@ -477,6 +477,7 @@
   set -euo pipefail
   tag=archive/pre-root-canonicalization-2026-07-31
   : "${recorded_archive_commit:?copy the exact Task 1 commit from the task or PR record}"
+  test "$(git cat-file -t "refs/tags/$tag")" = tag
   local_archive_commit="$(git rev-parse "$tag^{}")"
   remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
   remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
@@ -485,7 +486,7 @@
   test "$remote_archive_commit" = "$recorded_archive_commit"
   ```
 
-  Expected: `recorded_archive_commit == local peeled tag == remote peeled tag`; the expected commit comes from the independent Task 1 record, and any lookup failure aborts verification.
+  Expected: the local ref is an annotated tag object and `recorded_archive_commit == local peeled tag == remote peeled tag`; the expected commit comes from the independent Task 1 record, while a lightweight local tag, missing remote peeled ref, lookup failure, or mismatch aborts verification.
 
 - [ ] Push `codex/repository-canonicalization` and open a dedicated pull request. The PR description must include the archive tag, ordinary and extended verification results, and a statement that compiler semantics are unchanged.
 

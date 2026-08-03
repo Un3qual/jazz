@@ -37,7 +37,7 @@
   - every Markdown file below `docs/` has nonempty `title`, `description`, and `sidebar_position` front matter;
   - only `getting-started`, `language`, `standard-library`, `reference`, `compiler`, `project`, and `index.md` may exist directly under `docs/`;
   - public Markdown rejects `docs/superpowers`, `docs/execution`, `.codex/`, `jazz-next`, `JazzNext`, `jazz-hs`, and `jazz2` path references;
-  - fragment-only links stay on their source page, recognized external links are handled by the external-link policy, and every other relative Markdown target is resolved against its source page and rejected unless it remains below `docs/`;
+  - fragment-only links stay on their source page; external links are accepted only when `urllib.parse.urlsplit` reports scheme `https`, a nonempty hostname in the explicit allowlist `github.com` or `un3qual.github.io`, and no username or password; reject `http`, protocol-relative URLs, `mailto`, `data`, `javascript`, every other scheme or host, and malformed authority; every remaining Markdown target is relative, resolves against its source page, and is rejected unless it remains below `docs/`;
   - each marker `<!-- jazz-example: executable path=examples/... -->` names a tracked `.jz` file below root `examples/`, immediately classifies the adjacent Jazz fence, and that fence matches the tracked source byte-for-byte;
   - every other Jazz fence is explicitly classified with `<!-- jazz-example: fragment -->`, so runnable-looking blocks cannot bypass source validation;
   - every tracked `examples/**/*.jz` is referenced by at least one public page or the root README; and
@@ -51,7 +51,7 @@
 
   Expected: failures report the missing checker behavior.
 
-- [ ] Implement `scripts/check-public-docs.py` with standard-library Python only. It must accept an optional repository-root argument for fixtures, emit one actionable line per violation, sort output deterministically, and exit nonzero on any violation.
+- [ ] Implement `scripts/check-public-docs.py` with standard-library Python only. It must accept an optional repository-root argument for fixtures, emit one actionable line per violation, sort output deterministically, and exit nonzero on any violation. Keep the HTTPS host allowlist as a named constant so adding an external documentation host requires an intentional policy and fixture change rather than broadening URL handling implicitly.
 
 - [ ] Make `scripts/check-public-docs.sh` a strict Bash wrapper that resolves the Git root and invokes the Python checker.
 
@@ -63,7 +63,7 @@
 
   Expected: all fixture cases pass.
 
-- [ ] Replace the legacy-layout assertions in `scripts/check-docs.sh` rather than only appending the new checker. Remove requirements for `jazz-next/` and `docs/execution/`, invoke `scripts/check-public-docs.sh`, and make the remaining aggregate checks use the new root compiler paths plus the `docs/`, `rfcs/`, and `.codex/` ownership model. Add fixtures for a root-relative escape, `.codex/` and `rfcs/` escapes, a fragment-only link, and an allowed external link.
+- [ ] Replace the legacy-layout assertions in `scripts/check-docs.sh` rather than only appending the new checker. Remove requirements for `jazz-next/` and `docs/execution/`, invoke `scripts/check-public-docs.sh`, and make the remaining aggregate checks use the new root compiler paths plus the `docs/`, `rfcs/`, and `.codex/` ownership model. Add fixtures for a root-relative escape, `.codex/` and `rfcs/` escapes, a fragment-only link, allowed HTTPS links to both allowlisted hosts, and rejected HTTP, protocol-relative, credential-bearing, unlisted-host, `mailto`, `data`, and `javascript` targets.
 
 - [ ] Run the public checker against the current tree:
 
@@ -130,10 +130,6 @@
 - Create: `scripts/check-rfcs.py`
 - Create: `scripts/test-check-rfcs.py`
 - Modify: `scripts/check-docs.sh`
-- Modify: `scripts/check-clarification-specs.sh`
-- Delete after consolidation: `docs/superpowers/specs/**`
-- Delete after consolidation: `docs/superpowers/plans/**`
-- Delete after consolidation: `docs/plans/**`
 
 - [ ] Add an RFC template to `rfcs/README.md` with scalar header fields `Status:`, `Date:`, and `Supersedes:`, followed in that order by `## Decision`, `## Context`, and `## Consequences`. Define `accepted/` as durable decisions and `proposed/` as reviewable proposals; task plans remain under `.codex/plans/`.
 
@@ -160,18 +156,16 @@
 
 - [ ] Extend `scripts/check-docs.sh` to require RFC 0001–0008 and the RFC index, delegate all RFC grammar validation to `scripts/check-rfcs.py`, and reject `Status: Accepted` files below `rfcs/proposed/` through that checker.
 
-- [ ] Confirm all still-active execution plans already live in `.codex/plans/`. Delete every file under `docs/superpowers/` and `docs/plans/` only after the eight RFCs and the public mapping in Task 5 contain their durable decisions. In the same change, rewrite `scripts/check-clarification-specs.sh` against the curated public, RFC, and `.codex/execution/` owners; remove every assertion that requires a deleted input, and keep the checker in the aggregate validation matrix.
+- [ ] Confirm all still-active execution plans already live in `.codex/plans/`. Record which remaining `docs/superpowers/` and `docs/plans/` sources contribute to each Task 5 public mapping row, but leave those source trees intact in this task. Task 5 consumes them together with the accepted RFCs, rewrites the public owners, updates clarification validation, and only then deletes the sources; RFC curation must not destroy inputs needed by the later public rewrite.
 
 - [ ] Audit RFC completeness:
 
   ```bash
   python3 -m unittest scripts/test-check-rfcs.py
   python3 scripts/check-rfcs.py
-  test ! -e docs/superpowers
-  test ! -e docs/plans
   ```
 
-  Expected: RFC fixture and repository validation pass, including structural and deleted-path cases, and both deleted-tree assertions succeed.
+  Expected: the RFC fixture and repository validation pass, including structural and deleted-path cases. The source trees remain available for Task 5.
 
 - [ ] Commit RFC curation separately:
 
@@ -309,7 +303,10 @@
 - Rewrite then delete: `docs/feature-status.md`
 - Rewrite then delete: `docs/jazz-language-state.md`
 - Rewrite then delete: `docs/jazz-improvement-backlog.md`
+- Rewrite durable material then delete: `docs/superpowers/**`
+- Rewrite durable material then delete: `docs/plans/**`
 - Modify: `scripts/check-spec-authority.sh`
+- Modify: `scripts/check-clarification-specs.sh`
 
 - [ ] Give every new page Docusaurus-compatible `title`, `description`, and `sidebar_position` front matter. Use sentence-case titles and relative links that remain inside `docs/`.
 
@@ -341,15 +338,20 @@
 
 - [ ] Condense the backlog into `docs/project/roadmap.md` with four horizons: language completion, self-hosting, native backend, and ecosystem. Do not promise dates.
 
-- [ ] Delete the old source files only after every mapping row has a reviewed final owner. Remove empty `docs/spec/` and obsolete top-level document paths. Rewrite `scripts/check-spec-authority.sh` in the same change to validate the new governance page and authority RFC, reject the removed paths, and stop requiring legacy authority vocabulary.
+- [ ] Delete the old source files only after every mapping row has a reviewed final owner and the Task 3 source-to-owner record confirms that all durable `docs/superpowers/` and `docs/plans/` decisions now live in an accepted RFC, a curated public page, or an active `.codex/` owner. Remove `docs/spec/`, `docs/superpowers/`, `docs/plans/`, and obsolete top-level document paths in this task—not Task 3. Rewrite `scripts/check-spec-authority.sh` and `scripts/check-clarification-specs.sh` in the same deletion change to validate only the new governance, public, RFC, and `.codex/execution/` owners, remove every assertion that requires a deleted input, reject the removed paths, and keep both checkers in the aggregate validation matrix.
 
 - [ ] Run the public-boundary checker:
 
   ```bash
   bash scripts/check-public-docs.sh
+  bash scripts/check-spec-authority.sh
+  bash scripts/check-clarification-specs.sh
+  test ! -e docs/spec
+  test ! -e docs/superpowers
+  test ! -e docs/plans
   ```
 
-  Expected: all required pages, front matter, links, and example references pass; no internal path or legacy identity leaks into `docs/`.
+  Expected: all required pages, front matter, links, example references, authority, and clarification contracts pass; no internal path or legacy identity leaks into `docs/`, and every superseded source tree is absent only after its final owners exist.
 
 - [ ] Commit the public documentation set:
 

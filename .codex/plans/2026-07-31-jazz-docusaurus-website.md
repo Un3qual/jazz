@@ -179,6 +179,8 @@ All three interactions become static when reduced motion is requested.
 - Create: `website/static/img/social-card.png`
 - Create: `website/static/img/brand/README.md`
 - Create: `website/scripts/render-social-card.mjs`
+- Create: `website/scripts/test-brand-assets.mjs`
+- Modify: `website/package.json`
 - Modify: `scripts/check-website-boundary.py`
 - Modify: `scripts/test-check-website-boundary.py`
 - Modify: `README.md`
@@ -194,7 +196,7 @@ All three interactions become static when reduced motion is requested.
 
 - [ ] Compose wordmark variants from the mark plus live or outlined `Jazz` lettering. Keep the mark independently usable in the navbar and favicon.
 
-- [ ] Create a 1200×630 social-preview composition in SVG with large Jazz branding, the one-line language promise, ample quiet space, and no screenshots or UI frames. Implement `website/scripts/render-social-card.mjs` with `sharp`, requiring exactly 1200×630 output, and record `npm --prefix website run render:brand` as the regeneration command in `website/static/img/brand/README.md`.
+- [ ] Create a 1200×630 social-preview composition in SVG with large Jazz branding, the one-line language promise, ample quiet space, and no screenshots or UI frames. Implement `website/scripts/render-social-card.mjs` with `sharp`, requiring exactly 1200×630 output and deterministic encoder options. Its exported renderer accepts caller-provided input and output paths, and the validation path never mutates either input or the tracked PNG while rendering to temporary destinations. Record `npm --prefix website run render:brand` as the explicit regeneration command in `website/static/img/brand/README.md`.
 
 - [ ] Add meaningful `<title>`/`<desc>` to informative SVGs and mark decorative instances with empty alternative text in React. Ensure SVG IDs are unique and no external references exist.
 
@@ -202,11 +204,14 @@ All three interactions become static when reduced motion is requested.
 
 - [ ] Extend the website-boundary fixtures and checker for brand assets. Parse SVGs as XML, inspect URL-bearing `href`/`xlink:href` attributes and CSS `url(...)` values for remote or embedded-raster fetches, and treat the required `http://www.w3.org/2000/svg` namespace declaration as metadata rather than a fetch. Read the PNG IHDR with standard-library Python and fail unless `website/static/img/social-card.png` is exactly 1200×630. Add fixtures for a valid namespace, a remote `<image href>`, a CSS remote URL, embedded raster data, and wrong PNG dimensions.
 
+- [ ] Add `website/scripts/test-brand-assets.mjs` and a `test:brand` package script. Render the tracked SVG twice into independent temporary PNG paths, decode both generated files and the tracked `website/static/img/social-card.png` to normalized RGBA buffers, require identical pixels, and inspect all three PNGs for exactly 1200×630. Comparing decoded content avoids coupling the gate to platform-specific PNG compression bytes while still proving that the deployed PNG is the current SVG render. This provenance test—not dimensions alone—is the gate that prevents a changed SVG from deploying with a stale social card.
+
 - [ ] Validate assets:
 
   ```bash
   python3 -m unittest scripts/test-check-website-boundary.py
   python3 scripts/check-website-boundary.py
+  npm --prefix website run test:brand
   if git grep -n "jazz_logo\.png" -- . ':(exclude).codex/plans/**'; then
     exit 1
   else
@@ -214,7 +219,7 @@ All three interactions become static when reduced motion is requested.
   fi
   ```
 
-  Expected: SVG resource references and PNG dimensions satisfy the checked asset contract, and every non-historical tracked path—including hidden repository files—contains no old-logo reference.
+  Expected: SVG resource references, deterministic SVG-to-PNG provenance, and PNG dimensions satisfy the checked asset contract, and every non-historical tracked path—including hidden repository files—contains no old-logo reference.
 
 - [ ] Commit brand assets independently:
 

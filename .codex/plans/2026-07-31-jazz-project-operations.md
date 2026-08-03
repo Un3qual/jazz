@@ -36,16 +36,18 @@
 - Create: `scripts/ci/determinism.sh`
 - Create: `scripts/ci/verify-benchmark-artifacts.py`
 - Create: `scripts/ci/test-verify-benchmark-artifacts.py`
+- Create: `test/Jazz/ProgramCorpus/Evidence.hs`
 - Create: `scripts/check-ci-policy.py`
 - Create: `scripts/test-check-ci-policy.py`
 - Modify: `jazz.cabal`
+- Modify: `test/Jazz/ProgramCorpus/ProgramCorpusSpec.hs`
 
 - [ ] Write standard-library Python fixture tests that enforce:
 
   - the fast script contains a warning-clean build, repository audit, focused compiler/runtime/module/stdlib/CLI/contract tests, and example smoke checks;
   - the fast script rejects `cabal bench`, `jazz-bench`, positive `full-parser-scale` forms such as `-ffull-parser-scale` or `--flags=+full-parser-scale`, `profile-hotspots`, `profile-stages`, and `program-corpus-spec`, while requiring the negative `-f-full-parser-scale` form;
   - the main script contains `cabal test all` with both manual full-workload flags explicitly disabled and rejects benchmark, profiling, positive full-scale forms, and direct `program-corpus-spec` tokens;
-  - the extended script contains all four full parser-scale components, `program-corpus-spec`, both profiling projects, `jazz-bench`, determinism checks, and artifact directories;
+  - the extended script contains all four full parser-scale components, `program-corpus-spec`, both profiling projects, `jazz-bench`, determinism checks, and artifact directories; both Cabal logs are written below `JAZZ_ARTIFACT_ROOT` from process start, and each corpus run receives a distinct `JAZZ_CORPUS_EVIDENCE_PATH` below that root;
   - the release script invokes ordinary, extended, package, Nix, docs, site, and artifact validation; and
   - PR workflows cannot directly bypass the scripts with an inlined long command.
 
@@ -93,11 +95,20 @@
 
 - [ ] Write fixtures for `scripts/ci/verify-benchmark-artifacts.py`, then implement it with standard-library Python. Given the generated benchmark root and expected environment label, require exactly one labeled run directory, a nonempty `environment.json` object with the expected schema, label, and matching run id, plus a `results.csv` with the exact required header and at least one data row. The verifier must read the just-generated files, not only exercise fixed metadata values in `benchmark-metadata-spec`.
 
+- [ ] Add `test/Jazz/ProgramCorpus/Evidence.hs` as the single corpus-evidence renderer. Given the identifiers of cases that completed every termination, stdout, diagnostics, warnings, report, and budget assertion, reject an empty or duplicate set and render sorted UTF-8 bytes in this exact format:
+
+  ```text
+  jazz-corpus-evidence-v1
+  PASS\t<program-case-identifier>
+  ```
+
+  Extend `ProgramCorpusSpec` so `testEveryCheckedInCase` collects an identifier only after all assertions for that case succeed and, after every checked-in case succeeds, atomically writes the rendered bytes to the path named by `JAZZ_CORPUS_EVIDENCE_PATH`. An absent variable preserves ordinary test behavior; an empty path, render failure, or write failure fails the suite. Add focused renderer cases for sorting, duplicate rejection, the exact header and line format, and empty input. Register the module in `jazz.cabal`. This direct export is the evidence authority; aggregate `PASS:` lines in the Cabal log are diagnostics only and must never be treated as per-program results.
+
 - [ ] Implement `scripts/ci/extended.sh` to:
 
-  1. create and validate `JAZZ_ARTIFACT_ROOT` before any workload, then install an `EXIT` finalizer that preserves the original exit status and always writes the manifest from all regular evidence files produced so far, excluding the manifest itself; a finalizer failure changes a successful run to failure but never hides an earlier workload failure;
-  2. run all tests with `-ffull-parser-scale -ffull-program-corpus`, including the four explicitly named full parser-scale suites and the first complete corpus execution, with a temporary Cabal test log;
-  3. run `program-corpus-spec -ffull-program-corpus` a second time with a separate test log, normalize only the stable per-program results and terminal success marker into `corpus/pass-one.txt` and `corpus/pass-two.txt`, require both files to be nonempty and byte-identical, and leave both below `JAZZ_ARTIFACT_ROOT`;
+  1. create and validate `JAZZ_ARTIFACT_ROOT` plus its `logs/pass-one`, `logs/pass-two`, `corpus`, and `benchmarks` children before any workload, then install an `EXIT` finalizer that preserves the original exit status and always writes the manifest from all regular evidence files produced so far, excluding the manifest itself; a finalizer failure changes a successful run to failure but never hides an earlier workload failure;
+  2. run all tests with `-ffull-parser-scale -ffull-program-corpus`, including the four explicitly named full parser-scale suites and the first complete corpus execution, with `JAZZ_CORPUS_EVIDENCE_PATH="$JAZZ_ARTIFACT_ROOT/corpus/pass-one.txt"` and Cabal `--test-log="$JAZZ_ARTIFACT_ROOT/logs/pass-one/\$test-suite.log"`; create every log destination first and route the command's combined stdout/stderr through `tee "$JAZZ_ARTIFACT_ROOT/logs/pass-one/cabal.txt"` under `pipefail`, so build failures and failures before Cabal creates a suite log are also retained without hiding the command status;
+  3. run `program-corpus-spec -ffull-program-corpus` a second time with `JAZZ_CORPUS_EVIDENCE_PATH="$JAZZ_ARTIFACT_ROOT/corpus/pass-two.txt"` and `--test-log="$JAZZ_ARTIFACT_ROOT/logs/pass-two/\$test-suite.log"`, again teeing combined output to `logs/pass-two/cabal.txt` under `pipefail`; require both direct evidence files to be nonempty, begin with the exact `jazz-corpus-evidence-v1` header, contain at least one `PASS` record, and be byte-identical with `cmp`; never derive per-program evidence by filtering the aggregate Cabal logs;
   4. run `scripts/ci/determinism.sh`;
   5. build `cabal.project.profile-stages` and `cabal.project.profile-hotspots`;
   6. run `cabal bench jazz-bench` with an environment label supplied by `JAZZ_BENCHMARK_LABEL` and result root below `JAZZ_ARTIFACT_ROOT`;
@@ -335,8 +346,11 @@
 **Files:**
 
 - Modify: `jazz.cabal`
+- Create: `editors/vscode-jazz/icon.png`
 - Modify: `editors/vscode-jazz/package.json`
 - Modify: `editors/vscode-jazz/README.md`
+- Modify: `website/scripts/render-social-card.mjs`
+- Modify: `website/scripts/test-brand-assets.mjs`
 - Modify: `test/Jazz/Repository/PackagePolicy.hs`
 - Modify: `test/Jazz/Repository/AuditSpec.hs`
 
@@ -361,7 +375,9 @@
 
 - [ ] Extend package-policy tests to require the metadata above, reject example-domain or empty URLs and legacy product names, confirm `jazz-internal` remains private, and inspect the `cabal sdist` file list for required and forbidden paths.
 
-- [ ] Add `repository`, `homepage`, `bugs`, `icon`, and `keywords` metadata to the VS Code extension. Keep its scope honest: syntax highlighting and editor configuration only, with no language-server/formatter claims.
+- [ ] Add `repository`, `homepage`, `bugs`, `icon`, and `keywords` metadata to the VS Code extension. Set `icon` to the package-local tracked path `icon.png`, include that path in the extension's package file list, and keep its scope honest: syntax highlighting and editor configuration only, with no language-server/formatter claims.
+
+- [ ] Extend the existing brand renderer to create `editors/vscode-jazz/icon.png` deterministically from `website/static/img/jazz-mark.svg` as a transparent 128×128 PNG. Extend `test-brand-assets.mjs` to render the icon twice to independent temporary paths, decode both results and the checked-in icon to normalized RGBA buffers, require identical pixels, and verify PNG format, dimensions, and alpha. Extend the repository/package audit to require that the manifest icon resolves to a regular tracked file inside `editors/vscode-jazz/`, is included in the packaged file list, and has the checked dimensions; a website-relative or repository-root-relative icon is invalid because VSIX packaging cannot include it as package metadata.
 
 - [ ] Update the editor README to use canonical root paths and give manual install plus VSIX packaging commands without claiming marketplace publication.
 
@@ -371,6 +387,7 @@
   nix develop --command cabal check
   nix develop --command cabal sdist all
   nix develop --command cabal test repository-audit-spec --test-show-details=direct
+  npm --prefix website run test:brand
   npm --prefix website run build
   git diff --check
   ```
@@ -393,6 +410,7 @@
 - Create: `scripts/release/test-verify-artifacts.py`
 - Create: `release-notes/0.1.0-alpha.1.md`
 - Create: `.github/workflows/release.yml`
+- Modify: `.gitignore`
 - Modify: `flake.nix`
 - Modify: `scripts/ci/release-candidate.sh`
 - Modify: `RELEASING.md`
@@ -423,6 +441,8 @@
   ```
 
   It must validate names and hashes, safely enumerate every gzip-tar member, reject absolute/traversal/duplicate/symlink/special members, and inspect the expected contents rather than treating a nonempty archive as valid. Require the source package root and `jazz.cabal`, the static docs `index.html`, the complete benchmark evidence set and manifest, and a self-contained Nix runtime closure whose recorded root can be imported and queried from a temporary local store.
+
+- [ ] Add the root-anchored `/artifacts/` entry to `.gitignore` before implementing the release builder, and extend repository-policy coverage to require it. Generated candidate archives must remain inspectable below `artifacts/release/<version>/` without making the post-build clean-tree gate fail; the ignore rule must not match a nested source directory named `artifacts`.
 
 - [ ] Implement `scripts/release/build-alpha.sh` to require `git status --porcelain=v1 --untracked-files=all` to be empty and require `JAZZ_RELEASE_VERSION`. Create a trapped temporary work root and define one evidence root within it; pass that exact `JAZZ_ARTIFACT_ROOT` and an explicit temporary Nix `--out-link` path through `scripts/ci/release-candidate.sh`. Do not put the out-link symlink into a tarball. Enumerate the Nix result's runtime requisites, export a self-contained closure plus root-store-path/system metadata into a regular-file staging tree, and archive that materialized tree. Archive the Cabal source, `website/build`, and the still-live shared evidence root, write sorted `SHA256SUMS`, and run the member-aware verifier. Atomically move the verified set under `artifacts/release/<version>/`; cleanup owns the temporary Nix result and evidence root on success or failure and runs only after the evidence archive is complete.
 
@@ -455,6 +475,7 @@
 - [ ] Run one local candidate from that clean commit and verify the exact final set:
 
   ```bash
+  git check-ignore -q --no-index artifacts/release/.probe
   test -z "$(git status --porcelain=v1 --untracked-files=all)"
   JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
   python3 scripts/release/verify-artifacts.py artifacts/release/0.1.0-alpha.1
