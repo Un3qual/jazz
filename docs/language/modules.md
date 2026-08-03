@@ -4,8 +4,6 @@ description: Organize Jazz code with module paths, imports, exports, and determi
 sidebar_position: 7
 ---
 
-# Modules
-
 Module names use `::`, and their source paths mirror the name below a module
 root. `Example::Main` resolves as `Example/Main.jz`.
 

@@ -28,9 +28,22 @@ require_pattern() {
 if ! bash scripts/check-public-docs.sh; then
   fail "scripts/check-public-docs.sh reported public documentation boundary violations"
 fi
+if ! python3 scripts/test-check-public-docs.py; then
+  fail "scripts/test-check-public-docs.py reported public documentation checker regressions"
+fi
+if ! python3 scripts/test-check-examples.py; then
+  fail "scripts/test-check-examples.py reported executable-example checker regressions"
+fi
+if ! python3 scripts/check-rfcs.py "$ROOT"; then
+  fail "scripts/check-rfcs.py reported RFC structure violations"
+fi
+if ! python3 scripts/test-check-rfcs.py; then
+  fail "scripts/test-check-rfcs.py reported RFC checker regressions"
+fi
+if ! python3 scripts/test-check-spec-authority.py; then
+  fail "scripts/test-check-spec-authority.py reported authority checker regressions"
+fi
 
-rfc_index="rfcs/README.md"
-rfc_proposals_index="rfcs/proposed/README.md"
 required_rfcs=(
   "0001-language-authority-and-change-control"
   "0002-repository-productization"
@@ -42,45 +55,11 @@ required_rfcs=(
   "0008-parser-scale-and-performance-tiers"
 )
 
-require_file "$rfc_index"
-require_file "$rfc_proposals_index"
+require_file "rfcs/README.md"
+require_file "rfcs/proposed/README.md"
 for rfc_name in "${required_rfcs[@]}"; do
   require_file "rfcs/accepted/${rfc_name}.md"
 done
-
-if [[ -d "rfcs/accepted" ]]; then
-  while IFS= read -r rfc_file; do
-    rfc_name="$(basename "$rfc_file" .md)"
-    require_pattern "$rfc_file" "accepted status" '^Status: Accepted$'
-    require_pattern "$rfc_file" "decision date" '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
-    require_pattern "$rfc_file" "superseded decisions" '^Supersedes: .+$'
-    require_pattern "$rfc_file" "decision section" '^## Decision$'
-    require_pattern "$rfc_file" "context section" '^## Context$'
-    require_pattern "$rfc_file" "consequences section" '^## Consequences$'
-    require_pattern "$rfc_index" "accepted RFC ${rfc_name} index entry" "accepted/${rfc_name}\\.md"
-  done < <(find rfcs/accepted -maxdepth 1 -type f -name '*.md' -print | sort)
-
-  nested_accepted_rfcs="$(find rfcs/accepted -mindepth 2 -type f -name '*.md' -print | sort)"
-  if [[ -n "$nested_accepted_rfcs" ]]; then
-    fail "accepted RFC files must live directly below rfcs/accepted/"
-    printf '%s\n' "$nested_accepted_rfcs" >&2
-  fi
-fi
-
-if [[ -d "rfcs/proposed" ]]; then
-  while IFS= read -r rfc_file; do
-    require_pattern "$rfc_file" "proposed status" '^Status: Proposed$'
-    require_pattern "$rfc_file" "decision date" '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
-    require_pattern "$rfc_file" "superseded decisions" '^Supersedes: .+$'
-    require_pattern "$rfc_file" "decision section" '^## Decision$'
-    require_pattern "$rfc_file" "context section" '^## Context$'
-    require_pattern "$rfc_file" "consequences section" '^## Consequences$'
-  done < <(find rfcs/proposed -type f -name '[0-9][0-9][0-9][0-9]-*.md' -print | sort)
-
-  if rg -n '^Status: Accepted$' rfcs/proposed --glob '*.md' >/dev/null 2>&1; then
-    fail "accepted RFC status is not allowed below rfcs/proposed/"
-  fi
-fi
 
 require_file "docs/project/status.md"
 require_file "docs/project/governance.md"
@@ -108,6 +87,7 @@ fi
 documentation_checkers=(
   "scripts/check-spec-authority.sh"
   "scripts/check-clarification-specs.sh"
+  "scripts/test-check-clarification-specs.sh"
   "scripts/check-execution-queue.sh"
   "scripts/test-check-execution-queue.sh"
 )

@@ -4,8 +4,6 @@ description: Perform strict UTF-8 host I/O through stable Jazz error values.
 sidebar_position: 9
 ---
 
-# IO and errors
-
 `IOErrorCategory` publishes `NotFound`, `PermissionDenied`, `AlreadyExists`,
 `InvalidData`, `ResourceExhausted`, `Interrupted`, `Unsupported`, and `Other`.
 `IOError` publishes `IOError category maybePath message`. These values hide

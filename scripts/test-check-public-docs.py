@@ -145,7 +145,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
-        self.write_example_runner()
         (self.root / "jazz_logo.png").write_bytes(b"fixture")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
@@ -208,24 +207,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         (self.root / "scripts/example-cases.tsv").write_text(
             "name\tsources\texpected\targs\n" + rows,
-            encoding="utf-8",
-        )
-
-    def write_example_runner(self, *, consume_cases: bool = True) -> None:
-        consumer = ""
-        if consume_cases:
-            consumer = (
-                "while IFS=$'\\t' read -r case_name case_sources "
-                "case_expected case_args_text; do\n"
-                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
-                "  IFS=',' read -r -a case_source_paths <<< \"$case_sources\"\n"
-                "  IFS=' ' read -r -a case_args <<< \"$case_args_text\"\n"
-                "  run_example \"$case_name\" \"$case_expected\" "
-                "\"${case_args[@]}\"\n"
-                "done < scripts/example-cases.tsv\n"
-            )
-        (self.root / "scripts/check-examples.sh").write_text(
-            "#!/usr/bin/env bash\n\n" + consumer,
             encoding="utf-8",
         )
 
@@ -294,6 +275,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: missing executable factorial marker", result.stdout)
         self.assertIn("README.md: missing expected factorial output", result.stdout)
 
+    def test_readme_factorial_marker_must_be_visible_and_bound_to_its_fence(self) -> None:
+        marker = f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->"
+        readme = valid_readme(
+            extra=f"```text\n{marker}\n```"
+        ).replace(
+            marker,
+            "<!-- jazz-example: fragment -->",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(FACTORIAL_PATH, FACTORIAL_SOURCE)),
+            encoding="utf-8",
+        )
+        self.assert_violation("README.md: missing executable factorial marker")
+
     def test_readme_requires_navigation_and_license_contract(self) -> None:
         readme = valid_readme().replace(
             "[Language guide](docs/language/overview.md)",
@@ -361,6 +358,29 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation("docs/index.md: front matter is missing sidebar_position")
 
+    def test_rejects_malformed_front_matter_even_with_required_fields(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            (
+                "---\n"
+                "title: Jazz\n"
+                "description: Test fixture.\n"
+                "sidebar_position: 1\n"
+                ": malformed\n"
+                "---\n\n"
+                "Fixture body.\n"
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation("docs/index.md: missing valid YAML front matter")
+
+    def test_rejects_top_level_heading_that_duplicates_front_matter_title(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="# Fixture\n\nBody.\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: top-level heading duplicates front matter title"
+        )
+
     def test_rejects_missing_relative_link_targets(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="[Missing](language/not-there.md)\n"), encoding="utf-8"
@@ -399,6 +419,30 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
         )
+
+    def test_rejects_html_links_that_escape_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<a href="../rfcs/accepted/0001.md">Decision</a>\n'),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_banned_public_references_case_insensitively(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="The old identity was JAZZ2.\n"), encoding="utf-8"
+        )
+        self.assert_violation("docs/index.md: banned public reference: jazz2")
+
+    def test_whitespace_only_link_target_is_an_actionable_violation(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="[Broken](   )\n"), encoding="utf-8"
+        )
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("docs/index.md: public link target is empty", result.stdout)
+        self.assertEqual("", result.stderr)
 
     def test_rejects_full_reference_links_that_escape_docs(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -772,6 +816,25 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "examples/hello.jz: tracked example is missing from scripts/example-cases.tsv"
         )
 
+    def test_run_case_cannot_claim_an_uninvoked_source(self) -> None:
+        extra_path = "examples/extra.jz"
+        extra_source = "0.\n"
+        self.add_tracked_example(extra_path, extra_source, add_to_cases=False)
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH, extra_path],
+            "720",
+            f"--run {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(extra_path, extra_source)),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: --run source does not match declared sources"
+        )
+
     def test_rejects_untracked_operational_case_source(self) -> None:
         self.add_example_case(["examples/ghost.jz"])
         self.assert_violation(
@@ -803,40 +866,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "scripts/example-cases.tsv: file must end with a newline"
         )
 
-    def test_dead_case_table_cannot_satisfy_execution_coverage(self) -> None:
-        source = '"Hello".\n'
-        self.add_tracked_example("examples/hello.jz", source)
-        (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
-            encoding="utf-8",
-        )
-        self.write_example_runner(consume_cases=False)
-        self.assert_violation(
-            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
-        )
-
-    def test_case_table_reader_without_runner_call_is_not_execution_coverage(self) -> None:
-        source = '"Hello".\n'
-        self.add_tracked_example("examples/hello.jz", source)
-        (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
-            encoding="utf-8",
-        )
-        (self.root / "scripts/check-examples.sh").write_text(
-            (
-                "#!/usr/bin/env bash\n\n"
-                "while IFS=$'\\t' read -r case_name case_sources "
-                "case_expected case_args_text; do\n"
-                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
-                "  printf '%s\\n' \"$case_name\"\n"
-                "done < scripts/example-cases.tsv\n"
-            ),
-            encoding="utf-8",
-        )
-        self.assert_violation(
-            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
-        )
-
     def test_module_dependency_sources_require_real_case_and_doc_coverage(self) -> None:
         greeting = "module Example::Greeting {\n  greeting = \"Hello\".\n}\n"
         main = (
@@ -849,7 +878,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
         main_path = "examples/modules/src/Example/Main.jz"
         self.add_tracked_example(greeting_path, greeting, add_to_cases=False)
         self.add_tracked_example(main_path, main, add_to_cases=False)
-        self.add_example_case([main_path, greeting_path])
+        self.example_cases.append(
+            (
+                "module",
+                [main_path, greeting_path],
+                '"Hello"',
+                "--run --entry-module Example::Main "
+                "--module-root examples/modules/src",
+            )
+        )
+        self.write_example_cases()
         body = self.executable_example(
             greeting_path, greeting
         ) + self.executable_example(

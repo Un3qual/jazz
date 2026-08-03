@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
+from example_cases import case_source_binding_violation
+
 
 ALLOWED_DOCS_ENTRIES = {
     "getting-started",
@@ -136,6 +138,10 @@ MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 HTML_IMAGE_RE = re.compile(
     r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
 )
+HTML_LINK_RE = re.compile(
+    r"<a\b[^>]*\bhref[ \t]*=[ \t]*[\"']([^\"']*)[\"'][^>]*>",
+    re.IGNORECASE,
+)
 REFERENCE_DEFINITION_RE = re.compile(
     r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
     re.MULTILINE,
@@ -154,19 +160,6 @@ FRAGMENT_MARKER_RE = re.compile(
 EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
 EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
 EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
-EXAMPLE_CASE_LOOP_RE = re.compile(
-    r"^[ \t]*while[ \t]+IFS=\$'\\t'[ \t]+read[ \t]+-r[ \t]+"
-    r"case_name[ \t]+case_sources[ \t]+case_expected[ \t]+case_args_text"
-    r"[ \t]*;[ \t]*do[ \t]*\r?\n"
-    r"(?P<body>.*?)"
-    r"^[ \t]*done[ \t]*<[ \t]*scripts/example-cases\.tsv[ \t]*$",
-    re.MULTILINE | re.DOTALL,
-)
-EXAMPLE_RUNNER_CALL_RE = re.compile(
-    r'^[ \t]*run_example[ \t]+"\$case_name"[ \t]+'
-    r'"\$case_expected"[ \t]+"\$\{case_args\[@\]\}"[ \t]*$',
-    re.MULTILINE,
-)
 
 
 @dataclass(frozen=True)
@@ -200,14 +193,27 @@ def front_matter_fields(text: str) -> set[str] | None:
         return None
     fields: set[str] = set()
     for line in lines[1:end]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith((" ", "\t")) or "\t" in line:
+            return None
         match = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$", line)
-        if match and (match.group(2) or "").strip():
-            fields.add(match.group(1))
+        if match is None or not (match.group(2) or "").strip():
+            return None
+        field = match.group(1)
+        if field in fields:
+            return None
+        value = (match.group(2) or "").strip()
+        if value[0] in ("'", '"') and (len(value) < 2 or value[-1] != value[0]):
+            return None
+        fields.add(field)
     return fields
 
 
 def markdown_link_target(raw_target: str) -> str:
     target = raw_target.strip()
+    if not target:
+        return ""
     if target.startswith("<") and ">" in target:
         return target[1 : target.index(">")]
     # Markdown permits an optional title after a whitespace-delimited target.
@@ -436,15 +442,39 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
     return fences
 
 
-def example_case_loop_executes_rows(script_text: str) -> bool:
-    loops = list(EXAMPLE_CASE_LOOP_RE.finditer(script_text))
-    if len(loops) != 1:
-        return False
-    body = loops[0].group("body")
-    return (
-        EXAMPLE_RUNNER_CALL_RE.search(body) is not None
-        and '"$case_sources"' in body
-        and '"$case_args_text"' in body
+def visible_markdown(text: str) -> str:
+    """Blank fenced code and HTML comments before rendered-content checks."""
+    hidden_ranges = [(fence.start, fence.end) for fence in markdown_fences(text)]
+    hidden_ranges.extend(
+        match.span()
+        for match in re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL)
+    )
+    characters = list(text)
+    for start, end in hidden_ranges:
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
+def has_top_level_heading(text: str) -> bool:
+    return re.search(r"^#[ \t]+", visible_markdown(text), re.MULTILINE) is not None
+
+
+def has_bound_executable_marker(text: str, example_path: str) -> bool:
+    fences = markdown_fences(text)
+    markers = [
+        marker
+        for marker in EXECUTABLE_MARKER_RE.finditer(text)
+        if marker.group(1) == example_path
+        and not any(fence.start <= marker.start() < fence.end for fence in fences)
+    ]
+    return any(
+        fence.is_jazz
+        and marker.end() <= fence.start
+        and not text[marker.end() : fence.start].strip()
+        for marker in markers
+        for fence in fences
     )
 
 
@@ -533,24 +563,17 @@ def validate_example_cases(
                         f"example: {example_path}"
                     )
 
+            if sources and args:
+                binding_violation = case_source_binding_violation(root, sources, args)
+                if binding_violation is not None:
+                    violations.append(
+                        f"{EXAMPLE_CASES_PATH}:{line_number}: {binding_violation}"
+                    )
+
     for example_path in sorted(tracked_example_paths - declared_sources):
         violations.append(
             f"{example_path}: tracked example is missing from {EXAMPLE_CASES_PATH}"
         )
-
-    runner_path = root / "scripts/check-examples.sh"
-    try:
-        runner_text = runner_path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeError) as exc:
-        violations.append(
-            f"scripts/check-examples.sh: cannot read example runner: {exc}"
-        )
-    else:
-        if not example_case_loop_executes_rows(runner_text):
-            violations.append(
-                "scripts/check-examples.sh: does not execute "
-                f"{EXAMPLE_CASES_PATH}"
-            )
 
     return declared_sources
 
@@ -706,7 +729,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if not local_logo_found:
         violations.append("README.md: logo must use a repository-local path")
 
-    if README_FACTORIAL_MARKER not in text:
+    if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
     if re.search(r"```text\r?\n720\r?\n```", text) is None:
         violations.append("README.md: missing expected factorial output")
@@ -832,14 +855,25 @@ def validate(root: Path) -> list[str]:
                         f"{display}: front matter is missing {required_field}"
                     )
 
+        if has_top_level_heading(text):
+            violations.append(
+                f"{display}: top-level heading duplicates front matter title"
+            )
+
         for banned in BANNED_REFERENCES:
-            if banned in text:
+            if banned.casefold() in text.casefold():
                 violations.append(f"{display}: banned public reference: {banned}")
 
         raw_link_targets = [match.group(1) for match in LINK_RE.finditer(text)]
         raw_link_targets.extend(used_reference_targets(text))
+        raw_link_targets.extend(
+            match.group(1) for match in HTML_LINK_RE.finditer(visible_markdown(text))
+        )
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
+            if not raw_target:
+                violations.append(f"{display}: public link target is empty")
+                continue
             label = internal_escape_label(path, raw_link_target, docs_root)
             if label is not None:
                 violations.append(

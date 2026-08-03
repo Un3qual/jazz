@@ -4,8 +4,6 @@ description: Use built-in operators, sections, values, and source-local declarat
 sidebar_position: 8
 ---
 
-# Operators
-
 ## Built-in precedence
 
 The parser's built-in fixity order, from tightest to loosest, is:

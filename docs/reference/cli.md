@@ -4,8 +4,6 @@ description: Reference Jazz command-line modes, source selection, Prelude contro
 sidebar_position: 4
 ---
 
-# CLI reference
-
 ```text
 Usage: jazz [--run] [options] [source.jz]
        jazz [--run] --entry-module Module::Path [--module-root DIR...] [options]

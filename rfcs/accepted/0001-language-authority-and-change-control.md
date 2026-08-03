@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-07-31
-Supersedes: Authority and governance decisions dated 2026-03-03 and 2026-07-31.
+Supersedes: Pre-RFC authority and governance decisions recorded on 2026-03-03 and earlier on 2026-07-31.
 
 ## Decision
 
@@ -69,3 +69,5 @@ without claiming that acceptance alone implements it.
   normative sources.
 - Historical plans and execution logs can be deleted once their durable
   decisions and still-open work have proper owners.
+- This RFC does not authorize a semantic change on the strength of a roadmap
+  entry, accepted plan, or implementation artifact alone.

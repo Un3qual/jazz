@@ -4,8 +4,6 @@ description: Learn Jazz source units, statement terminators, comments, and block
 sidebar_position: 2
 ---
 
-# Source and blocks
-
 A Jazz source unit contains either ordinary top-level forms or one
 brace-bodied module declaration. Ordinary signatures, bindings, imports, data
 declarations, `class` and `impl` declarations, operator declarations,

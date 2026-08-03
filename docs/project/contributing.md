@@ -4,8 +4,6 @@ description: Build, test, document, and propose changes to the Jazz language and
 sidebar_position: 4
 ---
 
-# Contributing
-
 Jazz welcomes focused compiler, runtime, standard-library, tooling, and
 documentation contributions. Start by reading the [status](status.md),
 [roadmap](roadmap.md), and [governance](governance.md).

@@ -4,8 +4,6 @@ description: Define, type-check, and run a recursive factorial function in Jazz.
 sidebar_position: 3
 ---
 
-# Your first program
-
 This checked example declares a signature, defines a recursive function with
 ordered pattern clauses, and evaluates it.
 

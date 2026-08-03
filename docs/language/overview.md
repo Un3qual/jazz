@@ -4,8 +4,6 @@ description: Understand the implemented Jazz programming model and its current b
 sidebar_position: 1
 ---
 
-# Language overview
-
 Jazz programs are expression-oriented and statically typed. Source units
 contain period-terminated signatures, bindings, declarations, imports, and
 expressions. Functions are curried internally, while tuple-style lambda

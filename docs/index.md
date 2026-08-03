@@ -4,8 +4,6 @@ description: Learn the Jazz language, command-line tools, standard library, and 
 sidebar_position: 1
 ---
 
-# Jazz documentation
-
 Jazz is an experimental, statically typed functional language with practical
 syntax. The current toolchain includes a parser, analyzer, type checker,
 interpreter, module loader, standard library, diagnostics, and command-line

@@ -4,8 +4,6 @@ description: Survey the bundled Prelude and explicit-import Jazz library modules
 sidebar_position: 1
 ---
 
-# Standard library
-
 The bundled [Prelude](prelude.md) loads automatically unless the CLI uses
 `--no-prelude`. Other modules require an explicit import.
 

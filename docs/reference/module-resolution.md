@@ -4,8 +4,6 @@ description: Reference module-to-file mapping, graph traversal, imports, exports
 sidebar_position: 3
 ---
 
-# Module resolution
-
 `A::B` maps to `A/B.jz` below each ordered module root. Candidate paths are
 lexically normalized and deduplicated while preserving root order. Zero
 matches produce `E4001`; more than one distinct match produces `E4002`.
@@ -26,11 +24,12 @@ must match the requested module path.
 - `import A::B.` exposes public values, constructors, type identities, and
   capabilities unqualified.
 - `import A::B (x, y).` exposes only selected eligible names.
-- `import A::B as Alias.` exposes public values and constructors only through
-  `Alias::name`.
+- `import A::B as Alias.` exposes public values, constructors, and type
+  identities only through `Alias::name`.
 
-Aliases and symbol lists are mutually exclusive. Import collision and
-visibility diagnostics occupy `E4007` through `E4014`. Module export-list
+Aliases and symbol lists are mutually exclusive. User-facing import collision
+and visibility diagnostics use `E4007`–`E4009` and `E4011`–`E4014`; `E4010`
+reports an internal missing-dependency-inventory invariant. Module export-list
 validation uses `E4015`; invalid entry paths use `E4016`.
 
 Module header lists are allowlists. Typed selectors include `value name`,

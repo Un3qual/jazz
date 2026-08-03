@@ -4,8 +4,6 @@ description: Compile files, run programs, load module graphs, and select warning
 sidebar_position: 4
 ---
 
-# Command-line essentials
-
 Use one positional source file for standalone mode:
 
 ```bash

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # Contract regexes must remain literal.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -106,7 +107,7 @@ require_pattern ".codex/execution/blocker-contracts.md" "hosted compiler RFC" 'r
 require_pattern ".codex/execution/blocker-contracts.md" "typed-core RFC" 'rfcs/accepted/0005-typed-core-elaboration\.md'
 require_pattern ".codex/execution/blocker-contracts.md" "lowered IR RFC" 'rfcs/accepted/0006-lowered-ir-contract\.md'
 
-if rg -n -e 'docs/(feature-status\.md|spec/|jazz-language-state\.md|jazz-improvement-backlog\.md|superpowers/|plans/)' .codex/execution --glob '*.md' >/dev/null 2>&1; then
+if rg -n -e 'docs/(execution/|feature-status\.md|spec/|jazz-language-state\.md|jazz-improvement-backlog\.md|superpowers/|plans/)' .codex/execution --glob '*.md' >/dev/null 2>&1; then
   fail ".codex/execution contains a live reference to a deleted documentation owner"
 fi
 

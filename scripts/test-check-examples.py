@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Behavior tests for the executable-example runner."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+
+CHECKER = Path(__file__).with_name("check-examples.py")
+
+
+class ExampleRunnerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        (self.root / "examples").mkdir()
+        (self.root / "scripts").mkdir()
+        (self.root / "examples/hello.jz").write_text('"Hello".\n', encoding="utf-8")
+        self.write_cases(
+            "hello\texamples/hello.jz\t\"Hello\"\t--run examples/hello.jz\n"
+        )
+        self.jazz_bin = self.root / "fake-jazz"
+        self.write_fake_jazz("print('\"Hello\"')")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def write_cases(self, rows: str) -> None:
+        (self.root / "scripts/example-cases.tsv").write_text(
+            "name\tsources\texpected\targs\n" + rows,
+            encoding="utf-8",
+        )
+
+    def write_fake_jazz(self, body: str) -> None:
+        self.jazz_bin.write_text(
+            "#!/usr/bin/env python3\nimport os\nimport sys\nimport time\n" + body + "\n",
+            encoding="utf-8",
+        )
+        self.jazz_bin.chmod(0o755)
+
+    def run_checker(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        timeout_seconds: str = "1",
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(CHECKER),
+                str(self.root),
+                "--jazz-bin",
+                str(self.jazz_bin),
+                "--timeout-seconds",
+                timeout_seconds,
+            ],
+            cwd=cwd,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_runs_manifest_case_from_outside_the_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as outside:
+            result = self.run_checker(cwd=Path(outside))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("PASS: hello", result.stdout)
+
+    def test_rejects_source_that_is_not_selected_by_run_arguments(self) -> None:
+        (self.root / "examples/extra.jz").write_text("0.\n", encoding="utf-8")
+        self.write_cases(
+            "hello\texamples/hello.jz,examples/extra.jz\t\"Hello\"\t"
+            "--run examples/hello.jz\n"
+        )
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--run source does not match declared sources", result.stderr)
+
+    def test_clears_cli_environment_overrides(self) -> None:
+        self.write_fake_jazz(
+            "names = ('JAZZ_PRELUDE', 'JAZZ_WARNING_FLAGS', "
+            "'JAZZ_WARNING_ERROR_FLAGS', 'JAZZ_WARNING_CONFIG')\n"
+            "present = [name for name in names if name in os.environ]\n"
+            "if present:\n"
+            "    print(','.join(present), file=sys.stderr)\n"
+            "    raise SystemExit(9)\n"
+            "print('\"Hello\"')"
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "JAZZ_PRELUDE": "other.jz",
+                "JAZZ_WARNING_FLAGS": "-unused-binding",
+                "JAZZ_WARNING_ERROR_FLAGS": "-unused-binding",
+                "JAZZ_WARNING_CONFIG": "warnings.txt",
+            }
+        )
+        result = self.run_checker(env=env)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_times_out_non_terminating_example(self) -> None:
+        self.write_fake_jazz("time.sleep(5)\nprint('\"Hello\"')")
+        started = time.monotonic()
+        result = self.run_checker(timeout_seconds="0.05")
+        elapsed = time.monotonic() - started
+        self.assertNotEqual(0, result.returncode)
+        self.assertLess(elapsed, 2)
+        self.assertIn("FAIL: hello timed out after 0.05 seconds", result.stderr)
+
+    def test_module_sources_must_be_reachable_from_entry_module(self) -> None:
+        module_root = self.root / "examples/modules"
+        (module_root / "Example").mkdir(parents=True)
+        (module_root / "Example/Main.jz").write_text(
+            "module Example::Main {\n  0.\n}\n", encoding="utf-8"
+        )
+        (module_root / "Example/Unused.jz").write_text(
+            "module Example::Unused {\n  1.\n}\n", encoding="utf-8"
+        )
+        self.write_cases(
+            "module\texamples/modules/Example/Main.jz,"
+            "examples/modules/Example/Unused.jz\t0\t"
+            "--run --entry-module Example::Main --module-root examples/modules\n"
+        )
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "declared module sources are not reachable from --entry-module",
+            result.stderr,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

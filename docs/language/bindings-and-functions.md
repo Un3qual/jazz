@@ -4,8 +4,6 @@ description: Define values, write lambdas, use partial application, and express 
 sidebar_position: 3
 ---
 
-# Bindings and functions
-
 A binding associates a name with an expression. Signatures are separate,
 period-terminated statements and must agree with the inferred type. A
 signature must immediately precede the binding with the same name; an

@@ -4,8 +4,6 @@ description: Use total list access, transformation, folds, grouping, and stable 
 sidebar_position: 3
 ---
 
-# List
-
 Import `List` for the full `[a]` API. Empty or out-of-range queries use
 `Maybe`; negative counts clamp to zero; `listAny []` is `False`; and
 `listAll []` is `True`. Transformations preserve input order.
@@ -34,7 +32,7 @@ Fragment:
 
 ```jazz
 import List.
-listMap (\(item) -> item * 2) [1, 2, 3].
+listMap (\\(item) -> item * 2) [1, 2, 3].
 ```
 
 Use [Maybe and Result](maybe-result-nonempty.md) to handle total queries.

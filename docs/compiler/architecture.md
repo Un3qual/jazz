@@ -4,8 +4,6 @@ description: Understand the active Jazz compiler, runtime, module, and hosted-so
 sidebar_position: 1
 ---
 
-# Compiler architecture
-
 Jazz is currently a Haskell compiler and interpreter with an increasing body of
 Jazz-authored compiler code. The Cabal package exposes a `jazz` executable; its
 Haskell implementation library is private and is not a supported embedding API.

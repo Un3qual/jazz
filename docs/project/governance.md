@@ -4,8 +4,6 @@ description: Understand Jazz language authority, semantic change control, and do
 sidebar_position: 3
 ---
 
-# Governance
-
 Jazz resolves conflicting claims in this order:
 
 1. curated public language and reference documentation;
@@ -19,10 +17,11 @@ surface is labeled `Partial`; future work is labeled `Planned` and belongs on
 the roadmap rather than in executable examples.
 
 Semantic language changes require a reviewed decision record before
-implementation. A proposal must define motivation, accepted syntax and
-semantics, compatibility, diagnostics, alternatives, consequences, and a
-verification plan. Acceptance does not make unfinished behavior public; code,
-tests, and documentation must land together before the language guide changes.
+implementation. A proposal must state its decision, context, consequences, and
+explicit non-goals. Record motivation and, where the change requires them,
+compatibility, diagnostics, alternatives, and verification evidence. Acceptance
+does not make unfinished behavior public; code, tests, and documentation must
+land together before the language guide changes.
 
 Non-semantic compiler refactors may proceed without a language decision when
 they preserve observable behavior. Changes to stable diagnostic codes, module

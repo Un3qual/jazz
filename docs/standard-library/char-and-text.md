@@ -4,8 +4,6 @@ description: Work with Unicode scalars and immutable scalar-indexed text.
 sidebar_position: 8
 ---
 
-# Char and Text
-
 `Char` is one Unicode scalar. `Text` is an immutable sequence of Unicode
 scalars. Neither exposes bytes or UTF-16 code units, and operations do not
 implicitly normalize or apply locale-sensitive rules.
@@ -34,10 +32,12 @@ Splitting and cleanup use `textSplit`, `textLines`, `textWords`,
 `textReplaceAll`, `textTrim`, `textTrimStart`, `textTrimEnd`, `textPadLeft`,
 and `textPadRight`.
 
-Indices and widths count scalars. Negative indices return `Nothing`; negative
-counts clamp to zero. Empty needles match at zero. Splitting on an empty
-delimiter yields one text value per scalar; replacing an empty needle leaves
-the input unchanged. Search and replacement are left-to-right and non-overlapping.
+Indices and widths count scalars. `textAt` returns `Nothing` for a negative
+index. Negative counts clamp to zero, and a negative `textDrop` or `textSlice`
+start clamps to the beginning. Empty needles match at zero. Splitting on an
+empty delimiter yields one text value per scalar; replacing an empty needle
+leaves the input unchanged. Search and replacement are left-to-right and
+non-overlapping.
 
 `textIsEmpty` and `textUncons` are constant-time at the API boundary. Indexing,
 slicing, conversion to characters, reversal, and other traversal are `O(n)`

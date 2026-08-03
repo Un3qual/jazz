@@ -4,8 +4,6 @@ description: Use conditionals, ordered cases, guards, and pattern lambdas.
 sidebar_position: 6
 ---
 
-# Control flow
-
 ## Conditionals
 
 Jazz conditionals are expressions:

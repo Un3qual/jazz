@@ -4,8 +4,6 @@ description: Follow the current name-based purity contract for effectful Jazz fu
 sidebar_position: 10
 ---
 
-# Purity
-
 The current purity model is intentionally small. A name ending in `!` is
 impure; every other binding name is pure by default.
 

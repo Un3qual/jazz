@@ -4,8 +4,6 @@ description: Reference Jazz tokens, identifiers, literals, comments, escapes, an
 sidebar_position: 1
 ---
 
-# Lexical grammar
-
 ## Whitespace and comments
 
 Unicode whitespace separates tokens. `#` starts a comment that continues to

@@ -4,8 +4,6 @@ description: Use a persistent first-in, first-out queue with amortized constant-
 sidebar_position: 6
 ---
 
-# Queue
-
 `Queue(a)` is an abstract persistent FIFO queue. `queueEnqueue` adds at the
 rear; `queuePeek` and `queueDequeue` observe the oldest value. Empty
 observations return `Nothing`, and older queue values remain valid.

@@ -4,8 +4,6 @@ description: Review the undated Jazz horizons for language completion, self-host
 sidebar_position: 2
 ---
 
-# Roadmap
-
 The roadmap names direction, not release promises. Semantic work moves into the
 public language only after design review, implementation, tests, and matching
 documentation.
