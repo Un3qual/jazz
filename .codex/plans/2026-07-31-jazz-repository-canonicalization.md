@@ -61,18 +61,25 @@
 - [ ] Check whether the archive tag already exists locally or remotely and fail closed on any mismatched peeled object:
 
   ```bash
+  set -euo pipefail
   tag=archive/pre-root-canonicalization-2026-07-31
-  local_tag_object="$(git rev-parse "$tag" 2>/dev/null || true)"
-  local_archive_commit="$(git rev-parse "$tag^{}" 2>/dev/null || true)"
-  remote_tag_object="$(git ls-remote --tags origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
-  remote_archive_commit="$(git ls-remote --tags origin "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
-  test -z "$local_tag_object" || test "$(git cat-file -t "$tag")" = tag
+  local_tag_object=
+  local_archive_commit=
+  if git show-ref --verify --quiet "refs/tags/$tag"; then
+    local_tag_object="$(git rev-parse "refs/tags/$tag")"
+    local_archive_commit="$(git rev-parse "$tag^{}")"
+    test "$(git cat-file -t "refs/tags/$tag")" = tag
+  fi
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_tag_object="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag" '$2 == ref { print $1 }')"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
   test -z "$local_archive_commit" || test "$local_archive_commit" = "$archive_commit"
   test -z "$remote_tag_object" || test -n "$remote_archive_commit"
+  test -n "$remote_tag_object" || test -z "$remote_archive_commit"
   test -z "$remote_archive_commit" || test "$remote_archive_commit" = "$archive_commit"
   ```
 
-  Expected: an absent tag is safe to create; an existing local or remote tag is safe only when its peeled object equals `$archive_commit`. Any mismatch aborts the migration.
+  Expected: an absent tag is safe to create; an existing local or remote tag is safe only when it is annotated and its peeled object equals `$archive_commit`. The single `ls-remote` call must succeed and the exact-ref parsing must distinguish the tag object from its returned `^{}` line; lookup errors and mismatches abort the migration.
 
 - [ ] If the local tag is absent, either fetch the matching remote annotated tag or create it when both sides are absent. Then inspect it:
 
@@ -94,13 +101,14 @@
   if test -z "$remote_tag_object"; then
     git push origin "refs/tags/$tag"
   fi
-  remote_archive_commit="$(git ls-remote --tags origin "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
   test "$remote_archive_commit" = "$archive_commit"
   ```
 
   Expected: the remote contains the annotated tag and its peeled object equals `$archive_commit`.
 
-- [ ] Save the pre-migration baseline outputs in the task notes, not in the repository:
+- [ ] Save `$archive_commit` and the pre-migration baseline outputs in the task notes and pull-request description, not in the repository. Record the commit independently before closing the shell; later verification must compare the tags to this recorded value rather than deriving the expected value from a tag under test:
 
   ```bash
   nix develop --command cabal build --project-dir=jazz-next all
@@ -332,7 +340,11 @@
 - [ ] Audit non-historical tracked files for obsolete identity:
 
   ```bash
-  if rg -n "jazz-next|JazzNext|Paths_jazz_next|jazz-hs|jazz2" --glob '!docs/plans/**' --glob '!docs/superpowers/**' --glob '!.codex/plans/**' .; then
+  if git grep -n -E "jazz-next|JazzNext|Paths_jazz_next|jazz-hs|jazz2" -- \
+    . \
+    ':(exclude)docs/plans/**' \
+    ':(exclude)docs/superpowers/**' \
+    ':(exclude).codex/plans/**'; then
     exit 1
   else
     test "$?" -eq 1
@@ -462,13 +474,18 @@
 - [ ] Verify the archive tag one last time:
 
   ```bash
-  archive_commit="$(git rev-parse archive/pre-root-canonicalization-2026-07-31^{})"
-  remote_archive_commit="$(git ls-remote --tags origin refs/tags/archive/pre-root-canonicalization-2026-07-31^{} | awk 'NR == 1 { print $1 }')"
+  set -euo pipefail
+  tag=archive/pre-root-canonicalization-2026-07-31
+  : "${recorded_archive_commit:?copy the exact Task 1 commit from the task or PR record}"
+  local_archive_commit="$(git rev-parse "$tag^{}")"
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
   test -n "$remote_archive_commit"
-  test "$remote_archive_commit" = "$archive_commit"
+  test "$local_archive_commit" = "$recorded_archive_commit"
+  test "$remote_archive_commit" = "$recorded_archive_commit"
   ```
 
-  Expected: local and remote peeled objects match the recorded pre-migration commit.
+  Expected: `recorded_archive_commit == local peeled tag == remote peeled tag`; the expected commit comes from the independent Task 1 record, and any lookup failure aborts verification.
 
 - [ ] Push `codex/repository-canonicalization` and open a dedicated pull request. The PR description must include the archive tag, ordinary and extended verification results, and a statement that compiler semantics are unchanged.
 

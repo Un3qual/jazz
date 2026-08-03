@@ -12,7 +12,7 @@
 
 - Execute on `codex/project-operations`, based on the merged Docusaurus workstream.
 - The repository-canonicalization workstream is therefore already merged: root `jazz.cabal`, `cabal.project`, `src/`, `jazz/`, and the `.#jazz` Nix package are prerequisites, not artifacts introduced by this plan.
-- The fast pull-request tier must not invoke `cabal bench`, `jazz-bench`, `full-parser-scale`, either profiling Cabal project, or the complete `program-corpus-spec` workload.
+- The fast pull-request tier must not invoke `cabal bench`, `jazz-bench`, enable `full-parser-scale`, use either profiling Cabal project, or run the complete `program-corpus-spec` workload.
 - The pull-request target is ten minutes or less. Use focused tests and safe caches; do not raise the expected duration to normalize a slow suite.
 - The default `main` tier runs every ordinary Cabal suite but excludes the opt-in complete program corpus, manual exhaustive-scale flags, profiling builds, and benchmarks.
 - Only weekly/manual extended and release workflows may run exhaustive parser scale, the complete performance corpus, profiling builds, or benchmarks.
@@ -34,6 +34,8 @@
 - Create: `scripts/ci/extended.sh`
 - Create: `scripts/ci/release-candidate.sh`
 - Create: `scripts/ci/determinism.sh`
+- Create: `scripts/ci/verify-benchmark-artifacts.py`
+- Create: `scripts/ci/test-verify-benchmark-artifacts.py`
 - Create: `scripts/check-ci-policy.py`
 - Create: `scripts/test-check-ci-policy.py`
 - Modify: `jazz.cabal`
@@ -41,8 +43,8 @@
 - [ ] Write standard-library Python fixture tests that enforce:
 
   - the fast script contains a warning-clean build, repository audit, focused compiler/runtime/module/stdlib/CLI/contract tests, and example smoke checks;
-  - the fast script rejects `cabal bench`, `jazz-bench`, `full-parser-scale`, `profile-hotspots`, `profile-stages`, and `program-corpus-spec`;
-  - the main script contains `cabal test all` with the manual complete-corpus flag disabled and rejects benchmark, profiling, full-scale, and direct `program-corpus-spec` tokens;
+  - the fast script rejects `cabal bench`, `jazz-bench`, positive `full-parser-scale` forms such as `-ffull-parser-scale` or `--flags=+full-parser-scale`, `profile-hotspots`, `profile-stages`, and `program-corpus-spec`, while requiring the negative `-f-full-parser-scale` form;
+  - the main script contains `cabal test all` with both manual full-workload flags explicitly disabled and rejects benchmark, profiling, positive full-scale forms, and direct `program-corpus-spec` tokens;
   - the extended script contains all four full parser-scale components, `program-corpus-spec`, both profiling projects, `jazz-bench`, determinism checks, and artifact directories;
   - the release script invokes ordinary, extended, package, Nix, docs, site, and artifact validation; and
   - PR workflows cannot directly bypass the scripts with an inlined long command.
@@ -57,23 +59,27 @@
 
 - [ ] Implement `scripts/check-ci-policy.py` with deterministic violations and an optional fixture-root argument.
 
-- [ ] Add a manual Cabal flag `full-program-corpus`, defaulting to `False`, and make `program-corpus-spec` buildable only when it is enabled. Implement `scripts/ci/fast-compiler.sh` with `set -euo pipefail` and these exact operations; pass `-fdevelopment -f-full-program-corpus` to both build and test so warning enforcement and corpus exclusion are explicit even outside the checked-in Cabal project:
+- [ ] Add a manual Cabal flag `full-program-corpus`, defaulting to `False`, and make `program-corpus-spec` buildable only when it is enabled. Implement `scripts/ci/fast-compiler.sh` with `set -euo pipefail` and these exact operations; pass `-fdevelopment -f-full-program-corpus -f-full-parser-scale` to both build and test so warning enforcement and both long-workload exclusions are explicit even outside the checked-in Cabal project:
 
-  ```text
-  cabal build all -fdevelopment -f-full-program-corpus
-  cabal test -fdevelopment -f-full-program-corpus
-             cli-spec runtime-observation-spec warning-config-spec
-             structured-error-diagnostics-spec diagnostic-catalog-spec
-             signature-rendering-spec loader-spec module-resolution-spec
-             module-exports-spec module-pipeline-contract-spec
-             prelude-loading-spec stdlib-spec canonical-lexer-comparison-spec
-             canonical-parser-comparison-spec canonical-core-comparison-spec
-             jazz-lowered-ir-contract-spec jazz-typed-core-contract-spec
-             jazz-typed-core-expression-direct-call-spec parser-core-spec
-             jazz-parser-parity-spec jazz-parser-scale-spec
-             jazz-lexer-parity-spec parser-foundation-spec
-             binding-signature-coherence-spec purity-semantics-spec
-             runtime-semantics-spec repository-audit-spec
+  ```bash
+  test_components=(
+    cli-spec runtime-observation-spec warning-config-spec
+    structured-error-diagnostics-spec diagnostic-catalog-spec
+    signature-rendering-spec loader-spec module-resolution-spec
+    module-exports-spec module-pipeline-contract-spec
+    prelude-loading-spec stdlib-spec canonical-lexer-comparison-spec
+    canonical-parser-comparison-spec canonical-core-comparison-spec
+    jazz-lowered-ir-contract-spec jazz-typed-core-contract-spec
+    jazz-typed-core-expression-direct-call-spec parser-core-spec
+    jazz-parser-parity-spec jazz-parser-scale-spec
+    jazz-lexer-parity-spec parser-foundation-spec
+    binding-signature-coherence-spec purity-semantics-spec
+    runtime-semantics-spec repository-audit-spec
+  )
+  cabal build all -fdevelopment -f-full-program-corpus -f-full-parser-scale
+  cabal test "${test_components[@]}" \
+    -fdevelopment -f-full-program-corpus -f-full-parser-scale \
+    --test-show-details=direct
   cabal check
   bash scripts/check-examples.sh
   git diff --check
@@ -81,23 +87,26 @@
 
   Use a Bash array for test component names and `--test-show-details=direct`. Do not add the complete program corpus or any benchmark/profiling component when tuning this list.
 
-- [ ] Implement `scripts/ci/main-functional.sh` to run warning-clean `cabal build all -fdevelopment -f-full-program-corpus`, `cabal test all -fdevelopment -f-full-program-corpus --test-show-details=direct`, `cabal check`, repository/docs/queue/example validators, `nix flake check`, and `git diff --check`. Do not enable `full-parser-scale` or `full-program-corpus`.
+- [ ] Implement `scripts/ci/main-functional.sh` to run warning-clean `cabal build all -fdevelopment -f-full-program-corpus -f-full-parser-scale`, `cabal test all -fdevelopment -f-full-program-corpus -f-full-parser-scale --test-show-details=direct`, `cabal check`, repository/docs/queue/example validators, `nix flake check`, and `git diff --check`. Keep both manual workloads explicitly disabled even when a caller has a permissive Cabal project or local configuration.
 
 - [ ] Implement `scripts/ci/determinism.sh` to run `examples/functions/factorial.jz` twice with `--runtime-stats=json` and twice with separate Speedscope output paths, then compare stdout, stderr, and profile bytes with `cmp`. Write artifacts only below a caller-provided `JAZZ_ARTIFACT_ROOT`, defaulting to `artifacts/determinism`.
 
+- [ ] Write fixtures for `scripts/ci/verify-benchmark-artifacts.py`, then implement it with standard-library Python. Given the generated benchmark root and expected environment label, require exactly one labeled run directory, a nonempty `environment.json` object with the expected schema, label, and matching run id, plus a `results.csv` with the exact required header and at least one data row. The verifier must read the just-generated files, not only exercise fixed metadata values in `benchmark-metadata-spec`.
+
 - [ ] Implement `scripts/ci/extended.sh` to:
 
-  1. run all tests with `-ffull-parser-scale -ffull-program-corpus`, including the four explicitly named full parser-scale suites and the first complete corpus execution;
-  2. run `program-corpus-spec -ffull-program-corpus` a second time and require both complete corpus executions to pass;
-  3. run `scripts/ci/determinism.sh`;
-  4. build `cabal.project.profile-stages` and `cabal.project.profile-hotspots`;
-  5. run `cabal bench jazz-bench` with an environment label supplied by `JAZZ_BENCHMARK_LABEL` and result root below `JAZZ_ARTIFACT_ROOT`;
-  6. validate generated benchmark metadata with `benchmark-metadata-spec`; and
-  7. emit `JAZZ_ARTIFACT_ROOT/manifest.json` with schema `{ "schema_version": 1, "artifacts": [{ "path": <normalized POSIX-relative path>, "sha256": <lowercase hex> }] }`. Hash every regular evidence file below the artifact root, exclude the manifest itself, sort entries by normalized path, reject paths outside the root, and require the verifier to enforce the same contract. Release-level `SHA256SUMS` separately hashes the four final archives, excludes itself, and is the only release-directory checksum authority.
+  1. create and validate `JAZZ_ARTIFACT_ROOT` before any workload, then install an `EXIT` finalizer that preserves the original exit status and always writes the manifest from all regular evidence files produced so far, excluding the manifest itself; a finalizer failure changes a successful run to failure but never hides an earlier workload failure;
+  2. run all tests with `-ffull-parser-scale -ffull-program-corpus`, including the four explicitly named full parser-scale suites and the first complete corpus execution, with a temporary Cabal test log;
+  3. run `program-corpus-spec -ffull-program-corpus` a second time with a separate test log, normalize only the stable per-program results and terminal success marker into `corpus/pass-one.txt` and `corpus/pass-two.txt`, require both files to be nonempty and byte-identical, and leave both below `JAZZ_ARTIFACT_ROOT`;
+  4. run `scripts/ci/determinism.sh`;
+  5. build `cabal.project.profile-stages` and `cabal.project.profile-hotspots`;
+  6. run `cabal bench jazz-bench` with an environment label supplied by `JAZZ_BENCHMARK_LABEL` and result root below `JAZZ_ARTIFACT_ROOT`;
+  7. validate the generated run directory with `scripts/ci/verify-benchmark-artifacts.py`, then run `benchmark-metadata-spec` for its unit-level contract coverage; and
+  8. let the unconditional finalizer emit `JAZZ_ARTIFACT_ROOT/manifest.json` with schema `{ "schema_version": 1, "artifacts": [{ "path": <normalized POSIX-relative path>, "sha256": <lowercase hex> }] }`. Hash every available regular evidence file below the artifact root, exclude the manifest itself, sort entries by normalized path, reject paths outside the root, and require release validation to enforce the same contract plus the complete required evidence set on successful runs. Release-level `SHA256SUMS` separately hashes the four final archives, excludes itself, and is the only release-directory checksum authority.
 
   Do not compare timing values to a threshold.
 
-- [ ] Implement `scripts/ci/release-candidate.sh` to invoke the main and extended scripts, install and build the website, run `cabal sdist all`, run `nix build .#jazz`, and validate that all prerequisite outputs exist. Accept `JAZZ_RELEASE_VERSION` and fail if it is absent or not shaped like `0.<minor>.<patch>-alpha.<n>`. Final archive naming and checksums remain owned by `scripts/release/build-alpha.sh` in Task 7, so the two scripts cannot recurse into one another.
+- [ ] Implement `scripts/ci/release-candidate.sh` to invoke the main and extended scripts, install and build the website, run `cabal sdist all`, run `nix build .#jazz` with a caller-owned `JAZZ_NIX_RESULT` out-link, and validate that all prerequisite outputs exist. Accept `JAZZ_RELEASE_VERSION` and fail if it is absent or not shaped like `0.<minor>.<patch>-alpha.<n>`. Accept one caller-owned `JAZZ_ARTIFACT_ROOT` (or establish a version-scoped default), export that exact path unchanged to `extended.sh`, and leave it intact for `build-alpha.sh`; the candidate must not delete or replace it before the alpha builder archives it. Final archive naming, cleanup, and checksums remain owned by `scripts/release/build-alpha.sh`, so the two scripts cannot recurse into one another.
 
 - [ ] Run the policy tests and static checker:
 
@@ -161,7 +170,7 @@
   ```bash
   python3 -m unittest scripts/test-check-ci-policy.py
   python3 scripts/check-ci-policy.py
-  if rg -n "cabal bench|jazz-bench|full-parser-scale|profile-hotspots|profile-stages|program-corpus-spec" .github/workflows/ci-pr.yml scripts/ci/fast-compiler.sh; then
+  if rg -n -e 'cabal bench|jazz-bench|-ffull-parser-scale|--flags=\+full-parser-scale|-ffull-program-corpus|--flags=\+full-program-corpus|profile-hotspots|profile-stages|program-corpus-spec' .github/workflows/ci-pr.yml scripts/ci/fast-compiler.sh; then
     exit 1
   else
     test "$?" -eq 1
@@ -230,7 +239,7 @@
 
   Then run `nix develop --command bash scripts/ci/extended.sh`.
 
-- [ ] Upload `artifacts/extended/` with SHA-pinned `actions/upload-artifact`, `if: always()`, a 30-day retention, and `if-no-files-found: error`. The artifact must include benchmark CSV/environment JSON, deterministic profiles, normalized corpus outputs, and the SHA-256 manifest.
+- [ ] Upload `artifacts/extended/` with SHA-pinned `actions/upload-artifact`, `if: always()`, a 30-day retention, and `if-no-files-found: error`. The artifact must include every available failure diagnostic plus the unconditional SHA-256 manifest; successful runs must additionally include benchmark CSV/environment JSON, deterministic profiles, and normalized corpus outputs. Add a policy fixture that fails before the first workload and still proves the finalizer creates an uploadable manifest without masking the original failure.
 
 - [ ] Add a step summary that reports completion state and artifact paths. It may list benchmark observations but must not classify percentage timing changes as pass/fail.
 
@@ -401,7 +410,7 @@
 
   Expected: the build succeeds, the canonical Jazz CLI help is printed, and the trap removes the temporary result root. Release scripts must use the same trapped-temporary out-link lifecycle.
 
-- [ ] Write fixture tests for artifact verification covering missing files, duplicate manifest entries, incorrect SHA-256 hashes, unexpected filenames, and a valid alpha artifact set.
+- [ ] Write fixture tests for artifact verification covering missing files, duplicate manifest entries, incorrect SHA-256 hashes, unexpected filenames, unsafe or duplicate archive members, symlink members, a Nix archive without its executable/runtime closure, and a valid alpha artifact set.
 
 - [ ] Implement `scripts/release/verify-artifacts.py` to require exactly:
 
@@ -413,9 +422,9 @@
   SHA256SUMS
   ```
 
-  It must validate names, nonempty archives, hashes, source-distribution exclusions, the static docs index, benchmark metadata, and artifact manifest.
+  It must validate names and hashes, safely enumerate every gzip-tar member, reject absolute/traversal/duplicate/symlink/special members, and inspect the expected contents rather than treating a nonempty archive as valid. Require the source package root and `jazz.cabal`, the static docs `index.html`, the complete benchmark evidence set and manifest, and a self-contained Nix runtime closure whose recorded root can be imported and queried from a temporary local store.
 
-- [ ] Implement `scripts/release/build-alpha.sh` to require `git status --porcelain=v1 --untracked-files=all` to be empty and require `JAZZ_RELEASE_VERSION`. Create a trapped temporary work root, pass an explicit temporary `--out-link` path to the Nix build, run `scripts/ci/release-candidate.sh`, create the Cabal source archive, archive the Nix result for the current system, archive `website/build`, archive extended evidence, write sorted `SHA256SUMS`, and run the verifier. Atomically move the verified set under `artifacts/release/<version>/`; cleanup must remove the temporary Nix result on success or failure.
+- [ ] Implement `scripts/release/build-alpha.sh` to require `git status --porcelain=v1 --untracked-files=all` to be empty and require `JAZZ_RELEASE_VERSION`. Create a trapped temporary work root and define one evidence root within it; pass that exact `JAZZ_ARTIFACT_ROOT` and an explicit temporary Nix `--out-link` path through `scripts/ci/release-candidate.sh`. Do not put the out-link symlink into a tarball. Enumerate the Nix result's runtime requisites, export a self-contained closure plus root-store-path/system metadata into a regular-file staging tree, and archive that materialized tree. Archive the Cabal source, `website/build`, and the still-live shared evidence root, write sorted `SHA256SUMS`, and run the member-aware verifier. Atomically move the verified set under `artifacts/release/<version>/`; cleanup owns the temporary Nix result and evidence root on success or failure and runs only after the evidence archive is complete.
 
 - [ ] Write honest release notes for `0.1.0-alpha.1` covering implemented language/compiler/library/CLI behavior, known limitations, experimental compatibility, installation via Nix/source, website/docs, and checksum verification. Do not claim a native backend, package manager, LSP, production stability, or completed self-hosting.
 
@@ -425,25 +434,34 @@
 
 - [ ] Extend CI-policy checks so release workflow invokes the release script, contains all release gates, has no publication permission, and cannot skip benchmark completion.
 
-- [ ] Run focused release tooling tests and one local candidate build:
+- [ ] Run focused release tooling tests and static policy validation before the clean-tree gate:
 
   ```bash
   python3 -m unittest scripts/release/test-verify-artifacts.py
+  python3 -m unittest scripts/ci/test-verify-benchmark-artifacts.py
   python3 scripts/check-ci-policy.py
-  JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
-  python3 scripts/release/verify-artifacts.py artifacts/release/0.1.0-alpha.1
+  git diff --check
   ```
 
-  Expected: the complete release candidate passes and all exact artifacts verify. Benchmark timing is included as evidence but is not thresholded.
+  Expected: focused verifier and policy fixtures pass while the implementation is still uncommitted.
 
-- [ ] Confirm generated release files are ignored and commit only scripts, notes, workflow, and Nix changes:
+- [ ] Commit only the release scripts, tests, notes, workflow, and Nix changes before invoking the clean-tree release builder:
 
   ```bash
-  test -z "$(git status --porcelain=v1 --untracked-files=all)"
-  git diff --check
   git add -A
   git commit -m "release: prepare Jazz alpha artifacts"
   ```
+
+- [ ] Run one local candidate from that clean commit and verify the exact final set:
+
+  ```bash
+  test -z "$(git status --porcelain=v1 --untracked-files=all)"
+  JAZZ_RELEASE_VERSION=0.1.0-alpha.1 bash scripts/release/build-alpha.sh
+  python3 scripts/release/verify-artifacts.py artifacts/release/0.1.0-alpha.1
+  test -z "$(git status --porcelain=v1 --untracked-files=all)"
+  ```
+
+  Expected: the complete release candidate passes, all exact artifacts and archive members verify, generated release files remain ignored, and the builder leaves the worktree clean. If the audit requires a tooling correction, commit that correction separately and rerun the candidate from the new clean commit.
 
 ## Task 8: Measure CI scope and finish the operations workstream
 
@@ -465,12 +483,12 @@
 
   ```bash
   python3 scripts/check-ci-policy.py
-  if rg -n "cabal bench|jazz-bench|full-parser-scale|profile-hotspots|profile-stages|program-corpus-spec" .github/workflows/ci-pr.yml scripts/ci/fast-compiler.sh; then
+  if rg -n -e 'cabal bench|jazz-bench|-ffull-parser-scale|--flags=\+full-parser-scale|-ffull-program-corpus|--flags=\+full-program-corpus|profile-hotspots|profile-stages|program-corpus-spec' .github/workflows/ci-pr.yml scripts/ci/fast-compiler.sh; then
     exit 1
   else
     test "$?" -eq 1
   fi
-  if rg -n "cabal bench|jazz-bench|full-parser-scale|profile-hotspots|profile-stages|program-corpus-spec|ffull-program-corpus" .github/workflows/ci-main.yml scripts/ci/main-functional.sh; then
+  if rg -n -e 'cabal bench|jazz-bench|-ffull-parser-scale|--flags=\+full-parser-scale|-ffull-program-corpus|--flags=\+full-program-corpus|profile-hotspots|profile-stages|program-corpus-spec' .github/workflows/ci-main.yml scripts/ci/main-functional.sh; then
     exit 1
   else
     test "$?" -eq 1
@@ -485,7 +503,7 @@
   nix develop --command bash scripts/ci/main-functional.sh
   npm --prefix website ci
   bash scripts/check-website.sh
-  python3 -m unittest scripts/test-check-ci-policy.py scripts/release/test-verify-artifacts.py
+  python3 -m unittest scripts/test-check-ci-policy.py scripts/ci/test-verify-benchmark-artifacts.py scripts/release/test-verify-artifacts.py
   git diff --check
   ```
 

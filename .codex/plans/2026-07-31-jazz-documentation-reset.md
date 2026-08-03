@@ -37,7 +37,7 @@
   - every Markdown file below `docs/` has nonempty `title`, `description`, and `sidebar_position` front matter;
   - only `getting-started`, `language`, `standard-library`, `reference`, `compiler`, `project`, and `index.md` may exist directly under `docs/`;
   - public Markdown rejects `docs/superpowers`, `docs/execution`, `.codex/`, `jazz-next`, `JazzNext`, `jazz-hs`, and `jazz2` path references;
-  - Markdown links cannot escape from `docs/` into `.codex/` or `rfcs/`;
+  - fragment-only links stay on their source page, recognized external links are handled by the external-link policy, and every other relative Markdown target is resolved against its source page and rejected unless it remains below `docs/`;
   - each marker `<!-- jazz-example: executable path=examples/... -->` names a tracked `.jz` file below root `examples/`, immediately classifies the adjacent Jazz fence, and that fence matches the tracked source byte-for-byte;
   - every other Jazz fence is explicitly classified with `<!-- jazz-example: fragment -->`, so runnable-looking blocks cannot bypass source validation;
   - every tracked `examples/**/*.jz` is referenced by at least one public page or the root README; and
@@ -63,7 +63,9 @@
 
   Expected: all fixture cases pass.
 
-- [ ] Invoke `scripts/check-public-docs.sh` from `scripts/check-docs.sh`, then run it against the current tree:
+- [ ] Replace the legacy-layout assertions in `scripts/check-docs.sh` rather than only appending the new checker. Remove requirements for `jazz-next/` and `docs/execution/`, invoke `scripts/check-public-docs.sh`, and make the remaining aggregate checks use the new root compiler paths plus the `docs/`, `rfcs/`, and `.codex/` ownership model. Add fixtures for a root-relative escape, `.codex/` and `rfcs/` escapes, a fragment-only link, and an allowed external link.
+
+- [ ] Run the public checker against the current tree:
 
   ```bash
   bash scripts/check-public-docs.sh
@@ -89,7 +91,7 @@
 
 - [ ] Before moving files, extract any still-open work from `docs/execution/done-archive.md` into the live queue. Do not retain completed-row verification narratives.
 
-- [ ] Move the five active execution files with `git mv`, delete `done-archive.md`, and remove the empty `docs/execution/` tree.
+- [ ] Move the five active execution files with `git mv`, delete `done-archive.md`, and remove the empty `docs/execution/` tree. For every moved Markdown file, resolve each relative link from its old and new parent, rewrite links whose meaning changed, and preserve or curate every still-active target before its old owner is deleted. In particular, queue plan links must resolve below `.codex/plans/` after the move; no `../superpowers/` or other link may silently retarget below `.codex/`.
 
 - [ ] Change queue validators and their fixtures to treat `.codex/execution/queue.md` as the dispatcher and `.codex/execution/blocker-contracts.md` as its contract source. Error messages must print the new paths.
 
@@ -125,12 +127,19 @@
 - Create: `rfcs/accepted/0007-runtime-host-boundary.md`
 - Create: `rfcs/accepted/0008-parser-scale-and-performance-tiers.md`
 - Create: `rfcs/proposed/README.md`
+- Create: `scripts/check-rfcs.py`
+- Create: `scripts/test-check-rfcs.py`
 - Modify: `scripts/check-docs.sh`
+- Modify: `scripts/check-clarification-specs.sh`
 - Delete after consolidation: `docs/superpowers/specs/**`
 - Delete after consolidation: `docs/superpowers/plans/**`
 - Delete after consolidation: `docs/plans/**`
 
-- [ ] Add an RFC template to `rfcs/README.md` with scalar header fields `Status:`, `Date:`, and `Supersedes:`, followed by `## Decision`, `## Context`, and `## Consequences` sections. Define `accepted/` as durable decisions and `proposed/` as reviewable proposals; task plans remain under `.codex/plans/`. Reuse these exact forms in `scripts/check-docs.sh` and its fixtures.
+- [ ] Add an RFC template to `rfcs/README.md` with scalar header fields `Status:`, `Date:`, and `Supersedes:`, followed in that order by `## Decision`, `## Context`, and `## Consequences`. Define `accepted/` as durable decisions and `proposed/` as reviewable proposals; task plans remain under `.codex/plans/`.
+
+- [ ] Write fixture tests for `scripts/check-rfcs.py` before implementing it. Require each nonempty scalar field exactly once outside blockquotes and fenced code, require each named `##` section exactly once at top level, in the declared order, and with nonempty content, reject missing or duplicate sections, validate accepted/proposed status by directory, and reject any `Supersedes:` value that names a deleted `docs/plans/` or `docs/superpowers/` path. Include deceptive fixtures with a required-looking field in a code fence and a required-looking section in a quoted template.
+
+- [ ] Implement `scripts/check-rfcs.py` with standard-library Python only, deterministic sorted violations, and an optional repository-root argument. Invoke it from `scripts/check-docs.sh`; do not use raw text-presence searches as the RFC grammar authority.
 
 - [ ] Write RFC 0001 from the durable authority and governance rules. It must establish public docs, implementation/tests, accepted RFCs, and roadmap as the descending authority order and require an RFC before semantic language changes.
 
@@ -149,34 +158,20 @@
 
 - [ ] Add `rfcs/proposed/README.md` explaining that proposals are numbered only when opened for review and do not override accepted contracts.
 
-- [ ] Extend `scripts/check-docs.sh` to require RFC 0001–0008 and the RFC index, require the standard RFC fields, and reject `Status: Accepted` files below `rfcs/proposed/`.
+- [ ] Extend `scripts/check-docs.sh` to require RFC 0001–0008 and the RFC index, delegate all RFC grammar validation to `scripts/check-rfcs.py`, and reject `Status: Accepted` files below `rfcs/proposed/` through that checker.
 
-- [ ] Confirm all still-active execution plans already live in `.codex/plans/`. Delete every file under `docs/superpowers/` and `docs/plans/` only after the eight RFCs and the public mapping in Task 5 contain their durable decisions.
+- [ ] Confirm all still-active execution plans already live in `.codex/plans/`. Delete every file under `docs/superpowers/` and `docs/plans/` only after the eight RFCs and the public mapping in Task 5 contain their durable decisions. In the same change, rewrite `scripts/check-clarification-specs.sh` against the curated public, RFC, and `.codex/execution/` owners; remove every assertion that requires a deleted input, and keep the checker in the aggregate validation matrix.
 
 - [ ] Audit RFC completeness:
 
   ```bash
-  require_all_rfc_files_match() {
-    local missing status
-    if missing="$(rg --files-without-match "$1" rfcs/accepted/*.md)"; then
-      printf '%s\n' "$missing" >&2
-      return 1
-    else
-      status=$?
-      test "$status" -eq 1
-    fi
-  }
-  require_all_rfc_files_match '^Status: Accepted$'
-  require_all_rfc_files_match '^Date: [0-9]{4}-[0-9]{2}-[0-9]{2}$'
-  require_all_rfc_files_match '^Supersedes: .+$'
-  require_all_rfc_files_match '^## Decision$'
-  require_all_rfc_files_match '^## Context$'
-  require_all_rfc_files_match '^## Consequences$'
+  python3 -m unittest scripts/test-check-rfcs.py
+  python3 scripts/check-rfcs.py
   test ! -e docs/superpowers
   test ! -e docs/plans
   ```
 
-  Expected: all six `rg --files-without-match` commands print nothing and both deleted-tree assertions succeed.
+  Expected: RFC fixture and repository validation pass, including structural and deleted-path cases, and both deleted-tree assertions succeed.
 
 - [ ] Commit RFC curation separately:
 
@@ -457,6 +452,7 @@
   bash scripts/check-public-docs.sh
   bash scripts/check-docs.sh
   bash scripts/check-spec-authority.sh
+  bash scripts/check-clarification-specs.sh
   bash scripts/check-execution-queue.sh
   bash scripts/test-check-execution-queue.sh
   git diff --check
