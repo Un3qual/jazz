@@ -96,10 +96,13 @@ class ExampleRunnerTests(unittest.TestCase):
     def test_clears_cli_environment_overrides(self) -> None:
         self.write_fake_jazz(
             "names = ('JAZZ_PRELUDE', 'JAZZ_WARNING_FLAGS', "
-            "'JAZZ_WARNING_ERROR_FLAGS', 'JAZZ_WARNING_CONFIG')\n"
+            "'JAZZ_WARNING_ERROR_FLAGS')\n"
             "present = [name for name in names if name in os.environ]\n"
             "if present:\n"
             "    print(','.join(present), file=sys.stderr)\n"
+            "    raise SystemExit(9)\n"
+            "if os.environ.get('JAZZ_WARNING_CONFIG') != os.devnull:\n"
+            "    print('warning config was not isolated', file=sys.stderr)\n"
             "    raise SystemExit(9)\n"
             "print('\"Hello\"')"
         )
@@ -115,21 +118,25 @@ class ExampleRunnerTests(unittest.TestCase):
         result = self.run_checker(env=env)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
-    def test_uses_a_final_explicit_empty_warning_config(self) -> None:
+    def test_invokes_jazz_with_exactly_the_manifest_arguments(self) -> None:
+        self.write_fake_jazz(
+            "expected = ['--run', 'examples/hello.jz']\n"
+            "if sys.argv[1:] != expected:\n"
+            "    print(f'unexpected argv: {sys.argv[1:]!r}', file=sys.stderr)\n"
+            "    raise SystemExit(9)\n"
+            "print('\"Hello\"')"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_uses_an_explicit_empty_warning_config_from_the_environment(self) -> None:
         (self.root / ".jazz-warnings").write_text(
             "invalid-ambient-warning\n", encoding="utf-8"
         )
-        custom_config = self.root / "custom-warnings"
-        custom_config.write_text("invalid-manifest-warning\n", encoding="utf-8")
-        self.write_cases(
-            "hello\texamples/hello.jz\t\"Hello\"\t"
-            f"--run examples/hello.jz --warnings-config {custom_config}\n"
-        )
         self.write_fake_jazz(
-            "selected = '.jazz-warnings'\n"
-            "for index, argument in enumerate(sys.argv[:-1]):\n"
-            "    if argument == '--warnings-config':\n"
-            "        selected = sys.argv[index + 1]\n"
+            "selected = os.environ.get('JAZZ_WARNING_CONFIG', '.jazz-warnings')\n"
             "if open(selected, encoding='utf-8').read():\n"
             "    print(f'non-empty warning config: {selected}', file=sys.stderr)\n"
             "    raise SystemExit(9)\n"

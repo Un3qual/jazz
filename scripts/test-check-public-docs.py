@@ -318,6 +318,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
             f"README.md: missing required navigation link: {target}"
         )
 
+    def test_readme_navigation_links_inside_html_templates_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            "<template>\n"
+            f"  <a href=\"{target}\">Hidden getting started</a>\n"
+            "</template>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
     def test_readme_rejects_invalid_local_link_targets(self) -> None:
         outside = self.root.parent / "outside.md"
         outside.write_text("Outside.\n", encoding="utf-8")

@@ -176,6 +176,9 @@ class ExampleCase:
     expected: str
 
 
+INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
+
+
 class HtmlLinkTargetParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -186,7 +189,7 @@ class HtmlLinkTargetParser(HTMLParser):
         self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
         folded_tag = tag.casefold()
-        if folded_tag in {"script", "style", "textarea"}:
+        if folded_tag in INERT_HTML_CONTENT_TAGS:
             self.inert_depth += 1
             return
         if self.inert_depth or folded_tag != "a":
@@ -196,7 +199,7 @@ class HtmlLinkTargetParser(HTMLParser):
                 self.targets.append(value or "")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.casefold() in {"script", "style", "textarea"} and self.inert_depth:
+        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
             self.inert_depth -= 1
 
 

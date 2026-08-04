@@ -83,6 +83,7 @@ def checked_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for name in CLI_OVERRIDE_ENV:
         environment.pop(name, None)
+    environment["JAZZ_WARNING_CONFIG"] = os.devnull
     return environment
 
 
@@ -96,7 +97,7 @@ def run_case(
 ) -> int:
     try:
         result = subprocess.run(
-            [str(jazz_binary), *arguments, "--warnings-config", os.devnull],
+            [str(jazz_binary), *arguments],
             cwd=root,
             env=checked_environment(),
             check=False,
