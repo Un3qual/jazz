@@ -29,7 +29,7 @@ Fragment:
 <!-- jazz-example: fragment -->
 
 ```jazz
-case value {
+case input {
   | Just item -> item
   | Nothing -> 0
 }

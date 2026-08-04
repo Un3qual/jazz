@@ -145,6 +145,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        self.jazz_binary = self.root / "fixture-jazz"
+        self.jazz_binary.write_text(
+            (
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "source = sys.stdin.read()\n"
+                "if 'if condition then else' in source:\n"
+                "    print(\"error: E0001 1:15: expected expression after 'then'\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+                "if 'unknownValue.' in source:\n"
+                "    print(\"error: E1001 1:1: unknown name 'unknownValue'\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+            ),
+            encoding="utf-8",
+        )
+        self.jazz_binary.chmod(0o755)
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
         (self.root / "jazz_logo.png").write_bytes(b"fixture")
@@ -173,7 +189,13 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def run_checker(self, root: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(CHECKER_PATH), str(root or self.root)],
+            [
+                sys.executable,
+                str(CHECKER_PATH),
+                str(root or self.root),
+                "--jazz-bin",
+                str(self.jazz_binary),
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -323,6 +345,24 @@ class PublicDocsCheckerTests(unittest.TestCase):
         hidden_link = (
             "<template>\n"
             f"  <a href=\"{target}\">Hidden getting started</a>\n"
+            "</template>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_markdown_links_inside_html_templates_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            "<template>\n"
+            f"  [Hidden getting started]({target})\n"
             "</template>"
         )
         readme = valid_readme().replace(
@@ -910,6 +950,38 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_fragment_with_invalid_jazz_syntax(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "if condition then else.\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("docs/index.md: Jazz fragment has invalid syntax")
+
+    def test_fragment_syntax_check_ignores_contextual_semantic_errors(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "unknownValue.\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Public documentation checks passed.\n", result.stdout)
 
     def test_rejects_orphan_jazz_example_marker(self) -> None:
         (self.root / "docs/index.md").write_text(

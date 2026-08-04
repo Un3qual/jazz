@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -168,6 +170,17 @@ EXAMPLE_OUTPUT_MARKER_RE = re.compile(
 EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
 EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
 EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+DIAGNOSTIC_CODE_RE = re.compile(
+    r"^(?:error|warning): (E[0-9]{4}|W[0-9]{4})\b", re.MULTILINE
+)
+CLI_OVERRIDE_ENV = (
+    "JAZZ_PRELUDE",
+    "JAZZ_WARNING_FLAGS",
+    "JAZZ_WARNING_ERROR_FLAGS",
+    "JAZZ_WARNING_CONFIG",
+)
+FRAGMENT_SYNTAX_ERROR_CODES = frozenset({"E0001"})
+FRAGMENT_CHECK_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -208,6 +221,56 @@ def html_link_targets(text: str) -> list[str]:
     parser.feed(text)
     parser.close()
     return parser.targets
+
+
+class InertHtmlSubtreeMasker(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+        self.inert_depth = 0
+
+    def append(self, source: str, *, force_mask: bool = False) -> None:
+        if not self.inert_depth and not force_mask:
+            self.parts.append(source)
+            return
+        self.parts.append(
+            "".join(character if character in "\r\n" else " " for character in source)
+        )
+
+    def handle_starttag(
+        self, tag: str, _attributes: list[tuple[str, str | None]]
+    ) -> None:
+        source = self.get_starttag_text() or f"<{tag}>"
+        if tag.casefold() in INERT_HTML_CONTENT_TAGS:
+            self.inert_depth += 1
+        self.append(source)
+
+    def handle_startendtag(
+        self, tag: str, _attributes: list[tuple[str, str | None]]
+    ) -> None:
+        source = self.get_starttag_text() or f"<{tag} />"
+        self.append(source, force_mask=tag.casefold() in INERT_HTML_CONTENT_TAGS)
+
+    def handle_endtag(self, tag: str) -> None:
+        self.append(f"</{tag}>")
+        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
+            self.inert_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        self.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.append(f"&#{name};")
+
+
+def without_inert_html_subtrees(text: str) -> str:
+    parser = InertHtmlSubtreeMasker()
+    parser.feed(text)
+    parser.close()
+    return "".join(parser.parts)
 
 
 def relative(root: Path, path: Path) -> str:
@@ -371,6 +434,121 @@ def local_readme_link_violation(root: Path, raw_target: str) -> str | None:
     if not candidate.is_file():
         return f"local link target does not exist: {markdown_link_target(raw_target)}"
     return None
+
+
+def resolve_jazz_binary(
+    root: Path, explicit: str | None
+) -> tuple[Path | None, str | None]:
+    if explicit is not None:
+        binary = Path(explicit).resolve()
+        if not binary.is_file():
+            return None, f"Jazz executable does not exist: {binary}"
+        return binary, None
+
+    try:
+        build = subprocess.run(["cabal", "build", "jazz"], cwd=root, check=False)
+    except OSError as exc:
+        return None, f"could not start cabal build jazz: {exc}"
+    if build.returncode != 0:
+        return None, "cabal build jazz failed"
+    try:
+        listed = subprocess.run(
+            ["cabal", "list-bin", "jazz"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return None, f"could not start cabal list-bin jazz: {exc}"
+    if listed.returncode != 0 or not listed.stdout.strip():
+        return None, "cabal list-bin jazz failed"
+    binary = Path(listed.stdout.strip()).resolve()
+    if not binary.is_file():
+        return None, f"cabal reported a missing Jazz executable: {binary}"
+    return binary, None
+
+
+def checked_jazz_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in CLI_OVERRIDE_ENV:
+        environment.pop(name, None)
+    environment["JAZZ_WARNING_CONFIG"] = os.devnull
+    return environment
+
+
+def fragment_program(source: str) -> str:
+    program = source.rstrip()
+    if not program.endswith("."):
+        program += "\n."
+    return program + "\n"
+
+
+def run_fragment_compiler(
+    root: Path,
+    jazz_binary: Path,
+    display: str,
+    source: str,
+    violations: list[str],
+) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            [str(jazz_binary), "--no-prelude"],
+            cwd=root,
+            env=checked_jazz_environment(),
+            input=source,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=FRAGMENT_CHECK_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        violations.append(
+            f"{display}: Jazz fragment syntax check timed out after "
+            f"{FRAGMENT_CHECK_TIMEOUT_SECONDS:g} seconds"
+        )
+    except OSError as exc:
+        violations.append(
+            f"{display}: could not start Jazz fragment syntax check: {exc}"
+        )
+    return None
+
+
+def validate_fragment_syntax(
+    root: Path,
+    jazz_binary: Path,
+    display: str,
+    source: str,
+    violations: list[str],
+) -> None:
+    result = run_fragment_compiler(
+        root, jazz_binary, display, fragment_program(source), violations
+    )
+    if result is None:
+        return
+    diagnostic_codes = set(DIAGNOSTIC_CODE_RE.findall(result.stderr))
+    syntax_codes = diagnostic_codes.intersection(FRAGMENT_SYNTAX_ERROR_CODES)
+    if not syntax_codes:
+        if result.returncode != 0 and not any(
+            code.startswith("E") for code in diagnostic_codes
+        ):
+            violations.append(
+                f"{display}: Jazz fragment syntax check exited "
+                f"{result.returncode} without a compiler diagnostic"
+            )
+        return
+
+    syntax_diagnostic = next(
+        (
+            line
+            for line in result.stderr.splitlines()
+            if any(f": {code}" in line for code in syntax_codes)
+        ),
+        ", ".join(sorted(syntax_codes)),
+    )
+    violations.append(
+        f"{display}: Jazz fragment has invalid syntax: {syntax_diagnostic}"
+    )
 
 
 def tracked_examples(root: Path, violations: list[str]) -> list[str]:
@@ -550,6 +728,7 @@ def validate_example_cases(
 
 def validate_jazz_fences(
     root: Path,
+    jazz_binary: Path,
     display: str,
     text: str,
     tracked_example_paths: set[str],
@@ -596,6 +775,13 @@ def validate_jazz_fences(
 
         marker_text = preceding_marker.group(0)
         if FRAGMENT_MARKER_RE.fullmatch(marker_text):
+            validate_fragment_syntax(
+                root,
+                jazz_binary,
+                display,
+                fence.source,
+                violations,
+            )
             continue
 
         executable = EXECUTABLE_MARKER_RE.fullmatch(marker_text)
@@ -775,14 +961,18 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if command not in text:
             violations.append(f"README.md: missing quick-start command: {command}")
 
-    visible_text = visible_markdown(text)
+    visible_text = without_inert_html_subtrees(visible_markdown(text))
     raw_link_targets = [
         match.group(1)
         for match in LINK_RE.finditer(visible_text)
         if not match.group(0).startswith("!")
     ]
     raw_link_targets.extend(used_reference_targets(visible_text))
-    raw_link_targets.extend(html_link_targets(html_source_markdown(text)))
+    raw_link_targets.extend(
+        html_link_targets(
+            without_inert_html_subtrees(html_source_markdown(text))
+        )
+    )
     link_targets = {
         markdown_link_target(raw_link_target)
         for raw_link_target in raw_link_targets
@@ -827,7 +1017,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         violations.append("README.md: required content is not in the prescribed order")
 
 
-def validate(root: Path) -> list[str]:
+def validate(root: Path, jazz_binary: Path) -> list[str]:
     violations: list[str] = []
     docs_root = root / "docs"
     if not docs_root.is_dir():
@@ -912,12 +1102,20 @@ def validate(root: Path) -> list[str]:
             if banned.casefold() in text.casefold():
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        visible_body = visible_markdown(markdown_body)
+        visible_body = without_inert_html_subtrees(
+            visible_markdown(markdown_body)
+        )
         raw_link_targets = [
             match.group(1) for match in LINK_RE.finditer(visible_body)
         ]
         raw_link_targets.extend(used_reference_targets(visible_body))
-        raw_link_targets.extend(html_link_targets(html_source_markdown(markdown_body)))
+        raw_link_targets.extend(
+            html_link_targets(
+                without_inert_html_subtrees(
+                    html_source_markdown(markdown_body)
+                )
+            )
+        )
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
             if not raw_target:
@@ -972,6 +1170,7 @@ def validate(root: Path) -> list[str]:
     for display, text in public_texts.items():
         document_examples = validate_jazz_fences(
             root,
+            jazz_binary,
             display,
             text,
             tracked_example_paths,
@@ -1000,11 +1199,21 @@ def validate(root: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) > 2:
-        print("usage: check-public-docs.py [repository-root]", file=sys.stderr)
-        return 2
-    root = Path(argv[1]).resolve() if len(argv) == 2 else Path(__file__).resolve().parent.parent
-    violations = validate(root)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "repository_root",
+        nargs="?",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent,
+    )
+    parser.add_argument("--jazz-bin")
+    arguments = parser.parse_args(argv[1:])
+    root = arguments.repository_root.resolve()
+    jazz_binary, binary_error = resolve_jazz_binary(root, arguments.jazz_bin)
+    if binary_error is not None or jazz_binary is None:
+        print(f"FAIL: repository: {binary_error}")
+        return 1
+    violations = validate(root, jazz_binary)
     if violations:
         for violation in violations:
             print(f"FAIL: {violation}")
