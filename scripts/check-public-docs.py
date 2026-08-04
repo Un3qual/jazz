@@ -19,6 +19,7 @@ from markdown_visibility import (
     html_source_markdown,
     markdown_fences,
     renderable_source_markdown,
+    rendered_markdown_with_code,
     visible_markdown,
 )
 
@@ -210,7 +211,7 @@ VOID_HTML_TAGS = frozenset(
 )
 
 
-class HtmlLinkTargetParser(HTMLParser):
+class HtmlReferenceTargetParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.targets: list[str] = []
@@ -223,10 +224,13 @@ class HtmlLinkTargetParser(HTMLParser):
         if folded_tag in INERT_HTML_CONTENT_TAGS:
             self.inert_depth += 1
             return
-        if self.inert_depth or folded_tag != "a":
+        if self.inert_depth:
+            return
+        target_attribute = {"a": "href", "img": "src"}.get(folded_tag)
+        if target_attribute is None:
             return
         for name, value in attributes:
-            if name.casefold() == "href":
+            if name.casefold() == target_attribute:
                 self.targets.append(value or "")
 
     def handle_endtag(self, tag: str) -> None:
@@ -234,8 +238,8 @@ class HtmlLinkTargetParser(HTMLParser):
             self.inert_depth -= 1
 
 
-def html_link_targets(text: str) -> list[str]:
-    parser = HtmlLinkTargetParser()
+def html_reference_targets(text: str) -> list[str]:
+    parser = HtmlReferenceTargetParser()
     parser.feed(text)
     parser.close()
     return parser.targets
@@ -1018,12 +1022,15 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
 
+    rendered_with_code = without_inert_html_subtrees(
+        rendered_markdown_with_code(text)
+    )
     for command in (
         "nix develop",
         "cabal build all",
         f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
     ):
-        if command not in text:
+        if command not in rendered_with_code:
             violations.append(f"README.md: missing quick-start command: {command}")
 
     visible_text = without_inert_html_subtrees(visible_markdown(text))
@@ -1034,7 +1041,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     ]
     raw_link_targets.extend(used_reference_targets(visible_text))
     raw_link_targets.extend(
-        html_link_targets(
+        html_reference_targets(
             without_inert_html_subtrees(html_source_markdown(text))
         )
     )
@@ -1175,7 +1182,7 @@ def validate(root: Path, jazz_binary: Path) -> list[str]:
         ]
         raw_link_targets.extend(used_reference_targets(visible_body))
         raw_link_targets.extend(
-            html_link_targets(
+            html_reference_targets(
                 without_inert_html_subtrees(
                     html_source_markdown(markdown_body)
                 )

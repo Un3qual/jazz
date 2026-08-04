@@ -93,6 +93,38 @@ class ExampleRunnerTests(unittest.TestCase):
                 result = self.run_checker()
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_checked_examples_cannot_override_the_bundled_prelude(self) -> None:
+        (self.root / "examples/custom-prelude.jz").write_text(
+            "customValue = 1.\n", encoding="utf-8"
+        )
+        for prelude_arguments in (
+            "--prelude examples/custom-prelude.jz",
+            "--no-prelude",
+        ):
+            with self.subTest(prelude_arguments=prelude_arguments):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {prelude_arguments} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "checked examples must use the bundled Prelude",
+                    result.stderr,
+                )
+
+    def test_option_values_named_like_prelude_flags_are_not_overrides(self) -> None:
+        self.write_cases(
+            "hello\texamples/hello.jz\t\"Hello\"\t"
+            "--run --warnings-config --prelude examples/hello.jz\n"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_clears_cli_environment_overrides(self) -> None:
         self.write_fake_jazz(
             "names = ('JAZZ_PRELUDE', 'JAZZ_WARNING_FLAGS', "

@@ -382,13 +382,31 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
 
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_quick_start_commands_must_be_rendered(self) -> None:
+        commands = (
+            "nix develop\n"
+            "cabal build all\n"
+            f"cabal run jazz -- --run {FACTORIAL_PATH}\n"
+        )
+        hidden_commands = f"<template>\n{commands}</template>"
+        readme = valid_readme().replace(
+            f"```bash\n{commands}```", hidden_commands
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
         result = self.run_checker()
 
-        self.assertNotEqual(0, result.returncode)
-        self.assertEqual(
-            f"FAIL: README.md: missing required navigation link: {target}\n",
-            result.stdout,
-        )
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        for command in commands.splitlines():
+            self.assertIn(
+                f"README.md: missing quick-start command: {command}",
+                result.stdout,
+            )
+        self.assertEqual("", result.stderr)
 
     def test_readme_rejects_invalid_local_link_targets(self) -> None:
         outside = self.root.parent / "outside.md"
@@ -587,6 +605,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
         )
 
+    def test_rejects_missing_raw_html_image_targets(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<img src="missing.png" alt="Missing fixture">\n'),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link target does not exist: missing.png"
+        )
+
     def test_rejects_banned_public_references_case_insensitively(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="The old identity was JAZZ2.\n"), encoding="utf-8"
@@ -773,6 +801,38 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "scripts/example-cases.tsv: case case-2 has no documented expected output",
             result.stdout,
         )
+
+    def test_blockquoted_raw_html_cannot_document_an_example_or_output(
+        self,
+    ) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            '<script type="text/plain">\n'
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "</script>\n"
+        )
+        blockquoted_contract = "".join(
+            f"> {line}" for line in hidden_contract.splitlines(keepends=True)
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=blockquoted_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
+        self.assertEqual("", result.stderr)
 
     def test_rejects_documented_output_that_differs_from_manifest(self) -> None:
         (self.root / "README.md").write_text(

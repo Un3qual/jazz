@@ -6,6 +6,7 @@ from __future__ import annotations
 import unittest
 
 from markdown_visibility import (
+    markdown_fences,
     renderable_source_markdown,
     rendered_markdown,
     rendered_markdown_with_code,
@@ -109,6 +110,56 @@ case-arm-pattern := pattern
         self.assertIn("```jazz\n0.\n```", source)
         self.assertNotIn("examples/hidden.jz", source)
         self.assertNotIn("```jazz\n1.\n```", source)
+
+    def test_list_continuation_indentation_is_not_executable_source(self) -> None:
+        text = (
+            "1. Example\n\n"
+            "    ```jazz\n"
+            "    first.\n"
+            "    \n"
+            "    second.\n"
+            "    ```\n"
+        )
+
+        fences = markdown_fences(text)
+
+        self.assertEqual(1, len(fences))
+        self.assertEqual("first.\n\nsecond.\n", fences[0].source)
+
+    def test_thematic_break_does_not_open_a_list_container(self) -> None:
+        for thematic_break in ("- - -", "* * *"):
+            with self.subTest(thematic_break=thematic_break):
+                text = (
+                    f"{thematic_break}\n"
+                    "  ```text\n"
+                    "  hidden code\n"
+                    "```\n"
+                    "## Visible heading\n"
+                )
+
+                fences = markdown_fences(text)
+                visible = visible_markdown(text)
+
+                self.assertEqual(1, len(fences))
+                self.assertTrue(fences[0].closed)
+                self.assertEqual("hidden code\n", fences[0].source)
+                self.assertNotIn("hidden code", visible)
+                self.assertIn("## Visible heading", visible)
+
+    def test_blockquoted_raw_html_does_not_expose_markdown_contracts(self) -> None:
+        text = (
+            '> <script type="text/plain">\n'
+            "> <!-- jazz-example: executable path=examples/hidden.jz -->\n"
+            "> ```jazz\n"
+            "> 1.\n"
+            "> ```\n"
+            "> </script>\n"
+        )
+
+        source = renderable_source_markdown(text)
+
+        self.assertNotIn("examples/hidden.jz", source)
+        self.assertNotIn("```jazz", source)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,17 @@ class _ContainerLine:
 LIST_MARKER_RE = re.compile(r"(?:[*+-]|[0-9]{1,9}[.)])")
 
 
+def is_thematic_break(line: str) -> bool:
+    content = without_line_ending(line)
+    return (
+        re.fullmatch(
+            r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
+            content,
+        )
+        is not None
+    )
+
+
 def blockquote_prefix_end(line: str, start: int) -> int | None:
     content = without_line_ending(line)
     indent = leading_spaces(content[start:])
@@ -177,6 +188,8 @@ class _MarkdownContainerScanner:
                 self.containers.append(_MarkdownContainer(kind="blockquote"))
                 position = blockquote_end
                 continue
+            if is_thematic_break(line[position:]):
+                break
             list_opener = list_container_opener(line, position)
             if list_opener is None:
                 break
@@ -193,7 +206,13 @@ class _MarkdownContainerScanner:
     ) -> _ContainerLine | None:
         content = without_line_ending(line)
         if not content.strip(" \t"):
-            return _ContainerLine(line, 0, containers)
+            position = 0
+            for container in containers:
+                next_position = match_container_prefix(line, position, container)
+                if next_position is None:
+                    break
+                position = next_position
+            return _ContainerLine(line[position:], position, containers)
 
         position = 0
         for container in containers:
@@ -358,18 +377,24 @@ def previous_line_content(text: str, line_start: int) -> str | None:
     return text[previous_start:previous_end]
 
 
-def type_seven_html_block_can_start(text: str, line_start: int) -> bool:
+def type_seven_html_block_can_start(
+    text: str,
+    line_start: int,
+    containers: tuple[_MarkdownContainer, ...] = (),
+) -> bool:
     previous = previous_line_content(text, line_start)
+    if previous is not None and containers:
+        container_line = _MarkdownContainerScanner.scan_fence_line(
+            previous, containers
+        )
+        previous = None if container_line is None else container_line.content
     if previous is None or not previous.strip():
         return True
     if re.match(r"^ {0,3}#{1,6}(?:[ \t]+|$)", previous) is not None:
         return True
     if fence_opener(previous) is not None:
         return True
-    if re.fullmatch(
-        r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
-        previous,
-    ) is not None:
+    if is_thematic_break(previous):
         return True
     if re.fullmatch(r" {0,3}(?:=+|-+)[ \t]*", previous) is not None:
         return True
@@ -387,14 +412,19 @@ def raw_html_block_end(text: str, opener_start: int) -> tuple[int, int] | None:
         text.rfind("\n", 0, opener_start),
         text.rfind("\r", 0, opener_start),
     ) + 1
-    prefix = text[line_start:opener_start]
+    first_line_end = line_end_offset(text, line_start)
+    first_physical_line = text[line_start:first_line_end]
+    container_line = _MarkdownContainerScanner().scan(first_physical_line)
+    content_start = line_start + container_line.prefix_length
+    prefix = text[content_start:opener_start]
     if len(prefix) > 3 or prefix.strip(" "):
         return None
-    first_line_end = line_end_offset(text, line_start)
     candidate = without_line_ending(text[opener_start:first_line_end])
     block_spec = raw_html_block_spec(
         candidate,
-        type_seven_can_start=type_seven_html_block_can_start(text, line_start),
+        type_seven_can_start=type_seven_html_block_can_start(
+            text, line_start, container_line.containers
+        ),
     )
     if block_spec is None:
         return None
@@ -403,7 +433,18 @@ def raw_html_block_end(text: str, opener_start: int) -> tuple[int, int] | None:
     cursor = line_start
     while cursor < len(text):
         current_end = line_end_offset(text, cursor)
-        line = without_line_ending(text[cursor:current_end])
+        physical_line = text[cursor:current_end]
+        if cursor == line_start:
+            line = without_line_ending(
+                physical_line[container_line.prefix_length :]
+            )
+        else:
+            current_container_line = _MarkdownContainerScanner.scan_fence_line(
+                physical_line, container_line.containers
+            )
+            if current_container_line is None:
+                return line_start, cursor
+            line = without_line_ending(current_container_line.content)
         if mode == "blank":
             if cursor != line_start and not line.strip():
                 return line_start, cursor

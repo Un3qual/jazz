@@ -104,32 +104,45 @@ def imported_module_paths(source: str) -> list[str]:
 
 def parsed_source_selection(
     arguments: list[str],
-) -> tuple[str | None, str | None, list[str], str | None]:
+) -> tuple[str | None, str | None, list[str], bool, str | None]:
     """Mirror the CLI's order-independent source and module selectors."""
     source_paths: list[str] = []
     entry_module: str | None = None
     module_roots: list[str] = []
+    prelude_override = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         if argument in OPTIONS_WITH_VALUES:
             if index + 1 >= len(arguments):
-                return None, None, [], f"missing value after {argument}"
+                return None, None, [], False, f"missing value after {argument}"
             value = arguments[index + 1]
             if argument == "--entry-module":
                 entry_module = value
             elif argument == "--module-root":
                 module_roots.append(value)
+            elif argument == "--prelude":
+                prelude_override = True
             index += 2
+            continue
+        if argument == "--no-prelude":
+            prelude_override = True
+            index += 1
             continue
         if argument == "-" or not argument.startswith("-"):
             source_paths.append(argument)
         index += 1
 
     if len(source_paths) > 1:
-        return None, entry_module, module_roots, "multiple source files are not supported"
+        return (
+            None,
+            entry_module,
+            module_roots,
+            prelude_override,
+            "multiple source files are not supported",
+        )
     source_path = source_paths[0] if source_paths else None
-    return source_path, entry_module, module_roots, None
+    return source_path, entry_module, module_roots, prelude_override, None
 
 
 def resolved_module_source(
@@ -203,11 +216,17 @@ def case_source_binding_violation(
     if arguments.count("--run") != 1:
         return "arguments must contain exactly one --run selector"
 
-    source_path, entry_module, module_root_texts, selection_violation = (
-        parsed_source_selection(arguments)
-    )
+    (
+        source_path,
+        entry_module,
+        module_root_texts,
+        prelude_override,
+        selection_violation,
+    ) = parsed_source_selection(arguments)
     if selection_violation is not None:
         return selection_violation
+    if prelude_override:
+        return "checked examples must use the bundled Prelude"
 
     if entry_module is not None:
         if source_path is not None:
