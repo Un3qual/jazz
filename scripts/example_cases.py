@@ -104,18 +104,19 @@ def imported_module_paths(source: str) -> list[str]:
 
 def parsed_source_selection(
     arguments: list[str],
-) -> tuple[str | None, str | None, list[str], bool, str | None]:
+) -> tuple[str | None, str | None, list[str], bool, bool, str | None]:
     """Mirror the CLI's order-independent source and module selectors."""
     source_paths: list[str] = []
     entry_module: str | None = None
     module_roots: list[str] = []
     prelude_override = False
+    runtime_profile_requested = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         if argument in OPTIONS_WITH_VALUES:
             if index + 1 >= len(arguments):
-                return None, None, [], False, f"missing value after {argument}"
+                return None, None, [], False, False, f"missing value after {argument}"
             value = arguments[index + 1]
             if argument == "--entry-module":
                 entry_module = value
@@ -123,7 +124,13 @@ def parsed_source_selection(
                 module_roots.append(value)
             elif argument == "--prelude":
                 prelude_override = True
+            elif argument == "--runtime-profile":
+                runtime_profile_requested = True
             index += 2
+            continue
+        if argument.startswith("--runtime-profile="):
+            runtime_profile_requested = True
+            index += 1
             continue
         if argument == "--no-prelude":
             prelude_override = True
@@ -139,10 +146,18 @@ def parsed_source_selection(
             entry_module,
             module_roots,
             prelude_override,
+            runtime_profile_requested,
             "multiple source files are not supported",
         )
     source_path = source_paths[0] if source_paths else None
-    return source_path, entry_module, module_roots, prelude_override, None
+    return (
+        source_path,
+        entry_module,
+        module_roots,
+        prelude_override,
+        runtime_profile_requested,
+        None,
+    )
 
 
 def resolved_module_source(
@@ -213,6 +228,8 @@ def case_source_binding_violation(
     except ValueError as exc:
         return f"arguments are not valid shell words: {exc}"
 
+    if any(argument in {"--help", "-h"} for argument in arguments):
+        return "checked examples cannot use help mode"
     if arguments.count("--run") != 1:
         return "arguments must contain exactly one --run selector"
 
@@ -221,12 +238,15 @@ def case_source_binding_violation(
         entry_module,
         module_root_texts,
         prelude_override,
+        runtime_profile_requested,
         selection_violation,
     ) = parsed_source_selection(arguments)
     if selection_violation is not None:
         return selection_violation
     if prelude_override:
         return "checked examples must use the bundled Prelude"
+    if runtime_profile_requested:
+        return "checked examples cannot write runtime profiles"
 
     if entry_module is not None:
         if source_path is not None:

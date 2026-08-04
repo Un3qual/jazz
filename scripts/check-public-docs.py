@@ -19,6 +19,7 @@ from markdown_visibility import (
     html_source_markdown,
     markdown_fences,
     renderable_source_markdown,
+    rendered_markdown,
     rendered_markdown_with_code,
     visible_markdown,
 )
@@ -154,8 +155,21 @@ REFERENCE_DEFINITION_RE = re.compile(
     r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
     re.MULTILINE,
 )
+REFERENCE_DEFINITION_BLOCK_RE = re.compile(
+    r"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*(?:\r?\n|$)"
+    r"(?:[ \t]{1,3}(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\))"
+    r"[ \t]*(?:\r?\n|$))?",
+    re.MULTILINE,
+)
 FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
+ATX_HEADING_RE = re.compile(
+    r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$",
+    re.MULTILINE,
+)
+EXPLICIT_HEADING_ID_RE = re.compile(
+    r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$"
+)
 JAZZ_EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:.*?-->", re.DOTALL
 )
@@ -245,6 +259,22 @@ def html_reference_targets(text: str) -> list[str]:
     return parser.targets
 
 
+class HtmlVisibleTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def html_visible_text(text: str) -> str:
+    parser = HtmlVisibleTextParser()
+    parser.feed(text)
+    parser.close()
+    return "".join(parser.parts)
+
+
 class InertHtmlSubtreeMasker(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
@@ -323,6 +353,35 @@ def without_inert_html_subtrees(text: str) -> str:
     parser.feed(text)
     parser.close()
     return "".join(parser.parts)
+
+
+def blank_markdown_metadata(text: str) -> str:
+    characters = list(text)
+    spans = [
+        match.span()
+        for match in REFERENCE_DEFINITION_BLOCK_RE.finditer(text)
+    ]
+    spans.extend(match.span(1) for match in LINK_RE.finditer(text))
+    spans.extend(match.span(2) for match in FULL_REFERENCE_RE.finditer(text))
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
+def rendered_contract_text_with_code(text: str) -> str:
+    rendered_source = without_inert_html_subtrees(
+        rendered_markdown_with_code(text)
+    )
+    fence_sources = [
+        fence.source
+        for fence in markdown_fences(rendered_source)
+        if fence.closed
+    ]
+    rendered_prose = without_inert_html_subtrees(rendered_markdown(text))
+    visible_prose = html_visible_text(blank_markdown_metadata(rendered_prose))
+    return "\n".join([visible_prose, *fence_sources])
 
 
 def relative(root: Path, path: Path) -> str:
@@ -438,6 +497,40 @@ def used_reference_targets(text: str) -> list[str]:
     )
 
 
+def markdown_heading_text(markup: str) -> str:
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]+\)", r"\1", markup)
+    text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]", r"\1", text)
+    text = text.replace("`", "")
+    return html_visible_text(text)
+
+
+def markdown_heading_slug(markup: str) -> str:
+    heading = markdown_heading_text(markup).lower()
+    heading = re.sub(r"[^\w _-]", "", heading)
+    heading = re.sub(r"\s+", "-", heading)
+    return heading.strip("-")
+
+
+def rendered_heading_fragments(text: str) -> set[str]:
+    rendered = without_inert_html_subtrees(rendered_markdown(text))
+    fragments: set[str] = set()
+    slug_counts: dict[str, int] = {}
+    for match in ATX_HEADING_RE.finditer(rendered):
+        heading = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(1))
+        explicit_id = EXPLICIT_HEADING_ID_RE.search(heading)
+        if explicit_id is not None:
+            fragments.add(explicit_id.group(1))
+            continue
+        slug = markdown_heading_slug(heading)
+        if not slug:
+            continue
+        duplicate_index = slug_counts.get(slug, 0)
+        slug_counts[slug] = duplicate_index + 1
+        fragments.add(slug if duplicate_index == 0 else f"{slug}-{duplicate_index}")
+    return fragments
+
+
 def resolves_within(path: Path, directory: Path) -> bool:
     try:
         path.relative_to(directory)
@@ -464,13 +557,27 @@ def local_docs_link_violation(
 ) -> str | None:
     target = unquote(markdown_link_target(raw_target))
     parsed = urlsplit(target)
-    if parsed.scheme or parsed.netloc or not parsed.path:
+    if parsed.scheme or parsed.netloc:
         return None
-    candidate = (doc_path.parent / parsed.path).resolve()
+    candidate = (
+        (doc_path.parent / parsed.path).resolve()
+        if parsed.path
+        else doc_path.resolve()
+    )
     if not resolves_within(candidate, docs_root.resolve()):
         return f"public link leaves docs/: {markdown_link_target(raw_target)}"
     if not candidate.is_file():
         return f"public link target does not exist: {markdown_link_target(raw_target)}"
+    if parsed.fragment and candidate.suffix.casefold() in {".md", ".mdx"}:
+        try:
+            target_text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        if parsed.fragment not in rendered_heading_fragments(target_text):
+            return (
+                "public link fragment does not exist: "
+                f"{markdown_link_target(raw_target)}"
+            )
     return None
 
 
@@ -992,7 +1099,8 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
 
     if README_TAGLINE not in exact_line_positions:
         violations.append("README.md: missing required tagline")
-    if README_MATURITY_NOTICE not in text:
+    rendered_contract_text = rendered_contract_text_with_code(text)
+    if README_MATURITY_NOTICE not in rendered_contract_text:
         violations.append("README.md: missing required maturity notice")
 
     image_targets = [match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(text)]
@@ -1022,15 +1130,12 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
 
-    rendered_with_code = without_inert_html_subtrees(
-        rendered_markdown_with_code(text)
-    )
     for command in (
         "nix develop",
         "cabal build all",
         f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
     ):
-        if command not in rendered_with_code:
+        if command not in rendered_contract_text:
             violations.append(f"README.md: missing quick-start command: {command}")
 
     visible_text = without_inert_html_subtrees(visible_markdown(text))

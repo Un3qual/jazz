@@ -271,6 +271,19 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: missing required tagline", result.stdout)
         self.assertIn("README.md: missing required maturity notice", result.stdout)
 
+    def test_readme_maturity_notice_must_be_rendered(self) -> None:
+        readme = valid_readme().replace(
+            "> **Experimental / pre-1.0:** Jazz is under active development.",
+            (
+                "<!-- Experimental / pre-1.0 -->\n"
+                "> **Experimental beta:** Jazz is under active development."
+            ),
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing required maturity notice")
+
     def test_readme_rejects_embellished_tagline(self) -> None:
         readme = valid_readme().replace(
             "A statically typed functional language with practical syntax",
@@ -407,6 +420,32 @@ class PublicDocsCheckerTests(unittest.TestCase):
                 result.stdout,
             )
         self.assertEqual("", result.stderr)
+
+    def test_readme_quick_start_commands_ignore_markdown_metadata(self) -> None:
+        for decoy in (
+            "[quick-start]: nix develop",
+            (
+                "[Setup][nix develop]\n\n"
+                "[nix develop]: https://example.com"
+            ),
+            (
+                "[quick-start]: https://example.com\n"
+                '  "nix develop"'
+            ),
+            'Setup metadata <span title="nix develop">is ignored</span>.',
+            "```nix develop\nnot a command\n```",
+        ):
+            with self.subTest(decoy=decoy):
+                readme = valid_readme(extra=decoy).replace(
+                    "\nnix develop\n",
+                    "\necho enter the development environment\n",
+                    1,
+                )
+                (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+                self.assert_violation(
+                    "README.md: missing quick-start command: nix develop"
+                )
 
     def test_readme_rejects_invalid_local_link_targets(self) -> None:
         outside = self.root.parent / "outside.md"
@@ -546,6 +585,80 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/index.md: public link target does not exist: language/not-there.md"
         )
+
+    def test_rejects_missing_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## Existing section\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Missing](language/overview.md#missing-section)\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#missing-section"
+        )
+
+    def test_rejects_same_page_missing_link_fragments(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "## Existing section\n\n"
+                    "[Missing](#missing-section)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: #missing-section"
+        )
+
+    def test_hidden_headings_do_not_supply_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="<!--\n## Hidden section\n-->\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Hidden](language/overview.md#hidden-section)\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#hidden-section"
+        )
+
+    def test_accepts_rendered_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## Repeated section\n\n"
+                    "First.\n\n"
+                    "## Repeated section\n\n"
+                    "Second.\n\n"
+                    "## Named section {#custom-anchor}\n\n"
+                    "Named.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[First](language/overview.md#repeated-section)\n"
+                    "[Second](language/overview.md#repeated-section-1)\n"
+                    "[Named](language/overview.md#custom-anchor)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_rejects_links_that_leave_public_docs(self) -> None:
         (self.root / "outside.md").write_text("Outside.\n", encoding="utf-8")

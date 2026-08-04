@@ -125,6 +125,54 @@ class ExampleRunnerTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_checked_examples_cannot_write_runtime_profiles(self) -> None:
+        for profile_arguments in (
+            "--runtime-profile examples/profile.json",
+            "--runtime-profile=examples/profile.json",
+        ):
+            with self.subTest(profile_arguments=profile_arguments):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {profile_arguments} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "checked examples cannot write runtime profiles",
+                    result.stderr,
+                )
+
+    def test_option_values_named_like_runtime_profile_flags_are_not_profiles(
+        self,
+    ) -> None:
+        self.write_cases(
+            "hello\texamples/hello.jz\t\"Hello\"\t"
+            "--run --warnings-config --runtime-profile=decoy "
+            "examples/hello.jz\n"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_checked_examples_cannot_short_circuit_into_help(self) -> None:
+        for help_argument in ("--help", "-h"):
+            with self.subTest(help_argument=help_argument):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {help_argument} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "checked examples cannot use help mode",
+                    result.stderr,
+                )
+
     def test_clears_cli_environment_overrides(self) -> None:
         self.write_fake_jazz(
             "names = ('JAZZ_PRELUDE', 'JAZZ_WARNING_FLAGS', "
