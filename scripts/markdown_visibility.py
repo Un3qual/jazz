@@ -551,6 +551,14 @@ def rendered_markdown(text: str) -> str:
     )
 
 
+def container_relative_markdown(text: str) -> str:
+    """Strip active CommonMark container prefixes from each physical line."""
+    scanner = _MarkdownContainerScanner()
+    return "".join(
+        scanner.scan(line).content for line in text.splitlines(keepends=True)
+    )
+
+
 def rendered_markdown_with_code(text: str) -> str:
     """Blank comments while preserving rendered prose and code content."""
     return markdown_visibility(

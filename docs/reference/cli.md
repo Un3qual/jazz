@@ -42,6 +42,8 @@ deterministic semantic statistics on stderr. `--runtime-profile=PATH` writes a
 deterministic Speedscope profile atomically. These options require `--run`.
 
 `--help` and `-h` print help to stdout without reading source, Prelude, or
-configuration files. Invalid arguments and required-file read failures exit
-with status 2; compile or runtime diagnostics exit with status 1. See
-[diagnostics](diagnostics.md).
+configuration files. After successful run-mode evaluation, [`IO.exit!`](../standard-library/io.md)
+may request any process status from `0` through `255`; that status becomes the
+CLI status and suppresses the final-value print. Invalid arguments and
+required-file read failures exit with status 2; compile or runtime diagnostics
+exit with status 1. See [diagnostics](diagnostics.md).

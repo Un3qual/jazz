@@ -284,6 +284,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
         self.assert_violation("README.md: missing required maturity notice")
 
+    def test_readme_tagline_must_be_rendered(self) -> None:
+        tagline = "A statically typed functional language with practical syntax"
+        readme = valid_readme().replace(
+            tagline,
+            f"<!--\n{tagline}\n-->",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing required tagline")
+
     def test_readme_rejects_embellished_tagline(self) -> None:
         readme = valid_readme().replace(
             "A statically typed functional language with practical syntax",
@@ -651,6 +662,59 @@ class PublicDocsCheckerTests(unittest.TestCase):
                     "[First](language/overview.md#repeated-section)\n"
                     "[Second](language/overview.md#repeated-section-1)\n"
                     "[Named](language/overview.md#custom-anchor)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_container_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "> ## Quoted heading\n>\n> Body.\n\n"
+                    "1. ### Listed heading\n\n"
+                    "   Body.\n\n"
+                    "- > #### Nested heading\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Quoted](language/overview.md#quoted-heading)\n"
+                    "[Listed](language/overview.md#listed-heading)\n"
+                    "[Nested](language/overview.md#nested-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_autolink_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## <https://example.com>\n\n"
+                    "URI.\n\n"
+                    "## <person@example.com>\n\n"
+                    "Email.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[URI](language/overview.md#httpsexamplecom)\n"
+                    "[Email](language/overview.md#personexamplecom)\n"
                 )
             ),
             encoding="utf-8",

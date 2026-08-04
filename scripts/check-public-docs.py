@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
 from markdown_visibility import (
+    container_relative_markdown,
     html_source_markdown,
     markdown_fences,
     renderable_source_markdown,
@@ -169,6 +170,11 @@ ATX_HEADING_RE = re.compile(
 )
 EXPLICIT_HEADING_ID_RE = re.compile(
     r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$"
+)
+MARKDOWN_AUTOLINK_RE = re.compile(
+    r"<((?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|"
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?))>"
 )
 JAZZ_EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:.*?-->", re.DOTALL
@@ -502,6 +508,7 @@ def markdown_heading_text(markup: str) -> str:
     text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]", r"\1", text)
     text = text.replace("`", "")
+    text = MARKDOWN_AUTOLINK_RE.sub(r"\1", text)
     return html_visible_text(text)
 
 
@@ -513,7 +520,9 @@ def markdown_heading_slug(markup: str) -> str:
 
 
 def rendered_heading_fragments(text: str) -> set[str]:
-    rendered = without_inert_html_subtrees(rendered_markdown(text))
+    rendered = container_relative_markdown(
+        without_inert_html_subtrees(rendered_markdown(text))
+    )
     fragments: set[str] = set()
     slug_counts: dict[str, int] = {}
     for match in ATX_HEADING_RE.finditer(rendered):
@@ -1097,9 +1106,12 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             f"(found {line_count})"
         )
 
-    if README_TAGLINE not in exact_line_positions:
-        violations.append("README.md: missing required tagline")
     rendered_contract_text = rendered_contract_text_with_code(text)
+    if (
+        README_TAGLINE not in exact_line_positions
+        or README_TAGLINE not in rendered_contract_text
+    ):
+        violations.append("README.md: missing required tagline")
     if README_MATURITY_NOTICE not in rendered_contract_text:
         violations.append("README.md: missing required maturity notice")
 

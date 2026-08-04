@@ -70,6 +70,7 @@ operator %% tier 2.
 
 Tiers range from 1 to 5, or a declaration may use `precedence 1` through
 `precedence 99`. Optional associativity is `left`, `right`, or `nonassoc`;
-custom precedence defaults left. Operator declarations and bindings are
-source-local and not allowed in nested expression blocks. See the exact
-[expression grammar](../reference/expression-grammar.md).
+without an explicit associativity, tiers 1 through 4 default left and tier 5
+defaults right, matching their built-in tiers. Custom precedence defaults
+left. Operator declarations and bindings are source-local and not allowed in
+nested expression blocks. See the exact [expression grammar](../reference/expression-grammar.md).
