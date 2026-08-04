@@ -374,6 +374,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
             f"README.md: missing required navigation link: {target}"
         )
 
+    def test_readme_navigation_links_inside_hidden_html_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = f"<span hidden>[Hidden getting started]({target})</span>"
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(
+            f"FAIL: README.md: missing required navigation link: {target}\n",
+            result.stdout,
+        )
+
     def test_readme_rejects_invalid_local_link_targets(self) -> None:
         outside = self.root.parent / "outside.md"
         outside.write_text("Outside.\n", encoding="utf-8")
@@ -965,6 +981,34 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
 
         self.assert_violation("docs/index.md: Jazz fragment has invalid syntax")
+
+    def test_rejects_invalid_jazz_fragments_inside_markdown_containers(
+        self,
+    ) -> None:
+        container_bodies = {
+            "ordered list": (
+                "1. Example\n\n"
+                "    <!-- jazz-example: fragment -->\n"
+                "    ```jazz\n"
+                "    if condition then else.\n"
+                "    ```\n"
+            ),
+            "blockquote": (
+                "> <!-- jazz-example: fragment -->\n"
+                "> ```jazz\n"
+                "> if condition then else.\n"
+                "> ```\n"
+            ),
+        }
+        for container, body in container_bodies.items():
+            with self.subTest(container=container):
+                (self.root / "docs/index.md").write_text(
+                    page(body=body), encoding="utf-8"
+                )
+
+                self.assert_violation(
+                    "docs/index.md: Jazz fragment has invalid syntax"
+                )
 
     def test_fragment_syntax_check_ignores_contextual_semantic_errors(self) -> None:
         (self.root / "docs/index.md").write_text(

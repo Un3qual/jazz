@@ -56,6 +56,154 @@ def leading_spaces(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
+@dataclass(frozen=True)
+class _MarkdownContainer:
+    kind: str
+    continuation_indent: int = 0
+
+
+@dataclass(frozen=True)
+class _ContainerLine:
+    content: str
+    prefix_length: int
+    containers: tuple[_MarkdownContainer, ...]
+
+
+LIST_MARKER_RE = re.compile(r"(?:[*+-]|[0-9]{1,9}[.)])")
+
+
+def blockquote_prefix_end(line: str, start: int) -> int | None:
+    content = without_line_ending(line)
+    indent = leading_spaces(content[start:])
+    if indent > 3:
+        return None
+    marker = start + indent
+    if marker >= len(content) or content[marker] != ">":
+        return None
+    end = marker + 1
+    if end < len(content) and content[end] in " \t":
+        end += 1
+    return end
+
+
+def list_container_opener(
+    line: str, start: int
+) -> tuple[int, _MarkdownContainer] | None:
+    content = without_line_ending(line)
+    indent = leading_spaces(content[start:])
+    if indent > 3:
+        return None
+    marker_start = start + indent
+    marker = LIST_MARKER_RE.match(content, marker_start)
+    if marker is None:
+        return None
+    marker_end = marker.end()
+    if marker_end < len(content) and content[marker_end] not in " \t":
+        return None
+
+    marker_width = marker_end - marker_start
+    if marker_end == len(content):
+        padding = 1
+        item_content_start = marker_end
+    elif content[marker_end] == "\t":
+        padding = 1
+        item_content_start = marker_end + 1
+    else:
+        whitespace_end = marker_end
+        while (
+            whitespace_end < len(content)
+            and content[whitespace_end] == " "
+        ):
+            whitespace_end += 1
+        whitespace_width = whitespace_end - marker_end
+        if whitespace_end == len(content):
+            padding = 1
+            item_content_start = whitespace_end
+        elif whitespace_width <= 4:
+            padding = whitespace_width
+            item_content_start = whitespace_end
+        else:
+            padding = 1
+            item_content_start = marker_end + 1
+
+    return (
+        item_content_start,
+        _MarkdownContainer(
+            kind="list",
+            continuation_indent=indent + marker_width + padding,
+        ),
+    )
+
+
+def match_container_prefix(
+    line: str, start: int, container: _MarkdownContainer
+) -> int | None:
+    if container.kind == "blockquote":
+        return blockquote_prefix_end(line, start)
+    content = without_line_ending(line)
+    end = start + container.continuation_indent
+    if (
+        end > len(content)
+        or content[start:end] != " " * container.continuation_indent
+    ):
+        return None
+    return end
+
+
+class _MarkdownContainerScanner:
+    def __init__(self) -> None:
+        self.containers: list[_MarkdownContainer] = []
+
+    def scan(self, line: str) -> _ContainerLine:
+        content = without_line_ending(line)
+        if not content.strip(" \t"):
+            return _ContainerLine(line, 0, tuple(self.containers))
+
+        position = 0
+        matched = 0
+        while matched < len(self.containers):
+            next_position = match_container_prefix(
+                line, position, self.containers[matched]
+            )
+            if next_position is None:
+                del self.containers[matched:]
+                break
+            position = next_position
+            matched += 1
+
+        while True:
+            blockquote_end = blockquote_prefix_end(line, position)
+            if blockquote_end is not None:
+                self.containers.append(_MarkdownContainer(kind="blockquote"))
+                position = blockquote_end
+                continue
+            list_opener = list_container_opener(line, position)
+            if list_opener is None:
+                break
+            position, list_container = list_opener
+            self.containers.append(list_container)
+
+        return _ContainerLine(
+            line[position:], position, tuple(self.containers)
+        )
+
+    @staticmethod
+    def scan_fence_line(
+        line: str, containers: tuple[_MarkdownContainer, ...]
+    ) -> _ContainerLine | None:
+        content = without_line_ending(line)
+        if not content.strip(" \t"):
+            return _ContainerLine(line, 0, containers)
+
+        position = 0
+        for container in containers:
+            next_position = match_container_prefix(line, position, container)
+            if next_position is None:
+                return None
+            position = next_position
+        return _ContainerLine(line[position:], position, containers)
+
+
 def fence_opener(line: str) -> tuple[str, int, int, str | None] | None:
     content = without_line_ending(line)
     indent = leading_spaces(content)
@@ -107,24 +255,34 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
         offset += len(line)
 
     fences: list[MarkdownFence] = []
+    container_scanner = _MarkdownContainerScanner()
     line_index = 0
     while line_index < len(lines):
-        opener = fence_opener(lines[line_index])
+        container_line = container_scanner.scan(lines[line_index])
+        opener = fence_opener(container_line.content)
         if opener is None:
             line_index += 1
             continue
 
         delimiter, minimum_length, indent, info = opener
-        start = offsets[line_index]
+        start = offsets[line_index] + container_line.prefix_length
+        fence_containers = container_line.containers
         source_lines: list[str] = []
         line_index += 1
         closed = False
         while line_index < len(lines):
-            if is_fence_closer(lines[line_index], delimiter, minimum_length):
+            fence_line = container_scanner.scan_fence_line(
+                lines[line_index], fence_containers
+            )
+            if fence_line is None:
+                break
+            if is_fence_closer(
+                fence_line.content, delimiter, minimum_length
+            ):
                 line_index += 1
                 closed = True
                 break
-            source_lines.append(strip_fence_indent(lines[line_index], indent))
+            source_lines.append(strip_fence_indent(fence_line.content, indent))
             line_index += 1
 
         end = offsets[line_index] if line_index < len(lines) else len(text)

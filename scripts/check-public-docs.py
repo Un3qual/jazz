@@ -190,6 +190,24 @@ class ExampleCase:
 
 
 INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
+VOID_HTML_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
 
 
 class HtmlLinkTargetParser(HTMLParser):
@@ -228,6 +246,7 @@ class InertHtmlSubtreeMasker(HTMLParser):
         super().__init__(convert_charrefs=False)
         self.parts: list[str] = []
         self.inert_depth = 0
+        self.open_elements: list[tuple[str, bool]] = []
 
     def append(self, source: str, *, force_mask: bool = False) -> None:
         if not self.inert_depth and not force_mask:
@@ -238,23 +257,52 @@ class InertHtmlSubtreeMasker(HTMLParser):
         )
 
     def handle_starttag(
-        self, tag: str, _attributes: list[tuple[str, str | None]]
+        self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
         source = self.get_starttag_text() or f"<{tag}>"
-        if tag.casefold() in INERT_HTML_CONTENT_TAGS:
+        folded_tag = tag.casefold()
+        introduces_inertness = (
+            folded_tag in INERT_HTML_CONTENT_TAGS
+            or any(name.casefold() == "hidden" for name, _value in attributes)
+        )
+        if introduces_inertness:
             self.inert_depth += 1
         self.append(source)
+        if folded_tag in VOID_HTML_TAGS:
+            if introduces_inertness:
+                self.inert_depth -= 1
+            return
+        self.open_elements.append((folded_tag, introduces_inertness))
 
     def handle_startendtag(
-        self, tag: str, _attributes: list[tuple[str, str | None]]
+        self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
         source = self.get_starttag_text() or f"<{tag} />"
-        self.append(source, force_mask=tag.casefold() in INERT_HTML_CONTENT_TAGS)
+        introduces_inertness = (
+            tag.casefold() in INERT_HTML_CONTENT_TAGS
+            or any(name.casefold() == "hidden" for name, _value in attributes)
+        )
+        self.append(source, force_mask=introduces_inertness)
 
     def handle_endtag(self, tag: str) -> None:
         self.append(f"</{tag}>")
-        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
-            self.inert_depth -= 1
+        folded_tag = tag.casefold()
+        matching_index = next(
+            (
+                index
+                for index in range(len(self.open_elements) - 1, -1, -1)
+                if self.open_elements[index][0] == folded_tag
+            ),
+            None,
+        )
+        if matching_index is None:
+            return
+        closed_elements = self.open_elements[matching_index:]
+        del self.open_elements[matching_index:]
+        self.inert_depth -= sum(
+            introduces_inertness
+            for _element_tag, introduces_inertness in closed_elements
+        )
 
     def handle_data(self, data: str) -> None:
         self.append(data)
@@ -596,6 +644,19 @@ def without_one_final_newline(text: str) -> str:
     return text
 
 
+def marker_gap_is_container_whitespace(text: str) -> bool:
+    for line in text.splitlines():
+        remainder = line
+        while True:
+            blockquote = re.match(r"^[ \t]*>[ \t]?", remainder)
+            if blockquote is None:
+                break
+            remainder = remainder[blockquote.end() :]
+        if remainder.strip():
+            return False
+    return True
+
+
 def has_top_level_heading(text: str) -> bool:
     return re.search(r"^#[ \t]+", visible_markdown(text), re.MULTILINE) is not None
 
@@ -612,7 +673,9 @@ def has_bound_executable_marker(text: str, example_path: str) -> bool:
     return any(
         fence.is_jazz
         and marker.end() <= fence.start
-        and not source_text[marker.end() : fence.start].strip()
+        and marker_gap_is_container_whitespace(
+            source_text[marker.end() : fence.start]
+        )
         for marker in markers
         for fence in fences
     )
@@ -757,9 +820,9 @@ def validate_jazz_fences(
             ),
             None,
         )
-        if preceding_marker is None or source_text[
-            preceding_marker.end() : fence.start
-        ].strip():
+        if preceding_marker is None or not marker_gap_is_container_whitespace(
+            source_text[preceding_marker.end() : fence.start]
+        ):
             violations.append(
                 f"{display}: Jazz fence must be immediately preceded by a "
                 "jazz-example marker"
@@ -887,7 +950,9 @@ def validate_example_outputs(
             output_fence is None
             or output_fence.info != "text"
             or not output_fence.closed
-            or source_text[marker.end() : output_fence.start].strip()
+            or not marker_gap_is_container_whitespace(
+                source_text[marker.end() : output_fence.start]
+            )
         ):
             violations.append(
                 f"{display}: jazz-example-output marker for case {case_name} "
