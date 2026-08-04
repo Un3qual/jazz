@@ -25,7 +25,7 @@ require_pattern() {
   fi
 }
 
-if ! bash scripts/check-public-docs.sh; then
+if ! bash scripts/check-public-docs.sh "$@"; then
   fail "scripts/check-public-docs.sh reported public documentation boundary violations"
 fi
 if ! python3 scripts/test-check-public-docs.py; then

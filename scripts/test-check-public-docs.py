@@ -248,6 +248,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Public documentation checks passed.\n", result.stdout)
 
+    def test_checker_does_not_require_a_jazz_binary_by_default(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(CHECKER_PATH), str(self.root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Public documentation checks passed.\n", result.stdout)
+
     def test_readme_must_be_between_100_and_150_lines(self) -> None:
         short_readme = "\n".join(valid_readme().splitlines()[:99]) + "\n"
         (self.root / "README.md").write_text(
@@ -362,6 +373,30 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
         self.assert_violation(
             f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_rejects_missing_local_link_fragments(self) -> None:
+        readme = valid_readme(
+            extra=(
+                "[Missing section]"
+                "(docs/getting-started/overview.md#missing-section)"
+            )
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            "README.md: local link fragment does not exist: "
+            "docs/getting-started/overview.md#missing-section"
+        )
+
+    def test_readme_rejects_same_page_missing_link_fragments(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="[Missing section](#missing-section)"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: local link fragment does not exist: #missing-section"
         )
 
     def test_readme_navigation_links_inside_html_templates_are_inert(self) -> None:

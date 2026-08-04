@@ -540,6 +540,23 @@ def rendered_heading_fragments(text: str) -> set[str]:
     return fragments
 
 
+def local_markdown_fragment_violation(
+    candidate: Path, fragment: str, raw_target: str
+) -> str | None:
+    if not fragment or candidate.suffix.casefold() not in {".md", ".mdx"}:
+        return None
+    try:
+        target_text = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    if fragment not in rendered_heading_fragments(target_text):
+        return (
+            "link fragment does not exist: "
+            f"{markdown_link_target(raw_target)}"
+        )
+    return None
+
+
 def resolves_within(path: Path, directory: Path) -> bool:
     try:
         path.relative_to(directory)
@@ -577,63 +594,45 @@ def local_docs_link_violation(
         return f"public link leaves docs/: {markdown_link_target(raw_target)}"
     if not candidate.is_file():
         return f"public link target does not exist: {markdown_link_target(raw_target)}"
-    if parsed.fragment and candidate.suffix.casefold() in {".md", ".mdx"}:
-        try:
-            target_text = candidate.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            return None
-        if parsed.fragment not in rendered_heading_fragments(target_text):
-            return (
-                "public link fragment does not exist: "
-                f"{markdown_link_target(raw_target)}"
-            )
+    fragment_violation = local_markdown_fragment_violation(
+        candidate, parsed.fragment, raw_target
+    )
+    if fragment_violation is not None:
+        return f"public {fragment_violation}"
     return None
 
 
 def local_readme_link_violation(root: Path, raw_target: str) -> str | None:
     target = unquote(markdown_link_target(raw_target))
     parsed = urlsplit(target)
-    if parsed.scheme or parsed.netloc or not parsed.path:
+    if parsed.scheme or parsed.netloc or (not parsed.path and not parsed.fragment):
         return None
     canonical_root = root.resolve()
-    candidate = (root / parsed.path).resolve()
+    candidate = (
+        (root / parsed.path).resolve()
+        if parsed.path
+        else (root / "README.md").resolve()
+    )
     if not resolves_within(candidate, canonical_root):
         return f"local link leaves repository: {markdown_link_target(raw_target)}"
     if not candidate.is_file():
         return f"local link target does not exist: {markdown_link_target(raw_target)}"
+    fragment_violation = local_markdown_fragment_violation(
+        candidate, parsed.fragment, raw_target
+    )
+    if fragment_violation is not None:
+        return f"local {fragment_violation}"
     return None
 
 
 def resolve_jazz_binary(
-    root: Path, explicit: str | None
+    explicit: str | None,
 ) -> tuple[Path | None, str | None]:
-    if explicit is not None:
-        binary = Path(explicit).resolve()
-        if not binary.is_file():
-            return None, f"Jazz executable does not exist: {binary}"
-        return binary, None
-
-    try:
-        build = subprocess.run(["cabal", "build", "jazz"], cwd=root, check=False)
-    except OSError as exc:
-        return None, f"could not start cabal build jazz: {exc}"
-    if build.returncode != 0:
-        return None, "cabal build jazz failed"
-    try:
-        listed = subprocess.run(
-            ["cabal", "list-bin", "jazz"],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError as exc:
-        return None, f"could not start cabal list-bin jazz: {exc}"
-    if listed.returncode != 0 or not listed.stdout.strip():
-        return None, "cabal list-bin jazz failed"
-    binary = Path(listed.stdout.strip()).resolve()
+    if explicit is None:
+        return None, None
+    binary = Path(explicit).resolve()
     if not binary.is_file():
-        return None, f"cabal reported a missing Jazz executable: {binary}"
+        return None, f"Jazz executable does not exist: {binary}"
     return binary, None
 
 
@@ -911,7 +910,7 @@ def validate_example_cases(
 
 def validate_jazz_fences(
     root: Path,
-    jazz_binary: Path,
+    jazz_binary: Path | None,
     display: str,
     text: str,
     tracked_example_paths: set[str],
@@ -958,13 +957,14 @@ def validate_jazz_fences(
 
         marker_text = preceding_marker.group(0)
         if FRAGMENT_MARKER_RE.fullmatch(marker_text):
-            validate_fragment_syntax(
-                root,
-                jazz_binary,
-                display,
-                fence.source,
-                violations,
-            )
+            if jazz_binary is not None:
+                validate_fragment_syntax(
+                    root,
+                    jazz_binary,
+                    display,
+                    fence.source,
+                    violations,
+                )
             continue
 
         executable = EXECUTABLE_MARKER_RE.fullmatch(marker_text)
@@ -1206,7 +1206,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         violations.append("README.md: required content is not in the prescribed order")
 
 
-def validate(root: Path, jazz_binary: Path) -> list[str]:
+def validate(root: Path, jazz_binary: Path | None) -> list[str]:
     violations: list[str] = []
     docs_root = root / "docs"
     if not docs_root.is_dir():
@@ -1398,8 +1398,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--jazz-bin")
     arguments = parser.parse_args(argv[1:])
     root = arguments.repository_root.resolve()
-    jazz_binary, binary_error = resolve_jazz_binary(root, arguments.jazz_bin)
-    if binary_error is not None or jazz_binary is None:
+    jazz_binary, binary_error = resolve_jazz_binary(arguments.jazz_bin)
+    if binary_error is not None:
         print(f"FAIL: repository: {binary_error}")
         return 1
     violations = validate(root, jazz_binary)
