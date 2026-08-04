@@ -16,6 +16,17 @@ rendered_markdown() {
   python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
 }
 
+decoded_public_markdown() {
+  python3 -c '
+from html import unescape
+from pathlib import Path
+
+paths = [Path("README.md"), *sorted(Path("docs").rglob("*.md"))]
+for path in paths:
+    print(unescape(path.read_text(encoding="utf-8")))
+'
+}
+
 require_pattern() {
   local file="$1"
   local label="$2"
@@ -59,7 +70,8 @@ for removed_path in docs/spec docs/feature-status.md docs/jazz-language-state.md
   fi
 done
 
-if rg -n -i --glob '*.md' -e '(jazz-next|jazz-hs|jazz2|jazznext)' README.md docs >/dev/null 2>&1; then
+if decoded_public_markdown \
+  | rg -n -i -e '(jazz-next|jazz-hs|jazz2|jazznext)' >/dev/null 2>&1; then
   fail "removed implementation identity still appears in public documentation"
 fi
 

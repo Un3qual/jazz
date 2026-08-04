@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
@@ -191,6 +193,9 @@ EXAMPLE_OUTPUT_MARKER_RE = re.compile(
 EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
 EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
 EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+FRAGMENT_INVENTORY_PATH = "scripts/public-doc-fragments.tsv"
+FRAGMENT_INVENTORY_HEADER = ("document", "ordinal", "sha256")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 DIAGNOSTIC_CODE_RE = re.compile(
     r"^(?:error|warning): (E[0-9]{4}|W[0-9]{4})\b", re.MULTILINE
 )
@@ -303,7 +308,7 @@ class InertHtmlSubtreeMasker(HTMLParser):
         folded_tag = tag.casefold()
         introduces_inertness = (
             folded_tag in INERT_HTML_CONTENT_TAGS
-            or any(name.casefold() == "hidden" for name, _value in attributes)
+            or html_attributes_make_contract_inert(attributes)
         )
         if introduces_inertness:
             self.inert_depth += 1
@@ -320,7 +325,7 @@ class InertHtmlSubtreeMasker(HTMLParser):
         source = self.get_starttag_text() or f"<{tag} />"
         introduces_inertness = (
             tag.casefold() in INERT_HTML_CONTENT_TAGS
-            or any(name.casefold() == "hidden" for name, _value in attributes)
+            or html_attributes_make_contract_inert(attributes)
         )
         self.append(source, force_mask=introduces_inertness)
 
@@ -352,6 +357,19 @@ class InertHtmlSubtreeMasker(HTMLParser):
 
     def handle_charref(self, name: str) -> None:
         self.append(f"&#{name};")
+
+
+def html_attributes_make_contract_inert(
+    attributes: list[tuple[str, str | None]],
+) -> bool:
+    """Keep required contracts out of hidden or presentation-dependent HTML."""
+    for name, value in attributes:
+        folded_name = name.casefold()
+        if folded_name in {"hidden", "style"}:
+            return True
+        if folded_name == "aria-hidden" and (value or "").casefold() == "true":
+            return True
+    return False
 
 
 def without_inert_html_subtrees(text: str) -> str:
@@ -388,6 +406,17 @@ def rendered_contract_text_with_code(text: str) -> str:
     rendered_prose = without_inert_html_subtrees(rendered_markdown(text))
     visible_prose = html_visible_text(blank_markdown_metadata(rendered_prose))
     return "\n".join([visible_prose, *fence_sources])
+
+
+def exact_visible_line_positions(text: str) -> dict[str, int]:
+    visible_source = without_inert_html_subtrees(visible_markdown(text))
+    positions: dict[str, int] = {}
+    offset = 0
+    for line_with_ending in visible_source.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
+        positions.setdefault(line, offset)
+        offset += len(line_with_ending)
+    return positions
 
 
 def relative(root: Path, path: Path) -> str:
@@ -557,6 +586,14 @@ def local_markdown_fragment_violation(
     return None
 
 
+def internal_repository_path_label(candidate: Path, root: Path) -> str | None:
+    for internal_name in (".codex", "rfcs"):
+        internal_root = root / internal_name
+        if candidate == internal_root or internal_root in candidate.parents:
+            return f"{internal_name}/"
+    return None
+
+
 def resolves_within(path: Path, directory: Path) -> bool:
     try:
         path.relative_to(directory)
@@ -571,11 +608,7 @@ def internal_escape_label(doc_path: Path, raw_target: str, docs_root: Path) -> s
     if parsed.scheme or parsed.netloc or not parsed.path:
         return None
     candidate = (doc_path.parent / parsed.path).resolve()
-    for internal_name in (".codex", "rfcs"):
-        internal_root = docs_root.parent / internal_name
-        if candidate == internal_root or internal_root in candidate.parents:
-            return f"{internal_name}/"
-    return None
+    return internal_repository_path_label(candidate, docs_root.parent.resolve())
 
 
 def local_docs_link_violation(
@@ -615,6 +648,12 @@ def local_readme_link_violation(root: Path, raw_target: str) -> str | None:
     )
     if not resolves_within(candidate, canonical_root):
         return f"local link leaves repository: {markdown_link_target(raw_target)}"
+    internal_label = internal_repository_path_label(candidate, canonical_root)
+    if internal_label is not None:
+        return (
+            f"local link targets internal tree {internal_label}: "
+            f"{markdown_link_target(raw_target)}"
+        )
     if not candidate.is_file():
         return f"local link target does not exist: {markdown_link_target(raw_target)}"
     fragment_violation = local_markdown_fragment_violation(
@@ -634,6 +673,70 @@ def resolve_jazz_binary(
     if not binary.is_file():
         return None, f"Jazz executable does not exist: {binary}"
     return binary, None
+
+
+def load_fragment_inventory(
+    root: Path, violations: list[str]
+) -> set[tuple[str, int, str]]:
+    path = root / FRAGMENT_INVENTORY_PATH
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: cannot read inventory: {exc}")
+        return set()
+    if not text.endswith("\n"):
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: file must end with a newline")
+    rows = text.splitlines()
+    if not rows or tuple(rows[0].split("\t")) != FRAGMENT_INVENTORY_HEADER:
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: invalid header")
+        return set()
+
+    inventory: set[tuple[str, int, str]] = set()
+    for line_number, row in enumerate(rows[1:], 2):
+        fields = row.split("\t")
+        if len(fields) != len(FRAGMENT_INVENTORY_HEADER):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: "
+                "expected three tab-separated fields"
+            )
+            continue
+        document, raw_ordinal, digest = fields
+        pure_document = PurePosixPath(document)
+        if (
+            pure_document.is_absolute()
+            or ".." in pure_document.parts
+            or pure_document.suffix != ".md"
+            or not (
+                document == "README.md"
+                or (pure_document.parts and pure_document.parts[0] == "docs")
+            )
+        ):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid document path"
+            )
+            continue
+        try:
+            ordinal = int(raw_ordinal)
+        except ValueError:
+            ordinal = 0
+        if ordinal <= 0:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid fragment ordinal"
+            )
+            continue
+        if SHA256_RE.fullmatch(digest) is None:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid SHA-256 digest"
+            )
+            continue
+        entry = (document, ordinal, digest)
+        if entry in inventory:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: duplicate fragment entry"
+            )
+            continue
+        inventory.add(entry)
+    return inventory
 
 
 def checked_jazz_environment() -> dict[str, str]:
@@ -915,6 +1018,8 @@ def validate_jazz_fences(
     text: str,
     tracked_example_paths: set[str],
     canonical_examples_root: Path,
+    fragment_inventory: set[tuple[str, int, str]] | None,
+    observed_fragment_inventory: set[tuple[str, int, str]],
     violations: list[str],
 ) -> set[str]:
     documented_examples: set[str] = set()
@@ -929,6 +1034,7 @@ def validate_jazz_fences(
         )
     ]
     consumed_marker_starts: set[int] = set()
+    fragment_ordinal = 0
 
     for fence in fences:
         preceding_marker = next(
@@ -957,6 +1063,7 @@ def validate_jazz_fences(
 
         marker_text = preceding_marker.group(0)
         if FRAGMENT_MARKER_RE.fullmatch(marker_text):
+            fragment_ordinal += 1
             if jazz_binary is not None:
                 validate_fragment_syntax(
                     root,
@@ -965,6 +1072,19 @@ def validate_jazz_fences(
                     fence.source,
                     violations,
                 )
+            elif fragment_inventory is not None:
+                entry = (
+                    display,
+                    fragment_ordinal,
+                    hashlib.sha256(fence.source.encode("utf-8")).hexdigest(),
+                )
+                if entry not in fragment_inventory:
+                    violations.append(
+                        f"{display}: Jazz fragment {fragment_ordinal} is missing "
+                        f"from {FRAGMENT_INVENTORY_PATH}"
+                    )
+                else:
+                    observed_fragment_inventory.add(entry)
             continue
 
         executable = EXECUTABLE_MARKER_RE.fullmatch(marker_text)
@@ -1091,13 +1211,7 @@ def validate_example_outputs(
 
 
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
-    lines_with_endings = text.splitlines(keepends=True)
-    exact_line_positions: dict[str, int] = {}
-    offset = 0
-    for line_with_ending in lines_with_endings:
-        line = line_with_ending.rstrip("\r\n")
-        exact_line_positions.setdefault(line, offset)
-        offset += len(line_with_ending)
+    exact_line_positions = exact_visible_line_positions(text)
 
     line_count = len(text.splitlines())
     if not 100 <= line_count <= 150:
@@ -1189,8 +1303,9 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if section not in exact_line_positions:
             violations.append(f"README.md: missing required section: {section}")
 
+    decoded_text = html_unescape(text).casefold()
     for banned in README_BANNED_TERMS:
-        if banned.casefold() in text.casefold():
+        if banned.casefold() in decoded_text:
             violations.append(f"README.md: banned front-door term: {banned}")
 
     positions: list[int] = []
@@ -1215,6 +1330,12 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
     canonical_examples_root = root.resolve() / "examples"
     tracked_example_paths = set(tracked_examples(root, violations))
     example_cases = validate_example_cases(root, tracked_example_paths, violations)
+    fragment_inventory = (
+        load_fragment_inventory(root, violations)
+        if jazz_binary is None
+        else None
+    )
+    observed_fragment_inventory: set[tuple[str, int, str]] = set()
 
     for example_path in sorted(tracked_example_paths):
         candidate = root / example_path
@@ -1281,14 +1402,23 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
                     violations.append(
                         f"{display}: front matter is missing {required_field}"
                     )
+            relative_doc = path.relative_to(docs_root).as_posix()
+            if (
+                relative_doc in REQUIRED_PAGES
+                and not rendered_contract_text_with_code(markdown_body).strip()
+            ):
+                violations.append(
+                    f"{display}: required public page has no rendered body"
+                )
 
         if has_top_level_heading(markdown_body):
             violations.append(
                 f"{display}: top-level heading duplicates front matter title"
             )
 
+        decoded_text = html_unescape(text).casefold()
         for banned in BANNED_REFERENCES:
-            if banned.casefold() in text.casefold():
+            if banned.casefold() in decoded_text:
                 violations.append(f"{display}: banned public reference: {banned}")
 
         visible_body = without_inert_html_subtrees(
@@ -1364,6 +1494,8 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
             text,
             tracked_example_paths,
             canonical_examples_root,
+            fragment_inventory,
+            observed_fragment_inventory,
             violations,
         )
         documented_examples.update(document_examples)
@@ -1383,6 +1515,14 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
         violations.append(
             f"{EXAMPLE_CASES_PATH}: case {case_name} has no documented expected output"
         )
+    if fragment_inventory is not None:
+        for display, ordinal, _digest in sorted(
+            fragment_inventory - observed_fragment_inventory
+        ):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}: stale Jazz fragment entry: "
+                f"{display}#{ordinal}"
+            )
 
     return sorted(set(violations))
 

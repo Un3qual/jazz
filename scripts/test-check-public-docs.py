@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -144,6 +145,10 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.root.mkdir()
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
+        (self.root / "scripts/public-doc-fragments.tsv").write_text(
+            "document\tordinal\tsha256\n",
+            encoding="utf-8",
+        )
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         self.jazz_binary = self.root / "fixture-jazz"
         self.jazz_binary.write_text(
@@ -201,6 +206,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
             text=True,
         )
 
+    def run_checker_without_binary(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(CHECKER_PATH), str(self.root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def assert_violation(self, expected: str) -> None:
         result = self.run_checker()
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
@@ -249,12 +262,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertEqual("Public documentation checks passed.\n", result.stdout)
 
     def test_checker_does_not_require_a_jazz_binary_by_default(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(CHECKER_PATH), str(self.root)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = self.run_checker_without_binary()
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Public documentation checks passed.\n", result.stdout)
@@ -445,6 +453,21 @@ class PublicDocsCheckerTests(unittest.TestCase):
             f"README.md: missing required navigation link: {target}"
         )
 
+    def test_readme_navigation_links_inside_css_hidden_html_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="display: none" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
     def test_readme_quick_start_commands_must_be_rendered(self) -> None:
         commands = (
             "nix develop\n"
@@ -533,6 +556,20 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: banned front-door term: .codex/", result.stdout)
         self.assertIn("README.md: banned front-door term: Spec Authority", result.stdout)
 
+    def test_readme_rejects_percent_encoded_internal_links(self) -> None:
+        internal = self.root / ".codex/execution/queue.md"
+        internal.parent.mkdir(parents=True)
+        internal.write_text("Internal queue.\n", encoding="utf-8")
+        target = ".%63odex/execution/queue.md"
+        (self.root / "README.md").write_text(
+            valid_readme(extra=f"[Internal queue]({target})"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: local link targets internal tree .codex/: " + target
+        )
+
     def test_readme_requires_prescribed_content_order(self) -> None:
         readme = valid_readme().replace(
             "## Available today", "## Temporary heading", 1
@@ -551,6 +588,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation(
             "README.md: missing required section: ## Available today"
+        )
+
+    def test_readme_required_sections_must_be_rendered(self) -> None:
+        section = "## Documentation"
+        (self.root / "README.md").write_text(
+            valid_readme().replace(section, f"<!--\n{section}\n-->", 1),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: missing required section: ## Documentation"
         )
 
     def test_readme_rejects_section_heading_mentioned_inline(self) -> None:
@@ -832,6 +880,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
             page(body="The old identity was JAZZ2.\n"), encoding="utf-8"
         )
         self.assert_violation("docs/index.md: banned public reference: jazz2")
+
+    def test_rejects_html_entity_encoded_banned_public_references(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The retired identity is jazz&#45;next.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: jazz-next"
+        )
 
     def test_whitespace_only_link_target_is_an_actionable_violation(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -1238,6 +1296,132 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_default_checker_requires_fragments_in_compiler_inventory(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<!-- jazz-example: fragment -->\n```jazz\n0.\n```\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker_without_binary()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "docs/index.md: Jazz fragment 1 is missing from "
+            "scripts/public-doc-fragments.tsv",
+            result.stdout,
+        )
+
+    def test_default_checker_accepts_compiler_inventory_fragment(self) -> None:
+        source = "0.\n"
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    f"```jazz\n{source}```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        (self.root / "scripts/public-doc-fragments.tsv").write_text(
+            (
+                "document\tordinal\tsha256\n"
+                f"docs/index.md\t1\t{digest}\n"
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker_without_binary()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_default_checker_requires_fragment_inventory_file(self) -> None:
+        (self.root / "scripts/public-doc-fragments.tsv").unlink()
+
+        result = self.run_checker_without_binary()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "scripts/public-doc-fragments.tsv: cannot read inventory:",
+            result.stdout,
+        )
+
+    def test_default_checker_rejects_malformed_fragment_inventory(self) -> None:
+        digest = "0" * 64
+        cases = (
+            (
+                "missing final newline",
+                "document\tordinal\tsha256",
+                "scripts/public-doc-fragments.tsv: file must end with a newline",
+            ),
+            (
+                "invalid header",
+                "path\tordinal\tsha256\n",
+                "scripts/public-doc-fragments.tsv: invalid header",
+            ),
+            (
+                "wrong field count",
+                "document\tordinal\tsha256\ndocs/index.md\t1\n",
+                "scripts/public-doc-fragments.tsv:2: expected three tab-separated fields",
+            ),
+            (
+                "unsafe path",
+                f"document\tordinal\tsha256\n../README.md\t1\t{digest}\n",
+                "scripts/public-doc-fragments.tsv:2: invalid document path",
+            ),
+            (
+                "invalid ordinal",
+                f"document\tordinal\tsha256\ndocs/index.md\t0\t{digest}\n",
+                "scripts/public-doc-fragments.tsv:2: invalid fragment ordinal",
+            ),
+            (
+                "invalid digest",
+                "document\tordinal\tsha256\ndocs/index.md\t1\tnot-a-digest\n",
+                "scripts/public-doc-fragments.tsv:2: invalid SHA-256 digest",
+            ),
+            (
+                "duplicate entry",
+                (
+                    "document\tordinal\tsha256\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                ),
+                "scripts/public-doc-fragments.tsv:3: duplicate fragment entry",
+            ),
+            (
+                "stale entry",
+                (
+                    "document\tordinal\tsha256\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                ),
+                "scripts/public-doc-fragments.tsv: stale Jazz fragment entry: "
+                "docs/index.md#1",
+            ),
+        )
+        for label, inventory, expected in cases:
+            with self.subTest(label=label):
+                (self.root / "scripts/public-doc-fragments.tsv").write_text(
+                    inventory,
+                    encoding="utf-8",
+                )
+
+                result = self.run_checker_without_binary()
+
+                self.assertNotEqual(
+                    0, result.returncode, result.stdout + result.stderr
+                )
+                self.assertIn(expected, result.stdout)
+
+    def test_required_public_pages_need_rendered_body_content(self) -> None:
+        (self.root / "docs/reference/cli.md").write_text(
+            page(body=""),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/reference/cli.md: required public page has no rendered body"
+        )
 
     def test_rejects_fragment_with_invalid_jazz_syntax(self) -> None:
         (self.root / "docs/index.md").write_text(
