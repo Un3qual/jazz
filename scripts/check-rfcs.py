@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
 import sys
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from markdown_visibility import rendered_markdown, visible_markdown
 
@@ -61,6 +63,17 @@ def visible_inline_link_targets(text: str) -> set[str]:
         match.group(1) or match.group(2)
         for match in MARKDOWN_LINK_RE.finditer(visible)
     }
+
+
+def normalized_index_target(target: str) -> str | None:
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc or not parsed.path:
+        return None
+    decoded_path = unquote(parsed.path)
+    normalized = posixpath.normpath(decoded_path)
+    if normalized in {".", ".."} or normalized.startswith(("../", "/")):
+        return None
+    return normalized
 
 
 def validate_metadata(path: str, lines: list[str], status: str) -> list[str]:
@@ -123,9 +136,13 @@ def validate(root: Path) -> list[str]:
     accepted_targets: set[str] = set()
     accepted_index = root / "rfcs/README.md"
     try:
-        accepted_index_targets = visible_inline_link_targets(
-            accepted_index.read_text(encoding="utf-8")
-        )
+        accepted_index_targets = {
+            normalized
+            for target in visible_inline_link_targets(
+                accepted_index.read_text(encoding="utf-8")
+            )
+            if (normalized := normalized_index_target(target)) is not None
+        }
     except (OSError, UnicodeError) as exc:
         violations.append(f"rfcs/README.md: cannot read RFC index: {exc}")
         accepted_index_targets = set()
@@ -172,10 +189,9 @@ def validate(root: Path) -> list[str]:
                         f"rfcs/README.md: missing accepted RFC index entry: {target}"
                     )
     for target in sorted(accepted_index_targets):
-        target_path = re.split(r"[?#]", target, maxsplit=1)[0]
-        if target.startswith("accepted/") and target_path not in accepted_targets:
+        if target.startswith("accepted/") and target not in accepted_targets:
             violations.append(
-                f"rfcs/README.md: stale accepted RFC index entry: {target_path}"
+                f"rfcs/README.md: stale accepted RFC index entry: {target}"
             )
     return sorted(set(violations))
 

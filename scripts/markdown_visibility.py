@@ -265,6 +265,7 @@ def markdown_visibility(
     text: str,
     *,
     mask_fenced_code: bool,
+    mask_html_comments: bool = True,
     mask_inline_code: bool,
     mask_raw_html_blocks: bool = True,
 ) -> str:
@@ -283,7 +284,7 @@ def markdown_visibility(
         if fence_end is not None:
             index = fence_end
             continue
-        if partially_visible.startswith("<!--", index):
+        if mask_html_comments and partially_visible.startswith("<!--", index):
             closer = partially_visible.find("-->", index + 4)
             comment_end = len(partially_visible) if closer < 0 else closer + 3
             blank_range(characters, index, comment_end)
@@ -355,6 +356,16 @@ def rendered_markdown_with_code(text: str) -> str:
     """Blank comments while preserving rendered prose and code content."""
     return markdown_visibility(
         text, mask_fenced_code=False, mask_inline_code=False
+    )
+
+
+def renderable_source_markdown(text: str) -> str:
+    """Mask raw HTML blocks while preserving rendered fences and metadata comments."""
+    return markdown_visibility(
+        text,
+        mask_fenced_code=False,
+        mask_html_comments=False,
+        mask_inline_code=False,
     )
 
 

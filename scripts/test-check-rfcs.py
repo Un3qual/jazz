@@ -259,6 +259,27 @@ class RfcCheckerTests(unittest.TestCase):
             "accepted/9999-missing.md"
         )
 
+    def test_accepted_rfc_index_normalizes_dot_relative_targets(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture](./accepted/0001-fixture.md)\n", encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepted_rfc_index_rejects_dot_relative_missing_targets(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture](accepted/0001-fixture.md)\n"
+            "[Missing](./accepted/9999-missing.md)\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/README.md: stale accepted RFC index entry: "
+            "accepted/9999-missing.md"
+        )
+
     def test_rfc_numbers_are_unique_across_status_directories(self) -> None:
         (self.root / "rfcs/proposed/0001-copy.md").write_text(
             rfc("Proposed"), encoding="utf-8"

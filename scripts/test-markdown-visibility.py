@@ -6,6 +6,7 @@ from __future__ import annotations
 import unittest
 
 from markdown_visibility import (
+    renderable_source_markdown,
     rendered_markdown,
     rendered_markdown_with_code,
     visible_markdown,
@@ -89,6 +90,25 @@ case-arm-pattern := pattern
         self.assertNotIn("Hidden custom content", visible)
         self.assertIn("## Before", visible)
         self.assertIn("## Visible heading", visible)
+
+    def test_renderable_source_masks_raw_html_but_preserves_example_metadata(
+        self,
+    ) -> None:
+        text = (
+            "<!-- jazz-example: fragment -->\n"
+            "```jazz\n0.\n```\n"
+            '<script type="text/plain">\n'
+            "<!-- jazz-example: executable path=examples/hidden.jz -->\n"
+            "```jazz\n1.\n```\n"
+            "</script>\n"
+        )
+
+        source = renderable_source_markdown(text)
+
+        self.assertIn("<!-- jazz-example: fragment -->", source)
+        self.assertIn("```jazz\n0.\n```", source)
+        self.assertNotIn("examples/hidden.jz", source)
+        self.assertNotIn("```jazz\n1.\n```", source)
 
 
 if __name__ == "__main__":

@@ -140,7 +140,8 @@ def valid_readme(*, extra: str = "") -> str:
 class PublicDocsCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name) / "repo"
+        self.root.mkdir()
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
@@ -306,6 +307,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
 
+    def test_readme_navigation_links_must_be_rendered(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme(
+            extra=f"<!-- [Hidden getting started]({target}) -->"
+        ).replace(f"[Getting started]({target})", "Getting started")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
     def test_readme_rejects_invalid_local_link_targets(self) -> None:
         outside = self.root.parent / "outside.md"
         outside.write_text("Outside.\n", encoding="utf-8")
@@ -403,6 +415,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.assert_violation("docs/index.md: missing valid YAML front matter")
+
+    def test_rejects_unterminated_yaml_flow_value(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page().replace("title: Fixture", "title: [broken"),
+            encoding="utf-8",
+        )
+
         self.assert_violation("docs/index.md: missing valid YAML front matter")
 
     def test_rejects_top_level_heading_that_duplicates_front_matter_title(self) -> None:
@@ -655,6 +675,32 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_raw_html_block_cannot_document_an_example_or_its_output(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            '<script type="text/plain">\n'
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "</script>\n"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=hidden_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
 
     def test_rejects_documented_output_that_differs_from_manifest(self) -> None:
         (self.root / "README.md").write_text(

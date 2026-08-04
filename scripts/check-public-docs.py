@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -12,7 +13,12 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
-from markdown_visibility import html_source_markdown, markdown_fences, visible_markdown
+from markdown_visibility import (
+    html_source_markdown,
+    markdown_fences,
+    renderable_source_markdown,
+    visible_markdown,
+)
 
 
 ALLOWED_DOCS_ENTRIES = {
@@ -213,6 +219,28 @@ def read_text(path: Path, root: Path, violations: list[str]) -> str | None:
         return None
 
 
+def supported_yaml_scalar(value: str) -> bool:
+    """Accept the one-line scalar subset used by public documentation metadata."""
+    if not value:
+        return False
+    if value[0] == '"':
+        try:
+            return isinstance(json.loads(value), str)
+        except json.JSONDecodeError:
+            return False
+    if value[0] == "'":
+        if len(value) < 2 or value[-1] != "'":
+            return False
+        return "'" not in value[1:-1].replace("''", "")
+    if value[0] in "-?:[]{}#&*!|>%@`":
+        return False
+    if any(character in value for character in "[]{}"):
+        return False
+    if re.search(r":(?:[ \t]|$)|(?:^|[ \t])#", value) is not None:
+        return False
+    return True
+
+
 def front_matter(text: str) -> tuple[set[str], str] | None:
     lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
@@ -234,7 +262,7 @@ def front_matter(text: str) -> tuple[set[str], str] | None:
         if field in fields:
             return None
         value = (match.group(2) or "").strip()
-        if value[0] in ("'", '"') and (len(value) < 2 or value[-1] != value[0]):
+        if not supported_yaml_scalar(value):
             return None
         fields.add(field)
     return fields, "".join(lines[end + 1 :])
@@ -392,17 +420,18 @@ def has_top_level_heading(text: str) -> bool:
 
 
 def has_bound_executable_marker(text: str, example_path: str) -> bool:
-    fences = markdown_fences(text)
+    source_text = renderable_source_markdown(text)
+    fences = markdown_fences(source_text)
     markers = [
         marker
-        for marker in EXECUTABLE_MARKER_RE.finditer(text)
+        for marker in EXECUTABLE_MARKER_RE.finditer(source_text)
         if marker.group(1) == example_path
         and not any(fence.start <= marker.start() < fence.end for fence in fences)
     ]
     return any(
         fence.is_jazz
         and marker.end() <= fence.start
-        and not text[marker.end() : fence.start].strip()
+        and not source_text[marker.end() : fence.start].strip()
         for marker in markers
         for fence in fences
     )
@@ -525,11 +554,12 @@ def validate_jazz_fences(
     violations: list[str],
 ) -> set[str]:
     documented_examples: set[str] = set()
-    all_fences = markdown_fences(text)
+    source_text = renderable_source_markdown(text)
+    all_fences = markdown_fences(source_text)
     fences = [fence for fence in all_fences if fence.is_jazz]
     markers = [
         marker
-        for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(text)
+        for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(source_text)
         if not any(
             fence.start <= marker.start() < fence.end for fence in all_fences
         )
@@ -545,7 +575,7 @@ def validate_jazz_fences(
             ),
             None,
         )
-        if preceding_marker is None or text[
+        if preceding_marker is None or source_text[
             preceding_marker.end() : fence.start
         ].strip():
             violations.append(
@@ -630,8 +660,9 @@ def validate_example_outputs(
     violations: list[str],
 ) -> set[str]:
     documented_cases: set[str] = set()
-    fences = markdown_fences(text)
-    comments = list(re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL))
+    source_text = renderable_source_markdown(text)
+    fences = markdown_fences(source_text)
+    comments = list(re.finditer(r"<!--.*?(?:-->|\Z)", source_text, re.DOTALL))
     markers = [
         comment
         for comment in comments
@@ -667,7 +698,7 @@ def validate_example_outputs(
             output_fence is None
             or output_fence.info != "text"
             or not output_fence.closed
-            or text[marker.end() : output_fence.start].strip()
+            or source_text[marker.end() : output_fence.start].strip()
         ):
             violations.append(
                 f"{display}: jazz-example-output marker for case {case_name} "
@@ -741,14 +772,6 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if command not in text:
             violations.append(f"README.md: missing quick-start command: {command}")
 
-    link_targets = {
-        markdown_link_target(match.group(1)) for match in LINK_RE.finditer(text)
-    }
-    for required_target in README_REQUIRED_LINKS:
-        if required_target not in link_targets:
-            violations.append(
-                f"README.md: missing required navigation link: {required_target}"
-            )
     visible_text = visible_markdown(text)
     raw_link_targets = [
         match.group(1)
@@ -757,6 +780,15 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     ]
     raw_link_targets.extend(used_reference_targets(visible_text))
     raw_link_targets.extend(html_link_targets(html_source_markdown(text)))
+    link_targets = {
+        markdown_link_target(raw_link_target)
+        for raw_link_target in raw_link_targets
+    }
+    for required_target in README_REQUIRED_LINKS:
+        if required_target not in link_targets:
+            violations.append(
+                f"README.md: missing required navigation link: {required_target}"
+            )
     for raw_link_target in raw_link_targets:
         link_violation = local_readme_link_violation(root, raw_link_target)
         if link_violation is not None:
