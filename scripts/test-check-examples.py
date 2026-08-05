@@ -13,6 +13,8 @@ from pathlib import Path
 
 
 CHECKER = Path(__file__).with_name("check-examples.py")
+WRAPPER = Path(__file__).with_name("check-examples.sh")
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 class ExampleRunnerTests(unittest.TestCase):
@@ -70,6 +72,56 @@ class ExampleRunnerTests(unittest.TestCase):
             result = self.run_checker(cwd=Path(outside))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("PASS: hello", result.stdout)
+
+    def test_default_wrapper_runs_every_cabal_command_from_repository_root(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as fake_bin,
+            tempfile.TemporaryDirectory() as outside,
+        ):
+            fake_cabal = Path(fake_bin) / "cabal"
+            log = Path(fake_bin) / "cabal.log"
+            missing_jazz = Path(fake_bin) / "missing-jazz"
+            fake_cabal.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "import sys\n"
+                "from pathlib import Path\n"
+                "with Path(os.environ['CABAL_LOG']).open('a', encoding='utf-8') as handle:\n"
+                "    handle.write(' '.join(sys.argv[1:]) + '\\t' + os.getcwd() + '\\n')\n"
+                "if sys.argv[1:] == ['build', 'jazz']:\n"
+                "    raise SystemExit(0)\n"
+                "if sys.argv[1:] == ['list-bin', 'jazz']:\n"
+                "    print(os.environ['MISSING_JAZZ'])\n"
+                "    raise SystemExit(0)\n"
+                "raise SystemExit(91)\n",
+                encoding="utf-8",
+            )
+            fake_cabal.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = fake_bin + os.pathsep + environment["PATH"]
+            environment["CABAL_LOG"] = str(log)
+            environment["MISSING_JAZZ"] = str(missing_jazz)
+
+            result = subprocess.run(
+                ["bash", str(WRAPPER)],
+                cwd=outside,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            cabal_log = log.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(
+            [
+                f"build jazz\t{REPOSITORY_ROOT}",
+                f"list-bin jazz\t{REPOSITORY_ROOT}",
+            ],
+            cabal_log,
+        )
 
     def test_rejects_source_that_is_not_selected_by_run_arguments(self) -> None:
         (self.root / "examples/extra.jz").write_text("0.\n", encoding="utf-8")
@@ -210,6 +262,24 @@ class ExampleRunnerTests(unittest.TestCase):
         result = self.run_checker()
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_executes_each_case_in_a_disposable_workspace(self) -> None:
+        original_source = (self.root / "examples/hello.jz").read_text(
+            encoding="utf-8"
+        )
+        self.write_fake_jazz(
+            "with open('examples/hello.jz', 'w', encoding='utf-8') as handle:\n"
+            "    handle.write('mutated by checked example\\n')\n"
+            "print('\"Hello\"')"
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(
+            original_source,
+            (self.root / "examples/hello.jz").read_text(encoding="utf-8"),
+        )
 
     def test_uses_an_explicit_empty_warning_config_from_the_environment(self) -> None:
         (self.root / ".jazz-warnings").write_text(

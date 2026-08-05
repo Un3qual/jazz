@@ -56,6 +56,18 @@ def leading_spaces(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
+def leading_indentation_columns(line: str) -> int:
+    columns = 0
+    for character in line:
+        if character == " ":
+            columns += 1
+        elif character == "\t":
+            columns += 4 - (columns % 4)
+        else:
+            break
+    return columns
+
+
 @dataclass(frozen=True)
 class _MarkdownContainer:
     kind: str
@@ -70,6 +82,13 @@ class _ContainerLine:
 
 
 LIST_MARKER_RE = re.compile(r"(?:[*+-]|[0-9]{1,9}[.)])")
+REFERENCE_DEFINITION_TARGET_RE = re.compile(
+    r"^ {0,3}\[([^\]\r\n]+)\]:[ \t]*(?:\r?\n[ \t]*)?"
+    r"(?:<([^>\r\n]+)>|(\S+))",
+    re.MULTILINE,
+)
+FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
+SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
 
 
 def is_thematic_break(line: str) -> bool:
@@ -535,6 +554,73 @@ def markdown_visibility(
         else:
             index += delimiter_length
     return "".join(characters)
+
+
+def without_indented_code_blocks(text: str) -> str:
+    """Mask CommonMark indented code while preserving source offsets."""
+    characters = list(text)
+    scanner = _MarkdownContainerScanner()
+    offset = 0
+    in_code_block = False
+    follows_blank_line = True
+    for line in text.splitlines(keepends=True):
+        relative_line = without_line_ending(scanner.scan(line).content)
+        if not relative_line.strip(" \t"):
+            if in_code_block:
+                blank_range(characters, offset, offset + len(line))
+            follows_blank_line = True
+        elif leading_indentation_columns(relative_line) >= 4 and (
+            in_code_block or follows_blank_line
+        ):
+            blank_range(characters, offset, offset + len(line))
+            in_code_block = True
+            follows_blank_line = False
+        else:
+            in_code_block = False
+            follows_blank_line = False
+        offset += len(line)
+    return "".join(characters)
+
+
+def normalize_reference_label(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip()).casefold()
+
+
+def used_reference_targets(text: str) -> list[str]:
+    """Resolve targets used by full, collapsed, and shortcut references."""
+    definitions: dict[str, list[str]] = {}
+    definition_spans: list[tuple[int, int]] = []
+    for match in REFERENCE_DEFINITION_TARGET_RE.finditer(text):
+        label = normalize_reference_label(match.group(1))
+        target = match.group(2) or match.group(3)
+        definitions.setdefault(label, []).append(target)
+        definition_spans.append(match.span())
+
+    usage_text = list(text)
+    for start, end in definition_spans:
+        usage_text[start:end] = " " * (end - start)
+    usages = "".join(usage_text)
+
+    used_labels: set[str] = set()
+    full_reference_spans: list[tuple[int, int]] = []
+    for match in FULL_REFERENCE_RE.finditer(usages):
+        label = match.group(2) or match.group(1)
+        used_labels.add(normalize_reference_label(label))
+        full_reference_spans.append(match.span())
+
+    shortcut_text = list(usages)
+    for start, end in full_reference_spans:
+        shortcut_text[start:end] = " " * (end - start)
+    for match in SHORTCUT_REFERENCE_RE.finditer("".join(shortcut_text)):
+        label = normalize_reference_label(match.group(1))
+        if label in definitions:
+            used_labels.add(label)
+
+    return sorted(
+        target
+        for label in used_labels
+        for target in definitions.get(label, [])
+    )
 
 
 def visible_markdown(text: str) -> str:

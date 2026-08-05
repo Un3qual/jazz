@@ -8,8 +8,10 @@ import csv
 import math
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path, PurePosixPath
 
 from example_cases import case_source_binding_violation
@@ -88,7 +90,7 @@ def checked_environment() -> dict[str, str]:
 
 
 def run_case(
-    root: Path,
+    working_directory: Path,
     jazz_binary: Path,
     name: str,
     expected: str,
@@ -98,7 +100,7 @@ def run_case(
     try:
         result = subprocess.run(
             [str(jazz_binary), *arguments],
-            cwd=root,
+            cwd=working_directory,
             env=checked_environment(),
             check=False,
             capture_output=True,
@@ -174,9 +176,25 @@ def run(root: Path, jazz_binary: Path, timeout_seconds: float) -> int:
             arguments = shlex.split(args_text)
         except ValueError as exc:
             return fail(f"scripts/example-cases.tsv:{line_number}: invalid arguments: {exc}")
-        status = run_case(
-            root, jazz_binary, name, expected, arguments, timeout_seconds
-        )
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="jazz-checked-example-"
+            ) as workspace:
+                workspace_root = Path(workspace)
+                for source in sources:
+                    destination = workspace_root / source
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(root / source, destination)
+                status = run_case(
+                    workspace_root,
+                    jazz_binary,
+                    name,
+                    expected,
+                    arguments,
+                    timeout_seconds,
+                )
+        except OSError as exc:
+            return fail(f"{name} could not prepare an isolated workspace: {exc}")
         if status != 0:
             return status
 

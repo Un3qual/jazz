@@ -10,7 +10,12 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from markdown_visibility import rendered_markdown, visible_markdown
+from markdown_visibility import (
+    rendered_markdown,
+    used_reference_targets,
+    visible_markdown,
+    without_indented_code_blocks,
+)
 
 
 RFC_NAME_RE = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
@@ -57,12 +62,14 @@ def required_section_body(text: str, heading: str) -> str | None:
     return REFERENCE_DEFINITION_RE.sub("", rendered_body).strip()
 
 
-def visible_inline_link_targets(text: str) -> set[str]:
-    visible = visible_markdown(text)
-    return {
+def visible_link_targets(text: str) -> set[str]:
+    visible = without_indented_code_blocks(visible_markdown(text))
+    targets = {
         match.group(1) or match.group(2)
         for match in MARKDOWN_LINK_RE.finditer(visible)
     }
+    targets.update(used_reference_targets(visible))
+    return targets
 
 
 def normalized_index_target(target: str) -> str | None:
@@ -138,7 +145,7 @@ def validate(root: Path) -> list[str]:
     try:
         accepted_index_targets = {
             normalized
-            for target in visible_inline_link_targets(
+            for target in visible_link_targets(
                 accepted_index.read_text(encoding="utf-8")
             )
             if (normalized := normalized_index_target(target)) is not None

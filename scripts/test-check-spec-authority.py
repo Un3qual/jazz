@@ -56,6 +56,7 @@ class AuthorityCheckerTests(unittest.TestCase):
         result = self.run_checker()
 
         self.assertNotEqual(0, result.returncode)
+        self.assertIn("docs/index.md:1:jazz-next", result.stderr)
         self.assertIn("removed implementation identity", result.stderr)
 
     def test_rejects_every_superseded_authority_path(self) -> None:

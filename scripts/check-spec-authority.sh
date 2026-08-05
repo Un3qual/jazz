@@ -16,14 +16,20 @@ rendered_markdown() {
   python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
 }
 
-decoded_public_markdown() {
+removed_identity_matches() {
   python3 -c '
+import re
 from html import unescape
 from pathlib import Path
 
+pattern = re.compile(r"(jazz-next|jazz-hs|jazz2|jazznext)", re.IGNORECASE)
 paths = [Path("README.md"), *sorted(Path("docs").rglob("*.md"))]
 for path in paths:
-    print(unescape(path.read_text(encoding="utf-8")))
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            decoded = unescape(line).rstrip("\r\n")
+            if pattern.search(decoded):
+                print(f"{path.as_posix()}:{line_number}:{decoded}")
 '
 }
 
@@ -70,8 +76,9 @@ for removed_path in docs/spec docs/feature-status.md docs/jazz-language-state.md
   fi
 done
 
-if decoded_public_markdown \
-  | rg -n -i -e '(jazz-next|jazz-hs|jazz2|jazznext)' >/dev/null 2>&1; then
+identity_matches="$(removed_identity_matches)"
+if [[ -n "$identity_matches" ]]; then
+  printf '%s\n' "$identity_matches" >&2
   fail "removed implementation identity still appears in public documentation"
 fi
 

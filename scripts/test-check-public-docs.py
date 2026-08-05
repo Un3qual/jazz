@@ -468,6 +468,51 @@ class PublicDocsCheckerTests(unittest.TestCase):
             f"README.md: missing required navigation link: {target}"
         )
 
+    def test_readme_navigation_links_inside_visibility_hidden_html_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="visibility: hidden !important" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_with_visible_inline_styles_are_rendered(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        styled_link = (
+            f'<a style="color: #b58900" href="{target}">Getting started</a>'
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", styled_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_indented_code_cannot_supply_readme_navigation(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme().replace(
+            f"- [Getting started]({target})",
+            f"Getting started\n\n    [Code-only link]({target})",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
     def test_readme_quick_start_commands_must_be_rendered(self) -> None:
         commands = (
             "nix develop\n"
@@ -821,6 +866,18 @@ class PublicDocsCheckerTests(unittest.TestCase):
         target.parent.mkdir()
         target.write_text(page(), encoding="utf-8")
         self.assert_violation("docs/superpowers: disallowed top-level docs entry")
+
+    def test_rejects_mdx_pages_in_the_public_documentation_tree(self) -> None:
+        (self.root / "docs/language/unvalidated.mdx").write_text(
+            "---\ntitle: Unvalidated\n---\n\n"
+            "[Internal](../../.codex/execution/queue.md)\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/unvalidated.mdx: MDX public pages are unsupported; "
+            "use Markdown (.md)"
+        )
 
     def test_rejects_internal_and_legacy_references(self) -> None:
         (self.root / "docs/index.md").write_text(

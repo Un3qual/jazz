@@ -14,8 +14,14 @@ if [[ "$#" -eq 0 ]]; then
     printf 'FAIL: cabal is required to build checked Jazz examples\n' >&2
     exit 1
   fi
-  cabal build jazz
-  jazz_bin="$(cabal list-bin jazz)"
+  (
+    cd "$ROOT"
+    cabal build jazz
+  )
+  jazz_bin="$(
+    cd "$ROOT"
+    cabal list-bin jazz
+  )"
 elif [[ "$#" -eq 2 && "$1" == "--jazz-bin" ]]; then
   jazz_bin="$2"
 elif [[ "$#" -eq 1 && "$1" == --jazz-bin=* ]]; then

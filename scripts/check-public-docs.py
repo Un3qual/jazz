@@ -18,13 +18,16 @@ from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
 from markdown_visibility import (
+    FULL_REFERENCE_RE,
     container_relative_markdown,
     html_source_markdown,
     markdown_fences,
     renderable_source_markdown,
     rendered_markdown,
     rendered_markdown_with_code,
+    used_reference_targets,
     visible_markdown,
+    without_indented_code_blocks,
 )
 
 
@@ -154,18 +157,12 @@ MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 HTML_IMAGE_RE = re.compile(
     r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
 )
-REFERENCE_DEFINITION_RE = re.compile(
-    r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
-    re.MULTILINE,
-)
 REFERENCE_DEFINITION_BLOCK_RE = re.compile(
     r"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*(?:\r?\n|$)"
     r"(?:[ \t]{1,3}(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\))"
     r"[ \t]*(?:\r?\n|$))?",
     re.MULTILINE,
 )
-FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
-SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
 ATX_HEADING_RE = re.compile(
     r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$",
     re.MULTILINE,
@@ -365,10 +362,25 @@ def html_attributes_make_contract_inert(
     """Keep required contracts out of hidden or presentation-dependent HTML."""
     for name, value in attributes:
         folded_name = name.casefold()
-        if folded_name in {"hidden", "style"}:
+        if folded_name == "hidden":
             return True
         if folded_name == "aria-hidden" and (value or "").casefold() == "true":
             return True
+        if folded_name != "style":
+            continue
+        style = re.sub(r"/\*.*?\*/", "", value or "", flags=re.DOTALL)
+        for declaration in style.split(";"):
+            property_name, separator, property_value = declaration.partition(":")
+            if not separator:
+                continue
+            property_name = property_name.strip().casefold()
+            property_value = re.sub(
+                r"\s*!important\s*$", "", property_value, flags=re.IGNORECASE
+            ).strip().casefold()
+            if property_name == "display" and property_value == "none":
+                return True
+            if property_name == "visibility" and property_value == "hidden":
+                return True
     return False
 
 
@@ -488,48 +500,6 @@ def markdown_link_target(raw_target: str) -> str:
         return target[1 : target.index(">")]
     # Markdown permits an optional title after a whitespace-delimited target.
     return target.split(maxsplit=1)[0]
-
-
-def normalize_reference_label(label: str) -> str:
-    return re.sub(r"\s+", " ", label.strip()).casefold()
-
-
-def used_reference_targets(text: str) -> list[str]:
-    definitions: dict[str, list[str]] = {}
-    definition_spans: list[tuple[int, int]] = []
-    for match in REFERENCE_DEFINITION_RE.finditer(text):
-        label = normalize_reference_label(match.group(1))
-        target = match.group(2) or match.group(3)
-        definitions.setdefault(label, []).append(target)
-        definition_spans.append(match.span())
-
-    # Reference definitions are not shortcut usages. Blank them while
-    # preserving offsets so usage parsing cannot reinterpret `[label]:`.
-    usage_text = list(text)
-    for start, end in definition_spans:
-        usage_text[start:end] = " " * (end - start)
-    usages = "".join(usage_text)
-
-    used_labels: set[str] = set()
-    full_reference_spans: list[tuple[int, int]] = []
-    for match in FULL_REFERENCE_RE.finditer(usages):
-        label = match.group(2) or match.group(1)
-        used_labels.add(normalize_reference_label(label))
-        full_reference_spans.append(match.span())
-
-    shortcut_text = list(usages)
-    for start, end in full_reference_spans:
-        shortcut_text[start:end] = " " * (end - start)
-    for match in SHORTCUT_REFERENCE_RE.finditer("".join(shortcut_text)):
-        label = normalize_reference_label(match.group(1))
-        if label in definitions:
-            used_labels.add(label)
-
-    return sorted(
-        target
-        for label in used_labels
-        for target in definitions.get(label, [])
-    )
 
 
 def markdown_heading_text(markup: str) -> str:
@@ -1264,7 +1234,9 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if command not in rendered_contract_text:
             violations.append(f"README.md: missing quick-start command: {command}")
 
-    visible_text = without_inert_html_subtrees(visible_markdown(text))
+    visible_text = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(text))
+    )
     raw_link_targets = [
         match.group(1)
         for match in LINK_RE.finditer(visible_text)
@@ -1351,6 +1323,13 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
 
     unsafe_doc_paths: set[Path] = set()
     for path in sorted(docs_root.rglob("*")):
+        if path.suffix.casefold() == ".mdx" and (
+            path.is_file() or path.is_symlink()
+        ):
+            violations.append(
+                f"{relative(root, path)}: MDX public pages are unsupported; "
+                "use Markdown (.md)"
+            )
         if not path.is_symlink():
             continue
         display = relative(root, path)
@@ -1421,8 +1400,8 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
             if banned.casefold() in decoded_text:
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        visible_body = without_inert_html_subtrees(
-            visible_markdown(markdown_body)
+        visible_body = without_indented_code_blocks(
+            without_inert_html_subtrees(visible_markdown(markdown_body))
         )
         raw_link_targets = [
             match.group(1) for match in LINK_RE.finditer(visible_body)

@@ -210,6 +210,30 @@ class RfcCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_reference_style_link_can_index_an_accepted_rfc(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture][accepted-rfc]\n\n"
+            "[accepted-rfc]: accepted/0001-fixture.md\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_stale_reference_style_accepted_rfc_link(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture](accepted/0001-fixture.md)\n"
+            "[Missing][stale-rfc]\n\n"
+            "[stale-rfc]: accepted/9999-missing.md\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/README.md: stale accepted RFC index entry: "
+            "accepted/9999-missing.md"
+        )
+
     def test_backtick_in_fence_info_does_not_hide_following_headings(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(
