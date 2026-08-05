@@ -6,15 +6,19 @@ from __future__ import annotations
 import posixpath
 import re
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from markdown_visibility import (
+from markdown_targets import (
     html_reference_targets,
+    rendered_heading_fragments,
+    used_reference_targets,
+)
+from markdown_visibility import (
     rendered_markdown,
     rendered_html_source_markdown,
-    used_reference_targets,
     visible_markdown,
     without_indented_code_blocks,
 )
@@ -79,7 +83,14 @@ def visible_link_targets(text: str) -> set[str]:
     return targets
 
 
-def normalized_index_target(target: str) -> str | None:
+@dataclass(frozen=True)
+class IndexTarget:
+    path: str
+    fragment: str
+    raw: str
+
+
+def normalized_index_target(target: str) -> IndexTarget | None:
     parsed = urlsplit(target)
     if parsed.scheme or parsed.netloc or not parsed.path:
         return None
@@ -87,7 +98,31 @@ def normalized_index_target(target: str) -> str | None:
     normalized = posixpath.normpath(decoded_path)
     if normalized in {".", ".."} or normalized.startswith(("../", "/")):
         return None
-    return normalized
+    return IndexTarget(
+        path=normalized,
+        fragment=unquote(parsed.fragment),
+        raw=target,
+    )
+
+
+def index_fragment_violation(root: Path, target: IndexTarget) -> str | None:
+    if not target.fragment:
+        return None
+    rfc_root = (root / "rfcs").resolve()
+    candidate = (rfc_root / target.path).resolve()
+    try:
+        candidate.relative_to(rfc_root)
+    except ValueError:
+        return None
+    if candidate.suffix.casefold() not in {".md", ".mdx"} or not candidate.is_file():
+        return None
+    try:
+        target_text = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    if target.fragment in rendered_heading_fragments(target_text):
+        return None
+    return f"rfcs/README.md: link fragment does not exist: {target.raw}"
 
 
 def validate_metadata(path: str, lines: list[str], status: str) -> list[str]:
@@ -150,13 +185,19 @@ def validate(root: Path) -> list[str]:
     accepted_targets: set[str] = set()
     accepted_index = root / "rfcs/README.md"
     try:
-        accepted_index_targets = {
+        normalized_index_targets = {
             normalized
             for target in visible_link_targets(
                 accepted_index.read_text(encoding="utf-8")
             )
             if (normalized := normalized_index_target(target)) is not None
         }
+        accepted_index_targets = {
+            target.path for target in normalized_index_targets
+        }
+        for target in normalized_index_targets:
+            if (violation := index_fragment_violation(root, target)) is not None:
+                violations.append(violation)
     except (OSError, UnicodeError) as exc:
         violations.append(f"rfcs/README.md: cannot read RFC index: {exc}")
         accepted_index_targets = set()

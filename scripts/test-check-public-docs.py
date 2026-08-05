@@ -162,6 +162,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
                 "if 'unknownValue.' in source:\n"
                 "    print(\"error: E1001 1:1: unknown name 'unknownValue'\", file=sys.stderr)\n"
                 "    raise SystemExit(1)\n"
+                "if source.lstrip().startswith('module ') and source.rstrip().endswith('}\\n.'):\n"
+                "    print(\"error: E0001 4:1: unexpected statement terminator after module declaration\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
             ),
             encoding="utf-8",
         )
@@ -971,6 +974,61 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: public link target does not exist: missing.png"
         )
 
+    def test_rejects_missing_reference_style_image_targets(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="![Missing][fixture-image]\n\n[fixture-image]: missing.png\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: public link target does not exist: "
+            "missing.png"
+        )
+
+    def test_inline_link_brackets_do_not_create_reference_usages(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    '[Visible](https://example.com/path/[internal] "Title [internal]")\n\n'
+                    "[internal]: ../rfcs/accepted/0001-hidden.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_reference_definition_titles_do_not_create_reference_usages(
+        self,
+    ) -> None:
+        definitions = {
+            "same line": '[external]: https://example.com "Title [internal]"\n',
+            "continued": (
+                "[external]: https://example.com\n"
+                '  "Title [internal]"\n'
+            ),
+        }
+        for label, definition in definitions.items():
+            with self.subTest(label=label):
+                (self.root / "docs/index.md").write_text(
+                    page(
+                        body=(
+                            "[Visible][external]\n\n"
+                            f"{definition}"
+                            "[internal]: ../rfcs/accepted/0001-hidden.md\n"
+                        )
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = self.run_checker()
+
+                self.assertEqual(
+                    0, result.returncode, result.stdout + result.stderr
+                )
+
     def test_rejects_banned_public_references_case_insensitively(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="The old identity was JAZZ2.\n"), encoding="utf-8"
@@ -1478,6 +1536,25 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_complete_module_declaration_fragment(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "module Example::Fixture {\n"
+                    "  answer = 1.\n"
+                    "}\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_default_checker_requires_fragments_in_compiler_inventory(self) -> None:

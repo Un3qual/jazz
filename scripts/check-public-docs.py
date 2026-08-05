@@ -12,22 +12,25 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from html import unescape as html_unescape
-from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
-from markdown_visibility import (
+from markdown_targets import (
     FULL_REFERENCE_RE,
-    INERT_HTML_CONTENT_TAGS,
-    container_relative_markdown,
+    html_visible_text,
     html_reference_targets,
+    rendered_heading_fragments,
+    used_reference_image_targets,
+    used_reference_targets,
+    without_inert_html_subtrees,
+)
+from markdown_visibility import (
     markdown_fences,
     renderable_source_markdown,
     rendered_markdown,
     rendered_html_source_markdown,
     rendered_markdown_with_code,
-    used_reference_targets,
     visible_markdown,
     without_indented_code_blocks,
 )
@@ -165,18 +168,6 @@ REFERENCE_DEFINITION_BLOCK_RE = re.compile(
     r"[ \t]*(?:\r?\n|$))?",
     re.MULTILINE,
 )
-ATX_HEADING_RE = re.compile(
-    r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$",
-    re.MULTILINE,
-)
-EXPLICIT_HEADING_ID_RE = re.compile(
-    r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$"
-)
-MARKDOWN_AUTOLINK_RE = re.compile(
-    r"<((?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|"
-    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
-    r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?))>"
-)
 JAZZ_EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:.*?-->", re.DOTALL
 )
@@ -212,178 +203,6 @@ FRAGMENT_CHECK_TIMEOUT_SECONDS = 30.0
 class ExampleCase:
     sources: frozenset[str]
     expected: str
-
-
-VOID_HTML_TAGS = frozenset(
-    {
-        "area",
-        "base",
-        "br",
-        "col",
-        "embed",
-        "hr",
-        "img",
-        "input",
-        "link",
-        "meta",
-        "param",
-        "source",
-        "track",
-        "wbr",
-    }
-)
-
-
-class HtmlVisibleTextParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
-
-
-def html_visible_text(text: str) -> str:
-    parser = HtmlVisibleTextParser()
-    parser.feed(text)
-    parser.close()
-    return "".join(parser.parts)
-
-
-def decode_css_escapes(value: str) -> str:
-    """Decode CSS escapes before comparing identifier-shaped declarations."""
-
-    def replacement(match: re.Match[str]) -> str:
-        hexadecimal = match.group(1)
-        if hexadecimal is not None:
-            codepoint = int(hexadecimal, 16)
-            if (
-                codepoint == 0
-                or codepoint > sys.maxunicode
-                or 0xD800 <= codepoint <= 0xDFFF
-            ):
-                return "\N{REPLACEMENT CHARACTER}"
-            return chr(codepoint)
-        if match.group(2) is not None:
-            return ""
-        return match.group(3)
-
-    return re.sub(
-        r"\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|"
-        r"(\r\n|[\r\n\f])|(.))",
-        replacement,
-        value,
-        flags=re.DOTALL,
-    )
-
-
-class InertHtmlSubtreeMasker(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=False)
-        self.parts: list[str] = []
-        self.inert_depth = 0
-        self.open_elements: list[tuple[str, bool]] = []
-
-    def append(self, source: str, *, force_mask: bool = False) -> None:
-        if not self.inert_depth and not force_mask:
-            self.parts.append(source)
-            return
-        self.parts.append(
-            "".join(character if character in "\r\n" else " " for character in source)
-        )
-
-    def handle_starttag(
-        self, tag: str, attributes: list[tuple[str, str | None]]
-    ) -> None:
-        source = self.get_starttag_text() or f"<{tag}>"
-        folded_tag = tag.casefold()
-        introduces_inertness = (
-            folded_tag in INERT_HTML_CONTENT_TAGS
-            or html_attributes_make_contract_inert(attributes)
-        )
-        if introduces_inertness:
-            self.inert_depth += 1
-        self.append(source)
-        if folded_tag in VOID_HTML_TAGS:
-            if introduces_inertness:
-                self.inert_depth -= 1
-            return
-        self.open_elements.append((folded_tag, introduces_inertness))
-
-    def handle_startendtag(
-        self, tag: str, attributes: list[tuple[str, str | None]]
-    ) -> None:
-        source = self.get_starttag_text() or f"<{tag} />"
-        introduces_inertness = (
-            tag.casefold() in INERT_HTML_CONTENT_TAGS
-            or html_attributes_make_contract_inert(attributes)
-        )
-        self.append(source, force_mask=introduces_inertness)
-
-    def handle_endtag(self, tag: str) -> None:
-        self.append(f"</{tag}>")
-        folded_tag = tag.casefold()
-        matching_index = next(
-            (
-                index
-                for index in range(len(self.open_elements) - 1, -1, -1)
-                if self.open_elements[index][0] == folded_tag
-            ),
-            None,
-        )
-        if matching_index is None:
-            return
-        closed_elements = self.open_elements[matching_index:]
-        del self.open_elements[matching_index:]
-        self.inert_depth -= sum(
-            introduces_inertness
-            for _element_tag, introduces_inertness in closed_elements
-        )
-
-    def handle_data(self, data: str) -> None:
-        self.append(data)
-
-    def handle_entityref(self, name: str) -> None:
-        self.append(f"&{name};")
-
-    def handle_charref(self, name: str) -> None:
-        self.append(f"&#{name};")
-
-
-def html_attributes_make_contract_inert(
-    attributes: list[tuple[str, str | None]],
-) -> bool:
-    """Keep required contracts out of hidden or presentation-dependent HTML."""
-    for name, value in attributes:
-        folded_name = name.casefold()
-        if folded_name == "hidden":
-            return True
-        if folded_name == "aria-hidden" and (value or "").casefold() == "true":
-            return True
-        if folded_name != "style":
-            continue
-        style = re.sub(r"/\*.*?\*/", "", value or "", flags=re.DOTALL)
-        for declaration in style.split(";"):
-            property_name, separator, property_value = declaration.partition(":")
-            if not separator:
-                continue
-            property_name = decode_css_escapes(property_name).strip().casefold()
-            property_value = decode_css_escapes(property_value)
-            property_value = re.sub(
-                r"\s*!important\s*$", "", property_value, flags=re.IGNORECASE
-            ).strip().casefold()
-            if property_name == "display" and property_value == "none":
-                return True
-            if property_name == "visibility" and property_value == "hidden":
-                return True
-    return False
-
-
-def without_inert_html_subtrees(text: str) -> str:
-    parser = InertHtmlSubtreeMasker()
-    parser.feed(text)
-    parser.close()
-    return "".join(parser.parts)
 
 
 def blank_markdown_metadata(text: str) -> str:
@@ -495,43 +314,6 @@ def markdown_link_target(raw_target: str) -> str:
         return target[1 : target.index(">")]
     # Markdown permits an optional title after a whitespace-delimited target.
     return target.split(maxsplit=1)[0]
-
-
-def markdown_heading_text(markup: str) -> str:
-    text = re.sub(r"!?\[([^\]]*)\]\([^)]+\)", r"\1", markup)
-    text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]", r"\1", text)
-    text = text.replace("`", "")
-    text = MARKDOWN_AUTOLINK_RE.sub(r"\1", text)
-    return html_visible_text(text)
-
-
-def markdown_heading_slug(markup: str) -> str:
-    heading = markdown_heading_text(markup).lower()
-    heading = re.sub(r"[^\w _-]", "", heading)
-    heading = re.sub(r"\s+", "-", heading)
-    return heading.strip("-")
-
-
-def rendered_heading_fragments(text: str) -> set[str]:
-    rendered = container_relative_markdown(
-        without_inert_html_subtrees(rendered_markdown(text))
-    )
-    fragments: set[str] = set()
-    slug_counts: dict[str, int] = {}
-    for match in ATX_HEADING_RE.finditer(rendered):
-        heading = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(1))
-        explicit_id = EXPLICIT_HEADING_ID_RE.search(heading)
-        if explicit_id is not None:
-            fragments.add(explicit_id.group(1))
-            continue
-        slug = markdown_heading_slug(heading)
-        if not slug:
-            continue
-        duplicate_index = slug_counts.get(slug, 0)
-        slug_counts[slug] = duplicate_index + 1
-        fragments.add(slug if duplicate_index == 0 else f"{slug}-{duplicate_index}")
-    return fragments
 
 
 def local_markdown_fragment_violation(
@@ -712,11 +494,11 @@ def checked_jazz_environment() -> dict[str, str]:
     return environment
 
 
-def fragment_program(source: str) -> str:
-    program = source.rstrip()
-    if not program.endswith("."):
-        program += "\n."
-    return program + "\n"
+def fragment_programs(source: str) -> tuple[str, ...]:
+    authored = source.rstrip() + "\n"
+    if authored.rstrip().endswith("."):
+        return (authored,)
+    return authored, authored.rstrip() + "\n.\n"
 
 
 def run_fragment_compiler(
@@ -756,13 +538,22 @@ def validate_fragment_syntax(
     source: str,
     violations: list[str],
 ) -> None:
-    result = run_fragment_compiler(
-        root, jazz_binary, display, fragment_program(source), violations
-    )
-    if result is None:
-        return
-    diagnostic_codes = set(DIAGNOSTIC_CODE_RE.findall(result.stderr))
-    syntax_codes = diagnostic_codes.intersection(FRAGMENT_SYNTAX_ERROR_CODES)
+    result: subprocess.CompletedProcess[str] | None = None
+    diagnostic_codes: set[str] = set()
+    syntax_codes: set[str] = set()
+    for program in fragment_programs(source):
+        result = run_fragment_compiler(
+            root, jazz_binary, display, program, violations
+        )
+        if result is None:
+            return
+        diagnostic_codes = set(DIAGNOSTIC_CODE_RE.findall(result.stderr))
+        syntax_codes = diagnostic_codes.intersection(
+            FRAGMENT_SYNTAX_ERROR_CODES
+        )
+        if not syntax_codes:
+            break
+    assert result is not None
     if not syntax_codes:
         if result.returncode != 0 and not any(
             code.startswith("E") for code in diagnostic_codes
@@ -1194,8 +985,12 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if README_MATURITY_NOTICE not in rendered_contract_text:
         violations.append("README.md: missing required maturity notice")
 
+    visible_text = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(text))
+    )
     image_targets = [match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(text)]
     image_targets.extend(match.group(1) for match in HTML_IMAGE_RE.finditer(text))
+    image_targets.extend(used_reference_image_targets(visible_text))
     local_logo_found = False
     for raw_target in image_targets:
         target = unquote(markdown_link_target(raw_target))
@@ -1229,9 +1024,6 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if command not in rendered_contract_text:
             violations.append(f"README.md: missing quick-start command: {command}")
 
-    visible_text = without_indented_code_blocks(
-        without_inert_html_subtrees(visible_markdown(text))
-    )
     raw_link_targets = [
         match.group(1)
         for match in LINK_RE.finditer(visible_text)
@@ -1402,6 +1194,7 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
             match.group(1) for match in LINK_RE.finditer(visible_body)
         ]
         raw_link_targets.extend(used_reference_targets(visible_body))
+        raw_link_targets.extend(used_reference_image_targets(visible_body))
         raw_link_targets.extend(
             html_reference_targets(
                 without_inert_html_subtrees(

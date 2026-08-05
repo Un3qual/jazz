@@ -6,7 +6,6 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -30,7 +29,9 @@ HTML_OPEN_TAG_RE = re.compile(
 HTML_CLOSING_TAG_RE = re.compile(
     r"^</[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$"
 )
-INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
+_EXAMPLE_METADATA_COMMENT_RE = re.compile(
+    r"<!--[ \t]*(?:jazz-example|jazz-example-output):[^\r\n]*-->"
+)
 
 
 @dataclass(frozen=True)
@@ -84,10 +85,6 @@ class _ContainerLine:
 
 
 LIST_MARKER_RE = re.compile(r"(?:[*+-]|[0-9]{1,9}[.)])")
-FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
-_ESCAPABLE_MARKDOWN_PUNCTUATION = frozenset(
-    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-)
 
 
 def is_thematic_break(line: str) -> bool:
@@ -296,6 +293,27 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
     line_index = 0
     while line_index < len(lines):
         container_line = container_scanner.scan(lines[line_index])
+        physical_content = without_line_ending(container_line.content)
+        html_indent = leading_spaces(physical_content)
+        if html_indent <= 3 and physical_content[html_indent:].startswith("<"):
+            html_start = (
+                offsets[line_index]
+                + container_line.prefix_length
+                + html_indent
+            )
+            if text.startswith("<!--", html_start):
+                closer = text.find("-->", html_start + 4)
+                html_end = len(text) if closer < 0 else closer + 3
+            else:
+                html_block = raw_html_block_end(text, html_start)
+                html_end = None if html_block is None else html_block[1]
+            if html_end is not None:
+                while (
+                    line_index < len(lines)
+                    and offsets[line_index] < html_end
+                ):
+                    line_index += 1
+                continue
         opener = fence_opener(container_line.content)
         if opener is None:
             line_index += 1
@@ -507,11 +525,12 @@ def markdown_visibility(
             blank_range(characters, index, comment_end)
             index = comment_end
             continue
-        if mask_raw_html_blocks and partially_visible[index] == "<":
+        if partially_visible[index] == "<":
             html_block = raw_html_block_end(partially_visible, index)
             if html_block is not None:
                 block_start, block_end = html_block
-                blank_range(characters, block_start, block_end)
+                if mask_raw_html_blocks:
+                    blank_range(characters, block_start, block_end)
                 index = block_end
                 continue
         if partially_visible[index] != "`":
@@ -583,171 +602,6 @@ def without_indented_code_blocks(text: str) -> str:
     return "".join(characters)
 
 
-def _normalize_reference_label(label: str) -> str:
-    unescaped: list[str] = []
-    index = 0
-    while index < len(label):
-        if (
-            label[index] == "\\"
-            and index + 1 < len(label)
-            and label[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
-        ):
-            unescaped.append(label[index + 1])
-            index += 2
-            continue
-        unescaped.append(label[index])
-        index += 1
-    return re.sub(r"\s+", " ", "".join(unescaped).strip()).casefold()
-
-
-def _reference_label_at(
-    text: str, start: int, *, allow_empty: bool = False
-) -> tuple[str, int] | None:
-    """Parse one bracketed CommonMark reference label with backslash escapes."""
-    if start >= len(text) or text[start] != "[":
-        return None
-    index = start + 1
-    raw_label: list[str] = []
-    while index < len(text):
-        character = text[index]
-        if (
-            character == "\\"
-            and index + 1 < len(text)
-            and text[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
-        ):
-            raw_label.extend((character, text[index + 1]))
-            index += 2
-            continue
-        if character == "]":
-            label = "".join(raw_label)
-            if not allow_empty and not _normalize_reference_label(label):
-                return None
-            return label, index + 1
-        if character == "[":
-            return None
-        raw_label.append(character)
-        index += 1
-    return None
-
-
-def _reference_definitions(
-    text: str,
-) -> tuple[dict[str, str], list[tuple[int, int]]]:
-    """Collect first-wins definitions and every definition span."""
-    definitions: dict[str, str] = {}
-    spans: list[tuple[int, int]] = []
-    line_start = 0
-    while line_start < len(text):
-        line_end = line_end_offset(text, line_start)
-        position = line_start
-        while (
-            position < line_end
-            and text[position] == " "
-            and position - line_start < 3
-        ):
-            position += 1
-        parsed_label = _reference_label_at(text, position)
-        if parsed_label is None:
-            line_start = line_end
-            continue
-        raw_label, position = parsed_label
-        if position >= len(text) or text[position] != ":":
-            line_start = line_end
-            continue
-        position += 1
-        while position < len(text) and text[position] in " \t":
-            position += 1
-        if position < len(text) and text[position] in "\r\n":
-            position = line_end
-            while position < len(text) and text[position] in " \t":
-                position += 1
-        if position >= len(text):
-            line_start = line_end
-            continue
-        if text[position] == "<":
-            target_end = text.find(">", position + 1)
-            if target_end < 0 or any(
-                character in "\r\n"
-                for character in text[position + 1 : target_end]
-            ):
-                line_start = line_end
-                continue
-            target = text[position + 1 : target_end]
-            span_end = target_end + 1
-        else:
-            target_match = re.match(r"\S+", text[position:])
-            if target_match is None:
-                line_start = line_end
-                continue
-            target = target_match.group(0)
-            span_end = position + len(target)
-        label = _normalize_reference_label(raw_label)
-        definitions.setdefault(label, target)
-        spans.append((line_start, span_end))
-        line_start = line_end
-    return definitions, spans
-
-
-def _is_escaped_markdown_character(text: str, position: int) -> bool:
-    backslashes = 0
-    position -= 1
-    while position >= 0 and text[position] == "\\":
-        backslashes += 1
-        position -= 1
-    return backslashes % 2 == 1
-
-
-def used_reference_targets(text: str) -> list[str]:
-    """Resolve targets used by full, collapsed, and shortcut references."""
-    structural_text = container_relative_markdown(text)
-    definitions, definition_spans = _reference_definitions(structural_text)
-
-    usage_text = list(structural_text)
-    for start, end in definition_spans:
-        usage_text[start:end] = " " * (end - start)
-    usages = "".join(usage_text)
-
-    used_labels: set[str] = set()
-    position = 0
-    while position < len(usages):
-        if usages[position] != "[" or _is_escaped_markdown_character(
-            usages, position
-        ):
-            position += 1
-            continue
-        is_image = (
-            position > 0
-            and usages[position - 1] == "!"
-            and not _is_escaped_markdown_character(usages, position - 1)
-        )
-        first_label = _reference_label_at(usages, position)
-        if first_label is None:
-            position += 1
-            continue
-        raw_first_label, first_end = first_label
-        label = raw_first_label
-        reference_end = first_end
-        if first_end < len(usages) and usages[first_end] == "[":
-            second_label = _reference_label_at(
-                usages, first_end, allow_empty=True
-            )
-            if second_label is None:
-                position = first_end
-                continue
-            raw_second_label, reference_end = second_label
-            if raw_second_label:
-                label = raw_second_label
-        elif first_end < len(usages) and usages[first_end] == "(":
-            position = first_end + 1
-            continue
-        normalized_label = _normalize_reference_label(label)
-        if not is_image and normalized_label in definitions:
-            used_labels.add(normalized_label)
-        position = reference_end
-
-    return sorted(definitions[label] for label in used_labels)
-
-
 def visible_markdown(text: str) -> str:
     """Blank fenced/inline code and HTML comments before structural checks."""
     return markdown_visibility(
@@ -811,9 +665,9 @@ def _example_metadata_source_markdown(text: str) -> str:
             cursor = closer + 3
 
         comment = text[comment_start:cursor]
-        is_standalone_metadata = maximum_depth == 1 and (
-            "jazz-example:" in comment
-            or "jazz-example-output:" in comment
+        is_standalone_metadata = (
+            maximum_depth == 1
+            and _EXAMPLE_METADATA_COMMENT_RE.fullmatch(comment) is not None
         )
         if not is_standalone_metadata:
             blank_range(characters, comment_start, cursor)
@@ -846,46 +700,6 @@ def html_source_markdown(text: str) -> str:
 def rendered_html_source_markdown(text: str) -> str:
     """Preserve rendered raw HTML while masking every Markdown code form."""
     return without_indented_code_blocks(html_source_markdown(text))
-
-
-class _HtmlReferenceTargetParser(HTMLParser):
-    def __init__(self, *, include_images: bool) -> None:
-        super().__init__(convert_charrefs=True)
-        self.include_images = include_images
-        self.targets: list[str] = []
-        self.inert_depth = 0
-
-    def handle_starttag(
-        self, tag: str, attributes: list[tuple[str, str | None]]
-    ) -> None:
-        folded_tag = tag.casefold()
-        if folded_tag in INERT_HTML_CONTENT_TAGS:
-            self.inert_depth += 1
-            return
-        if self.inert_depth:
-            return
-        target_attribute = "href" if folded_tag == "a" else None
-        if self.include_images and folded_tag == "img":
-            target_attribute = "src"
-        if target_attribute is None:
-            return
-        for name, value in attributes:
-            if name.casefold() == target_attribute:
-                self.targets.append(value or "")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
-            self.inert_depth -= 1
-
-
-def html_reference_targets(
-    text: str, *, include_images: bool = True
-) -> list[str]:
-    """Collect link and optional image targets from rendered raw HTML."""
-    parser = _HtmlReferenceTargetParser(include_images=include_images)
-    parser.feed(text)
-    parser.close()
-    return parser.targets
 
 
 def main(argv: list[str]) -> int:
