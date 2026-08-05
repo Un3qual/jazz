@@ -336,6 +336,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: image must use a repository-local path", result.stdout)
         self.assertIn("README.md: image URLs must not use ?raw=true", result.stdout)
 
+    def test_readme_rejects_unquoted_remote_html_image_source(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="<img src=https://example.com/track.png>"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("README.md: image must use a repository-local path")
+
     def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
         readme = valid_readme().replace(
             f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->",
@@ -898,6 +906,26 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_even_backslash_run_does_not_escape_heading_emphasis(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## \\\\_Emphasized_ heading\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Wrong fragment]"
+                    "(language/overview.md#_emphasized_-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#_emphasized_-heading"
+        )
+
     def test_accepts_local_link_fragments_for_container_headings(self) -> None:
         (self.root / "docs/language/overview.md").write_text(
             page(
@@ -1111,6 +1139,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/language/operators.md: banned public reference: jazz-next"
         )
+
+    def test_entity_encoded_backslash_does_not_create_a_markdown_escape(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The literal text is jazz&#92;-next.\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_rejects_private_kernel_intrinsics_in_public_docs(self) -> None:
         (self.root / "docs/language/operators.md").write_text(

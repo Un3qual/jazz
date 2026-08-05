@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 
 from markdown_visibility import (
@@ -68,6 +69,11 @@ def unescape_markdown_punctuation(text: str) -> str:
     return "".join(unescaped)
 
 
+def decode_markdown_escapes_and_html_entities(text: str) -> str:
+    """Decode source in the order used when Markdown produces rendered HTML."""
+    return html_unescape(unescape_markdown_punctuation(text))
+
+
 class _HtmlVisibleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -79,7 +85,7 @@ class _HtmlVisibleTextParser(HTMLParser):
 
 def html_visible_text(text: str) -> str:
     parser = _HtmlVisibleTextParser()
-    parser.feed(text)
+    parser.feed(MARKDOWN_AUTOLINK_RE.sub(r"\1", text))
     parser.close()
     return "".join(parser.parts)
 
@@ -542,7 +548,16 @@ def _markdown_heading_text(markup: str) -> str:
         return token
 
     text = _CODE_SPAN_RE.sub(lambda match: protect_literal(match.group(2)), text)
-    text = re.sub(r"\\_", lambda _match: protect_literal("_"), text)
+
+    def protect_escaped_underscore(match: re.Match[str]) -> str:
+        backslash_count = len(match.group()) - 1
+        return "\\" * (backslash_count // 2) + protect_literal("_")
+
+    text = re.sub(
+        r"(?<!\\)(?:\\\\)*\\_",
+        protect_escaped_underscore,
+        text,
+    )
     while True:
         without_emphasis = _UNDERSCORE_EMPHASIS_RE.sub(r"\2", text)
         if without_emphasis == text:
@@ -584,8 +599,9 @@ def rendered_heading_fragments(text: str) -> set[str]:
 
 
 class _HtmlReferenceTargetParser(HTMLParser):
-    def __init__(self, *, include_images: bool) -> None:
+    def __init__(self, *, include_links: bool, include_images: bool) -> None:
         super().__init__(convert_charrefs=True)
+        self.include_links = include_links
         self.include_images = include_images
         self.targets: list[str] = []
         self.inert_depth = 0
@@ -619,7 +635,7 @@ class _HtmlReferenceTargetParser(HTMLParser):
     def collect_target(
         self, folded_tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
-        target_attribute = "href" if folded_tag == "a" else None
+        target_attribute = "href" if self.include_links and folded_tag == "a" else None
         if self.include_images and folded_tag == "img":
             target_attribute = "src"
         if target_attribute is None:
@@ -650,7 +666,21 @@ class _HtmlReferenceTargetParser(HTMLParser):
 
 def html_reference_targets(text: str, *, include_images: bool = True) -> list[str]:
     """Collect link and optional image targets from rendered raw HTML."""
-    parser = _HtmlReferenceTargetParser(include_images=include_images)
+    parser = _HtmlReferenceTargetParser(
+        include_links=True,
+        include_images=include_images,
+    )
+    parser.feed(text)
+    parser.close()
+    return parser.targets
+
+
+def html_image_targets(text: str) -> list[str]:
+    """Collect image targets from rendered raw HTML."""
+    parser = _HtmlReferenceTargetParser(
+        include_links=False,
+        include_images=True,
+    )
     parser.feed(text)
     parser.close()
     return parser.targets

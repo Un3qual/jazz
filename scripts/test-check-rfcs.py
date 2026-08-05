@@ -128,6 +128,47 @@ class RfcCheckerTests(unittest.TestCase):
                 finally:
                     path.write_text(original, encoding="utf-8")
 
+    def test_hidden_raw_html_cannot_supply_required_section_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                '<span hidden>Invisible decision.</span>',
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: "
+            "required section is empty: ## Decision"
+        )
+
+    def test_empty_raw_html_cannot_supply_required_section_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace("Decision.", "<span></span>"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/accepted/0001-fixture.md: "
+            "required section is empty: ## Decision"
+        )
+
+    def test_markdown_autolink_counts_as_required_section_content(self) -> None:
+        path = self.root / "rfcs/accepted/0001-fixture.md"
+        path.write_text(
+            rfc("Accepted").replace(
+                "Decision.",
+                "<https://example.com/decision>",
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_required_section_reference_definition_is_not_visible_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
         path.write_text(
@@ -409,6 +450,16 @@ class RfcCheckerTests(unittest.TestCase):
         path.unlink()
         path.symlink_to(target)
         self.assert_violation("rfcs/accepted/0001-fixture.md: RFC must be a regular file")
+
+    def test_unsupported_rfc_file_type_is_rejected(self) -> None:
+        (self.root / "rfcs/accepted/0009-hidden-decision.mdx").write_text(
+            "# Hidden decision\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/accepted/0009-hidden-decision.mdx: invalid RFC filename"
+        )
 
 
 if __name__ == "__main__":

@@ -12,10 +12,12 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from markdown_targets import (
+    html_visible_text,
     html_reference_targets,
     rendered_heading_fragments,
     unescape_markdown_punctuation,
     used_reference_targets,
+    without_inert_html_subtrees,
 )
 from markdown_visibility import (
     rendered_markdown,
@@ -66,7 +68,9 @@ def required_section_body(text: str, heading: str) -> str | None:
         len(structural_lines),
     )
     rendered_body = "\n".join(rendered_markdown(text).splitlines()[start:end])
-    return REFERENCE_DEFINITION_RE.sub("", rendered_body).strip()
+    visible_body = without_inert_html_subtrees(rendered_body)
+    without_definitions = REFERENCE_DEFINITION_RE.sub("", visible_body)
+    return html_visible_text(without_definitions).strip()
 
 
 def visible_link_targets(text: str) -> set[str]:
@@ -222,10 +226,9 @@ def validate(root: Path) -> list[str]:
                 continue
             name_match = RFC_NAME_RE.fullmatch(candidate.name)
             if name_match is None:
-                if candidate.suffix == ".md" or candidate.is_symlink():
-                    violations.append(
-                        f"{candidate.relative_to(root).as_posix()}: invalid RFC filename"
-                    )
+                violations.append(
+                    f"{candidate.relative_to(root).as_posix()}: invalid RFC filename"
+                )
                 continue
             display = candidate.relative_to(root).as_posix()
             number = name_match.group(1)

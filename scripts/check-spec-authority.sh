@@ -20,18 +20,17 @@ removed_identity_matches() {
   python3 -c '
 import re
 import sys
-from html import unescape
 from pathlib import Path
 
 sys.path.insert(0, sys.argv[1])
-from markdown_targets import unescape_markdown_punctuation
+from markdown_targets import decode_markdown_escapes_and_html_entities
 
 pattern = re.compile(r"(jazz-next|jazz-hs|jazz2|jazznext)", re.IGNORECASE)
 paths = [Path("README.md"), *sorted(Path("docs").rglob("*.md"))]
 for path in paths:
     with path.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
-            decoded = unescape_markdown_punctuation(unescape(line)).rstrip("\r\n")
+            decoded = decode_markdown_escapes_and_html_entities(line).rstrip("\r\n")
             if pattern.search(decoded):
                 print(f"{path.as_posix()}:{line_number}:{decoded}")
 ' "$SCRIPT_DIR"

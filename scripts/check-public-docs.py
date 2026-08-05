@@ -11,13 +11,14 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from html import unescape as html_unescape
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 from example_cases import case_source_binding_violation
 from markdown_targets import (
     FULL_REFERENCE_RE,
+    decode_markdown_escapes_and_html_entities,
+    html_image_targets,
     html_visible_text,
     html_reference_targets,
     rendered_heading_fragments,
@@ -165,9 +166,6 @@ REQUIRED_PAGES = (
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
-HTML_IMAGE_RE = re.compile(
-    r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
-)
 REFERENCE_DEFINITION_BLOCK_RE = re.compile(
     r"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*(?:\r?\n|$)"
     r"(?:[ \t]{1,3}(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\))"
@@ -325,7 +323,7 @@ def markdown_link_target(raw_target: str) -> str:
 
 
 def decoded_public_policy_text(text: str) -> str:
-    return unescape_markdown_punctuation(html_unescape(text)).casefold()
+    return decode_markdown_escapes_and_html_entities(text).casefold()
 
 
 def local_markdown_fragment_violation(
@@ -1000,8 +998,14 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     visible_text = without_indented_code_blocks(
         without_inert_html_subtrees(visible_markdown(text))
     )
-    image_targets = [match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(text)]
-    image_targets.extend(match.group(1) for match in HTML_IMAGE_RE.finditer(text))
+    image_targets = [
+        match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(visible_text)
+    ]
+    image_targets.extend(
+        html_image_targets(
+            without_inert_html_subtrees(rendered_html_source_markdown(text))
+        )
+    )
     image_targets.extend(used_reference_image_targets(visible_text))
     local_logo_found = False
     for raw_target in image_targets:

@@ -71,6 +71,16 @@ class AuthorityCheckerTests(unittest.TestCase):
         self.assertIn("docs/index.md:1:jazz-next", result.stderr)
         self.assertIn("removed implementation identity", result.stderr)
 
+    def test_entity_encoded_backslash_does_not_create_a_markdown_escape(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            "jazz&#92;-next\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_rejects_every_superseded_authority_path(self) -> None:
         for relative, is_directory in (
             ("docs/spec", True),
