@@ -2056,6 +2056,61 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "scripts/example-cases.tsv:2: unknown argument: --bogus"
         )
 
+    def test_example_case_rejects_runtime_statistics(self) -> None:
+        for runtime_statistics_argument in (
+            "--runtime-stats",
+            "--runtime-stats=human",
+            "--runtime-stats=json",
+        ):
+            with self.subTest(
+                runtime_statistics_argument=runtime_statistics_argument
+            ):
+                self.example_cases[0] = (
+                    "factorial",
+                    [FACTORIAL_PATH],
+                    "720",
+                    f"--run {runtime_statistics_argument} {FACTORIAL_PATH}",
+                )
+                self.write_example_cases()
+
+                self.assert_violation(
+                    "scripts/example-cases.tsv:2: checked examples cannot request "
+                    "runtime statistics"
+                )
+
+    def test_example_case_rejects_invalid_entry_module_names(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            "--run --entry-module examples/functions/factorial --module-root .",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: invalid entry module path "
+            "'examples/functions/factorial': segments must be identifiers"
+        )
+
+    def test_example_case_rejects_invalid_warning_flags(self) -> None:
+        invalid_flags = {
+            "-W": "empty warning token",
+            "-Wbogus": "unknown warning category: bogus",
+        }
+        for warning_flag, expected_violation in invalid_flags.items():
+            with self.subTest(warning_flag=warning_flag):
+                self.example_cases[0] = (
+                    "factorial",
+                    [FACTORIAL_PATH],
+                    "720",
+                    f"--run {warning_flag} {FACTORIAL_PATH}",
+                )
+                self.write_example_cases()
+
+                self.assert_violation(
+                    f"scripts/example-cases.tsv:2: {expected_violation}"
+                )
+
     def test_rejects_untracked_operational_case_source(self) -> None:
         self.add_example_case(["examples/ghost.jz"])
         self.assert_violation(

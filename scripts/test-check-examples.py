@@ -135,14 +135,87 @@ class ExampleRunnerTests(unittest.TestCase):
 
     def test_accepts_order_independent_standalone_source_selection(self) -> None:
         for arguments in (
-            "examples/hello.jz --run --runtime-stats=json",
-            "--run --runtime-stats=json examples/hello.jz",
+            "examples/hello.jz --run",
+            "--run examples/hello.jz",
         ):
             with self.subTest(arguments=arguments):
                 self.write_cases(
                     "hello\texamples/hello.jz\t\"Hello\"\t" + arguments + "\n"
                 )
                 result = self.run_checker()
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_checked_examples_cannot_request_runtime_statistics(self) -> None:
+        for runtime_statistics_argument in (
+            "--runtime-stats",
+            "--runtime-stats=human",
+            "--runtime-stats=json",
+        ):
+            with self.subTest(
+                runtime_statistics_argument=runtime_statistics_argument
+            ):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {runtime_statistics_argument} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "checked examples cannot request runtime statistics",
+                    result.stderr,
+                )
+
+    def test_rejects_invalid_entry_module_names_before_resolution(self) -> None:
+        self.write_cases(
+            "hello\texamples/hello.jz\t\"Hello\"\t"
+            "--run --entry-module examples/hello --module-root .\n"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "invalid entry module path 'examples/hello': "
+            "segments must be identifiers",
+            result.stderr,
+        )
+
+    def test_rejects_invalid_warning_flags(self) -> None:
+        invalid_flags = {
+            "-W": "empty warning token",
+            "-Wbogus": "unknown warning category: bogus",
+        }
+        for warning_flag, expected_violation in invalid_flags.items():
+            with self.subTest(warning_flag=warning_flag):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {warning_flag} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected_violation, result.stderr)
+
+    def test_accepts_supported_warning_flags(self) -> None:
+        for warning_flag in (
+            "-Wsame-scope-rebinding",
+            "-Wno-shadowing-outer-scope",
+            "-Werror=unused-binding",
+            "-Werror",
+            "-Wnone",
+            "-WDEPRECATED-SYNTAX",
+        ):
+            with self.subTest(warning_flag=warning_flag):
+                self.write_cases(
+                    "hello\texamples/hello.jz\t\"Hello\"\t"
+                    f"--run {warning_flag} examples/hello.jz\n"
+                )
+
+                result = self.run_checker()
+
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_checked_examples_cannot_override_the_bundled_prelude(self) -> None:

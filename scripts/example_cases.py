@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shlex
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
@@ -27,11 +28,76 @@ OPTIONS_WITH_VALUES = {
     "--entry-module",
     "--module-root",
 }
-OPTIONS_WITHOUT_VALUES = {"--run", "--runtime-stats"}
+OPTIONS_WITHOUT_VALUES = {"--run"}
 RUNTIME_STATISTICS_OPTIONS = {
+    "--runtime-stats",
     "--runtime-stats=human",
     "--runtime-stats=json",
 }
+WARNING_CATEGORY_TOKENS = frozenset(
+    {
+        "same-scope-rebinding",
+        "shadowing-outer-scope",
+        "unused-binding",
+        "deprecated-syntax",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ParsedSourceSelection:
+    source_path: str | None = None
+    entry_module: str | None = None
+    module_roots: tuple[str, ...] = ()
+    prelude_override: bool = False
+    runtime_statistics_requested: bool = False
+    runtime_profile_requested: bool = False
+    violation: str | None = None
+
+
+def invalid_source_selection(violation: str) -> ParsedSourceSelection:
+    return ParsedSourceSelection(violation=violation)
+
+
+def module_path_violation(module_path: str) -> str | None:
+    """Mirror ModuleResolver.parseModulePathText before filesystem lookup."""
+    if not module_path:
+        return "entry module path cannot be empty"
+    segments = module_path.split("::")
+    if any(not segment for segment in segments):
+        return f"invalid entry module path '{module_path}': empty path segment"
+    if not all(
+        (segment[0].isalpha() or segment[0] == "_")
+        and all(
+            character.isalnum() or character in {"_", "'", "!"}
+            for character in segment[1:]
+        )
+        for segment in segments
+    ):
+        return (
+            f"invalid entry module path '{module_path}': "
+            "segments must be identifiers"
+        )
+    return None
+
+
+def warning_flag_violation(argument: str) -> str | None:
+    """Mirror WarningConfig.parseCliWarningDirective for manifest validation."""
+    token = argument[2:].strip()
+    if not token:
+        return "empty warning token"
+    if token in {"error", "none"}:
+        return None
+    if token.startswith("error="):
+        category = token.removeprefix("error=")
+    elif token.startswith("no-"):
+        category = token.removeprefix("no-")
+    else:
+        category = token
+    normalized_category = category.strip().lower()
+    if normalized_category not in WARNING_CATEGORY_TOKENS:
+        return f"unknown warning category: {normalized_category}"
+    return None
 
 
 def jazz_source_tokens(source: str) -> list[tuple[str, str]]:
@@ -109,21 +175,25 @@ def imported_module_paths(source: str) -> list[str]:
 
 def parsed_source_selection(
     arguments: list[str],
-) -> tuple[str | None, str | None, list[str], bool, bool, str | None]:
+) -> ParsedSourceSelection:
     """Mirror the CLI's order-independent source and module selectors."""
     source_paths: list[str] = []
     entry_module: str | None = None
     module_roots: list[str] = []
     prelude_override = False
+    runtime_statistics_requested = False
     runtime_profile_requested = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         if argument in OPTIONS_WITH_VALUES:
             if index + 1 >= len(arguments):
-                return None, None, [], False, False, f"missing value after {argument}"
+                return invalid_source_selection(f"missing value after {argument}")
             value = arguments[index + 1]
             if argument == "--entry-module":
+                violation = module_path_violation(value)
+                if violation is not None:
+                    return invalid_source_selection(violation)
                 entry_module = value
             elif argument == "--module-root":
                 module_roots.append(value)
@@ -141,43 +211,34 @@ def parsed_source_selection(
             prelude_override = True
             index += 1
             continue
-        if (
-            argument in OPTIONS_WITHOUT_VALUES
-            or argument in RUNTIME_STATISTICS_OPTIONS
-            or argument.startswith("-W")
-        ):
+        if argument in RUNTIME_STATISTICS_OPTIONS:
+            runtime_statistics_requested = True
+            index += 1
+            continue
+        if argument.startswith("-W"):
+            violation = warning_flag_violation(argument)
+            if violation is not None:
+                return invalid_source_selection(violation)
+            index += 1
+            continue
+        if argument in OPTIONS_WITHOUT_VALUES:
             index += 1
             continue
         if argument == "-" or not argument.startswith("-"):
             source_paths.append(argument)
             index += 1
             continue
-        return (
-            None,
-            entry_module,
-            module_roots,
-            prelude_override,
-            runtime_profile_requested,
-            f"unknown argument: {argument}",
-        )
+        return invalid_source_selection(f"unknown argument: {argument}")
 
     if len(source_paths) > 1:
-        return (
-            None,
-            entry_module,
-            module_roots,
-            prelude_override,
-            runtime_profile_requested,
-            "multiple source files are not supported",
-        )
-    source_path = source_paths[0] if source_paths else None
-    return (
-        source_path,
-        entry_module,
-        module_roots,
-        prelude_override,
-        runtime_profile_requested,
-        None,
+        return invalid_source_selection("multiple source files are not supported")
+    return ParsedSourceSelection(
+        source_path=source_paths[0] if source_paths else None,
+        entry_module=entry_module,
+        module_roots=tuple(module_roots),
+        prelude_override=prelude_override,
+        runtime_statistics_requested=runtime_statistics_requested,
+        runtime_profile_requested=runtime_profile_requested,
     )
 
 
@@ -254,25 +315,20 @@ def case_source_binding_violation(
     if arguments.count("--run") != 1:
         return "arguments must contain exactly one --run selector"
 
-    (
-        source_path,
-        entry_module,
-        module_root_texts,
-        prelude_override,
-        runtime_profile_requested,
-        selection_violation,
-    ) = parsed_source_selection(arguments)
-    if selection_violation is not None:
-        return selection_violation
-    if prelude_override:
+    selection = parsed_source_selection(arguments)
+    if selection.violation is not None:
+        return selection.violation
+    if selection.prelude_override:
         return "checked examples must use the bundled Prelude"
-    if runtime_profile_requested:
+    if selection.runtime_statistics_requested:
+        return "checked examples cannot request runtime statistics"
+    if selection.runtime_profile_requested:
         return "checked examples cannot write runtime profiles"
 
-    if entry_module is not None:
-        if source_path is not None:
+    if selection.entry_module is not None:
+        if selection.source_path is not None:
             return "cannot combine source file with --entry-module"
-        module_root_texts = module_root_texts or ["."]
+        module_root_texts = list(selection.module_roots) or ["."]
         module_roots = [PurePosixPath(value) for value in module_root_texts]
         if any(
             module_root.is_absolute() or ".." in module_root.parts
@@ -288,13 +344,15 @@ def case_source_binding_violation(
             for source in source_paths
         ):
             return "module case source is outside --module-root"
-        return module_source_binding_violation(root, module_roots, entry_module, sources)
+        return module_source_binding_violation(
+            root, module_roots, selection.entry_module, sources
+        )
 
-    if module_root_texts:
+    if selection.module_roots:
         return "cannot use --module-root without --entry-module"
 
-    if source_path is None:
+    if selection.source_path is None:
         return "--run requires a standalone source path or module selectors"
-    if sources != [source_path]:
+    if sources != [selection.source_path]:
         return "--run source does not match declared sources"
     return None
