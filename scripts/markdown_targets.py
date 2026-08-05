@@ -13,7 +13,9 @@ from markdown_visibility import (
     blank_range,
     container_relative_markdown,
     line_end_offset,
+    rendered_html_source_markdown,
     rendered_markdown,
+    without_indented_code_blocks,
 )
 
 
@@ -38,6 +40,10 @@ VOID_HTML_TAGS = frozenset(
     }
 )
 ATX_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$", re.MULTILINE)
+ATX_HEADING_LEVEL_RE = re.compile(
+    r"^[ \t]{0,3}(#{1,6})(?:[ \t]+|$)", re.MULTILINE
+)
+SETEXT_H1_UNDERLINE_RE = re.compile(r"^[ \t]{0,3}=+[ \t]*$")
 EXPLICIT_HEADING_ID_RE = re.compile(r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$")
 MARKDOWN_AUTOLINK_RE = re.compile(
     r"<((?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|"
@@ -575,6 +581,56 @@ def _markdown_heading_slug(markup: str) -> str:
     heading = re.sub(r"[^\w _-]", "", heading)
     heading = re.sub(r"\s+", "-", heading)
     return heading.strip("-")
+
+
+class _HtmlHeadingLevelParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.levels: set[int] = set()
+
+    def collect_heading(self, tag: str) -> None:
+        match = re.fullmatch(r"h([1-6])", tag.casefold())
+        if match is not None:
+            self.levels.add(int(match.group(1)))
+
+    def handle_starttag(
+        self, tag: str, _attributes: list[tuple[str, str | None]]
+    ) -> None:
+        self.collect_heading(tag)
+
+    def handle_startendtag(
+        self, tag: str, _attributes: list[tuple[str, str | None]]
+    ) -> None:
+        self.collect_heading(tag)
+
+
+def rendered_heading_levels(text: str) -> set[int]:
+    """Return heading levels produced by visible Markdown and raw HTML."""
+    rendered = container_relative_markdown(
+        without_indented_code_blocks(
+            without_inert_html_subtrees(rendered_markdown(text))
+        )
+    )
+    levels = {
+        len(match.group(1)) for match in ATX_HEADING_LEVEL_RE.finditer(rendered)
+    }
+    lines = rendered.splitlines()
+    for index, line in enumerate(lines[1:], 1):
+        previous = lines[index - 1]
+        if (
+            SETEXT_H1_UNDERLINE_RE.fullmatch(line) is not None
+            and previous.strip()
+            and ATX_HEADING_LEVEL_RE.match(previous) is None
+        ):
+            levels.add(1)
+
+    html_parser = _HtmlHeadingLevelParser()
+    html_parser.feed(
+        without_inert_html_subtrees(rendered_html_source_markdown(text))
+    )
+    html_parser.close()
+    levels.update(html_parser.levels)
+    return levels
 
 
 def rendered_heading_fragments(text: str) -> set[str]:

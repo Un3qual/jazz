@@ -27,6 +27,11 @@ OPTIONS_WITH_VALUES = {
     "--entry-module",
     "--module-root",
 }
+OPTIONS_WITHOUT_VALUES = {"--run", "--runtime-stats"}
+RUNTIME_STATISTICS_OPTIONS = {
+    "--runtime-stats=human",
+    "--runtime-stats=json",
+}
 
 
 def jazz_source_tokens(source: str) -> list[tuple[str, str]]:
@@ -136,9 +141,25 @@ def parsed_source_selection(
             prelude_override = True
             index += 1
             continue
+        if (
+            argument in OPTIONS_WITHOUT_VALUES
+            or argument in RUNTIME_STATISTICS_OPTIONS
+            or argument.startswith("-W")
+        ):
+            index += 1
+            continue
         if argument == "-" or not argument.startswith("-"):
             source_paths.append(argument)
-        index += 1
+            index += 1
+            continue
+        return (
+            None,
+            entry_module,
+            module_roots,
+            prelude_override,
+            runtime_profile_requested,
+            f"unknown argument: {argument}",
+        )
 
     if len(source_paths) > 1:
         return (

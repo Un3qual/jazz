@@ -809,6 +809,16 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: top-level heading duplicates front matter title"
         )
 
+    def test_rejects_non_atx_rendered_top_level_headings(self) -> None:
+        for heading in ("Fixture\n=======", "<h1>Fixture</h1>"):
+            with self.subTest(heading=heading):
+                (self.root / "docs/index.md").write_text(
+                    page(body=f"{heading}\n\nBody.\n"), encoding="utf-8"
+                )
+                self.assert_violation(
+                    "docs/index.md: top-level heading duplicates front matter title"
+                )
+
     def test_front_matter_comment_is_not_a_rendered_heading(self) -> None:
         (self.root / "docs/index.md").write_text(
             (
@@ -2031,6 +2041,19 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation(
             "scripts/example-cases.tsv:2: --run source does not match declared sources"
+        )
+
+    def test_example_case_rejects_an_unknown_cli_argument(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            f"--bogus --run {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: unknown argument: --bogus"
         )
 
     def test_rejects_untracked_operational_case_source(self) -> None:

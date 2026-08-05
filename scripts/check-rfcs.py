@@ -20,8 +20,8 @@ from markdown_targets import (
     without_inert_html_subtrees,
 )
 from markdown_visibility import (
-    rendered_markdown,
     rendered_html_source_markdown,
+    rendered_prose_markdown,
     visible_markdown,
     without_indented_code_blocks,
 )
@@ -67,7 +67,9 @@ def required_section_body(text: str, heading: str) -> str | None:
         ),
         len(structural_lines),
     )
-    rendered_body = "\n".join(rendered_markdown(text).splitlines()[start:end])
+    rendered_body = "\n".join(
+        rendered_prose_markdown(text).splitlines()[start:end]
+    )
     visible_body = without_inert_html_subtrees(rendered_body)
     without_definitions = REFERENCE_DEFINITION_RE.sub("", visible_body)
     return html_visible_text(without_definitions).strip()

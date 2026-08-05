@@ -197,19 +197,21 @@ class RfcCheckerTests(unittest.TestCase):
             "required section is empty: ## Decision"
         )
 
-    def test_tab_indented_reference_shape_counts_as_visible_code(self) -> None:
-        # A leading tab expands to a four-space CommonMark indented code block;
-        # it does not satisfy the 0-3-space reference-definition prefix.
+    def test_indented_code_cannot_supply_required_section_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"
-        path.write_text(
-            rfc("Accepted").replace(
-                "Decision.",
-                "\t[visible-code]: https://example.com",
-            ),
-            encoding="utf-8",
-        )
-        result = self.run_checker()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        for indented_content in (
+            "    Decision recorded only as code.",
+            "\tDecision recorded only as code.",
+        ):
+            with self.subTest(indented_content=indented_content):
+                path.write_text(
+                    rfc("Accepted").replace("Decision.", indented_content),
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "rfcs/accepted/0001-fixture.md: "
+                    "required section is empty: ## Decision"
+                )
 
     def test_tab_indented_reference_destination_is_not_visible_content(self) -> None:
         path = self.root / "rfcs/accepted/0001-fixture.md"

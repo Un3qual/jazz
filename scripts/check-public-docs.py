@@ -22,6 +22,7 @@ from markdown_targets import (
     html_visible_text,
     html_reference_targets,
     rendered_heading_fragments,
+    rendered_heading_levels,
     unescape_markdown_punctuation,
     used_reference_image_targets,
     used_reference_targets,
@@ -688,7 +689,7 @@ def marker_gap_is_container_whitespace(text: str) -> bool:
 
 
 def has_top_level_heading(text: str) -> bool:
-    return re.search(r"^#[ \t]+", visible_markdown(text), re.MULTILINE) is not None
+    return 1 in rendered_heading_levels(text)
 
 
 def has_bound_executable_marker(text: str, example_path: str) -> bool:
