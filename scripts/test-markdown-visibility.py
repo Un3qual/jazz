@@ -111,6 +111,24 @@ case-arm-pattern := pattern
         self.assertNotIn("examples/hidden.jz", source)
         self.assertNotIn("```jazz\n1.\n```", source)
 
+    def test_renderable_source_rejects_metadata_nested_in_a_larger_comment(
+        self,
+    ) -> None:
+        text = (
+            "<!--\n"
+            "<!-- jazz-example: executable path=examples/hidden.jz -->\n"
+            "```jazz\n1.\n```\n"
+            "<!-- jazz-example-output: case=hidden -->\n"
+            "```text\n1\n```\n"
+            "-->\n"
+        )
+
+        source = renderable_source_markdown(text)
+
+        self.assertNotIn("jazz-example", source)
+        self.assertNotIn("```jazz", source)
+        self.assertNotIn("```text", source)
+
     def test_list_continuation_indentation_is_not_executable_source(self) -> None:
         text = (
             "1. Example\n\n"

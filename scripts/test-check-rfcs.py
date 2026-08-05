@@ -221,6 +221,40 @@ class RfcCheckerTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_reference_style_image_cannot_index_an_accepted_rfc(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "![Fixture][accepted-rfc]\n\n"
+            "[accepted-rfc]: accepted/0001-fixture.md\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/README.md: missing accepted RFC index entry: "
+            "accepted/0001-fixture.md"
+        )
+
+    def test_raw_html_link_can_index_an_accepted_rfc(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            '<a href="accepted/0001-fixture.md">Fixture</a>\n',
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_stale_raw_html_accepted_rfc_link(self) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "[Fixture](accepted/0001-fixture.md)\n"
+            '<a href="accepted/9999-missing.md">Missing</a>\n',
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/README.md: stale accepted RFC index entry: "
+            "accepted/9999-missing.md"
+        )
+
     def test_rejects_stale_reference_style_accepted_rfc_link(self) -> None:
         (self.root / "rfcs/README.md").write_text(
             "[Fixture](accepted/0001-fixture.md)\n"

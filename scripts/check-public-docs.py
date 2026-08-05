@@ -19,11 +19,13 @@ from urllib.parse import unquote, urlsplit
 from example_cases import case_source_binding_violation
 from markdown_visibility import (
     FULL_REFERENCE_RE,
+    INERT_HTML_CONTENT_TAGS,
     container_relative_markdown,
-    html_source_markdown,
+    html_reference_targets,
     markdown_fences,
     renderable_source_markdown,
     rendered_markdown,
+    rendered_html_source_markdown,
     rendered_markdown_with_code,
     used_reference_targets,
     visible_markdown,
@@ -212,7 +214,6 @@ class ExampleCase:
     expected: str
 
 
-INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
 VOID_HTML_TAGS = frozenset(
     {
         "area",
@@ -233,40 +234,6 @@ VOID_HTML_TAGS = frozenset(
 )
 
 
-class HtmlReferenceTargetParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.targets: list[str] = []
-        self.inert_depth = 0
-
-    def handle_starttag(
-        self, tag: str, attributes: list[tuple[str, str | None]]
-    ) -> None:
-        folded_tag = tag.casefold()
-        if folded_tag in INERT_HTML_CONTENT_TAGS:
-            self.inert_depth += 1
-            return
-        if self.inert_depth:
-            return
-        target_attribute = {"a": "href", "img": "src"}.get(folded_tag)
-        if target_attribute is None:
-            return
-        for name, value in attributes:
-            if name.casefold() == target_attribute:
-                self.targets.append(value or "")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
-            self.inert_depth -= 1
-
-
-def html_reference_targets(text: str) -> list[str]:
-    parser = HtmlReferenceTargetParser()
-    parser.feed(text)
-    parser.close()
-    return parser.targets
-
-
 class HtmlVisibleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -281,6 +248,33 @@ def html_visible_text(text: str) -> str:
     parser.feed(text)
     parser.close()
     return "".join(parser.parts)
+
+
+def decode_css_escapes(value: str) -> str:
+    """Decode CSS escapes before comparing identifier-shaped declarations."""
+
+    def replacement(match: re.Match[str]) -> str:
+        hexadecimal = match.group(1)
+        if hexadecimal is not None:
+            codepoint = int(hexadecimal, 16)
+            if (
+                codepoint == 0
+                or codepoint > sys.maxunicode
+                or 0xD800 <= codepoint <= 0xDFFF
+            ):
+                return "\N{REPLACEMENT CHARACTER}"
+            return chr(codepoint)
+        if match.group(2) is not None:
+            return ""
+        return match.group(3)
+
+    return re.sub(
+        r"\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|"
+        r"(\r\n|[\r\n\f])|(.))",
+        replacement,
+        value,
+        flags=re.DOTALL,
+    )
 
 
 class InertHtmlSubtreeMasker(HTMLParser):
@@ -373,7 +367,8 @@ def html_attributes_make_contract_inert(
             property_name, separator, property_value = declaration.partition(":")
             if not separator:
                 continue
-            property_name = property_name.strip().casefold()
+            property_name = decode_css_escapes(property_name).strip().casefold()
+            property_value = decode_css_escapes(property_value)
             property_value = re.sub(
                 r"\s*!important\s*$", "", property_value, flags=re.IGNORECASE
             ).strip().casefold()
@@ -1245,7 +1240,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     raw_link_targets.extend(used_reference_targets(visible_text))
     raw_link_targets.extend(
         html_reference_targets(
-            without_inert_html_subtrees(html_source_markdown(text))
+            without_inert_html_subtrees(rendered_html_source_markdown(text))
         )
     )
     link_targets = {
@@ -1410,7 +1405,7 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
         raw_link_targets.extend(
             html_reference_targets(
                 without_inert_html_subtrees(
-                    html_source_markdown(markdown_body)
+                    rendered_html_source_markdown(markdown_body)
                 )
             )
         )

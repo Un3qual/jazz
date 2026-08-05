@@ -11,7 +11,9 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from markdown_visibility import (
+    html_reference_targets,
     rendered_markdown,
+    rendered_html_source_markdown,
     used_reference_targets,
     visible_markdown,
     without_indented_code_blocks,
@@ -69,6 +71,11 @@ def visible_link_targets(text: str) -> set[str]:
         for match in MARKDOWN_LINK_RE.finditer(visible)
     }
     targets.update(used_reference_targets(visible))
+    targets.update(
+        html_reference_targets(
+            rendered_html_source_markdown(text), include_images=False
+        )
+    )
     return targets
 
 

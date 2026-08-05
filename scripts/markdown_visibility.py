@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -29,6 +30,7 @@ HTML_OPEN_TAG_RE = re.compile(
 HTML_CLOSING_TAG_RE = re.compile(
     r"^</[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$"
 )
+INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
 
 
 @dataclass(frozen=True)
@@ -82,13 +84,10 @@ class _ContainerLine:
 
 
 LIST_MARKER_RE = re.compile(r"(?:[*+-]|[0-9]{1,9}[.)])")
-REFERENCE_DEFINITION_TARGET_RE = re.compile(
-    r"^ {0,3}\[([^\]\r\n]+)\]:[ \t]*(?:\r?\n[ \t]*)?"
-    r"(?:<([^>\r\n]+)>|(\S+))",
-    re.MULTILINE,
-)
 FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
-SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
+_ESCAPABLE_MARKDOWN_PUNCTUATION = frozenset(
+    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+)
 
 
 def is_thematic_break(line: str) -> bool:
@@ -564,7 +563,9 @@ def without_indented_code_blocks(text: str) -> str:
     in_code_block = False
     follows_blank_line = True
     for line in text.splitlines(keepends=True):
-        relative_line = without_line_ending(scanner.scan(line).content)
+        relative_line = without_line_ending(
+            scanner.scan(line.expandtabs(4)).content
+        )
         if not relative_line.strip(" \t"):
             if in_code_block:
                 blank_range(characters, offset, offset + len(line))
@@ -582,45 +583,169 @@ def without_indented_code_blocks(text: str) -> str:
     return "".join(characters)
 
 
-def normalize_reference_label(label: str) -> str:
-    return re.sub(r"\s+", " ", label.strip()).casefold()
+def _normalize_reference_label(label: str) -> str:
+    unescaped: list[str] = []
+    index = 0
+    while index < len(label):
+        if (
+            label[index] == "\\"
+            and index + 1 < len(label)
+            and label[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
+        ):
+            unescaped.append(label[index + 1])
+            index += 2
+            continue
+        unescaped.append(label[index])
+        index += 1
+    return re.sub(r"\s+", " ", "".join(unescaped).strip()).casefold()
+
+
+def _reference_label_at(
+    text: str, start: int, *, allow_empty: bool = False
+) -> tuple[str, int] | None:
+    """Parse one bracketed CommonMark reference label with backslash escapes."""
+    if start >= len(text) or text[start] != "[":
+        return None
+    index = start + 1
+    raw_label: list[str] = []
+    while index < len(text):
+        character = text[index]
+        if (
+            character == "\\"
+            and index + 1 < len(text)
+            and text[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
+        ):
+            raw_label.extend((character, text[index + 1]))
+            index += 2
+            continue
+        if character == "]":
+            label = "".join(raw_label)
+            if not allow_empty and not _normalize_reference_label(label):
+                return None
+            return label, index + 1
+        if character == "[":
+            return None
+        raw_label.append(character)
+        index += 1
+    return None
+
+
+def _reference_definitions(
+    text: str,
+) -> tuple[dict[str, str], list[tuple[int, int]]]:
+    """Collect first-wins definitions and every definition span."""
+    definitions: dict[str, str] = {}
+    spans: list[tuple[int, int]] = []
+    line_start = 0
+    while line_start < len(text):
+        line_end = line_end_offset(text, line_start)
+        position = line_start
+        while (
+            position < line_end
+            and text[position] == " "
+            and position - line_start < 3
+        ):
+            position += 1
+        parsed_label = _reference_label_at(text, position)
+        if parsed_label is None:
+            line_start = line_end
+            continue
+        raw_label, position = parsed_label
+        if position >= len(text) or text[position] != ":":
+            line_start = line_end
+            continue
+        position += 1
+        while position < len(text) and text[position] in " \t":
+            position += 1
+        if position < len(text) and text[position] in "\r\n":
+            position = line_end
+            while position < len(text) and text[position] in " \t":
+                position += 1
+        if position >= len(text):
+            line_start = line_end
+            continue
+        if text[position] == "<":
+            target_end = text.find(">", position + 1)
+            if target_end < 0 or any(
+                character in "\r\n"
+                for character in text[position + 1 : target_end]
+            ):
+                line_start = line_end
+                continue
+            target = text[position + 1 : target_end]
+            span_end = target_end + 1
+        else:
+            target_match = re.match(r"\S+", text[position:])
+            if target_match is None:
+                line_start = line_end
+                continue
+            target = target_match.group(0)
+            span_end = position + len(target)
+        label = _normalize_reference_label(raw_label)
+        definitions.setdefault(label, target)
+        spans.append((line_start, span_end))
+        line_start = line_end
+    return definitions, spans
+
+
+def _is_escaped_markdown_character(text: str, position: int) -> bool:
+    backslashes = 0
+    position -= 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 1
 
 
 def used_reference_targets(text: str) -> list[str]:
     """Resolve targets used by full, collapsed, and shortcut references."""
-    definitions: dict[str, list[str]] = {}
-    definition_spans: list[tuple[int, int]] = []
-    for match in REFERENCE_DEFINITION_TARGET_RE.finditer(text):
-        label = normalize_reference_label(match.group(1))
-        target = match.group(2) or match.group(3)
-        definitions.setdefault(label, []).append(target)
-        definition_spans.append(match.span())
+    structural_text = container_relative_markdown(text)
+    definitions, definition_spans = _reference_definitions(structural_text)
 
-    usage_text = list(text)
+    usage_text = list(structural_text)
     for start, end in definition_spans:
         usage_text[start:end] = " " * (end - start)
     usages = "".join(usage_text)
 
     used_labels: set[str] = set()
-    full_reference_spans: list[tuple[int, int]] = []
-    for match in FULL_REFERENCE_RE.finditer(usages):
-        label = match.group(2) or match.group(1)
-        used_labels.add(normalize_reference_label(label))
-        full_reference_spans.append(match.span())
+    position = 0
+    while position < len(usages):
+        if usages[position] != "[" or _is_escaped_markdown_character(
+            usages, position
+        ):
+            position += 1
+            continue
+        is_image = (
+            position > 0
+            and usages[position - 1] == "!"
+            and not _is_escaped_markdown_character(usages, position - 1)
+        )
+        first_label = _reference_label_at(usages, position)
+        if first_label is None:
+            position += 1
+            continue
+        raw_first_label, first_end = first_label
+        label = raw_first_label
+        reference_end = first_end
+        if first_end < len(usages) and usages[first_end] == "[":
+            second_label = _reference_label_at(
+                usages, first_end, allow_empty=True
+            )
+            if second_label is None:
+                position = first_end
+                continue
+            raw_second_label, reference_end = second_label
+            if raw_second_label:
+                label = raw_second_label
+        elif first_end < len(usages) and usages[first_end] == "(":
+            position = first_end + 1
+            continue
+        normalized_label = _normalize_reference_label(label)
+        if not is_image and normalized_label in definitions:
+            used_labels.add(normalized_label)
+        position = reference_end
 
-    shortcut_text = list(usages)
-    for start, end in full_reference_spans:
-        shortcut_text[start:end] = " " * (end - start)
-    for match in SHORTCUT_REFERENCE_RE.finditer("".join(shortcut_text)):
-        label = normalize_reference_label(match.group(1))
-        if label in definitions:
-            used_labels.add(label)
-
-    return sorted(
-        target
-        for label in used_labels
-        for target in definitions.get(label, [])
-    )
+    return sorted(definitions[label] for label in used_labels)
 
 
 def visible_markdown(text: str) -> str:
@@ -641,7 +766,8 @@ def container_relative_markdown(text: str) -> str:
     """Strip active CommonMark container prefixes from each physical line."""
     scanner = _MarkdownContainerScanner()
     return "".join(
-        scanner.scan(line).content for line in text.splitlines(keepends=True)
+        scanner.scan(line.expandtabs(4)).content
+        for line in text.splitlines(keepends=True)
     )
 
 
@@ -652,13 +778,58 @@ def rendered_markdown_with_code(text: str) -> str:
     )
 
 
+def _example_metadata_source_markdown(text: str) -> str:
+    """Mask comments except standalone example metadata outside code fences."""
+    characters = list(text)
+    fence_ends = {fence.start: fence.end for fence in markdown_fences(text)}
+    position = 0
+    while position < len(text):
+        fence_end = fence_ends.get(position)
+        if fence_end is not None:
+            position = fence_end
+            continue
+        if not text.startswith("<!--", position):
+            position += 1
+            continue
+
+        comment_start = position
+        cursor = position + 4
+        depth = 1
+        maximum_depth = 1
+        while depth:
+            nested_start = text.find("<!--", cursor)
+            closer = text.find("-->", cursor)
+            if closer < 0:
+                cursor = len(text)
+                break
+            if 0 <= nested_start < closer:
+                depth += 1
+                maximum_depth = max(maximum_depth, depth)
+                cursor = nested_start + 4
+                continue
+            depth -= 1
+            cursor = closer + 3
+
+        comment = text[comment_start:cursor]
+        is_standalone_metadata = maximum_depth == 1 and (
+            "jazz-example:" in comment
+            or "jazz-example-output:" in comment
+        )
+        if not is_standalone_metadata:
+            blank_range(characters, comment_start, cursor)
+        position = cursor
+    return "".join(characters)
+
+
 def renderable_source_markdown(text: str) -> str:
     """Mask raw HTML blocks while preserving rendered fences and metadata comments."""
-    return markdown_visibility(
-        text,
-        mask_fenced_code=False,
-        mask_html_comments=False,
-        mask_inline_code=False,
+    return _example_metadata_source_markdown(
+        markdown_visibility(
+            text,
+            mask_fenced_code=False,
+            mask_html_comments=False,
+            mask_inline_code=False,
+        )
     )
 
 
@@ -670,6 +841,51 @@ def html_source_markdown(text: str) -> str:
         mask_inline_code=True,
         mask_raw_html_blocks=False,
     )
+
+
+def rendered_html_source_markdown(text: str) -> str:
+    """Preserve rendered raw HTML while masking every Markdown code form."""
+    return without_indented_code_blocks(html_source_markdown(text))
+
+
+class _HtmlReferenceTargetParser(HTMLParser):
+    def __init__(self, *, include_images: bool) -> None:
+        super().__init__(convert_charrefs=True)
+        self.include_images = include_images
+        self.targets: list[str] = []
+        self.inert_depth = 0
+
+    def handle_starttag(
+        self, tag: str, attributes: list[tuple[str, str | None]]
+    ) -> None:
+        folded_tag = tag.casefold()
+        if folded_tag in INERT_HTML_CONTENT_TAGS:
+            self.inert_depth += 1
+            return
+        if self.inert_depth:
+            return
+        target_attribute = "href" if folded_tag == "a" else None
+        if self.include_images and folded_tag == "img":
+            target_attribute = "src"
+        if target_attribute is None:
+            return
+        for name, value in attributes:
+            if name.casefold() == target_attribute:
+                self.targets.append(value or "")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() in INERT_HTML_CONTENT_TAGS and self.inert_depth:
+            self.inert_depth -= 1
+
+
+def html_reference_targets(
+    text: str, *, include_images: bool = True
+) -> list[str]:
+    """Collect link and optional image targets from rendered raw HTML."""
+    parser = _HtmlReferenceTargetParser(include_images=include_images)
+    parser.feed(text)
+    parser.close()
+    return parser.targets
 
 
 def main(argv: list[str]) -> int:

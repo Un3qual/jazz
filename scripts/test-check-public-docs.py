@@ -485,6 +485,23 @@ class PublicDocsCheckerTests(unittest.TestCase):
             f"README.md: missing required navigation link: {target}"
         )
 
+    def test_readme_navigation_links_inside_css_escaped_hidden_html_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="display: \\6e one" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
     def test_readme_navigation_links_with_visible_inline_styles_are_rendered(
         self,
     ) -> None:
@@ -512,6 +529,28 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             f"README.md: missing required navigation link: {target}"
         )
+
+    def test_indented_raw_html_cannot_supply_readme_navigation(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme().replace(
+            f"- [Getting started]({target})",
+            f"Getting started\n\n    <a href=\"{target}\">Code-only link</a>",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_indented_raw_html_does_not_escape_the_docs_boundary(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='    <a href="../rfcs/accepted/0001.md">Code only</a>\n'),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_readme_quick_start_commands_must_be_rendered(self) -> None:
         commands = (
@@ -971,6 +1010,64 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
         )
 
+    def test_rejects_escaped_reference_labels_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [decision][authority\\]].\n\n"
+                    "[authority\\]]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_blockquoted_reference_links_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "> Read the [decision][authority].\n>\n"
+                    "> [authority]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_tabbed_list_continuation_link_remains_rendered(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "- Durable decisions\n\n"
+                    "\t[Decision](../rfcs/accepted/0001.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_duplicate_reference_labels_use_the_first_definition(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [language guide][guide].\n\n"
+                    "[guide]: language/overview.md\n"
+                    "[GUIDE]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_rejects_collapsed_reference_links_that_escape_docs(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(
@@ -1128,6 +1225,35 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "scripts/example-cases.tsv: case case-2 has no documented expected output",
             result.stdout,
         )
+
+    def test_larger_html_comment_cannot_document_an_example_or_output(
+        self,
+    ) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            "<!--\n"
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "-->\n"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=hidden_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
+        self.assertEqual("", result.stderr)
 
     def test_blockquoted_raw_html_cannot_document_an_example_or_output(
         self,
