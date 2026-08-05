@@ -344,6 +344,29 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
         self.assert_violation("README.md: image must use a repository-local path")
 
+    def test_readme_rejects_remote_html_srcset_candidates(self) -> None:
+        responsive_images = (
+            (
+                '<img src="./jazz_logo.png" '
+                'srcset="./jazz_logo.png 1x, https://example.com/track.png 2x">'
+            ),
+            (
+                '<picture><source srcset="https://example.com/track.png 2x">'
+                '<img src="./jazz_logo.png" alt="Jazz"></picture>'
+            ),
+        )
+        for responsive_image in responsive_images:
+            with self.subTest(responsive_image=responsive_image):
+                (self.root / "README.md").write_text(
+                    valid_readme(extra=responsive_image),
+                    encoding="utf-8",
+                )
+
+                self.assert_violation(
+                    "README.md: image must use a repository-local path: "
+                    "https://example.com/track.png"
+                )
+
     def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
         readme = valid_readme().replace(
             f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->",
@@ -2110,6 +2133,20 @@ class PublicDocsCheckerTests(unittest.TestCase):
                 self.assert_violation(
                     f"scripts/example-cases.tsv:2: {expected_violation}"
                 )
+
+    def test_example_case_rejects_explicit_warning_config_overrides(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            f"--run --warnings-config missing.conf {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: checked examples cannot override "
+            "the warning config"
+        )
 
     def test_rejects_untracked_operational_case_source(self) -> None:
         self.add_example_case(["examples/ghost.jz"])

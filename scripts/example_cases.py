@@ -50,6 +50,7 @@ class ParsedSourceSelection:
     entry_module: str | None = None
     module_roots: tuple[str, ...] = ()
     prelude_override: bool = False
+    warning_config_override: bool = False
     runtime_statistics_requested: bool = False
     runtime_profile_requested: bool = False
     violation: str | None = None
@@ -181,6 +182,7 @@ def parsed_source_selection(
     entry_module: str | None = None
     module_roots: list[str] = []
     prelude_override = False
+    warning_config_override = False
     runtime_statistics_requested = False
     runtime_profile_requested = False
     index = 0
@@ -199,6 +201,8 @@ def parsed_source_selection(
                 module_roots.append(value)
             elif argument == "--prelude":
                 prelude_override = True
+            elif argument == "--warnings-config":
+                warning_config_override = True
             elif argument == "--runtime-profile":
                 runtime_profile_requested = True
             index += 2
@@ -237,6 +241,7 @@ def parsed_source_selection(
         entry_module=entry_module,
         module_roots=tuple(module_roots),
         prelude_override=prelude_override,
+        warning_config_override=warning_config_override,
         runtime_statistics_requested=runtime_statistics_requested,
         runtime_profile_requested=runtime_profile_requested,
     )
@@ -320,6 +325,8 @@ def case_source_binding_violation(
         return selection.violation
     if selection.prelude_override:
         return "checked examples must use the bundled Prelude"
+    if selection.warning_config_override:
+        return "checked examples cannot override the warning config"
     if selection.runtime_statistics_requested:
         return "checked examples cannot request runtime statistics"
     if selection.runtime_profile_requested:

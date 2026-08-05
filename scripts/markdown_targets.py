@@ -654,6 +654,41 @@ def rendered_heading_fragments(text: str) -> set[str]:
     return fragments
 
 
+def _srcset_targets(value: str) -> list[str]:
+    """Extract URL tokens from an HTML srcset candidate list."""
+    targets: list[str] = []
+    position = 0
+    while position < len(value):
+        while position < len(value) and (
+            value[position].isspace() or value[position] == ","
+        ):
+            position += 1
+        if position >= len(value):
+            break
+
+        start = position
+        while position < len(value) and not value[position].isspace():
+            position += 1
+        target_with_separator = value[start:position]
+        target = target_with_separator.rstrip(",")
+        if target:
+            targets.append(target)
+        if target != target_with_separator:
+            continue
+
+        parenthesis_depth = 0
+        while position < len(value):
+            character = value[position]
+            position += 1
+            if character == "(":
+                parenthesis_depth += 1
+            elif character == ")" and parenthesis_depth:
+                parenthesis_depth -= 1
+            elif character == "," and not parenthesis_depth:
+                break
+    return targets
+
+
 class _HtmlReferenceTargetParser(HTMLParser):
     def __init__(self, *, include_links: bool, include_images: bool) -> None:
         super().__init__(convert_charrefs=True)
@@ -691,14 +726,16 @@ class _HtmlReferenceTargetParser(HTMLParser):
     def collect_target(
         self, folded_tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
-        target_attribute = "href" if self.include_links and folded_tag == "a" else None
-        if self.include_images and folded_tag == "img":
-            target_attribute = "src"
-        if target_attribute is None:
-            return
         for name, value in attributes:
-            if name.casefold() == target_attribute:
+            folded_name = name.casefold()
+            if self.include_links and folded_tag == "a" and folded_name == "href":
                 self.targets.append(value or "")
+            if not self.include_images:
+                continue
+            if folded_tag == "img" and folded_name == "src":
+                self.targets.append(value or "")
+            if folded_tag in {"img", "source"} and folded_name == "srcset":
+                self.targets.extend(_srcset_targets(value or ""))
 
     def handle_endtag(self, tag: str) -> None:
         folded_tag = tag.casefold()
