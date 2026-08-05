@@ -132,6 +132,22 @@ if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity
   exit 1
 fi
 
+indented_contract_root="$fixture_root/indented-contract"
+copy_complete_fixture "$indented_contract_root"
+replace_literal \
+  "$indented_contract_root/docs/language/operators.md" \
+  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
+  $'`|` executes as a built-in Boolean operator.\n\n    `|` is parser/fixity metadata only. It has no executable built-in type rule;\n    `True | False` is rejected with `E2003`.'
+if indented_contract_output="$(cd "$indented_contract_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a public contract only present in indented code\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$indented_contract_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a public contract only present in indented code\n' >&2
+  printf '%s\n' "$indented_contract_output" >&2
+  exit 1
+fi
+
 stale_execution_root="$fixture_root/stale-execution-owner"
 copy_complete_fixture "$stale_execution_root"
 printf '\nSee docs/execution/queue.md.\n' >>"$stale_execution_root/.codex/execution/README.md"

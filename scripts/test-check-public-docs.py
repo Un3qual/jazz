@@ -383,6 +383,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
 
+    def test_readme_license_link_must_be_rendered_in_license_section(self) -> None:
+        license_link = "[GPL-3.0-only](LICENSE)"
+        readme = valid_readme(extra=f"<!-- {license_link} -->").replace(
+            license_link,
+            "GPL licensed",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing GPL-3.0-only license link")
+
     def test_readme_navigation_links_must_be_rendered(self) -> None:
         target = "docs/getting-started/overview.md"
         readme = valid_readme(
@@ -584,6 +595,45 @@ class PublicDocsCheckerTests(unittest.TestCase):
                 result.stdout,
             )
         self.assertEqual("", result.stderr)
+
+    def test_readme_quick_start_commands_must_be_in_quick_start_section(
+        self,
+    ) -> None:
+        commands = (
+            "nix develop\n"
+            "cabal build all\n"
+            f"cabal run jazz -- --run {FACTORIAL_PATH}\n"
+        )
+        readme = valid_readme(extra=f"```text\n{commands}```").replace(
+            f"```bash\n{commands}```",
+            "```bash\necho not the documented quick start\n```",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        for command in commands.splitlines():
+            self.assertIn(
+                f"README.md: missing quick-start command: {command}",
+                result.stdout,
+            )
+        self.assertEqual("", result.stderr)
+
+    def test_readme_quick_start_commands_must_be_exact_shell_commands(
+        self,
+    ) -> None:
+        readme = valid_readme().replace(
+            "\nnix develop\n",
+            "\necho nix develop\n",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            "README.md: missing quick-start command: nix develop"
+        )
 
     def test_readme_quick_start_commands_ignore_markdown_metadata(self) -> None:
         for decoy in (

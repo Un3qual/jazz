@@ -75,6 +75,13 @@ README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
 README_FACTORIAL_OUTPUT_MARKER = "<!-- jazz-example-output: case=factorial -->"
+README_LICENSE_LINK = "[GPL-3.0-only](LICENSE)"
+README_QUICK_START_COMMANDS = (
+    "nix develop",
+    "cabal build all",
+    f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
+)
+README_SHELL_FENCE_INFOS = frozenset({"bash", "sh", "shell"})
 README_REQUIRED_LINKS = (
     "docs/getting-started/overview.md",
     "docs/language/overview.md",
@@ -247,6 +254,41 @@ def exact_visible_line_positions(text: str) -> dict[str, int]:
         positions.setdefault(line, offset)
         offset += len(line_with_ending)
     return positions
+
+
+def markdown_section_body_source(text: str, heading: str) -> str | None:
+    source_lines = text.splitlines(keepends=True)
+    structural_lines = without_inert_html_subtrees(
+        visible_markdown(text)
+    ).splitlines()
+    heading_lines = [
+        index for index, line in enumerate(structural_lines) if line == heading
+    ]
+    if len(heading_lines) != 1:
+        return None
+    start = heading_lines[0] + 1
+    end = next(
+        (
+            index
+            for index in range(start, len(structural_lines))
+            if structural_lines[index].startswith("## ")
+        ),
+        len(structural_lines),
+    )
+    return "".join(source_lines[start:end])
+
+
+def rendered_shell_command_lines(text: str) -> set[str]:
+    renderable = without_inert_html_subtrees(renderable_source_markdown(text))
+    return {
+        line.strip()
+        for fence in markdown_fences(renderable)
+        if fence.closed
+        and fence.info is not None
+        and fence.info.casefold() in README_SHELL_FENCE_INFOS
+        for line in fence.source.splitlines()
+        if line.strip()
+    }
 
 
 def relative(root: Path, path: Path) -> str:
@@ -1032,12 +1074,10 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
 
-    for command in (
-        "nix develop",
-        "cabal build all",
-        f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
-    ):
-        if command not in rendered_contract_text:
+    quick_start_source = markdown_section_body_source(text, "## Quick start") or ""
+    quick_start_commands = rendered_shell_command_lines(quick_start_source)
+    for command in README_QUICK_START_COMMANDS:
+        if command not in quick_start_commands:
             violations.append(f"README.md: missing quick-start command: {command}")
 
     raw_link_targets = [
@@ -1071,7 +1111,11 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         violations.append(
             "README.md: website must be labeled as publishing with Workstream 3"
         )
-    if "[GPL-3.0-only](LICENSE)" not in text:
+    license_source = markdown_section_body_source(text, "## License") or ""
+    visible_license_source = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(license_source))
+    )
+    if README_LICENSE_LINK not in visible_license_source:
         violations.append("README.md: missing GPL-3.0-only license link")
 
     for section in README_REQUIRED_SECTIONS:

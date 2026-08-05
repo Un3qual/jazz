@@ -317,6 +317,21 @@ class RfcCheckerTests(unittest.TestCase):
             "accepted/0001-fixture.md"
         )
 
+    def test_markdown_link_inside_hidden_html_cannot_index_an_accepted_rfc(
+        self,
+    ) -> None:
+        (self.root / "rfcs/README.md").write_text(
+            "<span hidden>"
+            "[Fixture](accepted/0001-fixture.md)"
+            "</span>\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "rfcs/README.md: missing accepted RFC index entry: "
+            "accepted/0001-fixture.md"
+        )
+
     def test_accepted_rfc_index_rejects_missing_fragments(self) -> None:
         (self.root / "rfcs/README.md").write_text(
             "[Fixture](accepted/0001-fixture.md#missing-section)\n",

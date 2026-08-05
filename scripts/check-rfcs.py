@@ -74,7 +74,9 @@ def required_section_body(text: str, heading: str) -> str | None:
 
 
 def visible_link_targets(text: str) -> set[str]:
-    visible = without_indented_code_blocks(visible_markdown(text))
+    visible = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(text))
+    )
     targets = {
         match.group(1) or match.group(2)
         for match in MARKDOWN_LINK_RE.finditer(visible)

@@ -616,6 +616,11 @@ def rendered_markdown(text: str) -> str:
     )
 
 
+def rendered_prose_markdown(text: str) -> str:
+    """Preserve inline code in prose while masking both block-code forms."""
+    return without_indented_code_blocks(rendered_markdown(text))
+
+
 def container_relative_markdown(text: str) -> str:
     """Strip active CommonMark container prefixes from each physical line."""
     scanner = _MarkdownContainerScanner()
@@ -704,7 +709,7 @@ def rendered_html_source_markdown(text: str) -> str:
 
 def main(argv: list[str]) -> int:
     modes = {
-        "--preserve-inline-code": rendered_markdown,
+        "--preserve-inline-code": rendered_prose_markdown,
         "--preserve-code": rendered_markdown_with_code,
     }
     if len(argv) != 3 or argv[1] not in modes:
