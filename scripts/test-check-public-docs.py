@@ -940,6 +940,66 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_accepts_local_link_fragments_for_setext_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "Repeated section\n"
+                    "----------------\n\n"
+                    "First.\n\n"
+                    "Repeated section\n"
+                    "----------------\n\n"
+                    "Second.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[First](language/overview.md#repeated-section)\n"
+                    "[Second](language/overview.md#repeated-section-1)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_raw_html_heading_ids(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body='<h2 id="raw-details">Raw details</h2>\n\nBody.\n'),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Details](language/overview.md#raw-details)\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_local_link_fragments_formed_only_by_front_matter(
+        self,
+    ) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Metadata]"
+                    "(language/overview.md#sidebar_position-1)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#sidebar_position-1"
+        )
+
     def test_accepts_local_link_fragments_for_underscore_emphasis_headings(
         self,
     ) -> None:

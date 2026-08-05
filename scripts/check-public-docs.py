@@ -378,7 +378,13 @@ def local_markdown_fragment_violation(
         target_text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
-    if fragment not in rendered_heading_fragments(target_text):
+    parsed_front_matter = front_matter(target_text)
+    markdown_body = (
+        parsed_front_matter[1]
+        if parsed_front_matter is not None
+        else target_text
+    )
+    if fragment not in rendered_heading_fragments(markdown_body):
         return (
             "link fragment does not exist: "
             f"{markdown_link_target(raw_target)}"

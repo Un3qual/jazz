@@ -12,6 +12,7 @@ from html.parser import HTMLParser
 from markdown_visibility import (
     blank_range,
     container_relative_markdown,
+    is_thematic_break,
     line_end_offset,
     rendered_html_source_markdown,
     rendered_markdown,
@@ -43,7 +44,7 @@ ATX_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$", re.MUL
 ATX_HEADING_LEVEL_RE = re.compile(
     r"^[ \t]{0,3}(#{1,6})(?:[ \t]+|$)", re.MULTILINE
 )
-SETEXT_H1_UNDERLINE_RE = re.compile(r"^[ \t]{0,3}=+[ \t]*$")
+SETEXT_HEADING_UNDERLINE_RE = re.compile(r"^[ \t]{0,3}(=+|-+)[ \t]*$")
 EXPLICIT_HEADING_ID_RE = re.compile(r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$")
 MARKDOWN_AUTOLINK_RE = re.compile(
     r"<((?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|"
@@ -583,25 +584,33 @@ def _markdown_heading_slug(markup: str) -> str:
     return heading.strip("-")
 
 
-class _HtmlHeadingLevelParser(HTMLParser):
+class _HtmlHeadingParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.levels: set[int] = set()
+        self.fragments: set[str] = set()
 
-    def collect_heading(self, tag: str) -> None:
+    def collect_heading(
+        self, tag: str, attributes: list[tuple[str, str | None]]
+    ) -> None:
         match = re.fullmatch(r"h([1-6])", tag.casefold())
-        if match is not None:
-            self.levels.add(int(match.group(1)))
+        if match is None:
+            return
+        self.levels.add(int(match.group(1)))
+        for name, value in attributes:
+            if name.casefold() == "id" and value:
+                self.fragments.add(value)
+                break
 
     def handle_starttag(
-        self, tag: str, _attributes: list[tuple[str, str | None]]
+        self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
-        self.collect_heading(tag)
+        self.collect_heading(tag, attributes)
 
     def handle_startendtag(
-        self, tag: str, _attributes: list[tuple[str, str | None]]
+        self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
-        self.collect_heading(tag)
+        self.collect_heading(tag, attributes)
 
 
 def rendered_heading_levels(text: str) -> set[int]:
@@ -616,15 +625,12 @@ def rendered_heading_levels(text: str) -> set[int]:
     }
     lines = rendered.splitlines()
     for index, line in enumerate(lines[1:], 1):
+        underline = SETEXT_HEADING_UNDERLINE_RE.fullmatch(line)
         previous = lines[index - 1]
-        if (
-            SETEXT_H1_UNDERLINE_RE.fullmatch(line) is not None
-            and previous.strip()
-            and ATX_HEADING_LEVEL_RE.match(previous) is None
-        ):
-            levels.add(1)
+        if underline is not None and previous.strip():
+            levels.add(1 if underline.group(1).startswith("=") else 2)
 
-    html_parser = _HtmlHeadingLevelParser()
+    html_parser = _HtmlHeadingParser()
     html_parser.feed(
         without_inert_html_subtrees(rendered_html_source_markdown(text))
     )
@@ -633,24 +639,71 @@ def rendered_heading_levels(text: str) -> set[int]:
     return levels
 
 
-def rendered_heading_fragments(text: str) -> set[str]:
-    rendered = container_relative_markdown(
-        without_inert_html_subtrees(rendered_markdown(text))
-    )
+def _add_markdown_heading_fragment(
+    heading: str,
+    fragments: set[str],
+    slug_counts: dict[str, int],
+) -> None:
+    explicit_id = EXPLICIT_HEADING_ID_RE.search(heading)
+    if explicit_id is not None:
+        fragments.add(explicit_id.group(1))
+        return
+    slug = _markdown_heading_slug(heading)
+    if not slug:
+        return
+    duplicate_index = slug_counts.get(slug, 0)
+    slug_counts[slug] = duplicate_index + 1
+    fragments.add(slug if duplicate_index == 0 else f"{slug}-{duplicate_index}")
+
+
+def _markdown_heading_fragments(rendered: str) -> set[str]:
+    characters = list(rendered)
+    _definitions, definition_spans = _reference_definitions(rendered)
+    for start, end in definition_spans:
+        blank_range(characters, start, end)
+
     fragments: set[str] = set()
     slug_counts: dict[str, int] = {}
-    for match in ATX_HEADING_RE.finditer(rendered):
-        heading = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(1))
-        explicit_id = EXPLICIT_HEADING_ID_RE.search(heading)
-        if explicit_id is not None:
-            fragments.add(explicit_id.group(1))
+    paragraph_lines: list[str] = []
+    for line in "".join(characters).splitlines():
+        atx_heading = ATX_HEADING_RE.fullmatch(line)
+        if atx_heading is not None:
+            paragraph_lines.clear()
+            heading = re.sub(r"[ \t]+#+[ \t]*$", "", atx_heading.group(1))
+            _add_markdown_heading_fragment(heading, fragments, slug_counts)
             continue
-        slug = _markdown_heading_slug(heading)
-        if not slug:
+
+        setext_underline = SETEXT_HEADING_UNDERLINE_RE.fullmatch(line)
+        if setext_underline is not None and paragraph_lines:
+            _add_markdown_heading_fragment(
+                " ".join(part.strip() for part in paragraph_lines),
+                fragments,
+                slug_counts,
+            )
+            paragraph_lines.clear()
             continue
-        duplicate_index = slug_counts.get(slug, 0)
-        slug_counts[slug] = duplicate_index + 1
-        fragments.add(slug if duplicate_index == 0 else f"{slug}-{duplicate_index}")
+
+        if not line.strip() or is_thematic_break(line):
+            paragraph_lines.clear()
+            continue
+        paragraph_lines.append(line)
+    return fragments
+
+
+def rendered_heading_fragments(text: str) -> set[str]:
+    rendered = container_relative_markdown(
+        without_indented_code_blocks(
+            without_inert_html_subtrees(rendered_markdown(text))
+        )
+    )
+    fragments = _markdown_heading_fragments(rendered)
+
+    html_parser = _HtmlHeadingParser()
+    html_parser.feed(
+        without_inert_html_subtrees(rendered_html_source_markdown(text))
+    )
+    html_parser.close()
+    fragments.update(html_parser.fragments)
     return fragments
 
 
