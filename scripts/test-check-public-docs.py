@@ -643,6 +643,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: banned front-door term: .codex/", result.stdout)
         self.assertIn("README.md: banned front-door term: Spec Authority", result.stdout)
 
+    def test_readme_rejects_private_kernel_intrinsics(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="Call __kernel_writeTextRaw! directly."),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("README.md: banned front-door term: __kernel_")
+
     def test_readme_rejects_percent_encoded_internal_links(self) -> None:
         internal = self.root / ".codex/execution/queue.md"
         internal.parent.mkdir(parents=True)
@@ -832,6 +840,55 @@ class PublicDocsCheckerTests(unittest.TestCase):
                     "[First](language/overview.md#repeated-section)\n"
                     "[Second](language/overview.md#repeated-section-1)\n"
                     "[Named](language/overview.md#custom-anchor)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_underscore_emphasis_headings(
+        self,
+    ) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## _Emphasized_ heading\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Emphasized heading]"
+                    "(language/overview.md#emphasized-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_underscore_emphasis_slugging_preserves_literal_underscores(
+        self,
+    ) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## snake_case\n\n"
+                    "## `_code_`\n\n"
+                    "## \\_literal\\_\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Identifier](language/overview.md#snake_case)\n"
+                    "[Code](language/overview.md#_code_)\n"
+                    "[Escaped](language/overview.md#_literal_)\n"
                 )
             ),
             encoding="utf-8",
@@ -1045,6 +1102,37 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/language/operators.md: banned public reference: jazz-next"
         )
 
+    def test_rejects_markdown_escape_encoded_banned_public_references(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The retired identity is jazz\\-next.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: jazz-next"
+        )
+
+    def test_rejects_private_kernel_intrinsics_in_public_docs(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="Call __kernel_writeTextRaw! directly.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: __kernel_"
+        )
+
+    def test_rejects_obsolete_generated_output_claims(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="Jazz produces JavaScript output.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: "
+            "JavaScript output"
+        )
+
     def test_whitespace_only_link_target_is_an_actionable_violation(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="[Broken](   )\n"), encoding="utf-8"
@@ -1165,6 +1253,24 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_allows_reference_destinations_with_escaped_punctuation(self) -> None:
+        (self.root / "docs/language/overview(old).md").write_text(
+            page(), encoding="utf-8"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [language overview][guide].\n\n"
+                    "[guide]: language/overview\\(old\\).md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_executable_marker_must_name_existing_jazz_example(self) -> None:

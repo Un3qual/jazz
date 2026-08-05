@@ -21,6 +21,7 @@ from markdown_targets import (
     html_visible_text,
     html_reference_targets,
     rendered_heading_fragments,
+    unescape_markdown_punctuation,
     used_reference_image_targets,
     used_reference_targets,
     without_inert_html_subtrees,
@@ -46,7 +47,7 @@ ALLOWED_DOCS_ENTRIES = {
     "index.md",
 }
 
-BANNED_REFERENCES = (
+PUBLIC_IDENTITY_BANNED_TERMS = (
     "docs/superpowers",
     "docs/execution",
     ".codex/",
@@ -54,6 +55,16 @@ BANNED_REFERENCES = (
     "JazzNext",
     "jazz-hs",
     "jazz2",
+)
+PUBLIC_GENERATED_OUTPUT_BANNED_TERMS = (
+    "JavaScript output",
+    "JavaScript artifact",
+)
+PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS = ("__kernel_",)
+BANNED_REFERENCES = (
+    *PUBLIC_IDENTITY_BANNED_TERMS,
+    *PUBLIC_GENERATED_OUTPUT_BANNED_TERMS,
+    *PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS,
 )
 
 README_TAGLINE = "A statically typed functional language with practical syntax"
@@ -76,15 +87,10 @@ README_REQUIRED_LINKS = (
     "https://un3qual.github.io/jazz/",
 )
 README_BANNED_TERMS = (
-    "docs/superpowers",
-    "docs/execution",
-    ".codex/",
+    *PUBLIC_IDENTITY_BANNED_TERMS,
+    *PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS,
     "rfcs/",
     "docs/spec",
-    "jazz-next",
-    "JazzNext",
-    "jazz-hs",
-    "jazz2",
     "superpowers",
     "Spec Authority",
     "Repository Governance",
@@ -311,9 +317,15 @@ def markdown_link_target(raw_target: str) -> str:
     if not target:
         return ""
     if target.startswith("<") and ">" in target:
-        return target[1 : target.index(">")]
-    # Markdown permits an optional title after a whitespace-delimited target.
-    return target.split(maxsplit=1)[0]
+        destination = target[1 : target.index(">")]
+    else:
+        # Markdown permits an optional title after a whitespace-delimited target.
+        destination = target.split(maxsplit=1)[0]
+    return unescape_markdown_punctuation(destination)
+
+
+def decoded_public_policy_text(text: str) -> str:
+    return unescape_markdown_punctuation(html_unescape(text)).casefold()
 
 
 def local_markdown_fragment_violation(
@@ -1062,7 +1074,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if section not in exact_line_positions:
             violations.append(f"README.md: missing required section: {section}")
 
-    decoded_text = html_unescape(text).casefold()
+    decoded_text = decoded_public_policy_text(text)
     for banned in README_BANNED_TERMS:
         if banned.casefold() in decoded_text:
             violations.append(f"README.md: banned front-door term: {banned}")
@@ -1182,7 +1194,7 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
                 f"{display}: top-level heading duplicates front matter title"
             )
 
-        decoded_text = html_unescape(text).casefold()
+        decoded_text = decoded_public_policy_text(text)
         for banned in BANNED_REFERENCES:
             if banned.casefold() in decoded_text:
                 violations.append(f"{display}: banned public reference: {banned}")

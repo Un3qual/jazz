@@ -44,6 +44,28 @@ MARKDOWN_AUTOLINK_RE = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?))>"
 )
 _ESCAPABLE_MARKDOWN_PUNCTUATION = frozenset("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+_UNDERSCORE_EMPHASIS_RE = re.compile(
+    r"(?<!\w)(_{1,2})(?=\S)(.+?)(?<=\S)\1(?!\w)", re.DOTALL
+)
+_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+
+def unescape_markdown_punctuation(text: str) -> str:
+    """Decode CommonMark backslash escapes without changing other slashes."""
+    unescaped: list[str] = []
+    index = 0
+    while index < len(text):
+        if (
+            text[index] == "\\"
+            and index + 1 < len(text)
+            and text[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
+        ):
+            unescaped.append(text[index + 1])
+            index += 2
+            continue
+        unescaped.append(text[index])
+        index += 1
+    return "".join(unescaped)
 
 
 class _HtmlVisibleTextParser(HTMLParser):
@@ -200,20 +222,8 @@ def without_inert_html_subtrees(text: str) -> str:
 
 
 def _normalize_reference_label(label: str) -> str:
-    unescaped: list[str] = []
-    index = 0
-    while index < len(label):
-        if (
-            label[index] == "\\"
-            and index + 1 < len(label)
-            and label[index + 1] in _ESCAPABLE_MARKDOWN_PUNCTUATION
-        ):
-            unescaped.append(label[index + 1])
-            index += 2
-            continue
-        unescaped.append(label[index])
-        index += 1
-    return re.sub(r"\s+", " ", "".join(unescaped).strip()).casefold()
+    unescaped = unescape_markdown_punctuation(label)
+    return re.sub(r"\s+", " ", unescaped.strip()).casefold()
 
 
 def _reference_label_at(
@@ -524,6 +534,22 @@ def _markdown_heading_text(markup: str) -> str:
     text = re.sub(r"!?\[([^\]]*)\]\([^)]+\)", r"\1", markup)
     text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]", r"\1", text)
+    protected_literals: list[tuple[str, str]] = []
+
+    def protect_literal(value: str) -> str:
+        token = f"\ue000{len(protected_literals)}\ue001"
+        protected_literals.append((token, value))
+        return token
+
+    text = _CODE_SPAN_RE.sub(lambda match: protect_literal(match.group(2)), text)
+    text = re.sub(r"\\_", lambda _match: protect_literal("_"), text)
+    while True:
+        without_emphasis = _UNDERSCORE_EMPHASIS_RE.sub(r"\2", text)
+        if without_emphasis == text:
+            break
+        text = without_emphasis
+    for token, value in protected_literals:
+        text = text.replace(token, value)
     text = text.replace("`", "")
     text = MARKDOWN_AUTOLINK_RE.sub(r"\1", text)
     return html_visible_text(text)

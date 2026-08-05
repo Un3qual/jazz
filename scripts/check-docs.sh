@@ -83,10 +83,6 @@ for removed_path in "${removed_paths[@]}"; do
   fi
 done
 
-if rg -n '__kernel_' docs --glob '*.md' >/dev/null 2>&1; then
-  fail "public standard-library documentation exposes private kernel names"
-fi
-
 documentation_checkers=(
   "scripts/check-spec-authority.sh"
   "scripts/check-clarification-specs.sh"

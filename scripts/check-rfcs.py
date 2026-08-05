@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlsplit
 from markdown_targets import (
     html_reference_targets,
     rendered_heading_fragments,
+    unescape_markdown_punctuation,
     used_reference_targets,
 )
 from markdown_visibility import (
@@ -91,6 +92,7 @@ class IndexTarget:
 
 
 def normalized_index_target(target: str) -> IndexTarget | None:
+    target = unescape_markdown_punctuation(target)
     parsed = urlsplit(target)
     if parsed.scheme or parsed.netloc or not parsed.path:
         return None
