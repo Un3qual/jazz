@@ -801,6 +801,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation("docs/index.md: front matter is missing sidebar_position")
 
+    def test_required_public_page_cannot_declare_draft_metadata(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page().replace("sidebar_position: 1", "sidebar_position: 1\ndraft: true"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: required public page cannot declare "
+            "publication-changing front matter: draft"
+        )
+
     def test_rejects_malformed_front_matter_even_with_required_fields(self) -> None:
         (self.root / "docs/index.md").write_text(
             (

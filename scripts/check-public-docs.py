@@ -171,6 +171,7 @@ REQUIRED_PAGES = (
     "project/governance.md",
     "project/contributing.md",
 )
+REQUIRED_PAGE_FORBIDDEN_FRONT_MATTER = frozenset({"draft"})
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
@@ -1236,6 +1237,14 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
                         f"{display}: front matter is missing {required_field}"
                     )
             relative_doc = path.relative_to(docs_root).as_posix()
+            if relative_doc in REQUIRED_PAGES:
+                for field in sorted(
+                    fields & REQUIRED_PAGE_FORBIDDEN_FRONT_MATTER
+                ):
+                    violations.append(
+                        f"{display}: required public page cannot declare "
+                        f"publication-changing front matter: {field}"
+                    )
             if (
                 relative_doc in REQUIRED_PAGES
                 and not rendered_contract_text_with_code(markdown_body).strip()

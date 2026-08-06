@@ -561,6 +561,38 @@ class ExampleRunnerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_module_case_rejects_candidate_tracked_by_another_case(self) -> None:
+        first_root = self.root / "examples/modules/first/Example"
+        second_root = self.root / "examples/modules/second/Example"
+        first_root.mkdir(parents=True)
+        second_root.mkdir(parents=True)
+        first_source = "examples/modules/first/Example/Main.jz"
+        second_source = "examples/modules/second/Example/Main.jz"
+        (self.root / first_source).write_text(
+            "module Example::Main {\n  0.\n}\n", encoding="utf-8"
+        )
+        (self.root / second_source).write_text(
+            "module Example::Main {\n  0.\n}\n", encoding="utf-8"
+        )
+        self.write_cases(
+            f"first\t{first_source}\t0\t"
+            "--run --entry-module Example::Main "
+            "--module-root examples/modules/first "
+            "--module-root examples/modules/second\n"
+            f"second\t{second_source}\t0\t"
+            "--run --entry-module Example::Main "
+            "--module-root examples/modules/second\n"
+        )
+        self.write_fake_jazz("print('0')")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "module resolves ambiguously under --module-root: Example::Main",
+            result.stderr,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

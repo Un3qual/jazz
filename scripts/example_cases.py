@@ -254,8 +254,14 @@ def resolved_module_source(
 ) -> tuple[str | None, str | None]:
     relative_module = PurePosixPath(*module.split("::")).with_suffix(".jz")
     canonical_root = root.resolve()
+    matching_sources: list[str] = []
+    seen_sources: set[str] = set()
     for module_root in module_roots:
         source = module_root / relative_module
+        source_text = source.as_posix()
+        if source_text in seen_sources:
+            continue
+        seen_sources.add(source_text)
         candidate = root / source
         if not candidate.is_file():
             continue
@@ -263,7 +269,15 @@ def resolved_module_source(
             candidate.resolve().relative_to(canonical_root)
         except ValueError:
             return None, f"module source resolves outside the repository: {source}"
-        return source.as_posix(), None
+        matching_sources.append(source_text)
+    if len(matching_sources) == 1:
+        return matching_sources[0], None
+    if len(matching_sources) > 1:
+        return (
+            None,
+            "module resolves ambiguously under --module-root: "
+            f"{module}; matched {', '.join(matching_sources)}",
+        )
     return None, None
 
 
