@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RENDER_CACHE_ROOT="$(mktemp -d)"
+trap 'rm -rf "$RENDER_CACHE_ROOT"' EXIT
 cd "$ROOT"
 
 fail_count=0
@@ -13,12 +15,29 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
+cached_rendered_markdown() {
+  local mode="$1"
+  local file="$2"
+  local cache_file="$RENDER_CACHE_ROOT/$mode/$file"
+  local pending_file="$cache_file.pending"
+
+  if [[ ! -f "$cache_file" ]]; then
+    mkdir -p "$(dirname "$cache_file")"
+    if ! python3 "$SCRIPT_DIR/markdown_visibility.py" "--preserve-$mode" "$file" >"$pending_file"; then
+      return 1
+    fi
+    mv "$pending_file" "$cache_file"
+  fi
+
+  cat "$cache_file"
+}
+
 rendered_markdown() {
-  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
+  cached_rendered_markdown "inline-code" "$1"
 }
 
 rendered_markdown_with_code() {
-  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-code "$1"
+  cached_rendered_markdown "code" "$1"
 }
 
 require_file() {
