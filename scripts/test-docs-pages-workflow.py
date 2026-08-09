@@ -22,14 +22,13 @@ on:
     paths:
       - "docs/**"
       - "website/**"
+      - "examples/functions/factorial.jz"
+      - "scripts/example-cases.tsv"
       - "README.md"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: pages
@@ -37,12 +36,14 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -65,13 +66,16 @@ jobs:
       - name: Check generated publication boundary
         run: python3 scripts/check-website-boundary.py
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: website/build
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -80,7 +84,7 @@ jobs:
     steps:
       - name: Deploy GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 """
 
 
@@ -131,61 +135,74 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.replace('      - "README.md"\n', "")
         self.assert_violation("push paths must be exactly")
 
-    def test_requires_exact_least_privilege_permissions(self) -> None:
-        self.replace("  contents: read", "  contents: write")
-        self.assert_violation("permissions must be exactly")
-
-    def test_rejects_build_job_permission_override(self) -> None:
+    def test_requires_empty_workflow_permissions(self) -> None:
         self.replace(
-            "  build:\n    runs-on: ubuntu-latest",
-            "  build:\n"
-            "    permissions:\n"
-            "      contents: write\n"
-            "    runs-on: ubuntu-latest",
+            "permissions: {}",
+            "permissions:\n  contents: read\n  pages: write\n  id-token: write",
         )
-        self.assert_violation("job-level permissions are forbidden: build")
+        self.assert_violation("workflow permissions must be empty")
 
-    def test_rejects_deploy_job_permission_override(self) -> None:
-        self.replace(
-            "  deploy:\n    needs: build",
-            "  deploy:\n    permissions: write-all\n    needs: build",
+    def test_requires_exact_least_privilege_job_permissions(self) -> None:
+        self.replace("      contents: read", "      contents: write")
+        self.replace("      id-token: write", "      contents: read")
+        result = self.run_checker()
+        self.assertIn(
+            "build permissions must be exactly contents:read", result.stdout
         )
-        self.assert_violation("job-level permissions are forbidden: deploy")
-
-    def test_rejects_single_quoted_build_permission_map(self) -> None:
-        self.replace(
-            "  build:\n    runs-on: ubuntu-latest",
-            "  build:\n"
-            "    'permissions':\n"
-            "      contents: write\n"
-            "    runs-on: ubuntu-latest",
+        self.assertIn(
+            "deploy permissions must be exactly pages:write, id-token:write",
+            result.stdout,
         )
-        self.assert_violation("job-level permissions are forbidden: build")
-
-    def test_rejects_double_quoted_deploy_permission_value(self) -> None:
-        self.replace(
-            "  deploy:\n    needs: build",
-            '  deploy:\n    "permissions": write-all\n    needs: build',
-        )
-        self.assert_violation("job-level permissions are forbidden: deploy")
 
     def test_requires_pages_concurrency(self) -> None:
         self.replace("  group: pages", "  group: documentation")
         self.assert_violation("concurrency must use group pages")
 
-    def test_requires_pinned_action_major_versions(self) -> None:
+    def test_requires_immutable_action_commits(self) -> None:
         replacements = {
-            "actions/checkout@v4": "actions/checkout@main",
-            "actions/setup-node@v4": "actions/setup-node@v3",
-            "actions/configure-pages@v5": "actions/configure-pages@v4",
-            "actions/upload-pages-artifact@v3": "actions/upload-pages-artifact@v2",
-            "actions/deploy-pages@v4": "actions/deploy-pages@v3",
+            "actions/checkout@11d5960a326750d5838078e36cf38b85af677262": "actions/checkout@v4",
+            "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020": "actions/setup-node@v4",
+            "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b": "actions/configure-pages@v5",
+            "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa": "actions/upload-pages-artifact@v3",
+            "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e": "actions/deploy-pages@v4",
         }
         for expected, replacement in replacements.items():
             with self.subTest(action=expected):
                 self.workflow.write_text(VALID_WORKFLOW, encoding="utf-8")
                 self.replace(expected, replacement)
-                self.assert_violation(f"required action is missing: {expected}")
+                self.assert_violation("required action is missing from")
+
+    def test_block_scalar_text_cannot_impersonate_actions_or_commands(self) -> None:
+        self.replace(
+            "      - name: Install website dependencies\n"
+            "        run: npm ci\n"
+            "        working-directory: website\n",
+            "      - name: Spoof required structure\n"
+            "        run: |\n"
+            "          run: npm ci\n"
+            "          uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b\n"
+            "          uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa\n"
+            "          uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e\n",
+        )
+        self.replace(
+            "      - name: Configure GitHub Pages\n"
+            "        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5\n"
+            "      - name: Upload GitHub Pages artifact\n"
+            "        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3\n"
+            "        with:\n"
+            "          path: website/build\n",
+            "",
+        )
+        self.replace(
+            "      - name: Deploy GitHub Pages\n"
+            "        id: deployment\n"
+            "        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4\n",
+            "",
+        )
+        result = self.run_checker()
+        self.assertIn("required command is missing: npm ci", result.stdout)
+        self.assertIn("required action is missing from build job", result.stdout)
+        self.assertIn("required action is missing from deploy job", result.stdout)
 
     def test_requires_node_22_and_npm_lockfile_cache(self) -> None:
         self.replace("          node-version: 22", "          node-version: 20")

@@ -12,21 +12,35 @@ WORKFLOW = Path(".github/workflows/docs-pages.yml")
 EXPECTED_PATHS = (
     "docs/**",
     "website/**",
+    "examples/functions/factorial.jz",
+    "scripts/example-cases.tsv",
     "README.md",
     ".github/workflows/docs-pages.yml",
 )
-EXPECTED_PERMISSIONS = {
-    "contents": "read",
-    "pages": "write",
-    "id-token": "write",
+EXPECTED_JOB_PERMISSIONS = {
+    "build": {"contents": "read"},
+    "deploy": {"pages": "write", "id-token": "write"},
 }
-REQUIRED_ACTIONS = (
-    "actions/checkout@v4",
-    "actions/setup-node@v4",
-    "actions/configure-pages@v5",
-    "actions/upload-pages-artifact@v3",
-    "actions/deploy-pages@v4",
+CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+SETUP_NODE_ACTION = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+CONFIGURE_PAGES_ACTION = (
+    "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b"
 )
+UPLOAD_PAGES_ACTION = (
+    "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa"
+)
+DEPLOY_PAGES_ACTION = (
+    "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"
+)
+REQUIRED_ACTIONS = {
+    "build": (
+        CHECKOUT_ACTION,
+        SETUP_NODE_ACTION,
+        CONFIGURE_PAGES_ACTION,
+        UPLOAD_PAGES_ACTION,
+    ),
+    "deploy": (DEPLOY_PAGES_ACTION,),
+}
 REQUIRED_COMMANDS = (
     "npm ci",
     "npm run test:brand",
@@ -46,7 +60,7 @@ def scalar(value: str) -> str:
     value = value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         return value[1:-1]
-    return value
+    return re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
 
 
 def lines_at_indent(block: str, indent: int) -> list[str]:
@@ -106,17 +120,31 @@ def mapping_values(block: str, indent: int) -> dict[str, str]:
     return values
 
 
-def step_for(block: str, token: str) -> str | None:
+def step_blocks(block: str) -> list[str]:
     lines = block.splitlines()
     starts = [
         index
         for index, line in enumerate(lines)
         if line.startswith("      - ")
     ]
-    for position, start in enumerate(starts):
-        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
-        candidate = "\n".join(lines[start:end])
-        if token in candidate:
+    return [
+        "\n".join(lines[start : starts[position + 1] if position + 1 < len(starts) else len(lines)])
+        for position, start in enumerate(starts)
+    ]
+
+
+def step_values(step: str, key: str) -> list[str]:
+    pattern = re.compile(rf"^ {{8}}{re.escape(key)}:\s+(.+)$")
+    return [
+        scalar(match.group(1))
+        for line in step.splitlines()
+        if (match := pattern.fullmatch(line)) is not None
+    ]
+
+
+def step_for(block: str, key: str, value: str) -> str | None:
+    for candidate in step_blocks(block):
+        if value in step_values(candidate, key):
             return candidate
     return None
 
@@ -156,10 +184,8 @@ def validate(root: Path) -> list[str]:
                     "push paths must be exactly: " + ", ".join(EXPECTED_PATHS)
                 )
 
-    permissions_block = section(text, "permissions")
-    permissions = mapping_values(permissions_block or "", 2)
-    if permissions != EXPECTED_PERMISSIONS:
-        violations.append("permissions must be exactly contents:read, pages:write, id-token:write")
+    if re.search(r"(?m)^permissions:\s*\{\}\s*(?:#.*)?$", text) is None:
+        violations.append("workflow permissions must be empty")
 
     concurrency_block = section(text, "concurrency")
     concurrency = mapping_values(concurrency_block or "", 2)
@@ -180,26 +206,44 @@ def validate(root: Path) -> list[str]:
         deploy_block = ""
 
     for job_name, job_block in (("build", build_block), ("deploy", deploy_block)):
-        if re.search(
-            r'''(?m)^ {4}(?:permissions|'permissions'|"permissions")\s*:''',
-            job_block,
-        ):
-            violations.append(f"job-level permissions are forbidden: {job_name}")
+        permissions_block = section(job_block, "permissions", 4)
+        permissions = mapping_values(permissions_block or "", 6)
+        expected_permissions = EXPECTED_JOB_PERMISSIONS[job_name]
+        if permissions != expected_permissions:
+            expected_label = ", ".join(
+                f"{key}:{value}" for key, value in expected_permissions.items()
+            )
+            violations.append(
+                f"{job_name} permissions must be exactly {expected_label}"
+            )
 
     if "    runs-on: ubuntu-latest" not in build_block:
         violations.append("build job must run on ubuntu-latest")
     if "    runs-on: ubuntu-latest" not in deploy_block:
         violations.append("deploy job must run on ubuntu-latest")
 
-    uses = re.findall(r"(?m)^\s+uses:\s+([^\s#]+)", text)
-    for action in REQUIRED_ACTIONS:
-        if uses.count(action) != 1:
-            violations.append(f"required action is missing: {action}")
-    unexpected_actions = sorted(set(uses) - set(REQUIRED_ACTIONS))
-    for action in unexpected_actions:
-        violations.append(f"unexpected or unpinned action: {action}")
+    job_steps = {
+        "build": step_blocks(build_block),
+        "deploy": step_blocks(deploy_block),
+    }
+    for job_name, steps in job_steps.items():
+        uses = [
+            action
+            for step in steps
+            for action in step_values(step, "uses")
+        ]
+        required_actions = REQUIRED_ACTIONS[job_name]
+        for action in required_actions:
+            if uses.count(action) != 1:
+                violations.append(
+                    f"required action is missing from {job_name} job: {action}"
+                )
+        for action in sorted(set(uses) - set(required_actions)):
+            violations.append(
+                f"unexpected or unpinned action in {job_name} job: {action}"
+            )
 
-    setup_step = step_for(build_block, "actions/setup-node@v4") or ""
+    setup_step = step_for(build_block, "uses", SETUP_NODE_ACTION) or ""
     if re.search(r"(?m)^\s+node-version:\s+['\"]?22['\"]?\s*$", setup_step) is None:
         violations.append("setup-node must use Node.js 22")
     if re.search(r"(?m)^\s+cache:\s+['\"]?npm['\"]?\s*$", setup_step) is None:
@@ -211,16 +255,20 @@ def validate(root: Path) -> list[str]:
         violations.append("npm cache must use website/package-lock.json")
 
     command_positions: list[int] = []
+    build_steps = job_steps["build"]
     for command in REQUIRED_COMMANDS:
-        pattern = rf"(?m)^\s+run:\s+{re.escape(command)}\s*$"
-        matches = list(re.finditer(pattern, build_block))
+        matches = [
+            (index, step)
+            for index, step in enumerate(build_steps)
+            if command in step_values(step, "run")
+        ]
         if not matches:
             violations.append(f"required command is missing: {command}")
         elif len(matches) > 1:
             violations.append(f"required command appears more than once: {command}")
         else:
-            command_positions.append(matches[0].start())
-            step = step_for(build_block, command) or ""
+            position, step = matches[0]
+            command_positions.append(position)
             if command.startswith("npm ") and re.search(
                 r"(?m)^\s+working-directory:\s+website\s*$", step
             ) is None:
@@ -228,17 +276,27 @@ def validate(root: Path) -> list[str]:
     if len(command_positions) == len(REQUIRED_COMMANDS) and command_positions != sorted(command_positions):
         violations.append("required website commands must appear exactly once and in order")
 
-    order_tokens = (
-        "npm run build",
-        "python3 scripts/check-website-boundary.py",
-        "actions/configure-pages@v5",
-        "actions/upload-pages-artifact@v3",
+    order_fields = (
+        ("run", "npm run build"),
+        ("run", "python3 scripts/check-website-boundary.py"),
+        ("uses", CONFIGURE_PAGES_ACTION),
+        ("uses", UPLOAD_PAGES_ACTION),
     )
-    order_positions = [build_block.find(token) for token in order_tokens]
+    order_positions = [
+        next(
+            (
+                index
+                for index, step in enumerate(build_steps)
+                if value in step_values(step, key)
+            ),
+            -1,
+        )
+        for key, value in order_fields
+    ]
     if any(position < 0 for position in order_positions) or order_positions != sorted(order_positions):
         violations.append("generated publication boundary check is required after build and before Pages upload")
 
-    upload_step = step_for(build_block, "actions/upload-pages-artifact@v3") or ""
+    upload_step = step_for(build_block, "uses", UPLOAD_PAGES_ACTION) or ""
     if re.search(r"(?m)^\s+path:\s+['\"]?website/build['\"]?\s*$", upload_step) is None:
         violations.append("Pages artifact path must be website/build")
 
@@ -250,7 +308,7 @@ def validate(root: Path) -> list[str]:
         violations.append("deploy environment must be github-pages")
     if environment.get("url") != "${{ steps.deployment.outputs.page_url }}":
         violations.append("deploy environment URL must use the deployment page_url")
-    deploy_step = step_for(deploy_block, "actions/deploy-pages@v4") or ""
+    deploy_step = step_for(deploy_block, "uses", DEPLOY_PAGES_ACTION) or ""
     if re.search(r"(?m)^\s+id:\s+deployment\s*$", deploy_step) is None:
         violations.append("deploy-pages step must use id deployment")
 
