@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 fail_count=0
@@ -11,70 +12,81 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
+rendered_markdown() {
+  python3 "$SCRIPT_DIR/markdown_visibility.py" --preserve-inline-code "$1"
+}
+
+removed_identity_matches() {
+  python3 -c '
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from markdown_targets import decode_markdown_escapes_and_html_entities
+
+pattern = re.compile(r"(jazz-next|jazz-hs|jazz2|jazznext)", re.IGNORECASE)
+paths = [Path("README.md"), *sorted(Path("docs").rglob("*.md"))]
+for path in paths:
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            decoded = decode_markdown_escapes_and_html_entities(line).rstrip("\r\n")
+            if pattern.search(decoded):
+                print(f"{path.as_posix()}:{line_number}:{decoded}")
+' "$SCRIPT_DIR"
+}
+
 require_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -i -e "$pattern" "$file" >/dev/null 2>&1; then
-    fail "$file missing policy statement: $label"
+  if ! rendered_markdown "$file" | rg -n -i -e "$pattern" >/dev/null 2>&1; then
+    fail "$file missing authority statement: $label"
   fi
 }
 
-required_files=(
-  "README.md"
-  "docs/jazz-language-state.md"
-  "docs/spec/governance/spec-authority-policy.md"
-)
-
-for file in "${required_files[@]}"; do
-  [[ -f "$file" ]] || fail "missing required file: $file"
-done
-
-policy_file="docs/spec/governance/spec-authority-policy.md"
-require_pattern "$policy_file" "transitional contract path" 'docs/spec/'
-require_pattern "$policy_file" "transitional public contract" 'transitional public contract'
-require_pattern "$policy_file" "future public language and reference authority" 'docs/language/.{0,160}docs/reference/'
-require_pattern "$policy_file" "current implementation evidence" 'src/.{0,160}jazz/.{0,160}test/.{0,160}(behavior|evidence)'
-require_pattern "$policy_file" "accepted RFC authority" 'accepted rfcs?.{0,160}(authoritative|authority|durable decisions?)'
-require_pattern "$policy_file" "non-normative roadmap" 'roadmap.{0,160}non[- ]normative'
-require_pattern "$policy_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
-
-for summary_file in "README.md" "docs/jazz-language-state.md"; do
-  require_pattern "$summary_file" "governance policy link" 'docs/spec/governance/spec-authority-policy.md'
-  require_pattern "$summary_file" "semantic change control" 'semantic.{0,160}changes?.{0,120}(must|require).{0,120}(rfc|decision record).{0,120}before implementation'
-done
-
-# Construct removed identities at runtime so this active audit script does not
-# itself present superseded product paths as live repository text.
-former_package='jazz-''next'
-former_reference='jazz-''hs'
-former_rewrite='jazz''2'
-obsolete_identity_pattern="(${former_package}|${former_reference}|${former_rewrite})"
-authority_claim_pattern="(${obsolete_identity_pattern}.{0,160}(active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target))|((active (compiler|implementation|authority|path)|authoritative|normative|source of truth|implementation target).{0,160}${obsolete_identity_pattern})"
-
-authority_candidates="$({
-  rg -n -i \
-    --glob '*.md' \
-    --glob '!docs/plans/**' \
-    --glob '!docs/superpowers/**' \
-    --glob '!docs/execution/done-archive.md' \
-    -e "$authority_claim_pattern" \
-    README.md docs || true
-})"
-
-if [[ -n "$authority_candidates" ]]; then
-  unsupported_claims="$({
-    printf '%s\n' "$authority_candidates" | rg -v -i \
-      '(removed|legacy|historical|pre-migration|not[^[:alpha:]]{0,6}(active|authoritative|normative|source of truth|implementation target)|non[- ]normative)' || true
-  })"
-  if [[ -n "$unsupported_claims" ]]; then
-    fail "removed implementation identity claimed as live authority"
-    printf '%s\n' "$unsupported_claims" >&2
+require_block() {
+  local file="$1"
+  local label="$2"
+  local pattern="$3"
+  if ! rendered_markdown "$file" | rg -n -i -U -e "$pattern" >/dev/null 2>&1; then
+    fail "$file missing authority statement: $label"
   fi
+}
+
+governance_file="docs/project/governance.md"
+authority_rfc="rfcs/accepted/0001-language-authority-and-change-control.md"
+
+for file in "$governance_file" "$authority_rfc"; do
+  [[ -f "$file" ]] || fail "missing required authority file: $file"
+done
+
+require_pattern "$governance_file" "public documentation authority" '^1\. curated public language and reference documentation;$'
+require_block "$governance_file" "implementation and tests evidence" '^2\. current compiler, standard-library, and test behavior as implementation\r?\n[ \t]+evidence;$'
+require_pattern "$governance_file" "accepted durable decisions" '^3\. accepted durable decision records; and$'
+require_pattern "$governance_file" "non-normative roadmap" '^4\. roadmap material, which is non-normative\.$'
+require_block "$governance_file" "semantic change control" '^Semantic language changes require a reviewed decision record before\r?\nimplementation\.'
+
+require_block "$authority_rfc" "public documentation authority" '^1\. Canonical public language contracts under `docs/language/` and\r?\n[ \t]+`docs/reference/`\.$'
+require_block "$authority_rfc" "implementation and tests evidence" '^2\. Behavior verified by the current implementation and tests under `src/`,\r?\n[ \t]+`jazz/`, and `test/` when the public contract does not yet cover a detail\.$'
+require_pattern "$authority_rfc" "accepted RFC authority" '^3\. Accepted durable decisions under `rfcs/accepted/`\.$'
+require_pattern "$authority_rfc" "non-normative roadmap" '^4\. Roadmap material, which is informative and non-normative\.$'
+require_pattern "$authority_rfc" "semantic change control" '^Every semantic language change requires an accepted RFC before implementation\.$'
+
+for removed_path in docs/spec docs/feature-status.md docs/jazz-language-state.md docs/jazz-improvement-backlog.md; do
+  if [[ -e "$removed_path" ]]; then
+    fail "superseded authority path still exists: $removed_path"
+  fi
+done
+
+identity_matches="$(removed_identity_matches)"
+if [[ -n "$identity_matches" ]]; then
+  printf '%s\n' "$identity_matches" >&2
+  fail "removed implementation identity still appears in public documentation"
 fi
 
 if [[ "$fail_count" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Spec authority policy check passed."
+echo "Documentation authority policy check passed."

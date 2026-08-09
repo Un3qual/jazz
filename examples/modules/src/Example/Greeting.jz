@@ -1,0 +1,3 @@
+module Example::Greeting (value greeting) {
+  greeting = "Hello from a Jazz module".
+}

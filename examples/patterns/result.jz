@@ -1,0 +1,7 @@
+data Result e a = Err e | Ok a.
+unwrapOr :: Int -> Result(Int, Int) -> Int.
+unwrapOr = \(fallback, result) -> case result {
+  | Err _ -> fallback
+  | Ok item -> item
+}.
+unwrapOr 0 (Ok 41).

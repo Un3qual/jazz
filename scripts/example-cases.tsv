@@ -1,0 +1,5 @@
+name	sources	expected	args
+hello	examples/hello.jz	"Hello, Jazz"	--run examples/hello.jz
+factorial	examples/functions/factorial.jz	720	--run examples/functions/factorial.jz
+result	examples/patterns/result.jz	41	--run examples/patterns/result.jz
+module	examples/modules/src/Example/Main.jz,examples/modules/src/Example/Greeting.jz	"Hello from a Jazz module"	--run --entry-module Example::Main --module-root examples/modules/src

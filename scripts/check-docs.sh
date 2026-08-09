@@ -25,91 +25,80 @@ require_pattern() {
   fi
 }
 
-reject_pattern() {
-  local label="$1"
-  local pattern="$2"
-  shift 2
-  local rg_output
-  if rg_output="$(rg -in -e "$pattern" "$@" 2>&1)"; then
-    fail "$label"
-  else
-    local rg_status=$?
-    if [[ "$rg_status" -ne 1 ]]; then
-      fail "$label: rg failed: $rg_output"
-    fi
+if ! bash scripts/check-public-docs.sh "$@"; then
+  fail "scripts/check-public-docs.sh reported public documentation boundary violations"
+fi
+if ! python3 scripts/test-check-public-docs.py; then
+  fail "scripts/test-check-public-docs.py reported public documentation checker regressions"
+fi
+if ! python3 scripts/test-markdown-visibility.py; then
+  fail "scripts/test-markdown-visibility.py reported rendered Markdown visibility regressions"
+fi
+if ! python3 scripts/test-check-examples.py; then
+  fail "scripts/test-check-examples.py reported executable-example checker regressions"
+fi
+if ! python3 scripts/check-rfcs.py "$ROOT"; then
+  fail "scripts/check-rfcs.py reported RFC structure violations"
+fi
+if ! python3 scripts/test-check-rfcs.py; then
+  fail "scripts/test-check-rfcs.py reported RFC checker regressions"
+fi
+if ! python3 scripts/test-check-spec-authority.py; then
+  fail "scripts/test-check-spec-authority.py reported authority checker regressions"
+fi
+
+required_rfcs=(
+  "0001-language-authority-and-change-control"
+  "0002-repository-productization"
+  "0003-bootstrap-interpreter-profile"
+  "0004-hosted-canonical-compiler"
+  "0005-typed-core-elaboration"
+  "0006-lowered-ir-contract"
+  "0007-runtime-host-boundary"
+  "0008-parser-scale-and-performance-tiers"
+)
+
+require_file "rfcs/README.md"
+require_file "rfcs/proposed/README.md"
+for rfc_name in "${required_rfcs[@]}"; do
+  require_file "rfcs/accepted/${rfc_name}.md"
+done
+
+require_file "docs/project/status.md"
+require_file "docs/project/governance.md"
+require_file ".codex/execution/blocker-contracts.md"
+require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-07-31$'
+require_pattern "docs/project/status.md" "implementation snapshot" '^Implementation snapshot: `b0ff07799029c27728799b817488d5bead85ee72`$'
+require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
+
+removed_paths=(
+  "docs/spec"
+  "docs/feature-status.md"
+  "docs/jazz-language-state.md"
+  "docs/jazz-improvement-backlog.md"
+)
+for removed_path in "${removed_paths[@]}"; do
+  if [[ -e "$removed_path" ]]; then
+    fail "obsolete documentation path still exists: $removed_path"
   fi
-}
+done
 
-require_file "README.md"
-require_file "docs/feature-status.md"
-require_file "docs/jazz-language-state.md"
-require_file "docs/execution/blocker-contracts.md"
-require_file "docs/execution/done-archive.md"
-require_file "scripts/check_legacy_doc_claims.py"
-require_file "scripts/test_check_legacy_doc_claims.py"
-
-require_pattern "README.md" "implemented section heading" '^### Implemented Today \(verified\)'
-require_pattern "README.md" "planned section heading" '^### Planned / Aspirational'
-require_pattern "README.md" "canonical status link" 'docs/feature-status.md'
-
-require_pattern "docs/feature-status.md" "last verified anchor" 'Last verified against commit'
-require_pattern "docs/feature-status.md" "implemented rubric label" '`Implemented Today`'
-require_pattern "docs/feature-status.md" "partial rubric label" '`Partially Implemented / Parse-Only`'
-require_pattern "docs/feature-status.md" "planned rubric label" '`Planned / Aspirational`'
-require_pattern "docs/feature-status.md" "maintenance checklist" '^## Maintenance Checklist'
-require_pattern "docs/feature-status.md" "reviewer checklist item" 'Does README status match docs/feature-status.md\?'
-require_pattern "docs/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
-require_pattern "docs/execution/done-archive.md" "done archive heading" '^# Execution Queue Done Archive'
-
-require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
-require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'
-require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
-require_pattern "docs/feature-status.md" "active compiler path reference" 'src/Jazz/'
-require_pattern "README.md" "active compiler path reference" 'src/Jazz/'
-archive_tag='archive/pre-root-canonicalization-2026-07-31'
-former_package='jazz-''next'
-former_reference='jazz-''hs'
-former_rewrite='jazz''2'
-deleted_tree_pattern="(${former_package}|${former_reference}|${former_rewrite})"
-require_pattern "docs/jazz-language-state.md" "legacy evidence archive tag" "$archive_tag"
-if ! python3 scripts/test_check_legacy_doc_claims.py; then
-  fail "legacy documentation claim regressions failed"
-fi
-if ! python3 scripts/check_legacy_doc_claims.py docs/spec; then
-  fail "active specs describe removed implementation trees as live read-only paths"
-fi
-reject_pattern "active documentation must not link into deleted implementation trees" \
-  "\\]\\([^)]*${deleted_tree_pattern}[^)]*\\)" \
-  docs/spec docs/jazz-language-state.md
-generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
-reject_pattern "active compiler sources must not reference JavaScript generation artifacts" "$generated_artifact_pattern" src jazz test
-reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
-  docs/execution/queue.md \
-  docs/spec/tooling/compiler-warning-flags.md
-if [[ -f "scripts/check-execution-queue.sh" ]]; then
-  if ! bash scripts/check-execution-queue.sh; then
-    fail "scripts/check-execution-queue.sh reported queue/frontmatter drift"
+documentation_checkers=(
+  "scripts/check-spec-authority.sh"
+  "scripts/check-clarification-specs.sh"
+  "scripts/test-check-clarification-specs.sh"
+  "scripts/check-execution-queue.sh"
+  "scripts/test-check-execution-queue.sh"
+)
+for checker in "${documentation_checkers[@]}"; do
+  if ! bash "$checker"; then
+    fail "$checker reported a documentation contract violation"
   fi
-else
-  fail "missing required file: scripts/check-execution-queue.sh"
-fi
-if [[ -f "scripts/test-check-execution-queue.sh" ]]; then
-  if ! bash scripts/test-check-execution-queue.sh; then
-    fail "scripts/test-check-execution-queue.sh reported validator regression drift"
-  fi
-else
-  fail "missing required file: scripts/test-check-execution-queue.sh"
-fi
+done
+
 if command -v prettier >/dev/null 2>&1 && [[ -n "${IN_NIX_SHELL:-}" ]]; then
-  markdown_files=(
-    "README.md"
-    "docs/feature-status.md"
-    "docs/jazz-language-state.md"
-  )
-  if [[ "${#markdown_files[@]}" -gt 0 ]]; then
-    if ! prettier --check "${markdown_files[@]}" >/dev/null 2>&1; then
-      fail "prettier --check reported markdown formatting drift"
-    fi
+  if ! prettier --check README.md docs rfcs .codex/execution .codex/plans >/dev/null 2>&1; then
+    fail "prettier --check reported documentation formatting drift"
   fi
 elif command -v prettier >/dev/null 2>&1; then
   printf 'WARN: prettier found outside nix shell; skipping format enforcement to avoid tool-version drift.\n' >&2
@@ -121,4 +110,4 @@ if [[ "$fail_count" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Docs status checks passed."
+echo "Documentation checks passed."

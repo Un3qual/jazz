@@ -6,9 +6,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-QUEUE_PATH = ROOT / "docs/execution/queue.md"
-BLOCKER_CONTRACTS_PATH = ROOT / "docs/execution/blocker-contracts.md"
-DONE_ARCHIVE_PATH = ROOT / "docs/execution/done-archive.md"
+QUEUE_PATH = ROOT / ".codex/execution/queue.md"
+BLOCKER_CONTRACTS_PATH = ROOT / ".codex/execution/blocker-contracts.md"
 QUEUE_TEXT: str | None = None
 
 EXPECTED_READY_HEADERS = [
@@ -434,80 +433,6 @@ def extract_blocker_contract_candidate_children(path: Path) -> dict[str, str]:
     return candidate_children
 
 
-def extract_done_archive_ids() -> set[str]:
-    text = read_text_file(DONE_ARCHIVE_PATH, "done archive")
-    if text is None:
-        return set()
-    section_lines = extract_section_lines(text, "Done", DONE_ARCHIVE_PATH)
-    if section_lines is None:
-        return set()
-
-    table_lines: list[str] = []
-    in_table = False
-    for idx, line in enumerate(section_lines):
-        stripped = line.lstrip(" ")
-        if is_markdown_table_line(line):
-            table_lines.append(stripped)
-            in_table = True
-            continue
-        if in_table:
-            if any(is_markdown_table_line(rest) for rest in section_lines[idx + 1 :]):
-                fail(
-                    f"{DONE_ARCHIVE_PATH} section 'Done' has non-table content "
-                    "splitting its markdown table"
-                )
-            break
-
-    if len(table_lines) < 2:
-        fail(f"{DONE_ARCHIVE_PATH} section 'Done' is missing a markdown table")
-        return set()
-
-    headers = [
-        normalize_text(header).lower()
-        for header in split_markdown_row(table_lines[0])
-    ]
-    if "id" not in headers:
-        fail(
-            f"{DONE_ARCHIVE_PATH} Done headers must include an 'id' column: "
-            f"{headers!r}"
-        )
-        return set()
-    id_index = headers.index("id")
-
-    separator_cells = split_markdown_row(table_lines[1])
-    separator_valid = len(separator_cells) == len(headers) and all(
-        is_separator_cell(cell) for cell in separator_cells
-    )
-    if not separator_valid:
-        fail(
-            f"{DONE_ARCHIVE_PATH} section 'Done' has a missing or malformed "
-            f"markdown separator row: {table_lines[1]}"
-        )
-        return set()
-
-    archive_ids: set[str] = set()
-    seen_archive_ids: dict[str, int] = {}
-    for row_index, line in enumerate(table_lines[2:], start=3):
-        cells = split_markdown_row(line)
-        if len(cells) != len(headers):
-            fail(
-                f"{DONE_ARCHIVE_PATH} section 'Done' row {row_index} has "
-                f"{len(cells)} cells; expected {len(headers)}: {line}"
-            )
-            continue
-        row_id = normalize_text(cells[id_index])
-        if row_id:
-            if row_id in seen_archive_ids:
-                fail(
-                    f"{DONE_ARCHIVE_PATH} section 'Done' row {row_index} "
-                    f"duplicates archived id: {row_id}"
-                )
-                continue
-            seen_archive_ids[row_id] = row_index
-            archive_ids.add(row_id)
-    return archive_ids
-
-
 def validate_source_contract_link(
     row_context: str,
     cell: str,
@@ -804,10 +729,7 @@ for row in done_rows:
     if not row_id:
         fail(f"{QUEUE_PATH} Done row is missing id")
         continue
-    fail(
-        f"{QUEUE_PATH} Done row {row_id} must be moved to "
-        f"{DONE_ARCHIVE_PATH.relative_to(ROOT)}"
-    )
+    fail(f"{QUEUE_PATH} Done row {row_id} must be removed after closure")
 done_rows = []
 
 all_ids = set()
@@ -840,13 +762,6 @@ contract_candidate_children = (
     if blocked_rows or curation_rows
     else {}
 )
-archived_ids = extract_done_archive_ids() if all_ids or curation_rows else set()
-for row_id in sorted(all_ids & archived_ids):
-    fail(
-        f"{QUEUE_PATH} {seen_ids[row_id]} row {row_id} already exists in "
-        f"{DONE_ARCHIVE_PATH.relative_to(ROOT)}"
-    )
-
 if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
 
@@ -882,11 +797,6 @@ for row in curation_rows:
     elif candidate_child_id in all_ids:
         fail(
             f"{row_context} candidate_child_id already exists in queue sections: "
-            f"{candidate_child_id}"
-        )
-    elif candidate_child_id in archived_ids:
-        fail(
-            f"{row_context} candidate_child_id already exists in done archive: "
             f"{candidate_child_id}"
         )
     elif candidate_child_id in seen_candidate_ids:
@@ -999,7 +909,7 @@ for row in ready_rows:
         if dep == row_id:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} cannot depend on itself")
             continue
-        if dep not in all_ids and dep not in archived_ids:
+        if dep not in all_ids:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
     target_paths = split_inline_list(row["target_paths"], ",", normalize_list_item)

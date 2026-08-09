@@ -10,8 +10,8 @@ create_repo() {
 
   mkdir -p \
     "$repo_root/scripts" \
-    "$repo_root/docs/execution" \
-    "$repo_root/docs/plans" \
+    "$repo_root/.codex/execution" \
+    "$repo_root/.codex/plans" \
     "$repo_root/src" \
     "$repo_root/test"
 
@@ -20,20 +20,12 @@ create_repo() {
   : > "$repo_root/src/Impl.hs"
   : > "$repo_root/test/ImplSpec.hs"
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-EOF
 }
 
 init_git_repo() {
@@ -48,7 +40,7 @@ init_git_repo() {
 setup_inline_comment_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -63,7 +55,7 @@ setup_inline_comment_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-inline-comment.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-inline-comment.md"
 ---
 id: CASE-INLINE-COMMENT-001
 status: ready
@@ -90,7 +82,7 @@ EOF
 setup_dependency_order_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -99,24 +91,15 @@ setup_dependency_order_case() {
 ## Blocked
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
+| `DEP-ALPHA` | `Live dependency alpha` | `External decision alpha` | `Keep dependency live for ordering coverage.` | [Plan](../plans/case-dependency-order.md) | `2026-04-01` |
+| `DEP-BETA` | `Live dependency beta` | `External decision beta` | `Keep dependency live for ordering coverage.` | [Plan](../plans/case-dependency-order.md) | `2026-04-01` |
 
 ## Done
 | id | title |
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| `DEP-ALPHA` | Completed dependency alpha. | `2026-04-01` |
-| `DEP-BETA` | Completed dependency beta. | `2026-04-01` |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-dependency-order.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-dependency-order.md"
 ---
 id: CASE-DEP-ORDER-001
 status: ready
@@ -140,17 +123,31 @@ supersedes: []
 
 # Dependency order fixture
 EOF
+
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### DEP-ALPHA
+
+- Smallest unblocker: resolve alpha.
+
+### DEP-BETA
+
+- Smallest unblocker: resolve beta.
+EOF
 }
 
-setup_queue_done_rows_require_archive_case() {
+setup_done_row_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-06-30`): `Ready Now` is empty. There is no source-backed next curation target and no named candidate currently.
+Current executor status: there is no source-backed next curation target and no named candidate currently.
 
 ## Next Curation Target
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
@@ -161,16 +158,16 @@ Current executor status (`2026-06-30`): `Ready Now` is empty. There is no source
 | --- | --- | --- | --- | --- | --- |
 
 ## Done
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| `CASE-DONE-IN-QUEUE-001` | Completed row still in dispatcher. | `2026-04-01` |
+| id | title |
+| --- | --- |
+| `CASE-DONE-IN-QUEUE-001` | `Completed row` |
 EOF
 }
 
 setup_plan_link_fragment_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -185,7 +182,7 @@ setup_plan_link_fragment_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-plan-link-fragment.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-plan-link-fragment.md"
 ---
 id: CASE-PLAN-LINK-FRAGMENT-001
 status: ready
@@ -214,11 +211,11 @@ EOF
 setup_block_scalar_delimiter_content_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-BLOCK-SCALAR-001` | `Block scalar delimiter content` | `P1` | `S` | `docs` | `yes` | `-` | [Plan](../plans/case-block-scalar.md) | `Task 3` | `docs/plans/case-block-scalar.md` | Folded content keeps --- as data. | `bash verify.sh` | `2026-04-01` |
+| `CASE-BLOCK-SCALAR-001` | `Block scalar delimiter content` | `P1` | `S` | `docs` | `yes` | `-` | [Plan](../plans/case-block-scalar.md) | `Task 3` | `.codex/plans/case-block-scalar.md` | Folded content keeps --- as data. | `bash verify.sh` | `2026-04-01` |
 
 ## Blocked
 | id | title | blocked_on | reason | plan | last_verified |
@@ -229,7 +226,7 @@ setup_block_scalar_delimiter_content_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-block-scalar.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-block-scalar.md"
 ---
 id: CASE-BLOCK-SCALAR-001
 status: ready
@@ -241,7 +238,7 @@ depends_on: []
 last_verified: 2026-04-01
 plan_section: "Task 3"
 target_paths:
-  - docs/plans/case-block-scalar.md
+  - .codex/plans/case-block-scalar.md
 verification:
   - bash verify.sh
 deliverable: >
@@ -258,7 +255,7 @@ EOF
 setup_non_list_scalar_frontmatter_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -273,7 +270,7 @@ setup_non_list_scalar_frontmatter_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-non-list-scalar.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-non-list-scalar.md"
 ---
 id: CASE-NON-LIST-SCALAR-001
 status: ready
@@ -300,7 +297,7 @@ EOF
 setup_target_paths_order_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -315,7 +312,7 @@ setup_target_paths_order_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-target-path-order.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-target-path-order.md"
 ---
 id: CASE-TARGET-PATH-ORDER-001
 status: ready
@@ -342,7 +339,7 @@ EOF
 setup_trailing_list_delimiter_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -357,7 +354,7 @@ setup_trailing_list_delimiter_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-trailing-list.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-trailing-list.md"
 ---
 id: CASE-TRAILING-LIST-001
 status: ready
@@ -384,11 +381,11 @@ EOF
 setup_mixed_target_paths_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-MIXED-TARGET-001` | `Mixed target paths` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-mixed-target.md) | `Task 6` | `src/Impl.hs`, `docs/plans/case-mixed-target.md`, `test/ImplSpec.hs` | `Accept mixed target_paths with concrete files and docs.` | `bash verify.sh` | `2026-04-01` |
+| `CASE-MIXED-TARGET-001` | `Mixed target paths` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-mixed-target.md) | `Task 6` | `src/Impl.hs`, `.codex/plans/case-mixed-target.md`, `test/ImplSpec.hs` | `Accept mixed target_paths with concrete files and docs.` | `bash verify.sh` | `2026-04-01` |
 
 ## Blocked
 | id | title | blocked_on | reason | plan | last_verified |
@@ -399,7 +396,7 @@ setup_mixed_target_paths_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-mixed-target.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-mixed-target.md"
 ---
 id: CASE-MIXED-TARGET-001
 status: ready
@@ -412,7 +409,7 @@ last_verified: 2026-04-01
 plan_section: "Task 6"
 target_paths:
   - src/Impl.hs
-  - docs/plans/case-mixed-target.md
+  - .codex/plans/case-mixed-target.md
   - test/ImplSpec.hs
 deliverable: "Accept mixed target_paths with concrete files and docs."
 verification:
@@ -427,7 +424,7 @@ EOF
 setup_curation_planned_target_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -447,11 +444,11 @@ setup_curation_planned_target_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-blocked.md"
 # Curation blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -466,7 +463,7 @@ EOF
 setup_curation_dot_target_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -486,11 +483,11 @@ setup_curation_dot_target_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-dot-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-dot-blocked.md"
 # Curation dot blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -504,7 +501,7 @@ EOF
 setup_curation_missing_anchor_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -524,11 +521,11 @@ setup_curation_missing_anchor_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-anchor-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-anchor-blocked.md"
 # Curation anchor blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -542,7 +539,7 @@ EOF
 setup_curation_candidate_mismatch_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -562,11 +559,11 @@ setup_curation_candidate_mismatch_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-mismatch-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-mismatch-blocked.md"
 # Curation mismatch blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -581,7 +578,7 @@ EOF
 setup_blocked_missing_contract_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -597,7 +594,7 @@ setup_blocked_missing_contract_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-contract-ready.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-contract-ready.md"
 ---
 id: CASE-CONTRACT-READY-001
 status: ready
@@ -619,7 +616,7 @@ supersedes: []
 # Contract ready fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-no-contract.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-no-contract.md"
 # No contract fixture
 EOF
 }
@@ -627,7 +624,7 @@ EOF
 setup_duplicate_contract_anchor_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -643,7 +640,7 @@ setup_duplicate_contract_anchor_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-dup-contract-ready.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-dup-contract-ready.md"
 ---
 id: CASE-DUP-CONTRACT-READY-001
 status: ready
@@ -665,11 +662,11 @@ supersedes: []
 # Duplicate contract ready fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-dup-contract-anchor.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-dup-contract-anchor.md"
 # Duplicate contract anchor fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -684,255 +681,10 @@ EOF
 EOF
 }
 
-setup_curation_archive_reuse_case() {
-  local repo_root="$1"
-
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
-## Ready Now
-| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-
-## Next Curation Target
-| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-ARCHIVE-BLOCKED-001` | `CASE-ARCHIVED-CHILD-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#case-archive-blocked-001) | `Promote one concrete child.` | `src/Impl.hs` | `bash verify.sh` | `Create the child plan.` |
-
-## Blocked
-| id | title | blocked_on | reason | plan | last_verified |
-| --- | --- | --- | --- | --- | --- |
-| `CASE-ARCHIVE-BLOCKED-001` | `Archive blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-archive-blocked.md) | `2026-04-10` |
-
-## Done
-| id | title |
-| --- | --- |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-archive-blocked.md"
-# Archive blocked fixture
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
-# Blocker Unblocker Contracts
-
-## Current Blockers
-
-### CASE-ARCHIVE-BLOCKED-001
-
-- Smallest unblocker: promote one child.
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| `CASE-ARCHIVED-CHILD-001` | `Already completed.` | `2026-04-09` |
-EOF
-}
-
-setup_active_archive_reuse_case() {
-  local repo_root="$1"
-
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
-## Ready Now
-| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-ACTIVE-ARCHIVED-001` | `Archived active reuse` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-active-archive.md) | `Task 1` | `src/Impl.hs` | `Reject active queue ids already archived.` | `bash verify.sh` | `2026-04-10` |
-
-## Blocked
-| id | title | blocked_on | reason | plan | last_verified |
-| --- | --- | --- | --- | --- | --- |
-
-## Done
-| id | title |
-| --- | --- |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-active-archive.md"
----
-id: CASE-ACTIVE-ARCHIVED-001
-status: ready
-priority: P1
-size: S
-kind: impl
-autonomous_ready: yes
-depends_on: []
-last_verified: 2026-04-10
-plan_section: "Task 1"
-target_paths:
-  - src/Impl.hs
-verification:
-  - bash verify.sh
-deliverable: "Reject active queue ids already archived."
-supersedes: []
----
-
-# Active archive fixture
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| `CASE-ACTIVE-ARCHIVED-001` | `Already completed.` | `2026-04-09` |
-EOF
-}
-
-setup_plain_archive_reuse_case() {
-  local repo_root="$1"
-
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
-## Ready Now
-| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-PLAIN-ARCHIVED-001` | `Plain archived reuse` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-plain-archive.md) | `Task 1` | `src/Impl.hs` | `Reject active queue ids already archived without backticks.` | `bash verify.sh` | `2026-04-10` |
-
-## Blocked
-| id | title | blocked_on | reason | plan | last_verified |
-| --- | --- | --- | --- | --- | --- |
-
-## Done
-| id | title |
-| --- | --- |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-plain-archive.md"
----
-id: CASE-PLAIN-ARCHIVED-001
-status: ready
-priority: P1
-size: S
-kind: impl
-autonomous_ready: yes
-depends_on: []
-last_verified: 2026-04-10
-plan_section: "Task 1"
-target_paths:
-  - src/Impl.hs
-verification:
-  - bash verify.sh
-deliverable: "Reject active queue ids already archived without backticks."
-supersedes: []
----
-
-# Plain archive fixture
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| CASE-PLAIN-ARCHIVED-001 | Already completed. | 2026-04-09 |
-EOF
-}
-
-setup_duplicate_archive_id_case() {
-  local repo_root="$1"
-
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
-## Ready Now
-| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-UNRELATED-READY-001` | `Unrelated ready` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-unrelated-ready.md) | `Task 1` | `src/Impl.hs` | `Keep Ready Now valid while archive is checked.` | `bash verify.sh` | `2026-04-10` |
-
-## Blocked
-| id | title | blocked_on | reason | plan | last_verified |
-| --- | --- | --- | --- | --- | --- |
-
-## Done
-| id | title |
-| --- | --- |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-unrelated-ready.md"
----
-id: CASE-UNRELATED-READY-001
-status: ready
-priority: P1
-size: S
-kind: impl
-autonomous_ready: yes
-depends_on: []
-last_verified: 2026-04-10
-plan_section: "Task 1"
-target_paths:
-  - src/Impl.hs
-verification:
-  - bash verify.sh
-deliverable: "Keep Ready Now valid while archive is checked."
-supersedes: []
----
-
-# Unrelated ready fixture
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
-# Execution Queue Done Archive
-
-## Done
-
-| id | closure evidence | completed_on |
-| --- | --- | --- |
-| `CASE-DUPLICATE-ARCHIVE-001` | `First closure.` | `2026-04-09` |
-| CASE-DUPLICATE-ARCHIVE-001 | Second closure. | 2026-04-10 |
-EOF
-}
-
-setup_missing_done_archive_case() {
-  local repo_root="$1"
-
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
-## Ready Now
-| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-MISSING-ARCHIVE-001` | `Missing archive` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-missing-archive.md) | `Task 1` | `src/Impl.hs` | `Require the done archive for standalone validation.` | `bash verify.sh` | `2026-04-10` |
-
-## Blocked
-| id | title | blocked_on | reason | plan | last_verified |
-| --- | --- | --- | --- | --- | --- |
-
-## Done
-| id | title |
-| --- | --- |
-EOF
-
-  cat <<'EOF' > "$repo_root/docs/plans/case-missing-archive.md"
----
-id: CASE-MISSING-ARCHIVE-001
-status: ready
-priority: P1
-size: S
-kind: impl
-autonomous_ready: yes
-depends_on: []
-last_verified: 2026-04-10
-plan_section: "Task 1"
-target_paths:
-  - src/Impl.hs
-verification:
-  - bash verify.sh
-deliverable: "Require the done archive for standalone validation."
-supersedes: []
----
-
-# Missing archive fixture
-EOF
-
-  rm "$repo_root/docs/execution/done-archive.md"
-}
-
 setup_ready_docs_dot_target_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -947,7 +699,7 @@ setup_ready_docs_dot_target_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-ready-docs-dot.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-ready-docs-dot.md"
 ---
 id: CASE-READY-DOCS-DOT-001
 status: ready
@@ -973,7 +725,7 @@ EOF
 setup_ready_missing_target_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -988,7 +740,7 @@ setup_ready_missing_target_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-ready-missing-target.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-ready-missing-target.md"
 ---
 id: CASE-READY-MISSING-TARGET-001
 status: ready
@@ -1015,7 +767,7 @@ EOF
 setup_ready_mixed_target_sentinel_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1030,7 +782,7 @@ setup_ready_mixed_target_sentinel_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-ready-mixed-target-sentinel.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-ready-mixed-target-sentinel.md"
 ---
 id: CASE-READY-MIXED-TARGET-SENTINEL-001
 status: ready
@@ -1057,7 +809,7 @@ EOF
 setup_curation_mixed_target_sentinel_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1077,11 +829,11 @@ setup_curation_mixed_target_sentinel_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-mixed-target-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-mixed-target-blocked.md"
 # Curation mixed target blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1096,7 +848,7 @@ EOF
 setup_source_contract_wrong_file_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1116,17 +868,17 @@ setup_source_contract_wrong_file_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-wrong-contract-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-wrong-contract-blocked.md"
 # Wrong contract blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/wrong-contract.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/wrong-contract.md"
 # Wrong Contract File
 
 ## Not a Contract
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1140,7 +892,7 @@ EOF
 setup_idle_queue_without_curation_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1155,11 +907,11 @@ setup_idle_queue_without_curation_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-idle-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-idle-blocked.md"
 # Idle blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1173,7 +925,7 @@ EOF
 setup_terminal_empty_curation_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1196,11 +948,11 @@ target and no named candidate currently.
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-terminal-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-terminal-blocked.md"
 # Terminal blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1215,7 +967,7 @@ EOF
 setup_terminal_empty_curation_stale_candidate_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1239,11 +991,11 @@ target and no named candidate currently.
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-terminal-stale-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-terminal-stale-blocked.md"
 # Terminal stale blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1258,7 +1010,7 @@ EOF
 setup_empty_curation_without_terminal_status_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1277,11 +1029,11 @@ setup_empty_curation_without_terminal_status_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-empty-curation-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-empty-curation-blocked.md"
 # Empty curation blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1295,7 +1047,7 @@ EOF
 setup_empty_curation_static_terminal_prose_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1322,11 +1074,11 @@ source-backed next curation target and no named candidate currently.
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-static-prose-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-static-prose-blocked.md"
 # Static prose blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1342,7 +1094,7 @@ setup_symlink_target_escape_case() {
 
   ln -s /etc "$repo_root/alias"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1357,7 +1109,7 @@ setup_symlink_target_escape_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-symlink-target.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-symlink-target.md"
 ---
 id: CASE-SYMLINK-TARGET-001
 status: ready
@@ -1383,12 +1135,12 @@ EOF
 setup_symlink_doc_target_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/plans/doc-target.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/doc-target.md"
 # Doc target fixture
 EOF
-  ln -s docs/plans/doc-target.md "$repo_root/alias"
+  ln -s .codex/plans/doc-target.md "$repo_root/alias"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1403,7 +1155,7 @@ EOF
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-symlink-doc-target.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-symlink-doc-target.md"
 ---
 id: CASE-SYMLINK-DOC-TARGET-001
 status: ready
@@ -1429,7 +1181,7 @@ EOF
 setup_non_contiguous_table_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1450,7 +1202,7 @@ Notes below document a table shape example and must not be parsed as queue rows.
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-noncontig-table.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-noncontig-table.md"
 ---
 id: CASE-NONCONTIG-TABLE-001
 status: ready
@@ -1477,7 +1229,7 @@ EOF
 setup_pipe_prose_before_table_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 This note mentions A | B before the table and should not be treated as a queue row.
 
@@ -1494,7 +1246,7 @@ This note mentions A | B before the table and should not be treated as a queue r
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-pipe-prose-before-table.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-pipe-prose-before-table.md"
 ---
 id: CASE-PIPE-PROSE-001
 status: ready
@@ -1521,7 +1273,7 @@ EOF
 setup_duplicate_section_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1540,7 +1292,7 @@ setup_duplicate_section_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-duplicate-section.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-duplicate-section.md"
 ---
 id: CASE-DUPLICATE-SECTION-001
 status: ready
@@ -1567,7 +1319,7 @@ EOF
 setup_blocked_on_placeholder_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1583,7 +1335,7 @@ setup_blocked_on_placeholder_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-blocked-placeholder-ready.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-blocked-placeholder-ready.md"
 ---
 id: CASE-BLOCKED-PLACEHOLDER-READY-001
 status: ready
@@ -1606,7 +1358,7 @@ supersedes: []
 # Blocked placeholder ready fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-blocked-placeholder.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-blocked-placeholder.md"
 # Blocked placeholder fixture
 EOF
 }
@@ -1614,7 +1366,7 @@ EOF
 setup_verification_mixed_sentinel_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1629,7 +1381,7 @@ setup_verification_mixed_sentinel_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-verify-mixed-sentinel.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-verify-mixed-sentinel.md"
 ---
 id: CASE-VERIFY-MIXED-SENTINEL-001
 status: ready
@@ -1656,7 +1408,7 @@ EOF
 setup_curation_verification_mixed_sentinel_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1676,11 +1428,11 @@ setup_curation_verification_mixed_sentinel_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-curation-verify-blocked.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-curation-verify-blocked.md"
 # Curation verify blocked fixture
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/blocker-contracts.md"
 # Blocker Unblocker Contracts
 
 ## Current Blockers
@@ -1694,7 +1446,7 @@ EOF
 setup_verification_order_case() {
   local repo_root="$1"
 
-  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+  cat <<'EOF' > "$repo_root/.codex/execution/queue.md"
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1709,7 +1461,7 @@ setup_verification_order_case() {
 | --- | --- |
 EOF
 
-  cat <<'EOF' > "$repo_root/docs/plans/case-verify-order.md"
+  cat <<'EOF' > "$repo_root/.codex/plans/case-verify-order.md"
 ---
 id: CASE-VERIFY-ORDER-001
 status: ready
@@ -1817,12 +1569,12 @@ run_wrapper_case() {
 
 main() {
   run_case "inline-comment regression" setup_inline_comment_case
-  run_case \
-    "queue done rows require archive regression" \
-    setup_queue_done_rows_require_archive_case \
-    fail \
-    "Done row CASE-DONE-IN-QUEUE-001 must be moved to docs/execution/done-archive.md"
   run_case "dependency-order regression" setup_dependency_order_case
+  run_case \
+    "queue done rows are removed regression" \
+    setup_done_row_case \
+    fail \
+    "Done row CASE-DONE-IN-QUEUE-001 must be removed after closure"
   run_case "plan-link fragment regression" setup_plan_link_fragment_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
   run_case \
@@ -1881,7 +1633,7 @@ main() {
     "source contract wrong file regression" \
     setup_source_contract_wrong_file_case \
     fail \
-    "Next Curation Target row CASE-WRONG-CONTRACT-CHILD-001 source_contract must point to docs/execution/blocker-contracts.md" \
+    "Next Curation Target row CASE-WRONG-CONTRACT-CHILD-001 source_contract must point to .codex/execution/blocker-contracts.md" \
     . \
     plain \
     "source_contract anchor not found"
@@ -1916,31 +1668,6 @@ main() {
     setup_duplicate_contract_anchor_case \
     fail \
     "has duplicate markdown anchor #case-dup-contract-anchor-001"
-  run_case \
-    "curation archive id reuse regression" \
-    setup_curation_archive_reuse_case \
-    fail \
-    "Next Curation Target row CASE-ARCHIVED-CHILD-001 candidate_child_id already exists in done archive: CASE-ARCHIVED-CHILD-001"
-  run_case \
-    "active archive id reuse regression" \
-    setup_active_archive_reuse_case \
-    fail \
-    "Ready Now row CASE-ACTIVE-ARCHIVED-001 already exists in docs/execution/done-archive.md"
-  run_case \
-    "plain archive id reuse regression" \
-    setup_plain_archive_reuse_case \
-    fail \
-    "Ready Now row CASE-PLAIN-ARCHIVED-001 already exists in docs/execution/done-archive.md"
-  run_case \
-    "duplicate archive id regression" \
-    setup_duplicate_archive_id_case \
-    fail \
-    "done-archive.md section 'Done' row 4 duplicates archived id: CASE-DUPLICATE-ARCHIVE-001"
-  run_case \
-    "missing done archive regression" \
-    setup_missing_done_archive_case \
-    fail \
-    "missing required done archive:"
   run_case \
     "ready docs dot target regression" \
     setup_ready_docs_dot_target_case \
@@ -1990,6 +1717,7 @@ main() {
 
   # Wrapper smoke tests exercising repo-root detection and python3 preflight
   run_wrapper_case "wrapper: inline-comment smoke test" setup_inline_comment_case
+  run_wrapper_case "wrapper: dependency-order smoke test" setup_dependency_order_case
   run_case_with_command \
     bash \
     ../scripts/check-execution-queue.sh \
@@ -2006,7 +1734,6 @@ main() {
     "" \
     . \
     git
-  run_wrapper_case "wrapper: dependency-order smoke test" setup_dependency_order_case
   run_wrapper_case \
     "wrapper: target-path order smoke test" \
     setup_target_paths_order_case \
