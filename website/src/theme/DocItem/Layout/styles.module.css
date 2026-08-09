@@ -1,5 +1,4 @@
 .docRow {
-  column-gap: clamp(1rem, 3vw, 3.5rem);
   justify-content: center;
 }
 

@@ -91,6 +91,17 @@ test('homepage styling encodes the motion, focus, target, and full-bleed contrac
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
+test('documentation layout reserves width only for a rendered desktop TOC', () => {
+  const layout = read('website/src/theme/DocItem/Layout/index.tsx');
+  const layoutCss = read('website/src/theme/DocItem/Layout/styles.module.css');
+
+  assert.match(
+    layout,
+    /clsx\('col',\s*docTOC\.desktop && styles\.docItemCol\)/,
+  );
+  assert.doesNotMatch(layoutCss, /(?:^|\n)\s*(?:column-gap|gap)\s*:/);
+});
+
 test('hero stagger includes the brass motif and completes under 500ms', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const participants = [
