@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -12,6 +12,19 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const websiteDirectory = path.resolve(scriptDirectory, '..');
 const imageDirectory = path.join(websiteDirectory, 'static/img');
 const rendererPath = path.join(scriptDirectory, 'render-social-card.mjs');
+
+async function copySynchronizedSocialCard(renderer, directory) {
+  const committedPath = path.join(imageDirectory, 'social-card.svg');
+  const source = await readFile(committedPath, 'utf8');
+  assert.equal(
+    await renderer.synchronizeSocialCardSource(source),
+    source,
+    'website/static/img/social-card.svg is stale; run npm run render:brand',
+  );
+  const copiedPath = path.join(directory, 'social-card.svg');
+  await writeFile(copiedPath, source, 'utf8');
+  return copiedPath;
+}
 
 async function transparentBounds(assetName) {
   const {data, info} = await sharp(path.join(imageDirectory, assetName), {density: 72})
@@ -59,9 +72,13 @@ test('concurrent social-card renders isolate their temporary output', async () =
   );
   const pngPath = path.join(temporaryDirectory, 'social-card.png');
   try {
-    const {renderSocialCard} = await import('./render-social-card.mjs');
+    const renderer = await import('./render-social-card.mjs');
+    const svgPath = await copySynchronizedSocialCard(renderer, temporaryDirectory);
     await Promise.all(
-      Array.from({length: 4}, () => renderSocialCard({pngPath})),
+      Array.from(
+        {length: 4},
+        () => renderer.renderSocialCard({svgPath, pngPath}),
+      ),
     );
     const metadata = await sharp(pngPath).metadata();
     assert.equal(metadata.width, 1200);
@@ -77,8 +94,9 @@ test('committed social card matches the deterministic SVG raster', async () => {
   );
   const renderedPath = path.join(temporaryDirectory, 'social-card.png');
   try {
-    const {renderSocialCard} = await import('./render-social-card.mjs');
-    await renderSocialCard({pngPath: renderedPath});
+    const renderer = await import('./render-social-card.mjs');
+    const svgPath = await copySynchronizedSocialCard(renderer, temporaryDirectory);
+    await renderer.renderSocialCard({svgPath, pngPath: renderedPath});
     const [rendered, committed] = await Promise.all([
       readFile(renderedPath),
       readFile(path.join(imageDirectory, 'social-card.png')),

@@ -26,7 +26,7 @@ const [source, cases] = await Promise.all([
   readFile(casesPath, 'utf8'),
 ]);
 
-const lines = cases.split('\n');
+const lines = cases.split(/\r?\n/);
 if (lines[0] !== 'name\tsources\texpected\targs') {
   throw new Error('example-cases.tsv has an unexpected header');
 }

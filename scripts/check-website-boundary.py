@@ -62,12 +62,17 @@ REMOTE_REFERENCE = re.compile(
     r"|//(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+[^\s\"'`<>(){}\[\]]*"
     r")"
 )
-CSS_URL = re.compile(
-    r"url\(\s*(?P<quote>['\"]?)(?P<target>.*?)(?P=quote)\s*\)", re.IGNORECASE
-)
 CSS_IMPORT = re.compile(
     r"@import\s+(?!url\()(?P<quote>['\"])(?P<target>.*?)(?P=quote)",
     re.IGNORECASE,
+)
+CSS_ESCAPE = re.compile(
+    r"\\(?:"
+    r"(?P<hex>[0-9A-Fa-f]{1,6})(?:[ \t\r\n\f])?"
+    r"|(?P<newline>\r\n|[\r\n\f])"
+    r"|(?P<char>.)"
+    r")",
+    re.DOTALL,
 )
 
 
@@ -165,16 +170,7 @@ def check_public_docs(root: Path, violations: list[str]) -> None:
             continue
 
 
-def check_generated_factorial(root: Path, violations: list[str]) -> None:
-    source_path = root / FACTORIAL_SOURCE
-    cases_path = root / FACTORIAL_CASES
-    generated_path = root / FACTORIAL_GENERATED
-    source = read_text(root, source_path, violations)
-    cases = read_text(root, cases_path, violations)
-    generated = read_text(root, generated_path, violations)
-    if source is None or cases is None or generated is None:
-        return
-
+def factorial_case(cases: str) -> tuple[str, str, str] | None:
     lines = cases.splitlines()
     header = "name\tsources\texpected\targs"
     factorial_cases = [
@@ -185,11 +181,47 @@ def check_generated_factorial(root: Path, violations: list[str]) -> None:
         and fields[0] == "factorial"
     ]
     if not lines or lines[0] != header or len(factorial_cases) != 1:
+        return None
+    _, raw_sources, expected_output, args = factorial_cases[0]
+    return raw_sources, expected_output, args
+
+
+def factorial_invocation(source: str) -> str | None:
+    source_lines = source.rstrip().splitlines()
+    if (
+        not source_lines
+        or not source_lines[-1].strip().endswith(".")
+        or source_lines[-1].strip() == "."
+    ):
+        return None
+    return source_lines[-1].strip()[:-1].strip()
+
+
+def generated_factorial_module(source: str, invocation: str, output: str) -> str:
+    return (
+        FACTORIAL_HEADER
+        + f"export const factorialSource = {json.dumps(source, ensure_ascii=False)};\n"
+        + "export const factorialInvocation = "
+        + f"{json.dumps(invocation, ensure_ascii=False)};\n"
+        + "export const factorialExpectedOutput = "
+        + f"{json.dumps(output, ensure_ascii=False)};\n"
+    )
+
+
+def check_generated_factorial(root: Path, violations: list[str]) -> None:
+    source = read_text(root, root / FACTORIAL_SOURCE, violations)
+    cases = read_text(root, root / FACTORIAL_CASES, violations)
+    generated = read_text(root, root / FACTORIAL_GENERATED, violations)
+    if source is None or cases is None or generated is None:
+        return
+
+    case = factorial_case(cases)
+    if case is None:
         violations.append(
             f"{FACTORIAL_CASES}: must contain exactly one valid factorial case"
         )
         return
-    _, raw_sources, expected_output, args = factorial_cases[0]
+    raw_sources, expected_output, args = case
     if (
         FACTORIAL_SOURCE not in raw_sources.split(",")
         or args != f"--run {FACTORIAL_SOURCE}"
@@ -199,25 +231,12 @@ def check_generated_factorial(root: Path, violations: list[str]) -> None:
             f"{FACTORIAL_CASES}: factorial case must execute {FACTORIAL_SOURCE}"
         )
         return
-    source_lines = source.rstrip().splitlines()
-    if (
-        not source_lines
-        or not source_lines[-1].strip().endswith(".")
-        or source_lines[-1].strip() == "."
-    ):
-        violations.append(
-            f"{FACTORIAL_SOURCE}: must end with the displayed invocation"
-        )
+    invocation = factorial_invocation(source)
+    if invocation is None:
+        violations.append(f"{FACTORIAL_SOURCE}: must end with the displayed invocation")
         return
-    invocation = source_lines[-1].strip()[:-1].strip()
-    expected = (
-        FACTORIAL_HEADER
-        + f"export const factorialSource = {json.dumps(source, ensure_ascii=False)};\n"
-        + "export const factorialInvocation = "
-        + f"{json.dumps(invocation, ensure_ascii=False)};\n"
-        + "export const factorialExpectedOutput = "
-        + f"{json.dumps(expected_output, ensure_ascii=False)};\n"
-    )
+
+    expected = generated_factorial_module(source, invocation, expected_output)
     if generated != expected:
         violations.append(
             f"{FACTORIAL_GENERATED}: generated factorial source does not match "
@@ -282,12 +301,12 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
 
 
 def remote_resource(target: str) -> bool:
-    value = unescape(target.strip())
+    value = unescape(target.strip()).replace("\\", "/")
     try:
         parsed = urlsplit(value)
     except ValueError:
         return True
-    return value.startswith("//") or (
+    return bool(parsed.netloc) or value.startswith("//") or (
         bool(parsed.scheme) and parsed.scheme.casefold() not in {"data", "blob", "mailto"}
     )
 
@@ -303,27 +322,31 @@ class ResourceParser(HTMLParser):
     """Collect remote fetches while allowing known static-site navigation metadata."""
 
     def __init__(self) -> None:
+        """Initialize generated-document resource state."""
         super().__init__(convert_charrefs=True)
         self.remote_fetch = False
         self.in_style = False
         self.embedded_documents: list[str] = []
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
-        folded_tag = tag.casefold()
-        if folded_tag == "style":
-            self.in_style = True
-
+    @staticmethod
+    def attribute_values(
+        attrs: list[tuple[str, str | None]],
+    ) -> dict[str, list[str]]:
         attribute_values: dict[str, list[str]] = {}
         for name, value in attrs:
             attribute_values.setdefault(name.casefold(), []).append(value or "")
-        attributes = {
-            name: values[0] for name, values in attribute_values.items()
-        }
+        return attribute_values
+
+    def collect_embedded_documents(
+        self, attribute_values: dict[str, list[str]],
+    ) -> None:
         self.embedded_documents.extend(
             source for source in attribute_values.get("srcdoc", []) if source
         )
+
+    def scan_url_attributes(
+        self, attribute_values: dict[str, list[str]],
+    ) -> None:
         for name in (
             "src",
             "poster",
@@ -332,10 +355,15 @@ class ResourceParser(HTMLParser):
             "action",
             "formaction",
             "manifest",
+            "xlink:href",
         ):
             targets = attribute_values.get(name, [])
             if any(target and remote_resource(target) for target in targets):
                 self.remote_fetch = True
+
+    def scan_srcset_attributes(
+        self, attribute_values: dict[str, list[str]],
+    ) -> None:
         for name in ("srcset", "imagesrcset"):
             targets = [
                 candidate.strip().split()[0]
@@ -345,18 +373,41 @@ class ResourceParser(HTMLParser):
             ]
             if any(remote_resource(target) for target in targets):
                 self.remote_fetch = True
+
+    def scan_inline_styles(
+        self, attribute_values: dict[str, list[str]],
+    ) -> None:
         for source in attribute_values.get("style", []):
             if any(remote_resource(target) for target in css_targets(source)):
                 self.remote_fetch = True
 
+    def scan_href_policy(
+        self, tag: str, attribute_values: dict[str, list[str]],
+    ) -> None:
+        attributes = {
+            name: values[0] for name, values in attribute_values.items()
+        }
         rel = set(attributes.get("rel", "").casefold().split())
-        navigation = folded_tag in {"a", "area"}
-        metadata = folded_tag == "link" and bool(rel & {"canonical", "alternate"})
+        navigation = tag in {"a", "area"}
+        metadata = tag == "link" and bool(rel & {"canonical", "alternate"})
         for target in attribute_values.get("href", []):
             if remote_resource(target) and not (
                 (navigation or metadata) and allowed_generated_navigation(target)
             ):
                 self.remote_fetch = True
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        folded_tag = tag.casefold()
+        if folded_tag == "style":
+            self.in_style = True
+        attribute_values = self.attribute_values(attrs)
+        self.collect_embedded_documents(attribute_values)
+        self.scan_url_attributes(attribute_values)
+        self.scan_srcset_attributes(attribute_values)
+        self.scan_inline_styles(attribute_values)
+        self.scan_href_policy(folded_tag, attribute_values)
 
     def handle_endtag(self, tag: str) -> None:
         if tag.casefold() == "style":
@@ -369,10 +420,105 @@ class ResourceParser(HTMLParser):
             self.remote_fetch = True
 
 
+def decode_css_escapes(value: str) -> str:
+    def replace_escape(match: re.Match[str]) -> str:
+        if match.group("newline") is not None:
+            return ""
+        if match.group("char") is not None:
+            return match.group("char")
+        codepoint = int(match.group("hex"), 16)
+        if codepoint == 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+            return "\N{REPLACEMENT CHARACTER}"
+        return chr(codepoint)
+
+    return CSS_ESCAPE.sub(replace_escape, value)
+
+
+def css_string_end(source: str, start: int) -> int:
+    quote = source[start]
+    index = start + 1
+    while index < len(source) and source[index] != quote:
+        index += 2 if source[index] == "\\" else 1
+    return min(index + 1, len(source))
+
+
+def css_function_end(source: str, body_start: int) -> int | None:
+    index = body_start
+    depth = 1
+    while index < len(source):
+        character = source[index]
+        if character in "'\"":
+            index = css_string_end(source, index)
+            continue
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def css_function_calls(source: str) -> list[tuple[str, str]]:
+    calls: list[tuple[str, str]] = []
+    index = 0
+    while index < len(source):
+        if source[index] in "'\"":
+            index = css_string_end(source, index)
+            continue
+        if not (source[index].isalpha() or source[index] in "_-"):
+            index += 1
+            continue
+        name_start = index
+        while index < len(source) and (
+            source[index].isalnum() or source[index] in "_-\\"
+        ):
+            index += 1
+        name = source[name_start:index]
+        while index < len(source) and source[index].isspace():
+            index += 1
+        if index >= len(source) or source[index] != "(":
+            continue
+        body_start = index + 1
+        body_end = css_function_end(source, body_start)
+        if body_end is None:
+            break
+        calls.append(
+            (decode_css_escapes(name).casefold(), source[body_start:body_end])
+        )
+        index = body_start
+    return calls
+
+
+def css_string_values(source: str) -> list[str]:
+    values: list[str] = []
+    index = 0
+    while index < len(source):
+        if source[index] not in "'\"":
+            index += 1
+            continue
+        end = css_string_end(source, index)
+        values.append(decode_css_escapes(source[index + 1 : end - 1]))
+        index = end
+    return values
+
+
 def css_targets(source: str) -> list[str]:
     without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    targets = [match.group("target") for match in CSS_URL.finditer(without_comments)]
-    targets.extend(match.group("target") for match in CSS_IMPORT.finditer(without_comments))
+    targets: list[str] = []
+    for name, body in css_function_calls(without_comments):
+        if name == "url":
+            strings = css_string_values(body)
+            raw_target = strings[0] if strings else decode_css_escapes(body.strip())
+            if raw_target:
+                targets.append(raw_target)
+        elif name in {"image-set", "-webkit-image-set"}:
+            targets.extend(css_string_values(body))
+    targets.extend(
+        decode_css_escapes(match.group("target"))
+        for match in CSS_IMPORT.finditer(without_comments)
+    )
     return targets
 
 
@@ -393,6 +539,33 @@ def html_loads_remote_resource(source: str) -> bool:
     return False
 
 
+def check_generated_file(root: Path, path: Path, violations: list[str]) -> None:
+    path_label = label(root, path)
+    try:
+        contents = path.read_bytes()
+    except OSError as error:
+        violations.append(f"{path_label}: cannot read generated output: {error}")
+        return
+
+    folded = contents.lower()
+    for forbidden in FORBIDDEN_REFERENCES:
+        if forbidden.encode().lower() in folded:
+            violations.append(
+                f"{path_label}: generated output contains forbidden string: {forbidden}"
+            )
+    suffix = path.suffix.casefold()
+    if suffix not in {".css", ".html"}:
+        return
+    source = contents.decode("utf-8", errors="replace")
+    remote = (
+        any(remote_resource(target) for target in css_targets(source))
+        if suffix == ".css"
+        else html_loads_remote_resource(source)
+    )
+    if remote:
+        violations.append(f"{path_label}: generated output loads a remote resource")
+
+
 def check_generated_output(root: Path, violations: list[str]) -> None:
     build = root / "website/build"
     if not build.exists():
@@ -403,30 +576,7 @@ def check_generated_output(root: Path, violations: list[str]) -> None:
     for directory, directory_names, file_names in os.walk(build, followlinks=False):
         directory_names.sort()
         for name in sorted(file_names):
-            path = Path(directory) / name
-            path_label = label(root, path)
-            try:
-                contents = path.read_bytes()
-            except OSError as error:
-                violations.append(f"{path_label}: cannot read generated output: {error}")
-                continue
-            folded = contents.lower()
-            for forbidden in FORBIDDEN_REFERENCES:
-                if forbidden.encode().lower() in folded:
-                    violations.append(
-                        f"{path_label}: generated output contains forbidden string: {forbidden}"
-                    )
-            if path.suffix.casefold() not in {".css", ".html"}:
-                continue
-            source = contents.decode("utf-8", errors="replace")
-            if path.suffix.casefold() == ".css":
-                remote = any(remote_resource(target) for target in css_targets(source))
-            else:
-                remote = html_loads_remote_resource(source)
-            if remote:
-                violations.append(
-                    f"{path_label}: generated output loads a remote resource"
-                )
+            check_generated_file(root, Path(directory) / name, violations)
 
 
 def main(argv: list[str]) -> int:

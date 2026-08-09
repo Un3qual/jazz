@@ -16,6 +16,11 @@ EXPECTED_PATHS = (
     "scripts/example-cases.tsv",
     "scripts/check-website.sh",
     "scripts/check-website-boundary.py",
+    "scripts/check-public-docs.py",
+    "scripts/example_cases.py",
+    "scripts/markdown_targets.py",
+    "scripts/markdown_visibility.py",
+    "scripts/public-doc-fragments.tsv",
     "README.md",
     ".github/workflows/docs-pages.yml",
 )
@@ -48,9 +53,10 @@ REQUIRED_COMMANDS = (
     "npm run test:brand",
     "npm run test:experience",
     "npm run typecheck",
+    "python3 scripts/check-public-docs.py",
     "npm run build",
-    "python3 scripts/check-website-boundary.py",
 )
+BOUNDARY_COMMAND = "python3 scripts/check-website-boundary.py"
 BANNED_WORK_RE = re.compile(
     r"\b(?:cabal|ghc|compiler|benchmark|performance|profil(?:e|ing)?|"
     r"full-parser-scale|parser-scale)\b",
@@ -151,65 +157,73 @@ def step_for(block: str, key: str, value: str) -> str | None:
     return None
 
 
-def validate(root: Path) -> list[str]:
-    workflow_path = root / WORKFLOW
-    try:
-        text = workflow_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        return [f"{WORKFLOW}: cannot read workflow: {exc}"]
+def step_positions(steps: list[str], key: str, value: str) -> list[int]:
+    return [
+        index
+        for index, step in enumerate(steps)
+        if value in step_values(step, key)
+    ]
 
-    violations: list[str] = []
+
+def validate_triggers(text: str, violations: list[str]) -> None:
     on_block = section(text, "on")
     if on_block is None:
         violations.append("workflow trigger block is required")
-    else:
-        triggers = child_keys(on_block, 2)
-        if "workflow_dispatch" not in triggers:
-            violations.append("workflow_dispatch trigger is required")
-        if "pull_request" in triggers or re.search(r"(?m)^\s*pull_request(?:_target)?:", on_block):
-            violations.append("pull_request triggers are forbidden")
-        if set(triggers) != {"push", "workflow_dispatch"}:
-            violations.append("workflow triggers must be exactly push and workflow_dispatch")
+        return
 
-        push_block = section(on_block, "push", 2)
-        if push_block is None:
-            violations.append("push trigger is required")
-        else:
-            branches_block = section(push_block, "branches", 4)
-            branches = list_values(branches_block or "", 6)
-            if branches != ["main"]:
-                violations.append("push branch must be exactly main")
-            paths_block = section(push_block, "paths", 4)
-            paths = list_values(paths_block or "", 6)
-            if tuple(paths) != EXPECTED_PATHS:
-                violations.append(
-                    "push paths must be exactly: " + ", ".join(EXPECTED_PATHS)
-                )
+    triggers = child_keys(on_block, 2)
+    if "workflow_dispatch" not in triggers:
+        violations.append("workflow_dispatch trigger is required")
+    if "pull_request" in triggers or re.search(
+        r"(?m)^\s*pull_request(?:_target)?:", on_block
+    ):
+        violations.append("pull_request triggers are forbidden")
+    if set(triggers) != {"push", "workflow_dispatch"}:
+        violations.append("workflow triggers must be exactly push and workflow_dispatch")
 
+    push_block = section(on_block, "push", 2)
+    if push_block is None:
+        violations.append("push trigger is required")
+        return
+    branches = list_values(section(push_block, "branches", 4) or "", 6)
+    if branches != ["main"]:
+        violations.append("push branch must be exactly main")
+    paths = list_values(section(push_block, "paths", 4) or "", 6)
+    if tuple(paths) != EXPECTED_PATHS:
+        violations.append("push paths must be exactly: " + ", ".join(EXPECTED_PATHS))
+
+
+def validate_workflow_scope(text: str, violations: list[str]) -> None:
     if re.search(r"(?m)^permissions:\s*\{\}\s*(?:#.*)?$", text) is None:
         violations.append("workflow permissions must be empty")
-
-    concurrency_block = section(text, "concurrency")
-    concurrency = mapping_values(concurrency_block or "", 2)
-    if concurrency.get("group") != "pages" or concurrency.get("cancel-in-progress") != "true":
+    concurrency = mapping_values(section(text, "concurrency") or "", 2)
+    if (
+        concurrency.get("group") != "pages"
+        or concurrency.get("cancel-in-progress") != "true"
+    ):
         violations.append("concurrency must use group pages with cancel-in-progress true")
+    if BANNED_WORK_RE.search(text):
+        violations.append("compiler or performance work is forbidden in the Pages workflow")
 
+
+def workflow_job_blocks(text: str, violations: list[str]) -> tuple[str, str]:
     jobs_block = section(text, "jobs")
-    job_keys = child_keys(jobs_block or "", 2)
-    if job_keys != ["build", "deploy"]:
+    if child_keys(jobs_block or "", 2) != ["build", "deploy"]:
         violations.append("jobs must be exactly build followed by deploy")
     build_block = section(jobs_block or "", "build", 2)
     deploy_block = section(jobs_block or "", "deploy", 2)
     if build_block is None:
         violations.append("build job is required")
-        build_block = ""
     if deploy_block is None:
         violations.append("deploy job is required")
-        deploy_block = ""
+    return build_block or "", deploy_block or ""
 
+
+def validate_job_shape(
+    build_block: str, deploy_block: str, violations: list[str]
+) -> None:
     for job_name, job_block in (("build", build_block), ("deploy", deploy_block)):
-        permissions_block = section(job_block, "permissions", 4)
-        permissions = mapping_values(permissions_block or "", 6)
+        permissions = mapping_values(section(job_block, "permissions", 4) or "", 6)
         expected_permissions = EXPECTED_JOB_PERMISSIONS[job_name]
         if permissions != expected_permissions:
             expected_label = ", ".join(
@@ -218,16 +232,13 @@ def validate(root: Path) -> list[str]:
             violations.append(
                 f"{job_name} permissions must be exactly {expected_label}"
             )
-
     if "    runs-on: ubuntu-latest" not in build_block:
         violations.append("build job must run on ubuntu-latest")
     if "    runs-on: ubuntu-latest" not in deploy_block:
         violations.append("deploy job must run on ubuntu-latest")
 
-    job_steps = {
-        "build": step_blocks(build_block),
-        "deploy": step_blocks(deploy_block),
-    }
+
+def validate_actions(job_steps: dict[str, list[str]], violations: list[str]) -> None:
     for job_name, steps in job_steps.items():
         uses = [
             action
@@ -245,6 +256,8 @@ def validate(root: Path) -> list[str]:
                 f"unexpected or unpinned action in {job_name} job: {action}"
             )
 
+
+def validate_build_setup(build_block: str, violations: list[str]) -> None:
     setup_step = step_for(build_block, "uses", SETUP_NODE_ACTION) or ""
     if re.search(r"(?m)^\s+node-version:\s+['\"]?22['\"]?\s*$", setup_step) is None:
         violations.append("setup-node must use Node.js 22")
@@ -256,8 +269,16 @@ def validate(root: Path) -> list[str]:
     ) is None:
         violations.append("npm cache must use website/package-lock.json")
 
+    checkout_step = step_for(build_block, "uses", CHECKOUT_ACTION) or ""
+    checkout_with = section(checkout_step, "with", 8) or ""
+    if mapping_values(checkout_with, 10).get("persist-credentials") != "false":
+        violations.append("checkout must disable credential persistence")
+
+
+def validate_required_commands(
+    build_steps: list[str], violations: list[str]
+) -> None:
     command_positions: list[int] = []
-    build_steps = job_steps["build"]
     for command in REQUIRED_COMMANDS:
         matches = [
             (index, step)
@@ -275,37 +296,64 @@ def validate(root: Path) -> list[str]:
                 r"(?m)^\s+working-directory:\s+website\s*$", step
             ) is None:
                 violations.append(f"website command must run in website/: {command}")
-    if len(command_positions) == len(REQUIRED_COMMANDS) and command_positions != sorted(command_positions):
-        violations.append("required website commands must appear exactly once and in order")
-
-    order_fields = (
-        ("run", "npm run build"),
-        ("run", "python3 scripts/check-website-boundary.py"),
-        ("uses", CONFIGURE_PAGES_ACTION),
-        ("uses", UPLOAD_PAGES_ACTION),
-    )
-    order_positions = [
-        next(
-            (
-                index
-                for index, step in enumerate(build_steps)
-                if value in step_values(step, key)
-            ),
-            -1,
+    if (
+        len(command_positions) == len(REQUIRED_COMMANDS)
+        and command_positions != sorted(command_positions)
+    ):
+        violations.append(
+            "required website commands must appear exactly once and in order"
         )
-        for key, value in order_fields
-    ]
-    if any(position < 0 for position in order_positions) or order_positions != sorted(order_positions):
-        violations.append("generated publication boundary check is required after build and before Pages upload")
 
+
+def validate_publication_order(
+    build_steps: list[str], violations: list[str]
+) -> None:
+    build_positions = step_positions(build_steps, "run", "npm run build")
+    build_position = build_positions[0] if len(build_positions) == 1 else -1
+    public_docs_positions = step_positions(
+        build_steps, "run", "python3 scripts/check-public-docs.py"
+    )
+    if len(public_docs_positions) != 1 or public_docs_positions[0] >= build_position:
+        violations.append("public documentation check is required before build")
+
+    boundary_positions = step_positions(build_steps, "run", BOUNDARY_COMMAND)
+    if len(boundary_positions) != 2 or not (
+        boundary_positions[0] < build_position < boundary_positions[1]
+    ):
+        violations.append("source publication boundary check is required before build")
+
+    configure_positions = step_positions(build_steps, "uses", CONFIGURE_PAGES_ACTION)
+    upload_positions = step_positions(build_steps, "uses", UPLOAD_PAGES_ACTION)
+    postbuild_positions = (
+        [boundary_positions[1], configure_positions[0], upload_positions[0]]
+        if len(boundary_positions) == 2
+        and len(configure_positions) == 1
+        and len(upload_positions) == 1
+        else []
+    )
+    if (
+        build_position < 0
+        or len(postbuild_positions) != 3
+        or [build_position, *postbuild_positions]
+        != sorted([build_position, *postbuild_positions])
+    ):
+        violations.append(
+            "generated publication boundary check is required after build and "
+            "before Pages upload"
+        )
+
+
+def validate_deployment(
+    build_block: str, deploy_block: str, violations: list[str]
+) -> None:
     upload_step = step_for(build_block, "uses", UPLOAD_PAGES_ACTION) or ""
-    if re.search(r"(?m)^\s+path:\s+['\"]?website/build['\"]?\s*$", upload_step) is None:
+    if re.search(
+        r"(?m)^\s+path:\s+['\"]?website/build['\"]?\s*$", upload_step
+    ) is None:
         violations.append("Pages artifact path must be website/build")
-
     if re.search(r"(?m)^\s{4}needs:\s+build\s*$", deploy_block) is None:
         violations.append("deploy job must depend on build")
-    environment_block = section(deploy_block, "environment", 4) or ""
-    environment = mapping_values(environment_block, 6)
+    environment = mapping_values(section(deploy_block, "environment", 4) or "", 6)
     if environment.get("name") != "github-pages":
         violations.append("deploy environment must be github-pages")
     if environment.get("url") != "${{ steps.deployment.outputs.page_url }}":
@@ -314,8 +362,28 @@ def validate(root: Path) -> list[str]:
     if re.search(r"(?m)^\s+id:\s+deployment\s*$", deploy_step) is None:
         violations.append("deploy-pages step must use id deployment")
 
-    if BANNED_WORK_RE.search(text):
-        violations.append("compiler or performance work is forbidden in the Pages workflow")
+
+def validate(root: Path) -> list[str]:
+    workflow_path = root / WORKFLOW
+    try:
+        text = workflow_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"{WORKFLOW}: cannot read workflow: {exc}"]
+
+    violations: list[str] = []
+    validate_triggers(text, violations)
+    validate_workflow_scope(text, violations)
+    build_block, deploy_block = workflow_job_blocks(text, violations)
+    validate_job_shape(build_block, deploy_block, violations)
+    job_steps = {
+        "build": step_blocks(build_block),
+        "deploy": step_blocks(deploy_block),
+    }
+    validate_actions(job_steps, violations)
+    validate_build_setup(build_block, violations)
+    validate_required_commands(job_steps["build"], violations)
+    validate_publication_order(job_steps["build"], violations)
+    validate_deployment(build_block, deploy_block, violations)
 
     return sorted(set(violations))
 

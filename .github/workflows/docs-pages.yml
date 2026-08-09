@@ -11,6 +11,11 @@ on:
       - "scripts/example-cases.tsv"
       - "scripts/check-website.sh"
       - "scripts/check-website-boundary.py"
+      - "scripts/check-public-docs.py"
+      - "scripts/example_cases.py"
+      - "scripts/markdown_targets.py"
+      - "scripts/markdown_visibility.py"
+      - "scripts/public-doc-fragments.tsv"
       - "README.md"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
@@ -29,6 +34,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -52,6 +59,12 @@ jobs:
       - name: Type-check website
         run: npm run typecheck
         working-directory: website
+
+      - name: Check public documentation
+        run: python3 scripts/check-public-docs.py
+
+      - name: Check source publication boundary
+        run: python3 scripts/check-website-boundary.py
 
       - name: Build website
         run: npm run build

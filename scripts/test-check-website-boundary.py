@@ -376,6 +376,30 @@ export default function Home(props: object) {
             "website/build/index.html: generated output loads a remote resource"
         )
 
+    def test_generated_html_rejects_namespaced_svg_resource_attributes(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            '<svg><image xlink:href="https://images.example/mark.svg"></image></svg>',
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/build/index.html: generated output loads a remote resource"
+        )
+
+    def test_generated_html_rejects_browser_normalized_remote_authorities(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        for markup in (
+            '<img src="/&#10;/images.example/mark.svg">',
+            r'<img src="\\images.example\mark.svg">',
+        ):
+            with self.subTest(markup=markup):
+                (build / "index.html").write_text(markup, encoding="utf-8")
+                self.assert_violation(
+                    "website/build/index.html: generated output loads a remote resource"
+                )
+
     def test_generated_html_rejects_effective_remote_duplicate_attributes(self) -> None:
         build = self.root / "website/build"
         build.mkdir()
@@ -466,6 +490,19 @@ export default function Home(props: object) {
         self.assert_violation(
             "website/build/styles.css: generated output loads a remote resource"
         )
+
+    def test_generated_css_rejects_escaped_and_image_set_remote_resources(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        for css in (
+            r".a{background:url(h\74 tps://images.example/a.png)}",
+            '.a{background-image:image-set("https://images.example/a.png" 1x)}',
+        ):
+            with self.subTest(css=css):
+                (build / "styles.css").write_text(css, encoding="utf-8")
+                self.assert_violation(
+                    "website/build/styles.css: generated output loads a remote resource"
+                )
 
     def test_generated_css_allows_local_and_embedded_resources(self) -> None:
         build = self.root / "website/build"

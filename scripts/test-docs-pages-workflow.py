@@ -26,6 +26,11 @@ on:
       - "scripts/example-cases.tsv"
       - "scripts/check-website.sh"
       - "scripts/check-website-boundary.py"
+      - "scripts/check-public-docs.py"
+      - "scripts/example_cases.py"
+      - "scripts/markdown_targets.py"
+      - "scripts/markdown_visibility.py"
+      - "scripts/public-doc-fragments.tsv"
       - "README.md"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
@@ -39,11 +44,13 @@ concurrency:
 jobs:
   build:
     permissions:
-      contents: read
+      contents: read # Checkout reads the source used to build the site.
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -62,6 +69,10 @@ jobs:
       - name: Type-check website
         run: npm run typecheck
         working-directory: website
+      - name: Check public documentation
+        run: python3 scripts/check-public-docs.py
+      - name: Check source publication boundary
+        run: python3 scripts/check-website-boundary.py
       - name: Build website
         run: npm run build
         working-directory: website
@@ -76,8 +87,8 @@ jobs:
 
   deploy:
     permissions:
-      pages: write
-      id-token: write
+      pages: write # Publish the checked Pages artifact.
+      id-token: write # Authenticate the deployment through OIDC.
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -141,6 +152,11 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         for path in (
             "scripts/check-website.sh",
             "scripts/check-website-boundary.py",
+            "scripts/check-public-docs.py",
+            "scripts/example_cases.py",
+            "scripts/markdown_targets.py",
+            "scripts/markdown_visibility.py",
+            "scripts/public-doc-fragments.tsv",
         ):
             with self.subTest(path=path):
                 self.workflow.write_text(VALID_WORKFLOW, encoding="utf-8")
@@ -183,6 +199,10 @@ class DocsPagesWorkflowTests(unittest.TestCase):
                 self.workflow.write_text(VALID_WORKFLOW, encoding="utf-8")
                 self.replace(expected, replacement)
                 self.assert_violation("required action is missing from")
+
+    def test_checkout_must_not_persist_credentials(self) -> None:
+        self.replace("          persist-credentials: false", "          persist-credentials: true")
+        self.assert_violation("checkout must disable credential persistence")
 
     def test_block_scalar_text_cannot_impersonate_actions_or_commands(self) -> None:
         self.replace(
@@ -236,6 +256,22 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_rejects_commands_prefixed_with_echo(self) -> None:
         self.replace("        run: npm ci", "        run: echo npm ci")
         self.assert_violation("required command is missing: npm ci")
+
+    def test_requires_public_docs_validation_before_build(self) -> None:
+        self.replace(
+            "      - name: Check public documentation\n"
+            "        run: python3 scripts/check-public-docs.py\n",
+            "",
+        )
+        self.assert_violation("public documentation check is required before build")
+
+    def test_requires_source_boundary_before_build(self) -> None:
+        self.replace(
+            "      - name: Check source publication boundary\n"
+            "        run: python3 scripts/check-website-boundary.py\n",
+            "",
+        )
+        self.assert_violation("source publication boundary check is required before build")
 
     def test_requires_post_build_publication_boundary(self) -> None:
         self.replace(
