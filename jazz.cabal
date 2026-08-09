@@ -29,6 +29,14 @@ extra-source-files:
     test/fixtures/runtime-observation/module-success/src/App/*.jz
     test/fixtures/runtime-observation/module-cache/src/App/*.jz
     test/fixtures/runtime-observation/module-profile/src/App/*.jz
+    .gitignore
+    AGENTS.md
+    flake.nix
+    cabal.project
+    cabal.project.profile-hotspots
+    cabal.project.profile-stages
+    scripts/*.py
+    scripts/*.sh
 
 flag development
   description: Treat compiler warnings as build failures in the repository workspace.

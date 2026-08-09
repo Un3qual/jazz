@@ -51,10 +51,12 @@ positions, tokens, diagnostics, parser state, collection helpers, and compiler
 logic. Host-backed implementations are permitted behind stable Jazz standard-
 library APIs when their semantics and deterministic ordering are explicit.
 
-The profile is rank-1 and backend-neutral. It includes Unicode `Char` and
-`Text`, generic named types, explicit-import library modules, deterministic
-host I/O, and tail-safe hosted traversal. It does not authorize Haskell
-compiler callbacks inside Jazz-authored compiler modules.
+The profile is rank-1 and backend-neutral: polymorphic schemes quantify type
+variables only at their outermost level, and higher-rank function arguments or
+results are outside the profile. It includes Unicode `Char` and `Text`, generic
+named types, explicit-import library modules, deterministic host I/O, and
+tail-safe hosted traversal. It does not authorize Haskell compiler callbacks
+inside Jazz-authored compiler modules.
 
 The current hosted boundary includes a Jazz-authored lexer, complete parser,
 and canonical-core lowerer with differential parity evidence. Matching typed-

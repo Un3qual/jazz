@@ -1530,6 +1530,4 @@ preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."
 
 isBundledPreludePath :: FilePath -> Bool
-isBundledPreludePath path =
-  path == "jazz/jazz/stdlib/Prelude.jz"
-    || path == "jazz/stdlib/Prelude.jz"
+isBundledPreludePath path = path == "jazz/stdlib/Prelude.jz"

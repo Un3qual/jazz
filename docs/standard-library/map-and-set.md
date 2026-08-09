@@ -4,8 +4,6 @@ description: Use persistent ordered maps and sets with logarithmic lookup and up
 sidebar_position: 7
 ---
 
-# Map and Set
-
 ## Map
 
 `Map(k, v)` is an abstract persistent balanced search tree. Key operations

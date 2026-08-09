@@ -3,12 +3,42 @@
 
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
+import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
+
+from example_cases import case_source_binding_violation
+from markdown_targets import (
+    FULL_REFERENCE_RE,
+    MarkdownInlineLink,
+    decode_markdown_escapes_and_html_entities,
+    html_image_targets,
+    html_visible_text,
+    html_reference_targets,
+    markdown_inline_links,
+    rendered_heading_fragments,
+    rendered_heading_levels,
+    unescape_markdown_punctuation,
+    used_reference_image_targets,
+    used_reference_targets,
+    without_inert_html_subtrees,
+)
+from markdown_visibility import (
+    markdown_fences,
+    renderable_source_markdown,
+    rendered_markdown,
+    rendered_html_source_markdown,
+    rendered_markdown_with_code,
+    visible_markdown,
+    without_indented_code_blocks,
+)
 
 
 ALLOWED_DOCS_ENTRIES = {
@@ -21,7 +51,7 @@ ALLOWED_DOCS_ENTRIES = {
     "index.md",
 }
 
-BANNED_REFERENCES = (
+PUBLIC_IDENTITY_BANNED_TERMS = (
     "docs/superpowers",
     "docs/execution",
     ".codex/",
@@ -29,6 +59,16 @@ BANNED_REFERENCES = (
     "JazzNext",
     "jazz-hs",
     "jazz2",
+)
+PUBLIC_GENERATED_OUTPUT_BANNED_TERMS = (
+    "JavaScript output",
+    "JavaScript artifact",
+)
+PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS = ("__kernel_",)
+BANNED_REFERENCES = (
+    *PUBLIC_IDENTITY_BANNED_TERMS,
+    *PUBLIC_GENERATED_OUTPUT_BANNED_TERMS,
+    *PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS,
 )
 
 README_TAGLINE = "A statically typed functional language with practical syntax"
@@ -48,6 +88,14 @@ PAGES_ACTIVATION_FOLLOW_UP = (
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
+README_FACTORIAL_OUTPUT_MARKER = "<!-- jazz-example-output: case=factorial -->"
+README_LICENSE_LINK = "[GPL-3.0-only](LICENSE)"
+README_QUICK_START_COMMANDS = (
+    "nix develop",
+    "cabal build all",
+    f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
+)
+README_SHELL_FENCE_INFOS = frozenset({"bash", "sh", "shell"})
 README_REQUIRED_LINKS = (
     "docs/getting-started/overview.md",
     "docs/language/overview.md",
@@ -61,15 +109,10 @@ README_REQUIRED_LINKS = (
     PUBLIC_WEBSITE_URL,
 )
 README_BANNED_TERMS = (
-    "docs/superpowers",
-    "docs/execution",
-    ".codex/",
+    *PUBLIC_IDENTITY_BANNED_TERMS,
+    *PUBLIC_PRIVATE_RUNTIME_BANNED_TERMS,
     "rfcs/",
     "docs/spec",
-    "jazz-next",
-    "JazzNext",
-    "jazz-hs",
-    "jazz2",
     "superpowers",
     "Spec Authority",
     "Repository Governance",
@@ -93,7 +136,7 @@ README_ORDERED_TOKENS = (
     README_TAGLINE,
     README_MATURITY_NOTICE,
     README_FACTORIAL_MARKER,
-    "```text\n720\n```",
+    README_FACTORIAL_OUTPUT_MARKER,
     "## Quick start",
     "## Available today",
     "## In development",
@@ -141,19 +184,15 @@ REQUIRED_PAGES = (
     "project/governance.md",
     "project/contributing.md",
 )
+REQUIRED_PAGE_FORBIDDEN_FRONT_MATTER = frozenset({"draft"})
 
-HTML_IMAGE_RE = re.compile(
-    r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
-)
-HTML_SOURCE_RE = re.compile(
-    r"<source\b[^>]*\bsrcset=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
-)
-REFERENCE_DEFINITION_RE = re.compile(
-    r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
+LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+REFERENCE_DEFINITION_BLOCK_RE = re.compile(
+    r"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*(?:\r?\n|$)"
+    r"(?:[ \t]{1,3}(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\))"
+    r"[ \t]*(?:\r?\n|$))?",
     re.MULTILINE,
 )
-FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
-SHORTCUT_REFERENCE_RE = re.compile(r"\[([^\]]+)\](?![\[(])")
 JAZZ_EXAMPLE_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:.*?-->", re.DOTALL
 )
@@ -163,38 +202,107 @@ EXECUTABLE_MARKER_RE = re.compile(
 FRAGMENT_MARKER_RE = re.compile(
     r"<!--\s*jazz-example:\s*fragment\s*-->"
 )
+EXAMPLE_OUTPUT_MARKER_RE = re.compile(
+    r"<!--\s*jazz-example-output:\s*case=([A-Za-z0-9][A-Za-z0-9_-]*)\s*-->"
+)
 EXAMPLE_CASES_PATH = "scripts/example-cases.tsv"
 EXAMPLE_CASE_HEADER = ("name", "sources", "expected", "args")
 EXAMPLE_CASE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
-EXAMPLE_CASE_LOOP_RE = re.compile(
-    r"^[ \t]*while[ \t]+IFS=\$'\\t'[ \t]+read[ \t]+-r[ \t]+"
-    r"case_name[ \t]+case_sources[ \t]+case_expected[ \t]+case_args_text"
-    r"[ \t]*;[ \t]*do[ \t]*\r?\n"
-    r"(?P<body>.*?)"
-    r"^[ \t]*done[ \t]*<[ \t]*scripts/example-cases\.tsv[ \t]*$",
-    re.MULTILINE | re.DOTALL,
+FRAGMENT_INVENTORY_PATH = "scripts/public-doc-fragments.tsv"
+FRAGMENT_INVENTORY_HEADER = ("document", "ordinal", "sha256")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+DIAGNOSTIC_CODE_RE = re.compile(
+    r"^(?:error|warning): (E[0-9]{4}|W[0-9]{4})\b", re.MULTILINE
 )
-EXAMPLE_RUNNER_CALL_RE = re.compile(
-    r'^[ \t]*run_example[ \t]+"\$case_name"[ \t]+'
-    r'"\$case_expected"[ \t]+"\$\{case_args\[@\]\}"[ \t]*$',
-    re.MULTILINE,
+CLI_OVERRIDE_ENV = (
+    "JAZZ_PRELUDE",
+    "JAZZ_WARNING_FLAGS",
+    "JAZZ_WARNING_ERROR_FLAGS",
+    "JAZZ_WARNING_CONFIG",
 )
+FRAGMENT_SYNTAX_ERROR_CODES = frozenset({"E0001"})
+FRAGMENT_CHECK_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
-class MarkdownFence:
-    start: int
-    end: int
-    source: str
-    is_jazz: bool
-    closed: bool
+class ExampleCase:
+    sources: frozenset[str]
+    expected: str
 
 
-@dataclass(frozen=True)
-class MarkdownLink:
-    label: str
-    raw_target: str
-    is_image: bool
+def blank_markdown_metadata(text: str) -> str:
+    characters = list(text)
+    spans = [
+        match.span()
+        for match in REFERENCE_DEFINITION_BLOCK_RE.finditer(text)
+    ]
+    spans.extend(match.span(1) for match in LINK_RE.finditer(text))
+    spans.extend(match.span(2) for match in FULL_REFERENCE_RE.finditer(text))
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
+def rendered_contract_text_with_code(text: str) -> str:
+    rendered_source = without_inert_html_subtrees(
+        rendered_markdown_with_code(text)
+    )
+    fence_sources = [
+        fence.source
+        for fence in markdown_fences(rendered_source)
+        if fence.closed
+    ]
+    rendered_prose = without_inert_html_subtrees(rendered_markdown(text))
+    visible_prose = html_visible_text(blank_markdown_metadata(rendered_prose))
+    return "\n".join([visible_prose, *fence_sources])
+
+
+def exact_visible_line_positions(text: str) -> dict[str, int]:
+    visible_source = without_inert_html_subtrees(visible_markdown(text))
+    positions: dict[str, int] = {}
+    offset = 0
+    for line_with_ending in visible_source.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
+        positions.setdefault(line, offset)
+        offset += len(line_with_ending)
+    return positions
+
+
+def markdown_section_body_source(text: str, heading: str) -> str | None:
+    source_lines = text.splitlines(keepends=True)
+    structural_lines = without_inert_html_subtrees(
+        visible_markdown(text)
+    ).splitlines()
+    heading_lines = [
+        index for index, line in enumerate(structural_lines) if line == heading
+    ]
+    if len(heading_lines) != 1:
+        return None
+    start = heading_lines[0] + 1
+    end = next(
+        (
+            index
+            for index in range(start, len(structural_lines))
+            if structural_lines[index].startswith("## ")
+        ),
+        len(structural_lines),
+    )
+    return "".join(source_lines[start:end])
+
+
+def rendered_shell_command_lines(text: str) -> set[str]:
+    renderable = without_inert_html_subtrees(renderable_source_markdown(text))
+    return {
+        line.strip()
+        for fence in markdown_fences(renderable)
+        if fence.closed
+        and fence.info is not None
+        and fence.info.casefold() in README_SHELL_FENCE_INFOS
+        for line in fence.source.splitlines()
+        if line.strip()
+    }
 
 
 def relative(root: Path, path: Path) -> str:
@@ -209,8 +317,30 @@ def read_text(path: Path, root: Path, violations: list[str]) -> str | None:
         return None
 
 
-def front_matter_fields(text: str) -> set[str] | None:
-    lines = text.splitlines()
+def supported_yaml_scalar(value: str) -> bool:
+    """Accept the one-line scalar subset used by public documentation metadata."""
+    if not value:
+        return False
+    if value[0] == '"':
+        try:
+            return isinstance(json.loads(value), str)
+        except json.JSONDecodeError:
+            return False
+    if value[0] == "'":
+        if len(value) < 2 or value[-1] != "'":
+            return False
+        return "'" not in value[1:-1].replace("''", "")
+    if value[0] in "-?:[]{}#&*!|>%@`":
+        return False
+    if any(character in value for character in "[]{}"):
+        return False
+    if re.search(r":(?:[ \t]|$)|(?:^|[ \t])#", value) is not None:
+        return False
+    return True
+
+
+def front_matter(text: str) -> tuple[set[str], str] | None:
+    lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
         return None
     try:
@@ -219,139 +349,85 @@ def front_matter_fields(text: str) -> set[str] | None:
         return None
     fields: set[str] = set()
     for line in lines[1:end]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith((" ", "\t")) or "\t" in line:
+            return None
         match = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$", line)
-        if match and (match.group(2) or "").strip():
-            fields.add(match.group(1))
-    return fields
+        if match is None or not (match.group(2) or "").strip():
+            return None
+        field = match.group(1)
+        if field in fields:
+            return None
+        value = (match.group(2) or "").strip()
+        if not supported_yaml_scalar(value):
+            return None
+        fields.add(field)
+    return fields, "".join(lines[end + 1 :])
 
 
 def markdown_link_target(raw_target: str) -> str:
     target = raw_target.strip()
+    if not target:
+        return ""
     if target.startswith("<") and ">" in target:
-        return target[1 : target.index(">")]
-    # Markdown permits an optional title after a whitespace-delimited target.
-    return target.split(maxsplit=1)[0]
+        destination = target[1 : target.index(">")]
+    else:
+        # Markdown permits an optional title after a whitespace-delimited target.
+        destination = target.split(maxsplit=1)[0]
+    return unescape_markdown_punctuation(destination)
 
 
-def normalize_reference_label(label: str) -> str:
-    return re.sub(r"\s+", " ", label.strip()).casefold()
+def decoded_public_policy_text(text: str) -> str:
+    return decode_markdown_escapes_and_html_entities(text).casefold()
 
 
-def is_escaped(text: str, position: int) -> bool:
-    backslashes = 0
-    position -= 1
-    while position >= 0 and text[position] == "\\":
-        backslashes += 1
-        position -= 1
-    return backslashes % 2 == 1
-
-
-def markdown_inline_links(text: str) -> list[MarkdownLink]:
-    """Extract unescaped inline links and images from already-masked Markdown."""
-    links: list[MarkdownLink] = []
-    index = 0
-    while index < len(text):
-        if text[index] != "[" or is_escaped(text, index):
-            index += 1
-            continue
-
-        label_start = index + 1
-        label_end = label_start
-        bracket_depth = 1
-        while label_end < len(text) and bracket_depth:
-            if not is_escaped(text, label_end):
-                if text[label_end] == "[":
-                    bracket_depth += 1
-                elif text[label_end] == "]":
-                    bracket_depth -= 1
-            label_end += 1
-        if bracket_depth or label_end >= len(text) or text[label_end] != "(":
-            index += 1
-            continue
-
-        target_start = label_end + 1
-        target_end = target_start
-        parenthesis_depth = 1
-        if target_start < len(text) and text[target_start] == "<":
-            target_end += 1
-            while target_end < len(text):
-                if text[target_end] == ">" and not is_escaped(text, target_end):
-                    target_end += 1
-                    break
-                target_end += 1
-            else:
-                index += 1
-                continue
-        while target_end < len(text) and parenthesis_depth:
-            if not is_escaped(text, target_end):
-                if text[target_end] == "(":
-                    parenthesis_depth += 1
-                elif text[target_end] == ")":
-                    parenthesis_depth -= 1
-            target_end += 1
-        if parenthesis_depth:
-            index += 1
-            continue
-
-        image_marker = index - 1
-        is_image = (
-            image_marker >= 0
-            and text[image_marker] == "!"
-            and not is_escaped(text, image_marker)
-        )
-        links.extend(markdown_inline_links(text[label_start : label_end - 1]))
-        links.append(
-            MarkdownLink(
-                label=text[label_start : label_end - 1],
-                raw_target=text[target_start : target_end - 1],
-                is_image=is_image,
-            )
-        )
-        index = target_end
-    return links
-
-
-def used_reference_targets(text: str) -> list[str]:
-    definitions: dict[str, list[str]] = {}
-    definition_spans: list[tuple[int, int]] = []
-    for match in REFERENCE_DEFINITION_RE.finditer(text):
-        label = normalize_reference_label(match.group(1))
-        target = match.group(2) or match.group(3)
-        definitions.setdefault(label, []).append(target)
-        definition_spans.append(match.span())
-
-    # Reference definitions are not shortcut usages. Blank them while
-    # preserving offsets so usage parsing cannot reinterpret `[label]:`.
-    usage_text = list(text)
-    for start, end in definition_spans:
-        usage_text[start:end] = " " * (end - start)
-    usages = "".join(usage_text)
-
-    used_labels: set[str] = set()
-    full_reference_spans: list[tuple[int, int]] = []
-    for match in FULL_REFERENCE_RE.finditer(usages):
-        if is_escaped(usages, match.start()):
-            continue
-        label = match.group(2) or match.group(1)
-        used_labels.add(normalize_reference_label(label))
-        full_reference_spans.append(match.span())
-
-    shortcut_text = list(usages)
-    for start, end in full_reference_spans:
-        shortcut_text[start:end] = " " * (end - start)
-    shortcut_usages = "".join(shortcut_text)
-    for match in SHORTCUT_REFERENCE_RE.finditer(shortcut_usages):
-        if is_escaped(shortcut_usages, match.start()):
-            continue
-        label = normalize_reference_label(match.group(1))
-        if label in definitions:
-            used_labels.add(label)
-
-    return sorted(
-        target
-        for label in used_labels
-        for target in definitions.get(label, [])
+def visible_link_has_label(
+    links: list[MarkdownInlineLink], expected_label: str, expected_target: str
+) -> bool:
+    return any(
+        not link.is_image
+        and link.label == expected_label
+        and markdown_link_target(link.raw_target) == expected_target
+        for link in links
     )
+
+
+def visible_text_contains_phrase(text: str, expected: str) -> bool:
+    normalized_text = " ".join(text.split()).casefold()
+    normalized_expected = " ".join(expected.split()).casefold()
+    return normalized_expected in normalized_text
+
+
+def local_markdown_fragment_violation(
+    candidate: Path, fragment: str, raw_target: str
+) -> str | None:
+    if not fragment or candidate.suffix.casefold() not in {".md", ".mdx"}:
+        return None
+    try:
+        target_text = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    parsed_front_matter = front_matter(target_text)
+    markdown_body = (
+        parsed_front_matter[1]
+        if parsed_front_matter is not None
+        else target_text
+    )
+    if fragment not in rendered_heading_fragments(markdown_body):
+        return (
+            "link fragment does not exist: "
+            f"{markdown_link_target(raw_target)}"
+        )
+    return None
+
+
+def internal_repository_path_label(candidate: Path, root: Path) -> str | None:
+    for internal_name in (".codex", "rfcs"):
+        internal_root = root / internal_name
+        if candidate == internal_root or internal_root in candidate.parents:
+            return f"{internal_name}/"
+    return None
 
 
 def resolves_within(path: Path, directory: Path) -> bool:
@@ -368,11 +444,7 @@ def internal_escape_label(doc_path: Path, raw_target: str, docs_root: Path) -> s
     if parsed.scheme or parsed.netloc or not parsed.path:
         return None
     candidate = (doc_path.parent / parsed.path).resolve()
-    for internal_name in (".codex", "rfcs"):
-        internal_root = docs_root.parent / internal_name
-        if candidate == internal_root or internal_root in candidate.parents:
-            return f"{internal_name}/"
-    return None
+    return internal_repository_path_label(candidate, docs_root.parent.resolve())
 
 
 def local_docs_link_violation(
@@ -380,14 +452,218 @@ def local_docs_link_violation(
 ) -> str | None:
     target = unquote(markdown_link_target(raw_target))
     parsed = urlsplit(target)
-    if parsed.scheme or parsed.netloc or not parsed.path:
+    if parsed.scheme or parsed.netloc:
         return None
-    candidate = (doc_path.parent / parsed.path).resolve()
+    candidate = (
+        (doc_path.parent / parsed.path).resolve()
+        if parsed.path
+        else doc_path.resolve()
+    )
     if not resolves_within(candidate, docs_root.resolve()):
         return f"public link leaves docs/: {markdown_link_target(raw_target)}"
     if not candidate.is_file():
         return f"public link target does not exist: {markdown_link_target(raw_target)}"
+    fragment_violation = local_markdown_fragment_violation(
+        candidate, parsed.fragment, raw_target
+    )
+    if fragment_violation is not None:
+        return f"public {fragment_violation}"
     return None
+
+
+def local_readme_link_violation(root: Path, raw_target: str) -> str | None:
+    target = unquote(markdown_link_target(raw_target))
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc or (not parsed.path and not parsed.fragment):
+        return None
+    canonical_root = root.resolve()
+    candidate = (
+        (root / parsed.path).resolve()
+        if parsed.path
+        else (root / "README.md").resolve()
+    )
+    if not resolves_within(candidate, canonical_root):
+        return f"local link leaves repository: {markdown_link_target(raw_target)}"
+    internal_label = internal_repository_path_label(candidate, canonical_root)
+    if internal_label is not None:
+        return (
+            f"local link targets internal tree {internal_label}: "
+            f"{markdown_link_target(raw_target)}"
+        )
+    if not candidate.is_file():
+        return f"local link target does not exist: {markdown_link_target(raw_target)}"
+    fragment_violation = local_markdown_fragment_violation(
+        candidate, parsed.fragment, raw_target
+    )
+    if fragment_violation is not None:
+        return f"local {fragment_violation}"
+    return None
+
+
+def resolve_jazz_binary(
+    explicit: str | None,
+) -> tuple[Path | None, str | None]:
+    if explicit is None:
+        return None, None
+    binary = Path(explicit).resolve()
+    if not binary.is_file():
+        return None, f"Jazz executable does not exist: {binary}"
+    return binary, None
+
+
+def load_fragment_inventory(
+    root: Path, violations: list[str]
+) -> set[tuple[str, int, str]]:
+    path = root / FRAGMENT_INVENTORY_PATH
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: cannot read inventory: {exc}")
+        return set()
+    if not text.endswith("\n"):
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: file must end with a newline")
+    rows = text.splitlines()
+    if not rows or tuple(rows[0].split("\t")) != FRAGMENT_INVENTORY_HEADER:
+        violations.append(f"{FRAGMENT_INVENTORY_PATH}: invalid header")
+        return set()
+
+    inventory: set[tuple[str, int, str]] = set()
+    for line_number, row in enumerate(rows[1:], 2):
+        fields = row.split("\t")
+        if len(fields) != len(FRAGMENT_INVENTORY_HEADER):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: "
+                "expected three tab-separated fields"
+            )
+            continue
+        document, raw_ordinal, digest = fields
+        pure_document = PurePosixPath(document)
+        if (
+            pure_document.is_absolute()
+            or ".." in pure_document.parts
+            or pure_document.suffix != ".md"
+            or not (
+                document == "README.md"
+                or (pure_document.parts and pure_document.parts[0] == "docs")
+            )
+        ):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid document path"
+            )
+            continue
+        try:
+            ordinal = int(raw_ordinal)
+        except ValueError:
+            ordinal = 0
+        if ordinal <= 0:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid fragment ordinal"
+            )
+            continue
+        if SHA256_RE.fullmatch(digest) is None:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: invalid SHA-256 digest"
+            )
+            continue
+        entry = (document, ordinal, digest)
+        if entry in inventory:
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}:{line_number}: duplicate fragment entry"
+            )
+            continue
+        inventory.add(entry)
+    return inventory
+
+
+def checked_jazz_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in CLI_OVERRIDE_ENV:
+        environment.pop(name, None)
+    environment["JAZZ_WARNING_CONFIG"] = os.devnull
+    return environment
+
+
+def fragment_programs(source: str) -> tuple[str, ...]:
+    authored = source.rstrip() + "\n"
+    if authored.rstrip().endswith("."):
+        return (authored,)
+    return authored, authored.rstrip() + "\n.\n"
+
+
+def run_fragment_compiler(
+    root: Path,
+    jazz_binary: Path,
+    display: str,
+    source: str,
+    violations: list[str],
+) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            [str(jazz_binary), "--no-prelude"],
+            cwd=root,
+            env=checked_jazz_environment(),
+            input=source,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=FRAGMENT_CHECK_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        violations.append(
+            f"{display}: Jazz fragment syntax check timed out after "
+            f"{FRAGMENT_CHECK_TIMEOUT_SECONDS:g} seconds"
+        )
+    except OSError as exc:
+        violations.append(
+            f"{display}: could not start Jazz fragment syntax check: {exc}"
+        )
+    return None
+
+
+def validate_fragment_syntax(
+    root: Path,
+    jazz_binary: Path,
+    display: str,
+    source: str,
+    violations: list[str],
+) -> None:
+    result: subprocess.CompletedProcess[str] | None = None
+    diagnostic_codes: set[str] = set()
+    syntax_codes: set[str] = set()
+    for program in fragment_programs(source):
+        result = run_fragment_compiler(
+            root, jazz_binary, display, program, violations
+        )
+        if result is None:
+            return
+        diagnostic_codes = set(DIAGNOSTIC_CODE_RE.findall(result.stderr))
+        syntax_codes = diagnostic_codes.intersection(
+            FRAGMENT_SYNTAX_ERROR_CODES
+        )
+        if not syntax_codes:
+            break
+    assert result is not None
+    if not syntax_codes:
+        if result.returncode != 0 and not any(
+            code.startswith("E") for code in diagnostic_codes
+        ):
+            violations.append(
+                f"{display}: Jazz fragment syntax check exited "
+                f"{result.returncode} without a compiler diagnostic"
+            )
+        return
+
+    syntax_diagnostic = next(
+        (
+            line
+            for line in result.stderr.splitlines()
+            if any(f": {code}" in line for code in syntax_codes)
+        ),
+        ", ".join(sorted(syntax_codes)),
+    )
+    violations.append(
+        f"{display}: Jazz fragment has invalid syntax: {syntax_diagnostic}"
+    )
 
 
 def tracked_examples(root: Path, violations: list[str]) -> list[str]:
@@ -435,194 +711,46 @@ def without_one_final_newline(text: str) -> str:
     return text
 
 
-def without_line_ending(line: str) -> str:
-    if line.endswith("\r\n"):
-        return line[:-2]
-    if line.endswith(("\n", "\r")):
-        return line[:-1]
-    return line
-
-
-def leading_spaces(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def fence_opener(line: str) -> tuple[str, int, int, bool] | None:
-    content = without_line_ending(line)
-    indent = leading_spaces(content)
-    if indent > 3:
-        return None
-    candidate = content[indent:]
-    if not candidate or candidate[0] not in ("`", "~"):
-        return None
-
-    delimiter = candidate[0]
-    length = len(candidate) - len(candidate.lstrip(delimiter))
-    if length < 3:
-        return None
-
-    info = candidate[length:]
-    if delimiter == "`" and "`" in info:
-        return None
-    first_info_token = re.match(r"([^ \t]+)", info.strip(" \t"))
-    is_jazz = (
-        first_info_token is not None
-        and first_info_token.group(1) == "jazz"
-    )
-    return delimiter, length, indent, is_jazz
-
-
-def is_fence_closer(line: str, delimiter: str, minimum_length: int) -> bool:
-    content = without_line_ending(line)
-    indent = leading_spaces(content)
-    if indent > 3:
-        return False
-    candidate = content[indent:]
-    length = len(candidate) - len(candidate.lstrip(delimiter))
-    return (
-        length >= minimum_length
-        and candidate[length:].strip(" \t") == ""
-    )
-
-
-def strip_fence_indent(line: str, indent: int) -> str:
-    removable = min(leading_spaces(line), indent)
-    return line[removable:]
-
-
-def markdown_fences(text: str) -> list[MarkdownFence]:
-    """Parse CommonMark-style fenced code blocks while preserving source text."""
-    lines = text.splitlines(keepends=True)
-    offsets: list[int] = []
-    offset = 0
-    for line in lines:
-        offsets.append(offset)
-        offset += len(line)
-
-    fences: list[MarkdownFence] = []
-    line_index = 0
-    while line_index < len(lines):
-        opener = fence_opener(lines[line_index])
-        if opener is None:
-            line_index += 1
-            continue
-
-        delimiter, minimum_length, indent, is_jazz = opener
-        start = offsets[line_index]
-        source_lines: list[str] = []
-        line_index += 1
-        closed = False
-        while line_index < len(lines):
-            if is_fence_closer(lines[line_index], delimiter, minimum_length):
-                line_index += 1
-                closed = True
+def marker_gap_is_container_whitespace(text: str) -> bool:
+    for line in text.splitlines():
+        remainder = line
+        while True:
+            blockquote = re.match(r"^[ \t]*>[ \t]?", remainder)
+            if blockquote is None:
                 break
-            source_lines.append(strip_fence_indent(lines[line_index], indent))
-            line_index += 1
-
-        end = offsets[line_index] if line_index < len(lines) else len(text)
-        fences.append(
-            MarkdownFence(
-                start=start,
-                end=end,
-                source="".join(source_lines),
-                is_jazz=is_jazz,
-                closed=closed,
-            )
-        )
-
-    return fences
+            remainder = remainder[blockquote.end() :]
+        if remainder.strip():
+            return False
+    return True
 
 
-def visible_markdown(text: str) -> str:
-    """Blank fenced/inline code and HTML comments before rendered-link checks."""
-    characters = list(text)
-
-    def blank(ranges: list[tuple[int, int]]) -> None:
-        for start, end in ranges:
-            for index in range(start, end):
-                if characters[index] not in "\r\n":
-                    characters[index] = " "
-
-    blank([(fence.start, fence.end) for fence in markdown_fences(text)])
-    without_fences = "".join(characters)
-    blank(inline_code_spans(without_fences))
-    without_code = "".join(characters)
-    blank(
-        [
-            match.span()
-            for match in re.finditer(
-                r"<!--.*?(?:-->|\Z)", without_code, re.DOTALL
-            )
-        ]
-    )
-    return "".join(characters)
+def has_top_level_heading(text: str) -> bool:
+    return 1 in rendered_heading_levels(text)
 
 
-def inline_code_spans(text: str) -> list[tuple[int, int]]:
-    """Return CommonMark backtick spans with matching variable-length runs."""
-    spans: list[tuple[int, int]] = []
-    index = 0
-    while index < len(text):
-        if text[index] != "`" or is_escaped(text, index):
-            index += 1
-            continue
-        opener_end = index
-        while opener_end < len(text) and text[opener_end] == "`":
-            opener_end += 1
-        delimiter_length = opener_end - index
-        candidate = opener_end
-        closing_end: int | None = None
-        while candidate < len(text):
-            candidate = text.find("`", candidate)
-            if candidate < 0:
-                break
-            run_end = candidate
-            while run_end < len(text) and text[run_end] == "`":
-                run_end += 1
-            if run_end - candidate == delimiter_length:
-                closing_end = run_end
-                break
-            candidate = run_end
-        if closing_end is None:
-            index = opener_end
-            continue
-        spans.append((index, closing_end))
-        index = closing_end
-    return spans
-
-
-def contains_visible_phrase(visible_text: str, phrase: str) -> bool:
-    normalized_text = " ".join(visible_text.casefold().split())
-    normalized_phrase = " ".join(phrase.casefold().split())
-    return normalized_phrase in normalized_text
-
-
-def has_inline_link(links: list[MarkdownLink], label: str, target: str) -> bool:
-    normalized_label = " ".join(label.split())
+def has_bound_executable_marker(text: str, example_path: str) -> bool:
+    source_text = renderable_source_markdown(text)
+    fences = markdown_fences(source_text)
+    markers = [
+        marker
+        for marker in EXECUTABLE_MARKER_RE.finditer(source_text)
+        if marker.group(1) == example_path
+        and not any(fence.start <= marker.start() < fence.end for fence in fences)
+    ]
     return any(
-        not link.is_image
-        and " ".join(link.label.split()) == normalized_label
-        and markdown_link_target(link.raw_target) == target
-        for link in links
-    )
-
-
-def example_case_loop_executes_rows(script_text: str) -> bool:
-    loops = list(EXAMPLE_CASE_LOOP_RE.finditer(script_text))
-    if len(loops) != 1:
-        return False
-    body = loops[0].group("body")
-    return (
-        EXAMPLE_RUNNER_CALL_RE.search(body) is not None
-        and '"$case_sources"' in body
-        and '"$case_args_text"' in body
+        fence.is_jazz
+        and marker.end() <= fence.start
+        and marker_gap_is_container_whitespace(
+            source_text[marker.end() : fence.start]
+        )
+        for marker in markers
+        for fence in fences
     )
 
 
 def validate_example_cases(
     root: Path, tracked_example_paths: set[str], violations: list[str]
-) -> set[str]:
+) -> dict[str, ExampleCase]:
     cases_path = root / EXAMPLE_CASES_PATH
     try:
         cases_text = cases_path.read_bytes().decode("utf-8")
@@ -632,6 +760,7 @@ def validate_example_cases(
 
     declared_sources: set[str] = set()
     case_names: set[str] = set()
+    example_cases: dict[str, ExampleCase] = {}
     if cases_text and not cases_text.endswith("\n"):
         violations.append(
             f"{EXAMPLE_CASES_PATH}: file must end with a newline"
@@ -653,6 +782,7 @@ def validate_example_cases(
                 continue
 
             case_name, raw_sources, expected, args = fields
+            case_name_is_valid = False
             if case_name == EXAMPLE_CASE_HEADER[0]:
                 violations.append(
                     f"{EXAMPLE_CASES_PATH}:{line_number}: case name is reserved "
@@ -670,6 +800,7 @@ def validate_example_cases(
                 )
             else:
                 case_names.add(case_name)
+                case_name_is_valid = True
 
             if not expected:
                 violations.append(
@@ -705,47 +836,50 @@ def validate_example_cases(
                         f"example: {example_path}"
                     )
 
+            if sources and args:
+                binding_violation = case_source_binding_violation(root, sources, args)
+                if binding_violation is not None:
+                    violations.append(
+                        f"{EXAMPLE_CASES_PATH}:{line_number}: {binding_violation}"
+                    )
+            if case_name_is_valid and sources and expected:
+                example_cases[case_name] = ExampleCase(
+                    sources=frozenset(sources),
+                    expected=expected,
+                )
+
     for example_path in sorted(tracked_example_paths - declared_sources):
         violations.append(
             f"{example_path}: tracked example is missing from {EXAMPLE_CASES_PATH}"
         )
 
-    runner_path = root / "scripts/check-examples.sh"
-    try:
-        runner_text = runner_path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeError) as exc:
-        violations.append(
-            f"scripts/check-examples.sh: cannot read example runner: {exc}"
-        )
-    else:
-        if not example_case_loop_executes_rows(runner_text):
-            violations.append(
-                "scripts/check-examples.sh: does not execute "
-                f"{EXAMPLE_CASES_PATH}"
-            )
-
-    return declared_sources
+    return example_cases
 
 
 def validate_jazz_fences(
     root: Path,
+    jazz_binary: Path | None,
     display: str,
     text: str,
     tracked_example_paths: set[str],
     canonical_examples_root: Path,
+    fragment_inventory: set[tuple[str, int, str]] | None,
+    observed_fragment_inventory: set[tuple[str, int, str]],
     violations: list[str],
 ) -> set[str]:
     documented_examples: set[str] = set()
-    all_fences = markdown_fences(text)
+    source_text = renderable_source_markdown(text)
+    all_fences = markdown_fences(source_text)
     fences = [fence for fence in all_fences if fence.is_jazz]
     markers = [
         marker
-        for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(text)
+        for marker in JAZZ_EXAMPLE_MARKER_RE.finditer(source_text)
         if not any(
             fence.start <= marker.start() < fence.end for fence in all_fences
         )
     ]
     consumed_marker_starts: set[int] = set()
+    fragment_ordinal = 0
 
     for fence in fences:
         preceding_marker = next(
@@ -756,9 +890,9 @@ def validate_jazz_fences(
             ),
             None,
         )
-        if preceding_marker is None or text[
-            preceding_marker.end() : fence.start
-        ].strip():
+        if preceding_marker is None or not marker_gap_is_container_whitespace(
+            source_text[preceding_marker.end() : fence.start]
+        ):
             violations.append(
                 f"{display}: Jazz fence must be immediately preceded by a "
                 "jazz-example marker"
@@ -774,6 +908,28 @@ def validate_jazz_fences(
 
         marker_text = preceding_marker.group(0)
         if FRAGMENT_MARKER_RE.fullmatch(marker_text):
+            fragment_ordinal += 1
+            if jazz_binary is not None:
+                validate_fragment_syntax(
+                    root,
+                    jazz_binary,
+                    display,
+                    fence.source,
+                    violations,
+                )
+            elif fragment_inventory is not None:
+                entry = (
+                    display,
+                    fragment_ordinal,
+                    hashlib.sha256(fence.source.encode("utf-8")).hexdigest(),
+                )
+                if entry not in fragment_inventory:
+                    violations.append(
+                        f"{display}: Jazz fragment {fragment_ordinal} is missing "
+                        f"from {FRAGMENT_INVENTORY_PATH}"
+                    )
+                else:
+                    observed_fragment_inventory.add(entry)
             continue
 
         executable = EXECUTABLE_MARKER_RE.fullmatch(marker_text)
@@ -833,16 +989,74 @@ def validate_jazz_fences(
     return documented_examples
 
 
+def validate_example_outputs(
+    display: str,
+    text: str,
+    example_cases: dict[str, ExampleCase],
+    documented_examples: set[str],
+    violations: list[str],
+) -> set[str]:
+    documented_cases: set[str] = set()
+    source_text = renderable_source_markdown(text)
+    fences = markdown_fences(source_text)
+    comments = list(re.finditer(r"<!--.*?(?:-->|\Z)", source_text, re.DOTALL))
+    markers = [
+        comment
+        for comment in comments
+        if "jazz-example-output:" in comment.group(0)
+        and not any(fence.start <= comment.start() < fence.end for fence in fences)
+    ]
+
+    for marker in markers:
+        parsed_marker = EXAMPLE_OUTPUT_MARKER_RE.fullmatch(marker.group(0))
+        if parsed_marker is None:
+            violations.append(
+                f"{display}: invalid jazz-example-output marker: {marker.group(0)}"
+            )
+            continue
+        case_name = parsed_marker.group(1)
+        example_case = example_cases.get(case_name)
+        if example_case is None:
+            violations.append(
+                f"{display}: jazz-example-output names unknown case: {case_name}"
+            )
+            continue
+        if not example_case.sources.issubset(documented_examples):
+            violations.append(
+                f"{display}: documented output for case {case_name} must be "
+                "alongside all of its executable source fences"
+            )
+            continue
+        output_fence = next(
+            (fence for fence in fences if marker.end() <= fence.start),
+            None,
+        )
+        if (
+            output_fence is None
+            or output_fence.info != "text"
+            or not output_fence.closed
+            or not marker_gap_is_container_whitespace(
+                source_text[marker.end() : output_fence.start]
+            )
+        ):
+            violations.append(
+                f"{display}: jazz-example-output marker for case {case_name} "
+                "must be immediately followed by a closed text fence"
+            )
+            continue
+        if without_one_final_newline(output_fence.source) != example_case.expected:
+            violations.append(
+                f"{display}: documented output for case {case_name} differs from "
+                f"{EXAMPLE_CASES_PATH}"
+            )
+            continue
+        documented_cases.add(case_name)
+
+    return documented_cases
+
+
 def validate_readme(root: Path, text: str, violations: list[str]) -> None:
-    visible_text = visible_markdown(text)
-    inline_links = markdown_inline_links(visible_text)
-    lines_with_endings = text.splitlines(keepends=True)
-    exact_line_positions: dict[str, int] = {}
-    offset = 0
-    for line_with_ending in lines_with_endings:
-        line = line_with_ending.rstrip("\r\n")
-        exact_line_positions.setdefault(line, offset)
-        offset += len(line_with_ending)
+    exact_line_positions = exact_visible_line_positions(text)
 
     line_count = len(text.splitlines())
     if not 100 <= line_count <= 150:
@@ -851,19 +1065,29 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             f"(found {line_count})"
         )
 
-    if README_TAGLINE not in exact_line_positions:
+    rendered_contract_text = rendered_contract_text_with_code(text)
+    if (
+        README_TAGLINE not in exact_line_positions
+        or README_TAGLINE not in rendered_contract_text
+    ):
         violations.append("README.md: missing required tagline")
-    if README_MATURITY_NOTICE not in text:
+    if README_MATURITY_NOTICE not in rendered_contract_text:
         violations.append("README.md: missing required maturity notice")
 
-    image_targets = [link.raw_target for link in inline_links if link.is_image]
-    image_targets.extend(
-        match.group(1) for match in HTML_IMAGE_RE.finditer(visible_text)
+    visible_text = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(text))
     )
-    source_targets = [
-        match.group(1) for match in HTML_SOURCE_RE.finditer(visible_text)
+    image_targets = [
+        link.raw_target
+        for link in markdown_inline_links(visible_text)
+        if link.is_image
     ]
-    image_targets.extend(source_targets)
+    image_targets.extend(
+        html_image_targets(
+            without_inert_html_subtrees(rendered_html_source_markdown(text))
+        )
+    )
+    image_targets.extend(used_reference_image_targets(visible_text))
     local_logo_found = False
     local_dark_logo_found = False
     for raw_target in image_targets:
@@ -893,48 +1117,62 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             "README.md: dark-mode logo must use the canonical repository-local path"
         )
 
-    if README_FACTORIAL_MARKER not in text:
+    if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
-    if re.search(r"```text\r?\n720\r?\n```", text) is None:
-        violations.append("README.md: missing expected factorial output")
 
-    for command in (
-        "nix develop",
-        "cabal build all",
-        f"cabal run jazz -- --run {README_FACTORIAL_PATH}",
-    ):
-        if command not in text:
+    quick_start_source = markdown_section_body_source(text, "## Quick start") or ""
+    quick_start_commands = rendered_shell_command_lines(quick_start_source)
+    for command in README_QUICK_START_COMMANDS:
+        if command not in quick_start_commands:
             violations.append(f"README.md: missing quick-start command: {command}")
 
+    inline_links = markdown_inline_links(visible_text)
+    raw_link_targets = [
+        link.raw_target for link in inline_links if not link.is_image
+    ]
+    raw_link_targets.extend(used_reference_targets(visible_text))
+    raw_link_targets.extend(
+        html_reference_targets(
+            without_inert_html_subtrees(rendered_html_source_markdown(text))
+        )
+    )
     link_targets = {
-        markdown_link_target(link.raw_target)
-        for link in inline_links
-        if not link.is_image
+        markdown_link_target(raw_link_target)
+        for raw_link_target in raw_link_targets
     }
     for required_target in README_REQUIRED_LINKS:
         if required_target not in link_targets:
             violations.append(
                 f"README.md: missing required navigation link: {required_target}"
             )
-    if not has_inline_link(
+    for raw_link_target in raw_link_targets:
+        link_violation = local_readme_link_violation(root, raw_link_target)
+        if link_violation is not None:
+            violations.append(f"README.md: {link_violation}")
+    if not visible_link_has_label(
         inline_links, README_WEBSITE_LABEL, PUBLIC_WEBSITE_URL
     ):
         violations.append(
             "README.md: website must use the prospective canonical Website label"
         )
-    if not contains_visible_phrase(visible_text, PAGES_ACTIVATION_FOLLOW_UP):
+    if not visible_text_contains_phrase(visible_text, PAGES_ACTIVATION_FOLLOW_UP):
         violations.append(
             "README.md: missing post-merge GitHub Pages activation follow-up"
         )
-    if not has_inline_link(inline_links, "GPL-3.0-only", "LICENSE"):
+    license_source = markdown_section_body_source(text, "## License") or ""
+    visible_license_source = without_indented_code_blocks(
+        without_inert_html_subtrees(visible_markdown(license_source))
+    )
+    if README_LICENSE_LINK not in visible_license_source:
         violations.append("README.md: missing GPL-3.0-only license link")
 
     for section in README_REQUIRED_SECTIONS:
         if section not in exact_line_positions:
             violations.append(f"README.md: missing required section: {section}")
 
+    decoded_text = decoded_public_policy_text(text)
     for banned in README_BANNED_TERMS:
-        if banned.casefold() in text.casefold():
+        if banned.casefold() in decoded_text:
             violations.append(f"README.md: banned front-door term: {banned}")
 
     positions: list[int] = []
@@ -950,7 +1188,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         violations.append("README.md: required content is not in the prescribed order")
 
 
-def validate(root: Path) -> list[str]:
+def validate(root: Path, jazz_binary: Path | None) -> list[str]:
     violations: list[str] = []
     docs_root = root / "docs"
     if not docs_root.is_dir():
@@ -958,7 +1196,13 @@ def validate(root: Path) -> list[str]:
     canonical_docs_root = root.resolve() / "docs"
     canonical_examples_root = root.resolve() / "examples"
     tracked_example_paths = set(tracked_examples(root, violations))
-    validate_example_cases(root, tracked_example_paths, violations)
+    example_cases = validate_example_cases(root, tracked_example_paths, violations)
+    fragment_inventory = (
+        load_fragment_inventory(root, violations)
+        if jazz_binary is None
+        else None
+    )
+    observed_fragment_inventory: set[tuple[str, int, str]] = set()
 
     for example_path in sorted(tracked_example_paths):
         candidate = root / example_path
@@ -974,6 +1218,13 @@ def validate(root: Path) -> list[str]:
 
     unsafe_doc_paths: set[Path] = set()
     for path in sorted(docs_root.rglob("*")):
+        if path.suffix.casefold() == ".mdx" and (
+            path.is_file() or path.is_symlink()
+        ):
+            violations.append(
+                f"{relative(root, path)}: MDX public pages are unsupported; "
+                "use Markdown (.md)"
+            )
         if not path.is_symlink():
             continue
         display = relative(root, path)
@@ -1014,27 +1265,78 @@ def validate(root: Path) -> list[str]:
             continue
         doc_texts[path] = text
         display = relative(root, path)
-        fields = front_matter_fields(text)
-        if fields is None:
+        parsed_front_matter = front_matter(text)
+        markdown_body = text
+        if parsed_front_matter is None:
             violations.append(f"{display}: missing valid YAML front matter")
         else:
+            fields, markdown_body = parsed_front_matter
             for required_field in ("title", "description", "sidebar_position"):
                 if required_field not in fields:
                     violations.append(
                         f"{display}: front matter is missing {required_field}"
                     )
+            relative_doc = path.relative_to(docs_root).as_posix()
+            if relative_doc in REQUIRED_PAGES:
+                for field in sorted(
+                    fields & REQUIRED_PAGE_FORBIDDEN_FRONT_MATTER
+                ):
+                    violations.append(
+                        f"{display}: required public page cannot declare "
+                        f"publication-changing front matter: {field}"
+                    )
+            if (
+                relative_doc in REQUIRED_PAGES
+                and not rendered_contract_text_with_code(markdown_body).strip()
+            ):
+                violations.append(
+                    f"{display}: required public page has no rendered body"
+                )
 
+        if has_top_level_heading(markdown_body):
+            violations.append(
+                f"{display}: top-level heading duplicates front matter title"
+            )
+
+        decoded_text = decoded_public_policy_text(text)
         for banned in BANNED_REFERENCES:
-            if banned in text:
+            if banned.casefold() in decoded_text:
                 violations.append(f"{display}: banned public reference: {banned}")
 
-        visible_text = visible_markdown(text)
-        raw_link_targets = [
-            link.raw_target for link in markdown_inline_links(visible_text)
-        ]
-        raw_link_targets.extend(used_reference_targets(visible_text))
+        visible_body = without_indented_code_blocks(
+            without_inert_html_subtrees(visible_markdown(markdown_body))
+        )
+        inline_links = markdown_inline_links(visible_body)
+        if display == "docs/getting-started/overview.md":
+            if not visible_link_has_label(
+                inline_links,
+                GETTING_STARTED_WEBSITE_LABEL,
+                PUBLIC_WEBSITE_URL,
+            ):
+                violations.append(
+                    f"{display}: missing visible prospective website link"
+                )
+            if not visible_text_contains_phrase(
+                visible_body, PAGES_ACTIVATION_FOLLOW_UP
+            ):
+                violations.append(
+                    f"{display}: missing post-merge GitHub Pages activation follow-up"
+                )
+        raw_link_targets = [link.raw_target for link in inline_links]
+        raw_link_targets.extend(used_reference_targets(visible_body))
+        raw_link_targets.extend(used_reference_image_targets(visible_body))
+        raw_link_targets.extend(
+            html_reference_targets(
+                without_inert_html_subtrees(
+                    rendered_html_source_markdown(markdown_body)
+                )
+            )
+        )
         for raw_link_target in raw_link_targets:
             raw_target = markdown_link_target(raw_link_target)
+            if not raw_target:
+                violations.append(f"{display}: public link target is empty")
+                continue
             label = internal_escape_label(path, raw_link_target, docs_root)
             if label is not None:
                 violations.append(
@@ -1064,28 +1366,6 @@ def validate(root: Path) -> list[str]:
                 f"docs/{required_page}: required public page resolves outside docs/"
             )
 
-    getting_started_path = docs_root / "getting-started/overview.md"
-    getting_started_text = doc_texts.get(getting_started_path)
-    if getting_started_text is not None:
-        visible_getting_started = visible_markdown(getting_started_text)
-        getting_started_inline_links = markdown_inline_links(
-            visible_getting_started
-        )
-        if not has_inline_link(
-            getting_started_inline_links,
-            GETTING_STARTED_WEBSITE_LABEL,
-            PUBLIC_WEBSITE_URL,
-        ):
-            violations.append(
-                "docs/getting-started/overview.md: missing visible prospective website link"
-            )
-        if not contains_visible_phrase(
-            visible_getting_started, PAGES_ACTIVATION_FOLLOW_UP
-        ):
-            violations.append(
-                "docs/getting-started/overview.md: missing post-merge GitHub Pages activation follow-up"
-            )
-
     public_texts = {
         relative(root, path): text for path, text in doc_texts.items()
     }
@@ -1101,31 +1381,65 @@ def validate(root: Path) -> list[str]:
         violations.append("README.md: missing project front door")
 
     documented_examples: set[str] = set()
+    documented_output_cases: set[str] = set()
+    readme_output_cases: set[str] = set()
     for display, text in public_texts.items():
-        documented_examples.update(
-            validate_jazz_fences(
-                root,
-                display,
-                text,
-                tracked_example_paths,
-                canonical_examples_root,
-                violations,
-            )
+        document_examples = validate_jazz_fences(
+            root,
+            jazz_binary,
+            display,
+            text,
+            tracked_example_paths,
+            canonical_examples_root,
+            fragment_inventory,
+            observed_fragment_inventory,
+            violations,
         )
+        documented_examples.update(document_examples)
+        output_cases = validate_example_outputs(
+            display, text, example_cases, document_examples, violations
+        )
+        documented_output_cases.update(output_cases)
+        if display == "README.md":
+            readme_output_cases.update(output_cases)
     for example_path in sorted(tracked_example_paths - documented_examples):
         violations.append(
             f"{example_path}: tracked example has no executable public-docs fence"
         )
+    if "factorial" not in readme_output_cases:
+        violations.append("README.md: missing expected factorial output")
+    for case_name in sorted(set(example_cases) - documented_output_cases):
+        violations.append(
+            f"{EXAMPLE_CASES_PATH}: case {case_name} has no documented expected output"
+        )
+    if fragment_inventory is not None:
+        for display, ordinal, _digest in sorted(
+            fragment_inventory - observed_fragment_inventory
+        ):
+            violations.append(
+                f"{FRAGMENT_INVENTORY_PATH}: stale Jazz fragment entry: "
+                f"{display}#{ordinal}"
+            )
 
     return sorted(set(violations))
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) > 2:
-        print("usage: check-public-docs.py [repository-root]", file=sys.stderr)
-        return 2
-    root = Path(argv[1]).resolve() if len(argv) == 2 else Path(__file__).resolve().parent.parent
-    violations = validate(root)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "repository_root",
+        nargs="?",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent,
+    )
+    parser.add_argument("--jazz-bin")
+    arguments = parser.parse_args(argv[1:])
+    root = arguments.repository_root.resolve()
+    jazz_binary, binary_error = resolve_jazz_binary(arguments.jazz_bin)
+    if binary_error is not None:
+        print(f"FAIL: repository: {binary_error}")
+        return 1
+    violations = validate(root, jazz_binary)
     if violations:
         for violation in violations:
             print(f"FAIL: {violation}")

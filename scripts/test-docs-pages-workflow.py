@@ -24,6 +24,8 @@ on:
       - "website/**"
       - "examples/functions/factorial.jz"
       - "scripts/example-cases.tsv"
+      - "scripts/check-website.sh"
+      - "scripts/check-website-boundary.py"
       - "README.md"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
@@ -134,6 +136,16 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_requires_exact_path_filters(self) -> None:
         self.replace('      - "README.md"\n', "")
         self.assert_violation("push paths must be exactly")
+
+    def test_requires_website_validation_inputs_in_path_filters(self) -> None:
+        for path in (
+            "scripts/check-website.sh",
+            "scripts/check-website-boundary.py",
+        ):
+            with self.subTest(path=path):
+                self.workflow.write_text(VALID_WORKFLOW, encoding="utf-8")
+                self.replace(f'      - "{path}"\n', "")
+                self.assert_violation("push paths must be exactly")
 
     def test_requires_empty_workflow_permissions(self) -> None:
         self.replace(

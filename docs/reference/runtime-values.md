@@ -4,8 +4,6 @@ description: Reference Jazz value families, rendering, equality, and runtime fai
 sidebar_position: 6
 ---
 
-# Runtime values
-
 ## Value families and rendering
 
 The interpreter represents integral and floating values, booleans, characters,

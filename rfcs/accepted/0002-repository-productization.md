@@ -33,17 +33,18 @@ archive/pre-root-canonicalization-2026-07-31
 Git history and that tag are the archive. Removed implementations are not kept
 in a live `archive/` directory and do not remain sources of current authority.
 
-Repository information has four owners:
+Repository information has three current owners and one reserved website owner:
 
 ```text
 docs/       Curated public documentation and the only website docs source
 rfcs/       Durable language and compiler decisions
 .codex/     Active execution state and implementation plans
-website/    Docusaurus application, theme, configuration, and assets
+website/    Reserved for the documentation application, theme, configuration, and assets
 ```
 
-The documentation website uses Docusaurus, reads only `docs/`, and is initially
-deployed to GitHub Pages. RFCs and internal execution material are not
+The website workstream will use Docusaurus, read only `docs/`, and target GitHub
+Pages. This RFC reserves that boundary; it does not claim that the `website/`
+tree or a deployment exists yet. RFCs and internal execution material are not
 published by default. The root README is a concise, user-first entry point with
 an executable example, root-level quick start, honest maturity statement, and
 links to the full documentation.

@@ -4,8 +4,6 @@ description: Reference implemented Jazz declarations, expressions, patterns, typ
 sidebar_position: 2
 ---
 
-# Expression grammar
-
 This is a compact description of the accepted surface, not a parser generator
 grammar.
 

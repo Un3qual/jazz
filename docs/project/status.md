@@ -4,8 +4,6 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-# Project status
-
 Updated: 2026-07-31
 
 Implementation snapshot: `b0ff07799029c27728799b817488d5bead85ee72`

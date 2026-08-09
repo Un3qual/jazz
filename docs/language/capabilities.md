@@ -4,8 +4,6 @@ description: Understand Jazz class constraints, concrete implementations, and cu
 sidebar_position: 9
 ---
 
-# Capabilities
-
 Jazz uses `class` declarations and concrete `impl` declarations for
 capabilities. The bundled vocabulary is `Eq`, `Ord`, `Num`, `Integral`,
 `Fractional`, `Showable`, and `Default`.

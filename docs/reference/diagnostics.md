@@ -1,10 +1,8 @@
 ---
 title: Diagnostics
-description: Interpret stable Jazz error codes, warning categories, source labels, and exit behavior.
+description: Interpret stable Jazz error codes, warning categories, source labels, and severity behavior.
 sidebar_position: 5
 ---
-
-# Diagnostics
 
 ## Diagnostic model and code ranges
 

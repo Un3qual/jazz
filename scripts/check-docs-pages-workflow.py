@@ -14,6 +14,8 @@ EXPECTED_PATHS = (
     "website/**",
     "examples/functions/factorial.jz",
     "scripts/example-cases.tsv",
+    "scripts/check-website.sh",
+    "scripts/check-website-boundary.py",
     "README.md",
     ".github/workflows/docs-pages.yml",
 )

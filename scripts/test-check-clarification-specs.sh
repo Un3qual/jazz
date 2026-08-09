@@ -34,6 +34,21 @@ copy_complete_fixture() {
   done
 }
 
+replace_literal() {
+  python3 - "$1" "$2" "$3" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+old = sys.argv[2]
+new = sys.argv[3]
+text = path.read_text(encoding="utf-8")
+if old not in text:
+    raise SystemExit(f"fixture text not found in {path}: {old}")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+PY
+}
+
 missing_owner_root="$fixture_root/missing-owner"
 copy_complete_fixture "$missing_owner_root"
 rm "$missing_owner_root/docs/language/control-flow.md"
@@ -50,6 +65,99 @@ fi
 if ! rg -F 'FAIL: missing required public owner: docs/language/control-flow.md' <<<"$missing_output" >/dev/null; then
   printf 'FAIL: clarification checker did not identify the missing public owner\n' >&2
   printf '%s\n' "$missing_output" >&2
+  exit 1
+fi
+
+missing_heading_root="$fixture_root/missing-heading"
+copy_complete_fixture "$missing_heading_root"
+replace_literal \
+  "$missing_heading_root/docs/language/control-flow.md" \
+  '## Conditionals' \
+  '## Conditional expressions'
+if missing_heading_output="$(cd "$missing_heading_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a missing required heading\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/control-flow.md missing required section: conditionals' <<<"$missing_heading_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify the missing required heading\n' >&2
+  printf '%s\n' "$missing_heading_output" >&2
+  exit 1
+fi
+
+hidden_heading_root="$fixture_root/hidden-heading"
+copy_complete_fixture "$hidden_heading_root"
+replace_literal \
+  "$hidden_heading_root/docs/language/control-flow.md" \
+  '## Conditionals' \
+  $'<!--\n## Conditionals\n-->\n## Conditional expressions'
+if hidden_heading_output="$(cd "$hidden_heading_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a required heading hidden in Markdown\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/control-flow.md missing required section: conditionals' <<<"$hidden_heading_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a required heading hidden in Markdown\n' >&2
+  printf '%s\n' "$hidden_heading_output" >&2
+  exit 1
+fi
+
+missing_contract_root="$fixture_root/missing-contract"
+copy_complete_fixture "$missing_contract_root"
+replace_literal \
+  "$missing_contract_root/docs/language/operators.md" \
+  '`True | False` is rejected with `E2003`.' \
+  '`True | False` is rejected.'
+if missing_contract_output="$(cd "$missing_contract_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a weakened public contract\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$missing_contract_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify the weakened public contract\n' >&2
+  printf '%s\n' "$missing_contract_output" >&2
+  exit 1
+fi
+
+hidden_contract_root="$fixture_root/hidden-contract"
+copy_complete_fixture "$hidden_contract_root"
+replace_literal \
+  "$hidden_contract_root/docs/language/operators.md" \
+  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
+  $'<!--\n`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.\n-->\n`|` executes as a built-in Boolean operator.'
+if hidden_contract_output="$(cd "$hidden_contract_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a public contract hidden in Markdown\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$hidden_contract_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a public contract hidden in Markdown\n' >&2
+  printf '%s\n' "$hidden_contract_output" >&2
+  exit 1
+fi
+
+indented_contract_root="$fixture_root/indented-contract"
+copy_complete_fixture "$indented_contract_root"
+replace_literal \
+  "$indented_contract_root/docs/language/operators.md" \
+  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
+  $'`|` executes as a built-in Boolean operator.\n\n    `|` is parser/fixity metadata only. It has no executable built-in type rule;\n    `True | False` is rejected with `E2003`.'
+if indented_contract_output="$(cd "$indented_contract_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted a public contract only present in indented code\n' >&2
+  exit 1
+fi
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$indented_contract_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify a public contract only present in indented code\n' >&2
+  printf '%s\n' "$indented_contract_output" >&2
+  exit 1
+fi
+
+stale_execution_root="$fixture_root/stale-execution-owner"
+copy_complete_fixture "$stale_execution_root"
+printf '\nSee docs/execution/queue.md.\n' >>"$stale_execution_root/.codex/execution/README.md"
+if stale_execution_output="$(cd "$stale_execution_root" && bash "$CHECKER" 2>&1)"; then
+  printf 'FAIL: clarification checker accepted the deleted docs/execution owner\n' >&2
+  exit 1
+fi
+if ! rg -F '.codex/execution contains a live reference to a deleted documentation owner' <<<"$stale_execution_output" >/dev/null; then
+  printf 'FAIL: clarification checker did not identify the deleted docs/execution owner\n' >&2
+  printf '%s\n' "$stale_execution_output" >&2
   exit 1
 fi
 

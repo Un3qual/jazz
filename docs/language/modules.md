@@ -4,8 +4,6 @@ description: Organize Jazz code with module paths, imports, exports, and determi
 sidebar_position: 7
 ---
 
-# Modules
-
 Module names use `::`, and their source paths mirror the name below a module
 root. `Example::Main` resolves as `Example/Main.jz`.
 
@@ -34,6 +32,14 @@ Run it with:
 ```bash
 cabal run jazz -- --run --entry-module Example::Main \
   --module-root examples/modules/src
+```
+
+Expected output:
+
+<!-- jazz-example-output: case=module -->
+
+```text
+"Hello from a Jazz module"
 ```
 
 Imports may load all public names, select names with `import A::B (x, y).`, or

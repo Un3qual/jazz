@@ -4,8 +4,6 @@ description: Reference the implicit capability vocabulary, conversions, and comp
 sidebar_position: 2
 ---
 
-# Prelude
-
 The Prelude is bundled into ordinary compilation and execution. It declares:
 
 - `Ordering = LT | EQ | GT`;

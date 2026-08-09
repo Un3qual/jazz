@@ -35,6 +35,8 @@ factorial 6.
 
 Expected output:
 
+<!-- jazz-example-output: case=factorial -->
+
 ```text
 720
 ```
@@ -74,7 +76,8 @@ compile-only checks.
 
 ## In development
 
-- Complete capability method dispatch and purity analysis.
+- Complete capability method dispatch and extend the current direct-call purity
+  checks to higher-order and cross-module analysis.
 - A fully Jazz-authored canonical compiler pipeline.
 - Complete typed-core production and backend-neutral lowering.
 - Native code generation, linking, and a production runtime.

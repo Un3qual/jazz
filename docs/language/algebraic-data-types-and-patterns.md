@@ -4,8 +4,6 @@ description: Declare generic data types and destructure values with typed, order
 sidebar_position: 5
 ---
 
-# Algebraic data types and patterns
-
 `data` declares one or more constructors. Constructors begin with uppercase
 letters and may carry zero or more payloads.
 
@@ -21,6 +19,14 @@ unwrapOr = \(fallback, result) -> case result {
   | Ok item -> item
 }.
 unwrapOr 0 (Ok 41).
+```
+
+Expected output:
+
+<!-- jazz-example-output: case=result -->
+
+```text
+41
 ```
 
 Patterns cover literals, variables, `_`, constructors, tuples, fixed lists,

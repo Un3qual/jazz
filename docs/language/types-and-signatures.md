@@ -4,8 +4,6 @@ description: Write primitive, function, tuple, list, generic, and constrained Ja
 sidebar_position: 4
 ---
 
-# Types and signatures
-
 Jazz infers expression types and accepts explicit signatures with `::`.
 Function arrows associate to the right; parentheses group types; `[a]` is list
 syntax; and `(a, b)` is a tuple.
@@ -40,8 +38,12 @@ Fragment:
 
 ```jazz
 contains :: @{Eq(a)}: [a] -> a -> Bool.
+
+identity :: a -> a.
+identity = \(item) -> item.
+identity @Int 1.
 ```
 
 Explicit type application is written immediately after a callable expression,
-for example `empty @Int`. The capability solver and explicit method dispatch
-are intentionally bounded; see [capabilities](capabilities.md).
+as in `identity @Int 1` above. The capability solver and explicit method
+dispatch are intentionally bounded; see [capabilities](capabilities.md).

@@ -4,8 +4,6 @@ description: Enter the reproducible Jazz development environment and build the c
 sidebar_position: 2
 ---
 
-# Installation
-
 Jazz is experimental and does not yet publish stable binary releases. The
 supported contributor workflow builds from the repository with Nix and Cabal.
 

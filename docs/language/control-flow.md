@@ -4,8 +4,6 @@ description: Use conditionals, ordered cases, guards, and pattern lambdas.
 sidebar_position: 6
 ---
 
-# Control flow
-
 ## Conditionals
 
 Jazz conditionals are expressions:
@@ -31,7 +29,7 @@ Fragment:
 <!-- jazz-example: fragment -->
 
 ```jazz
-case value {
+case input {
   | Just item -> item
   | Nothing -> 0
 }

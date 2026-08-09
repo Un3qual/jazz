@@ -4,8 +4,6 @@ description: Use an insertion-ordered persistent dictionary with Eq-only keys.
 sidebar_position: 5
 ---
 
-# Dictionary
-
 `Dictionary(k, v)` is an abstract insertion-ordered association structure.
 Key operations require only `Eq(k)`. A new key is appended; replacing or
 updating an existing key retains its position. Duplicate keys passed to

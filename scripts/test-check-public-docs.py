@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,9 @@ WORDMARK_PATH = "website/static/img/jazz-wordmark.svg"
 DARK_WORDMARK_PATH = "website/static/img/jazz-wordmark-dark.svg"
 PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
 PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
-README_WEBSITE_LINK = f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
+README_WEBSITE_LINK = (
+    f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
+)
 GETTING_STARTED_WEBSITE_LINK = (
     f"[Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})]"
     f"({PUBLIC_WEBSITE_URL})"
@@ -80,13 +83,12 @@ def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
 
 def valid_readme(*, extra: str = "") -> str:
     lines = [
-        "<picture>",
-        (
-            f'  <source srcset="./{DARK_WORDMARK_PATH}" '
-            'media="(prefers-color-scheme: dark)" />'
-        ),
-        f'  <img src="./{WORDMARK_PATH}" alt="Jazz" width="240" />',
-        "</picture>",
+        '<p align="center">',
+        "  <picture>",
+        f'    <source srcset="./{DARK_WORDMARK_PATH}" media="(prefers-color-scheme: dark)" />',
+        f'    <img src="./{WORDMARK_PATH}" alt="Jazz" width="280" />',
+        "  </picture>",
+        "</p>",
         "",
         "# Jazz",
         "",
@@ -103,6 +105,7 @@ def valid_readme(*, extra: str = "") -> str:
         "",
         "Expected output:",
         "",
+        "<!-- jazz-example-output: case=factorial -->",
         "```text",
         "720",
         "```",
@@ -155,17 +158,43 @@ def valid_readme(*, extra: str = "") -> str:
 class PublicDocsCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name) / "repo"
+        self.root.mkdir()
         (self.root / "docs").mkdir()
         (self.root / "scripts").mkdir()
+        (self.root / "scripts/public-doc-fragments.tsv").write_text(
+            "document\tordinal\tsha256\n",
+            encoding="utf-8",
+        )
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        self.jazz_binary = self.root / "fixture-jazz"
+        self.jazz_binary.write_text(
+            (
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "source = sys.stdin.read()\n"
+                "if 'if condition then else' in source:\n"
+                "    print(\"error: E0001 1:15: expected expression after 'then'\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+                "if 'unknownValue.' in source:\n"
+                "    print(\"error: E1001 1:1: unknown name 'unknownValue'\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+                "if source.lstrip().startswith('module ') and source.rstrip().endswith('}\\n.'):\n"
+                "    print(\"error: E0001 4:1: unexpected statement terminator after module declaration\", file=sys.stderr)\n"
+                "    raise SystemExit(1)\n"
+            ),
+            encoding="utf-8",
+        )
+        self.jazz_binary.chmod(0o755)
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
-        self.write_example_runner()
         wordmark = self.root / WORDMARK_PATH
         wordmark.parent.mkdir(parents=True)
         wordmark.write_text("<svg></svg>\n", encoding="utf-8")
-        (self.root / DARK_WORDMARK_PATH).write_text("<svg></svg>\n", encoding="utf-8")
+        (self.root / DARK_WORDMARK_PATH).write_text(
+            "<svg></svg>\n", encoding="utf-8"
+        )
+        (self.root / "LICENSE").write_text("Fixture license.\n", encoding="utf-8")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
         factorial.write_text(FACTORIAL_SOURCE, encoding="utf-8")
@@ -198,7 +227,21 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def run_checker(self, root: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(CHECKER_PATH), str(root or self.root)],
+            [
+                sys.executable,
+                str(CHECKER_PATH),
+                str(root or self.root),
+                "--jazz-bin",
+                str(self.jazz_binary),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def run_checker_without_binary(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(CHECKER_PATH), str(self.root)],
             check=False,
             capture_output=True,
             text=True,
@@ -238,24 +281,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def write_example_runner(self, *, consume_cases: bool = True) -> None:
-        consumer = ""
-        if consume_cases:
-            consumer = (
-                "while IFS=$'\\t' read -r case_name case_sources "
-                "case_expected case_args_text; do\n"
-                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
-                "  IFS=',' read -r -a case_source_paths <<< \"$case_sources\"\n"
-                "  IFS=' ' read -r -a case_args <<< \"$case_args_text\"\n"
-                "  run_example \"$case_name\" \"$case_expected\" "
-                "\"${case_args[@]}\"\n"
-                "done < scripts/example-cases.tsv\n"
-            )
-        (self.root / "scripts/check-examples.sh").write_text(
-            "#!/usr/bin/env bash\n\n" + consumer,
-            encoding="utf-8",
-        )
-
     @staticmethod
     def executable_example(relative_path: str, source: str) -> str:
         fenced_source = source[:-1] if source.endswith("\n") else source
@@ -266,6 +291,12 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_valid_fixture_passes(self) -> None:
         result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Public documentation checks passed.\n", result.stdout)
+
+    def test_checker_does_not_require_a_jazz_binary_by_default(self) -> None:
+        result = self.run_checker_without_binary()
+
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Public documentation checks passed.\n", result.stdout)
 
@@ -292,6 +323,30 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: missing required tagline", result.stdout)
         self.assertIn("README.md: missing required maturity notice", result.stdout)
 
+    def test_readme_maturity_notice_must_be_rendered(self) -> None:
+        readme = valid_readme().replace(
+            "> **Experimental / pre-1.0:** Jazz is under active development.",
+            (
+                "<!-- Experimental / pre-1.0 -->\n"
+                "> **Experimental beta:** Jazz is under active development."
+            ),
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing required maturity notice")
+
+    def test_readme_tagline_must_be_rendered(self) -> None:
+        tagline = "A statically typed functional language with practical syntax"
+        readme = valid_readme().replace(
+            tagline,
+            f"<!--\n{tagline}\n-->",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing required tagline")
+
     def test_readme_rejects_embellished_tagline(self) -> None:
         readme = valid_readme().replace(
             "A statically typed functional language with practical syntax",
@@ -314,13 +369,15 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_readme_requires_canonical_wordmark_path(self) -> None:
         alternate = self.root / "website/static/img/alternate.svg"
         alternate.write_text("<svg></svg>\n", encoding="utf-8")
-        readme = valid_readme().replace(WORDMARK_PATH, "website/static/img/alternate.svg")
+        readme = valid_readme().replace(
+            WORDMARK_PATH, "website/static/img/alternate.svg"
+        )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
         self.assert_violation("README.md: logo must use a repository-local path")
 
     def test_readme_requires_canonical_dark_mode_wordmark_path(self) -> None:
         readme = valid_readme().replace(
-            f'  <source srcset="./{DARK_WORDMARK_PATH}" '
+            f'    <source srcset="./{DARK_WORDMARK_PATH}" '
             'media="(prefers-color-scheme: dark)" />\n',
             "",
         )
@@ -328,6 +385,37 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "README.md: dark-mode logo must use the canonical repository-local path"
         )
+
+    def test_readme_rejects_unquoted_remote_html_image_source(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="<img src=https://example.com/track.png>"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("README.md: image must use a repository-local path")
+
+    def test_readme_rejects_remote_html_srcset_candidates(self) -> None:
+        responsive_images = (
+            (
+                f'<img src="./{WORDMARK_PATH}" '
+                f'srcset="./{WORDMARK_PATH} 1x, https://example.com/track.png 2x">'
+            ),
+            (
+                '<picture><source srcset="https://example.com/track.png 2x">'
+                f'<img src="./{WORDMARK_PATH}" alt="Jazz"></picture>'
+            ),
+        )
+        for responsive_image in responsive_images:
+            with self.subTest(responsive_image=responsive_image):
+                (self.root / "README.md").write_text(
+                    valid_readme(extra=responsive_image),
+                    encoding="utf-8",
+                )
+
+                self.assert_violation(
+                    "README.md: image must use a repository-local path: "
+                    "https://example.com/track.png"
+                )
 
     def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
         readme = valid_readme().replace(
@@ -338,6 +426,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertIn("README.md: missing executable factorial marker", result.stdout)
         self.assertIn("README.md: missing expected factorial output", result.stdout)
+
+    def test_readme_factorial_marker_must_be_visible_and_bound_to_its_fence(self) -> None:
+        marker = f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->"
+        readme = valid_readme(
+            extra=f"```text\n{marker}\n```"
+        ).replace(
+            marker,
+            "<!-- jazz-example: fragment -->",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(FACTORIAL_PATH, FACTORIAL_SOURCE)),
+            encoding="utf-8",
+        )
+        self.assert_violation("README.md: missing executable factorial marker")
 
     def test_readme_requires_navigation_and_license_contract(self) -> None:
         readme = valid_readme().replace(
@@ -352,14 +456,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
 
-    def test_readme_comment_decoy_cannot_supply_license_link(self) -> None:
-        readme = valid_readme().replace(
-            "[GPL-3.0-only](LICENSE)",
-            "GPL-3.0-only\n\n<!-- [GPL-3.0-only](LICENSE) -->",
-        )
-        (self.root / "README.md").write_text(readme, encoding="utf-8")
-        self.assert_violation("README.md: missing GPL-3.0-only license link")
-
     def test_readme_requires_honest_prospective_website_label(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
@@ -370,7 +466,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "README.md: website must use the prospective canonical Website label"
         )
 
-    def test_readme_comment_decoy_cannot_hide_stale_visible_wording(self) -> None:
+    def test_readme_comment_decoy_cannot_hide_stale_website_wording(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
             f"<!-- {README_WEBSITE_LINK} -->",
@@ -386,7 +482,9 @@ class PublicDocsCheckerTests(unittest.TestCase):
             result.stdout,
         )
 
-    def test_readme_inline_code_decoy_cannot_hide_stale_visible_wording(self) -> None:
+    def test_readme_inline_code_decoy_cannot_hide_stale_website_wording(
+        self,
+    ) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
             f"``{README_WEBSITE_LINK}``",
@@ -402,7 +500,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
             result.stdout,
         )
 
-    def test_readme_escaped_link_decoy_is_not_a_visible_link(self) -> None:
+    def test_readme_escaped_website_link_decoy_is_not_visible(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
             f"\\{README_WEBSITE_LINK}",
@@ -438,7 +536,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/getting-started/overview.md: missing visible prospective website link"
         )
 
-    def test_getting_started_fence_only_link_is_not_visible(self) -> None:
+    def test_getting_started_code_only_website_link_is_not_visible(self) -> None:
         overview = self.root / "docs/getting-started/overview.md"
         overview.write_text(
             page(
@@ -452,21 +550,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/getting-started/overview.md: missing visible prospective website link"
         )
 
-    def test_getting_started_inline_code_decoy_is_not_visible(self) -> None:
-        overview = self.root / "docs/getting-started/overview.md"
-        overview.write_text(
-            page(
-                "Getting started",
-                f"The future address is ```{GETTING_STARTED_WEBSITE_LINK}```.\n\n"
-                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
-            ),
-            encoding="utf-8",
-        )
-        self.assert_violation(
-            "docs/getting-started/overview.md: missing visible prospective website link"
-        )
-
-    def test_getting_started_escaped_link_decoy_is_not_visible(self) -> None:
+    def test_getting_started_escaped_website_link_is_not_visible(self) -> None:
         overview = self.root / "docs/getting-started/overview.md"
         overview.write_text(
             page(
@@ -479,22 +563,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/getting-started/overview.md: missing visible prospective website link"
         )
-
-    def test_visible_links_remain_valid_beside_inline_code_decoys(self) -> None:
-        readme = valid_readme(extra=f"`[Not the website]({PUBLIC_WEBSITE_URL})`")
-        (self.root / "README.md").write_text(readme, encoding="utf-8")
-        overview = self.root / "docs/getting-started/overview.md"
-        overview.write_text(
-            page(
-                "Getting started",
-                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
-                f"Ignore ``[Example]({PUBLIC_WEBSITE_URL})``.\n\n"
-                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
-            ),
-            encoding="utf-8",
-        )
-        result = self.run_checker()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_getting_started_requires_post_merge_pages_follow_up(self) -> None:
         overview = self.root / "docs/getting-started/overview.md"
@@ -509,18 +577,329 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/getting-started/overview.md: missing post-merge GitHub Pages activation follow-up"
         )
 
-    def test_getting_started_accepts_wrapped_post_merge_pages_follow_up(self) -> None:
+    def test_getting_started_accepts_soft_wrapped_pages_follow_up(self) -> None:
         overview = self.root / "docs/getting-started/overview.md"
         overview.write_text(
             page(
                 "Getting started",
                 f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
-                "Enabling GitHub\nPages for GitHub Actions is a post-merge follow-up.\n",
+                "Enabling GitHub\n"
+                "Pages for GitHub Actions is a post-merge follow-up.\n",
             ),
             encoding="utf-8",
         )
+
         result = self.run_checker()
+
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_readme_license_link_must_be_rendered_in_license_section(self) -> None:
+        license_link = "[GPL-3.0-only](LICENSE)"
+        readme = valid_readme(extra=f"<!-- {license_link} -->").replace(
+            license_link,
+            "GPL licensed",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation("README.md: missing GPL-3.0-only license link")
+
+    def test_readme_navigation_links_must_be_rendered(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme(
+            extra=f"<!-- [Hidden getting started]({target}) -->"
+        ).replace(f"[Getting started]({target})", "Getting started")
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_rejects_missing_local_link_fragments(self) -> None:
+        readme = valid_readme(
+            extra=(
+                "[Missing section]"
+                "(docs/getting-started/overview.md#missing-section)"
+            )
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            "README.md: local link fragment does not exist: "
+            "docs/getting-started/overview.md#missing-section"
+        )
+
+    def test_readme_rejects_same_page_missing_link_fragments(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="[Missing section](#missing-section)"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: local link fragment does not exist: #missing-section"
+        )
+
+    def test_readme_navigation_links_inside_html_templates_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            "<template>\n"
+            f"  <a href=\"{target}\">Hidden getting started</a>\n"
+            "</template>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_markdown_links_inside_html_templates_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            "<template>\n"
+            f"  [Hidden getting started]({target})\n"
+            "</template>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_inside_hidden_html_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = f"<span hidden>[Hidden getting started]({target})</span>"
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_inside_css_hidden_html_are_inert(self) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="display: none" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_inside_visibility_hidden_html_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="visibility: hidden !important" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_inside_css_escaped_hidden_html_are_inert(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        hidden_link = (
+            f'<a style="display: \\6e one" href="{target}">'
+            "Hidden getting started</a>"
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", hidden_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_readme_navigation_links_with_visible_inline_styles_are_rendered(
+        self,
+    ) -> None:
+        target = "docs/getting-started/overview.md"
+        styled_link = (
+            f'<a style="color: #b58900" href="{target}">Getting started</a>'
+        )
+        readme = valid_readme().replace(
+            f"[Getting started]({target})", styled_link
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_indented_code_cannot_supply_readme_navigation(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme().replace(
+            f"- [Getting started]({target})",
+            f"Getting started\n\n    [Code-only link]({target})",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_indented_raw_html_cannot_supply_readme_navigation(self) -> None:
+        target = "docs/getting-started/overview.md"
+        readme = valid_readme().replace(
+            f"- [Getting started]({target})",
+            f"Getting started\n\n    <a href=\"{target}\">Code-only link</a>",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            f"README.md: missing required navigation link: {target}"
+        )
+
+    def test_indented_raw_html_does_not_escape_the_docs_boundary(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='    <a href="../rfcs/accepted/0001.md">Code only</a>\n'),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_readme_quick_start_commands_must_be_rendered(self) -> None:
+        commands = (
+            "nix develop\n"
+            "cabal build all\n"
+            f"cabal run jazz -- --run {FACTORIAL_PATH}\n"
+        )
+        hidden_commands = f"<template>\n{commands}</template>"
+        readme = valid_readme().replace(
+            f"```bash\n{commands}```", hidden_commands
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        for command in commands.splitlines():
+            self.assertIn(
+                f"README.md: missing quick-start command: {command}",
+                result.stdout,
+            )
+        self.assertEqual("", result.stderr)
+
+    def test_readme_quick_start_commands_must_be_in_quick_start_section(
+        self,
+    ) -> None:
+        commands = (
+            "nix develop\n"
+            "cabal build all\n"
+            f"cabal run jazz -- --run {FACTORIAL_PATH}\n"
+        )
+        readme = valid_readme(extra=f"```text\n{commands}```").replace(
+            f"```bash\n{commands}```",
+            "```bash\necho not the documented quick start\n```",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        for command in commands.splitlines():
+            self.assertIn(
+                f"README.md: missing quick-start command: {command}",
+                result.stdout,
+            )
+        self.assertEqual("", result.stderr)
+
+    def test_readme_quick_start_commands_must_be_exact_shell_commands(
+        self,
+    ) -> None:
+        readme = valid_readme().replace(
+            "\nnix develop\n",
+            "\necho nix develop\n",
+            1,
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+        self.assert_violation(
+            "README.md: missing quick-start command: nix develop"
+        )
+
+    def test_readme_quick_start_commands_ignore_markdown_metadata(self) -> None:
+        for decoy in (
+            "[quick-start]: nix develop",
+            (
+                "[Setup][nix develop]\n\n"
+                "[nix develop]: https://example.com"
+            ),
+            (
+                "[quick-start]: https://example.com\n"
+                '  "nix develop"'
+            ),
+            'Setup metadata <span title="nix develop">is ignored</span>.',
+            "```nix develop\nnot a command\n```",
+        ):
+            with self.subTest(decoy=decoy):
+                readme = valid_readme(extra=decoy).replace(
+                    "\nnix develop\n",
+                    "\necho enter the development environment\n",
+                    1,
+                )
+                (self.root / "README.md").write_text(readme, encoding="utf-8")
+
+                self.assert_violation(
+                    "README.md: missing quick-start command: nix develop"
+                )
+
+    def test_readme_rejects_invalid_local_link_targets(self) -> None:
+        outside = self.root.parent / "outside.md"
+        outside.write_text("Outside.\n", encoding="utf-8")
+        for markup, expected in (
+            (
+                "[Broken](docs/does-not-exist.md)",
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+            (
+                "[Broken](../outside.md)",
+                "README.md: local link leaves repository: ../outside.md",
+            ),
+            (
+                "[Broken][missing]\n\n[missing]: docs/does-not-exist.md",
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+            (
+                '<a href="docs/does-not-exist.md">\nBroken\n</a>',
+                "README.md: local link target does not exist: "
+                "docs/does-not-exist.md",
+            ),
+        ):
+            with self.subTest(markup=markup):
+                (self.root / "README.md").write_text(
+                    valid_readme(extra=markup), encoding="utf-8"
+                )
+                self.assert_violation(expected)
 
     def test_readme_rejects_legacy_and_internal_terms(self) -> None:
         (self.root / "README.md").write_text(
@@ -531,6 +910,28 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assertIn("README.md: banned front-door term: jazz2", result.stdout)
         self.assertIn("README.md: banned front-door term: .codex/", result.stdout)
         self.assertIn("README.md: banned front-door term: Spec Authority", result.stdout)
+
+    def test_readme_rejects_private_kernel_intrinsics(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme(extra="Call __kernel_writeTextRaw! directly."),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("README.md: banned front-door term: __kernel_")
+
+    def test_readme_rejects_percent_encoded_internal_links(self) -> None:
+        internal = self.root / ".codex/execution/queue.md"
+        internal.parent.mkdir(parents=True)
+        internal.write_text("Internal queue.\n", encoding="utf-8")
+        target = ".%63odex/execution/queue.md"
+        (self.root / "README.md").write_text(
+            valid_readme(extra=f"[Internal queue]({target})"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: local link targets internal tree .codex/: " + target
+        )
 
     def test_readme_requires_prescribed_content_order(self) -> None:
         readme = valid_readme().replace(
@@ -550,6 +951,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation(
             "README.md: missing required section: ## Available today"
+        )
+
+    def test_readme_required_sections_must_be_rendered(self) -> None:
+        section = "## Documentation"
+        (self.root / "README.md").write_text(
+            valid_readme().replace(section, f"<!--\n{section}\n-->", 1),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "README.md: missing required section: ## Documentation"
         )
 
     def test_readme_rejects_section_heading_mentioned_inline(self) -> None:
@@ -576,6 +988,74 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation("docs/index.md: front matter is missing sidebar_position")
 
+    def test_required_public_page_cannot_declare_draft_metadata(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page().replace("sidebar_position: 1", "sidebar_position: 1\ndraft: true"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: required public page cannot declare "
+            "publication-changing front matter: draft"
+        )
+
+    def test_rejects_malformed_front_matter_even_with_required_fields(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            (
+                "---\n"
+                "title: Jazz\n"
+                "description: Test fixture.\n"
+                "sidebar_position: 1\n"
+                ": malformed\n"
+                "---\n\n"
+                "Fixture body.\n"
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation("docs/index.md: missing valid YAML front matter")
+
+    def test_rejects_unterminated_yaml_flow_value(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page().replace("title: Fixture", "title: [broken"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("docs/index.md: missing valid YAML front matter")
+
+    def test_rejects_top_level_heading_that_duplicates_front_matter_title(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="# Fixture\n\nBody.\n"), encoding="utf-8"
+        )
+        self.assert_violation(
+            "docs/index.md: top-level heading duplicates front matter title"
+        )
+
+    def test_rejects_non_atx_rendered_top_level_headings(self) -> None:
+        for heading in ("Fixture\n=======", "<h1>Fixture</h1>"):
+            with self.subTest(heading=heading):
+                (self.root / "docs/index.md").write_text(
+                    page(body=f"{heading}\n\nBody.\n"), encoding="utf-8"
+                )
+                self.assert_violation(
+                    "docs/index.md: top-level heading duplicates front matter title"
+                )
+
+    def test_front_matter_comment_is_not_a_rendered_heading(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            (
+                "---\n"
+                "title: Fixture\n"
+                "# This comment is valid YAML front matter.\n"
+                "description: Test fixture.\n"
+                "sidebar_position: 1\n"
+                "---\n\n"
+                "Fixture body.\n"
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_rejects_missing_relative_link_targets(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="[Missing](language/not-there.md)\n"), encoding="utf-8"
@@ -583,6 +1063,262 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/index.md: public link target does not exist: language/not-there.md"
         )
+
+    def test_rejects_missing_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## Existing section\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Missing](language/overview.md#missing-section)\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#missing-section"
+        )
+
+    def test_rejects_same_page_missing_link_fragments(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "## Existing section\n\n"
+                    "[Missing](#missing-section)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: #missing-section"
+        )
+
+    def test_hidden_headings_do_not_supply_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="<!--\n## Hidden section\n-->\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Hidden](language/overview.md#hidden-section)\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#hidden-section"
+        )
+
+    def test_accepts_rendered_local_link_fragments(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## Repeated section\n\n"
+                    "First.\n\n"
+                    "## Repeated section\n\n"
+                    "Second.\n\n"
+                    "## Named section {#custom-anchor}\n\n"
+                    "Named.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[First](language/overview.md#repeated-section)\n"
+                    "[Second](language/overview.md#repeated-section-1)\n"
+                    "[Named](language/overview.md#custom-anchor)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_setext_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "Repeated section\n"
+                    "----------------\n\n"
+                    "First.\n\n"
+                    "Repeated section\n"
+                    "----------------\n\n"
+                    "Second.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[First](language/overview.md#repeated-section)\n"
+                    "[Second](language/overview.md#repeated-section-1)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_raw_html_heading_ids(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body='<h2 id="raw-details">Raw details</h2>\n\nBody.\n'),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body="[Details](language/overview.md#raw-details)\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_local_link_fragments_formed_only_by_front_matter(
+        self,
+    ) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Metadata]"
+                    "(language/overview.md#sidebar_position-1)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#sidebar_position-1"
+        )
+
+    def test_accepts_local_link_fragments_for_underscore_emphasis_headings(
+        self,
+    ) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## _Emphasized_ heading\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Emphasized heading]"
+                    "(language/overview.md#emphasized-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_underscore_emphasis_slugging_preserves_literal_underscores(
+        self,
+    ) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## snake_case\n\n"
+                    "## `_code_`\n\n"
+                    "## \\_literal\\_\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Identifier](language/overview.md#snake_case)\n"
+                    "[Code](language/overview.md#_code_)\n"
+                    "[Escaped](language/overview.md#_literal_)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_even_backslash_run_does_not_escape_heading_emphasis(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(body="## \\\\_Emphasized_ heading\n\nBody.\n"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Wrong fragment]"
+                    "(language/overview.md#_emphasized_-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link fragment does not exist: "
+            "language/overview.md#_emphasized_-heading"
+        )
+
+    def test_accepts_local_link_fragments_for_container_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "> ## Quoted heading\n>\n> Body.\n\n"
+                    "1. ### Listed heading\n\n"
+                    "   Body.\n\n"
+                    "- > #### Nested heading\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[Quoted](language/overview.md#quoted-heading)\n"
+                    "[Listed](language/overview.md#listed-heading)\n"
+                    "[Nested](language/overview.md#nested-heading)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_accepts_local_link_fragments_for_autolink_headings(self) -> None:
+        (self.root / "docs/language/overview.md").write_text(
+            page(
+                body=(
+                    "## <https://example.com>\n\n"
+                    "URI.\n\n"
+                    "## <person@example.com>\n\n"
+                    "Email.\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[URI](language/overview.md#httpsexamplecom)\n"
+                    "[Email](language/overview.md#personexamplecom)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_rejects_links_that_leave_public_docs(self) -> None:
         (self.root / "outside.md").write_text("Outside.\n", encoding="utf-8")
@@ -598,6 +1334,18 @@ class PublicDocsCheckerTests(unittest.TestCase):
         target.parent.mkdir()
         target.write_text(page(), encoding="utf-8")
         self.assert_violation("docs/superpowers: disallowed top-level docs entry")
+
+    def test_rejects_mdx_pages_in_the_public_documentation_tree(self) -> None:
+        (self.root / "docs/language/unvalidated.mdx").write_text(
+            "---\ntitle: Unvalidated\n---\n\n"
+            "[Internal](../../.codex/execution/queue.md)\n",
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/unvalidated.mdx: MDX public pages are unsupported; "
+            "use Markdown (.md)"
+        )
 
     def test_rejects_internal_and_legacy_references(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -656,6 +1404,164 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/private.png"
         )
 
+    def test_rejects_html_links_that_escape_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<a href="../rfcs/accepted/0001.md">Decision</a>\n'),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_unquoted_wrapped_html_links_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<a\n  href=../rfcs/accepted/0001.md>Decision</a>\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_multiline_html_block_links_to_internal_trees(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<a href="../rfcs/accepted/0001.md">\nDecision\n</a>\n'),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_missing_raw_html_image_targets(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body='<img src="missing.png" alt="Missing fixture">\n'),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/index.md: public link target does not exist: missing.png"
+        )
+
+    def test_rejects_missing_reference_style_image_targets(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="![Missing][fixture-image]\n\n[fixture-image]: missing.png\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: public link target does not exist: "
+            "missing.png"
+        )
+
+    def test_inline_link_brackets_do_not_create_reference_usages(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    '[Visible](https://example.com/path/[internal] "Title [internal]")\n\n'
+                    "[internal]: ../rfcs/accepted/0001-hidden.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_reference_definition_titles_do_not_create_reference_usages(
+        self,
+    ) -> None:
+        definitions = {
+            "same line": '[external]: https://example.com "Title [internal]"\n',
+            "continued": (
+                "[external]: https://example.com\n"
+                '  "Title [internal]"\n'
+            ),
+        }
+        for label, definition in definitions.items():
+            with self.subTest(label=label):
+                (self.root / "docs/index.md").write_text(
+                    page(
+                        body=(
+                            "[Visible][external]\n\n"
+                            f"{definition}"
+                            "[internal]: ../rfcs/accepted/0001-hidden.md\n"
+                        )
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = self.run_checker()
+
+                self.assertEqual(
+                    0, result.returncode, result.stdout + result.stderr
+                )
+
+    def test_rejects_banned_public_references_case_insensitively(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="The old identity was JAZZ2.\n"), encoding="utf-8"
+        )
+        self.assert_violation("docs/index.md: banned public reference: jazz2")
+
+    def test_rejects_html_entity_encoded_banned_public_references(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The retired identity is jazz&#45;next.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: jazz-next"
+        )
+
+    def test_rejects_markdown_escape_encoded_banned_public_references(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The retired identity is jazz\\-next.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: jazz-next"
+        )
+
+    def test_entity_encoded_backslash_does_not_create_a_markdown_escape(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="The literal text is jazz&#92;-next.\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_rejects_private_kernel_intrinsics_in_public_docs(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="Call __kernel_writeTextRaw! directly.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: __kernel_"
+        )
+
+    def test_rejects_obsolete_generated_output_claims(self) -> None:
+        (self.root / "docs/language/operators.md").write_text(
+            page(body="Jazz produces JavaScript output.\n"),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/language/operators.md: banned public reference: "
+            "JavaScript output"
+        )
+
+    def test_whitespace_only_link_target_is_an_actionable_violation(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="[Broken](   )\n"), encoding="utf-8"
+        )
+        result = self.run_checker()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("docs/index.md: public link target is empty", result.stdout)
+        self.assertEqual("", result.stderr)
+
     def test_rejects_full_reference_links_that_escape_docs(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(
@@ -669,6 +1575,64 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
         )
+
+    def test_rejects_escaped_reference_labels_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [decision][authority\\]].\n\n"
+                    "[authority\\]]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_blockquoted_reference_links_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "> Read the [decision][authority].\n>\n"
+                    "> [authority]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_tabbed_list_continuation_link_remains_rendered(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "- Durable decisions\n\n"
+                    "\t[Decision](../rfcs/accepted/0001.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_duplicate_reference_labels_use_the_first_definition(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [language guide][guide].\n\n"
+                    "[guide]: language/overview.md\n"
+                    "[GUIDE]: ../rfcs/accepted/0001.md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_rejects_collapsed_reference_links_that_escape_docs(self) -> None:
         (self.root / "docs/index.md").write_text(
@@ -709,6 +1673,24 @@ class PublicDocsCheckerTests(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_allows_reference_destinations_with_escaped_punctuation(self) -> None:
+        (self.root / "docs/language/overview(old).md").write_text(
+            page(), encoding="utf-8"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "Read the [language overview][guide].\n\n"
+                    "[guide]: language/overview\\(old\\).md\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_executable_marker_must_name_existing_jazz_example(self) -> None:
@@ -790,17 +1772,148 @@ class PublicDocsCheckerTests(unittest.TestCase):
         source = '"Hello".\n'
         self.add_tracked_example("examples/hello.jz", source)
         (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
+            page(
+                body=(
+                    self.executable_example("examples/hello.jz", source)
+                    + "\n<!-- jazz-example-output: case=case-2 -->\n"
+                    + "```text\n0\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_raw_html_block_cannot_document_an_example_or_its_output(self) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            '<script type="text/plain">\n'
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "</script>\n"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=hidden_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
+
+    def test_larger_html_comment_cannot_document_an_example_or_output(
+        self,
+    ) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            "<!--\n"
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "-->\n"
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=hidden_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
+        self.assertEqual("", result.stderr)
+
+    def test_blockquoted_raw_html_cannot_document_an_example_or_output(
+        self,
+    ) -> None:
+        source = '"Hello".\n'
+        self.add_tracked_example("examples/hello.jz", source)
+        hidden_contract = (
+            '<script type="text/plain">\n'
+            + self.executable_example("examples/hello.jz", source)
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n"
+            + "</script>\n"
+        )
+        blockquoted_contract = "".join(
+            f"> {line}" for line in hidden_contract.splitlines(keepends=True)
+        )
+        (self.root / "docs/index.md").write_text(
+            page(body=blockquoted_contract), encoding="utf-8"
+        )
+
+        result = self.run_checker()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "examples/hello.jz: tracked example has no executable public-docs fence",
+            result.stdout,
+        )
+        self.assertIn(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output",
+            result.stdout,
+        )
+        self.assertEqual("", result.stderr)
+
+    def test_rejects_documented_output_that_differs_from_manifest(self) -> None:
+        (self.root / "README.md").write_text(
+            valid_readme().replace(
+                "<!-- jazz-example-output: case=factorial -->\n```text\n720",
+                "<!-- jazz-example-output: case=factorial -->\n```text\n721",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "README.md: documented output for case factorial differs from "
+            "scripts/example-cases.tsv"
+        )
+
+    def test_every_example_case_has_documented_expected_output(self) -> None:
+        source = '"Extra".\n'
+        path = "examples/extra.jz"
+        self.add_tracked_example(path, source)
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(path, source)),
+            encoding="utf-8",
+        )
+        status_path = self.root / "docs/project/status.md"
+        status_path.write_text(
+            status_path.read_text(encoding="utf-8")
+            + "\n<!-- jazz-example-output: case=case-2 -->\n"
+            + "```text\n0\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv: case case-2 has no documented expected output"
+        )
+
     def test_readme_executable_fence_can_cover_a_tracked_example(self) -> None:
         source = '"Hello".\n'
         self.add_tracked_example("examples/hello.jz", source)
         (self.root / "README.md").write_text(
-            valid_readme(extra=self.executable_example("examples/hello.jz", source)),
+            valid_readme(
+                extra=(
+                    self.executable_example("examples/hello.jz", source)
+                    + "\n<!-- jazz-example-output: case=case-2 -->\n"
+                    + "```text\n0\n```\n"
+                )
+            ),
             encoding="utf-8",
         )
         result = self.run_checker()
@@ -951,6 +2064,211 @@ class PublicDocsCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_accepts_complete_module_declaration_fragment(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "module Example::Fixture {\n"
+                    "  answer = 1.\n"
+                    "}\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_default_checker_requires_fragments_in_compiler_inventory(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="<!-- jazz-example: fragment -->\n```jazz\n0.\n```\n"),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker_without_binary()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "docs/index.md: Jazz fragment 1 is missing from "
+            "scripts/public-doc-fragments.tsv",
+            result.stdout,
+        )
+
+    def test_default_checker_accepts_compiler_inventory_fragment(self) -> None:
+        source = "0.\n"
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    f"```jazz\n{source}```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        (self.root / "scripts/public-doc-fragments.tsv").write_text(
+            (
+                "document\tordinal\tsha256\n"
+                f"docs/index.md\t1\t{digest}\n"
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker_without_binary()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_default_checker_requires_fragment_inventory_file(self) -> None:
+        (self.root / "scripts/public-doc-fragments.tsv").unlink()
+
+        result = self.run_checker_without_binary()
+
+        self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(
+            "scripts/public-doc-fragments.tsv: cannot read inventory:",
+            result.stdout,
+        )
+
+    def test_default_checker_rejects_malformed_fragment_inventory(self) -> None:
+        digest = "0" * 64
+        cases = (
+            (
+                "missing final newline",
+                "document\tordinal\tsha256",
+                "scripts/public-doc-fragments.tsv: file must end with a newline",
+            ),
+            (
+                "invalid header",
+                "path\tordinal\tsha256\n",
+                "scripts/public-doc-fragments.tsv: invalid header",
+            ),
+            (
+                "wrong field count",
+                "document\tordinal\tsha256\ndocs/index.md\t1\n",
+                "scripts/public-doc-fragments.tsv:2: expected three tab-separated fields",
+            ),
+            (
+                "unsafe path",
+                f"document\tordinal\tsha256\n../README.md\t1\t{digest}\n",
+                "scripts/public-doc-fragments.tsv:2: invalid document path",
+            ),
+            (
+                "invalid ordinal",
+                f"document\tordinal\tsha256\ndocs/index.md\t0\t{digest}\n",
+                "scripts/public-doc-fragments.tsv:2: invalid fragment ordinal",
+            ),
+            (
+                "invalid digest",
+                "document\tordinal\tsha256\ndocs/index.md\t1\tnot-a-digest\n",
+                "scripts/public-doc-fragments.tsv:2: invalid SHA-256 digest",
+            ),
+            (
+                "duplicate entry",
+                (
+                    "document\tordinal\tsha256\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                ),
+                "scripts/public-doc-fragments.tsv:3: duplicate fragment entry",
+            ),
+            (
+                "stale entry",
+                (
+                    "document\tordinal\tsha256\n"
+                    f"docs/index.md\t1\t{digest}\n"
+                ),
+                "scripts/public-doc-fragments.tsv: stale Jazz fragment entry: "
+                "docs/index.md#1",
+            ),
+        )
+        for label, inventory, expected in cases:
+            with self.subTest(label=label):
+                (self.root / "scripts/public-doc-fragments.tsv").write_text(
+                    inventory,
+                    encoding="utf-8",
+                )
+
+                result = self.run_checker_without_binary()
+
+                self.assertNotEqual(
+                    0, result.returncode, result.stdout + result.stderr
+                )
+                self.assertIn(expected, result.stdout)
+
+    def test_required_public_pages_need_rendered_body_content(self) -> None:
+        (self.root / "docs/reference/cli.md").write_text(
+            page(body=""),
+            encoding="utf-8",
+        )
+
+        self.assert_violation(
+            "docs/reference/cli.md: required public page has no rendered body"
+        )
+
+    def test_rejects_fragment_with_invalid_jazz_syntax(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "if condition then else.\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assert_violation("docs/index.md: Jazz fragment has invalid syntax")
+
+    def test_rejects_invalid_jazz_fragments_inside_markdown_containers(
+        self,
+    ) -> None:
+        container_bodies = {
+            "ordered list": (
+                "1. Example\n\n"
+                "    <!-- jazz-example: fragment -->\n"
+                "    ```jazz\n"
+                "    if condition then else.\n"
+                "    ```\n"
+            ),
+            "blockquote": (
+                "> <!-- jazz-example: fragment -->\n"
+                "> ```jazz\n"
+                "> if condition then else.\n"
+                "> ```\n"
+            ),
+        }
+        for container, body in container_bodies.items():
+            with self.subTest(container=container):
+                (self.root / "docs/index.md").write_text(
+                    page(body=body), encoding="utf-8"
+                )
+
+                self.assert_violation(
+                    "docs/index.md: Jazz fragment has invalid syntax"
+                )
+
+    def test_fragment_syntax_check_ignores_contextual_semantic_errors(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "<!-- jazz-example: fragment -->\n"
+                    "```jazz\n"
+                    "unknownValue.\n"
+                    "```\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Public documentation checks passed.\n", result.stdout)
+
     def test_rejects_orphan_jazz_example_marker(self) -> None:
         (self.root / "docs/index.md").write_text(
             page(body="<!-- jazz-example: fragment -->\nNo fence follows.\n"),
@@ -1028,6 +2346,107 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "examples/hello.jz: tracked example is missing from scripts/example-cases.tsv"
         )
 
+    def test_run_case_cannot_claim_an_uninvoked_source(self) -> None:
+        extra_path = "examples/extra.jz"
+        extra_source = "0.\n"
+        self.add_tracked_example(extra_path, extra_source, add_to_cases=False)
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH, extra_path],
+            "720",
+            f"--run {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+        (self.root / "docs/index.md").write_text(
+            page(body=self.executable_example(extra_path, extra_source)),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: --run source does not match declared sources"
+        )
+
+    def test_example_case_rejects_an_unknown_cli_argument(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            f"--bogus --run {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: unknown argument: --bogus"
+        )
+
+    def test_example_case_rejects_runtime_statistics(self) -> None:
+        for runtime_statistics_argument in (
+            "--runtime-stats",
+            "--runtime-stats=human",
+            "--runtime-stats=json",
+        ):
+            with self.subTest(
+                runtime_statistics_argument=runtime_statistics_argument
+            ):
+                self.example_cases[0] = (
+                    "factorial",
+                    [FACTORIAL_PATH],
+                    "720",
+                    f"--run {runtime_statistics_argument} {FACTORIAL_PATH}",
+                )
+                self.write_example_cases()
+
+                self.assert_violation(
+                    "scripts/example-cases.tsv:2: checked examples cannot request "
+                    "runtime statistics"
+                )
+
+    def test_example_case_rejects_invalid_entry_module_names(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            "--run --entry-module examples/functions/factorial --module-root .",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: invalid entry module path "
+            "'examples/functions/factorial': segments must be identifiers"
+        )
+
+    def test_example_case_rejects_invalid_warning_flags(self) -> None:
+        invalid_flags = {
+            "-W": "empty warning token",
+            "-Wbogus": "unknown warning category: bogus",
+        }
+        for warning_flag, expected_violation in invalid_flags.items():
+            with self.subTest(warning_flag=warning_flag):
+                self.example_cases[0] = (
+                    "factorial",
+                    [FACTORIAL_PATH],
+                    "720",
+                    f"--run {warning_flag} {FACTORIAL_PATH}",
+                )
+                self.write_example_cases()
+
+                self.assert_violation(
+                    f"scripts/example-cases.tsv:2: {expected_violation}"
+                )
+
+    def test_example_case_rejects_explicit_warning_config_overrides(self) -> None:
+        self.example_cases[0] = (
+            "factorial",
+            [FACTORIAL_PATH],
+            "720",
+            f"--run --warnings-config missing.conf {FACTORIAL_PATH}",
+        )
+        self.write_example_cases()
+
+        self.assert_violation(
+            "scripts/example-cases.tsv:2: checked examples cannot override "
+            "the warning config"
+        )
+
     def test_rejects_untracked_operational_case_source(self) -> None:
         self.add_example_case(["examples/ghost.jz"])
         self.assert_violation(
@@ -1059,40 +2478,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "scripts/example-cases.tsv: file must end with a newline"
         )
 
-    def test_dead_case_table_cannot_satisfy_execution_coverage(self) -> None:
-        source = '"Hello".\n'
-        self.add_tracked_example("examples/hello.jz", source)
-        (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
-            encoding="utf-8",
-        )
-        self.write_example_runner(consume_cases=False)
-        self.assert_violation(
-            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
-        )
-
-    def test_case_table_reader_without_runner_call_is_not_execution_coverage(self) -> None:
-        source = '"Hello".\n'
-        self.add_tracked_example("examples/hello.jz", source)
-        (self.root / "docs/index.md").write_text(
-            page(body=self.executable_example("examples/hello.jz", source)),
-            encoding="utf-8",
-        )
-        (self.root / "scripts/check-examples.sh").write_text(
-            (
-                "#!/usr/bin/env bash\n\n"
-                "while IFS=$'\\t' read -r case_name case_sources "
-                "case_expected case_args_text; do\n"
-                "  [[ \"$case_name\" == \"name\" ]] && continue\n"
-                "  printf '%s\\n' \"$case_name\"\n"
-                "done < scripts/example-cases.tsv\n"
-            ),
-            encoding="utf-8",
-        )
-        self.assert_violation(
-            "scripts/check-examples.sh: does not execute scripts/example-cases.tsv"
-        )
-
     def test_module_dependency_sources_require_real_case_and_doc_coverage(self) -> None:
         greeting = "module Example::Greeting {\n  greeting = \"Hello\".\n}\n"
         main = (
@@ -1105,11 +2490,23 @@ class PublicDocsCheckerTests(unittest.TestCase):
         main_path = "examples/modules/src/Example/Main.jz"
         self.add_tracked_example(greeting_path, greeting, add_to_cases=False)
         self.add_tracked_example(main_path, main, add_to_cases=False)
-        self.add_example_case([main_path, greeting_path])
+        self.example_cases.append(
+            (
+                "module",
+                [main_path, greeting_path],
+                '"Hello"',
+                "--run --entry-module Example::Main "
+                "--module-root examples/modules/src",
+            )
+        )
+        self.write_example_cases()
         body = self.executable_example(
             greeting_path, greeting
         ) + self.executable_example(
             main_path, main
+        ) + (
+            "\n<!-- jazz-example-output: case=module -->\n"
+            "```text\n\"Hello\"\n```\n"
         )
         (self.root / "docs/index.md").write_text(page(body=body), encoding="utf-8")
         result = self.run_checker()

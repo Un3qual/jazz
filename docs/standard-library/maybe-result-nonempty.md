@@ -4,8 +4,6 @@ description: Model optional values, recoverable errors, and statically non-empty
 sidebar_position: 4
 ---
 
-# Maybe, Result, and NonEmpty
-
 ## Maybe
 
 `Maybe(a) = Nothing | Just a`. Public helpers are `maybeMap`,
@@ -32,8 +30,9 @@ branch merely to select a supplied default.
 
 The module also exports `nonEmptyToList`, `nonEmptyLast`, `nonEmptyPrepend`,
 `nonEmptyAppendList`, `nonEmptyMap`, `nonEmptyLength`, `nonEmptyFoldLeft`, and
-`nonEmptyFoldRight`. Head, tail, and singleton are `O(1)`; traversal,
-conversion, mapping, length, last, append, and folds are `O(n)`.
+`nonEmptyFoldRight`. Head, tail, singleton construction, prepend, and conversion
+to or from a list are `O(1)`; traversal, mapping, length, last, append, and folds
+are `O(n)`.
 
 These modules expose their constructors for ordinary
 [pattern matching](../language/algebraic-data-types-and-patterns.md).

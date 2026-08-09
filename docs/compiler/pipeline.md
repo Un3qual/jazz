@@ -4,8 +4,6 @@ description: Follow source through parsing, analysis, module interfaces, and int
 sidebar_position: 2
 ---
 
-# Compiler pipeline
-
 ## Standalone source
 
 1. Select bundled, explicit, or absent Prelude source.

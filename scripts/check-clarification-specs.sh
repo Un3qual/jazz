@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # Contract regexes must remain literal.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RENDER_CACHE_ROOT="$(mktemp -d)"
+trap 'rm -rf "$RENDER_CACHE_ROOT"' EXIT
 cd "$ROOT"
 
 fail_count=0
@@ -9,6 +13,31 @@ fail_count=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
   fail_count=$((fail_count + 1))
+}
+
+cached_rendered_markdown() {
+  local mode="$1"
+  local file="$2"
+  local cache_file="$RENDER_CACHE_ROOT/$mode/$file"
+  local pending_file="$cache_file.pending"
+
+  if [[ ! -f "$cache_file" ]]; then
+    mkdir -p "$(dirname "$cache_file")"
+    if ! python3 "$SCRIPT_DIR/markdown_visibility.py" "--preserve-$mode" "$file" >"$pending_file"; then
+      return 1
+    fi
+    mv "$pending_file" "$cache_file"
+  fi
+
+  cat "$cache_file"
+}
+
+rendered_markdown() {
+  cached_rendered_markdown "inline-code" "$1"
+}
+
+rendered_markdown_with_code() {
+  cached_rendered_markdown "code" "$1"
 }
 
 require_file() {
@@ -20,7 +49,7 @@ require_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! rg -n -e "$pattern" "$file" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | rg -n -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing required section: $label"
   fi
 }
@@ -29,7 +58,16 @@ require_contract_pattern() {
   local file="$1"
   local label="$2"
   local pattern="$3"
-  if ! tr '\n' ' ' <"$file" | rg -n -e "$pattern" >/dev/null 2>&1; then
+  if ! rendered_markdown "$file" | tr '\n' ' ' | rg -n -e "$pattern" >/dev/null 2>&1; then
+    fail "$file missing required contract: $label"
+  fi
+}
+
+require_rendered_code_pattern() {
+  local file="$1"
+  local label="$2"
+  local pattern="$3"
+  if ! rendered_markdown_with_code "$file" | tr '\n' ' ' | rg -n -e "$pattern" >/dev/null 2>&1; then
     fail "$file missing required contract: $label"
   fi
 }
@@ -76,7 +114,7 @@ require_contract_pattern "docs/standard-library/prelude.md" "stub-v1 print behav
 
 require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "top-level pattern alternatives" 'Alternatives are supported only at the top level of a case arm or lambda parameter\.'
 require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "nested and grouped alternatives unsupported" 'Grouped or nested alternatives are not supported, and lambda-parameter guards are not supported\.'
-require_contract_pattern "docs/reference/expression-grammar.md" "case-arm alternative grammar" 'case-arm-pattern[[:space:]]+:= pattern \("\|" pattern\)\*'
+require_rendered_code_pattern "docs/reference/expression-grammar.md" "case-arm alternative grammar" 'case-arm-pattern[[:space:]]+:= pattern \("\|" pattern\)\*'
 require_contract_pattern "docs/reference/expression-grammar.md" "lambda guards unsupported" 'Lambda parameters do not accept guards\.'
 
 require_pattern "docs/reference/runtime-values.md" "value families" '^## Value families and rendering$'
@@ -106,7 +144,7 @@ require_pattern ".codex/execution/blocker-contracts.md" "hosted compiler RFC" 'r
 require_pattern ".codex/execution/blocker-contracts.md" "typed-core RFC" 'rfcs/accepted/0005-typed-core-elaboration\.md'
 require_pattern ".codex/execution/blocker-contracts.md" "lowered IR RFC" 'rfcs/accepted/0006-lowered-ir-contract\.md'
 
-if rg -n -e 'docs/(feature-status\.md|spec/|jazz-language-state\.md|jazz-improvement-backlog\.md|superpowers/|plans/)' .codex/execution --glob '*.md' >/dev/null 2>&1; then
+if rg -n -e 'docs/(execution/|feature-status\.md|spec/|jazz-language-state\.md|jazz-improvement-backlog\.md|superpowers/|plans/)' .codex/execution --glob '*.md' >/dev/null 2>&1; then
   fail ".codex/execution contains a live reference to a deleted documentation owner"
 fi
 

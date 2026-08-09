@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - Execute this workstream on a fresh `codex/repository-canonicalization` branch based on the merged productization-design branch.
+- Before Task 3, obtain explicit maintainer authorization for this one-time exception to the current `AGENTS.md` legacy read-only and `jazz-next/` workspace policy. Approval of the design alone is not permission to delete or relocate guarded compiler trees; record the execution authorization in the task or pull-request history.
 - The checked-out starting commit must still contain `jazz-hs/`, `jazz2/`, and `jazz-next/` and must be the exact commit tagged for archival.
 - Push `archive/pre-root-canonicalization-2026-07-31` before committing any deletion. Stop if the remote tag exists at a different object.
 - Use `git mv` and `git rm` so Git can retain rename history. Do not copy legacy implementations into another tracked directory.
@@ -57,35 +58,57 @@
 
   Expected: all four `test` commands succeed and `archive_commit` contains the reviewed starting object. Keep this shell open through the tag steps.
 
-- [ ] Check whether the archive tag already exists locally or remotely:
+- [ ] Check whether the archive tag already exists locally or remotely and fail closed on any mismatched peeled object:
 
   ```bash
-  git show-ref --verify --quiet refs/tags/archive/pre-root-canonicalization-2026-07-31; echo $?
-  git ls-remote --tags origin refs/tags/archive/pre-root-canonicalization-2026-07-31
+  set -euo pipefail
+  tag=archive/pre-root-canonicalization-2026-07-31
+  local_tag_object=
+  local_archive_commit=
+  if git show-ref --verify --quiet "refs/tags/$tag"; then
+    local_tag_object="$(git rev-parse "refs/tags/$tag")"
+    local_archive_commit="$(git rev-parse "$tag^{}")"
+    test "$(git cat-file -t "refs/tags/$tag")" = tag
+  fi
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_tag_object="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag" '$2 == ref { print $1 }')"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
+  test -z "$local_archive_commit" || test "$local_archive_commit" = "$archive_commit"
+  test -z "$remote_tag_object" || test -n "$remote_archive_commit"
+  test -n "$remote_tag_object" || test -z "$remote_archive_commit"
+  test -z "$remote_archive_commit" || test "$remote_archive_commit" = "$archive_commit"
   ```
 
-  Expected: neither command reports an existing tag. If one exists, peel it with `git rev-parse archive/pre-root-canonicalization-2026-07-31^{}` and stop unless it resolves to `$archive_commit`.
+  Expected: an absent tag is safe to create; an existing local or remote tag is safe only when it is annotated and its peeled object equals `$archive_commit`. The single `ls-remote` call must succeed and the exact-ref parsing must distinguish the tag object from its returned `^{}` line; lookup errors and mismatches abort the migration.
 
-- [ ] Create and inspect the annotated tag:
+- [ ] If the local tag is absent, either fetch the matching remote annotated tag or create it when both sides are absent. Then inspect it:
 
   ```bash
-  git tag -a archive/pre-root-canonicalization-2026-07-31 "$archive_commit" -m "Archive repository before root canonicalization; preserves jazz-hs, jazz2, and jazz-next"
-  git show --no-patch --decorate archive/pre-root-canonicalization-2026-07-31
-  git rev-parse archive/pre-root-canonicalization-2026-07-31^{}
+  if test -z "$local_tag_object" && test -n "$remote_tag_object"; then
+    git fetch origin "refs/tags/$tag:refs/tags/$tag"
+  elif test -z "$local_tag_object"; then
+    git tag -a "$tag" "$archive_commit" -m "Archive repository before root canonicalization; preserves jazz-hs, jazz2, and jazz-next"
+  fi
+  git show --no-patch --decorate "$tag"
+  test "$(git rev-parse "$tag^{}")" = "$archive_commit"
   ```
 
   Expected: the peeled tag object is exactly `$archive_commit`.
 
-- [ ] Push and remotely verify the tag before deleting anything:
+- [ ] Push the verified local tag only when the remote tag was absent, then remotely verify it before deleting anything:
 
   ```bash
-  git push origin refs/tags/archive/pre-root-canonicalization-2026-07-31
-  git ls-remote --tags origin refs/tags/archive/pre-root-canonicalization-2026-07-31 refs/tags/archive/pre-root-canonicalization-2026-07-31^{}
+  if test -z "$remote_tag_object"; then
+    git push origin "refs/tags/$tag"
+  fi
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
+  test "$remote_archive_commit" = "$archive_commit"
   ```
 
   Expected: the remote contains the annotated tag and its peeled object equals `$archive_commit`.
 
-- [ ] Save the pre-migration baseline outputs in the task notes, not in the repository:
+- [ ] Save `$archive_commit` and the pre-migration baseline outputs in the task notes and pull-request description, not in the repository. Record the commit independently before closing the shell; later verification must compare the tags to this recorded value rather than deriving the expected value from a tag under test:
 
   ```bash
   nix develop --command cabal build --project-dir=jazz-next all
@@ -120,7 +143,7 @@
 
   Expected: failure names the legacy or nested directory that violates the final layout.
 
-- [ ] Rename the root-discovery API in the test code from `findJazzNextPackageRoot` to `findJazzPackageRoot`, change the marker to `jazz.cabal`, and make `candidateRoots` walk ancestors only. Do not retain `ancestor </> "jazz-next"` fallback logic.
+- [ ] Keep the existing `findJazzNextPackageRoot` name, `jazz-next.cabal` marker, and nested-package fallback while the focused red test still runs against the pre-move layout. Task 4, after Task 3 creates root `jazz.cabal`, renames the API to `findJazzPackageRoot`, changes the marker, and removes the `ancestor </> "jazz-next"` fallback.
 
 - [ ] Keep the expected final-layout assertions failing until Tasks 3 and 4 complete; do not commit this intentionally red intermediate state by itself.
 
@@ -220,7 +243,11 @@
 - [ ] Verify no active compiler identity remains outside intentionally historical documentation:
 
   ```bash
-  rg -n "jazz-next|JazzNext|Paths_jazz_next" app benchmark editors jazz program-support programs src test jazz.cabal cabal.project cabal.project.profile-hotspots cabal.project.profile-stages PERFORMANCE.md
+  if rg -n "jazz-next|JazzNext|Paths_jazz_next" app benchmark editors jazz program-support programs src test jazz.cabal cabal.project cabal.project.profile-hotspots cabal.project.profile-stages PERFORMANCE.md; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
   ```
 
   Expected: no matches.
@@ -264,7 +291,7 @@
 - Modify: active files under `docs/execution/**`, `docs/spec/**`, `docs/feature-status.md`, `docs/jazz-language-state.md`, and `docs/jazz-improvement-backlog.md` only where path truth is required
 - Test: `test/Jazz/Repository/AuditSpec.hs`
 
-- [ ] Change `flake.nix` to call `callCabal2nix "jazz" ./. { }`, bind the derivation as `jazz`, and expose `checks.jazz-test-suite`. Leave `packages.default` and `apps.default` to the alpha-release preparation workstream.
+- [ ] Change `flake.nix` to call `callCabal2nix "jazz" ./. { }`, wrap that derivation with `pkgs.haskell.lib.enableCabalFlag ... "development"`, bind the warning-clean result as `jazz`, and expose it through `checks.jazz-test-suite`. Leave `packages.default` and `apps.default` to the alpha-release preparation workstream.
 
 - [ ] Replace nested build ignores with root paths:
 
@@ -292,7 +319,7 @@
 
 - [ ] Update `scripts/check-docs.sh` and queue scripts only enough to follow canonical root paths. Do not move execution documents yet.
 
-- [ ] Update active status and specification references from `jazz-next/...` to root paths such as `src/Jazz/...`, `test/Jazz/...`, and `jazz/stdlib/...`. Historical implementation plans may retain old names until Workstream 2 deletes or curates them.
+- [ ] Treat Markdown path updates as part of this migration: before the root move, active implementation references must still point to `jazz-next/...`; after Tasks 3 and 4, update active status, specification, and repository-guidance references to root paths such as `src/Jazz/...`, `test/Jazz/...`, and `jazz/stdlib/...`. Historical implementation plans may retain old names until Workstream 2 deletes or curates them.
 
 - [ ] Add repository-audit assertions that read the root `flake.nix`, `.gitignore`, `AGENTS.md`, Cabal files, and active scripts, rejecting `jazz-next`, `JazzNext`, `Paths_jazz_next`, `jazz-hs`, and `jazz2` as live product paths.
 
@@ -313,7 +340,15 @@
 - [ ] Audit non-historical tracked files for obsolete identity:
 
   ```bash
-  rg -n "jazz-next|JazzNext|Paths_jazz_next|jazz-hs|jazz2" --glob '!docs/plans/**' --glob '!docs/superpowers/**' --glob '!.codex/plans/**' .
+  if git grep -n -E "jazz-next|JazzNext|Paths_jazz_next|jazz-hs|jazz2" -- \
+    . \
+    ':(exclude)docs/plans/**' \
+    ':(exclude)docs/superpowers/**' \
+    ':(exclude).codex/plans/**'; then
+    exit 1
+  else
+    test "$?" -eq 1
+  fi
   ```
 
   Expected: no active product-path claims. Any hits must be either corrected now or explicitly documented as historical material scheduled for Workstream 2 removal.
@@ -439,11 +474,19 @@
 - [ ] Verify the archive tag one last time:
 
   ```bash
-  git rev-parse archive/pre-root-canonicalization-2026-07-31^{}
-  git ls-remote --tags origin refs/tags/archive/pre-root-canonicalization-2026-07-31^{}
+  set -euo pipefail
+  tag=archive/pre-root-canonicalization-2026-07-31
+  : "${recorded_archive_commit:?copy the exact Task 1 commit from the task or PR record}"
+  test "$(git cat-file -t "refs/tags/$tag")" = tag
+  local_archive_commit="$(git rev-parse "$tag^{}")"
+  remote_tag_listing="$(git ls-remote --tags origin "refs/tags/$tag*")"
+  remote_archive_commit="$(printf '%s\n' "$remote_tag_listing" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')"
+  test -n "$remote_archive_commit"
+  test "$local_archive_commit" = "$recorded_archive_commit"
+  test "$remote_archive_commit" = "$recorded_archive_commit"
   ```
 
-  Expected: local and remote peeled objects match the recorded pre-migration commit.
+  Expected: the local ref is an annotated tag object and `recorded_archive_commit == local peeled tag == remote peeled tag`; the expected commit comes from the independent Task 1 record, while a lightweight local tag, missing remote peeled ref, lookup failure, or mismatch aborts verification.
 
 - [ ] Push `codex/repository-canonicalization` and open a dedicated pull request. The PR description must include the archive tag, ordinary and extended verification results, and a statement that compiler semantics are unchanged.
 

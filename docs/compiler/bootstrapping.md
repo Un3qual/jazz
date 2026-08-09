@@ -4,8 +4,6 @@ description: Understand Jazz self-hosting progress and the evidence required to 
 sidebar_position: 3
 ---
 
-# Bootstrapping
-
 Jazz uses the current Haskell compiler and interpreter as stage 0. Hosted
 compiler components are ordinary Jazz modules executed by that stage. A
 self-hosted compiler means the canonical compiler implementation is written in

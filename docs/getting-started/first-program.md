@@ -4,8 +4,6 @@ description: Define, type-check, and run a recursive factorial function in Jazz.
 sidebar_position: 3
 ---
 
-# Your first program
-
 This checked example declares a signature, defines a recursive function with
 ordered pattern clauses, and evaluates it.
 
@@ -33,11 +31,15 @@ cabal run jazz -- --run examples/functions/factorial.jz
 
 Expected output:
 
+<!-- jazz-example-output: case=factorial -->
+
 ```text
 720
 ```
 
-Every statement ends in a period. `Int -> Int` is the function type, and the
-two `\|` clauses are tried from top to bottom. Learn more in
+The signature, binding, and final expression shown here each end in a period.
+A module declaration is the exception: it ends at its closing `}` without a
+trailing period. `Int -> Int` is the function type, and the two `\|` clauses
+are tried from top to bottom. Learn more in
 [bindings and functions](../language/bindings-and-functions.md) and
 [control flow](../language/control-flow.md).
