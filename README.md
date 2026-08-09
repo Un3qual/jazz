@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="./website/static/img/jazz-wordmark.svg" alt="Jazz" width="280" />
+  <picture>
+    <source srcset="./website/static/img/jazz-wordmark-dark.svg" media="(prefers-color-scheme: dark)" />
+    <img src="./website/static/img/jazz-wordmark.svg" alt="Jazz" width="280" />
+  </picture>
 </p>
 
 # Jazz

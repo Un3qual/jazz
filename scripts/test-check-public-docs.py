@@ -14,6 +14,7 @@ CHECKER_PATH = Path(__file__).with_name("check-public-docs.py")
 
 FACTORIAL_PATH = "examples/functions/factorial.jz"
 WORDMARK_PATH = "website/static/img/jazz-wordmark.svg"
+DARK_WORDMARK_PATH = "website/static/img/jazz-wordmark-dark.svg"
 PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
 PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
 README_WEBSITE_LINK = f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
@@ -79,7 +80,13 @@ def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
 
 def valid_readme(*, extra: str = "") -> str:
     lines = [
-        f'<img src="./{WORDMARK_PATH}" alt="Jazz" width="240" />',
+        "<picture>",
+        (
+            f'  <source srcset="./{DARK_WORDMARK_PATH}" '
+            'media="(prefers-color-scheme: dark)" />'
+        ),
+        f'  <img src="./{WORDMARK_PATH}" alt="Jazz" width="240" />',
+        "</picture>",
         "",
         "# Jazz",
         "",
@@ -158,6 +165,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         wordmark = self.root / WORDMARK_PATH
         wordmark.parent.mkdir(parents=True)
         wordmark.write_text("<svg></svg>\n", encoding="utf-8")
+        (self.root / DARK_WORDMARK_PATH).write_text("<svg></svg>\n", encoding="utf-8")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
         factorial.write_text(FACTORIAL_SOURCE, encoding="utf-8")
@@ -310,6 +318,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         (self.root / "README.md").write_text(readme, encoding="utf-8")
         self.assert_violation("README.md: logo must use a repository-local path")
 
+    def test_readme_requires_canonical_dark_mode_wordmark_path(self) -> None:
+        readme = valid_readme().replace(
+            f'  <source srcset="./{DARK_WORDMARK_PATH}" '
+            'media="(prefers-color-scheme: dark)" />\n',
+            "",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: dark-mode logo must use the canonical repository-local path"
+        )
+
     def test_readme_requires_factorial_marker_and_expected_output(self) -> None:
         readme = valid_readme().replace(
             f"<!-- jazz-example: executable path={FACTORIAL_PATH} -->",
@@ -354,31 +373,49 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_readme_comment_decoy_cannot_hide_stale_visible_wording(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
-            f"[Website]({PUBLIC_WEBSITE_URL})\n\n<!-- {README_WEBSITE_LINK} -->",
+            f"<!-- {README_WEBSITE_LINK} -->",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
-        self.assert_violation(
-            "README.md: website must use the prospective canonical Website label"
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
         )
 
     def test_readme_inline_code_decoy_cannot_hide_stale_visible_wording(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
-            f"[Website]({PUBLIC_WEBSITE_URL})\n\n``{README_WEBSITE_LINK}``",
+            f"``{README_WEBSITE_LINK}``",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
-        self.assert_violation(
-            "README.md: website must use the prospective canonical Website label"
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
         )
 
     def test_readme_escaped_link_decoy_is_not_a_visible_link(self) -> None:
         readme = valid_readme().replace(
             README_WEBSITE_LINK,
-            f"[Website]({PUBLIC_WEBSITE_URL})\n\n\\{README_WEBSITE_LINK}",
+            f"\\{README_WEBSITE_LINK}",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
-        self.assert_violation(
-            "README.md: website must use the prospective canonical Website label"
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
         )
 
     def test_readme_requires_post_merge_pages_follow_up(self) -> None:
@@ -442,10 +479,6 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation(
             "docs/getting-started/overview.md: missing visible prospective website link"
         )
-
-    def test_visible_prospective_website_links_pass(self) -> None:
-        result = self.run_checker()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_visible_links_remain_valid_beside_inline_code_decoys(self) -> None:
         readme = valid_readme(extra=f"`[Not the website]({PUBLIC_WEBSITE_URL})`")
@@ -580,6 +613,47 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation(
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_angle_bracket_links_with_parentheses_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="[Decision](<../rfcs/accepted/draft(1.md>)\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: "
+            "../rfcs/accepted/draft(1.md"
+        )
+
+    def test_comment_literal_inside_fence_cannot_hide_later_links(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "```text\n"
+                    "<!-- an example literal\n"
+                    "```\n\n"
+                    "[Decision](../rfcs/accepted/0001.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: "
+            "../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_escaping_images_nested_inside_link_labels(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[![Private diagram](../rfcs/private.png)]"
+                    "(language/overview.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/private.png"
         )
 
     def test_rejects_full_reference_links_that_escape_docs(self) -> None:

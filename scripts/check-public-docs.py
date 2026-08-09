@@ -34,6 +34,7 @@ BANNED_REFERENCES = (
 README_TAGLINE = "A statically typed functional language with practical syntax"
 README_MATURITY_NOTICE = "Experimental / pre-1.0"
 README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
+README_DARK_LOGO_PATH = "website/static/img/jazz-wordmark-dark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
 PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
 PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
@@ -57,7 +58,7 @@ README_REQUIRED_LINKS = (
     "docs/project/roadmap.md",
     "docs/project/contributing.md",
     "https://github.com/un3qual/jazz/issues",
-    "https://un3qual.github.io/jazz/",
+    PUBLIC_WEBSITE_URL,
 )
 README_BANNED_TERMS = (
     "docs/superpowers",
@@ -143,6 +144,9 @@ REQUIRED_PAGES = (
 
 HTML_IMAGE_RE = re.compile(
     r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
+)
+HTML_SOURCE_RE = re.compile(
+    r"<source\b[^>]*\bsrcset=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE
 )
 REFERENCE_DEFINITION_RE = re.compile(
     r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>]+)>|(\S+))",
@@ -268,6 +272,16 @@ def markdown_inline_links(text: str) -> list[MarkdownLink]:
         target_start = label_end + 1
         target_end = target_start
         parenthesis_depth = 1
+        if target_start < len(text) and text[target_start] == "<":
+            target_end += 1
+            while target_end < len(text):
+                if text[target_end] == ">" and not is_escaped(text, target_end):
+                    target_end += 1
+                    break
+                target_end += 1
+            else:
+                index += 1
+                continue
         while target_end < len(text) and parenthesis_depth:
             if not is_escaped(text, target_end):
                 if text[target_end] == "(":
@@ -285,6 +299,7 @@ def markdown_inline_links(text: str) -> list[MarkdownLink]:
             and text[image_marker] == "!"
             and not is_escaped(text, image_marker)
         )
+        links.extend(markdown_inline_links(text[label_start : label_end - 1]))
         links.append(
             MarkdownLink(
                 label=text[label_start : label_end - 1],
@@ -521,23 +536,26 @@ def markdown_fences(text: str) -> list[MarkdownFence]:
 
 def visible_markdown(text: str) -> str:
     """Blank fenced/inline code and HTML comments before rendered-link checks."""
-    hidden_ranges = [
-        (fence.start, fence.end) for fence in markdown_fences(text)
-    ]
-    hidden_ranges.extend(
-        match.span()
-        for match in re.finditer(r"<!--.*?(?:-->|\Z)", text, re.DOTALL)
-    )
     characters = list(text)
-    for start, end in hidden_ranges:
-        for index in range(start, end):
-            if characters[index] not in "\r\n":
-                characters[index] = " "
-    without_blocks = "".join(characters)
-    for start, end in inline_code_spans(without_blocks):
-        for index in range(start, end):
-            if characters[index] not in "\r\n":
-                characters[index] = " "
+
+    def blank(ranges: list[tuple[int, int]]) -> None:
+        for start, end in ranges:
+            for index in range(start, end):
+                if characters[index] not in "\r\n":
+                    characters[index] = " "
+
+    blank([(fence.start, fence.end) for fence in markdown_fences(text)])
+    without_fences = "".join(characters)
+    blank(inline_code_spans(without_fences))
+    without_code = "".join(characters)
+    blank(
+        [
+            match.span()
+            for match in re.finditer(
+                r"<!--.*?(?:-->|\Z)", without_code, re.DOTALL
+            )
+        ]
+    )
     return "".join(characters)
 
 
@@ -842,7 +860,12 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     image_targets.extend(
         match.group(1) for match in HTML_IMAGE_RE.finditer(visible_text)
     )
+    source_targets = [
+        match.group(1) for match in HTML_SOURCE_RE.finditer(visible_text)
+    ]
+    image_targets.extend(source_targets)
     local_logo_found = False
+    local_dark_logo_found = False
     for raw_target in image_targets:
         target = unquote(markdown_link_target(raw_target))
         parsed = urlsplit(target)
@@ -861,8 +884,14 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
             continue
         if candidate == (root / README_LOGO_PATH).resolve():
             local_logo_found = True
+        if candidate == (root / README_DARK_LOGO_PATH).resolve():
+            local_dark_logo_found = True
     if not local_logo_found:
         violations.append("README.md: logo must use a repository-local path")
+    if not local_dark_logo_found:
+        violations.append(
+            "README.md: dark-mode logo must use the canonical repository-local path"
+        )
 
     if README_FACTORIAL_MARKER not in text:
         violations.append("README.md: missing executable factorial marker")
