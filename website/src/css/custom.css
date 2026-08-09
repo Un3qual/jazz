@@ -62,7 +62,7 @@ html {
 }
 
 body {
-  font-variation-settings: 'wght' 450;
+  font-weight: 450;
   text-rendering: optimizeLegibility;
 }
 
