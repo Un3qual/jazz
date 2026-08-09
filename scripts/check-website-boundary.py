@@ -8,8 +8,8 @@ arbitrary expressions; the repository's authored source is trusted code.
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import re
 import sys
 from html import unescape
@@ -56,7 +56,10 @@ AUTHORED_SUFFIXES = {
     ".tsx",
 }
 REMOTE_REFERENCE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s\"'`<>(){}\[\]]+"
+    r"(?:"
+    r"[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'`<>(){}\[\]]+"
+    r"|//(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+[^\s\"'`<>(){}\[\]]*"
+    r")"
 )
 CSS_URL = re.compile(
     r"url\(\s*(?P<quote>['\"]?)(?P<target>.*?)(?P=quote)\s*\)", re.IGNORECASE
@@ -140,8 +143,10 @@ def public_doc_entries(docs: Path) -> list[Path]:
 
 def check_public_docs(root: Path, violations: list[str]) -> None:
     docs = root / "docs"
-    if not docs.is_dir():
-        violations.append("docs: configured public documentation directory is missing")
+    if not docs.is_dir() or docs.is_symlink():
+        violations.append(
+            "docs: configured public documentation directory must be a real directory"
+        )
         return
     boundary = docs.resolve()
     for path in public_doc_entries(docs):
@@ -225,18 +230,20 @@ def check_authored_sources(root: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{path_label}: forbidden publication reference: {forbidden}"
                 )
-        if any(
-            not allowed_authored_remote(match.group())
-            for match in REMOTE_REFERENCE.finditer(source)
-        ):
-            violations.append(
-                f"{path_label}: remote authored reference is not allowlisted"
-            )
+        for match in REMOTE_REFERENCE.finditer(source):
+            if not allowed_authored_remote(match.group()):
+                violations.append(
+                    f"{path_label}: remote authored reference is not allowlisted: "
+                    f"{match.group()}"
+                )
 
 
 def remote_resource(target: str) -> bool:
     value = unescape(target.strip())
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return True
     return value.startswith("//") or (
         bool(parsed.scheme) and parsed.scheme.casefold() not in {"data", "blob", "mailto"}
     )
@@ -255,11 +262,21 @@ class ResourceParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.remote_fetch = False
+        self.in_style = False
 
     def handle_starttag(
         self, tag: str, attrs: list[tuple[str, str | None]]
     ) -> None:
-        attributes = {name.casefold(): value or "" for name, value in attrs}
+        folded_tag = tag.casefold()
+        if folded_tag == "style":
+            self.in_style = True
+
+        attribute_values: dict[str, list[str]] = {}
+        for name, value in attrs:
+            attribute_values.setdefault(name.casefold(), []).append(value or "")
+        attributes = {
+            name: values[0] for name, values in attribute_values.items()
+        }
         for name in (
             "src",
             "poster",
@@ -269,25 +286,39 @@ class ResourceParser(HTMLParser):
             "formaction",
             "manifest",
         ):
-            target = attributes.get(name)
-            if target and remote_resource(target):
+            targets = attribute_values.get(name, [])
+            if any(target and remote_resource(target) for target in targets):
                 self.remote_fetch = True
         for name in ("srcset", "imagesrcset"):
-            candidates = attributes.get(name, "")
             targets = [
                 candidate.strip().split()[0]
+                for candidates in attribute_values.get(name, [])
                 for candidate in candidates.split(",")
                 if candidate.strip()
             ]
             if any(remote_resource(target) for target in targets):
                 self.remote_fetch = True
-        target = attributes.get("href")
-        if not target or not remote_resource(target):
-            return
+        for source in attribute_values.get("style", []):
+            if any(remote_resource(target) for target in css_targets(source)):
+                self.remote_fetch = True
+
         rel = set(attributes.get("rel", "").casefold().split())
-        navigation = tag.casefold() in {"a", "area"}
-        metadata = tag.casefold() == "link" and bool(rel & {"canonical", "alternate"})
-        if not ((navigation or metadata) and allowed_generated_navigation(target)):
+        navigation = folded_tag in {"a", "area"}
+        metadata = folded_tag == "link" and bool(rel & {"canonical", "alternate"})
+        for target in attribute_values.get("href", []):
+            if remote_resource(target) and not (
+                (navigation or metadata) and allowed_generated_navigation(target)
+            ):
+                self.remote_fetch = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() == "style":
+            self.in_style = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_style and any(
+            remote_resource(target) for target in css_targets(data)
+        ):
             self.remote_fetch = True
 
 
