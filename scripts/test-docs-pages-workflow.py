@@ -23,7 +23,6 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.workflow = self.root / WORKFLOW
         self.workflow.parent.mkdir(parents=True)
         source = (REPOSITORY_ROOT / WORKFLOW).read_text(encoding="utf-8")
-        source = source.replace("pnpm/action-setup@v4", PNPM_ACTION)
         self.workflow.write_text(source, encoding="utf-8")
 
     def tearDown(self) -> None:
@@ -61,6 +60,15 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.replace("persist-credentials: false", "persist-credentials: true")
         self.assert_violation("checkout must disable credential persistence")
 
+    def test_checkout_cannot_override_repository_or_revision(self) -> None:
+        self.replace(
+            "          persist-credentials: false\n",
+            "          persist-credentials: false\n"
+            "          repository: un3qual/another-repository\n"
+            "          ref: main\n",
+        )
+        self.assert_violation("checkout must use the triggering repository and revision")
+
     def test_permissions_remain_job_scoped_and_minimal(self) -> None:
         self.replace(
             "permissions: {}",
@@ -75,6 +83,22 @@ class DocsPagesWorkflowTests(unittest.TestCase):
             "",
         )
         self.assert_violation("required workflow step is missing")
+
+    def test_critical_steps_cannot_continue_after_failure(self) -> None:
+        self.replace(
+            "      - name: Check public documentation\n",
+            "      - name: Check public documentation\n"
+            "        continue-on-error: true\n",
+        )
+        self.assert_violation("critical workflow step must fail the job")
+
+    def test_critical_steps_cannot_be_conditional(self) -> None:
+        self.replace(
+            "      - name: Check generated publication boundary\n",
+            "      - name: Check generated publication boundary\n"
+            "        if: false\n",
+        )
+        self.assert_violation("critical workflow step must fail the job")
 
     def test_publication_boundary_must_run_before_upload(self) -> None:
         boundary = (

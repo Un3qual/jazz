@@ -34,6 +34,7 @@
 ### Task 1: Migrate the website toolchain and automation to pnpm
 
 **Files:**
+
 - Modify: `website/package.json`
 - Delete: `website/package-lock.json`
 - Create: `website/pnpm-lock.yaml`
@@ -50,6 +51,7 @@
 - Test: `scripts/test-check-ci-policy.py`
 
 **Interfaces:**
+
 - Consumes: the existing website scripts and Node.js 22 engine constraint.
 - Produces: `packageManager: "pnpm@11.18.0"`, `website/pnpm-lock.yaml`, and automation that installs with `pnpm install --frozen-lockfile`.
 
@@ -147,6 +149,7 @@
 ### Task 2: Load the repository TextMate grammar with Shiki
 
 **Files:**
+
 - Create: `website/scripts/jazz-highlighter.mjs`
 - Create: `website/scripts/jazz-highlighter.d.mts`
 - Modify: `website/scripts/test-experience.mjs`
@@ -157,6 +160,7 @@
 - Grammar: `editors/vscode-jazz/syntaxes/jazz.tmLanguage.json`
 
 **Interfaces:**
+
 - Consumes: the checked-in TextMate grammar and Shiki's synchronous core with the JavaScript regex engine.
 - Produces: `tokenizeJazz(code, colorMode, options?)`, returning `{tokens, fg, bg}` with `colorMode` equal to `light` or `dark`; `options.includeExplanation` is forwarded for scope-level regression assertions.
 
@@ -166,16 +170,16 @@
 
   ```js
   for (const scope of [
-    'comment.line.number-sign.jazz',
-    'keyword.declaration.jazz',
-    'entity.name.type.jazz',
-    'entity.name.function.constructor.jazz',
-    'string.quoted.double.jazz',
-    'string.quoted.single.jazz',
-    'constant.numeric.jazz',
-    'keyword.operator.jazz',
-    'keyword.operator.signature.jazz',
-    'entity.name.function.effectful.jazz',
+    "comment.line.number-sign.jazz",
+    "keyword.declaration.jazz",
+    "entity.name.type.jazz",
+    "entity.name.function.constructor.jazz",
+    "string.quoted.double.jazz",
+    "string.quoted.single.jazz",
+    "constant.numeric.jazz",
+    "keyword.operator.jazz",
+    "keyword.operator.signature.jazz",
+    "entity.name.function.effectful.jazz",
   ]) {
     assert.ok(scopes.has(scope), `missing TextMate scope: ${scope}`);
   }
@@ -200,8 +204,8 @@
   ```js
   const jazzLanguage = {
     ...jazzTextMateGrammar,
-    name: 'jazz',
-    aliases: ['Jazz'],
+    name: "jazz",
+    aliases: ["Jazz"],
   };
 
   const highlighter = createHighlighterCoreSync({
@@ -212,8 +216,8 @@
 
   export function tokenizeJazz(code, colorMode, options = {}) {
     return highlighter.codeToTokens(code, {
-      lang: 'jazz',
-      theme: colorMode === 'dark' ? 'dracula' : 'github-light',
+      lang: "jazz",
+      theme: colorMode === "dark" ? "dracula" : "github-light",
       includeExplanation: options.includeExplanation ?? false,
     });
   }
@@ -242,6 +246,7 @@
 ### Task 3: Render Jazz blocks through Shiki and remove the Prism duplicate
 
 **Files:**
+
 - Create: `website/src/theme/CodeBlock/Content/index.tsx`
 - Create: `website/src/theme/CodeBlock/Content/styles.module.css`
 - Create: `website/scripts/check-built-highlighting.mjs`
@@ -254,6 +259,7 @@
 - Test: `website/scripts/test-experience.mjs`
 
 **Interfaces:**
+
 - Consumes: `tokenizeJazz(code, colorMode)` from Task 2 and Docusaurus `CodeBlockMetadata` from `useCodeBlockContext()`.
 - Produces: a `CodeBlock/Content` theme wrapper that sets `data-jazz-highlighter="textmate"` only for Jazz blocks and delegates every other language to `@theme-original/CodeBlock/Content`.
 
@@ -294,7 +300,8 @@
     ref={wordWrap.codeBlockRef}
     tabIndex={0}
     data-jazz-highlighter="textmate"
-    className={clsx(classNameProp, `language-${language}`, styles.codeBlock)}>
+    className={clsx(classNameProp, `language-${language}`, styles.codeBlock)}
+  >
     <code
       className={clsx(
         styles.codeBlockLines,
@@ -305,7 +312,8 @@
           lineNumbersStart === undefined
             ? undefined
             : `line-count ${lineNumbersStart - 1}`,
-      }}>
+      }}
+    >
       {/* Shiki token lines rendered through @theme/CodeBlock/Line */}
     </code>
   </pre>
@@ -350,9 +358,11 @@
 ### Task 4: Run the complete ordinary documentation gate
 
 **Files:**
+
 - Verify: all files changed by Tasks 1-3
 
 **Interfaces:**
+
 - Consumes: the pinned pnpm lockfile, pnpm workflows, TextMate adapter, and Docusaurus renderer.
 - Produces: evidence that the ordinary docs pipeline passes without the extended compiler/performance tier.
 

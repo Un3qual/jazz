@@ -19,20 +19,27 @@
           fileset = pkgs.lib.fileset.unions [
             ./.gitignore
             ./AGENTS.md
+            ./CHANGELOG.md
+            ./CONTRIBUTING.md
             ./LICENSE
             ./PERFORMANCE.md
+            ./README.md
+            ./RELEASING.md
+            ./SECURITY.md
             ./app
             ./benchmark
             ./cabal.project
             ./cabal.project.profile-hotspots
             ./cabal.project.profile-stages
-            ./docs/compiler/architecture.md
+            ./docs
             ./editors/vscode-jazz
+            ./examples
             ./flake.nix
             ./jazz
             ./jazz.cabal
             ./program-support
             ./programs
+            ./rfcs
             ./scripts
             ./src
             ./test

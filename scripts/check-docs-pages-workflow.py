@@ -82,6 +82,31 @@ REQUIRED_COMMANDS = (
     "        run: pnpm run build",
 )
 
+CRITICAL_STEPS = (
+    "Install website dependencies",
+    "Check brand assets",
+    "Check website experience",
+    "Type-check website",
+    "Check Pages workflow contract",
+    "Check public documentation",
+    "Check source publication boundary",
+    "Build website",
+    "Check generated publication boundary",
+)
+
+
+def step_block(source: str, name: str) -> str:
+    marker = f"      - name: {name}"
+    start = source.find(marker)
+    if start < 0:
+        return ""
+    boundaries = (
+        source.find("\n      - name:", start + len(marker)),
+        source.find("\n  deploy:", start + len(marker)),
+    )
+    end = min((boundary for boundary in boundaries if boundary >= 0), default=len(source))
+    return source[start:end]
+
 
 def validate(root: Path) -> list[str]:
     path = root / WORKFLOW
@@ -101,6 +126,10 @@ def validate(root: Path) -> list[str]:
     if actions != EXPECTED_ACTIONS:
         violations.append("Pages workflow actions must be the approved pinned actions in order")
 
+    checkout = step_block(source, "Check out repository")
+    if re.search(r"(?m)^\s*(?:repository|ref):", checkout):
+        violations.append("checkout must use the triggering repository and revision")
+
     for fragment in REQUIRED_FRAGMENTS:
         if fragment not in source:
             if fragment == "permissions: {}":
@@ -113,6 +142,11 @@ def validate(root: Path) -> list[str]:
     for command in REQUIRED_COMMANDS:
         if command not in source:
             violations.append(f"required workflow step is missing: {command.strip()}")
+
+    for name in CRITICAL_STEPS:
+        block = step_block(source, name)
+        if re.search(r"(?m)^\s*(?:continue-on-error|if):", block):
+            violations.append(f"critical workflow step must fail the job: {name}")
 
     positions = [source.find(step) for step in ORDERED_STEPS]
     if any(position < 0 for position in positions):

@@ -201,7 +201,7 @@ def load_fragment_receipts(
         try:
             document, raw_ordinal, digest = row
             ordinal = int(raw_ordinal)
-        except (TypeError, ValueError):
+        except ValueError:
             violations.append(f"{FRAGMENT_RECEIPTS}:{line_number}: invalid row")
             continue
         entry = (document, ordinal, digest)
@@ -335,7 +335,9 @@ def check_example_sync(
     for label, source in sorted(texts.items()):
         bindings = list(EXAMPLE_BINDING_RE.finditer(source))
         markers = list(EXAMPLE_MARKER_RE.finditer(source))
-        if len(bindings) != len(markers) or len(bindings) != len(JAZZ_FENCE_RE.findall(source)):
+        if len(bindings) != len(markers) or len(bindings) != len(
+            JAZZ_FENCE_RE.findall(source)
+        ):
             violations.append(
                 f"{label}: Jazz fence must have an adjacent jazz-example marker"
             )
@@ -387,7 +389,9 @@ def check_example_sync(
             case_name = output.group("case")
             case = cases.get(case_name)
             if case is None:
-                violations.append(f"{label}: documented output names unknown case: {case_name}")
+                violations.append(
+                    f"{label}: documented output names unknown case: {case_name}"
+                )
                 continue
             expected_sources, expected_output = case
             if not expected_sources.issubset(document_sources):
@@ -402,7 +406,9 @@ def check_example_sync(
                 continue
             documented_cases.add(case_name)
 
-    required_sources = set().union(*(sources for sources, _ in cases.values())) if cases else set()
+    required_sources = (
+        set().union(*(sources for sources, _ in cases.values())) if cases else set()
+    )
     for source_path in sorted(required_sources - documented_sources):
         violations.append(f"{source_path}: example has no synchronized public fence")
     for case_name in sorted(set(cases) - documented_cases):

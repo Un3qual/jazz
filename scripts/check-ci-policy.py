@@ -169,6 +169,10 @@ def check_workflow_supply_chain(root: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{label}: checkout must set persist-credentials: false"
                 )
+            if re.search(r"(?m)^\s*(?:repository|ref):", "\n".join(block)):
+                violations.append(
+                    f"{label}: checkout must use the triggering repository and revision"
+                )
 
 
 def joined_text(contents: str) -> str:

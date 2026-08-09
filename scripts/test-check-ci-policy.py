@@ -607,6 +607,23 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("checkout must set persist-credentials: false")
 
+    def test_every_checkout_uses_the_triggering_repository_and_revision(self) -> None:
+        self.write(
+            ".github/workflows/auxiliary.yml",
+            "name: Auxiliary\n"
+            "on: workflow_dispatch\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  check:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+            "        with:\n"
+            "          persist-credentials: false\n"
+            "          ref: main\n",
+        )
+        self.assert_violation("checkout must use the triggering repository and revision")
+
     def test_reports_missing_policy_files_in_stable_order(self) -> None:
         (self.root / "scripts/ci/fast-compiler.sh").unlink()
         (self.root / "scripts/ci/determinism.sh").unlink()

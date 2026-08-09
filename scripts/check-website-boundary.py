@@ -40,10 +40,9 @@ SCRIPT_RESOURCE_RE = re.compile(
     r"(?i)\b(?:fetch|import)\(\s*(['\"])(.*?)\1"
 )
 PRODUCTION_PREFIXES = (
-    "https://un3qual.github.io/jazz",
-    "//un3qual.github.io/jazz",
+    "https://un3qual.github.io/jazz/",
+    "//un3qual.github.io/jazz/",
 )
-NAMESPACE_URLS = {"http://www.w3.org/2000/svg"}
 
 CONFIG_REQUIREMENTS = (
     ("url: 'https://un3qual.github.io'", "Docusaurus must use the production origin"),
@@ -69,8 +68,6 @@ def read_text(path: Path) -> str | None:
 
 def allowed_remote_url(url: str) -> bool:
     cleaned = url.rstrip(".,;:!?")
-    if cleaned in NAMESPACE_URLS:
-        return True
     return cleaned.startswith(PRODUCTION_PREFIXES)
 
 
