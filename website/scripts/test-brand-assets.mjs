@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -41,10 +42,32 @@ test('standalone marks and wordmarks retain transparent canvas padding', async (
     'jazz-wordmark-dark.svg',
   ]) {
     const bounds = await transparentBounds(assetName);
+    assert.ok(
+      bounds.maxX >= 0 && bounds.maxY >= 0,
+      `${assetName} has no visible pixels`,
+    );
     assert.ok(bounds.minX >= 4, `${assetName} clips or crowds its left edge`);
     assert.ok(bounds.minY >= 4, `${assetName} clips or crowds its top edge`);
     assert.ok(bounds.maxX <= bounds.width - 5, `${assetName} clips or crowds its right edge`);
     assert.ok(bounds.maxY <= bounds.height - 5, `${assetName} clips or crowds its bottom edge`);
+  }
+});
+
+test('concurrent social-card renders isolate their temporary output', async () => {
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'jazz-social-card-concurrency-'),
+  );
+  const pngPath = path.join(temporaryDirectory, 'social-card.png');
+  try {
+    const {renderSocialCard} = await import('./render-social-card.mjs');
+    await Promise.all(
+      Array.from({length: 4}, () => renderSocialCard({pngPath})),
+    );
+    const metadata = await sharp(pngPath).metadata();
+    assert.equal(metadata.width, 1200);
+    assert.equal(metadata.height, 630);
+  } finally {
+    await rm(temporaryDirectory, {recursive: true, force: true});
   }
 });
 

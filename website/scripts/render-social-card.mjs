@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {readFile, rename, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
@@ -100,10 +100,10 @@ export async function renderSocialCard({
     );
   }
 
-  const temporaryPath = path.join(
-    path.dirname(pngPath),
-    `.${path.basename(pngPath)}.tmp`,
+  const temporaryDirectory = await mkdtemp(
+    path.join(path.dirname(pngPath), `.${path.basename(pngPath)}-`),
   );
+  const temporaryPath = path.join(temporaryDirectory, path.basename(pngPath));
   try {
     await sharp(svg, {density: 72})
       .png({
@@ -124,7 +124,7 @@ export async function renderSocialCard({
     await rename(temporaryPath, pngPath);
     console.log(`Rendered ${path.relative(process.cwd(), pngPath)} (${requiredWidth}x${requiredHeight}).`);
   } finally {
-    await rm(temporaryPath, {force: true});
+    await rm(temporaryDirectory, {recursive: true, force: true});
   }
 }
 
