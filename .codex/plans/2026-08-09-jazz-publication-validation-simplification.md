@@ -118,4 +118,4 @@
 - [x] **Step 1: Run Python compilation and formatting checks, focused validator suites, compiler-backed docs/examples, website tests/typecheck/build, CI policy, actionlint, the full Nix flake check, and `git diff --check`.**
 - [x] **Step 2: Compare line counts and `git diff --stat`; require material net deletion in the target checker-test pairs.**
 - [x] **Step 3: Review every remaining parser/helper/branch/fallback for a concrete reachable input; delete anything that only answers a deliberate-evasion fixture.**
-- [ ] **Step 4: Commit any verification cleanup, force-push the rebased HEAD with lease to `codex/project-operations`, and confirm PR 127 targets `codex/docusaurus-website`.**
+- [x] **Step 4: Commit any verification cleanup, force-push the rebased HEAD with lease to `codex/project-operations`, and confirm PR 127 targets `codex/docusaurus-website`.**
