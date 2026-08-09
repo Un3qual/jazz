@@ -210,7 +210,7 @@ export default function Home(props: object) {
                 path.write_bytes(b"fixture\n")
                 try:
                     self.assert_violation(
-                        f"docs/guide/{name}: public docs regular files must use the .md "
+                        f"docs/guide/{name}: public docs files must use the .md "
                         "extension; move site assets to website/static"
                     )
                 finally:
@@ -221,6 +221,15 @@ export default function Home(props: object) {
         outside.write_text("secret\n", encoding="utf-8")
         (self.root / "docs/escape.md").symlink_to(outside)
         self.assert_violation("docs/escape.md: public documentation symlink escapes docs")
+
+    def test_contained_public_doc_symlinks_must_use_markdown_extension(self) -> None:
+        (self.root / "docs/guide/page.mdx").symlink_to(
+            self.root / "docs/guide/page.md"
+        )
+        self.assert_violation(
+            "docs/guide/page.mdx: public docs files must use the .md extension; "
+            "move site assets to website/static"
+        )
 
     def test_public_docs_root_must_not_be_a_symlink(self) -> None:
         docs = self.root / "docs"
@@ -394,6 +403,17 @@ export default function Home(props: object) {
         build.mkdir()
         (build / "index.html").write_text(
             "<style>@import 'https://fonts.example/jazz.css';</style>",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "website/build/index.html: generated output loads a remote resource"
+        )
+
+    def test_generated_html_rejects_remote_resources_in_iframe_srcdoc(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            "<iframe srcdoc=\"&lt;img src='https://images.example/card.png'&gt;\"></iframe>",
             encoding="utf-8",
         )
         self.assert_violation(

@@ -152,17 +152,17 @@ def check_public_docs(root: Path, violations: list[str]) -> None:
     boundary = docs.resolve()
     for path in public_doc_entries(docs):
         path_label = label(root, path)
+        if path.is_file() and path.suffix != ".md":
+            violations.append(
+                f"{path_label}: public docs files must use the .md extension; "
+                "move site assets to website/static"
+            )
         if path.is_symlink():
             if not path.resolve().is_relative_to(boundary):
                 violations.append(
                     f"{path_label}: public documentation symlink escapes docs"
                 )
             continue
-        if path.is_file() and path.suffix != ".md":
-            violations.append(
-                f"{path_label}: public docs regular files must use the .md extension; "
-                "move site assets to website/static"
-            )
 
 
 def check_generated_factorial(root: Path, violations: list[str]) -> None:
@@ -306,6 +306,7 @@ class ResourceParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.remote_fetch = False
         self.in_style = False
+        self.embedded_documents: list[str] = []
 
     def handle_starttag(
         self, tag: str, attrs: list[tuple[str, str | None]]
@@ -320,6 +321,9 @@ class ResourceParser(HTMLParser):
         attributes = {
             name: values[0] for name, values in attribute_values.items()
         }
+        self.embedded_documents.extend(
+            source for source in attribute_values.get("srcdoc", []) if source
+        )
         for name in (
             "src",
             "poster",
@@ -372,6 +376,23 @@ def css_targets(source: str) -> list[str]:
     return targets
 
 
+def html_loads_remote_resource(source: str) -> bool:
+    pending = [source]
+    parsed: set[str] = set()
+    while pending:
+        document = pending.pop()
+        if document in parsed:
+            continue
+        parsed.add(document)
+        parser = ResourceParser()
+        parser.feed(document)
+        parser.close()
+        if parser.remote_fetch:
+            return True
+        pending.extend(parser.embedded_documents)
+    return False
+
+
 def check_generated_output(root: Path, violations: list[str]) -> None:
     build = root / "website/build"
     if not build.exists():
@@ -401,9 +422,7 @@ def check_generated_output(root: Path, violations: list[str]) -> None:
             if path.suffix.casefold() == ".css":
                 remote = any(remote_resource(target) for target in css_targets(source))
             else:
-                parser = ResourceParser()
-                parser.feed(source)
-                remote = parser.remote_fetch
+                remote = html_loads_remote_resource(source)
             if remote:
                 violations.append(
                     f"{path_label}: generated output loads a remote resource"
