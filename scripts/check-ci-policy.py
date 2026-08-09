@@ -73,6 +73,20 @@ MAIN_WORKFLOW_PATH = ".github/workflows/ci-main.yml"
 EXTENDED_WORKFLOW_PATH = ".github/workflows/ci-extended.yml"
 RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml"
 
+PINNED_ACTIONS = (
+    ("actions/checkout", "v4", "11d5960a326750d5838078e36cf38b85af677262"),
+    ("cachix/install-nix-action", "v31", "630ae543ea3a38a9a4166f03376c02c50f408342"),
+    ("actions/cache", "v4", "0057852bfaa89a56745cba8c7296529d2fc39830"),
+    ("actions/upload-artifact", "v4", "ea165f8d65b6e75b540449e92b4886f43607fa02"),
+    ("dorny/paths-filter", "v3", "0e4a8c6effa4802afeda77dc8d303f8176d7dfad"),
+    ("pnpm/action-setup", "v4", "b906affcce14559ad1aafd4ab0e942779e9f58b1"),
+    ("actions/setup-node", "v4", "49933ea5288caeca8642d1e84afbd3f7d6820020"),
+)
+ACTION_USE_RE = re.compile(
+    r"(?m)^\s*(?:-\s+)?uses:\s*([^@\s]+)@([^\s#]+)"
+)
+IMMUTABLE_REVISION_RE = re.compile(r"[0-9a-f]{40}")
+
 PR_FORBIDDEN = (
     "cabal bench",
     "jazz-bench",
@@ -108,6 +122,53 @@ def active_text(contents: str) -> str:
     return "\n".join(
         line for line in contents.splitlines() if not line.lstrip().startswith("#")
     )
+
+
+def normalized_action_versions(contents: str) -> str:
+    """Expose reviewed action versions to the existing semantic checks."""
+    for action, version, revision in PINNED_ACTIONS:
+        contents = re.sub(
+            rf"{re.escape(action)}@{revision}(?:\s+#\s*{re.escape(version)})?",
+            f"{action}@{version}",
+            contents,
+        )
+    return contents
+
+
+def check_workflow_supply_chain(root: Path, violations: list[str]) -> None:
+    workflow_root = root / ".github/workflows"
+    if not workflow_root.is_dir():
+        return
+    for path in sorted((*workflow_root.glob("*.yml"), *workflow_root.glob("*.yaml"))):
+        contents = path.read_text(encoding="utf-8")
+        label = path.relative_to(root)
+        for match in ACTION_USE_RE.finditer(contents):
+            action, revision = match.groups()
+            if action.startswith("./"):
+                continue
+            if IMMUTABLE_REVISION_RE.fullmatch(revision) is None:
+                violations.append(
+                    f"{label}: workflow action must use an immutable commit: {action}@{revision}"
+                )
+
+        lines = contents.splitlines()
+        for index, line in enumerate(lines):
+            if not re.search(r"\buses:\s*actions/checkout@", line):
+                continue
+            uses_indent = len(line) - len(line.lstrip(" "))
+            step_indent = max(0, uses_indent - 2)
+            block: list[str] = []
+            for candidate in lines[index + 1 :]:
+                candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+                if candidate.strip() and candidate_indent <= step_indent:
+                    break
+                block.append(candidate)
+            if not re.search(
+                r"(?m)^\s*persist-credentials:\s*false\s*$", "\n".join(block)
+            ):
+                violations.append(
+                    f"{label}: checkout must set persist-credentials: false"
+                )
 
 
 def joined_text(contents: str) -> str:
@@ -869,7 +930,7 @@ def check_pr_workflow(root: Path, violations: list[str]) -> None:
     if not path.is_file():
         violations.append(f"missing required pull-request workflow: {PR_WORKFLOW_PATH}")
         return
-    contents = active_text(path.read_text(encoding="utf-8"))
+    contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     if not re.search(r"(?m)^\s*pull_request\s*:\s*$", contents):
         violations.append("pull-request workflow must trigger on pull_request")
 
@@ -905,7 +966,7 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
         violations.append(f"missing required main workflow: {MAIN_WORKFLOW_PATH}")
         return
 
-    contents = active_text(path.read_text(encoding="utf-8"))
+    contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     trigger_block = indented_block(contents, "on", 0)
     events = re.findall(r"(?m)^  ([a-z][a-z0-9_-]*):\s*$", trigger_block)
     if "workflow_dispatch" not in events:
@@ -1055,7 +1116,7 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
         )
         return
 
-    contents = active_text(path.read_text(encoding="utf-8"))
+    contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     trigger_block = indented_block(contents, "on", 0)
     events = yaml_mapping_keys(trigger_block, 2)
     if "workflow_dispatch" not in events:
@@ -1263,7 +1324,7 @@ def check_release_workflow(root: Path, violations: list[str]) -> None:
         violations.append(f"missing required release workflow: {RELEASE_WORKFLOW_PATH}")
         return
 
-    contents = active_text(path.read_text(encoding="utf-8"))
+    contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     trigger_block = indented_block(contents, "on", 0)
     events = yaml_mapping_keys(trigger_block, 2)
     if set(events) != {"workflow_dispatch", "push"} or len(events) != 2:
@@ -1466,6 +1527,7 @@ def check_repository(root: Path) -> list[str]:
     check_main_workflow(root, violations)
     check_extended_workflow(root, violations)
     check_release_workflow(root, violations)
+    check_workflow_supply_chain(root, violations)
     check_pull_request_workflows(root, violations)
     check_generated_release_ignores(root, violations)
     return sorted(set(violations))

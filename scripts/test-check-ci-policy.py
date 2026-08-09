@@ -13,6 +13,22 @@ from pathlib import Path
 
 CHECKER = Path(__file__).with_name("check-ci-policy.py")
 
+REQUIRED_WORKFLOWS = {
+    ".github/workflows/ci-pr.yml",
+    ".github/workflows/ci-main.yml",
+    ".github/workflows/ci-extended.yml",
+    ".github/workflows/release.yml",
+}
+ACTION_PINS = (
+    ("actions/checkout", "v4", "11d5960a326750d5838078e36cf38b85af677262"),
+    ("cachix/install-nix-action", "v31", "630ae543ea3a38a9a4166f03376c02c50f408342"),
+    ("actions/cache", "v4", "0057852bfaa89a56745cba8c7296529d2fc39830"),
+    ("actions/upload-artifact", "v4", "ea165f8d65b6e75b540449e92b4886f43607fa02"),
+    ("dorny/paths-filter", "v3", "0e4a8c6effa4802afeda77dc8d303f8176d7dfad"),
+    ("pnpm/action-setup", "v4", "b906affcce14559ad1aafd4ab0e942779e9f58b1"),
+    ("actions/setup-node", "v4", "49933ea5288caeca8642d1e84afbd3f7d6820020"),
+)
+
 FAST_COMPONENTS = (
     "cli-spec",
     "runtime-observation-spec",
@@ -46,6 +62,21 @@ FAST_COMPONENTS = (
 
 def script(body: str) -> str:
     return "#!/usr/bin/env bash\nset -euo pipefail\n" + textwrap.dedent(body).lstrip()
+
+
+def secured_workflow(contents: str) -> str:
+    for action, version, revision in ACTION_PINS:
+        contents = contents.replace(
+            f"{action}@{version}", f"{action}@{revision} # {version}"
+        )
+    checkout = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
+    lines: list[str] = []
+    for line in contents.splitlines():
+        lines.append(line)
+        if checkout in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            lines.extend((f"{indent}with:", f"{indent}  persist-credentials: false"))
+    return "\n".join(lines) + ("\n" if contents.endswith("\n") else "")
 
 
 VALID_FAST = script(
@@ -526,6 +557,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def write(self, relative_path: str, contents: str) -> None:
         path = self.root / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
+        if relative_path in REQUIRED_WORKFLOWS:
+            contents = secured_workflow(contents)
         path.write_text(contents, encoding="utf-8")
 
     def run_checker(self) -> subprocess.CompletedProcess[str]:
@@ -545,6 +578,34 @@ class CiPolicyCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout, "CI policy checks passed.\n")
+
+    def test_every_workflow_action_uses_an_immutable_revision(self) -> None:
+        self.write(
+            ".github/workflows/auxiliary.yml",
+            "name: Auxiliary\n"
+            "on: workflow_dispatch\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  check:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/cache@v4\n",
+        )
+        self.assert_violation("workflow action must use an immutable commit")
+
+    def test_every_checkout_disables_persisted_credentials(self) -> None:
+        self.write(
+            ".github/workflows/auxiliary.yml",
+            "name: Auxiliary\n"
+            "on: workflow_dispatch\n"
+            "permissions: {}\n"
+            "jobs:\n"
+            "  check:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n",
+        )
+        self.assert_violation("checkout must set persist-credentials: false")
 
     def test_reports_missing_policy_files_in_stable_order(self) -> None:
         (self.root / "scripts/ci/fast-compiler.sh").unlink()
