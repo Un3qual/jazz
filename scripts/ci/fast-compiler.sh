@@ -35,6 +35,7 @@ test_components=(
   repository-audit-spec
 )
 
+actionlint
 cabal build all
 cabal test "${test_components[@]}" --test-show-details=direct
 cabal check
