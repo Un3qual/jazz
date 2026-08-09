@@ -15,6 +15,7 @@ EXPECTED_PATHS = (
     "examples/functions/factorial.jz",
     "scripts/example-cases.tsv",
     "scripts/check-website.sh",
+    "scripts/check-docs-pages-workflow.py",
     "scripts/check-website-boundary.py",
     "scripts/check-public-docs.py",
     "scripts/example_cases.py",
@@ -53,6 +54,7 @@ REQUIRED_COMMANDS = (
     "npm run test:brand",
     "npm run test:experience",
     "npm run typecheck",
+    "python3 scripts/check-docs-pages-workflow.py",
     "python3 scripts/check-public-docs.py",
     "npm run build",
 )

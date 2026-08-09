@@ -422,6 +422,40 @@ export default function Home(props: object) {
             "website/build/index.html: generated output loads a remote resource"
         )
 
+    def test_generated_html_rejects_remote_svg_presentation_attributes(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        for attribute in (
+            "clip-path",
+            "cursor",
+            "fill",
+            "filter",
+            "marker",
+            "marker-start",
+            "marker-mid",
+            "marker-end",
+            "mask",
+            "stroke",
+        ):
+            with self.subTest(attribute=attribute):
+                (build / "index.html").write_text(
+                    f'<svg><rect {attribute}="url(https://images.example/resource.svg#value)"></rect></svg>',
+                    encoding="utf-8",
+                )
+                self.assert_violation(
+                    "website/build/index.html: generated output loads a remote resource"
+                )
+
+    def test_generated_html_allows_local_svg_presentation_attributes(self) -> None:
+        build = self.root / "website/build"
+        build.mkdir()
+        (build / "index.html").write_text(
+            '<svg><rect fill="url(#gradient)" filter="url(/jazz/img/filter.svg#effect)"></rect></svg>',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_generated_html_rejects_remote_style_element_content(self) -> None:
         build = self.root / "website/build"
         build.mkdir()

@@ -25,6 +25,7 @@ on:
       - "examples/functions/factorial.jz"
       - "scripts/example-cases.tsv"
       - "scripts/check-website.sh"
+      - "scripts/check-docs-pages-workflow.py"
       - "scripts/check-website-boundary.py"
       - "scripts/check-public-docs.py"
       - "scripts/example_cases.py"
@@ -69,6 +70,8 @@ jobs:
       - name: Type-check website
         run: npm run typecheck
         working-directory: website
+      - name: Check Pages workflow contract
+        run: python3 scripts/check-docs-pages-workflow.py
       - name: Check public documentation
         run: python3 scripts/check-public-docs.py
       - name: Check source publication boundary
@@ -151,6 +154,7 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_requires_website_validation_inputs_in_path_filters(self) -> None:
         for path in (
             "scripts/check-website.sh",
+            "scripts/check-docs-pages-workflow.py",
             "scripts/check-website-boundary.py",
             "scripts/check-public-docs.py",
             "scripts/example_cases.py",
@@ -264,6 +268,16 @@ class DocsPagesWorkflowTests(unittest.TestCase):
             "",
         )
         self.assert_violation("public documentation check is required before build")
+
+    def test_requires_workflow_contract_validation_before_build(self) -> None:
+        self.replace(
+            "      - name: Check Pages workflow contract\n"
+            "        run: python3 scripts/check-docs-pages-workflow.py\n",
+            "",
+        )
+        self.assert_violation(
+            "required command is missing: python3 scripts/check-docs-pages-workflow.py"
+        )
 
     def test_requires_source_boundary_before_build(self) -> None:
         self.replace(

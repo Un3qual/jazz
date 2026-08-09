@@ -74,6 +74,18 @@ CSS_ESCAPE = re.compile(
     r")",
     re.DOTALL,
 )
+SVG_URL_PRESENTATION_ATTRIBUTES = (
+    "clip-path",
+    "cursor",
+    "fill",
+    "filter",
+    "marker",
+    "marker-start",
+    "marker-mid",
+    "marker-end",
+    "mask",
+    "stroke",
+)
 
 
 def label(root: Path, path: Path) -> str:
@@ -381,6 +393,14 @@ class ResourceParser(HTMLParser):
             if any(remote_resource(target) for target in css_targets(source)):
                 self.remote_fetch = True
 
+    def scan_svg_presentation_attributes(
+        self, attribute_values: dict[str, list[str]],
+    ) -> None:
+        for name in SVG_URL_PRESENTATION_ATTRIBUTES:
+            for source in attribute_values.get(name, []):
+                if any(remote_resource(target) for target in css_targets(source)):
+                    self.remote_fetch = True
+
     def scan_href_policy(
         self, tag: str, attribute_values: dict[str, list[str]],
     ) -> None:
@@ -407,6 +427,7 @@ class ResourceParser(HTMLParser):
         self.scan_url_attributes(attribute_values)
         self.scan_srcset_attributes(attribute_values)
         self.scan_inline_styles(attribute_values)
+        self.scan_svg_presentation_attributes(attribute_values)
         self.scan_href_policy(folded_tag, attribute_values)
 
     def handle_endtag(self, tag: str) -> None:

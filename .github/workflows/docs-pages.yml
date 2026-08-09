@@ -10,6 +10,7 @@ on:
       - "examples/functions/factorial.jz"
       - "scripts/example-cases.tsv"
       - "scripts/check-website.sh"
+      - "scripts/check-docs-pages-workflow.py"
       - "scripts/check-website-boundary.py"
       - "scripts/check-public-docs.py"
       - "scripts/example_cases.py"
@@ -59,6 +60,9 @@ jobs:
       - name: Type-check website
         run: npm run typecheck
         working-directory: website
+
+      - name: Check Pages workflow contract
+        run: python3 scripts/check-docs-pages-workflow.py
 
       - name: Check public documentation
         run: python3 scripts/check-public-docs.py
