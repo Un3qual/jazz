@@ -221,6 +221,10 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assertIn("required command is missing: npm run test:brand", result.stdout)
         self.assertIn("required command appears more than once: npm run build", result.stdout)
 
+    def test_rejects_commands_prefixed_with_echo(self) -> None:
+        self.replace("        run: npm ci", "        run: echo npm ci")
+        self.assert_violation("required command is missing: npm ci")
+
     def test_requires_post_build_publication_boundary(self) -> None:
         self.replace(
             "      - name: Check generated publication boundary\n"

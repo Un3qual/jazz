@@ -71,6 +71,28 @@ test('concurrent social-card renders isolate their temporary output', async () =
   }
 });
 
+test('committed social card matches the deterministic SVG raster', async () => {
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'jazz-social-card-committed-'),
+  );
+  const renderedPath = path.join(temporaryDirectory, 'social-card.png');
+  try {
+    const {renderSocialCard} = await import('./render-social-card.mjs');
+    await renderSocialCard({pngPath: renderedPath});
+    const [rendered, committed] = await Promise.all([
+      readFile(renderedPath),
+      readFile(path.join(imageDirectory, 'social-card.png')),
+    ]);
+    assert.deepEqual(
+      committed,
+      rendered,
+      'website/static/img/social-card.png is stale; run npm run render:brand',
+    );
+  } finally {
+    await rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
 test('favicon remains legible at representative raster sizes', async () => {
   const favicon = path.join(imageDirectory, 'favicon.svg');
   for (const size of [16, 32, 64]) {
