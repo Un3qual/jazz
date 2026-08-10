@@ -27,8 +27,10 @@ module TypedCoreValidate (
     | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract]
     | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text
     | ImplMethodEntry TypedImplId [Text]
-    | LexicalContractEntry [Text] TypedNameNamespace Text TypedBinderId TypedType TypedRepresentationRecipe
-    | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedBinderId TypedType TypedRepresentationRecipe
+    | LexicalContractEntry
+      [Text] TypedNameNamespace Text TypedBinderId TypedType TypedRepresentationRecipe
+    | GeneratedLexicalContractEntry
+      TypedGeneratedNameKind TypedBinderId TypedType TypedRepresentationRecipe
     | PrimitiveConstraintEntry TypedPrimitiveConstraint
     | UnqualifiedCapabilityEntry [Text] Text.
 
