@@ -238,11 +238,10 @@ freeVarsScopeWithBound initialBound statements =
       inferRecursiveGroupsOrdered initialBound indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
 
-    recursivePeerNames statementIndex =
+    recursiveGroupMemberNames statementIndex =
       Set.fromList
         [ peerName
           | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-            peerIndex /= statementIndex,
             Just peerName <- [Map.lookup peerIndex bindingNamesByStatement]
         ]
 
@@ -260,7 +259,7 @@ freeVarsScopeWithBound initialBound statements =
           )
         SLet bindingName _ valueExpr ->
           let boundWithSelf = Set.insert bindingName boundNames
-              rhsBoundNames = Set.union boundWithSelf (recursivePeerNames statementIndex)
+              rhsBoundNames = Set.union boundNames (recursiveGroupMemberNames statementIndex)
            in
             ( boundWithSelf,
               Set.union freeNames (freeVarsExprWithBound rhsBoundNames valueExpr)

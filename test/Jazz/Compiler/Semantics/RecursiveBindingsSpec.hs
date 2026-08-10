@@ -40,13 +40,17 @@ tests :: [NamedTest]
 tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
-    ("free vars treat bindings as visible in their own rhs", testFreeVarsScopeBindsSelfRecursion),
+    ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
+    ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
+    ("ordinary rebinding initializers resolve the nearest prior local binding", testFreeVarsScopeResolvesPriorLocalInitializerName),
     ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
     ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
+    ("nested local self recursion stays local to the block", testFreeVarsScopeKeepsNestedSelfRecursionLocal),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
+    ("nested ordinary initializers retain enclosing mutual recursion", testRecursiveGroupsKeepNestedInitializerMutualRecursion),
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
@@ -78,15 +82,44 @@ testFreeVarsLambdaParameterBound =
         (ident "x")
         (EApply (EVar (ident "x")) (EVar (ident "y")))
 
-testFreeVarsScopeBindsSelfRecursion :: IO ()
-testFreeVarsScopeBindsSelfRecursion =
+testFreeVarsScopeKeepsOrdinaryInitializerNameFree :: IO ()
+testFreeVarsScopeKeepsOrdinaryInitializerNameFree =
   assertEqual
     "scope free vars"
-    (Set.singleton "g")
+    (Set.fromList ["f", "g"])
     (freeVarsScopeWithBound Set.empty statements)
   where
     statements =
       [ SLet
+          (ident "f")
+          span0
+          (EApply (EVar (ident "f")) (EVar (ident "g")))
+      ]
+
+testFreeVarsScopeResolvesOuterInitializerName :: IO ()
+testFreeVarsScopeResolvesOuterInitializerName =
+  assertEqual
+    "outer same-name binding is not free"
+    (Set.singleton "g")
+    (freeVarsScopeWithBound (Set.singleton "f") statements)
+  where
+    statements =
+      [ SLet
+          (ident "f")
+          span0
+          (EApply (EVar (ident "f")) (EVar (ident "g")))
+      ]
+
+testFreeVarsScopeResolvesPriorLocalInitializerName :: IO ()
+testFreeVarsScopeResolvesPriorLocalInitializerName =
+  assertEqual
+    "nearest prior local binding is not free"
+    (Set.singleton "g")
+    (freeVarsScopeWithBound Set.empty statements)
+  where
+    statements =
+      [ SLet (ident "f") span0 (ELit (LInt 0)),
+        SLet
           (ident "f")
           span0
           (EApply (EVar (ident "f")) (EVar (ident "g")))
@@ -157,6 +190,18 @@ testRecursiveGroupsPreferOuterBindingForSingletonName =
       [ (0, SLet (ident "f") span0 (EVar (ident "f")))
       ]
 
+testFreeVarsScopeKeepsNestedSelfRecursionLocal :: IO ()
+testFreeVarsScopeKeepsNestedSelfRecursionLocal =
+  assertEqual
+    "nested self-recursive name stays local to block"
+    Set.empty
+    (freeVarsScopeWithBound Set.empty nestedStatements)
+  where
+    nestedStatements =
+      [ SLet (ident "loop") span0 (EVar (ident "loop")),
+        SExpr span0 (EVar (ident "loop"))
+      ]
+
 testFreeVarsScopeKeepsNestedRecursivePeersLocal :: IO ()
 testFreeVarsScopeKeepsNestedRecursivePeersLocal =
   assertEqual
@@ -168,6 +213,48 @@ testFreeVarsScopeKeepsNestedRecursivePeersLocal =
       [ SLet (ident "y") span0 (EVar (ident "z")),
         SLet (ident "z") span0 (EVar (ident "y")),
         SExpr span0 (EVar (ident "y"))
+      ]
+
+testRecursiveGroupsKeepNestedInitializerMutualRecursion :: IO ()
+testRecursiveGroupsKeepNestedInitializerMutualRecursion =
+  assertEqual
+    "nested ordinary initializers preserve enclosing owner edges"
+    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ ( 1,
+          SLet
+            (ident "left")
+            span0
+            ( ELambda
+                (ident "item")
+                ( EBlock
+                    [ SLet
+                        (ident "right")
+                        span0
+                        (EApply (EVar (ident "right")) (EVar (ident "item"))),
+                      SExpr span0 (EVar (ident "item"))
+                    ]
+                )
+            )
+        ),
+        ( 3,
+          SLet
+            (ident "right")
+            span0
+            ( ELambda
+                (ident "item")
+                ( EBlock
+                    [ SLet
+                        (ident "left")
+                        span0
+                        (EApply (EVar (ident "left")) (EVar (ident "item"))),
+                      SExpr span0 (EVar (ident "item"))
+                    ]
+                )
+            )
+        )
       ]
 
 testRecursiveGroupsDoNotLeakNestedBlockPeers :: IO ()

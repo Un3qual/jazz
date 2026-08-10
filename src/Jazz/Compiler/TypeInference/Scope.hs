@@ -769,8 +769,6 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                               bindingSpan
                               bindingType
                               maybeNextBinding
-                              callableDependencyNames
-                              (Set.intersection callableDependencyNames (Map.keysSet envForStatement))
                               canonicalRecursiveGroupMembers
                           )
                       _ -> Nothing

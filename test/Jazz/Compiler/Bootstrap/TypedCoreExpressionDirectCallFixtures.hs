@@ -1929,6 +1929,49 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "intervening-scalar-canonical-ownership",
+      sourceFixtureNoExports
+        "intervening-scalar-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
+    ( "multiple-intervening-scalars-canonical-ownership",
+      sourceFixtureNoExports
+        "multiple-intervening-scalars-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "a = False.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
+    ( "interleaved-callable-scalar-canonical-ownership",
+      sourceFixtureNoExports
+        "interleaved-callable-scalar-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = False.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
     ( "three-same-name-nearest-prior-mutual-recursion",
       sourceFixtureNoExports
         "three-same-name-nearest-prior-mutual-recursion"

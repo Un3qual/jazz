@@ -25,7 +25,6 @@ where
 
 import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
-import Data.Graph (SCC (..), stronglyConnComp)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -184,8 +183,6 @@ data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
     provisionalCallableSpan :: SourceSpan,
     provisionalCallableType :: ExpressionType,
     provisionalCallableBinding :: Maybe TypeBinding,
-    provisionalCallableDependencyNames :: Set.Set Name,
-    provisionalCallableVisibleDependencyNames :: Set.Set Name,
     provisionalCallableRecursiveGroupMembers :: Maybe [Int]
   }
   deriving (Eq, Show)
@@ -804,78 +801,14 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             _ -> (seenNames, reboundStatements)
 
     recursiveDeclarationBinders declarations =
-      Set.union canonicalRecursiveBinders dependencyRecursiveBinders
-      where
-        canonicalRecursiveBinders =
-          Set.fromList
-            [ declarationBinder declaration
-            | declaration <- declarations,
-              Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
-            ]
-        dependencyRecursiveBinders =
-          Set.fromList
-            [ binder
-            | component <-
-                stronglyConnComp
-                  [ ( binder,
-                      binder,
-                      Set.toList (declarationDependencies declaration)
-                    )
-                  | declaration <- declarations,
-                    let binder = declarationBinder declaration
-                  ],
-              binder <- case component of
-                AcyclicSCC candidate
-                  | Set.member candidate (dependenciesFrom candidate) -> [candidate]
-                AcyclicSCC _ -> []
-                CyclicSCC declarationsInCycle -> declarationsInCycle
-            ]
-        declarationsByName =
-          foldl'
-            ( \declarationsByNameAcc declaration ->
-                Map.insertWith
-                  (\new old -> old <> new)
-                  (provisionalCallableName declaration)
-                  [declaration]
-                  declarationsByNameAcc
-            )
-            Map.empty
-            declarations
-        declarationBinder declaration =
-          binderAt
+      Set.fromList
+        [ binderAt
             (provisionalCallableStatementIndex declaration)
             []
             (resolvedValueName (provisionalCallableName declaration))
-        declarationDependencies declaration =
-          Set.fromList
-            [ declarationBinder dependencyDeclaration
-            | dependencyName <- Set.toList (provisionalCallableDependencyNames declaration),
-              dependencyDeclaration <- maybe [] pure (resolveDependencyDeclaration declaration dependencyName)
-            ]
-        resolveDependencyDeclaration declaration dependencyName =
-          case Map.lookup dependencyName declarationsByName of
-            Nothing -> Nothing
-            Just namedDeclarations ->
-              case reverse (filter (isBefore declaration) namedDeclarations) of
-                prior : _ -> Just prior
-                []
-                  | Set.member dependencyName (provisionalCallableVisibleDependencyNames declaration) -> Nothing
-                  | dependencyName == provisionalCallableName declaration ->
-                      case provisionalCallableRecursiveGroupMembers declaration of
-                        Just _ -> Just declaration
-                        Nothing -> Nothing
-                  | otherwise ->
-                      case filter (isAfter declaration) namedDeclarations of
-                        future : _ -> Just future
-                        [] -> Nothing
-        isBefore declaration candidate =
-          provisionalCallableStatementIndex candidate < provisionalCallableStatementIndex declaration
-        isAfter declaration candidate =
-          provisionalCallableStatementIndex candidate > provisionalCallableStatementIndex declaration
-        dependenciesFrom binder =
-          case filter ((== binder) . declarationBinder) declarations of
-            declaration : _ -> declarationDependencies declaration
-            [] -> Set.empty
+        | declaration <- declarations,
+          Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
+        ]
 
     finalizeExports functions callableShapes =
       foldl'

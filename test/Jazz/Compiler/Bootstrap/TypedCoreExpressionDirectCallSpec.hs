@@ -87,6 +87,10 @@ tests =
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
     ("binds a later callable rebinding to the nearest prior declaration", testCanonicalCallableRebindingDependencies "later-callable-rebinding-calls-nearest-prior"),
+    ("trusts canonical ownership across an intervening scalar declaration", testInterveningScalarCanonicalOwnership "intervening-scalar-canonical-ownership"),
+    ("trusts canonical ownership across multiple scalar shadows", testInterveningScalarCanonicalOwnership "multiple-intervening-scalars-canonical-ownership"),
+    ("trusts canonical ownership across callable and scalar shadows", testInterveningScalarCanonicalOwnership "interleaved-callable-scalar-canonical-ownership"),
+    ("retains every established canonical recursion owner exactly once", testCanonicalRecursionTransportControls),
     ("selects the nearest of three same-name declarations", testCanonicalCallableRebindingDependencies "three-same-name-nearest-prior-mutual-recursion"),
     ("preserves canonical self recursion when no prior binding exists", testCanonicalCallableRebindingDependencies "canonical-self-recursion-no-prior"),
     ("preserves canonical mutual recursion between peers", testCanonicalCallableRebindingDependencies "canonical-mutual-recursion-peers"),
@@ -1845,6 +1849,105 @@ testSameStatementFailureKindOrder = do
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "self-recursive rebinding repeatability" firstRun secondRun
   assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
+
+testInterveningScalarCanonicalOwnership :: Text -> IO ()
+testInterveningScalarCanonicalOwnership requestedName =
+  case lookup requestedName expectedResults of
+    Just expectedFailures -> assertExact requestedName expectedFailures
+    Nothing -> error "intervening scalar canonical ownership fixture has no expected result"
+  where
+    expectedResults =
+      [ ( "intervening-scalar-canonical-ownership",
+          [rootFailure 2]
+        ),
+        ( "multiple-intervening-scalars-canonical-ownership",
+          [ rootFailure 2,
+            rootFailure 3
+          ]
+        ),
+        ( "interleaved-callable-scalar-canonical-ownership",
+          [ rootFailure 2,
+            rebindingFailure 4 "a",
+            rootFailure 5
+          ]
+        )
+      ]
+    assertExact name expectedFailures = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
+      assertEqual (name <> " repeatability") firstRun secondRun
+      assertEqual
+        (name <> " exact canonical scalar-owner result")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+    rootFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+    rebindingFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreFunctionRebindingUnsupported
+        (TypedCoreNameDetail name)
+
+testCanonicalRecursionTransportControls :: IO ()
+testCanonicalRecursionTransportControls =
+  mapM_
+    assertOwners
+    [ ("self-recursive-function-rebinding", [(1, "loop")]),
+      ("three-same-name-nearest-prior-mutual-recursion", [(5, "identity"), (7, "peer")]),
+      ("canonical-self-recursion-no-prior", [(1, "loop")]),
+      ("canonical-mutual-recursion-peers", [(1, "left"), (3, "right")]),
+      ("rejected-self-alias-recursion", [(1, "loop")]),
+      ("rejected-mutual-alias-recursion", [(1, "left"), (3, "right")]),
+      ("rejected-alias-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
+      ("rejected-operator-alias-self-recursion", [(1, "$operator:%25%25")]),
+      ("rejected-conditional-self-recursion", [(1, "loop")]),
+      ("rejected-block-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
+      ("rejected-block-later-shadow-control", [(1, "loop")]),
+      ("rejected-block-initializer-self-recursion", [(1, "loop")]),
+      ("rejected-block-initializer-mutual-recursion", [(1, "left"), (3, "right")]),
+      ("rejected-block-later-signed-shadow-control", [(1, "loop")]),
+      ("rejected-operator-value-self-recursion", [(1, "$operator:%25%25")]),
+      ("rejected-infix-operator-mutual-recursion", [(1, "$operator:%25%25"), (3, "$operator:%7E%7E")]),
+      ("rejected-section-operator-mutual-recursion", [(1, "$operator:%25%25"), (3, "$operator:%7E%7E")])
+    ]
+  where
+    assertOwners (name, expectedOwners) = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " canonical transport ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
+      assertEqual (name <> " canonical transport repeatability") firstRun secondRun
+      assertEqual
+        (name <> " exact recursive owner order and multiplicity")
+        expectedOwners
+        (recursiveOwners (typedCoreProductionStatus firstRun))
+    recursiveOwners status =
+      case status of
+        TypedCoreProductionUnsupported failures ->
+          [ (statementIndex, name)
+          | TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath _ statementIndex)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail name) <- failures
+          ]
+        _ -> []
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =
