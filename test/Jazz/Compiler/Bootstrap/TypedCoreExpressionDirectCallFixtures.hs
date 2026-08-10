@@ -15,6 +15,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     directCallExpectedPrograms,
+    closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     lowererBoundaryPrograms,
     lowererStructuralBoundaryPrograms,
@@ -86,7 +87,10 @@ acceptedFixtures =
     sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
     sourceFixture "nested-direct-calls" nestedDirectCallsSource,
     sourceFixture "dollar-direct-call" dollarDirectCallSource,
-    sourceFixture "exported-direct-function" exportedDirectFunctionSource
+    sourceFixture "exported-direct-function" exportedDirectFunctionSource,
+    sourceFixtureNoExports "named-function-value" namedFunctionValueSource,
+    sourceFixtureNoExports "higher-order-call" higherOrderCallSource,
+    sourceFixtureNoExports "closure-result" closureResultSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -106,7 +110,6 @@ rejectedFixtures =
     sourceFixtureNoExports "conditional" conditionalSource,
     sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
-    sourceFixtureNoExports "bare-function-value" bareFunctionValueSource,
     sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "capturing-function" capturingFunctionSource,
@@ -406,6 +409,31 @@ directCallExpectedPrograms =
     )
   ]
 
+closedCallableExpectedPrograms :: [(Text, TypedProgram)]
+closedCallableExpectedPrograms =
+  [ ( "named-function-value",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolIdentityFunction]
+        (variableExpr "identity" boolCallableInfo)
+    ),
+    ( "higher-order-call",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "closure-result",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolIdentityFunction, chooseFunction]
+        (directCall "choose" [boolInfo] boolCallableInfo [boolExpr False])
+    )
+  ]
+
 directCallExpectedLoweredPrograms :: [(Text, LoweredProgram)]
 directCallExpectedLoweredPrograms =
   [ ( "explicit-numeric-widths",
@@ -690,6 +718,7 @@ duplicateParameterLowererProgram =
         "chooseSecond"
         [("item", intInfo), ("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "item" intInfo)
     ]
     (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
@@ -702,11 +731,13 @@ duplicateFunctionLowererProgram =
         "identity"
         [("first", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "first" intInfo),
       ExpectedFunction
         "identity"
         [("second", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "second" intInfo)
     ]
     (directCall "identity" [intInfo] intInfo [intExpr 1])
@@ -799,6 +830,7 @@ capturingLowererProgram =
         "addSeed"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo))
 
 selfRecursiveLowererProgram :: TypedProgram
@@ -809,6 +841,7 @@ selfRecursiveLowererProgram =
         "loop"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "loop" [intInfo] intInfo [intExpr 1])
@@ -821,11 +854,13 @@ mutuallyRecursiveLowererProgram =
         "left"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
       ExpectedFunction
         "right"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "left" [intInfo] intInfo [intExpr 1])
@@ -1471,12 +1506,32 @@ exportedDirectFunctionSource =
     <> singleArgumentDirectCallSource
     <> "}\n"
 
-bareFunctionValueSource :: Text
-bareFunctionValueSource =
+namedFunctionValueSource :: Text
+namedFunctionValueSource =
   Text.unlines
-    [ "identity :: Int -> Int.",
+    [ "identity :: Bool -> Bool.",
       "identity = \\(item) -> item.",
       "identity."
+    ]
+
+higherOrderCallSource :: Text
+higherOrderCallSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+closureResultSource :: Text
+closureResultSource =
+  Text.unlines
+    [ "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "choose :: Bool -> Bool -> Bool.",
+      "choose = \\(ignored) -> identity.",
+      "choose False."
     ]
 
 partialDirectCallSource :: Text
@@ -1611,8 +1666,14 @@ entryModule =
 unitInfo :: TypedNodeInfo
 unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
 
-boolInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
+boolInfo, boolCallableInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
 boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+boolCallableInfo =
+  TypedNodeInfo
+    (TypedFunctionType TypedBoolType TypedBoolType)
+    (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
+    []
+    []
 charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
@@ -1656,6 +1717,7 @@ data ExpectedFunction = ExpectedFunction
   { expectedFunctionName :: Text,
     expectedFunctionParameters :: [(Text, TypedNodeInfo)],
     expectedFunctionResult :: TypedNodeInfo,
+    expectedFunctionShape :: TypedCallableShape,
     expectedFunctionBody :: TypedExpr
   }
 
@@ -1665,7 +1727,35 @@ identityFunction =
     "identity"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (variableExpr "item" intInfo)
+
+boolIdentityFunction :: ExpectedFunction
+boolIdentityFunction =
+  ExpectedFunction
+    "identity"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (variableExpr "item" boolInfo)
+
+applyFunction :: ExpectedFunction
+applyFunction =
+  ExpectedFunction
+    "apply"
+    [("function", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "function" [boolInfo] boolInfo [boolExpr True])
+
+chooseFunction :: ExpectedFunction
+chooseFunction =
+  ExpectedFunction
+    "choose"
+    [("ignored", boolInfo)]
+    boolCallableInfo
+    TypedDirectCallableShape
+    (variableExpr "identity" boolCallableInfo)
 
 incrementFunction :: ExpectedFunction
 incrementFunction = incrementNamed "increment"
@@ -1676,6 +1766,7 @@ incrementNamed name =
     name
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "item" intInfo) (intExpr 1))
 
 combineFunction :: ExpectedFunction
@@ -1684,6 +1775,7 @@ combineFunction =
     "combine"
     [("left", intInfo), ("right", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "left" intInfo) (variableExpr "right" intInfo))
 
 firstFunction :: ExpectedFunction
@@ -1692,6 +1784,7 @@ firstFunction =
     "first"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (directCall "second" [intInfo] intInfo [variableExpr "item" intInfo])
 
 doubleFunction :: ExpectedFunction
@@ -1700,6 +1793,7 @@ doubleFunction =
     "double"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "item" intInfo))
 
 explicitNumericFunctions :: [ExpectedFunction]
@@ -1723,6 +1817,7 @@ explicitNumericFunctions =
             name
             [("ignored", boolInfo)]
             resultInfo
+            TypedDirectCallableShape
             (TypedLiteralExpr resultInfo literal)
 
 expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
@@ -1817,15 +1912,21 @@ functionScheme statementIndex function =
   let functionName = resolvedName (expectedFunctionName function)
       owner = TypedBinderId (modulePath, [statementIndex], functionName)
       info = functionInfo (expectedFunctionParameters function) (expectedFunctionResult function)
-   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info) (Just TypedDirectCallableShape)
+   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info) (Just (expectedFunctionShape function))
 
 functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 functionInfo parameters resultInfo =
   TypedNodeInfo
     (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
-    (TypedClosureRecipe (map (typedExpressionRecipe . snd) parameters) (typedExpressionRecipe resultInfo))
+    (foldr prependRecipe (typedExpressionRecipe resultInfo) parameters)
     []
     []
+  where
+    prependRecipe (_, parameterInfo) resultRecipe =
+      case resultRecipe of
+        TypedClosureRecipe arguments finalResult ->
+          TypedClosureRecipe (typedExpressionRecipe parameterInfo : arguments) finalResult
+        _ -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe
 
 directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 directCall functionName parameterInfos resultInfo arguments =

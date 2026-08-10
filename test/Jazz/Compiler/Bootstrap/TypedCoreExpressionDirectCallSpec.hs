@@ -40,7 +40,7 @@ tests :: [NamedTest]
 tests =
   [ ("audits the complete producer fixture manifest", testFixtureManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
-    ("runs every accepted manifest fixture through the complete pipeline", testAcceptedManifestPipeline),
+    ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
@@ -52,7 +52,6 @@ tests =
     ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
     ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
-    ("rejects higher-order function parameters from the scalar profile", testHigherOrderParameterRejection),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
@@ -85,9 +84,9 @@ tests =
 testFixtureManifest :: IO ()
 testFixtureManifest =
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 16 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 20 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 36 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "accepted fixture count" 19 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
+    >> assertEqual "unique fixture count" 38 (Set.size (Set.fromList fixtureNames))
     >> assertEqual
       "supplemental forward visibility fixtures"
       [ "forward-polymorphic-function-invisibility",
@@ -133,44 +132,54 @@ testAcceptedManifestPipeline =
       [("unit-entry", expectedUnitProgram)]
         <> scalarExpectedPrograms
         <> directCallExpectedPrograms
+        <> closedCallableExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
 
     assertAccepted name =
-      case (lookup name expectedTypedPrograms, lookup name expectedLoweredPrograms) of
-        (Just expectedTypedProgram, Just expectedLoweredProgram) -> do
+      case lookup name expectedTypedPrograms of
+        Just expectedTypedProgram -> do
           let fixture = fixtureByName name
           ordinary <- inferFixture fixture
-          (production, lookupPaths) <- produceFixtureWithTrace fixture
+          (firstProduction, lookupPaths) <- produceFixtureWithTrace fixture
+          secondProduction <- produceFixture fixture
           assertEqual (name <> " resolver source lookup") ["src/App/Main.jz"] lookupPaths
+          assertEqual (name <> " repeatable typed production") firstProduction secondProduction
           if name == "forward-direct-call-dag"
             then do
               assertUnboundName "ordinary forward direct call" "second" ordinary
               assertEqual
                 "typed-core forward direct call diagnostics"
                 []
-                (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult production)))
-            else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult production)
+                (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstProduction)))
+            else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
           assertEqual
             (name <> " complete typed production")
             (TypedCoreProductionSucceeded expectedTypedProgram)
-            (typedCoreProductionStatus production)
+            (typedCoreProductionStatus firstProduction)
           assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedTypedProgram)
-          case typedCoreProductionStatus production of
+          case typedCoreProductionStatus firstProduction of
             TypedCoreProductionSucceeded typedProgram -> do
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
-              let lowering = lowerTypedCoreExpressionDirectCall typedProgram
-              assertEqual
-                (name <> " complete lowered production")
-                (LoweredIRSucceeded expectedLoweredProgram)
-                lowering
-              case lowering of
-                LoweredIRSucceeded loweredProgram ->
-                  assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
-                _ -> failTest (name <> " did not produce lowered IR")
+              case lookup name expectedLoweredPrograms of
+                Just expectedLoweredProgram -> do
+                  let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                  assertEqual
+                    (name <> " complete lowered production")
+                    (LoweredIRSucceeded expectedLoweredProgram)
+                    lowering
+                  case lowering of
+                    LoweredIRSucceeded loweredProgram ->
+                      assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+                    _ -> failTest (name <> " did not produce lowered IR")
+                Nothing ->
+                  assertEqual
+                    (name <> " is intentionally producer-only in Task 2")
+                    True
+                    (name `elem` map fst closedCallableExpectedPrograms)
             _ -> failTest (name <> " did not produce typed core")
-        _ -> failTest (name <> " is missing a complete pipeline expectation")
+        Nothing -> failTest (name <> " is missing a typed-program expectation")
 
 testLowererCallableBoundary :: IO ()
 testLowererCallableBoundary =
@@ -469,27 +478,6 @@ testNonLocalCallArgumentFailureAccumulation = do
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "non-local-call argument failure repeatability" firstRun secondRun
   assertEqual "non-local-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
-
-testHigherOrderParameterRejection :: IO ()
-testHigherOrderParameterRejection = do
-  let fixture = producerEdgeFixture "higher-order-parameter"
-  ordinary <- inferFixture fixture
-  firstRun <- produceFixture fixture
-  secondRun <- produceFixture fixture
-  assertEqual
-    "higher-order parameter inference compatibility"
-    ordinary
-    (typedCoreProductionInferenceResult firstRun)
-  assertEqual "higher-order parameter repeatable production" firstRun secondRun
-  case typedCoreProductionStatus firstRun of
-    TypedCoreProductionUnsupported failures ->
-      assertEqual
-        "higher-order parameter reports a managed-value profile failure"
-        True
-        ( TypedCoreManagedValueUnsupported
-            `elem` [kind | TypedCoreProductionFailure _ kind _ <- failures]
-        )
-    _ -> failTest "higher-order parameter was not rejected by typed-core production"
 
 testNarrowLiteralDirectCall :: IO ()
 testNarrowLiteralDirectCall =
@@ -888,7 +876,6 @@ testRejectedCallableProfile =
       [ TypedCoreImportedInputsUnsupported,
         TypedCoreUnsupportedRootExpression,
         TypedCoreUserDefinedOperatorUnsupported,
-        TypedCoreCallableValueUnsupported,
         TypedCoreCallArityUnsupported,
         TypedCoreCaptureUnsupported,
         TypedCoreRecursiveFunctionUnsupported,
@@ -920,8 +907,7 @@ callableExpectedStatuses =
 
 callableRejectionNames :: [Text]
 callableRejectionNames =
-  [ "bare-function-value",
-    "partial-direct-call",
+  [ "partial-direct-call",
     "oversaturated-direct-call",
     "capturing-function",
     "self-recursive-function",
@@ -960,7 +946,6 @@ rejectedManifestExpectedStatuses =
     ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
     ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
-    ("bare-function-value", unsupported [expressionFailure 2 [] TypedCoreCallableValueUnsupported (TypedCoreNameDetail "identity")]),
     ("partial-direct-call", unsupported [expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 2 1)]),
     ( "oversaturated-direct-call",
       unsupported
