@@ -184,7 +184,9 @@ data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
     provisionalCallableSpan :: SourceSpan,
     provisionalCallableType :: ExpressionType,
     provisionalCallableBinding :: Maybe TypeBinding,
-    provisionalCallableDependencyNames :: Set.Set Name
+    provisionalCallableDependencyNames :: Set.Set Name,
+    provisionalCallableVisibleDependencyNames :: Set.Set Name,
+    provisionalCallableRecursiveGroupMembers :: Maybe [Int]
   }
   deriving (Eq, Show)
 
@@ -196,9 +198,9 @@ data FunctionProfile = FunctionProfile
 
 -- | Canonical free value references for dependency analysis. This walks the
 -- resolved core expression rather than the provisional production tree, so a
--- rejected expression cannot erase a recursion edge. Finalization intersects
--- these names with all callable declarations through declarationBindersByName
--- and assigns permanent binders.
+-- rejected expression cannot erase dependency evidence. Scope separately
+-- transports canonical recursive-group membership after applying declaration
+-- position, rebinding, outer-binding, and lexical-shadow semantics.
 expressionDependencyNames :: Expr -> Set.Set Name
 expressionDependencyNames = go
   where
@@ -802,32 +804,40 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             _ -> (seenNames, reboundStatements)
 
     recursiveDeclarationBinders declarations =
-      Set.fromList
-        [ binder
-        | component <-
-            stronglyConnComp
-              [ ( binder,
-                  binder,
-                  Set.toList (declarationDependencies declaration)
-                )
-              | declaration <- declarations,
-                let binder = declarationBinder declaration
-              ],
-          binder <- case component of
-            AcyclicSCC candidate
-              | Set.member candidate (dependenciesFrom candidate) -> [candidate]
-            AcyclicSCC _ -> []
-            CyclicSCC declarationsInCycle -> declarationsInCycle
-        ]
+      Set.union canonicalRecursiveBinders dependencyRecursiveBinders
       where
-        declarationBindersByName =
+        canonicalRecursiveBinders =
+          Set.fromList
+            [ declarationBinder declaration
+            | declaration <- declarations,
+              Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
+            ]
+        dependencyRecursiveBinders =
+          Set.fromList
+            [ binder
+            | component <-
+                stronglyConnComp
+                  [ ( binder,
+                      binder,
+                      Set.toList (declarationDependencies declaration)
+                    )
+                  | declaration <- declarations,
+                    let binder = declarationBinder declaration
+                  ],
+              binder <- case component of
+                AcyclicSCC candidate
+                  | Set.member candidate (dependenciesFrom candidate) -> [candidate]
+                AcyclicSCC _ -> []
+                CyclicSCC declarationsInCycle -> declarationsInCycle
+            ]
+        declarationsByName =
           foldl'
-            ( \binders declaration ->
+            ( \declarationsByNameAcc declaration ->
                 Map.insertWith
-                  (\_ firstBinder -> firstBinder)
+                  (\new old -> old <> new)
                   (provisionalCallableName declaration)
-                  (declarationBinder declaration)
-                  binders
+                  [declaration]
+                  declarationsByNameAcc
             )
             Map.empty
             declarations
@@ -838,13 +848,30 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             (resolvedValueName (provisionalCallableName declaration))
         declarationDependencies declaration =
           Set.fromList
-            [ dependencyBinder
+            [ declarationBinder dependencyDeclaration
             | dependencyName <- Set.toList (provisionalCallableDependencyNames declaration),
-              dependencyBinder <-
-                if dependencyName == provisionalCallableName declaration
-                  then [declarationBinder declaration]
-                  else maybe [] pure (Map.lookup dependencyName declarationBindersByName)
+              dependencyDeclaration <- maybe [] pure (resolveDependencyDeclaration declaration dependencyName)
             ]
+        resolveDependencyDeclaration declaration dependencyName =
+          case Map.lookup dependencyName declarationsByName of
+            Nothing -> Nothing
+            Just namedDeclarations ->
+              case reverse (filter (isBefore declaration) namedDeclarations) of
+                prior : _ -> Just prior
+                []
+                  | Set.member dependencyName (provisionalCallableVisibleDependencyNames declaration) -> Nothing
+                  | dependencyName == provisionalCallableName declaration ->
+                      case provisionalCallableRecursiveGroupMembers declaration of
+                        Just _ -> Just declaration
+                        Nothing -> Nothing
+                  | otherwise ->
+                      case filter (isAfter declaration) namedDeclarations of
+                        future : _ -> Just future
+                        [] -> Nothing
+        isBefore declaration candidate =
+          provisionalCallableStatementIndex candidate < provisionalCallableStatementIndex declaration
+        isAfter declaration candidate =
+          provisionalCallableStatementIndex candidate > provisionalCallableStatementIndex declaration
         dependenciesFrom binder =
           case filter ((== binder) . declarationBinder) declarations of
             declaration : _ -> declarationDependencies declaration

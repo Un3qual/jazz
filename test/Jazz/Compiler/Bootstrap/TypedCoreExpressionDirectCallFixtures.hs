@@ -1917,6 +1917,94 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "later-callable-rebinding-calls-nearest-prior",
+      sourceFixtureNoExports
+        "later-callable-rebinding-calls-nearest-prior"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> identity item.",
+              "identity True."
+            ]
+        )
+    ),
+    ( "three-same-name-nearest-prior-mutual-recursion",
+      sourceFixtureNoExports
+        "three-same-name-nearest-prior-mutual-recursion"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> peer item.",
+              "peer :: Bool -> Bool.",
+              "peer = \\(item) -> identity item.",
+              "True."
+            ]
+        )
+    ),
+    ( "canonical-self-recursion-no-prior",
+      sourceFixtureNoExports
+        "canonical-self-recursion-no-prior"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> loop item.",
+              "True."
+            ]
+        )
+    ),
+    ( "canonical-mutual-recursion-peers",
+      sourceFixtureNoExports
+        "canonical-mutual-recursion-peers"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> left item.",
+              "True."
+            ]
+        )
+    ),
+    ( "nearest-rebinding-mutual-control",
+      sourceFixtureNoExports
+        "nearest-rebinding-mutual-control"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> left item.",
+              "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rebinding-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rebinding-parameter-shadow-control"
+        ( Text.unlines
+            [ "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(function) -> function True.",
+              "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(apply) -> apply True.",
+              "True."
+            ]
+        )
+    ),
+    ( "rebinding-local-shadow-control",
+      sourceFixtureNoExports
+        "rebinding-local-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-self-alias-recursion",
       sourceFixtureNoExports
         "rejected-self-alias-recursion"

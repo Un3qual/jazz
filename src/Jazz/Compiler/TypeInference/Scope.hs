@@ -747,6 +747,18 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       stateAfterCapturedConstraintPrune
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
+                  callableDependencyNames = expressionDependencyNames valueExpr
+                  canonicalRecursiveGroupMembers =
+                    case Map.lookup statementIndex recursiveGroupsByStatement of
+                      Just groupMembers -> Just groupMembers
+                      Nothing
+                        | shouldSeedSelfRecursiveFunction statementIndex name envForStatement
+                            || ( exprContainsFunctionBranch valueExpr
+                                   && Set.member name callableDependencyNames
+                                   && Map.notMember name envForStatement
+                               ) ->
+                            Just [statementIndex]
+                      Nothing -> Nothing
                   callableDeclaration =
                     case nextBindingType of
                       Just bindingType@TFunctionType {} ->
@@ -757,7 +769,9 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                               bindingSpan
                               bindingType
                               maybeNextBinding
-                              (expressionDependencyNames valueExpr)
+                              callableDependencyNames
+                              (Set.intersection callableDependencyNames (Map.keysSet envForStatement))
+                              canonicalRecursiveGroupMembers
                           )
                       _ -> Nothing
                   provisional =

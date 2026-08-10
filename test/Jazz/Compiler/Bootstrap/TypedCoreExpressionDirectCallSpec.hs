@@ -86,6 +86,13 @@ tests =
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
+    ("binds a later callable rebinding to the nearest prior declaration", testCanonicalCallableRebindingDependencies "later-callable-rebinding-calls-nearest-prior"),
+    ("selects the nearest of three same-name declarations", testCanonicalCallableRebindingDependencies "three-same-name-nearest-prior-mutual-recursion"),
+    ("preserves canonical self recursion when no prior binding exists", testCanonicalCallableRebindingDependencies "canonical-self-recursion-no-prior"),
+    ("preserves canonical mutual recursion between peers", testCanonicalCallableRebindingDependencies "canonical-mutual-recursion-peers"),
+    ("keeps nearest-rebinding mutual references acyclic", testCanonicalCallableRebindingDependencies "nearest-rebinding-mutual-control"),
+    ("keeps callable rebinding parameter shadows out of recursion", testCanonicalCallableRebindingDependencies "rebinding-parameter-shadow-control"),
+    ("keeps callable rebinding local shadows out of recursion", testCanonicalCallableRebindingDependencies "rebinding-local-shadow-control"),
     ("preserves rejected self-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-self-alias-recursion"),
     ("preserves rejected mutual-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-mutual-alias-recursion"),
     ("preserves rejected conditional-root declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-alias-conditional-mutual-recursion"),
@@ -1826,10 +1833,6 @@ testSameStatementFailureKindOrder = do
               (TypedCoreNameDetail "loop"),
             TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail "loop"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
               TypedCoreFunctionRebindingUnsupported
               (TypedCoreNameDetail "loop"),
             TypedCoreProductionFailure
@@ -1842,6 +1845,75 @@ testSameStatementFailureKindOrder = do
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "self-recursive rebinding repeatability" firstRun secondRun
   assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
+
+testCanonicalCallableRebindingDependencies :: Text -> IO ()
+testCanonicalCallableRebindingDependencies requestedName =
+  case lookup requestedName expectedResults of
+    Just expectedFailures -> assertExact requestedName expectedFailures
+    Nothing -> error "canonical callable rebinding fixture has no expected result"
+  where
+    expectedResults =
+      [ ( "later-callable-rebinding-calls-nearest-prior",
+          [rebindingFailure 3 "identity"]
+        ),
+        ( "three-same-name-nearest-prior-mutual-recursion",
+          [ rebindingFailure 3 "identity",
+            recursionFailure 5 "identity",
+            rebindingFailure 5 "identity",
+            recursionFailure 7 "peer"
+          ]
+        ),
+        ( "canonical-self-recursion-no-prior",
+          [recursionFailure 1 "loop"]
+        ),
+        ( "canonical-mutual-recursion-peers",
+          [ recursionFailure 1 "left",
+            recursionFailure 3 "right"
+          ]
+        ),
+        ( "nearest-rebinding-mutual-control",
+          [rebindingFailure 5 "left"]
+        ),
+        ( "rebinding-parameter-shadow-control",
+          [rebindingFailure 3 "apply"]
+        ),
+        ( "rebinding-local-shadow-control",
+          [ rebindingFailure 3 "loop",
+            expressionFailure 3 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+          ]
+        )
+      ]
+    assertExact name expectedFailures = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
+      assertEqual (name <> " repeatability") firstRun secondRun
+      assertEqual
+        (name <> " exact canonical owners, order, and multiplicity")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+    recursionFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail name)
+    rebindingFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreFunctionRebindingUnsupported
+        (TypedCoreNameDetail name)
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
 
 testRejectedCallableDeclarationTransport :: Text -> IO ()
 testRejectedCallableDeclarationTransport requestedName =
