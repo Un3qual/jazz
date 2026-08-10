@@ -239,8 +239,10 @@ expressionValue expression =
   case expression of
     TypedLiteralExpr info literal ->
       constructor "TypedLiteralExpr" [nodeInfoValue info, literalValue literal]
-    TypedVariableExpr info name ->
-      constructor "TypedVariableExpr" [nodeInfoValue info, coreNameValue name]
+    TypedVariableExpr info name binderReference ->
+      constructor
+        "TypedVariableExpr"
+        [nodeInfoValue info, coreNameValue name, maybeValue binderIdValue binderReference]
     TypedLambdaExpr info binder name body ->
       constructor
         "TypedLambdaExpr"
@@ -346,7 +348,7 @@ literalValue literal =
     TypedTextLiteral value -> constructor "TypedTextLiteral" [VText value]
 
 schemeValue :: TypedScheme -> RuntimeValue
-schemeValue (TypedScheme binder typeParameters evidence primitiveConstraints typeValue' recipe) =
+schemeValue (TypedScheme binder typeParameters evidence primitiveConstraints typeValue' recipe callableShape) =
   constructor
     "TypedScheme"
     [ binderIdValue binder,
@@ -354,8 +356,15 @@ schemeValue (TypedScheme binder typeParameters evidence primitiveConstraints typ
       listValue evidenceParameterValue evidence,
       listValue primitiveConstraintValue primitiveConstraints,
       typeValue typeValue',
-      recipeValue recipe
+      recipeValue recipe,
+      maybeValue callableShapeValue callableShape
     ]
+
+callableShapeValue :: TypedCallableShape -> RuntimeValue
+callableShapeValue callableShape =
+  case callableShape of
+    TypedDirectCallableShape -> nullary "TypedDirectCallableShape"
+    TypedClosureCallableShape -> nullary "TypedClosureCallableShape"
 
 primitiveConstraintValue :: TypedPrimitiveConstraint -> RuntimeValue
 primitiveConstraintValue constraint =
@@ -646,6 +655,8 @@ validationKindName kind =
     TypedModuleResultMismatch -> "TypedModuleResultMismatch"
     TypedDataRecipeMismatch -> "TypedDataRecipeMismatch"
     TypedCallableRecipeMismatch -> "TypedCallableRecipeMismatch"
+    TypedCallableShapeMismatch -> "TypedCallableShapeMismatch"
+    TypedBinderReferenceMismatch -> "TypedBinderReferenceMismatch"
     TypedModuleInterfaceMismatch -> "TypedModuleInterfaceMismatch"
 
 validationDetailValue :: TypedCoreValidationDetail -> RuntimeValue

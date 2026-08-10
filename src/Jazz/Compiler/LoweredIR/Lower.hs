@@ -357,7 +357,7 @@ localValueIdentifier name =
     _ -> Nothing
 
 monomorphicSchemeContract :: TypedScheme -> Maybe (TypedType, TypedRepresentationRecipe)
-monomorphicSchemeContract (TypedScheme _ typeParameters evidence primitive typeValue recipe)
+monomorphicSchemeContract (TypedScheme _ typeParameters evidence primitive typeValue recipe _)
   | null typeParameters,
     null evidence,
     null primitive =
@@ -503,7 +503,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
   case expression of
     TypedLiteralExpr info _ ->
       representationCheck info
-    TypedVariableExpr info name ->
+    TypedVariableExpr info name _ ->
       case find ((== name) . functionParameterName) parameters of
         Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
           | loweredRepresentation (typedNodeRecipe info) == Just expectedRepresentation ->
@@ -606,7 +606,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
         argument
     targetCheck =
       case callee of
-        TypedVariableExpr _ name ->
+        TypedVariableExpr _ name _ ->
           case find ((== name) . functionShapeName) functions of
             Just target
               | expectedArity == actualArity ->
@@ -782,7 +782,7 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
   case expression of
     TypedLiteralExpr info literal ->
       lowerLiteral path info literal state
-    TypedVariableExpr info name ->
+    TypedVariableExpr info name _ ->
       case find ((== name) . functionParameterName) parameters of
         Just (FunctionParameterShape _ (LoweredParameter parameterId representation))
           | loweredRepresentation (typedNodeRecipe info) == Just representation ->
@@ -929,7 +929,7 @@ lowerApplication ::
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerApplication modulePath statementPath expressionPath path functions parameters state expression =
   case callee of
-    TypedVariableExpr _ name ->
+    TypedVariableExpr _ name _ ->
       case find ((== name) . functionShapeName) functions of
         Just target
           | length arguments == length (functionShapeParameters target) ->

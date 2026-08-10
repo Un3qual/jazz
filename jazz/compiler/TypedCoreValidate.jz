@@ -27,8 +27,8 @@ module TypedCoreValidate (
     | CapabilityEntry [Text] Text [TypedTypeParameterId] [MethodContract]
     | EvidenceCapabilityEntry TypedEvidenceParameterRef [Text] Text
     | ImplMethodEntry TypedImplId [Text]
-    | LexicalContractEntry [Text] TypedNameNamespace Text TypedType TypedRepresentationRecipe
-    | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedType TypedRepresentationRecipe
+    | LexicalContractEntry [Text] TypedNameNamespace Text TypedBinderId TypedType TypedRepresentationRecipe
+    | GeneratedLexicalContractEntry TypedGeneratedNameKind TypedBinderId TypedType TypedRepresentationRecipe
     | PrimitiveConstraintEntry TypedPrimitiveConstraint
     | UnqualifiedCapabilityEntry [Text] Text.
 
@@ -61,6 +61,9 @@ module TypedCoreValidate (
 
   data PatternBinderContract
     = PatternBinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
+
+  data BinderContract
+    = BinderContract TypedBinderId TypedCoreName TypedType TypedRepresentationRecipe.
 
   data BinderOccurrence = BinderOccurrence TypedCoreValidationPath TypedBinderId.
 
@@ -475,15 +478,15 @@ module TypedCoreValidate (
     }
   }.
 
-  lookupLexicalContract :: [Text] -> TypedCoreName -> [DataEntry] -> Maybe(ValueContract).
+  lookupLexicalContract :: [Text] -> TypedCoreName -> [DataEntry] -> Maybe(BinderContract).
   lookupLexicalContract = \(modulePath, name, entries) -> case (resolvedNameEntry modulePath name, entries) {
     | (Nothing, other) -> Nothing
     | (Just expected, []) -> Nothing
     | (Just expected, [first | rest]) -> case first {
-      | LexicalContractEntry candidatePath candidateNamespace candidateIdentifier typeValue recipe ->
-        if nameEntryEqual expected (NameEntry candidatePath candidateNamespace candidateIdentifier) then Just (ValueContract typeValue recipe) else lookupLexicalContract modulePath name rest
-      | GeneratedLexicalContractEntry candidateKind typeValue recipe ->
-        if nameEntryEqual expected (GeneratedNameEntry candidateKind) then Just (ValueContract typeValue recipe) else lookupLexicalContract modulePath name rest
+      | LexicalContractEntry candidatePath candidateNamespace candidateIdentifier binder typeValue recipe ->
+        if nameEntryEqual expected (NameEntry candidatePath candidateNamespace candidateIdentifier) then Just (BinderContract binder name typeValue recipe) else lookupLexicalContract modulePath name rest
+      | GeneratedLexicalContractEntry candidateKind binder typeValue recipe ->
+        if nameEntryEqual expected (GeneratedNameEntry candidateKind) then Just (BinderContract binder name typeValue recipe) else lookupLexicalContract modulePath name rest
       | other -> lookupLexicalContract modulePath name rest
     }
   }.
@@ -520,7 +523,7 @@ module TypedCoreValidate (
 
   withSchemeScope :: TypedScheme -> ModuleContext -> ModuleContext.
   withSchemeScope = \(scheme, context) -> case (scheme, context) {
-    | (TypedScheme owner typeParameters evidence primitiveConstraints resultType resultRecipe, ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries oldScope) ->
+    | (TypedScheme owner typeParameters evidence primitiveConstraints resultType resultRecipe callableShape, ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries oldScope) ->
       ModuleContext
         modulePath
         visibleModules
@@ -542,8 +545,8 @@ module TypedCoreValidate (
     | [first | rest] -> withVisibleNames rest (withVisibleName first context)
   }.
 
-  withLexicalContract :: TypedCoreName -> TypedType -> TypedRepresentationRecipe -> ModuleContext -> ModuleContext.
-  withLexicalContract = \(name, typeValue, recipe, context) -> case context {
+  withLexicalContract :: TypedBinderId -> TypedCoreName -> TypedType -> TypedRepresentationRecipe -> ModuleContext -> ModuleContext.
+  withLexicalContract = \(binder, name, typeValue, recipe, context) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case resolvedNameEntry modulePath name {
       | Nothing -> withVisibleName name context
       | Just entry -> case entry {
@@ -553,7 +556,7 @@ module TypedCoreValidate (
           schemes
           (appendResolvedNameEntry modulePath name visibleNames)
           visibleImpls
-          (listPrepend (LexicalContractEntry namePath namespace identifier typeValue recipe) dataEntries)
+          (listPrepend (LexicalContractEntry namePath namespace identifier binder typeValue recipe) dataEntries)
           typeScope
         | GeneratedNameEntry kind -> ModuleContext
           modulePath
@@ -561,7 +564,7 @@ module TypedCoreValidate (
           schemes
           (appendResolvedNameEntry modulePath name visibleNames)
           visibleImpls
-          (listPrepend (GeneratedLexicalContractEntry kind typeValue recipe) dataEntries)
+          (listPrepend (GeneratedLexicalContractEntry kind binder typeValue recipe) dataEntries)
           typeScope
       }
     }
@@ -970,15 +973,64 @@ module TypedCoreValidate (
     | [first | rest] -> listAppend (validateRecipe path scope first) (validateRecipes path scope rest)
   }.
 
+  typeRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
+  typeRecipeCompatible = \(typeValue, recipe) -> case typeValue {
+    | TypedFunctionType argumentType resultType -> case recipe {
+      | TypedClosureRecipe [argumentRecipe | restRecipes] resultRecipe ->
+        if typeRecipeCompatible argumentType argumentRecipe then case restRecipes {
+          | [] -> typeRecipeCompatible resultType resultRecipe
+          | other -> typeRecipeCompatible resultType (TypedClosureRecipe restRecipes resultRecipe)
+        } else False
+      | other -> False
+    }
+    | other -> case expectedRecipe typeValue {
+      | Just expected -> recipeEqual expected recipe
+      | Nothing -> False
+    }
+  }.
+
   validateTypeRecipe :: TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedType -> TypedRepresentationRecipe -> [TypedCoreValidationFailure].
   validateTypeRecipe = \(path, scope, typeValue, recipe) -> if recipeWidthValid recipe then
     if hasUnboundTypeParameter scope typeValue then [] else
     if hasUnboundRepresentationParameter scope recipe then [] else case expectedRecipe typeValue {
       | Nothing -> []
-      | Just expected -> if recipeEqual expected recipe then [] else
+      | Just expected -> if typeRecipeCompatible typeValue recipe then [] else
         [failure path (if isFunctionType typeValue then TypedCallableRecipeMismatch else TypedTypeRepresentationMismatch) (TypedRecipeDetail expected recipe)]
     }
   else [].
+
+  callableRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
+  callableRecipeCompatible = \(typeValue, recipe) -> typeRecipeCompatible typeValue recipe.
+
+  stagedClosureRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
+  stagedClosureRecipeCompatible = \(typeValue, recipe) -> case (typeValue, recipe) {
+    | (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe) ->
+      if typeRecipeCompatible argumentType argumentRecipe then case resultType {
+        | TypedFunctionType nextArgument nextResult -> stagedClosureRecipeCompatible resultType resultRecipe
+        | other -> typeRecipeCompatible resultType resultRecipe
+      } else False
+    | other -> False
+  }.
+
+  validateCallableShape :: TypedCoreValidationPath -> TypedBinderId -> TypedType -> TypedRepresentationRecipe -> Maybe(TypedCallableShape) -> [TypedCoreValidationFailure].
+  validateCallableShape = \(path, owner, typeValue, recipe, callableShape) -> case typeValue {
+    | TypedFunctionType argument result -> case callableShape {
+      | Nothing -> [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+      | Just TypedDirectCallableShape ->
+        if callableRecipeCompatible typeValue recipe then case expectedRecipe typeValue {
+          | Just expected -> if recipeEqual expected recipe then [] else [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+          | Nothing -> []
+        } else []
+      | Just TypedClosureCallableShape ->
+        if callableRecipeCompatible typeValue recipe then
+          if stagedClosureRecipeCompatible typeValue recipe then [] else [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+        else []
+    }
+    | other -> case callableShape {
+      | Nothing -> []
+      | Just shape -> [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+    }
+  }.
 
   validateCapabilityConstraint :: TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedCapabilityConstraint -> [TypedCoreValidationFailure].
   validateCapabilityConstraint = \(path, scope, constraint) -> case constraint {
@@ -1656,7 +1708,7 @@ module TypedCoreValidate (
 
   validateSchemeWithOuterScopeUsing :: (ModuleContext -> TypedCoreValidationPath -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedCoreValidationFailure]) -> ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> [TypedTypeParameterId] -> TypedScheme -> [TypedCoreValidationFailure].
   validateSchemeWithOuterScopeUsing = \(validateEvidence, context, path, owner, outerScope, scheme) -> case scheme {
-    | TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe -> {
+    | TypedScheme schemeOwner typeParameters evidenceParameters primitiveConstraints resultType resultRecipe callableShape -> {
       shadowingFailures = shadowedTypeParameterFailures path typeParameters outerScope.
       parameterOrderFailures = if listLength shadowingFailures == 0 then validateOrderedTypeParametersFrom path (nextTypeParameterOrdinal outerScope) typeParameters else [].
       listConcat
@@ -1668,7 +1720,8 @@ module TypedCoreValidate (
           validatePrimitiveConstraints context path (listAppend outerScope typeParameters) primitiveConstraints,
           validateType path (listAppend outerScope typeParameters) resultType,
           validateRecipe path (listAppend outerScope typeParameters) resultRecipe,
-          validateTypeRecipe path (listAppend outerScope typeParameters) resultType resultRecipe
+          validateTypeRecipe path (listAppend outerScope typeParameters) resultType resultRecipe,
+          validateCallableShape path schemeOwner resultType resultRecipe callableShape
         ].
     }
   }.
@@ -2111,8 +2164,8 @@ module TypedCoreValidate (
 
   qualifyExternalScheme :: [Text] -> TypedScheme -> TypedScheme.
   qualifyExternalScheme = \(modulePath, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
-      TypedScheme owner parameters (qualifyExternalEvidenceParameters modulePath evidence) primitive resultType resultRecipe
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape ->
+      TypedScheme owner parameters (qualifyExternalEvidenceParameters modulePath evidence) primitive resultType resultRecipe callableShape
   }.
 
   qualifyExternalMethodSignatures :: [Text] -> [TypedMethodSignature] -> [TypedMethodSignature].
@@ -2196,7 +2249,7 @@ module TypedCoreValidate (
     | TypedInstantiation owner arguments explicitSpan -> case lookupScheme owner schemes {
       | Nothing -> []
       | Just scheme -> case scheme {
-        | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then
+        | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe callableShape -> if typeParameterIdListEqual (typeArgumentIds arguments) parameters then
           evidenceBindingsFromParameters modulePath owner (typeArgumentSubstitutions arguments) evidence
         else []
       }
@@ -2336,7 +2389,7 @@ module TypedCoreValidate (
   lookupInstantiationContract :: TypedBinderId -> [SchemeEntry] -> [DataEntry] -> Maybe(InstantiationContract).
   lookupInstantiationContract = \(owner, schemes, dataEntries) -> case lookupScheme owner schemes {
     | Just scheme -> case scheme {
-      | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe ->
+      | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe callableShape ->
         Just (InstantiationContract schemeOwner parameters evidence primitive)
     }
     | Nothing -> case lookupConstructorContractByOwner owner dataEntries {
@@ -2438,7 +2491,7 @@ module TypedCoreValidate (
 
   qualifiedMethodExpressionKey :: TypedExpr -> Maybe(Text).
   qualifiedMethodExpressionKey = \(expression) -> case expression {
-    | TypedVariableExpr info name -> case name {
+    | TypedVariableExpr info name binderReference -> case name {
       | TypedBuiltinName identifier -> Just identifier
       | other -> Nothing
     }
@@ -2480,7 +2533,7 @@ module TypedCoreValidate (
   expressionInfo :: TypedExpr -> TypedNodeInfo.
   expressionInfo = \(expression) -> case expression {
     | TypedLiteralExpr info literal -> info
-    | TypedVariableExpr info name -> info
+    | TypedVariableExpr info name binderReference -> info
     | TypedLambdaExpr info binder name body -> info
     | TypedOperatorValueExpr info operator -> info
     | TypedListExpr info expressions -> info
@@ -2518,7 +2571,7 @@ module TypedCoreValidate (
     | [] -> False
     | [MethodContract candidateMethod scheme | rest] ->
       if methodKeyMatches capability candidateMethod methodKey then case scheme {
-        | TypedScheme owner parameters evidence primitive methodType methodRecipe ->
+        | TypedScheme owner parameters evidence primitive methodType methodRecipe callableShape ->
           targetArgumentRemains classParameter suppliedArgumentCount methodType
       } else candidateMethodTargetRemains capability methodKey classParameter suppliedArgumentCount rest
   }.
@@ -2950,6 +3003,20 @@ module TypedCoreValidate (
     | other -> False
   }.
 
+  callableShapeEqual :: TypedCallableShape -> TypedCallableShape -> Bool.
+  callableShapeEqual = \(left, right) -> case (left, right) {
+    | (TypedDirectCallableShape, TypedDirectCallableShape) -> True
+    | (TypedClosureCallableShape, TypedClosureCallableShape) -> True
+    | other -> False
+  }.
+
+  maybeCallableShapeEqual :: Maybe(TypedCallableShape) -> Maybe(TypedCallableShape) -> Bool.
+  maybeCallableShapeEqual = \(left, right) -> case (left, right) {
+    | (Nothing, Nothing) -> True
+    | (Just leftShape, Just rightShape) -> callableShapeEqual leftShape rightShape
+    | other -> False
+  }.
+
   evidenceUseEqual :: TypedEvidenceUse -> TypedEvidenceUse -> Bool.
   evidenceUseEqual = \(left, right) -> case (left, right) {
     | (TypedEvidenceUse leftParameter leftConstraint leftImpl leftMethod, TypedEvidenceUse rightParameter rightConstraint rightImpl rightMethod) ->
@@ -3201,7 +3268,7 @@ module TypedCoreValidate (
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedResolvedOperator name symbol) -> case lookupSchemeByName modulePath name schemes {
       | Nothing -> ([], Nothing)
       | Just scheme -> case scheme {
-        | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+        | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> {
           ownerPath = binderModulePathValue owner.
           qualifiedType = if textListEqual ownerPath modulePath then resultType else qualifyExternalType ownerPath resultType.
           matching = findMatchingInstantiation owner parameters (nodeInstantiations info).
@@ -3338,9 +3405,52 @@ module TypedCoreValidate (
     else [failure path TypedBindingValueMismatch (TypedTypeDetail expectedType (nodeType info))]
   }.
 
+  valueContractMatches :: TypedNodeInfo -> ValueContract -> Bool.
+  valueContractMatches = \(info, contract) -> case contract {
+    | ValueContract expectedType expectedRecipe ->
+      if typeEqual expectedType (nodeType info) then recipeEqual expectedRecipe (nodeRecipe info) else False
+  }.
+
+  validateAbsentBinderReference :: TypedCoreValidationPath -> Maybe(TypedBinderId) -> [TypedCoreValidationFailure].
+  validateAbsentBinderReference = \(path, binderReference) -> case binderReference {
+    | Nothing -> []
+    | Just binder -> [failure path TypedBinderReferenceMismatch (TypedBinderDetail binder)]
+  }.
+
+  validateLexicalBinderReference :: TypedCoreValidationPath -> TypedNodeInfo -> Maybe(TypedBinderId) -> BinderContract -> [TypedCoreValidationFailure].
+  validateLexicalBinderReference = \(path, info, binderReference, contract) -> case contract {
+    | BinderContract expectedBinder name expectedType expectedRecipe -> case binderReference {
+      | Nothing -> [failure path TypedBinderReferenceMismatch (TypedBinderDetail expectedBinder)]
+      | Just actualBinder ->
+        if binderIdEqual actualBinder expectedBinder then
+          if typeEqual expectedType (nodeType info) then
+            if recipeEqual expectedRecipe (nodeRecipe info) then [] else [failure path TypedBinderReferenceMismatch (TypedBinderDetail actualBinder)]
+          else [failure path TypedBinderReferenceMismatch (TypedBinderDetail actualBinder)]
+        else [failure path TypedBinderReferenceMismatch (TypedBinderDetail actualBinder)]
+    }
+  }.
+
+  validateConstructorBinderReference :: TypedCoreValidationPath -> Maybe(TypedBinderId) -> ConstructorContract -> [TypedCoreValidationFailure].
+  validateConstructorBinderReference = \(path, binderReference, contract) -> case contract {
+    | ConstructorContract expectedBinder dataPath dataIdentifier parameters fields -> case binderReference {
+      | Nothing -> [failure path TypedBinderReferenceMismatch (TypedBinderDetail expectedBinder)]
+      | Just actualBinder -> if binderIdEqual actualBinder expectedBinder then [] else [failure path TypedBinderReferenceMismatch (TypedBinderDetail actualBinder)]
+    }
+  }.
+
+  validateSchemeBinderReference :: TypedCoreValidationPath -> TypedNodeInfo -> Maybe(TypedBinderId) -> TypedBinderId -> Maybe(ValueContract) -> [TypedCoreValidationFailure].
+  validateSchemeBinderReference = \(path, info, binderReference, owner, maybeContract) -> case binderReference {
+    | Nothing -> [failure path TypedBinderReferenceMismatch (TypedBinderDetail owner)]
+    | Just actualBinder ->
+      if binderIdEqual actualBinder owner then case maybeContract {
+        | Nothing -> []
+        | Just contract -> if valueContractMatches info contract then [] else [failure path TypedBinderReferenceMismatch (TypedBinderDetail owner)]
+      } else [failure path TypedBinderReferenceMismatch (TypedBinderDetail actualBinder)]
+  }.
+
   schemeValueContract :: [Text] -> TypedNodeInfo -> TypedScheme -> Maybe(ValueContract).
   schemeValueContract = \(modulePath, info, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> case owner {
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case owner {
       | TypedBinderId ownerModule lexicalPath ownerName -> {
         qualifiedType = if textListEqual ownerModule modulePath then resultType else qualifyExternalType ownerModule resultType.
         qualifiedRecipe = if textListEqual ownerModule modulePath then resultRecipe else qualifyExternalRecipe ownerModule resultRecipe.
@@ -3357,51 +3467,29 @@ module TypedCoreValidate (
     }
   }.
 
-  validateVariableSchemeContract :: [Text] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedScheme -> [TypedCoreValidationFailure].
-  validateVariableSchemeContract = \(modulePath, path, info, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> case schemeValueContract modulePath info scheme {
-      | Nothing -> {
-        matching = findMatchingInstantiation owner parameters (nodeInstantiations info).
-        instantiationFailures =
-          if listLength parameters > 0 then case matching {
-            | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-            | Just instantiation -> []
-          } else if listLength evidence > 0 then case matching {
-            | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-            | Just instantiation -> []
-          } else [].
-        missingEvidenceFailures =
-          if listLength parameters == 0 then case matching {
-            | Nothing -> listMap
-              (\(evidenceParameter) -> case evidenceParameter {
-                | TypedEvidenceParameter parameterId constraint -> failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
-              })
-              evidence
-            | Just instantiation -> []
-          } else [].
-        listAppend instantiationFailures missingEvidenceFailures.
-      }
-      | Just contract -> {
-        matching = findMatchingInstantiation owner parameters (nodeInstantiations info).
-        instantiationFailures =
-          if listLength parameters > 0 then case matching {
-            | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-            | Just instantiation -> []
-          } else if listLength evidence > 0 then case matching {
-            | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
-            | Just instantiation -> []
-          } else [].
-        missingEvidenceFailures =
-          if listLength parameters == 0 then if listLength evidence > 0 then case matching {
-            | Nothing -> listMap
-              (\(evidenceParameter) -> case evidenceParameter {
-                | TypedEvidenceParameter parameterId constraint -> failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
-              })
-              evidence
-            | Just instantiation -> []
-          } else [] else [].
-        listConcat [instantiationFailures, missingEvidenceFailures, validateValueContract path info contract].
-      }
+  validateVariableSchemeContract :: [Text] -> TypedCoreValidationPath -> TypedNodeInfo -> Maybe(TypedBinderId) -> TypedScheme -> [TypedCoreValidationFailure].
+  validateVariableSchemeContract = \(modulePath, path, info, binderReference, scheme) -> case scheme {
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> {
+      valueContract = schemeValueContract modulePath info scheme.
+      matching = findMatchingInstantiation owner parameters (nodeInstantiations info).
+      instantiationFailures =
+        if listLength parameters > 0 then case matching {
+          | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          | Just instantiation -> []
+        } else if listLength evidence > 0 then case matching {
+          | Nothing -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
+          | Just instantiation -> []
+        } else [].
+      missingEvidenceFailures =
+        if listLength parameters == 0 then if listLength evidence > 0 then case matching {
+          | Nothing -> listMap
+            (\(evidenceParameter) -> case evidenceParameter {
+              | TypedEvidenceParameter parameterId constraint -> failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
+            })
+            evidence
+          | Just instantiation -> []
+        } else [] else [].
+      listConcat [instantiationFailures, missingEvidenceFailures, validateSchemeBinderReference path info binderReference owner valueContract].
     }
   }.
 
@@ -3654,7 +3742,7 @@ module TypedCoreValidate (
                 | Just contract -> case contract {
                   | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey qualifier methodKey methods {
                     | Just scheme -> case scheme {
-                      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+                      | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> {
                         ownerPath = binderModulePathValue owner.
                         qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
                         qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
@@ -3699,8 +3787,8 @@ module TypedCoreValidate (
   qualifiedMethodValueContractsFrom = \(context, methodKey, selections) ->
     qualifiedMethodValueContractsUniqueFrom context methodKey selections [].
 
-  validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedCoreValidationFailure].
-  validateVariableExpression = \(context, path, info, name) -> case context {
+  validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> Maybe(TypedBinderId) -> [TypedCoreValidationFailure].
+  validateVariableExpression = \(context, path, info, name, binderReference) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       qualifiedMethodTarget = case name {
         | TypedBuiltinName methodKey -> qualifiedMethodEvidenceTarget context methodKey info
@@ -3708,22 +3796,22 @@ module TypedCoreValidate (
       }.
       visibilityFailures = if qualifiedMethodTarget then [] else validateVisibleNameInNamespaces [TypedValueNamespace, TypedConstructorNamespace] context path name.
       contractFailures = case lookupLexicalContract modulePath name dataEntries {
-        | Just contract -> validateValueContract path info contract
+        | Just contract -> validateLexicalBinderReference path info binderReference contract
         | Nothing -> case name {
-          | TypedBuiltinName identifier -> if qualifiedMethodTarget then case qualifiedMethodValueContractsFrom context identifier (nodeEvidenceSelections info) {
-            | [] -> []
-            | [contract] -> validateValueContract path info contract
-            | contracts -> [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength contracts))]
-          } else validateBuiltinValueContract context path info identifier
+          | TypedBuiltinName identifier -> listAppend (validateAbsentBinderReference path binderReference) (if qualifiedMethodTarget then case qualifiedMethodValueContractsFrom context identifier (nodeEvidenceSelections info) {
+              | [] -> []
+              | [contract] -> validateValueContract path info contract
+              | contracts -> [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength contracts))]
+            } else validateBuiltinValueContract context path info identifier)
           | TypedResolvedName origin TypedValueNamespace identifier -> case lookupSchemeByName modulePath name schemes {
-            | Just scheme -> validateVariableSchemeContract modulePath path info scheme
-            | Nothing -> []
+            | Just scheme -> validateVariableSchemeContract modulePath path info binderReference scheme
+            | Nothing -> validateAbsentBinderReference path binderReference
           }
           | TypedResolvedName origin TypedConstructorNamespace identifier -> case lookupConstructorContractForName modulePath name dataEntries {
-            | Nothing -> []
-            | Just contract -> validateConstructorExpressionContract modulePath path info contract
+            | Nothing -> validateAbsentBinderReference path binderReference
+            | Just contract -> listAppend (validateConstructorBinderReference path binderReference contract) (validateConstructorExpressionContract modulePath path info contract)
           }
-          | other -> []
+          | other -> validateAbsentBinderReference path binderReference
         }
       }.
       listAppend visibilityFailures contractFailures.
@@ -3795,7 +3883,7 @@ module TypedCoreValidate (
 
   schemeOwner :: TypedScheme -> TypedBinderId.
   schemeOwner = \(scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> owner
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> owner
   }.
 
   operatorSchemeOwners :: ModuleContext -> TypedOperatorRef -> [TypedBinderId].
@@ -3826,7 +3914,7 @@ module TypedCoreValidate (
   expressionInstantiationOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
   expressionInstantiationOwners = \(context, expression) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case expression {
-      | TypedVariableExpr info name -> variableInstantiationOwners modulePath name schemes dataEntries
+      | TypedVariableExpr info name binderReference -> variableInstantiationOwners modulePath name schemes dataEntries
       | TypedOperatorValueExpr info operator -> operatorSchemeOwners context operator
       | TypedApplyExpr info function argument -> expressionInstantiationOwners context function
       | TypedTypeApplicationExpr info function span typeArgument -> expressionInstantiationOwners context function
@@ -3839,7 +3927,7 @@ module TypedCoreValidate (
 
   bindingExpressionInstantiationOwners :: ModuleContext -> TypedExpr -> [TypedBinderId].
   bindingExpressionInstantiationOwners = \(context, expression) -> case (context, expression) {
-    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedVariableExpr info name) ->
+    | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedVariableExpr info name binderReference) ->
       variableInstantiationOwners modulePath name schemes dataEntries
     | (contextValue, TypedOperatorValueExpr info operator) -> operatorSchemeOwners contextValue operator
     | other -> []
@@ -3892,7 +3980,7 @@ module TypedCoreValidate (
   validateExplicitSchemeApplication = \(modulePath, schemes, path, info, functionInstantiations, explicitSpan, typeArgument, maybeScheme) -> case maybeScheme {
     | Nothing -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
     | Just scheme -> case scheme {
-      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> case parameters {
+      | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case parameters {
         | [] -> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
         | [firstParameter | remainingParameters] ->
           if matchingExplicitInstantiationInCallee owner firstParameter explicitSpan typeArgument (nodeInstantiations info) functionInstantiations then validateTypeApplicationResultContract modulePath path info scheme else [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
@@ -3920,7 +4008,7 @@ module TypedCoreValidate (
                                 | Just contract -> case contract {
                                   | CapabilityContract [classParameter] methods -> case qualifiedMethodContractForKey capabilityQualifier methodKey methods {
                                     | Just scheme -> case scheme {
-                                      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+                                      | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> {
                                         ownerPath = binderModulePathValue owner.
                                         qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
                                         qualifiedRecipe = if textListEqual ownerPath currentModulePath then resultRecipe else qualifyExternalRecipe ownerPath resultRecipe.
@@ -3974,7 +4062,7 @@ module TypedCoreValidate (
   validateExplicitTypeApplication :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedSpan -> TypedType -> [TypedCoreValidationFailure].
   validateExplicitTypeApplication = \(context, path, info, function, explicitSpan, typeArgument) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> case function {
-      | TypedVariableExpr functionInfo name -> case lookupSchemeByName modulePath name schemes {
+      | TypedVariableExpr functionInfo name binderReference -> case lookupSchemeByName modulePath name schemes {
         | Just scheme -> validateExplicitSchemeApplication modulePath schemes path info (nodeInstantiations functionInfo) explicitSpan typeArgument (Just scheme)
         | Nothing -> case name {
           | TypedBuiltinName methodKey -> validateQualifiedMethodApplication context path info methodKey typeArgument
@@ -3992,7 +4080,7 @@ module TypedCoreValidate (
   validateExpressionOwned :: ModuleContext -> [Int] -> [Int] -> TypedCoreValidationPath -> TypedExpr -> [TypedCoreValidationFailure].
   validateExpressionOwned = \(context, statementIndex, expressionPath, path, expression) -> case expression {
     | TypedLiteralExpr info literal -> validateLiteral path info literal
-    | TypedVariableExpr info name -> validateVariableExpression context path info name
+    | TypedVariableExpr info name binderReference -> validateVariableExpression context path info name binderReference
     | TypedLambdaExpr info binder name body -> listConcat [validateLocalDefinitionName context [TypedValueNamespace] path name, validateBinderDefinition context path binder name, validateLambdaResult path info body]
     | TypedOperatorValueExpr info operator -> validateOperatorValue context path info operator
     | TypedListExpr info expressions -> validateListShape path info expressions
@@ -4040,12 +4128,12 @@ module TypedCoreValidate (
 
   withPatternContracts :: TypedPattern -> ModuleContext -> ModuleContext.
   withPatternContracts = \(pattern, context) -> case pattern {
-    | TypedVariablePattern info binder name -> withLexicalContract name (nodeType info) (nodeRecipe info) context
+    | TypedVariablePattern info binder name -> withLexicalContract binder name (nodeType info) (nodeRecipe info) context
     | TypedConstructorPattern info name patterns -> withPatternContractList patterns context
     | TypedListPattern info patterns -> withPatternContractList patterns context
     | TypedConsListPattern info head tail -> withPatternContracts tail (withPatternContracts head context)
     | TypedTuplePattern info patterns -> withPatternContractList patterns context
-    | TypedAsPattern info binder name nested -> withPatternContracts nested (withLexicalContract name (nodeType info) (nodeRecipe info) context)
+    | TypedAsPattern info binder name nested -> withPatternContracts nested (withLexicalContract binder name (nodeType info) (nodeRecipe info) context)
     | TypedOrPattern info alternatives -> case alternatives {
       | [] -> context
       | [first | rest] -> withPatternContracts first context
@@ -4053,11 +4141,11 @@ module TypedCoreValidate (
     | other -> context
   }.
 
-  withLambdaContract :: TypedNodeInfo -> TypedCoreName -> ModuleContext -> ModuleContext.
-  withLambdaContract = \(info, name, context) -> case nodeType info {
+  withLambdaContract :: TypedNodeInfo -> TypedBinderId -> TypedCoreName -> ModuleContext -> ModuleContext.
+  withLambdaContract = \(info, binder, name, context) -> case nodeType info {
     | TypedFunctionType argument result -> case expectedRecipe argument {
       | Nothing -> withVisibleName name context
-      | Just argumentRecipe -> withLexicalContract name argument argumentRecipe context
+      | Just argumentRecipe -> withLexicalContract binder name argument argumentRecipe context
     }
     | other -> withVisibleName name context
   }.
@@ -4145,13 +4233,14 @@ module TypedCoreValidate (
 
   generalizeClassMethodScheme :: [TypedTypeParameterId] -> TypedScheme -> TypedScheme.
   generalizeClassMethodScheme = \(classParameters, scheme) -> case scheme {
-    | TypedScheme binder methodParameters evidence primitive resultType resultRecipe -> TypedScheme
+    | TypedScheme binder methodParameters evidence primitive resultType resultRecipe callableShape -> TypedScheme
       binder
       (listAppend (usedClassParameters classParameters methodParameters evidence primitive resultType resultRecipe) methodParameters)
       evidence
       primitive
       resultType
       resultRecipe
+      callableShape
   }.
 
   importedClassMethodDispatchEvidence :: TypedCoreName -> TypedCoreName -> [TypedTypeParameterId] -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedEvidenceParameter].
@@ -4173,7 +4262,7 @@ module TypedCoreValidate (
 
   generalizeImportedClassMethodScheme :: TypedCoreName -> [TypedTypeParameterId] -> TypedCoreName -> TypedScheme -> TypedScheme.
   generalizeImportedClassMethodScheme = \(className, classParameters, methodName, scheme) -> case generalizeClassMethodScheme classParameters scheme {
-    | TypedScheme binder parameters evidence primitive resultType resultRecipe -> {
+    | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape -> {
       importedParameters = listAppend classParameters (listFilter (\(parameter) -> if typeParameterIdMember parameter classParameters then False else True) parameters).
       TypedScheme
         binder
@@ -4181,7 +4270,8 @@ module TypedCoreValidate (
         (listAppend evidence (importedClassMethodDispatchEvidence className methodName classParameters importedParameters evidence))
         primitive
         resultType
-        resultRecipe.
+        resultRecipe
+        callableShape.
     }
   }.
 
@@ -4189,7 +4279,7 @@ module TypedCoreValidate (
   methodSchemeEntries = \(classParameters, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
+      | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape ->
         listPrepend (SchemeEntry binder (generalizeClassMethodScheme classParameters scheme)) (methodSchemeEntries classParameters rest)
     }
   }.
@@ -4251,7 +4341,7 @@ module TypedCoreValidate (
   evidenceCapabilityEntries = \(schemes, eligibleCapabilities) -> case schemes {
     | [] -> []
     | [SchemeEntry owner scheme | rest] -> case scheme {
-      | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe -> listAppend
+      | TypedScheme schemeOwner parameters evidence primitive resultType resultRecipe callableShape -> listAppend
         (evidenceCapabilityEntriesFromParameters owner evidence eligibleCapabilities)
         (evidenceCapabilityEntries rest eligibleCapabilities)
     }
@@ -4430,7 +4520,7 @@ module TypedCoreValidate (
   expressionReferencesName :: ModuleContext -> NameEntry -> [NameEntry] -> TypedExpr -> Bool.
   expressionReferencesName = \(context, target, boundNames, expression) -> case (context, expression) {
     | (otherContext, TypedLiteralExpr info literal) -> False
-    | (otherContext, TypedVariableExpr info name) -> freeNameMatches context target boundNames name
+    | (otherContext, TypedVariableExpr info name binderReference) -> freeNameMatches context target boundNames name
     | (ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope, TypedLambdaExpr info binder name body) ->
       expressionReferencesName context target (appendResolvedNameEntry modulePath name boundNames) body
     | (otherContext, TypedOperatorValueExpr info operator) -> operatorReferencesName context target boundNames operator
@@ -4584,7 +4674,7 @@ module TypedCoreValidate (
   expressionAliasSummary :: Bool -> ModuleContext -> NameEntry -> [NameEntry] -> [AliasBinding] -> [NameEntry] -> TypedExpr -> AliasSummary.
   expressionAliasSummary = \(aliasPosition, context, target, boundNames, scopeBindings, visitedBindings, expression) -> case expression {
     | TypedLiteralExpr info literal -> emptyAliasSummary
-    | TypedVariableExpr info name ->
+    | TypedVariableExpr info name binderReference ->
       variableAliasSummary aliasPosition context target boundNames scopeBindings visitedBindings name
     | TypedLambdaExpr info binder name body -> emptyAliasSummary
     | TypedOperatorValueExpr info operator ->
@@ -4807,12 +4897,14 @@ module TypedCoreValidate (
 
   schemeEqual :: TypedScheme -> TypedScheme -> Bool.
   schemeEqual = \(left, right) -> case (left, right) {
-    | (TypedScheme leftOwner leftTypes leftEvidence leftPrimitive leftResult leftRecipe, TypedScheme rightOwner rightTypes rightEvidence rightPrimitive rightResult rightRecipe) ->
+    | (TypedScheme leftOwner leftTypes leftEvidence leftPrimitive leftResult leftRecipe leftShape, TypedScheme rightOwner rightTypes rightEvidence rightPrimitive rightResult rightRecipe rightShape) ->
       if binderIdEqual leftOwner rightOwner then
         if typeParameterIdListEqualForScheme leftTypes rightTypes then
           if evidenceParameterListEqual leftEvidence rightEvidence then
             if primitiveConstraintListEqual leftPrimitive rightPrimitive then
-              if typeEqual leftResult rightResult then recipeEqual leftRecipe rightRecipe else False
+              if typeEqual leftResult rightResult then
+                if recipeEqual leftRecipe rightRecipe then maybeCallableShapeEqual leftShape rightShape else False
+              else False
             else False
           else False
         else False
@@ -4821,7 +4913,7 @@ module TypedCoreValidate (
 
   validateSignatureBindingScheme :: TypedCoreValidationPath -> TypedScheme -> TypedScheme -> [TypedCoreValidationFailure].
   validateSignatureBindingScheme = \(path, signatureScheme, bindingScheme) -> case (signatureScheme, bindingScheme) {
-    | (TypedScheme signatureOwner signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe, TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe) ->
+    | (TypedScheme signatureOwner signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe signatureShape, TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape) ->
       if typeParameterIdListEqual signatureParameters bindingParameters == False then
         [failure path TypedBindingValueMismatch (TypedArityDetail (listLength signatureParameters) (listLength bindingParameters))]
       else if evidenceParameterListEqual signatureEvidence bindingEvidence == False then
@@ -4832,18 +4924,20 @@ module TypedCoreValidate (
         [failure path TypedBindingValueMismatch (TypedTypeDetail signatureType bindingType)]
       else if recipeEqual signatureRecipe bindingRecipe == False then
         [failure path TypedBindingValueMismatch (TypedRecipeDetail signatureRecipe bindingRecipe)]
+      else if maybeCallableShapeEqual signatureShape bindingShape == False then
+        [failure path TypedBindingValueMismatch TypedNoValidationDetail]
       else
         []
   }.
 
   signatureBindingSchemesMatch :: TypedScheme -> TypedScheme -> Bool.
   signatureBindingSchemesMatch = \(signatureScheme, bindingScheme) -> case (signatureScheme, bindingScheme) {
-    | (TypedScheme signatureOwner signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe, TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe) ->
+    | (TypedScheme signatureOwner signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe signatureShape, TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape) ->
       if typeParameterIdListEqual signatureParameters bindingParameters == False then False else
         if evidenceParameterListEqual signatureEvidence bindingEvidence == False then False else
           if primitiveConstraintListEqual signaturePrimitive bindingPrimitive == False then False else
             if typeEqual signatureType bindingType == False then False else
-              recipeEqual signatureRecipe bindingRecipe
+              if recipeEqual signatureRecipe bindingRecipe then maybeCallableShapeEqual signatureShape bindingShape else False
   }.
 
   concreteTypedType :: TypedType -> Bool.
@@ -4868,13 +4962,13 @@ module TypedCoreValidate (
 
   concreteMonomorphicFunctionScheme :: TypedScheme -> Bool.
   concreteMonomorphicFunctionScheme = \(scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive typeValue recipe ->
+    | TypedScheme owner parameters evidence primitive typeValue recipe callableShape ->
       if listLength parameters == 0 then
         if listLength evidence == 0 then
           if listLength primitive == 0 then
             if concreteTypedType typeValue then
-              if concreteTypedRecipe recipe then case (typeValue, recipe) {
-                | (TypedFunctionType argumentType resultType, TypedClosureRecipe argumentRecipes resultRecipe) -> True
+            if concreteTypedRecipe recipe then case (typeValue, recipe, callableShape) {
+                | (TypedFunctionType argumentType resultType, TypedClosureRecipe argumentRecipes resultRecipe, Just shape) -> True
                 | other -> False
               } else False
             else False
@@ -5104,7 +5198,7 @@ module TypedCoreValidate (
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       path = TypedExpressionPath modulePath statementIndex expressionPath.
       childFailures = case expression {
-        | TypedLambdaExpr info binder name body -> validateExpressionWithParentSpan (withLambdaContract info name context) statementIndex (listAppend expressionPath [0]) Nothing body
+        | TypedLambdaExpr info binder name body -> validateExpressionWithParentSpan (withLambdaContract info binder name context) statementIndex (listAppend expressionPath [0]) Nothing body
         | TypedListExpr info expressions -> listConcat (listMap (\(indexed) -> case indexed {
           | (index, child) -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [index]) Nothing child
         }) (listIndexed expressions))
@@ -5187,7 +5281,7 @@ module TypedCoreValidate (
   methodSignatureBinders = \(methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe -> listPrepend binder (methodSignatureBinders rest)
+      | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape -> listPrepend binder (methodSignatureBinders rest)
     }
   }.
 
@@ -5425,7 +5519,7 @@ module TypedCoreValidate (
 
   validateSchemeDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedScheme -> [TypedCoreValidationFailure].
   validateSchemeDataTypes = \(context, path, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listConcat
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> listConcat
       [ validateDataTypeApplications context path resultType,
         validateEvidenceParameterDataTypes context path evidence,
         validatePrimitiveDataTypes context path primitive
@@ -5453,7 +5547,7 @@ module TypedCoreValidate (
 
   validateSourceSchemeDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedScheme -> [TypedCoreValidationFailure].
   validateSourceSchemeDataTypes = \(context, path, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listConcat
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> listConcat
       [ validateSourceDataTypeApplications context path resultType,
         validateSourceEvidenceParameterDataTypes context path evidence,
         validateSourcePrimitiveDataTypes context path primitive
@@ -5464,7 +5558,7 @@ module TypedCoreValidate (
   validateMethodSignatures = \(context, path, outerScope, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe -> listConcat
+      | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape -> listConcat
         [ validateSpan path span,
           validateLocalDefinitionName context [TypedValueNamespace] path name,
           case name {
@@ -5552,7 +5646,7 @@ module TypedCoreValidate (
         | CapabilityContract parameters methods -> case lookupMethodContract methodName methods {
           | Nothing -> [failure path TypedMethodSelectionMismatch (TypedTextDetail methodName)]
           | Just scheme -> case scheme {
-            | TypedScheme owner schemeParameters evidence primitive resultType resultRecipe -> if listLength parameters == listLength targets then {
+            | TypedScheme owner schemeParameters evidence primitive resultType resultRecipe callableShape -> if listLength parameters == listLength targets then {
               substitutions = listZip parameters targets.
               ownerPath = binderModulePathValue owner.
               qualifiedType = if textListEqual ownerPath currentModulePath then resultType else qualifyExternalType ownerPath resultType.
@@ -5666,7 +5760,7 @@ module TypedCoreValidate (
 
   validateBindingValue :: TypedCoreValidationPath -> TypedScheme -> TypedNodeInfo -> [TypedCoreValidationFailure].
   validateBindingValue = \(path, scheme, info) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape ->
       if typeEqual resultType (nodeType info) then
         if recipeEqual resultRecipe (nodeRecipe info) then [] else [failure path TypedBindingValueMismatch (TypedRecipeDetail resultRecipe (nodeRecipe info))]
       else [failure path TypedBindingValueMismatch (TypedTypeDetail resultType (nodeType info))]
@@ -5816,7 +5910,7 @@ module TypedCoreValidate (
 
   schemeLocalDataDependencies :: [Text] -> TypedScheme -> [TypedCoreName].
   schemeLocalDataDependencies = \(modulePath, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> {
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> {
       evidenceTypes = listMap
         (\(parameter) -> case parameter {
           | TypedEvidenceParameter parameterId constraint -> case constraint {
@@ -5856,7 +5950,7 @@ module TypedCoreValidate (
 
   schemeCapabilityDependencies :: TypedScheme -> [TypedCoreName].
   schemeCapabilityDependencies = \(scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe ->
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape ->
       uniqueCoreNames (schemeCapabilityDependenciesFrom evidence) []
   }.
 
@@ -6077,7 +6171,7 @@ module TypedCoreValidate (
   valueExportProviderIds = \(expected, interfaces) -> case interfaces {
     | [] -> []
     | [TypedValueInterface name scheme | rest] -> case scheme {
-      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe ->
+      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe callableShape ->
         if coreNameIdentifierEqual expected name then
           listPrepend owner (valueExportProviderIds expected rest)
         else valueExportProviderIds expected rest
@@ -6088,7 +6182,7 @@ module TypedCoreValidate (
   methodExportProviderIds = \(expected, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe ->
+      | TypedScheme owner typeParameters evidence primitive resultType resultRecipe callableShape ->
         if coreNameIdentifierEqual expected name then
           listPrepend owner (methodExportProviderIds expected rest)
         else methodExportProviderIds expected rest
@@ -6528,7 +6622,7 @@ module TypedCoreValidate (
   valueInterfaceSchemeEntries = \(modulePath, selectedNames, exports, values) -> case values {
     | [] -> []
     | [TypedValueInterface name scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
+      | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape ->
         if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath scheme)) (valueInterfaceSchemeEntries modulePath selectedNames exports rest) else valueInterfaceSchemeEntries modulePath selectedNames exports rest else valueInterfaceSchemeEntries modulePath selectedNames exports rest
     }
   }.
@@ -6537,7 +6631,7 @@ module TypedCoreValidate (
   selectedMethodSchemeEntries = \(modulePath, selectedNames, exports, className, classParameters, methods) -> case methods {
     | [] -> []
     | [TypedMethodSignature name span scheme | rest] -> case scheme {
-      | TypedScheme binder parameters evidence primitive resultType resultRecipe ->
+      | TypedScheme binder parameters evidence primitive resultType resultRecipe callableShape ->
         if selectedNameAllowed selectedNames name then if moduleExportsName TypedValueNamespace name exports then listPrepend (SchemeEntry binder (qualifyExternalScheme modulePath (generalizeImportedClassMethodScheme className classParameters name scheme))) (selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest) else selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest else selectedMethodSchemeEntries modulePath selectedNames exports className classParameters rest
     }
   }.
@@ -6615,7 +6709,7 @@ module TypedCoreValidate (
   schemeEntryCapabilityNameEntries = \(modulePath, entries) -> case entries {
     | [] -> []
     | [SchemeEntry binder scheme | rest] -> case scheme {
-      | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listAppend (evidenceCapabilityNameEntries modulePath evidence) (schemeEntryCapabilityNameEntries modulePath rest)
+      | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> listAppend (evidenceCapabilityNameEntries modulePath evidence) (schemeEntryCapabilityNameEntries modulePath rest)
     }
   }.
 
@@ -6900,7 +6994,7 @@ module TypedCoreValidate (
 
   schemeDataNameEntries :: [Text] -> TypedScheme -> [NameEntry].
   schemeDataNameEntries = \(modulePath, scheme) -> case scheme {
-    | TypedScheme owner parameters evidence primitive resultType resultRecipe -> listConcat
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> listConcat
       (listMap (typeDataNameEntries modulePath) (listConcat [[resultType], evidenceParameterTypes evidence, primitiveConstraintTypes primitive]))
   }.
 

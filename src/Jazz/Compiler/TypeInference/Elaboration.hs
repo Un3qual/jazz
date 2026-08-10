@@ -342,13 +342,13 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           | Set.member name parameters ->
               case scalarInfo statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
-                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) Nothing))
           | Just function <- Map.lookup name functions ->
               case expressionRole of
                 CalleeExpression ->
                   case callableInfo statementIndex childPath (functionType function) of
                     Left failure -> ([failure], Nothing)
-                    Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+                    Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) Nothing))
                 _ ->
                   ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
                     Nothing
@@ -481,7 +481,12 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
         _ -> TypedResolvedName TypedCurrentModule TypedValueNamespace (identifierText name)
 
     scheme owner info =
-      TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info)
+      TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info) callableShape
+      where
+        callableShape =
+          case typedNodeType info of
+            TypedFunctionType {} -> Just TypedDirectCallableShape
+            _ -> Nothing
 
     callableInfo statementIndex childPath expressionType =
       case typeAndRecipe statementIndex childPath expressionType of

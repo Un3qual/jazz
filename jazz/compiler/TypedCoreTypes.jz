@@ -93,10 +93,14 @@ module TypedCoreTypes {
   data TypedEvidenceParameter
     = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint.
 
+  data TypedCallableShape
+    = TypedDirectCallableShape
+    | TypedClosureCallableShape.
+
   data TypedScheme
     = TypedScheme
       TypedBinderId [TypedTypeParameterId] [TypedEvidenceParameter] [TypedPrimitiveConstraint]
-      TypedType TypedRepresentationRecipe.
+      TypedType TypedRepresentationRecipe Maybe(TypedCallableShape).
 
   data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType.
 
@@ -142,7 +146,7 @@ module TypedCoreTypes {
 
   data TypedExpr
     = TypedLiteralExpr TypedNodeInfo TypedLiteral
-    | TypedVariableExpr TypedNodeInfo TypedCoreName
+    | TypedVariableExpr TypedNodeInfo TypedCoreName Maybe(TypedBinderId)
     | TypedLambdaExpr TypedNodeInfo TypedBinderId TypedCoreName TypedExpr
     | TypedOperatorValueExpr TypedNodeInfo TypedOperatorRef
     | TypedListExpr TypedNodeInfo [TypedExpr]
@@ -257,6 +261,8 @@ module TypedCoreTypes {
     | TypedModuleResultMismatch
     | TypedDataRecipeMismatch
     | TypedCallableRecipeMismatch
+    | TypedCallableShapeMismatch
+    | TypedBinderReferenceMismatch
     | TypedModuleInterfaceMismatch.
 
   data TypedCoreValidationDetail

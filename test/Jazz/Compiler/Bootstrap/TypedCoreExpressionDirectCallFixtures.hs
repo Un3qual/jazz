@@ -714,7 +714,7 @@ scalarBindingProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
 invalidScalarBindingRhsProgram :: TypedProgram
 invalidScalarBindingRhsProgram =
@@ -740,7 +740,7 @@ invalidScalarBindingRhsProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
 capturingLowererProgram :: TypedProgram
 capturingLowererProgram =
@@ -765,7 +765,7 @@ capturingLowererProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
     scalarStatement =
       [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
     addSeedFunction =
@@ -809,7 +809,7 @@ bareFunctionLowererProgram =
   expectedFunctionProgram
     []
     [identityFunction]
-    (TypedVariableExpr (functionInfo [("item", intInfo)] intInfo) (resolvedName "identity"))
+    (TypedVariableExpr (functionInfo [("item", intInfo)] intInfo) (resolvedName "identity") Nothing)
 
 partialCallLowererProgram :: TypedProgram
 partialCallLowererProgram =
@@ -818,7 +818,7 @@ partialCallLowererProgram =
     [combineFunction]
     ( TypedApplyExpr
         (functionInfo [("right", intInfo)] intInfo)
-        (TypedVariableExpr (functionInfo [("left", intInfo), ("right", intInfo)] intInfo) (resolvedName "combine"))
+        (TypedVariableExpr (functionInfo [("left", intInfo), ("right", intInfo)] intInfo) (resolvedName "combine") Nothing)
         (intExpr 1)
     )
 
@@ -841,6 +841,7 @@ importedDirectCallLowererProgram =
         []
         (TypedFunctionType TypedIntType TypedIntType)
         (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+        (Just TypedDirectCallableShape)
     providerModule =
       TypedModule
         providerPath
@@ -857,14 +858,14 @@ importedDirectCallLowererProgram =
                 providerInfo
                 providerParameterBinder
                 providerParameterName
-                (TypedVariableExpr intInfo providerParameterName)
+                (TypedVariableExpr intInfo providerParameterName (Just providerParameterBinder))
             )
         ]
         unitInfo
     callExpression =
       TypedApplyExpr
         intInfo
-        (TypedVariableExpr providerInfo importedName)
+        (TypedVariableExpr providerInfo importedName (Just providerOwner))
         (intExpr 1)
     entry =
       TypedModule
@@ -1780,7 +1781,7 @@ functionScheme statementIndex function =
   let functionName = resolvedName (expectedFunctionName function)
       owner = TypedBinderId (modulePath, [statementIndex], functionName)
       info = functionInfo (expectedFunctionParameters function) (expectedFunctionResult function)
-   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info)
+   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info) (Just TypedDirectCallableShape)
 
 functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 functionInfo parameters resultInfo =
@@ -1793,7 +1794,7 @@ functionInfo parameters resultInfo =
 directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 directCall functionName parameterInfos resultInfo arguments =
   go
-    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName))
+    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName) Nothing)
     parameterInfos
     arguments
   where
@@ -1812,7 +1813,7 @@ resolvedName :: Text -> TypedCoreName
 resolvedName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 
 variableExpr :: Text -> TypedNodeInfo -> TypedExpr
-variableExpr name info = TypedVariableExpr info (resolvedName name)
+variableExpr name info = TypedVariableExpr info (resolvedName name) Nothing
 
 typedExpressionType :: TypedNodeInfo -> TypedType
 typedExpressionType (TypedNodeInfo expressionType _ _ _) = expressionType

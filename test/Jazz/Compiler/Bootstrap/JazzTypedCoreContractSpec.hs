@@ -81,7 +81,7 @@ coreTests =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 16 (length validFixtures)
+  assertEqual "valid fixture count" 17 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 28 (length invalidFixtures)
+  assertEqual "invalid fixture count" 33 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 44 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 50 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -506,19 +506,19 @@ applicationScalarAliasProgram =
           functionType = TypedFunctionType explicitType explicitType
           functionRecipe = TypedClosureRecipe [recipe] recipe
           functionInfo = info functionType functionRecipe
-          scheme = TypedScheme owner [] [] [] functionType functionRecipe
+          scheme = fixtureScheme owner [] [] [] functionType functionRecipe
           binding =
             TypedLetStatement
               owner
               name
               span1
               scheme
-              (TypedLambdaExpr functionInfo argumentOwner argumentName (TypedVariableExpr explicitInfo argumentName))
+              (TypedLambdaExpr functionInfo argumentOwner argumentName (fixtureBoundVariableExpr argumentOwner explicitInfo argumentName))
           aliasInfo = info aliasType recipe
           application =
             TypedApplyExpr
               aliasInfo
-              (TypedVariableExpr functionInfo name)
+              (fixtureBoundVariableExpr owner functionInfo name)
               (TypedLiteralExpr aliasInfo literal)
        in (binding, application)
 
@@ -1021,7 +1021,7 @@ reorderedDeferredEvidenceProgram =
         [ TypedMethodSignature
             providerMethodName
             span1
-            ( TypedScheme
+            ( fixtureScheme
                 methodOwner
                 []
                 []
@@ -1147,7 +1147,7 @@ reorderedDeferredEvidenceProgram =
     intermediate =
       TypedApplyExpr
         intermediateInfo
-        ( TypedVariableExpr
+        ( fixtureVariableExpr
             functionInfo
             (TypedBuiltinName qualifiedMethodKey)
         )
@@ -1204,7 +1204,7 @@ forgedEvidenceCapabilityProgram =
         implId
         (Just (TypedMethodId implId "check"))
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName qualifiedMethodKey)
     statements =
@@ -1271,10 +1271,10 @@ emptyMonomorphicInstantiationProgram =
           (monoScheme emptyMonomorphicValueOwner)
           trueExpr,
         TypedDataStatement declaration,
-        expressionStatement 2 (TypedVariableExpr valueInfo valueName),
+        expressionStatement 2 (fixtureVariableExpr valueInfo valueName),
         expressionStatement
           3
-          (TypedVariableExpr constructorInfo constructorName),
+          (fixtureVariableExpr constructorInfo constructorName),
         expressionStatement 4 trueExpr
       ]
 
@@ -1322,7 +1322,7 @@ retainedClassMetadataProgram fixture retainedSpan duplicateMethod =
     localMethodName =
       resolved TypedCurrentModule TypedValueNamespace "display"
     methodOwner = binder providerPath [0, 0] localMethodName
-    methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    methodScheme = fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     localMethod = TypedMethodSignature localMethodName span1 methodScheme
     localClass =
       TypedClassDeclaration span1 localClassName [parameter] [localMethod]
@@ -1400,7 +1400,7 @@ wrongDataNamespaceProgram =
     owner = binder modulePath [1] valueName
     invalidType = TypedDataType wrongDataNamespaceName []
     invalidRecipe = TypedManagedVariantRecipe wrongDataNamespaceName []
-    scheme = TypedScheme owner [] [] [] invalidType invalidRecipe
+    scheme = fixtureScheme owner [] [] [] invalidType invalidRecipe
     statements =
       [ TypedDataStatement declaration,
         TypedSignatureStatement owner valueName span1 scheme
@@ -1450,7 +1450,7 @@ targetCandidateApplicationProgram fixture retainCandidate =
     genericMethodRecipe =
       TypedClosureRecipe [parameterRecipe, TypedBoolRecipe] TypedBoolRecipe
     methodScheme =
-      TypedScheme
+      fixtureScheme
         methodOwner
         []
         []
@@ -1505,7 +1505,7 @@ targetCandidateApplicationProgram fixture retainCandidate =
     expression =
       TypedApplyExpr
         resultInfo
-        ( TypedVariableExpr
+        ( fixtureVariableExpr
             functionInfo
             (TypedBuiltinName "Build::build")
         )
@@ -1583,7 +1583,7 @@ duplicateDeferredEvidenceProgram =
     selection =
       TypedEvidenceCandidates fixtureRenderConstraint [candidate]
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo builtinMapType builtinMapRecipe [] [selection, selection])
         (TypedBuiltinName "map")
 
@@ -1636,7 +1636,7 @@ unentailedPrimitiveInstantiationProgram =
     equalityName = fixtureValueName "equality"
     equalityOwner = binder modulePath [1] equalityName
     outerScheme owner =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -1644,7 +1644,7 @@ unentailedPrimitiveInstantiationProgram =
         (TypedFunctionType parameterType TypedBoolType)
         (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
     constrainedOuterScheme owner constraint =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -1652,7 +1652,7 @@ unentailedPrimitiveInstantiationProgram =
         (TypedFunctionType parameterType TypedBoolType)
         (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
     constrainedScheme owner constraint =
-      TypedScheme owner [parameter] [] [constraint] TypedBoolType TypedBoolRecipe
+      fixtureScheme owner [parameter] [] [constraint] TypedBoolType TypedBoolRecipe
     instantiate owner =
       TypedInstantiation
         owner
@@ -1666,7 +1666,7 @@ unentailedPrimitiveInstantiationProgram =
         )
         (binder modulePath [statementIndex, 0] (fixtureValueName "argument"))
         (fixtureValueName "argument")
-        ( TypedVariableExpr
+        ( fixtureVariableExpr
             (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiate owner] [])
             name
         )
@@ -1908,7 +1908,7 @@ builtinCatalogProgram =
     fixture = "review-builtin-catalog-parity"
     modulePath = fixtureModulePath fixture
     builtinExpressions =
-      [ TypedVariableExpr (builtinCatalogInfo symbol) (TypedBuiltinName name)
+      [ fixtureVariableExpr (builtinCatalogInfo symbol) (TypedBuiltinName name)
       | symbol <- allBuiltinSymbols,
         name <- builtinAcceptedNames symbol
       ]
@@ -2184,7 +2184,7 @@ mismatchedExplicitInstantiationProgram =
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -2211,7 +2211,7 @@ mismatchedExplicitInstantiationProgram =
     expression =
       TypedTypeApplicationExpr
         outerInfo
-        (TypedVariableExpr calleeInfo name)
+        (fixtureVariableExpr calleeInfo name)
         span1
         TypedBoolType
     statements =
@@ -2234,7 +2234,7 @@ nestedPathProgram =
     block =
       TypedBlockExpr
         (info TypedBoolType (TypedSignedIntegerRecipe 64))
-        [expressionStatement 2 (TypedVariableExpr boolInfo nestedName)]
+        [expressionStatement 2 (fixtureVariableExpr boolInfo nestedName)]
 
 nestedPathFailures :: [TypedCoreValidationFailure]
 nestedPathFailures =
@@ -2308,7 +2308,7 @@ guardedCasePathProgram =
   where
     fixture = "review-guarded-case-path"
     modulePath = (fixtureModulePath fixture)
-    unresolved name = TypedVariableExpr boolInfo (TypedUnresolvedSourceName name)
+    unresolved name = fixtureVariableExpr boolInfo (TypedUnresolvedSourceName name)
     expression =
       TypedPatternCaseExpr
         boolInfo
@@ -2364,8 +2364,8 @@ generalizedLetScopeProgram =
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     functionInfo = info functionType functionRecipe
-    scheme = TypedScheme valueBinder [parameterId] [] [] functionType functionRecipe
-    expression = TypedLambdaExpr functionInfo argumentBinder argumentName (TypedVariableExpr (info parameterType parameterRecipe) argumentName)
+    scheme = fixtureScheme valueBinder [parameterId] [] [] functionType functionRecipe
+    expression = TypedLambdaExpr functionInfo argumentBinder argumentName (fixtureBoundVariableExpr argumentBinder (info parameterType parameterRecipe) argumentName)
     statement = TypedLetStatement valueBinder valueName span1 scheme expression
     interface = TypedModuleInterface [TypedValueInterface valueName scheme] [] [] []
 
@@ -2381,7 +2381,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
     parameterType = TypedTypeParameterType parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameterId]
         []
@@ -2401,7 +2401,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
     instantiatedType = TypedFunctionType TypedBoolType TypedBoolType
     instantiatedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     instantiatedInfo = TypedNodeInfo instantiatedType instantiatedRecipe [instantiation] []
-    expression = TypedVariableExpr instantiatedInfo importedName
+    expression = fixtureBoundVariableExpr owner instantiatedInfo importedName
     entryModule =
       typedModule
         entryPath
@@ -2432,7 +2432,7 @@ fixtureEqualClass origin =
       TypedMethodSignature
         (resolved origin TypedValueNamespace "other")
         span1
-        (TypedScheme otherOwner [] [] [] boolToBoolType boolToBoolRecipe)
+        (fixtureScheme otherOwner [] [] [] boolToBoolType boolToBoolRecipe)
     ]
   where
     equalOwner =
@@ -2478,7 +2478,7 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
     scheme = monoScheme valueBinder
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedEvidenceUse Nothing constraint invisibleSiblingImplId Nothing
-    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     entryModule =
       typedModule
         entryPath
@@ -2502,7 +2502,7 @@ selectedEvidenceTargetProgram =
     scheme = monoScheme valueBinder
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     evidence = TypedEvidenceUse Nothing constraint implId Nothing
-    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     statements =
       [ TypedImplStatement
           ( TypedImplDeclaration
@@ -2521,7 +2521,7 @@ invisibleVariableName = resolved TypedCurrentModule TypedValueNamespace "missing
 
 invisibleVariableProgram :: TypedProgram
 invisibleVariableProgram =
-  expressionFixtureProgram "review-invisible-variable" (TypedVariableExpr boolInfo invisibleVariableName)
+  expressionFixtureProgram "review-invisible-variable" (fixtureVariableExpr boolInfo invisibleVariableName)
 
 selectedMethodContractProgram :: TypedProgram
 selectedMethodContractProgram =
@@ -2537,7 +2537,7 @@ selectedMethodContractProgram =
     constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") TypedBoolType
     withoutMethod = TypedEvidenceUse Nothing constraint implId Nothing
     wrongMethod = TypedEvidenceUse Nothing constraint implId (Just (TypedMethodId implId "other"))
-    selected evidence = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    selected evidence = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     statements =
       [ TypedImplStatement
           ( TypedImplDeclaration
@@ -2696,7 +2696,7 @@ schemeDataTypeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
     resultType = TypedDataType missingSchemeDataName []
-    scheme = TypedScheme valueBinder [] [] [] resultType (TypedManagedVariantRecipe missingSchemeDataName [])
+    scheme = fixtureScheme valueBinder [] [] [] resultType (TypedManagedVariantRecipe missingSchemeDataName [])
 
 driveAbsoluteProgram :: TypedProgram
 driveAbsoluteProgram =
@@ -2769,8 +2769,8 @@ testReviewFollowupRegressions = do
     [ expressionFailureAt
         "review-variable-scheme-contract"
         1
-        TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        TypedBinderReferenceMismatch
+        (TypedBinderDetail (binder (fixtureModulePath "review-variable-scheme-contract") [0] (fixtureValueName "item")))
     ]
     (validateTypedProgram variableSchemeContractProgram)
   assertEqual
@@ -2805,8 +2805,8 @@ testLatestReviewRegressions = do
     [ expressionFailureAtPath
         "review-block-local-monomorphic-scheme"
         [0, 0, 1]
-        TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        TypedBinderReferenceMismatch
+        (TypedBinderDetail (binder (fixtureModulePath "review-block-local-monomorphic-scheme") [0, 0] (fixtureValueName "local")))
     ]
     (validateTypedProgram blockLocalMonomorphicSchemeProgram)
   assertEqual
@@ -2924,8 +2924,8 @@ testNewestReviewRegressions = do
     "lexical variable uses match their binder contracts"
     [ TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-lexical-binder-contract") [0] [0, 0])
-        TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        TypedBinderReferenceMismatch
+        (TypedBinderDetail (binder (fixtureModulePath "review-lexical-binder-contract") [0] (fixtureValueName "argument")))
     ]
     (validateTypedProgram lexicalBinderContractProgram)
   assertEqual
@@ -2933,11 +2933,8 @@ testNewestReviewRegressions = do
     [ expressionFailureAt
         "review-generalized-variable-contract"
         1
-        TypedBindingValueMismatch
-        ( TypedTypeDetail
-            (TypedFunctionType TypedBoolType TypedBoolType)
-            TypedBoolType
-        )
+        TypedBinderReferenceMismatch
+        (TypedBinderDetail (binder (fixtureModulePath "review-generalized-variable-contract") [0] (fixtureValueName "identity")))
     ]
     (validateTypedProgram generalizedVariableContractProgram)
   assertEqual
@@ -5017,7 +5014,7 @@ sameNamedCapabilityProviderModuleAt providerPath =
     sourceOwner =
       binder providerPath [2] sourceName
     sourceScheme =
-      TypedScheme
+      fixtureScheme
         sourceOwner
         []
         [ TypedEvidenceParameter
@@ -5080,7 +5077,7 @@ sameNamedCapabilityDependencyProgram =
     publishedOwner =
       binder sameNamedCapabilityFacadePath [0] publishedName
     publishedScheme =
-      TypedScheme
+      fixtureScheme
         publishedOwner
         []
         [ TypedEvidenceParameter
@@ -5227,7 +5224,7 @@ duplicateEvidenceConstraintProgram =
         Nothing
         TypedBoolType
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [ TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
@@ -5270,7 +5267,7 @@ preludeAmbientDataDependencyProgram =
       resolved TypedCurrentModule TypedValueNamespace "payload"
     methodOwner = binder ["Prelude"] [1, 0] methodName
     methodScheme =
-      TypedScheme
+      fixtureScheme
         methodOwner
         []
         []
@@ -5409,7 +5406,7 @@ bareSignatureVisibilityProgram =
     owner = binder modulePath [0] bareSignatureValueName
     statements =
       [ TypedSignatureStatement owner bareSignatureValueName span1 (monoScheme owner),
-        expressionStatement 1 (TypedVariableExpr boolInfo bareSignatureValueName)
+        expressionStatement 1 (fixtureVariableExpr boolInfo bareSignatureValueName)
       ]
 
 activeRebindingExportName :: TypedCoreName
@@ -5426,7 +5423,7 @@ activeRebindingExportProgram =
     secondOwner = binder modulePath [1] activeRebindingExportName
     firstScheme = monoScheme firstOwner
     secondScheme =
-      TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
     exports = [TypedModuleExport TypedValueNamespace "item"]
     statements =
       [ TypedLetStatement firstOwner activeRebindingExportName span1 firstScheme trueExpr,
@@ -5478,7 +5475,7 @@ constructorInstantiationProgram =
         []
     statements =
       [ TypedDataStatement declaration,
-        expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
+        expressionStatement 1 (fixtureBoundVariableExpr constructorOwner constructorInfo constructorName)
       ]
 
 missingConstructorInstantiationOwner :: TypedBinderId
@@ -5516,7 +5513,7 @@ missingConstructorInstantiationProgram =
         []
     statements =
       [ TypedDataStatement declaration,
-        expressionStatement 1 (TypedVariableExpr constructorInfo constructorName)
+        expressionStatement 1 (fixtureBoundVariableExpr missingConstructorInstantiationOwner constructorInfo constructorName)
       ]
 
 retainedCapabilityEvidenceProgram :: TypedProgram
@@ -5563,7 +5560,7 @@ retainedCapabilityEvidenceProgram =
     publishedOwner = binder facadePath [0] publishedName
     constraint = TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType
     publishedScheme =
-      TypedScheme
+      fixtureScheme
         publishedOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
@@ -5614,7 +5611,7 @@ retainedCapabilityEvidenceProgram =
         [TypedResolvedImport span1 facadePath Nothing (Just ["published"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr entryInfo importedPublishedName)]
+        [expressionStatement 1 (fixtureVariableExpr entryInfo importedPublishedName)]
         entryInfo
 
 retainedCapabilityWrongImplName :: TypedCoreName
@@ -5634,7 +5631,7 @@ retainedCapabilityWrongImplProgram =
       resolved TypedCurrentModule TypedValueNamespace "render"
     providerMethodOwner = binder providerPath [0, 0] providerMethod
     providerMethodScheme =
-      TypedScheme
+      fixtureScheme
         providerMethodOwner
         []
         []
@@ -5678,7 +5675,7 @@ retainedCapabilityWrongImplProgram =
     constraint =
       TypedCapabilityConstraint importedCapability Nothing TypedBoolType
     localScheme =
-      TypedScheme
+      fixtureScheme
         localOwner
         []
         [TypedEvidenceParameter evidenceParameter constraint]
@@ -5707,7 +5704,7 @@ retainedCapabilityWrongImplProgram =
         [ TypedClassStatement visibleClass,
           TypedImplStatement (TypedImplDeclaration span1 wrongImplId []),
           TypedLetStatement localOwner localName span1 localScheme trueExpr,
-          expressionStatement 4 (TypedVariableExpr entryInfo localName)
+          expressionStatement 4 (fixtureVariableExpr entryInfo localName)
         ]
         entryInfo
 
@@ -5792,7 +5789,7 @@ recursiveEqualityProgram fixture includeCallableField =
     valueOwner = binder modulePath [1] valueName
     targetType = TypedDataType dataName [TypedBoolType]
     scheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -5856,7 +5853,7 @@ recursiveEqualityNestedCallableProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "equality"
     valueOwner = binder modulePath [1] valueName
     scheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -5887,7 +5884,7 @@ importedCurrentOriginProgram =
       [ TypedLetStatement owner localName span1 (monoScheme owner) trueExpr,
         expressionStatement
           2
-          (TypedVariableExpr boolInfo importedCurrentOriginName)
+          (fixtureBoundVariableExpr owner boolInfo importedCurrentOriginName)
       ]
 
 retainedCapabilityExportProgram :: TypedProgram
@@ -6009,7 +6006,7 @@ evidenceCapabilityOriginProgram =
           resolved TypedCurrentModule TypedValueNamespace publishedIdentifier
         publishedOwner = binder modulePath [2] publishedName
         publishedScheme =
-          TypedScheme
+          fixtureScheme
             publishedOwner
             []
             [ TypedEvidenceParameter
@@ -6056,7 +6053,7 @@ evidenceCapabilityOriginProgram =
         ]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr entryInfo leftName)]
+        [expressionStatement 1 (fixtureVariableExpr entryInfo leftName)]
         entryInfo
 
 malformedGeneratedNamesProgram :: TypedProgram
@@ -6158,7 +6155,7 @@ retainedClassMethodExportProgram =
       resolved TypedCurrentModule TypedValueNamespace "display"
     methodOwner = binder providerPath [0, 0] localMethodName
     methodScheme =
-      TypedScheme
+      fixtureScheme
         methodOwner
         []
         []
@@ -6178,7 +6175,7 @@ retainedClassMethodExportProgram =
       resolved TypedCurrentModule TypedValueNamespace "published"
     publishedOwner = binder providerPath [1] publishedName
     publishedScheme =
-      TypedScheme
+      fixtureScheme
         publishedOwner
         []
         [ TypedEvidenceParameter
@@ -6478,7 +6475,7 @@ emptyResolvedIdentifierProgram =
     owner = binder modulePath [0] emptyResolvedIdentifierName
     statements =
       [ TypedLetStatement owner emptyResolvedIdentifierName span1 (monoScheme owner) trueExpr,
-        expressionStatement 1 (TypedVariableExpr boolInfo emptyResolvedIdentifierName)
+        expressionStatement 1 (fixtureBoundVariableExpr owner boolInfo emptyResolvedIdentifierName)
       ]
 
 explicitSpanOnVariableOwner :: TypedBinderId
@@ -6499,7 +6496,7 @@ explicitSpanOnVariableProgram =
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
     scheme =
-      TypedScheme
+      fixtureScheme
         explicitSpanOnVariableOwner
         [parameter]
         []
@@ -6524,7 +6521,7 @@ explicitSpanOnVariableProgram =
           span1
           scheme
           (polymorphicIdentityExpression modulePath [0] parameter),
-        expressionStatement 1 (TypedVariableExpr instantiatedInfo valueName)
+        expressionStatement 1 (fixtureVariableExpr instantiatedInfo valueName)
       ]
 
 singleEvidenceCandidateProgram :: TypedProgram
@@ -6598,7 +6595,7 @@ signatureBindingMismatchProgram =
     bindingOwner = binder modulePath [1] valueName
     signatureScheme = monoScheme signatureOwner
     bindingScheme =
-      TypedScheme bindingOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme bindingOwner [] [] [] TypedTextType TypedManagedTextRecipe
     statements =
       [ TypedSignatureStatement signatureOwner valueName span1 signatureScheme,
         TypedLetStatement
@@ -6622,7 +6619,7 @@ qualifiedMethodTypeApplicationProgram =
       resolved TypedCurrentModule TypedValueNamespace "print!"
     methodOwner = binder preludePath [0, 0] methodName
     methodScheme =
-      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -6680,7 +6677,7 @@ qualifiedMethodTypeApplicationProgram =
     expression =
       TypedTypeApplicationExpr
         methodInfo
-        (TypedVariableExpr methodInfo (TypedBuiltinName "Printable::print!"))
+        (fixtureVariableExpr methodInfo (TypedBuiltinName "Printable::print!"))
         span1
         TypedBoolType
     entryModule =
@@ -6709,7 +6706,7 @@ qualifiedMethodValueContractProgram =
         implId
         (Just (TypedMethodId implId "map"))
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName "Render::map")
 
@@ -6728,7 +6725,7 @@ aliasShapedSelfRecursionProgram =
         [ TypedCaseArm
             (TypedWildcardPattern boolInfo)
             Nothing
-            (TypedVariableExpr boolInfo valueName)
+            (fixtureBoundVariableExpr owner boolInfo valueName)
         ]
     statement =
       TypedLetStatement owner valueName span1 (monoScheme owner) expression
@@ -6747,7 +6744,7 @@ eagerSelfReferenceProgram =
     expression =
       TypedIfExpr
         boolInfo
-        (TypedVariableExpr boolInfo eagerSelfReferenceName)
+        (fixtureVariableExpr boolInfo eagerSelfReferenceName)
         trueExpr
         falseExpr
     statement =
@@ -6818,7 +6815,7 @@ localClassMethodVisibilityProgram =
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     methodOwner = binder modulePath [0, 0] localClassMethodName
     methodScheme =
-      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -6827,7 +6824,7 @@ localClassMethodVisibilityProgram =
         [TypedMethodSignature localClassMethodName span1 methodScheme]
     statements =
       [ TypedClassStatement classDeclaration,
-        expressionStatement 1 (TypedVariableExpr boolToBoolInfo localClassMethodName)
+        expressionStatement 1 (fixtureVariableExpr boolToBoolInfo localClassMethodName)
       ]
 
 syntheticBinderShadowingProgram :: TypedProgram
@@ -6841,7 +6838,7 @@ syntheticBinderShadowingProgram =
     laterOwner = binder modulePath [0] valueName
     earlierScheme = monoScheme earlierOwner
     laterScheme =
-      TypedScheme laterOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme laterOwner [] [] [] TypedTextType TypedManagedTextRecipe
     statements =
       [ TypedLetStatement earlierOwner valueName span1 earlierScheme trueExpr,
         TypedLetStatement
@@ -6850,7 +6847,7 @@ syntheticBinderShadowingProgram =
           span1
           laterScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
-        expressionStatement 1 (TypedVariableExpr textInfo valueName)
+        expressionStatement 1 (fixtureBoundVariableExpr laterOwner textInfo valueName)
       ]
 
 implFreeClassParameterProgram :: TypedProgram
@@ -6881,7 +6878,8 @@ implFreeClassParameterProgram =
         identityInfo
         identityArgumentOwner
         identityArgumentName
-        ( TypedVariableExpr
+        ( fixtureBoundVariableExpr
+            identityArgumentOwner
             (info parameterType parameterRecipe)
             identityArgumentName
         )
@@ -6925,7 +6923,7 @@ duplicateQualifiedMethodCandidateProgram =
         duplicateQualifiedMethodCandidateImpl
         (Just (TypedMethodId duplicateQualifiedMethodCandidateImpl "map"))
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         ( TypedNodeInfo
             builtinMapType
             builtinMapRecipe
@@ -6965,7 +6963,7 @@ metadataOnlySourceTypeProgram =
       resolved TypedCurrentModule TypedValueNamespace "make"
     providerValueOwner = binder providerPath [1] providerValueName
     providerValueScheme =
-      TypedScheme
+      fixtureScheme
         providerValueOwner
         []
         []
@@ -6990,14 +6988,14 @@ metadataOnlySourceTypeProgram =
             providerValueName
             span1
             providerValueScheme
-            (TypedVariableExpr localDataInfo localConstructorName)
+            (fixtureBoundVariableExpr constructorOwner localDataInfo localConstructorName)
         ]
         unitInfo
     leakedValueName =
       resolved TypedCurrentModule TypedValueNamespace "leaked"
     leakedValueOwner = binder entryPath [0] leakedValueName
     leakedScheme =
-      TypedScheme
+      fixtureScheme
         leakedValueOwner
         []
         []
@@ -7062,7 +7060,7 @@ methodOnlyCapabilityVisibilityProgram hasExplicitSignature =
       resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
     methodScheme =
-      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -7085,7 +7083,7 @@ methodOnlyCapabilityVisibilityProgram hasExplicitSignature =
     explicitOwner = binder entryPath [0] localName
     explicitBindingOwner = binder entryPath [1] localName
     localScheme owner =
-      TypedScheme
+      fixtureScheme
         owner
         []
         [ TypedEvidenceParameter
@@ -7178,7 +7176,7 @@ nestedTypeParameterShadowingProgram =
     localName = resolved TypedCurrentModule TypedValueNamespace "local"
     localOwner = binder modulePath [0, 0, 0] localName
     localScheme =
-      TypedScheme
+      fixtureScheme
         localOwner
         [parameter]
         []
@@ -7191,7 +7189,7 @@ nestedTypeParameterShadowingProgram =
         localName
         span1
         localScheme
-        (TypedVariableExpr parameterInfo argumentName)
+        (fixtureBoundVariableExpr argumentOwner parameterInfo argumentName)
     localUseInfo =
       TypedNodeInfo
         parameterType
@@ -7206,7 +7204,7 @@ nestedTypeParameterShadowingProgram =
       TypedBlockExpr
         parameterInfo
         [ localBinding,
-          expressionStatement 2 (TypedVariableExpr localUseInfo localName)
+          expressionStatement 2 (fixtureVariableExpr localUseInfo localName)
         ]
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe =
@@ -7218,7 +7216,7 @@ nestedTypeParameterShadowingProgram =
         argumentName
         block
     outerScheme =
-      TypedScheme
+      fixtureScheme
         outerOwner
         [parameter]
         []
@@ -7324,7 +7322,7 @@ nestedLocalGeneralizationProgram =
     localFunctionRecipe =
       TypedClosureRecipe [innerParameterRecipe] innerParameterRecipe
     localScheme =
-      TypedScheme
+      fixtureScheme
         localOwner
         [innerParameter]
         []
@@ -7336,7 +7334,7 @@ nestedLocalGeneralizationProgram =
         (info localFunctionType localFunctionRecipe)
         localArgumentOwner
         localArgumentName
-        (TypedVariableExpr innerParameterInfo localArgumentName)
+        (fixtureBoundVariableExpr localArgumentOwner innerParameterInfo localArgumentName)
     localBinding =
       TypedLetStatement
         localOwner
@@ -7358,12 +7356,12 @@ nestedLocalGeneralizationProgram =
             Nothing
         ]
         []
-    localUse = TypedVariableExpr localUseInfo localName
+    localUse = fixtureVariableExpr localUseInfo localName
     localApplication =
       TypedApplyExpr
         outerParameterInfo
         localUse
-        (TypedVariableExpr outerParameterInfo argumentName)
+        (fixtureBoundVariableExpr argumentOwner outerParameterInfo argumentName)
     block =
       TypedBlockExpr
         outerParameterInfo
@@ -7381,7 +7379,7 @@ nestedLocalGeneralizationProgram =
         argumentName
         block
     outerScheme =
-      TypedScheme
+      fixtureScheme
         outerOwner
         [outerParameter]
         []
@@ -7588,7 +7586,7 @@ localClassMethodSchemeProgram fixture classFirst =
       resolved TypedCurrentModule TypedCapabilityNamespace "SharedClass"
     methodOwner = binder modulePath [1, 0] valueName
     methodScheme =
-      TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classStatement =
       TypedClassStatement
         ( TypedClassDeclaration
@@ -7602,7 +7600,7 @@ localClassMethodSchemeProgram fixture classFirst =
       | otherwise = [valueStatement, classStatement]
     statements =
       declarations
-        <> [expressionStatement 3 (TypedVariableExpr boolInfo valueName)]
+        <> [expressionStatement 3 (fixtureBoundVariableExpr valueOwner boolInfo valueName)]
 
 lexicalSchemeShadowingProgram :: TypedProgram
 lexicalSchemeShadowingProgram =
@@ -7613,7 +7611,7 @@ lexicalSchemeShadowingProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     outerOwner = binder modulePath [0] valueName
     innerOwner = binder modulePath [1, 0] valueName
-    innerUse = TypedVariableExpr textInfo valueName
+    innerUse = fixtureBoundVariableExpr innerOwner textInfo valueName
     block =
       TypedBlockExpr
         textInfo
@@ -7621,7 +7619,7 @@ lexicalSchemeShadowingProgram =
             innerOwner
             valueName
             span1
-            (TypedScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe)
+            (fixtureScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe)
             (TypedLiteralExpr textInfo (TypedTextLiteral "inner")),
           expressionStatement 2 innerUse
         ]
@@ -7706,7 +7704,7 @@ qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
     intermediate =
       TypedApplyExpr
         (TypedNodeInfo intermediateType intermediateRecipe [] intermediateEvidence)
-        (TypedVariableExpr builtinMapInfo (TypedBuiltinName "map"))
+        (fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map"))
         mapper
     argument =
       TypedListExpr
@@ -7735,7 +7733,7 @@ duplicateUnboundEvidenceProgram =
         implId
         (Just (TypedMethodId implId "equal"))
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
         (TypedBuiltinName "Equal::equal")
 
@@ -7770,7 +7768,7 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
         [TypedRepresentationParameterRecipe parameter]
         (TypedRepresentationParameterRecipe parameter)
     methodScheme =
-      TypedScheme methodOwner [] [] [] methodType methodRecipe
+      fixtureScheme methodOwner [] [] [] methodType methodRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -7846,7 +7844,7 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
         [TypedResolvedImport span1 libraryPath Nothing (Just ["display"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr instantiatedInfo importedMethodName)]
+        [expressionStatement 1 (fixtureVariableExpr instantiatedInfo importedMethodName)]
         instantiatedInfo
 
 importedClassCollisionProgram :: TypedProgram
@@ -7878,7 +7876,7 @@ importedClassCollisionProgram =
         Nothing
         TypedBoolType
     scheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
@@ -7913,7 +7911,7 @@ forwardBlockReferenceProgram =
     block =
       TypedBlockExpr
         boolInfo
-        [ expressionStatement 2 (TypedVariableExpr boolInfo forwardBlockReferenceName),
+        [ expressionStatement 2 (fixtureVariableExpr boolInfo forwardBlockReferenceName),
           TypedLetStatement owner forwardBlockReferenceName span1 (monoScheme owner) trueExpr,
           expressionStatement 3 trueExpr
         ]
@@ -7928,15 +7926,16 @@ recursiveBlockPeerProgram =
     rightName = resolved TypedCurrentModule TypedValueNamespace "right"
     leftOwner = binder modulePath [0, 0] leftName
     rightOwner = binder modulePath [0, 1] rightName
-    recursiveLambda ownerPath argumentName peerName =
-      TypedLambdaExpr
+    recursiveLambda ownerPath argumentName peerOwner peerName =
+      let argumentOwner = binder modulePath ownerPath argumentName
+       in TypedLambdaExpr
         boolToBoolInfo
-        (binder modulePath ownerPath argumentName)
+        argumentOwner
         argumentName
         ( TypedApplyExpr
             boolInfo
-            (TypedVariableExpr boolToBoolInfo peerName)
-            (TypedVariableExpr boolInfo argumentName)
+            (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
+            (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
         )
     leftArgument = resolved TypedCurrentModule TypedValueNamespace "leftArgument"
     rightArgument = resolved TypedCurrentModule TypedValueNamespace "rightArgument"
@@ -7945,21 +7944,21 @@ recursiveBlockPeerProgram =
         leftOwner
         leftName
         span1
-        (TypedScheme leftOwner [] [] [] boolToBoolType boolToBoolRecipe)
-        (recursiveLambda [0, 0, 0] leftArgument rightName)
+        (fixtureScheme leftOwner [] [] [] boolToBoolType boolToBoolRecipe)
+        (recursiveLambda [0, 0, 0] leftArgument rightOwner rightName)
     rightStatement =
       TypedLetStatement
         rightOwner
         rightName
         span1
-        (TypedScheme rightOwner [] [] [] boolToBoolType boolToBoolRecipe)
-        (recursiveLambda [0, 1, 0] rightArgument leftName)
+        (fixtureScheme rightOwner [] [] [] boolToBoolType boolToBoolRecipe)
+        (recursiveLambda [0, 1, 0] rightArgument leftOwner leftName)
     block =
       TypedBlockExpr
         boolToBoolInfo
         [ leftStatement,
           rightStatement,
-          expressionStatement 3 (TypedVariableExpr boolToBoolInfo leftName)
+          expressionStatement 3 (fixtureBoundVariableExpr leftOwner boolToBoolInfo leftName)
         ]
 
 malformedLiteralConstraintBoundsProgram :: TypedProgram
@@ -7974,7 +7973,7 @@ malformedLiteralConstraintBoundsProgram =
       let valueName = resolved TypedCurrentModule TypedValueNamespace suffix
           owner = binder modulePath [statementIndex] valueName
           scheme =
-            TypedScheme
+            fixtureScheme
               owner
               [parameter]
               []
@@ -8001,7 +8000,7 @@ evidenceSelectionOrderProgram =
     firstConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     secondConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         []
         [ TypedEvidenceParameter firstParameter firstConstraint,
@@ -8020,7 +8019,7 @@ evidenceSelectionOrderProgram =
             Nothing
         )
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         ( TypedNodeInfo
             TypedBoolType
             TypedBoolRecipe
@@ -8049,7 +8048,7 @@ privateCapabilityMetadataVisibilityProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
     valueOwner = binder libraryPath [1] valueName
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [ TypedEvidenceParameter
@@ -8159,7 +8158,7 @@ importedModuleQualifiedMethodKeyProgram fixture qualifiedMethod =
         importedImplId
         (Just (TypedMethodId importedImplId "make"))
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName qualifiedMethod)
     entryModule =
@@ -8208,7 +8207,7 @@ importedDataDependencyProgram =
     boxType = TypedDataType importedBoxName []
     boxRecipe = TypedManagedVariantRecipe importedBoxName []
     valueScheme =
-      TypedScheme valueOwner [] [] [] boxType boxRecipe
+      fixtureScheme valueOwner [] [] [] boxType boxRecipe
     facadeModule =
       typedModule
         facadePath
@@ -8221,7 +8220,7 @@ importedDataDependencyProgram =
             valueName
             span1
             valueScheme
-            (TypedVariableExpr (info boxType boxRecipe) importedBoxConstructor)
+            (fixtureBoundVariableExpr (binder providerPath [0, 0] (resolved TypedCurrentModule TypedConstructorNamespace "Box")) (info boxType boxRecipe) importedBoxConstructor)
         ]
         unitInfo
     entryInfo = info boxType boxRecipe
@@ -8232,7 +8231,7 @@ importedDataDependencyProgram =
         [TypedResolvedImport span1 facadePath Nothing (Just ["published"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        [expressionStatement 1 (fixtureBoundVariableExpr valueOwner entryInfo importedValueName)]
         entryInfo
 
 transitiveDataContractDependencyProgram :: TypedProgram
@@ -8266,7 +8265,7 @@ transitiveDataContractDependencyProgram =
     valueOwner = binder libraryPath [2] valueName
     parameter = TypedTypeParameterId 0
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         [parameter]
         []
@@ -8306,7 +8305,7 @@ transitiveDataContractDependencyProgram =
         [TypedResolvedImport span1 libraryPath Nothing (Just ["published"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        [expressionStatement 1 (fixtureVariableExpr entryInfo importedValueName)]
         entryInfo
 
 importedCapabilityFacadePath :: [Text]
@@ -8339,7 +8338,7 @@ importedCapabilityDependencyProgram =
         TypedCapabilityNamespace
         "ForeignEq"
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [ TypedEvidenceParameter
@@ -8393,7 +8392,7 @@ metadataOnlyImplVisibilityProgram =
     importedConstraint =
       TypedCapabilityConstraint metadataOnlyImportedCapabilityName Nothing TypedBoolType
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
@@ -8443,7 +8442,7 @@ patternExpressionMetadataProgram =
     genericOwner = binder modulePath [0] genericName
     parameter = TypedTypeParameterId 0
     genericScheme =
-      TypedScheme genericOwner [parameter] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme genericOwner [parameter] [] [] TypedBoolType TypedBoolRecipe
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "PatternMarker"
     capability =
@@ -8494,7 +8493,7 @@ phantomDataEqualityProgram =
     valueOwner = binder modulePath [1] valueName
     phantomFunctionType = TypedDataType dataName [boolToBoolType]
     scheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -8518,13 +8517,13 @@ sameScopeValueRebindingProgram =
     secondSignatureOwner = binder modulePath [2] valueName
     secondOwner = binder modulePath [3] valueName
     firstSignatureScheme =
-      TypedScheme firstSignatureOwner [] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme firstSignatureOwner [] [] [] TypedBoolType TypedBoolRecipe
     firstScheme =
-      TypedScheme firstOwner [] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme firstOwner [] [] [] TypedBoolType TypedBoolRecipe
     secondSignatureScheme =
-      TypedScheme secondSignatureOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondSignatureOwner [] [] [] TypedTextType TypedManagedTextRecipe
     secondScheme =
-      TypedScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
     statements =
       [ TypedSignatureStatement firstSignatureOwner valueName span1 firstSignatureScheme,
         TypedLetStatement firstOwner valueName span1 firstScheme trueExpr,
@@ -8535,7 +8534,7 @@ sameScopeValueRebindingProgram =
           span1
           secondScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "latest")),
-        expressionStatement 4 (TypedVariableExpr textInfo valueName)
+        expressionStatement 4 (fixtureBoundVariableExpr secondOwner textInfo valueName)
       ]
 
 forwardModuleReferenceProgram :: TypedProgram
@@ -8554,9 +8553,9 @@ forwardModuleReferenceProgram =
           firstName
           span1
           (monoScheme firstOwner)
-          (TypedVariableExpr boolInfo laterName),
+          (fixtureVariableExpr boolInfo laterName),
         TypedLetStatement laterOwner laterName span1 (monoScheme laterOwner) trueExpr,
-        expressionStatement 3 (TypedVariableExpr boolInfo firstName)
+        expressionStatement 3 (fixtureBoundVariableExpr firstOwner boolInfo firstName)
       ]
 
 forwardSignedVisibilityPrograms :: [(Text, TypedProgram)]
@@ -8590,16 +8589,19 @@ forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
     firstArgumentName = fixtureValueName "firstArgument"
     firstArgumentOwner = binder modulePath [1, 0] firstArgumentName
     firstSignatureScheme =
-      TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe
     firstScheme =
-      TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
     firstBody
       | laterIsFunction =
           TypedApplyExpr
             boolInfo
-            (TypedVariableExpr boolToBoolInfo laterName)
-            (TypedVariableExpr boolInfo firstArgumentName)
-      | otherwise = TypedVariableExpr boolInfo laterName
+            laterFunctionReference
+            (fixtureBoundVariableExpr firstArgumentOwner boolInfo firstArgumentName)
+      | otherwise = fixtureVariableExpr boolInfo laterName
+    laterFunctionReference
+      | laterIsSigned = fixtureBoundVariableExpr laterOwner boolToBoolInfo laterName
+      | otherwise = fixtureVariableExpr boolToBoolInfo laterName
     firstExpression =
       TypedLambdaExpr
         boolToBoolInfo
@@ -8610,29 +8612,30 @@ forwardVisibilityProgram fixture laterIsSigned laterIsFunction =
     laterOwner = binder modulePath [laterStatementIndex] laterName
     laterScheme
       | laterIsFunction =
-          TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+          fixtureScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
       | otherwise = monoScheme laterOwner
     laterArgumentName = fixtureValueName "laterArgument"
+    laterArgumentOwner = binder modulePath [laterStatementIndex, 0] laterArgumentName
     laterExpression
       | laterIsFunction =
           TypedLambdaExpr
             boolToBoolInfo
-            (binder modulePath [laterStatementIndex, 0] laterArgumentName)
+            laterArgumentOwner
             laterArgumentName
-            (TypedVariableExpr boolInfo laterArgumentName)
+            (fixtureBoundVariableExpr laterArgumentOwner boolInfo laterArgumentName)
       | otherwise = trueExpr
     laterSignature =
       let signatureOwner = binder modulePath [2] laterName
           signatureScheme
             | laterIsFunction =
-                TypedScheme signatureOwner [] [] [] boolToBoolType boolToBoolRecipe
+                fixtureScheme signatureOwner [] [] [] boolToBoolType boolToBoolRecipe
             | otherwise = monoScheme signatureOwner
        in TypedSignatureStatement signatureOwner laterName span1 signatureScheme
     terminalStatementIndex = laterStatementIndex + 1
     terminalExpression =
       TypedApplyExpr
         boolInfo
-        (TypedVariableExpr boolToBoolInfo firstName)
+        (fixtureBoundVariableExpr firstOwner boolToBoolInfo firstName)
         trueExpr
     statements =
       [ TypedSignatureStatement firstSignatureOwner firstName span1 firstSignatureScheme,
@@ -8654,7 +8657,7 @@ unsignedForwardCallerProgram =
     firstOwner = binder modulePath [0] firstName
     firstArgumentName = fixtureValueName "firstArgument"
     firstArgumentOwner = binder modulePath [0, 0] firstArgumentName
-    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstScheme = fixtureScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
     firstExpression =
       TypedLambdaExpr
         boolToBoolInfo
@@ -8662,32 +8665,33 @@ unsignedForwardCallerProgram =
         firstArgumentName
         ( TypedApplyExpr
             boolInfo
-            (TypedVariableExpr boolToBoolInfo laterName)
-            (TypedVariableExpr boolInfo firstArgumentName)
+            (fixtureVariableExpr boolToBoolInfo laterName)
+            (fixtureBoundVariableExpr firstArgumentOwner boolInfo firstArgumentName)
         )
     laterSignatureOwner = binder modulePath [1] laterName
     laterOwner = binder modulePath [2] laterName
     laterArgumentName = fixtureValueName "laterArgument"
-    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterArgumentOwner = binder modulePath [2, 0] laterArgumentName
+    laterScheme = fixtureScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
     laterExpression =
       TypedLambdaExpr
         boolToBoolInfo
-        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentOwner
         laterArgumentName
-        (TypedVariableExpr boolInfo laterArgumentName)
+        (fixtureBoundVariableExpr laterArgumentOwner boolInfo laterArgumentName)
     statements =
       [ TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
         TypedSignatureStatement
           laterSignatureOwner
           laterName
           span1
-          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          (fixtureScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
         TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
         expressionStatement
           3
           ( TypedApplyExpr
               boolInfo
-              (TypedVariableExpr boolToBoolInfo firstName)
+              (fixtureBoundVariableExpr firstOwner boolToBoolInfo firstName)
               trueExpr
           )
       ]
@@ -8702,26 +8706,27 @@ scalarForwardReferenceProgram =
     laterSignatureOwner = binder modulePath [1] laterName
     laterOwner = binder modulePath [2] laterName
     laterArgumentName = fixtureValueName "laterArgument"
-    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterArgumentOwner = binder modulePath [2, 0] laterArgumentName
+    laterScheme = fixtureScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
     laterExpression =
       TypedLambdaExpr
         boolToBoolInfo
-        (binder modulePath [2, 0] laterArgumentName)
+        laterArgumentOwner
         laterArgumentName
-        (TypedVariableExpr boolInfo laterArgumentName)
+        (fixtureBoundVariableExpr laterArgumentOwner boolInfo laterArgumentName)
     statements =
       [ expressionStatement
           1
           ( TypedApplyExpr
               boolInfo
-              (TypedVariableExpr boolToBoolInfo laterName)
+              (fixtureVariableExpr boolToBoolInfo laterName)
               trueExpr
           ),
         TypedSignatureStatement
           laterSignatureOwner
           laterName
           span1
-          (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          (fixtureScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
         TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
         expressionStatement 3 trueExpr
       ]
@@ -8738,7 +8743,7 @@ nestedForwardSignedFunctionProgram =
     firstOwner = binder modulePath [0, 0, 1] firstName
     firstArgumentName = fixtureValueName "firstArgument"
     firstArgumentOwner = binder modulePath [0, 0, 1, 0] firstArgumentName
-    firstScheme = TypedScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
+    firstScheme = fixtureScheme firstOwner [] [] [] boolToBoolType boolToBoolRecipe
     firstExpression =
       TypedLambdaExpr
         boolToBoolInfo
@@ -8746,20 +8751,20 @@ nestedForwardSignedFunctionProgram =
         firstArgumentName
         ( TypedApplyExpr
             boolInfo
-            (TypedVariableExpr boolToBoolInfo laterName)
-            (TypedVariableExpr boolInfo firstArgumentName)
+            (fixtureVariableExpr boolToBoolInfo laterName)
+            (fixtureBoundVariableExpr firstArgumentOwner boolInfo firstArgumentName)
         )
     laterSignatureOwner = binder modulePath [0, 0, 2] laterName
     laterOwner = binder modulePath [0, 0, 3] laterName
     laterArgumentName = fixtureValueName "laterArgument"
     laterArgumentOwner = binder modulePath [0, 0, 3, 0] laterArgumentName
-    laterScheme = TypedScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
+    laterScheme = fixtureScheme laterOwner [] [] [] boolToBoolType boolToBoolRecipe
     laterExpression =
       TypedLambdaExpr
         boolToBoolInfo
         laterArgumentOwner
         laterArgumentName
-        (TypedVariableExpr boolInfo laterArgumentName)
+        (fixtureBoundVariableExpr laterArgumentOwner boolInfo laterArgumentName)
     block =
       TypedBlockExpr
         boolInfo
@@ -8767,15 +8772,15 @@ nestedForwardSignedFunctionProgram =
             firstSignatureOwner
             firstName
             span1
-            (TypedScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+            (fixtureScheme firstSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
           TypedLetStatement firstOwner firstName span1 firstScheme firstExpression,
           TypedSignatureStatement
             laterSignatureOwner
             laterName
             span1
-            (TypedScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
+            (fixtureScheme laterSignatureOwner [] [] [] boolToBoolType boolToBoolRecipe),
           TypedLetStatement laterOwner laterName span1 laterScheme laterExpression,
-          expressionStatement 2 (TypedApplyExpr boolInfo (TypedVariableExpr boolToBoolInfo firstName) trueExpr)
+          expressionStatement 2 (TypedApplyExpr boolInfo (fixtureBoundVariableExpr firstOwner boolToBoolInfo firstName) trueExpr)
         ]
 
 missingPolymorphicInstantiationOwner :: TypedBinderId
@@ -8796,7 +8801,7 @@ missingPolymorphicInstantiationProgram =
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
-      TypedScheme
+      fixtureScheme
         missingPolymorphicInstantiationOwner
         [parameter]
         []
@@ -8810,7 +8815,7 @@ missingPolymorphicInstantiationProgram =
           span1
           scheme
           (polymorphicIdentityExpression modulePath [0] parameter),
-        expressionStatement 1 (TypedVariableExpr boolToBoolInfo valueName)
+        expressionStatement 1 (fixtureBoundVariableExpr missingPolymorphicInstantiationOwner boolToBoolInfo valueName)
       ]
 
 unsupportedEqualityDataName :: TypedCoreName
@@ -8846,7 +8851,7 @@ unsupportedStrictEqualityConstraintProgram =
         owner
         (case owner of TypedBinderId (_, _, name) -> name)
         span1
-        (TypedScheme owner [] [] [TypedStrictEqualityPrimitiveConstraint target] TypedBoolType TypedBoolRecipe)
+        (fixtureScheme owner [] [] [TypedStrictEqualityPrimitiveConstraint target] TypedBoolType TypedBoolRecipe)
     statements =
       [ TypedDataStatement dataDeclaration,
         constrained functionOwner boolToBoolType,
@@ -8859,9 +8864,9 @@ uncheckedSpecialNameProgram =
   where
     fixture = "review-unchecked-special-name"
     statements =
-      [ expressionStatement 1 (TypedVariableExpr boolInfo (TypedBuiltinName "doesNotExist")),
-        expressionStatement 2 (TypedVariableExpr boolInfo (TypedGeneratedName TypedOperatorSectionFunction)),
-        expressionStatement 3 (TypedVariableExpr builtinMapInfo (TypedBuiltinName "map"))
+      [ expressionStatement 1 (fixtureVariableExpr boolInfo (TypedBuiltinName "doesNotExist")),
+        expressionStatement 2 (fixtureVariableExpr boolInfo (TypedGeneratedName TypedOperatorSectionFunction)),
+        expressionStatement 3 (fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map"))
       ]
 
 classMethodExportProgram :: TypedProgram
@@ -8886,7 +8891,7 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
     className = resolved TypedCurrentModule TypedCapabilityNamespace "Render"
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
-    methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    methodScheme = fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     declaration = TypedClassDeclaration span1 className [parameter] [TypedMethodSignature methodName span1 methodScheme]
     localImplId = TypedImplId libraryPath className [TypedBoolType]
     methodDefinition = fixtureImplMethod libraryPath [1, 0] localImplId "render"
@@ -8949,7 +8954,7 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
         [TypedResolvedImport span1 libraryPath Nothing (Just ["render"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr importedMethodInfo importedMethod)]
+        [expressionStatement 1 (fixtureVariableExpr importedMethodInfo importedMethod)]
         importedMethodInfo
 
 fractionalLiteralSuffixProgram :: TypedProgram
@@ -8999,8 +9004,8 @@ fixturePrelude =
         span1
         renderClassName
         [parameter]
-        [ TypedMethodSignature renderName span1 (TypedScheme renderOwner [] [] [] boolToBoolType boolToBoolRecipe),
-          TypedMethodSignature mapName span1 (TypedScheme mapOwner [] [] [] genericMapType genericMapRecipe)
+        [ TypedMethodSignature renderName span1 (fixtureScheme renderOwner [] [] [] boolToBoolType boolToBoolRecipe),
+          TypedMethodSignature mapName span1 (fixtureScheme mapOwner [] [] [] genericMapType genericMapRecipe)
         ]
     boolImpl = TypedImplId ["Prelude"] equalClassName [TypedBoolType]
     charImpl = TypedImplId ["Prelude"] equalClassName [TypedCharType]
@@ -9031,7 +9036,7 @@ fixturePrelude =
     renderArgument = resolved TypedCurrentModule TypedValueNamespace "renderArgument"
     renderExpression = TypedLambdaExpr boolToBoolInfo (binder ["Prelude"] [4, 0, 0] renderArgument) renderArgument trueExpr
     renderImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "render") (binder ["Prelude"] [4, 0] renderName) renderName span1 renderExpression
-    mapExpression = TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
+    mapExpression = fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
     mapImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "map") (binder ["Prelude"] [4, 1] mapName) mapName span1 mapExpression
 
 fixtureImplMethod :: [Text] -> [Int] -> TypedImplId -> Text -> TypedMethodDefinition
@@ -9048,7 +9053,7 @@ fixtureImplMethod modulePath methodPath implId methodKey =
     methodExpression
       | methodKey == "equal" = trueExpr
       | methodKey == "map" =
-          TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
+          fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
       | otherwise =
           TypedLambdaExpr
             boolToBoolInfo
@@ -9090,7 +9095,7 @@ evidenceTypeScopeProgram =
     valueName = fixtureValueName "generic"
     owner = binder modulePath [0] valueName
     parameterType = TypedTypeParameterType evidenceTypeScopeParameter
-    scheme = TypedScheme owner [evidenceTypeScopeParameter] [] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [evidenceTypeScopeParameter] [] [] TypedBoolType TypedBoolRecipe
     implId =
       TypedImplId
         ["Prelude"]
@@ -9223,7 +9228,7 @@ typeApplicationResultContractProgram =
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -9236,7 +9241,7 @@ typeApplicationResultContractProgram =
     expression =
       TypedTypeApplicationExpr
         applicationInfo
-        (TypedVariableExpr calleeInfo valueName)
+        (fixtureVariableExpr calleeInfo valueName)
         span1
         TypedBoolType
     statements =
@@ -9259,7 +9264,7 @@ capabilityConstraintVisibilityProgram =
           (TypedEvidenceParameterId 1)
           (TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.missing") TypedBoolType)
       ]
-    scheme = TypedScheme owner [] evidence [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [] evidence [] TypedBoolType TypedBoolRecipe
 
 unconstrainedNumericParameterProgram :: TypedProgram
 unconstrainedNumericParameterProgram =
@@ -9274,17 +9279,18 @@ unconstrainedNumericParameterProgram =
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     parameterInfo = info parameterType parameterRecipe
     argumentName = resolved TypedCurrentModule TypedValueNamespace "operand"
-    argument = TypedVariableExpr parameterInfo argumentName
+    argumentOwner = binder modulePath [0, 0] argumentName
+    argument = fixtureBoundVariableExpr argumentOwner parameterInfo argumentName
     body = TypedBinaryExpr parameterInfo (TypedBuiltinOperator "+") argument argument
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     expression =
       TypedLambdaExpr
         (info functionType functionRecipe)
-        (binder modulePath [0, 0] argumentName)
+        argumentOwner
         argumentName
         body
-    scheme = TypedScheme owner [parameter] [] [] functionType functionRecipe
+    scheme = fixtureScheme owner [parameter] [] [] functionType functionRecipe
     statement = TypedLetStatement owner valueName span1 scheme expression
 
 unconstrainedEqualityParameterProgram :: TypedProgram
@@ -9301,7 +9307,8 @@ unconstrainedEqualityParameterProgram =
         (TypedTypeParameterType parameter)
         (TypedRepresentationParameterRecipe parameter)
     argumentName = resolved TypedCurrentModule TypedValueNamespace "operand"
-    argument = TypedVariableExpr parameterInfo argumentName
+    argumentOwner = binder modulePath [0, 0] argumentName
+    argument = fixtureBoundVariableExpr argumentOwner parameterInfo argumentName
     body = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") argument argument
     functionType = TypedFunctionType (TypedTypeParameterType parameter) TypedBoolType
     functionRecipe =
@@ -9311,10 +9318,10 @@ unconstrainedEqualityParameterProgram =
     expression =
       TypedLambdaExpr
         (info functionType functionRecipe)
-        (binder modulePath [0, 0] argumentName)
+        argumentOwner
         argumentName
         body
-    scheme = TypedScheme owner [parameter] [] [] functionType functionRecipe
+    scheme = fixtureScheme owner [parameter] [] [] functionType functionRecipe
     statement = TypedLetStatement owner valueName span1 scheme expression
 
 duplicatePatternNameSecondBinder :: TypedBinderId
@@ -9397,7 +9404,7 @@ ownerAmbiguousEvidenceProgram =
     parameter = TypedTypeParameterId 0
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme owner =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
@@ -9423,7 +9430,7 @@ ownerAmbiguousEvidenceProgram =
         TypedBoolRecipe
         [instantiate firstOwner, instantiate secondOwner]
         [TypedSelectedEvidence evidenceUse]
-    expression = TypedVariableExpr expressionInfo firstName
+    expression = fixtureVariableExpr expressionInfo firstName
     statements =
       [ TypedLetStatement firstOwner firstName span1 (scheme firstOwner) trueExpr,
         TypedLetStatement secondOwner secondName span1 (scheme secondOwner) trueExpr,
@@ -9497,7 +9504,7 @@ visibleClassImplImportProgram fixture exports selectedNames =
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodOwner = binder libraryPath [0, 0] methodName
     parameter = TypedTypeParameterId 0
-    methodScheme = TypedScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+    methodScheme = fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -9553,7 +9560,7 @@ integralLiteralRangeProgram =
     valueName = fixtureValueName "bounded"
     owner = fixtureBinder fixture 0 valueName
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         []
         []
@@ -9591,13 +9598,13 @@ nestedStrictEqualityConstraintProgram =
     operandInfo = info operandType operandRecipe
     argumentName = resolved TypedCurrentModule TypedValueNamespace "operand"
     argumentBinder = binder modulePath [0, 0] argumentName
-    argument = TypedVariableExpr operandInfo argumentName
+    argument = fixtureBoundVariableExpr argumentBinder operandInfo argumentName
     body = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") argument argument
     lambdaType = TypedFunctionType operandType TypedBoolType
     lambdaRecipe = TypedClosureRecipe [operandRecipe] TypedBoolRecipe
     expression = TypedLambdaExpr (info lambdaType lambdaRecipe) argumentBinder argumentName body
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -9617,7 +9624,7 @@ qualifiedMethodKeyProgram fixture methodKey =
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
     expression
       | methodKey == "Equal::equal" =
-          TypedVariableExpr
+          fixtureVariableExpr
             (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
             (TypedBuiltinName "Equal::equal")
       | otherwise =
@@ -9637,7 +9644,7 @@ builtinValueContractProgram :: TypedProgram
 builtinValueContractProgram =
   expressionFixtureProgram
     "review-builtin-value-contract"
-    (TypedVariableExpr boolInfo (TypedBuiltinName "__kernel_textLength"))
+    (fixtureVariableExpr boolInfo (TypedBuiltinName "__kernel_textLength"))
 
 missingInterfaceMetadataDataName :: TypedCoreName
 missingInterfaceMetadataDataName =
@@ -9653,7 +9660,7 @@ missingInterfaceMetadataProgram =
     dataType = TypedDataType missingInterfaceMetadataDataName []
     dataRecipe = TypedManagedVariantRecipe missingInterfaceMetadataDataName []
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Box"
-    valueScheme = TypedScheme valueBinder [] [] [] dataType dataRecipe
+    valueScheme = fixtureScheme valueBinder [] [] [] dataType dataRecipe
     dataDeclaration =
       dataDeclarationWithNullaryConstructor
         libraryPath
@@ -9672,7 +9679,7 @@ missingInterfaceMetadataProgram =
             valueName
             span1
             valueScheme
-            (TypedVariableExpr (info dataType dataRecipe) constructorName),
+            (fixtureBoundVariableExpr (binder libraryPath [1, 0] constructorName) (info dataType dataRecipe) constructorName),
           TypedDataStatement dataDeclaration
         ]
         boolInfo
@@ -9700,14 +9707,14 @@ constrainedMonomorphicUseProgram =
     valueName = fixtureValueName "same"
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme =
-      TypedScheme
+      fixtureScheme
         constrainedMonomorphicOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
         TypedBoolType
         TypedBoolRecipe
-    expression = TypedVariableExpr boolInfo valueName
+    expression = fixtureBoundVariableExpr constrainedMonomorphicOwner boolInfo valueName
     statements =
       [ TypedLetStatement constrainedMonomorphicOwner valueName span1 scheme trueExpr,
         expressionStatement 1 expression
@@ -9758,7 +9765,7 @@ explicitHeadParameterProgram =
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
-      TypedScheme
+      fixtureScheme
         explicitHeadParameterOwner
         [firstParameter, secondParameter]
         []
@@ -9781,7 +9788,7 @@ explicitHeadParameterProgram =
     expression =
       TypedTypeApplicationExpr
         instantiatedInfo
-        (TypedVariableExpr instantiatedInfo valueName)
+        (fixtureVariableExpr instantiatedInfo valueName)
         span1
         TypedBoolType
     statements =
@@ -9834,7 +9841,7 @@ classMethodSchemeShapeProgram =
     evidenceName = methodName "evidence"
     primitiveName = methodName "primitive"
     localScheme =
-      TypedScheme
+      fixtureScheme
         (methodBinder 0 localName)
         [parameter]
         []
@@ -9842,7 +9849,7 @@ classMethodSchemeShapeProgram =
         parameterType
         parameterRecipe
     evidenceScheme =
-      TypedScheme
+      fixtureScheme
         (methodBinder 1 evidenceName)
         []
         [ TypedEvidenceParameter
@@ -9853,7 +9860,7 @@ classMethodSchemeShapeProgram =
         parameterType
         parameterRecipe
     primitiveScheme =
-      TypedScheme
+      fixtureScheme
         (methodBinder 2 primitiveName)
         []
         []
@@ -9918,7 +9925,7 @@ nonBindingTypeApplicationProgram =
     parameterType = TypedTypeParameterType parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -9945,7 +9952,7 @@ nonBindingTypeApplicationProgram =
     applied =
       TypedApplyExpr
         resultInfo
-        (TypedVariableExpr calleeInfo valueName)
+        (fixtureVariableExpr calleeInfo valueName)
         trueExpr
     expression =
       TypedTypeApplicationExpr
@@ -9978,7 +9985,7 @@ mismatchedResolvedOperatorProgram =
         TypedBoolRecipe
     operatorInfo = info operatorType operatorRecipe
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         []
         []
@@ -10065,7 +10072,7 @@ classMethodInterfaceDependencyProgram =
         classMethodInterfaceDependencyDataName
         []
     methodScheme =
-      TypedScheme
+      fixtureScheme
         (binder libraryPath [1, 0] methodName)
         []
         []
@@ -10106,7 +10113,7 @@ instantiatedPrimitiveConstraintProgram =
     equalityName = fixtureValueName "equality"
     equalityOwner = binder modulePath [1] equalityName
     constrainedScheme owner primitiveConstraint =
-      TypedScheme
+      fixtureScheme
         owner
         [parameter]
         []
@@ -10114,7 +10121,7 @@ instantiatedPrimitiveConstraintProgram =
         TypedBoolType
         TypedBoolRecipe
     instantiatedUse owner name typeArgument =
-      TypedVariableExpr
+      fixtureVariableExpr
         ( TypedNodeInfo
             TypedBoolType
             TypedBoolRecipe
@@ -10157,7 +10164,7 @@ typeApplicationExtraOwnerProgram =
     functionOwner = binder modulePath [0] functionName
     otherName = fixtureValueName "other"
     scheme owner =
-      TypedScheme owner [parameter] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme owner [parameter] [] [] TypedBoolType TypedBoolRecipe
     instantiate owner maybeSpan =
       TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] maybeSpan
     functionInstantiation = instantiate functionOwner (Just span1)
@@ -10173,7 +10180,7 @@ typeApplicationExtraOwnerProgram =
     expression =
       TypedTypeApplicationExpr
         applicationInfo
-        (TypedVariableExpr functionInfo functionName)
+        (fixtureVariableExpr functionInfo functionName)
         span1
         TypedBoolType
     statements =
@@ -10211,7 +10218,7 @@ constrainedResolvedOperatorProgram =
     operatorInfo = info operatorType operatorRecipe
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     scheme =
-      TypedScheme
+      fixtureScheme
         constrainedResolvedOperatorOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
@@ -10333,7 +10340,7 @@ incompleteImplProgram =
       resolved TypedCurrentModule TypedValueNamespace "map"
     parameter = TypedTypeParameterId 0
     methodScheme methodOwner =
-      TypedScheme
+      fixtureScheme
         methodOwner
         []
         []
@@ -10375,7 +10382,7 @@ duplicateInstantiationProgram =
     valueName = fixtureValueName "item"
     parameter = TypedTypeParameterId 0
     scheme =
-      TypedScheme
+      fixtureScheme
         duplicateInstantiationOwner
         [parameter]
         []
@@ -10388,7 +10395,7 @@ duplicateInstantiationProgram =
         [TypedTypeArgument parameter typeValue]
         Nothing
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         ( TypedNodeInfo
             TypedBoolType
             TypedBoolRecipe
@@ -10529,7 +10536,7 @@ selectedClassDataDependencyProgram =
     localBoxRecipe = TypedManagedVariantRecipe dataName []
     methodOwner = binder libraryPath [1, 0] methodName
     methodScheme =
-      TypedScheme
+      fixtureScheme
         methodOwner
         []
         []
@@ -10574,7 +10581,7 @@ selectedClassDataDependencyProgram =
       resolved TypedCurrentModule TypedValueNamespace "forwarded"
     forwardedOwner = binder facadePath [0] forwardedName
     forwardedScheme =
-      TypedScheme
+      fixtureScheme
         forwardedOwner
         []
         [ TypedEvidenceParameter
@@ -10615,10 +10622,7 @@ selectedClassDataDependencyProgram =
     parameterName =
       resolved TypedCurrentModule TypedValueNamespace "item"
     parameterBinder = binder entryPath [0, 0, 0] parameterName
-    body =
-      TypedVariableExpr
-        (info importedBoxType importedBoxRecipe)
-        parameterName
+    body = fixtureBoundVariableExpr parameterBinder (info importedBoxType importedBoxRecipe) parameterName
     methodBody =
       TypedLambdaExpr
         methodInfo
@@ -10659,7 +10663,7 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
     dataRecipe = TypedManagedVariantRecipe localDataName []
     importedType = TypedDataType importedDataName []
     importedRecipe = TypedManagedVariantRecipe importedDataName []
-    valueScheme = TypedScheme valueBinder [] [] [] dataType dataRecipe
+    valueScheme = fixtureScheme valueBinder [] [] [] dataType dataRecipe
     dataDeclaration =
       dataDeclarationWithNullaryConstructor
         libraryPath
@@ -10678,7 +10682,7 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
             localValueName
             span1
             valueScheme
-            (TypedVariableExpr (info dataType dataRecipe) localConstructorName),
+            (fixtureBoundVariableExpr (binder libraryPath [1, 0] localConstructorName) (info dataType dataRecipe) localConstructorName),
           TypedDataStatement dataDeclaration
         ]
         boolInfo
@@ -10690,7 +10694,7 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
         [TypedResolvedImport span1 libraryPath Nothing (Just ["boxed"])]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr entryInfo importedValueName)]
+        [expressionStatement 1 (fixtureBoundVariableExpr valueBinder entryInfo importedValueName)]
         entryInfo
 
 selectiveImportLeakedImpl :: TypedImplId
@@ -10806,10 +10810,10 @@ nestedOuterTypeScopeProgram =
     outerBinder = binder modulePath [0] outerName
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     argumentBinder = binder modulePath [0, 0] argumentName
-    argumentUse = TypedVariableExpr parameterInfo argumentName
+    argumentUse = fixtureBoundVariableExpr argumentBinder parameterInfo argumentName
     localName = resolved TypedCurrentModule TypedValueNamespace "local"
     localBinder = binder modulePath [0, 0, 0] localName
-    localScheme = TypedScheme localBinder [] [] [] parameterType parameterRecipe
+    localScheme = fixtureScheme localBinder [] [] [] parameterType parameterRecipe
     localBinding =
       TypedLetStatement
         localBinder
@@ -10817,7 +10821,7 @@ nestedOuterTypeScopeProgram =
         span1
         localScheme
         argumentUse
-    localUse = expressionStatement 2 (TypedVariableExpr parameterInfo localName)
+    localUse = expressionStatement 2 (fixtureBoundVariableExpr localBinder parameterInfo localName)
     block = TypedBlockExpr parameterInfo [localBinding, localUse]
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
@@ -10827,7 +10831,7 @@ nestedOuterTypeScopeProgram =
         argumentBinder
         argumentName
         block
-    outerScheme = TypedScheme outerBinder [parameter] [] [] functionType functionRecipe
+    outerScheme = fixtureScheme outerBinder [parameter] [] [] functionType functionRecipe
     topLevelBinding = TypedLetStatement outerBinder outerName span1 outerScheme expression
 
 implMethodVisibleName :: TypedCoreName
@@ -10855,7 +10859,7 @@ implMethodValueVisibilityProgram =
               implId
               [method, fixtureImplMethod modulePath [0, 1] implId "other"]
           ),
-        expressionStatement 2 (TypedVariableExpr boolInfo implMethodVisibleName)
+        expressionStatement 2 (fixtureVariableExpr boolInfo implMethodVisibleName)
       ]
 
 builtinOperatorContractProgram :: TypedProgram
@@ -10897,7 +10901,7 @@ invalidNumericPrimitiveConstraintProgram =
     valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     scheme =
-      TypedScheme
+      fixtureScheme
         valueBinder
         []
         []
@@ -10917,9 +10921,9 @@ instantiationDataTypeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "phantom"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
-    scheme = TypedScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId (TypedDataType missingInstantiationDataName [])] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    expression = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
     statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 literalPatternProgram :: TypedProgram
@@ -10958,7 +10962,7 @@ expressionDuplicateBinderProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     scheme = monoScheme expressionDuplicateBinder
-    lambda = TypedLambdaExpr boolToBoolInfo expressionDuplicateBinder valueName (TypedVariableExpr boolInfo valueName)
+    lambda = TypedLambdaExpr boolToBoolInfo expressionDuplicateBinder valueName (fixtureBoundVariableExpr expressionDuplicateBinder boolInfo valueName)
     statements = [TypedLetStatement expressionDuplicateBinder valueName span1 scheme trueExpr, expressionStatement 2 lambda]
 
 privateInterfaceLibraryPath :: [Text]
@@ -10994,7 +10998,7 @@ privateInterfaceLeakProgram = TypedProgram Nothing [libraryModule, entryModule] 
         [TypedResolvedImport span1 privateInterfaceLibraryPath Nothing Nothing]
         []
         emptyInterface
-        [expressionStatement 1 (TypedVariableExpr boolInfo privateInterfaceImportedName)]
+        [expressionStatement 1 (fixtureVariableExpr boolInfo privateInterfaceImportedName)]
         boolInfo
 
 constructorPatternContractProgram :: TypedProgram
@@ -11025,7 +11029,7 @@ constructorPatternContractProgram =
         (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
         [TypedInstantiation constructorOwner [TypedTypeArgument parameterId TypedBoolType] Nothing]
         []
-    scrutinee = TypedApplyExpr optionInfo (TypedVariableExpr constructorInfo someName) trueExpr
+    scrutinee = TypedApplyExpr optionInfo (fixtureVariableExpr constructorInfo someName) trueExpr
     expression =
       TypedPatternCaseExpr
         boolInfo
@@ -11056,7 +11060,7 @@ explicitTypeApplicationContractProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     scheme = monoScheme explicitTypeApplicationOwner
-    expression = TypedTypeApplicationExpr boolInfo (TypedVariableExpr boolInfo valueName) span1 TypedBoolType
+    expression = TypedTypeApplicationExpr boolInfo (fixtureBoundVariableExpr explicitTypeApplicationOwner boolInfo valueName) span1 TypedBoolType
     statements = [TypedLetStatement explicitTypeApplicationOwner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 variableSchemeContractProgram :: TypedProgram
@@ -11069,7 +11073,7 @@ variableSchemeContractProgram =
     valueBinder = binder modulePath [0] valueName
     statements =
       [ TypedLetStatement valueBinder valueName span1 (monoScheme valueBinder) trueExpr,
-        expressionStatement 2 (TypedVariableExpr textInfo valueName)
+        expressionStatement 2 (fixtureBoundVariableExpr valueBinder textInfo valueName)
       ]
 
 missingImportProgram :: TypedProgram
@@ -11106,7 +11110,7 @@ candidateConstraintProgram =
     equalCandidate = TypedEvidenceCandidate equalImpl (Just (TypedMethodId equalImpl "equal"))
     wrongMethodCandidate = TypedEvidenceCandidate renderImpl (Just (TypedMethodId renderImpl "render"))
     candidateExpression candidate =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo builtinMapType builtinMapRecipe [] [TypedEvidenceCandidates constraint [candidate]])
         (TypedBuiltinName "map")
     statements =
@@ -11131,7 +11135,7 @@ invalidVariableNamespaceProgram =
         []
     statements =
       [ TypedDataStatement declaration,
-        expressionStatement 2 (TypedVariableExpr boolInfo invalidVariableNamespaceName)
+        expressionStatement 2 (fixtureVariableExpr boolInfo invalidVariableNamespaceName)
       ]
 
 binderNameContractBinder :: TypedBinderId
@@ -11160,9 +11164,9 @@ blockLocalGeneralizedSchemeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "local"
     owner = binder modulePath [0, 0] valueName
     parameterId = TypedTypeParameterId 0
-    scheme = TypedScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
-    use = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    use = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
     block = TypedBlockExpr boolInfo [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 use]
 
 blockLocalMonomorphicSchemeProgram :: TypedProgram
@@ -11174,7 +11178,7 @@ blockLocalMonomorphicSchemeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "local"
     owner = binder modulePath [0, 0] valueName
     scheme = monoScheme owner
-    use = TypedVariableExpr textInfo valueName
+    use = fixtureBoundVariableExpr owner textInfo valueName
     block = TypedBlockExpr textInfo [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 use]
 
 implMethodNameProgram :: TypedProgram
@@ -11221,7 +11225,7 @@ operatorSchemeProgram =
     owner = binder modulePath [0] operatorName
     operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
     operatorRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
-    scheme = TypedScheme owner [] [] [] operatorType operatorRecipe
+    scheme = fixtureScheme owner [] [] [] operatorType operatorRecipe
     operator = TypedResolvedOperator operatorName "~"
     textExpr = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text")
     textToTextInfo = info (TypedFunctionType TypedTextType TypedTextType) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
@@ -11287,7 +11291,7 @@ classParameterScopeProgram =
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
     methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
-    methodScheme = TypedScheme methodBinder [] [] [] methodType methodRecipe
+    methodScheme = fixtureScheme methodBinder [] [] [] methodType methodRecipe
     declaration = TypedClassDeclaration span1 capabilityName [parameterId] [TypedMethodSignature methodName span1 methodScheme]
 
 evidenceParameterContractProgram :: TypedProgram
@@ -11301,7 +11305,7 @@ evidenceParameterContractProgram =
     parameterId = TypedTypeParameterId 0
     evidenceId = TypedEvidenceParameterId 0
     generalizedConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing (TypedTypeParameterType parameterId)
-    scheme = TypedScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     selected selectedId constraint targetType =
@@ -11312,7 +11316,7 @@ evidenceParameterContractProgram =
             (TypedImplId ["Prelude"] capabilityName [targetType])
             Nothing
         )
-    expression selection = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
+    expression selection = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
     statements =
       [ TypedLetStatement owner valueName span1 scheme trueExpr,
         expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType) TypedBoolType)),
@@ -11349,9 +11353,9 @@ missingInstantiatedEvidenceProgram =
     laterEvidenceId = TypedEvidenceParameterId 1
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
     laterConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
-    scheme = TypedScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId laterConstraint] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId laterConstraint] [] TypedBoolType TypedBoolRecipe
     instantiation = TypedInstantiation owner [] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    expression = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
     statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 constructorExpressionDataName :: TypedCoreName
@@ -11378,7 +11382,7 @@ constructorExpressionContractProgram =
             [TypedBoolType]
             [TypedBoolRecipe]
         ]
-    statements = [TypedDataStatement declaration, expressionStatement 2 (TypedVariableExpr boolInfo constructorName)]
+    statements = [TypedDataStatement declaration, expressionStatement 2 (fixtureBoundVariableExpr (binder modulePath [0, 0] constructorName) boolInfo constructorName)]
 
 unrelatedTypeApplicationProgram :: TypedProgram
 unrelatedTypeApplicationProgram =
@@ -11394,7 +11398,7 @@ unrelatedTypeApplicationProgram =
     functionType = TypedFunctionType parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameterId]
         []
@@ -11420,7 +11424,7 @@ lexicalBinderContractProgram = expressionFixtureProgram fixture expression
       info
         (TypedFunctionType TypedBoolType TypedTextType)
         (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
-    expression = TypedLambdaExpr lambdaInfo argumentBinder argumentName (TypedVariableExpr textInfo argumentName)
+    expression = TypedLambdaExpr lambdaInfo argumentBinder argumentName (fixtureBoundVariableExpr argumentBinder textInfo argumentName)
 
 generalizedVariableContractProgram :: TypedProgram
 generalizedVariableContractProgram =
@@ -11434,7 +11438,7 @@ generalizedVariableContractProgram =
     parameterType = TypedTypeParameterType parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameterId]
         []
@@ -11443,7 +11447,7 @@ generalizedVariableContractProgram =
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
     badUseInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
-    expression = TypedVariableExpr badUseInfo valueName
+    expression = fixtureBoundVariableExpr owner badUseInfo valueName
     statements =
       [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameterId),
         expressionStatement 2 expression
@@ -11461,7 +11465,7 @@ enclosingInstantiationScopeProgram =
     identityParameterType = TypedTypeParameterType identityParameter
     identityParameterRecipe = TypedRepresentationParameterRecipe identityParameter
     identityScheme =
-      TypedScheme
+      fixtureScheme
         identityOwner
         [identityParameter]
         []
@@ -11475,9 +11479,9 @@ enclosingInstantiationScopeProgram =
     wrapperParameterRecipe = TypedRepresentationParameterRecipe wrapperParameter
     wrapperType = TypedFunctionType wrapperParameterType wrapperParameterType
     wrapperRecipe = TypedClosureRecipe [wrapperParameterRecipe] wrapperParameterRecipe
-    wrapperScheme = TypedScheme wrapperOwner [wrapperParameter] [] [] wrapperType wrapperRecipe
+    wrapperScheme = fixtureScheme wrapperOwner [wrapperParameter] [] [] wrapperType wrapperRecipe
     instantiation = TypedInstantiation identityOwner [TypedTypeArgument identityParameter wrapperParameterType] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo wrapperType wrapperRecipe [instantiation] []) identityName
+    expression = fixtureVariableExpr (TypedNodeInfo wrapperType wrapperRecipe [instantiation] []) identityName
     statements =
       [ TypedLetStatement
           identityOwner
@@ -11502,7 +11506,7 @@ implMethodContractProgram =
     methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
     methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
     methodOwner = binder modulePath [0, 0] methodName
-    methodScheme = TypedScheme methodOwner [] [] [] methodType methodRecipe
+    methodScheme = fixtureScheme methodOwner [] [] [] methodType methodRecipe
     classDeclaration =
       TypedClassDeclaration
         span1
@@ -11602,7 +11606,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
     valueOwner = binder entryPath [0] valueName
     evidenceParameter = TypedEvidenceParameterId 0
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         [TypedEvidenceParameter evidenceParameter constraint]
@@ -11619,7 +11623,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
             Nothing
         )
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [evidence])
         valueName
     entryModule =
@@ -11722,7 +11726,7 @@ expressionInfoForFixture :: TypedExpr -> TypedNodeInfo
 expressionInfoForFixture expression =
   case expression of
     TypedLiteralExpr valueInfo _ -> valueInfo
-    TypedVariableExpr valueInfo _ -> valueInfo
+    TypedVariableExpr valueInfo _ _ -> valueInfo
     TypedLambdaExpr valueInfo _ _ _ -> valueInfo
     TypedOperatorValueExpr valueInfo _ -> valueInfo
     TypedListExpr valueInfo _ -> valueInfo
@@ -11818,6 +11822,7 @@ expectedValidFixtureNames =
     "partial-method-candidates",
     "patterns-binders",
     "or-pattern-alignment",
+    "callable-shapes-binder-references",
     "multi-module-interface"
   ]
 
@@ -11845,6 +11850,7 @@ validProgram fixtureName =
     "partial-method-candidates" -> partialMethodCandidatesProgram
     "patterns-binders" -> patternsBindersProgram
     "or-pattern-alignment" -> orPatternAlignmentProgram
+    "callable-shapes-binder-references" -> callableShapesBinderReferencesProgram
     "multi-module-interface" -> multiModuleInterfaceProgram
     _ -> error "unknown valid typed-core fixture"
 
@@ -11905,7 +11911,7 @@ resolvedNameOriginsProgram =
     libraryPath = (fixtureLibraryPath "Data")
     localValue = resolved TypedCurrentModule TypedValueNamespace "localValue"
     localBinder = binder entryPath [0] localValue
-    localScheme = TypedScheme localBinder [] [] [] TypedTextType TypedManagedTextRecipe
+    localScheme = fixtureScheme localBinder [] [] [] TypedTextType TypedManagedTextRecipe
     importedSome = resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "Some"
     importedLibraryType = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Option"
     localSome = resolved TypedCurrentModule TypedConstructorNamespace "Some"
@@ -11958,8 +11964,8 @@ resolvedNameOriginsProgram =
               (TypedLiteralExpr textInfo (TypedTextLiteral "local")),
             TypedClassStatement (TypedClassDeclaration span1 printable [TypedTypeParameterId 0] [])
           ]
-            <> [ expressionStatement 1 (TypedVariableExpr importedSomeInfo importedSome),
-                 expressionStatement 2 (TypedVariableExpr textInfo localValue)
+            <> [ expressionStatement 1 (fixtureBoundVariableExpr someBinder importedSomeInfo importedSome),
+                 expressionStatement 2 (fixtureBoundVariableExpr localBinder textInfo localValue)
                ]
         )
         textInfo
@@ -11968,7 +11974,7 @@ builtinGeneratedNamesProgram :: TypedProgram
 builtinGeneratedNamesProgram =
   programWith
     "builtin-generated-names"
-    ( expressionStatement 1 (TypedVariableExpr builtinMapInfo (TypedBuiltinName "map"))
+    ( expressionStatement 1 (fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map"))
         : zipWith expressionStatement [2 ..] generatedLambdas
     )
     emptyInterface
@@ -11991,7 +11997,7 @@ builtinGeneratedNamesProgram =
           functionInfo
           (binder modulePath [index] name)
           name
-          (TypedVariableExpr textInfo name)
+          (fixtureBoundVariableExpr (binder modulePath [index] name) textInfo name)
       | (index, name) <- zip [0 ..] generatedNames
       ]
 
@@ -12003,7 +12009,7 @@ listTupleDataRecipesProgram =
       expressionStatement 1 (TypedTupleExpr unitInfo []),
       expressionStatement 2 (TypedTupleExpr pairInfo [trueExpr, falseExpr]),
       expressionStatement 3 (TypedListExpr boolListInfo [trueExpr, falseExpr]),
-      expressionStatement 4 (TypedVariableExpr optionConstructorInfo optionConstructor)
+      expressionStatement 4 (fixtureVariableExpr optionConstructorInfo optionConstructor)
     ]
     emptyInterface
     optionConstructorInfo
@@ -12057,6 +12063,70 @@ callableRecipesProgram =
         argumentName
         (TypedLambdaExpr innerInfo innerArgumentBinder innerArgumentName (TypedLiteralExpr textInfo (TypedTextLiteral "ok")))
 
+callableShapesBinderReferencesProgram :: TypedProgram
+callableShapesBinderReferencesProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    statements
+    emptyInterface
+    directInfo
+    modulePath
+  where
+    fixture = "callable-shapes-binder-references"
+    modulePath = fixtureModulePath fixture
+    directName = fixtureValueName "direct"
+    directOwner = binder modulePath [0] directName
+    directOuterName = fixtureValueName "directOuter"
+    directOuterBinder = binder modulePath [0, 0] directOuterName
+    directInnerName = fixtureValueName "directInner"
+    directInnerBinder = binder modulePath [0, 0, 0] directInnerName
+    closureName = fixtureValueName "closure"
+    closureOwner = binder modulePath [1] closureName
+    closureOuterName = fixtureValueName "closureOuter"
+    closureOuterBinder = binder modulePath [1, 0] closureOuterName
+    closureInnerName = fixtureValueName "closureInner"
+    closureInnerBinder = binder modulePath [1, 0, 0] closureInnerName
+    scalarName = fixtureValueName "scalar"
+    scalarOwner = binder modulePath [2] scalarName
+    functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
+    directRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
+    closureRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
+    directInfo = info functionType directRecipe
+    closureInfo = info functionType closureRecipe
+    directScheme = TypedScheme directOwner [] [] [] functionType directRecipe (Just TypedDirectCallableShape)
+    closureScheme = TypedScheme closureOwner [] [] [] functionType closureRecipe (Just TypedClosureCallableShape)
+    scalarScheme = TypedScheme scalarOwner [] [] [] TypedBoolType TypedBoolRecipe Nothing
+    directExpression =
+      TypedLambdaExpr
+        directInfo
+        directOuterBinder
+        directOuterName
+        ( TypedLambdaExpr
+            boolToBoolInfo
+            directInnerBinder
+            directInnerName
+            (TypedVariableExpr boolInfo directInnerName (Just directInnerBinder))
+        )
+    closureExpression =
+      TypedLambdaExpr
+        closureInfo
+        closureOuterBinder
+        closureOuterName
+        ( TypedLambdaExpr
+            boolToBoolInfo
+            closureInnerBinder
+            closureInnerName
+            (TypedVariableExpr boolInfo closureInnerName (Just closureInnerBinder))
+        )
+    statements =
+      [ TypedLetStatement directOwner directName span1 directScheme directExpression,
+        TypedLetStatement closureOwner closureName span1 closureScheme closureExpression,
+        TypedLetStatement scalarOwner scalarName span1 scalarScheme trueExpr,
+        expressionStatement 1 (TypedVariableExpr directInfo directName (Just directOwner))
+      ]
+
 monomorphicBindingProgram :: TypedProgram
 monomorphicBindingProgram =
   singleModuleProgram
@@ -12071,7 +12141,7 @@ monomorphicBindingProgram =
     fixture = "monomorphic-binding"
     valueName = resolved TypedCurrentModule TypedValueNamespace "enabled"
     valueBinder = binder (fixtureModulePath fixture) [0] valueName
-    scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
 
 generalizedBindingProgram :: TypedProgram
 generalizedBindingProgram =
@@ -12101,6 +12171,7 @@ generalizedBindingProgram =
         (TypedRepresentationParameterRecipe parameter0)
     firstArgumentName = fixtureValueName "first"
     secondArgumentName = fixtureValueName "second"
+    firstArgumentBinder = binder (fixtureModulePath fixture) [0, 0] firstArgumentName
     innerType =
       TypedFunctionType
         (TypedTypeParameterType parameter1)
@@ -12112,19 +12183,20 @@ generalizedBindingProgram =
     valueExpression =
       TypedLambdaExpr
         (info polymorphicType polymorphicRecipe)
-        (binder (fixtureModulePath fixture) [0, 0] firstArgumentName)
+        firstArgumentBinder
         firstArgumentName
         ( TypedLambdaExpr
             (info innerType innerRecipe)
             (binder (fixtureModulePath fixture) [0, 0, 0] secondArgumentName)
             secondArgumentName
-            ( TypedVariableExpr
+            ( fixtureBoundVariableExpr
+                firstArgumentBinder
                 (info (TypedTypeParameterType parameter0) (TypedRepresentationParameterRecipe parameter0))
                 firstArgumentName
             )
         )
     scheme =
-      TypedScheme
+      fixtureScheme
         valueBinder
         [parameter0, parameter1]
         []
@@ -12167,7 +12239,7 @@ instantiationProgram fixture explicitSpan =
         explicitSpan
     parameterId = TypedTypeParameterId 0
     scheme =
-      TypedScheme
+      fixtureScheme
         owner
         [parameterId]
         []
@@ -12182,11 +12254,11 @@ instantiationProgram fixture explicitSpan =
         []
     expression =
       case explicitSpan of
-        Nothing -> TypedVariableExpr instantiatedInfo name
+        Nothing -> fixtureVariableExpr instantiatedInfo name
         Just explicitApplicationSpan ->
           TypedTypeApplicationExpr
             instantiatedInfo
-            (TypedVariableExpr instantiatedInfo name)
+            (fixtureVariableExpr instantiatedInfo name)
             explicitApplicationSpan
             TypedBoolType
 
@@ -12226,13 +12298,13 @@ evidenceProgram fixture parameterId =
     scheme =
       case parameterId of
         Nothing -> monoScheme valueBinder
-        Just evidenceId -> TypedScheme valueBinder [] [TypedEvidenceParameter evidenceId capability] [] TypedBoolType TypedBoolRecipe
+        Just evidenceId -> fixtureScheme valueBinder [] [TypedEvidenceParameter evidenceId capability] [] TypedBoolType TypedBoolRecipe
     instantiations =
       case parameterId of
         Nothing -> []
         Just _ -> [TypedInstantiation valueBinder [] Nothing]
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe instantiations [TypedSelectedEvidence evidenceUse])
         (case parameterId of Nothing -> TypedBuiltinName "Equal::equal"; Just _ -> valueName)
 
@@ -12253,7 +12325,7 @@ qualifiedMethodSelectionProgram =
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName "Equal::equal")
 
@@ -12291,9 +12363,9 @@ partialMethodCandidatesProgram =
         methodName
         span1
         methodExpression
-    methodExpression = TypedVariableExpr builtinMapInfo (TypedBuiltinName "map")
+    methodExpression = fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         (TypedNodeInfo builtinMapType builtinMapRecipe [] [TypedEvidenceCandidates constraint candidates])
         (TypedBuiltinName "map")
 
@@ -12349,7 +12421,7 @@ patternsBindersProgram =
         (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
         [TypedInstantiation optionConstructorOwner [TypedTypeArgument optionParameter TypedBoolType] Nothing]
         []
-    optionScrutinee = TypedApplyExpr optionInfo (TypedVariableExpr constructorInfo someName) trueExpr
+    optionScrutinee = TypedApplyExpr optionInfo (fixtureVariableExpr constructorInfo someName) trueExpr
     statements =
       TypedDataStatement optionDeclaration
         : zipWith
@@ -12397,7 +12469,7 @@ multiModuleInterfaceProgram =
   where
     preludeName = resolved TypedAmbientPrelude TypedValueNamespace "truth"
     preludeBinder = binder ["Prelude"] [0] preludeName
-    preludeScheme = TypedScheme preludeBinder [] [] [] TypedBoolType TypedBoolRecipe
+    preludeScheme = fixtureScheme preludeBinder [] [] [] TypedBoolType TypedBoolRecipe
     preludeModule =
       typedModule
         ["Prelude"]
@@ -12503,7 +12575,7 @@ recursivePhantomDataEqualityProgram =
     valueOwner = binder modulePath [1] valueName
     targetType = TypedDataType dataName [boolToBoolType]
     scheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -12604,29 +12676,33 @@ denseBindingDagProgram bindingCount =
           ("item" <> Text.pack (show index))
       | index <- [0 .. bindingCount - 1]
       ]
+    owners =
+      [ binder modulePath [index] name
+      | (index, name) <- zip [0 ..] names
+      ]
     bindings =
       [ TypedLetStatement
           owner
           name
           span1
           (monoScheme owner)
-          (denseExpression (take index names))
+          (denseExpression (take index (zip owners names)))
       | (index, name) <- zip [0 ..] names,
         let owner = binder modulePath [index] name
       ]
     denseExpression =
       foldr
-        ( \name rest ->
+        ( \(owner, name) rest ->
             TypedIfExpr
               boolInfo
-              (TypedVariableExpr boolInfo name)
+              (fixtureBoundVariableExpr owner boolInfo name)
               rest
               falseExpr
         )
         trueExpr
     terminalExpression =
-      case reverse names of
-        name : _ -> TypedVariableExpr boolInfo name
+      case reverse (zip owners names) of
+        (owner, name) : _ -> fixtureBoundVariableExpr owner boolInfo name
         [] -> trueExpr
 
 invalidResolvedOperatorSymbolsProgram :: TypedProgram
@@ -12649,7 +12725,7 @@ invalidResolvedOperatorSymbolsProgram =
         TypedBoolRecipe
     operatorInfo = info operatorType operatorRecipe
     operatorScheme lexicalIndex name =
-      TypedScheme
+      fixtureScheme
         (binder modulePath [lexicalIndex] name)
         []
         []
@@ -12694,7 +12770,7 @@ ambiguousQualifiedMethodSelectionProgram =
                 (Just (TypedMethodId implId "equal"))
             )
     expression =
-      TypedVariableExpr
+      fixtureVariableExpr
         ( TypedNodeInfo
             TypedBoolType
             TypedBoolRecipe
@@ -12751,7 +12827,7 @@ repeatedEqualityDagProgram depth =
     valueOwner = binder modulePath [depth + 1] valueName
     targetType = TypedDataType (dataName 0) [TypedBoolType]
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -12824,7 +12900,7 @@ recursivePhantomEqualityDagProgram depth =
     valueOwner = binder modulePath [depth + 1] valueName
     targetType = TypedDataType (dataName 0) [TypedBoolType]
     valueScheme =
-      TypedScheme
+      fixtureScheme
         valueOwner
         []
         []
@@ -12918,6 +12994,11 @@ expectedInvalidFixtureNames =
     "type-representation-mismatch",
     "data-recipe-declaration",
     "callable-recipe-signature",
+    "callable-missing-shape",
+    "scalar-carrying-shape",
+    "missing-binder-reference",
+    "unknown-binder-reference",
+    "binder-reference-contract-mismatch",
     "application-function-shape",
     "application-argument-type",
     "application-result-type",
@@ -12950,6 +13031,11 @@ invalidFixtures =
     typeRepresentationMismatchFixture,
     dataRecipeDeclarationFixture,
     callableRecipeSignatureFixture,
+    callableMissingShapeFixture,
+    scalarCarryingShapeFixture,
+    missingBinderReferenceFixture,
+    unknownBinderReferenceFixture,
+    binderReferenceContractMismatchFixture,
     applicationFunctionShapeFixture,
     applicationArgumentTypeFixture,
     applicationResultTypeFixture,
@@ -12970,7 +13056,7 @@ unresolvedSourceNameFixture :: InvalidFixture
 unresolvedSourceNameFixture =
   expressionFixture
     "unresolved-source-name"
-    (TypedVariableExpr boolInfo unresolvedName)
+    (fixtureVariableExpr boolInfo unresolvedName)
     [expressionFailure "unresolved-source-name" TypedUnresolvedName (TypedNameDetail unresolvedName)]
   where
     unresolvedName = TypedUnresolvedSourceName "missing"
@@ -12979,7 +13065,7 @@ unresolvedQualifiedNameFixture :: InvalidFixture
 unresolvedQualifiedNameFixture =
   expressionFixture
     "unresolved-qualified-name"
-    (TypedVariableExpr boolInfo unresolvedName)
+    (fixtureVariableExpr boolInfo unresolvedName)
     [expressionFailure "unresolved-qualified-name" TypedUnresolvedName (TypedNameDetail unresolvedName)]
   where
     unresolvedName = TypedUnresolvedQualifiedName "Missing" "item"
@@ -13043,7 +13129,7 @@ duplicateTypeParameterFixture =
     valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameters = [TypedTypeParameterId 0, TypedTypeParameterId 0, TypedTypeParameterId 3]
-    scheme = TypedScheme valueBinder parameters [] [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme valueBinder parameters [] [] TypedBoolType TypedBoolRecipe
     program = signatureProgram fixture valueBinder valueName scheme
     failures =
       [ statementFailure fixture 0 TypedDuplicateTypeParameter (TypedTypeParameterDetail (TypedTypeParameterId 0)),
@@ -13059,7 +13145,7 @@ freeTypeParameterFixture =
     valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameterId = TypedTypeParameterId 0
-    scheme = TypedScheme valueBinder [] [] [] (TypedTypeParameterType parameterId) TypedBoolRecipe
+    scheme = fixtureScheme valueBinder [] [] [] (TypedTypeParameterType parameterId) TypedBoolRecipe
     program = signatureProgram fixture valueBinder valueName scheme
 
 freeRepresentationParameterFixture :: InvalidFixture
@@ -13070,7 +13156,7 @@ freeRepresentationParameterFixture =
     valueName = fixtureValueName "item"
     valueBinder = fixtureBinder fixture 0 valueName
     parameterId = TypedTypeParameterId 0
-    scheme = TypedScheme valueBinder [] [] [] TypedBoolType (TypedRepresentationParameterRecipe parameterId)
+    scheme = fixtureScheme valueBinder [] [] [] TypedBoolType (TypedRepresentationParameterRecipe parameterId)
     program = signatureProgram fixture valueBinder valueName scheme
 
 invalidIntegerWidthFixture :: InvalidFixture
@@ -13113,8 +13199,72 @@ callableRecipeSignatureFixture =
     valueBinder = fixtureBinder fixture 0 valueName
     expectedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     actualRecipe = TypedClosureRecipe [TypedCharRecipe] TypedBoolRecipe
-    scheme = TypedScheme valueBinder [] [] [] (TypedFunctionType TypedBoolType TypedBoolType) actualRecipe
+    scheme = fixtureScheme valueBinder [] [] [] (TypedFunctionType TypedBoolType TypedBoolType) actualRecipe
     program = signatureProgram fixture valueBinder valueName scheme
+
+callableMissingShapeFixture :: InvalidFixture
+callableMissingShapeFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedCallableShapeMismatch (TypedBinderDetail valueBinder)]
+  where
+    fixture = "callable-missing-shape"
+    valueName = fixtureValueName "callable"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = TypedScheme valueBinder [] [] [] boolToBoolType boolToBoolRecipe Nothing
+    program = signatureProgram fixture valueBinder valueName scheme
+
+scalarCarryingShapeFixture :: InvalidFixture
+scalarCarryingShapeFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedCallableShapeMismatch (TypedBinderDetail valueBinder)]
+  where
+    fixture = "scalar-carrying-shape"
+    valueName = fixtureValueName "scalar"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe (Just TypedDirectCallableShape)
+    program = signatureProgram fixture valueBinder valueName scheme
+
+missingBinderReferenceFixture :: InvalidFixture
+missingBinderReferenceFixture =
+  InvalidFixture fixture program [expressionFailureAt fixture 1 TypedBinderReferenceMismatch (TypedBinderDetail valueBinder)]
+  where
+    fixture = "missing-binder-reference"
+    valueName = fixtureValueName "local"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe Nothing
+    statements =
+      [ TypedLetStatement valueBinder valueName span1 scheme trueExpr,
+        expressionStatement 1 (TypedVariableExpr boolInfo valueName Nothing)
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo (fixtureModulePath fixture)
+
+unknownBinderReferenceFixture :: InvalidFixture
+unknownBinderReferenceFixture =
+  InvalidFixture fixture program [expressionFailureAt fixture 1 TypedBinderReferenceMismatch (TypedBinderDetail unknownBinder)]
+  where
+    fixture = "unknown-binder-reference"
+    valueName = fixtureValueName "local"
+    valueBinder = fixtureBinder fixture 0 valueName
+    unknownBinder = fixtureBinder fixture 9 valueName
+    scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe Nothing
+    statements =
+      [ TypedLetStatement valueBinder valueName span1 scheme trueExpr,
+        expressionStatement 1 (TypedVariableExpr boolInfo valueName (Just unknownBinder))
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo (fixtureModulePath fixture)
+
+binderReferenceContractMismatchFixture :: InvalidFixture
+binderReferenceContractMismatchFixture =
+  InvalidFixture fixture program [expressionFailureAt fixture 1 TypedBinderReferenceMismatch (TypedBinderDetail valueBinder)]
+  where
+    fixture = "binder-reference-contract-mismatch"
+    valueName = fixtureValueName "local"
+    valueBinder = fixtureBinder fixture 0 valueName
+    scheme = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe Nothing
+    mismatchedInfo = info TypedCharType TypedCharRecipe
+    statements =
+      [ TypedLetStatement valueBinder valueName span1 scheme trueExpr,
+        expressionStatement 1 (TypedVariableExpr mismatchedInfo valueName (Just valueBinder))
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface mismatchedInfo (fixtureModulePath fixture)
 
 applicationFunctionShapeFixture :: InvalidFixture
 applicationFunctionShapeFixture =
@@ -13213,7 +13363,7 @@ duplicateEvidenceParameterFixture =
         TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint,
         TypedEvidenceParameter (TypedEvidenceParameterId 3) constraint
       ]
-    scheme = TypedScheme valueBinder [] evidence [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme valueBinder [] evidence [] TypedBoolType TypedBoolRecipe
     program = withFixturePrelude (signatureProgram fixture valueBinder valueName scheme)
     failures =
       [ statementFailure fixture 0 TypedDuplicateEvidenceParameter (TypedEvidenceParameterDetail (TypedEvidenceParameterId 0)),
@@ -13230,7 +13380,7 @@ instantiationContractFixture =
     unknownName = fixtureValueName "unknown"
     unknownOwner = fixtureBinder fixture 9 unknownName
     instantiation = TypedInstantiation unknownOwner [] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo builtinMapType builtinMapRecipe [instantiation] []) (TypedBuiltinName "map")
+    expression = TypedVariableExpr (TypedNodeInfo builtinMapType builtinMapRecipe [instantiation] []) (TypedBuiltinName "map") Nothing
 
 missingOrDuplicateEvidenceFixture :: InvalidFixture
 missingOrDuplicateEvidenceFixture =
@@ -13374,9 +13524,10 @@ polymorphicIdentityExpression modulePath lexicalPath parameterId =
     functionInfo
     (binder modulePath (lexicalPath <> [0]) argumentName)
     argumentName
-    (TypedVariableExpr parameterInfo argumentName)
+    (fixtureBoundVariableExpr argumentBinder parameterInfo argumentName)
   where
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    argumentBinder = binder modulePath (lexicalPath <> [0]) argumentName
     parameterType = TypedTypeParameterType parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     parameterInfo = info parameterType parameterRecipe
@@ -13427,7 +13578,30 @@ fixtureModuleSegment :: Text -> Text
 fixtureModuleSegment = Text.replace "-" "_"
 
 monoScheme :: TypedBinderId -> TypedScheme
-monoScheme valueBinder = TypedScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
+monoScheme valueBinder = fixtureScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
+
+fixtureScheme :: TypedBinderId -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedPrimitiveConstraint] -> TypedType -> TypedRepresentationRecipe -> TypedScheme
+fixtureScheme owner parameters evidence primitive typeValue recipe =
+  TypedScheme owner parameters evidence primitive typeValue recipe callableShape
+  where
+    callableShape =
+      case typeValue of
+        TypedFunctionType {} -> Just TypedDirectCallableShape
+        _ -> Nothing
+
+fixtureVariableExpr :: TypedNodeInfo -> TypedCoreName -> TypedExpr
+fixtureVariableExpr nodeInfo name = TypedVariableExpr nodeInfo name binderReference
+  where
+    binderReference =
+      case nodeInstantiationsForFixture nodeInfo of
+        TypedInstantiation owner _ _ : _ -> Just owner
+        [] -> Nothing
+
+fixtureBoundVariableExpr :: TypedBinderId -> TypedNodeInfo -> TypedCoreName -> TypedExpr
+fixtureBoundVariableExpr owner nodeInfo name = TypedVariableExpr nodeInfo name (Just owner)
+
+nodeInstantiationsForFixture :: TypedNodeInfo -> [TypedInstantiation]
+nodeInstantiationsForFixture (TypedNodeInfo _ _ instantiations _) = instantiations
 
 boolToBoolType :: TypedType
 boolToBoolType = TypedFunctionType TypedBoolType TypedBoolType
