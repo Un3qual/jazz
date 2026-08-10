@@ -139,7 +139,8 @@ acceptedFixtures =
     sourceFixtureNoExports "closure-result" closureResultSource,
     sourceFixtureNoExports "callable-parameter-shadows-named-function" callableParameterShadowsNamedFunctionSource,
     sourceFixtureNoExports "callable-parameter-shadows-enclosing-function" callableParameterShadowsEnclosingFunctionSource,
-    sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource
+    sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource,
+    sourceFixtureNoExports "callable-parameter-value-shadows-enclosing-function" callableParameterValueShadowsEnclosingFunctionSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -164,6 +165,8 @@ rejectedFixtures =
     sourceFixtureNoExports "capturing-function" capturingFunctionSource,
     sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
     sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
+    sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
+    sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
     sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
     (sourceFixture "imported-direct-call" importedDirectCallSource)
       { fixtureInputs =
@@ -506,6 +509,13 @@ closedCallableExpectedPrograms =
             (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
             (directCall "identity" [boolInfo] boolInfo [boolExpr True])
         )
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, shadowingForwardFunction, boolIdentityFunction]
+        (directCall "forward" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
     )
   ]
 
@@ -762,6 +772,20 @@ closedCallableExpectedLoweredPrograms =
             [loweredTemporary 3 LoweredBoolRepresentation, loweredTemporary 6 LoweredBoolRepresentation]
         ]
         (loweredTemporary 7 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt5]
+        [ expectedBoolApplyFunction,
+          expectedBoolForwardFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt5
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt5,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt5,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "forward" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
     )
   ]
 
@@ -826,6 +850,14 @@ independentClosureExpectedLoweredPrograms =
       expectedClosureCallableLoweredProgram
         []
         [expectedBoolCombineFunction, expectedBoolApplyFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function-lowerer",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolApplyFunction, expectedBoolForwardFunction]
         LoweredBoolRepresentation
         []
         (loweredImmediate (LoweredBoolImmediate True))
@@ -993,6 +1025,20 @@ expectedBoolApplyFunction =
     ]
     (loweredTemporary 1 LoweredBoolRepresentation)
 
+expectedBoolForwardFunction :: LoweredFunction
+expectedBoolForwardFunction =
+  expectedLocalFunction
+    "forward"
+    [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+    LoweredBoolRepresentation
+    [ expectedDirectCallInstruction
+        1
+        LoweredBoolRepresentation
+        "apply"
+        [loweredParameter 1 boolClosureRepresentation]
+    ]
+    (loweredTemporary 1 LoweredBoolRepresentation)
+
 expectedBoolCombineFunction :: LoweredFunction
 expectedBoolCombineFunction =
   expectedLocalFunction
@@ -1098,6 +1144,7 @@ lowererBoundaryPrograms =
     ("closure-shaped-named-function", closureShapeLowererProgram),
     ("closure-shaped-named-application", closureShapeApplicationLowererProgram),
     ("callable-parameter-shadows-top-level-lowerer", callableParameterShadowsTopLevelLowererProgram),
+    ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
     ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
@@ -1107,6 +1154,8 @@ lowererBoundaryPrograms =
     ("self-recursive-function", selfRecursiveLowererProgram),
     ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
     ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
+    ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
+    ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
@@ -1169,6 +1218,13 @@ callableParameterShadowsTopLevelLowererProgram =
   expectedFunctionProgram
     []
     [boolCombineFunction, applyCombineParameterFunction]
+    (boolExpr True)
+
+callableParameterValueShadowsEnclosingFunctionLowererProgram :: TypedProgram
+callableParameterValueShadowsEnclosingFunctionLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, shadowingForwardFunction]
     (boolExpr True)
 
 closureValuedParameterLowererProgram :: TypedProgram
@@ -1615,6 +1671,20 @@ mutuallyRecursiveLowererProgram =
         (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "left" [intInfo] intInfo [intExpr 1])
+
+closureValueSelfRecursiveLowererProgram :: TypedProgram
+closureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, closurePassingLoopFunction]
+    (boolExpr True)
+
+closureValueMutualRecursiveLowererProgram :: TypedProgram
+closureValueMutualRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
+    (boolExpr True)
 
 bareFunctionLowererProgram :: TypedProgram
 bareFunctionLowererProgram =
@@ -2356,6 +2426,18 @@ mixedDirectAndValueUseSource =
       "apply identity == identity True."
     ]
 
+callableParameterValueShadowsEnclosingFunctionSource :: Text
+callableParameterValueShadowsEnclosingFunctionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "forward :: (Bool -> Bool) -> Bool.",
+      "forward = \\(forward) -> apply forward.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "forward identity."
+    ]
+
 partialDirectCallSource :: Text
 partialDirectCallSource =
   Text.unlines
@@ -2398,6 +2480,28 @@ mutuallyRecursiveFunctionsSource =
       "right :: Int -> Int.",
       "right = \\(item) -> left item.",
       "left 1."
+    ]
+
+closureValueSelfRecursionSource :: Text
+closureValueSelfRecursionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "loop :: Bool -> Bool.",
+      "loop = \\(item) -> apply loop.",
+      "loop False."
+    ]
+
+closureValueMutualRecursionSource :: Text
+closureValueMutualRecursionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "left :: Bool -> Bool.",
+      "left = \\(item) -> apply right.",
+      "right :: Bool -> Bool.",
+      "right = \\(item) -> apply left.",
+      "left False."
     ]
 
 polymorphicFunctionSource :: Text
@@ -2596,6 +2700,42 @@ selfShadowingApplyFunction =
     boolInfo
     TypedDirectCallableShape
     (directCall "apply" [boolInfo] boolInfo [boolExpr True])
+
+shadowingForwardFunction :: ExpectedFunction
+shadowingForwardFunction =
+  ExpectedFunction
+    "forward"
+    [("forward", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "forward" boolCallableInfo])
+
+closurePassingLoopFunction :: ExpectedFunction
+closurePassingLoopFunction =
+  ExpectedFunction
+    "loop"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "loop" boolCallableInfo])
+
+closurePassingLeftFunction :: ExpectedFunction
+closurePassingLeftFunction =
+  ExpectedFunction
+    "left"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "right" boolCallableInfo])
+
+closurePassingRightFunction :: ExpectedFunction
+closurePassingRightFunction =
+  ExpectedFunction
+    "right"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "left" boolCallableInfo])
 
 chooseFunction :: ExpectedFunction
 chooseFunction =

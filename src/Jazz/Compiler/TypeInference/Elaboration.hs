@@ -676,30 +676,36 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
         [ name
         | component <-
             stronglyConnComp
-              [ (name, name, Set.toList (localCalls functions (functionExpression function)))
-              | (name, function) <- Map.toList functions
+              [ ( (name, binder),
+                  binder,
+                  Set.toList (localFunctionDependencies functionBinders (functionExpression function))
+                )
+              | (name, function) <- Map.toList functions,
+                let binder = functionBinders Map.! name
               ],
           name <- case component of
-            AcyclicSCC candidate
-              | Set.member candidate (localCalls functions (functionExpression (functions Map.! candidate))) -> [candidate]
+            AcyclicSCC (candidate, binder)
+              | Set.member binder (localFunctionDependencies functionBinders (functionExpression (functions Map.! candidate))) -> [candidate]
             AcyclicSCC _ -> []
-            CyclicSCC names -> names
+            CyclicSCC functionsInCycle -> map fst functionsInCycle
         ]
+      where
+        functionBinders =
+          Map.mapWithKey
+            (\name function -> binderAt (functionStatementIndex function) [] (resolvedValueName name))
+            functions
 
-    localCalls functions = go Set.empty
+    localFunctionDependencies functionBinders = go Set.empty
       where
         go lexicalNames expression =
           case expression of
+            ProvisionalVariableExpression name _
+              | Set.notMember name lexicalNames,
+                Just binder <- Map.lookup name functionBinders ->
+                  Set.singleton binder
+              | otherwise -> Set.empty
             ProvisionalApplyExpression _ function argument ->
-              let (callee, _, _) = applicationSpine expression
-                  own =
-                    case callee of
-                      ProvisionalVariableExpression name _
-                        | Set.notMember name lexicalNames,
-                          Map.member name functions ->
-                            Set.singleton name
-                      _ -> Set.empty
-               in own <> go lexicalNames function <> go lexicalNames argument
+              go lexicalNames function <> go lexicalNames argument
             ProvisionalLambdaExpression parameterName _ body ->
               go (Set.insert parameterName lexicalNames) body
             ProvisionalBinaryExpression _ _ _ left right ->

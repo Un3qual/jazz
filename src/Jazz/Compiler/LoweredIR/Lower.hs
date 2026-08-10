@@ -87,7 +87,7 @@ data FunctionShape = FunctionShape
 
 data ExpressionCheck = ExpressionCheck
   { expressionCheckFailures :: [LoweredIRLoweringFailure],
-    expressionCheckCalls :: [TypedCoreName]
+    expressionCheckDependencies :: [TypedBinderId]
   }
 
 lowerTypedCoreExpressionDirectCall :: TypedProgram -> LoweredIRLoweringResult
@@ -157,10 +157,10 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
           ]
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath (TypedModulePath modulePath) (typedNodeRecipe moduleInfo)
-    (profileFailures, functionCalls) =
+    (profileFailures, functionDependencies) =
       validateStatementProfiles modulePath functionShapes localValueNames statements
     recursiveFailures =
-      recursiveFunctionFailures modulePath functionShapes functionCalls
+      recursiveFunctionFailures modulePath functionShapes functionDependencies
     statementFailures =
       orderedStatementFailures
         (length statements)
@@ -557,7 +557,7 @@ validateStatementProfiles ::
   [FunctionShape] ->
   [TypedCoreName] ->
   [TypedStatement] ->
-  ([LoweredIRLoweringFailure], [(TypedCoreName, [TypedCoreName])])
+  ([LoweredIRLoweringFailure], [(TypedBinderId, [TypedBinderId])])
 validateStatementProfiles modulePath functions localValueNames =
   go 0 [] []
   where
@@ -596,7 +596,7 @@ validateStatementProfiles modulePath functions localValueNames =
                       (functionShapeBody function)
                in continue
                     (expressionCheckFailures check : reversedFailureChunks)
-                    ((functionShapeName function, expressionCheckCalls check) : reversedCalls)
+                    ((functionShapeBinder function, expressionCheckDependencies check) : reversedCalls)
         TypedExpressionStatement _ expression ->
           let check =
                 inspectExpression
@@ -639,7 +639,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
             Just function
               | functionShapeCallableShape function == TypedClosureCallableShape,
                 loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
-                  noExpressionFailures
+                  ExpressionCheck [] [functionShapeBinder function]
             Just _ ->
               oneFailure
                 LoweredIRCallableValueUnsupported
@@ -707,7 +707,7 @@ combineExpressionChecks :: [ExpressionCheck] -> ExpressionCheck
 combineExpressionChecks checks =
   ExpressionCheck
     (concatMap expressionCheckFailures checks)
-    (concatMap expressionCheckCalls checks)
+    (concatMap expressionCheckDependencies checks)
 
 inspectApplication ::
   [Text] ->
@@ -740,9 +740,9 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape,
                 actualArity == 1 ->
-                  ExpressionCheck [] [name]
+                  ExpressionCheck [] [functionShapeBinder target]
               | expectedArity == actualArity ->
-                  ExpressionCheck [] [name]
+                  ExpressionCheck [] [functionShapeBinder target]
               | otherwise ->
                   ExpressionCheck
                     [ LoweredIRLoweringFailure
@@ -750,7 +750,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                         LoweredIRCallArityUnsupported
                         (LoweredIRArityFailureDetail expectedArity actualArity)
                     ]
-                    [name]
+                    [functionShapeBinder target]
               where
                 expectedArity = length (functionShapeParameters target)
             Nothing
@@ -836,27 +836,27 @@ functionEnvironmentParameter function = do
 recursiveFunctionFailures ::
   [Text] ->
   [FunctionShape] ->
-  [(TypedCoreName, [TypedCoreName])] ->
+  [(TypedBinderId, [TypedBinderId])] ->
   [LoweredIRLoweringFailure]
-recursiveFunctionFailures modulePath functions functionCalls =
+recursiveFunctionFailures modulePath functions functionDependencies =
   [ LoweredIRLoweringFailure
       (TypedStatementPath modulePath [functionShapeStatementIndex function])
       LoweredIRRecursiveFunctionUnsupported
       (LoweredIRNameFailureDetail (functionShapeName function))
   | function <- functions,
-    recursivelyReaches (functionShapeName function)
+    recursivelyReaches (functionShapeBinder function)
   ]
   where
     recursivelyReaches source =
-      any (reaches source []) (callsFrom source)
+      any (reaches source []) (dependenciesFrom source)
     reaches target seen current
       | current == target = True
       | current `elem` seen = False
       | otherwise =
-          any (reaches target (current : seen)) (callsFrom current)
-    callsFrom name =
-      case lookup name functionCalls of
-        Just calls -> calls
+          any (reaches target (current : seen)) (dependenciesFrom current)
+    dependenciesFrom binder =
+      case lookup binder functionDependencies of
+        Just dependencies -> dependencies
         Nothing -> []
 
 emitFunction ::

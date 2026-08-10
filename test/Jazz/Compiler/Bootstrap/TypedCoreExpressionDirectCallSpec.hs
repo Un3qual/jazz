@@ -119,7 +119,8 @@ testFixtureManifest = do
           "closure-result",
           "callable-parameter-shadows-named-function",
           "callable-parameter-shadows-enclosing-function",
-          "mixed-direct-and-value-use"
+          "mixed-direct-and-value-use",
+          "callable-parameter-value-shadows-enclosing-function"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -138,6 +139,8 @@ testFixtureManifest = do
           "capturing-function",
           "self-recursive-function",
           "mutually-recursive-functions",
+          "closure-value-mutual-recursion",
+          "closure-value-self-recursion",
           "polymorphic-or-evidence-function",
           "imported-direct-call",
           "user-defined-operator-call"
@@ -145,9 +148,9 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 22 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 41 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "accepted fixture count" 23 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 21 (length rejectedFixtureNames)
+    >> assertEqual "unique fixture count" 44 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
     >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
@@ -188,6 +191,7 @@ testIndependentLowererManifest = do
           "closure-shaped-named-function",
           "closure-shaped-named-application",
           "callable-parameter-shadows-top-level-lowerer",
+          "callable-parameter-value-shadows-enclosing-function-lowerer",
           "direct-flattened-representation",
           "non-concrete-closure-representation",
           "callable-shape-body-disagreement",
@@ -197,6 +201,8 @@ testIndependentLowererManifest = do
           "self-recursive-function",
           "closure-shaped-self-recursive-function",
           "mutually-recursive-functions",
+          "closure-value-mutual-recursion",
+          "closure-value-self-recursion",
           "bare-function-value",
           "partial-direct-call",
           "imported-direct-call",
@@ -468,6 +474,24 @@ testLowererCallableBoundary =
               3
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "right"))
+          ]
+        ),
+        ( "closure-value-mutual-recursion",
+          [ statementFailure
+              3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "left")),
+            statementFailure
+              5
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "right"))
+          ]
+        ),
+        ( "closure-value-self-recursion",
+          [ statementFailure
+              3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop"))
           ]
         ),
         ( "bare-function-value",
@@ -1202,6 +1226,8 @@ callableRejectionNames =
     "capturing-function",
     "self-recursive-function",
     "mutually-recursive-functions",
+    "closure-value-mutual-recursion",
+    "closure-value-self-recursion",
     "polymorphic-or-evidence-function",
     "imported-direct-call",
     "user-defined-operator-call"
@@ -1255,6 +1281,15 @@ rejectedManifestExpectedStatuses =
         [ statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
           statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
         ]
+    ),
+    ( "closure-value-mutual-recursion",
+      unsupported
+        [ statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
+          statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
+        ]
+    ),
+    ( "closure-value-self-recursion",
+      unsupported [statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]
     ),
     ( "polymorphic-or-evidence-function",
       unsupported
