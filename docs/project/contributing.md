@@ -17,23 +17,26 @@ documentation contributions. Start by reading the [status](status.md),
 - `examples/` contains checked teaching programs.
 - `programs/` contains production-shaped correctness and benchmark cases.
 
-## Development loop
+## Before changing Jazz
 
-Enter the reproducible shell, build, and run ordinary checks:
+Semantic language changes are RFC-first. Maintenance and documentation fixes
+that preserve observable behavior may proceed implementation-first. In either
+case, keep implementation, focused tests, and affected public documentation in
+the same change.
 
-```bash
-nix --extra-experimental-features 'nix-command flakes' develop
-cabal build all
-cabal test all --test-show-details=direct
-bash scripts/check-examples.sh
-bash scripts/check-docs.sh
-```
+Enter the reproducible Nix development shell and use focused tests while
+working. Before review, run the verification tier appropriate to the change.
+Long parser-scale, corpus, profiling, and benchmark workloads run weekly,
+manually, or for release candidates rather than on every pull request.
 
-Keep compiler behavior and tests in the same change. A complete runnable
-program used in public documentation must be a checked file under `examples/`;
-inline code is a fragment. Do not change semantics merely to make prose or an
-example pass—correct the claim or propose the language change first.
+The
+[canonical contributor guide](https://github.com/un3qual/jazz/blob/main/CONTRIBUTING.md)
+contains setup, command, repository-ownership, RFC, CI-tier, issue, and
+pull-request details.
 
-Use focused test components while developing, then run the ordinary matrix.
-Exhaustive scale, profiling, and full benchmarks are opt-in gates for relevant
-changes rather than routine documentation checks.
+## Public examples
+
+A complete runnable program used in public documentation must be a checked file
+under `examples/`; inline code is a fragment. Do not change semantics merely to
+make prose or an example pass—correct the claim or propose the language change
+first.

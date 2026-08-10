@@ -1,10 +1,32 @@
 {
   "name": "jazz-language",
   "displayName": "Jazz Language",
-  "description": "Syntax highlighting for the Jazz programming language.",
+  "description": "Syntax highlighting and editor configuration for the Jazz programming language.",
   "version": "0.1.0",
   "publisher": "jazz-lang",
   "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/un3qual/jazz.git"
+  },
+  "homepage": "https://un3qual.github.io/jazz/",
+  "bugs": {
+    "url": "https://github.com/un3qual/jazz/issues"
+  },
+  "icon": "icon.png",
+  "keywords": [
+    "jazz",
+    "functional",
+    "programming-language",
+    "syntax-highlighting"
+  ],
+  "files": [
+    "README.md",
+    "LICENSE",
+    "icon.png",
+    "language-configuration.json",
+    "syntaxes"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },

@@ -1,0 +1,73 @@
+name: Extended verification
+
+on:
+  schedule:
+    - cron: "17 7 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended
+  cancel-in-progress: false
+
+jobs:
+  extended:
+    name: Weekly and manual extended verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      JAZZ_ARTIFACT_ROOT: artifacts/extended
+      JAZZ_BENCHMARK_LABEL: github-actions-extended
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+
+      - name: Cache Cabal dependencies and build output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
+
+      - name: Run extended verification
+        id: extended
+        run: nix develop --command bash scripts/ci/extended.sh
+
+      - name: Upload extended verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/extended/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Summarize extended verification
+        if: always()
+        env:
+          EXTENDED_OUTCOME: ${{ steps.extended.outcome }}
+        run: |
+          {
+            echo "## Extended verification"
+            echo
+            echo "Completion state: \`$EXTENDED_OUTCOME\`"
+            echo
+            echo "Artifact paths:"
+            echo "- \`artifacts/extended/benchmarks/**/results.csv\`"
+            echo "- \`artifacts/extended/benchmarks/**/environment.json\`"
+            echo "- \`artifacts/extended/determinism/profile-one.speedscope.json\`"
+            echo "- \`artifacts/extended/determinism/profile-two.speedscope.json\`"
+            echo "- \`artifacts/extended/corpus/pass-one.txt\`"
+            echo "- \`artifacts/extended/corpus/pass-two.txt\`"
+            echo "- \`artifacts/extended/manifest.json\`"
+          } >> "$GITHUB_STEP_SUMMARY"

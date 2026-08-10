@@ -1,9 +1,14 @@
 __pycache__/
+.DS_Store
 *.py[cod]
+*.vsix
 dist-newstyle/
 dist-newstyle-profile-*/
+/artifacts/
+/result
 benchmark-results/
 profile-results/
+.pnpm-store/
 website/node_modules/
 website/build/
 website/.docusaurus/

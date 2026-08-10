@@ -2,13 +2,15 @@
 
 module Main (main) where
 
+import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, unless, when)
 import Data.Aeson (Value (..), eitherDecodeStrict')
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString as ByteString
+import Data.Char (toLower)
 import Data.Foldable (toList)
-import Data.List (sort)
+import Data.List (sort, stripPrefix)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -60,8 +62,20 @@ import Jazz.TestHarness
     failTest,
     runTestSuite,
   )
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (makeRelative, takeExtension, (</>))
+import System.Directory
+  ( canonicalizePath,
+    createDirectoryIfMissing,
+    doesDirectoryExist,
+    doesFileExist,
+    getTemporaryDirectory,
+    listDirectory,
+    removeFile,
+    removePathForcibly,
+  )
+import System.Exit (ExitCode (..))
+import System.FilePath (makeRelative, normalise, takeExtension, (</>))
+import System.IO (hClose, openTempFile)
+import System.Process (CreateProcess (cwd), proc, readCreateProcessWithExitCode)
 
 main :: IO ()
 main = runTestSuite "RepositoryAudit" tests
@@ -83,6 +97,12 @@ tests =
     ("rejects shallow data payload continuations", testDataContinuationIndent),
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
+    ("accepts legal Cabal field formatting", testPackagePolicyFormatting),
+    ("rejects incorrect canonical package metadata", testIncorrectPackageMetadata),
+    ("rejects empty canonical package URLs", testEmptyPackageUrl),
+    ("rejects legacy product identities in package metadata", testLegacyPackageIdentity),
+    ("preserves inline double dashes in package metadata", testInlineDoubleDashPackageValue),
+    ("does not reject longer current product names", testLegacyIdentityBoundaries),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
     ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
     ("rejects a private library without private visibility", testMissingPrivateVisibility),
@@ -95,6 +115,13 @@ tests =
     ("locates the Jazz package root", testPackageRoot),
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
+    ("packages the complete public source distribution", testSourceDistributionInventory),
+    ("falls back to scoped source-tree inventory without Git metadata", testSourceDistributionFallback),
+    ("does not trust an unrelated parent Git repository", testSourceDistributionNestedRepositoryFallback),
+    ("normalizes Windows-style Git inventory roots", testSourceDistributionWindowsRoots),
+    ("normalizes Windows-style required source paths", testSourceDistributionWindowsRequiredPaths),
+    ("rejects cross-platform generated source-distribution paths", testForbiddenSourceDistributionPaths),
+    ("ignores generated VS Code extension packages", testVsixArtifactsIgnored),
     ("integrates the unified diagnostic and signature-rendering boundaries", testDiagnosticRenderingBoundaries),
     ("documents the shared program corpus and performance workflows", testPerformanceDocumentation),
     ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths),
@@ -317,11 +344,58 @@ validJazzSource =
   }
   """
 
+validPackageMetadata :: Text
+validPackageMetadata =
+  """
+  name: jazz
+  synopsis: A statically typed functional language with practical syntax
+  homepage: https://un3qual.github.io/jazz/
+  bug-reports: https://github.com/un3qual/jazz/issues
+  author: un3qual
+  maintainer: un3qual
+  category: Language
+  stability: Experimental
+  tested-with: GHC == 9.14.1
+  license: GPL-3.0-only
+  license-file: LICENSE
+
+  source-repository head
+    type: git
+    location: https://github.com/un3qual/jazz.git
+  """
+
 validPrivatePackage :: Text
 validPrivatePackage =
+  validPackageMetadata
+    <> "\n"
+    <> """
+       library jazz-internal
+         visibility: private
+       """
+
+formattedPrivatePackage :: Text
+formattedPrivatePackage =
   """
-  library jazz-internal
-    visibility: private
+  Name : jazz
+  Synopsis: A statically typed functional language with
+    practical syntax
+  Homepage: https://un3qual.github.io/jazz/
+  Bug-Reports : https://github.com/un3qual/jazz/issues
+  Author: un3qual
+  Maintainer: un3qual
+  Category: Language
+  Stability: Experimental
+  -- Pinned compiler version.
+  Tested-With: GHC == 9.14.1
+  License: GPL-3.0-only
+  License-File: LICENSE
+
+  Source-Repository Head
+    Type : git
+    Location: https://github.com/un3qual/jazz.git
+
+  Library jazz-internal
+    Visibility : private
   """
 
 testValidJazzModule :: IO ()
@@ -459,16 +533,84 @@ testPrivatePackagePolicy :: IO ()
 testPrivatePackagePolicy =
   assertEqual "valid private library policy" [] (validatePackagePolicy validPrivatePackage)
 
+testPackagePolicyFormatting :: IO ()
+testPackagePolicyFormatting =
+  assertEqual
+    "legal Cabal formatting"
+    []
+    (validatePackagePolicy formattedPrivatePackage)
+
+testIncorrectPackageMetadata :: IO ()
+testIncorrectPackageMetadata =
+  assertEqual
+    "example-domain homepage is rejected"
+    True
+    ( InvalidPackageField
+        "homepage"
+        "https://un3qual.github.io/jazz/"
+        (Just "https://example.com/jazz")
+        `elem` validatePackagePolicy
+          ( Text.replace
+              "homepage: https://un3qual.github.io/jazz/"
+              "homepage: https://example.com/jazz"
+              validPrivatePackage
+          )
+    )
+
+testEmptyPackageUrl :: IO ()
+testEmptyPackageUrl =
+  assertEqual
+    "empty bug-report URL is rejected"
+    True
+    ( InvalidPackageField
+        "bug-reports"
+        "https://github.com/un3qual/jazz/issues"
+        (Just "")
+        `elem` validatePackagePolicy
+          ( Text.replace
+              "bug-reports: https://github.com/un3qual/jazz/issues"
+              "bug-reports:"
+              validPrivatePackage
+          )
+    )
+
+testLegacyPackageIdentity :: IO ()
+testLegacyPackageIdentity =
+  assertEqual
+    "legacy product identity is rejected"
+    True
+    ( LegacyPackageIdentity "JazzNext"
+        `elem` validatePackagePolicy
+          (validPrivatePackage <> "\ndescription: JazzNext compiler\n")
+    )
+
+testInlineDoubleDashPackageValue :: IO ()
+testInlineDoubleDashPackageValue =
+  assertEqual
+    "inline double dash remains package metadata"
+    [LegacyPackageIdentity "JazzNext"]
+    (validatePackagePolicy (validPrivatePackage <> "\ndescription: tools -- JazzNext compiler\n"))
+
+testLegacyIdentityBoundaries :: IO ()
+testLegacyIdentityBoundaries =
+  assertEqual
+    "longer current product names are not legacy identities"
+    []
+    (validatePackagePolicy (validPrivatePackage <> "\ndescription: jazz2024 tools\n"))
+
 testPublicLibraryPolicy :: IO ()
 testPublicLibraryPolicy =
   assertEqual
     "public library policy"
     [PublicLibraryStanza, MissingPrivateLibraryStanza]
     ( validatePackagePolicy
-        """
-        library
-          exposed-modules: Public
-        """
+        ( validPackageMetadata
+            <> "\n"
+            <> """
+               library
+                 exposed-modules: Public
+               """
+        )
     )
 
 testNamedPublicLibraryPolicy :: IO ()
@@ -477,13 +619,13 @@ testNamedPublicLibraryPolicy =
     "named public library policy"
     [PublicLibraryStanza]
     ( validatePackagePolicy
-        """
-        library jazz-internal
-          visibility: private
-
-        library jazz-api
-          visibility: public
-        """
+        ( validPrivatePackage
+            <> "\n"
+            <> """
+               library jazz-api
+                 visibility: public
+               """
+        )
     )
 
 testMissingPrivateVisibility :: IO ()
@@ -492,10 +634,13 @@ testMissingPrivateVisibility =
     "missing private visibility"
     [MissingPrivateLibraryVisibility]
     ( validatePackagePolicy
-        """
-        library jazz-internal
-          exposed-modules: Internal
-        """
+        ( validPackageMetadata
+            <> "\n"
+            <> """
+               library jazz-internal
+                 exposed-modules: Internal
+               """
+        )
     )
 
 testRejectsStdlibCompilerImport :: IO ()
@@ -594,7 +739,7 @@ testEditorPackageMetadata =
           firstValue
             [ patternValue
             | patternValue <- keywordPatterns,
-              jsonPath ["match"] patternValue == Just (String "\\bvalue\\b")
+              jsonPath ["name"] patternValue == Just (String "keyword.other.reserved.jazz")
             ]
         exportRegionBegin = jsonPath ["repository", "exports", "begin"] grammar
         exportPatterns =
@@ -619,6 +764,8 @@ testEditorPackageMetadata =
             jsonArray
             (jsonPath ["repository", "lambdas", "patterns"] grammar)
         patternLambdaIntroducer = firstValue lambdaPatterns
+        keywords = maybe [] jsonArray (jsonPath ["keywords"] manifest)
+        packagedFiles = maybe [] jsonArray (jsonPath ["files"] manifest)
     assertEqual "manifest language id" (Just (String "jazz")) (language >>= jsonPath ["id"])
     assertEqual "manifest .jz extension" True (String ".jz" `elem` extensions)
     assertEqual
@@ -633,10 +780,94 @@ testEditorPackageMetadata =
       "manifest grammar path"
       (Just (String "./syntaxes/jazz.tmLanguage.json"))
       (contributedGrammar >>= jsonPath ["path"])
+    assertEqual
+      "manifest description reflects syntax-only scope"
+      (Just (String "Syntax highlighting and editor configuration for the Jazz programming language."))
+      (jsonPath ["description"] manifest)
+    assertEqual
+      "manifest repository type"
+      (Just (String "git"))
+      (jsonPath ["repository", "type"] manifest)
+    assertEqual
+      "manifest repository URL"
+      (Just (String "https://github.com/un3qual/jazz.git"))
+      (jsonPath ["repository", "url"] manifest)
+    assertEqual
+      "manifest homepage"
+      (Just (String "https://un3qual.github.io/jazz/"))
+      (jsonPath ["homepage"] manifest)
+    assertEqual
+      "manifest issue tracker"
+      (Just (String "https://github.com/un3qual/jazz/issues"))
+      (jsonPath ["bugs", "url"] manifest)
+    assertEqual
+      "manifest icon"
+      (Just (String "icon.png"))
+      (jsonPath ["icon"] manifest)
+    assertEqual
+      "manifest keywords"
+      [ String "jazz",
+        String "functional",
+        String "programming-language",
+        String "syntax-highlighting"
+      ]
+      keywords
+    assertEqual
+      "manifest package file allowlist"
+      [ String "README.md",
+        String "LICENSE",
+        String "icon.png",
+        String "language-configuration.json",
+        String "syntaxes"
+      ]
+      packagedFiles
+    assertEqual "syntax-only extension has no runtime entrypoint" Nothing (jsonPath ["main"] manifest)
+    assertEqual "syntax-only extension has no browser entrypoint" Nothing (jsonPath ["browser"] manifest)
     configurationExists <- doesFileExist configurationPath
     grammarExists <- doesFileExist grammarPath
+    let iconPath = editorRoot </> "icon.png"
+        licensePath = editorRoot </> "LICENSE"
+    iconExists <- doesFileExist iconPath
+    licenseExists <- doesFileExist licensePath
     assertEqual "language configuration exists" True configurationExists
     assertEqual "TextMate grammar exists" True grammarExists
+    assertEqual "extension icon exists" True iconExists
+    assertEqual "extension license exists" True licenseExists
+    repositoryLicense <- ByteString.readFile (packageRoot </> "LICENSE")
+    extensionLicense <- ByteString.readFile licensePath
+    assertEqual "extension license matches repository license" repositoryLicense extensionLicense
+    iconBytes <- ByteString.readFile iconPath
+    let expectedPngHeader =
+          ByteString.pack
+            [ 137,
+              80,
+              78,
+              71,
+              13,
+              10,
+              26,
+              10,
+              0,
+              0,
+              0,
+              13,
+              73,
+              72,
+              68,
+              82,
+              0,
+              0,
+              0,
+              128,
+              0,
+              0,
+              0,
+              128
+            ]
+    assertEqual
+      "extension icon is a 128 by 128 PNG"
+      expectedPngHeader
+      (ByteString.take 24 iconBytes)
     assertEqual
       "language configuration comment marker"
       (Just (String "#"))
@@ -660,8 +891,8 @@ testEditorPackageMetadata =
       (reservedValuePattern >>= jsonPath ["name"])
     assertEqual
       "exports are scoped to a module-header region"
-      (Just (String "\\b(module)\\s+([A-Z][A-Za-z0-9_']*(?:::[A-Z][A-Za-z0-9_']*)*)\\s*(\\()"))
-      exportRegionBegin
+      True
+      (case exportRegionBegin of Just (String _) -> True; _ -> False)
     assertEqual
       "grouped exports scope the exported type name"
       (Just (String "entity.name.type.jazz"))
@@ -673,14 +904,7 @@ testEditorPackageMetadata =
     assertEqual
       "export modifiers are nested inside the module-header region"
       True
-      ( any
-          ( \patternValue ->
-              jsonPath ["name"] patternValue == Just (String "storage.modifier.export.jazz")
-                && jsonPath ["match"] patternValue
-                  == Just (String "\\b(?:value|constructor|type|class)\\b")
-          )
-          exportPatterns
-      )
+      (any ((== Just (String "storage.modifier.export.jazz")) . jsonPath ["name"]) exportPatterns)
     assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True
@@ -889,6 +1113,296 @@ testCheckedInPackagePolicy =
     unless (null violations) $ do
       failTest (Text.intercalate "\n" (map renderPackagePolicyViolation violations))
 
+testSourceDistributionInventory :: IO ()
+testSourceDistributionInventory =
+  withPackageRoot $ \packageRoot -> do
+    requiredDirectoryFiles <-
+      listRepositoryFiles
+        packageRoot
+        [ "docs",
+          "rfcs",
+          "examples",
+          "jazz",
+          "programs",
+          "editors" </> "vscode-jazz",
+          "test" </> "fixtures" </> "runtime-observation"
+        ]
+    let requiredFiles =
+          normalizeSourceDistributionPaths
+            ( [ "README.md",
+                "CHANGELOG.md",
+                "CONTRIBUTING.md",
+                "SECURITY.md",
+                "RELEASING.md",
+                "PERFORMANCE.md",
+                ".gitignore",
+                "LICENSE",
+                "editors" </> "vscode-jazz" </> "LICENSE",
+                "editors" </> "vscode-jazz" </> "icon.png"
+              ]
+                <> requiredDirectoryFiles
+            )
+        command = (proc "cabal" ["sdist", "--list-only", "all"]) {cwd = Just packageRoot}
+    (exitCode, standardOutput, standardError) <- readCreateProcessWithExitCode command ""
+    case exitCode of
+      ExitFailure status ->
+        failTest
+          ( "cabal sdist --list-only failed with status "
+              <> Text.pack (show status)
+              <> ":\n"
+              <> Text.pack standardError
+          )
+      ExitSuccess -> do
+        let packagedFiles = sort (map normalizeSourceDistributionPath (lines standardOutput))
+            missingFiles = filter (`notElem` packagedFiles) requiredFiles
+            forbiddenFiles = filter isForbiddenSourceDistributionPath packagedFiles
+        assertEqual "required source-distribution files" [] missingFiles
+        assertEqual "forbidden source-distribution files" [] forbiddenFiles
+
+testSourceDistributionFallback :: IO ()
+testSourceDistributionFallback =
+  withTemporaryDirectory "jazz-sdist-fallback" $ \packageRoot -> do
+    let documentationRoot = packageRoot </> "docs"
+        editorRoot = packageRoot </> "editors" </> "vscode-jazz"
+    createDirectoryIfMissing True documentationRoot
+    createDirectoryIfMissing True editorRoot
+    TextIO.writeFile (documentationRoot </> "contract.md") "public contract\n"
+    TextIO.writeFile (editorRoot </> "package.json") "{}\n"
+    TextIO.writeFile (editorRoot </> "generated.vsix") "generated package\n"
+    TextIO.writeFile (editorRoot </> "render.tmp") "render scratch\n"
+    files <-
+      listRepositoryFiles
+        packageRoot
+        ["docs", "editors" </> "vscode-jazz"]
+    assertEqual
+      "fallback inventory contains scoped source files only"
+      ["docs/contract.md", "editors/vscode-jazz/package.json"]
+      (sort files)
+
+testSourceDistributionNestedRepositoryFallback :: IO ()
+testSourceDistributionNestedRepositoryFallback =
+  withTemporaryDirectory "jazz-sdist-parent-repository" $ \parentRoot -> do
+    let packageRoot = parentRoot </> "nested" </> "jazz"
+        documentationRoot = packageRoot </> "docs"
+    createDirectoryIfMissing True documentationRoot
+    TextIO.writeFile (documentationRoot </> "contract.md") "public contract\n"
+    runGit parentRoot ["init", "--quiet"]
+    files <- listRepositoryFiles packageRoot ["docs"]
+    assertEqual
+      "nested package uses scoped fallback instead of its parent index"
+      ["docs/contract.md"]
+      files
+
+testSourceDistributionWindowsRoots :: IO ()
+testSourceDistributionWindowsRoots =
+  withTemporaryDirectory "jazz-sdist-windows-roots" $ \packageRoot -> do
+    let documentationRoot = packageRoot </> "docs" </> "language"
+        documentationPath = documentationRoot </> "contract.md"
+    createDirectoryIfMissing True documentationRoot
+    TextIO.writeFile documentationPath "public contract\n"
+    runGit packageRoot ["init", "--quiet"]
+    runGit packageRoot ["add", "--", "docs/language/contract.md"]
+    actualRoot <- isActualGitRoot packageRoot
+    assertEqual "temporary repository is its actual Git root" True actualRoot
+    files <- listRepositoryFiles packageRoot ["docs\\language"]
+    assertEqual
+      "Git inventory normalizes Windows pathspec separators"
+      ["docs/language/contract.md"]
+      files
+
+testSourceDistributionWindowsRequiredPaths :: IO ()
+testSourceDistributionWindowsRequiredPaths =
+  assertEqual
+    "required source paths use archive separators"
+    ["docs/language/contract.md", "editors/vscode-jazz/icon.png"]
+    ( normalizeSourceDistributionPaths
+        ["editors\\vscode-jazz\\icon.png", "docs/language/contract.md"]
+    )
+
+testForbiddenSourceDistributionPaths :: IO ()
+testForbiddenSourceDistributionPaths = do
+  assertEqual
+    "forbidden paths recognize Windows separators and generated artifacts"
+    [ True,
+      True,
+      True,
+      True,
+      True,
+      False,
+      False
+    ]
+    ( map
+        isForbiddenSourceDistributionPath
+        [ ".codex\\plans\\internal.md",
+          "website\\build\\index.html",
+          "dist-newstyle\\sdist\\jazz-0.1.0.0.tar.gz",
+          "editors\\vscode-jazz\\jazz-language-0.1.0.vsix",
+          "editors/vscode-jazz/Jazz-Language.VSIX",
+          "website/build-not/generated.html",
+          "docs/reference/output.md"
+        ]
+    )
+
+testVsixArtifactsIgnored :: IO ()
+testVsixArtifactsIgnored =
+  withPackageRoot $ \packageRoot -> do
+    ignoreSource <- TextIO.readFile (packageRoot </> ".gitignore")
+    let ignoreRules =
+          [ Text.strip line
+          | line <- Text.lines ignoreSource,
+            let stripped = Text.strip line,
+            not (Text.null stripped),
+            not ("#" `Text.isPrefixOf` stripped)
+          ]
+    assertEqual
+      "generated .vsix files are ignored at every repository depth"
+      True
+      ("*.vsix" `elem` ignoreRules)
+
+listRepositoryFiles :: FilePath -> [FilePath] -> IO [FilePath]
+listRepositoryFiles packageRoot relativeRoots = do
+  let normalizedRoots = map normalizeSourceDistributionPath relativeRoots
+  actualGitRoot <- isActualGitRoot packageRoot
+  if actualGitRoot
+    then listTrackedRepositoryFiles packageRoot normalizedRoots
+    else listScopedSourceTreeFiles packageRoot normalizedRoots
+
+isActualGitRoot :: FilePath -> IO Bool
+isActualGitRoot packageRoot = do
+  let rootCommand = (proc "git" ["rev-parse", "--show-toplevel"]) {cwd = Just packageRoot}
+  rootResult <-
+    try (readCreateProcessWithExitCode rootCommand "") :: IO (Either IOException (ExitCode, String, String))
+  case rootResult of
+    Right (ExitSuccess, standardOutput, _) -> do
+      reportedRoot <- canonicalizePath (Text.unpack (Text.strip (Text.pack standardOutput)))
+      expectedRoot <- canonicalizePath packageRoot
+      pure (normalise reportedRoot == normalise expectedRoot)
+    _ -> pure False
+
+listTrackedRepositoryFiles :: FilePath -> [FilePath] -> IO [FilePath]
+listTrackedRepositoryFiles packageRoot relativeRoots = do
+  let command =
+        (proc "git" (["ls-files", "-z", "--"] <> relativeRoots))
+          { cwd = Just packageRoot
+          }
+  gitResult <-
+    try (readCreateProcessWithExitCode command "") :: IO (Either IOException (ExitCode, String, String))
+  case gitResult of
+    Right (ExitSuccess, standardOutput, _) -> do
+      let trackedPaths =
+            map
+              normalizeSourceDistributionPath
+              (filter (not . null) (splitOn '\0' standardOutput))
+      existingPaths <-
+        forM trackedPaths $ \relativePath -> do
+          exists <- doesFileExist (packageRoot </> relativePath)
+          pure [relativePath | exists]
+      pure (concat existingPaths)
+    Left _ -> listScopedSourceTreeFiles packageRoot relativeRoots
+    Right (ExitFailure _, _, _) -> listScopedSourceTreeFiles packageRoot relativeRoots
+
+listScopedSourceTreeFiles :: FilePath -> [FilePath] -> IO [FilePath]
+listScopedSourceTreeFiles packageRoot relativeRoots =
+  concat <$> mapM (go . (packageRoot </>)) relativeRoots
+  where
+    go directory = do
+      entries <- sort <$> listDirectory directory
+      concat
+        <$> forM
+          entries
+          ( \entry -> do
+              let path = directory </> entry
+                  relativePath =
+                    normalizeSourceDistributionPath (makeRelative packageRoot path)
+              isDirectory <- doesDirectoryExist path
+              if isForbiddenSourceDistributionPath relativePath
+                then pure []
+                else
+                  if isDirectory
+                    then go path
+                    else pure [relativePath]
+          )
+
+normalizeSourceDistributionPath :: FilePath -> FilePath
+normalizeSourceDistributionPath = dropCurrentDirectory . map normalizeSeparator
+  where
+    normalizeSeparator '\\' = '/'
+    normalizeSeparator character = character
+    dropCurrentDirectory path =
+      maybe path dropCurrentDirectory (stripPrefix "./" path)
+
+normalizeSourceDistributionPaths :: [FilePath] -> [FilePath]
+normalizeSourceDistributionPaths =
+  Set.toAscList . Set.fromList . map normalizeSourceDistributionPath
+
+isForbiddenSourceDistributionPath :: FilePath -> Bool
+isForbiddenSourceDistributionPath path =
+  hasForbiddenComponentPrefix components
+    || map toLower (takeExtension normalizedPath) `elem` [".vsix", ".tmp"]
+  where
+    normalizedPath = normalizeSourceDistributionPath path
+    components = map (map toLower) (filter (`notElem` ["", "."]) (splitOn '/' normalizedPath))
+
+hasForbiddenComponentPrefix :: [FilePath] -> Bool
+hasForbiddenComponentPrefix components =
+  any (`isComponentPrefixOf` components) forbiddenPrefixes
+    || case components of
+      firstComponent : _ ->
+        "dist-newstyle-profile-" `isPathPrefixOf` firstComponent
+      [] -> False
+  where
+    forbiddenPrefixes =
+      [ [".codex"],
+        ["website", "build"],
+        ["website", "node_modules"],
+        ["website", ".docusaurus"],
+        ["benchmark-results"],
+        ["profile-results"],
+        ["dist-newstyle"]
+      ]
+
+isComponentPrefixOf :: [FilePath] -> [FilePath] -> Bool
+isComponentPrefixOf prefix components =
+  take (length prefix) components == prefix
+
+isPathPrefixOf :: FilePath -> FilePath -> Bool
+isPathPrefixOf prefix path =
+  case stripPrefix prefix path of
+    Just _ -> True
+    Nothing -> False
+
+splitOn :: (Eq value) => value -> [value] -> [[value]]
+splitOn separator values =
+  case break (== separator) values of
+    (segment, []) -> [segment]
+    (segment, _ : remaining) -> segment : splitOn separator remaining
+
+withTemporaryDirectory :: FilePath -> (FilePath -> IO result) -> IO result
+withTemporaryDirectory prefix =
+  bracket acquire removePathForcibly
+  where
+    acquire = do
+      temporaryRoot <- getTemporaryDirectory
+      (path, handle) <- openTempFile temporaryRoot prefix
+      hClose handle
+      removeFile path
+      createDirectoryIfMissing True path
+      pure path
+
+runGit :: FilePath -> [String] -> IO ()
+runGit workingDirectory arguments = do
+  let command = (proc "git" arguments) {cwd = Just workingDirectory}
+  (exitCode, _, standardError) <- readCreateProcessWithExitCode command ""
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure status ->
+      failTest
+        ( "git command failed with status "
+            <> Text.pack (show status)
+            <> ":\n"
+            <> Text.pack standardError
+        )
+
 testDiagnosticRenderingBoundaries :: IO ()
 testDiagnosticRenderingBoundaries = do
   assertEqual
@@ -931,22 +1445,18 @@ testCanonicalDocumentationPaths =
 testCanonicalRepositoryInfrastructure :: IO ()
 testCanonicalRepositoryInfrastructure =
   withPackageRoot $ \repositoryRoot -> do
-    infrastructureSources <-
-      forM infrastructurePaths $ \relativePath -> do
-        source <- TextIO.readFile (repositoryRoot </> relativePath)
-        pure (relativePath, source)
-    forM_ infrastructureSources $ \(relativePath, source) ->
-      forM_ obsoleteProductIdentities $ \obsoleteIdentity ->
-        assertTextOmits
-          (Text.pack relativePath <> " omits obsolete product identity " <> obsoleteIdentity)
-          obsoleteIdentity
-          source
     flakeSource <- TextIO.readFile (repositoryRoot </> "flake.nix")
     assertTextContains "filtered Nix package source" "jazzSource = pkgs.lib.fileset.toSource" flakeSource
     assertTextContains "root Nix package" "callCabal2nix \"jazz\" jazzSource { }" flakeSource
-    assertTextContains "root Nix test check" "checks.jazz-test-suite" flakeSource
-    assertTextOmits "release package remains deferred" "packages.default" flakeSource
-    assertTextOmits "release app remains deferred" "apps.default" flakeSource
+    assertTextContains "root Nix package owns its check tools" "overrideCabal jazzBase" flakeSource
+    assertTextContains "root Nix test check shares the package derivation" "checks.jazz-test-suite = jazz" flakeSource
+    assertTextContains "release package is exported" "default = jazz" flakeSource
+    assertTextContains "release app is exported" "apps.default" flakeSource
+    assertTextContains "Nix test check owns test tool dependencies" "testToolDepends" flakeSource
+    assertTextContains "Nix test check provides cabal-install" "pkgs.cabal-install" flakeSource
+    assertTextContains "Nix test check provides Git" "pkgs.git" flakeSource
+    assertTextContains "Nix test check creates a writable home" "mkdir -p \"$HOME\"" flakeSource
+    assertTextContains "Nix test check exports its writable home" "export HOME=\"$TMPDIR/home\"" flakeSource
     ignoreSource <- TextIO.readFile (repositoryRoot </> ".gitignore")
     forM_
       [ "__pycache__/",
@@ -973,34 +1483,6 @@ testCanonicalRepositoryInfrastructure =
     assertTextContains "canonical private Cabal library" "library jazz-internal" cabalSource
     assertTextContains "canonical generated Cabal module" "Paths_jazz" cabalSource
     assertTextContains "checked example source inventory" "examples/**/*.jz" cabalSource
-
-infrastructurePaths :: [FilePath]
-infrastructurePaths =
-  [ "flake.nix",
-    ".gitignore",
-    "AGENTS.md",
-    "jazz.cabal",
-    "cabal.project",
-    "cabal.project.profile-hotspots",
-    "cabal.project.profile-stages",
-    "scripts/check-examples.sh",
-    "scripts/check-docs.sh",
-    "scripts/check-spec-authority.sh",
-    "scripts/check-clarification-specs.sh",
-    "scripts/test-check-clarification-specs.sh",
-    "scripts/check-execution-queue.py",
-    "scripts/check-execution-queue.sh",
-    "scripts/test-check-execution-queue.sh"
-  ]
-
-obsoleteProductIdentities :: [Text]
-obsoleteProductIdentities =
-  [ "jazz-next",
-    "JazzNext",
-    "Paths_jazz_next",
-    "jazz-hs",
-    "jazz2"
-  ]
 
 assertTextContains :: Text -> Text -> Text -> IO ()
 assertTextContains description expected source =

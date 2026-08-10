@@ -126,6 +126,53 @@ test('favicon remains legible at representative raster sizes', async () => {
   }
 });
 
+test('VS Code icon is a deterministic 128px raster of the canonical Jazz mark', async () => {
+  const renderer = await import('./render-social-card.mjs');
+  assert.equal(typeof renderer.renderEditorIcon, 'function');
+
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'jazz-editor-icon-'));
+  const firstOutput = path.join(temporaryDirectory, 'first.png');
+  const secondOutput = path.join(temporaryDirectory, 'second.png');
+  try {
+    await renderer.renderEditorIcon({pngPath: firstOutput});
+    await renderer.renderEditorIcon({pngPath: secondOutput});
+
+    const [firstBytes, secondBytes, checkedInBytes] = await Promise.all([
+      readFile(firstOutput),
+      readFile(secondOutput),
+      readFile(path.resolve(websiteDirectory, '../editors/vscode-jazz/icon.png')),
+    ]);
+    assert.deepEqual(firstBytes, secondBytes);
+    assert.deepEqual(checkedInBytes, firstBytes);
+
+    const metadata = await sharp(firstBytes).metadata();
+    assert.equal(metadata.format, 'png');
+    assert.equal(metadata.width, 128);
+    assert.equal(metadata.height, 128);
+    assert.equal(metadata.hasAlpha, true);
+  } finally {
+    await rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
+test('concurrent VS Code icon renders isolate their temporary output', async () => {
+  const renderer = await import('./render-social-card.mjs');
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'jazz-editor-icon-concurrency-'),
+  );
+  const pngPath = path.join(temporaryDirectory, 'icon.png');
+  try {
+    await Promise.all(
+      Array.from({length: 4}, () => renderer.renderEditorIcon({pngPath})),
+    );
+    const metadata = await sharp(pngPath).metadata();
+    assert.equal(metadata.width, 128);
+    assert.equal(metadata.height, 128);
+  } finally {
+    await rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
 test('social card uses generated Manrope outlines and requires its local font asset', async () => {
   const socialCard = await readFile(path.join(imageDirectory, 'social-card.svg'), 'utf8');
   assert.doesNotMatch(socialCard, /<text\b/);

@@ -1,0 +1,26 @@
+name: Documentation issue
+description: Report inaccurate, missing, or unclear public Jazz documentation.
+title: "docs: "
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Affected page or URL
+      description: Link the page or provide its repository path.
+      placeholder: docs/language/modules.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain what is incorrect, missing, outdated, or unclear.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction
+      description: Share corrected wording, an example, or relevant implementation evidence if available.
+    validations:
+      required: false

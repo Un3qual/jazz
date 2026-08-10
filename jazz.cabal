@@ -2,41 +2,60 @@ cabal-version: 3.0
 name: jazz
 version: 0.1.0.0
 build-type: Simple
-synopsis: Compiler and interpreter for the Jazz language
+synopsis: A statically typed functional language with practical syntax
 description: The Jazz compiler, module loader, analyzer, interpreter, and command-line interface.
-license: GPL-3.0-only
+homepage: https://un3qual.github.io/jazz/
+bug-reports: https://github.com/un3qual/jazz/issues
+author: un3qual
 maintainer: un3qual
 category: Language
+stability: Experimental
+tested-with: GHC == 9.14.1
+license: GPL-3.0-only
+license-file: LICENSE
 
 extra-doc-files:
-    docs/compiler/architecture.md
+    README.md
+    CHANGELOG.md
+    CONTRIBUTING.md
+    SECURITY.md
+    RELEASING.md
     PERFORMANCE.md
-    programs/README.md
+    docs/**/*.md
+    rfcs/**/*.md
 
 extra-source-files:
+    .gitignore
+    examples/README.md
     examples/**/*.jz
     jazz/stdlib/*.jz
     jazz/compiler/*.jz
+    jazz/stdlib/README.md
+    programs/README.md
     programs/corpus.json
     programs/**/*.jz
     programs/**/*.stdout
     editors/vscode-jazz/README.md
+    editors/vscode-jazz/LICENSE
     editors/vscode-jazz/package.json
+    editors/vscode-jazz/icon.png
     editors/vscode-jazz/language-configuration.json
     editors/vscode-jazz/syntaxes/*.json
     editors/vscode-jazz/fixtures/*.jz
-    test/fixtures/runtime-observation/*.jz
-    test/fixtures/runtime-observation/module-success/src/App/*.jz
-    test/fixtures/runtime-observation/module-cache/src/App/*.jz
-    test/fixtures/runtime-observation/module-profile/src/App/*.jz
-    .gitignore
+    editors/vscode-jazz/fixtures/*.jz.txt
+    test/fixtures/runtime-observation/**/*.jz
     AGENTS.md
     flake.nix
+    flake.lock
     cabal.project
     cabal.project.profile-hotspots
     cabal.project.profile-stages
     scripts/*.py
     scripts/*.sh
+
+source-repository head
+  type: git
+  location: https://github.com/un3qual/jazz.git
 
 flag development
   description: Treat compiler warnings as build failures in the repository workspace.
@@ -796,7 +815,8 @@ test-suite repository-audit-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Repository/AuditSpec.hs
   build-depends:
-      aeson >= 2.2 && < 2.3
+      aeson >= 2.2 && < 2.3,
+      process >= 1.6 && < 1.7
   other-modules:
       Jazz.Repository.AuthoredSources
       Jazz.Repository.FeatureInventory

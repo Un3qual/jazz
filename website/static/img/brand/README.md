@@ -12,6 +12,8 @@ homepage motif.
 - `jazz-wordmark.svg` and `jazz-wordmark-dark.svg` pair the mark with original
   geometric `azz` lettering. The wordmark contains no converted font outlines.
 - `favicon.svg` is a deliberately simplified mark on a deep-ink field.
+- `editors/vscode-jazz/icon.png` is the deterministic 128×128 editor raster
+  generated from the canonical light-surface `jazz-mark.svg`.
 - `social-card.svg` is the editable 1200×630 source; `social-card.png` is its
   deterministic rendered counterpart.
 
@@ -36,7 +38,8 @@ The social-card tagline is derived from the Latin variable WOFF2 in the pinned
 `@fontsource-variable/manrope@5.3.0` package. Manrope is copyright 2019 The
 Manrope Project Authors and distributed under the SIL Open Font License 1.1;
 the complete license is installed at
-`website/node_modules/@fontsource-variable/manrope/LICENSE` by `npm ci`.
+`website/node_modules/@fontsource-variable/manrope/LICENSE` by
+`pnpm --dir website install --frozen-lockfile`.
 
 The renderer verifies the font asset SHA-256, uses pinned `fontkit@2.0.4` to
 lay out the tagline, and replaces the paths between the
@@ -50,11 +53,12 @@ PNG. The expected font SHA-256 is
 From the repository root, install the pinned website dependencies and render:
 
 ```bash
-npm --prefix website ci
-npm --prefix website run render:brand
+pnpm --dir website install --frozen-lockfile
+pnpm --dir website run render:brand
 ```
 
 The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
-writes `social-card.png` through Sharp, and fails unless both source and output
-are exactly 1200×630 pixels. `npm --prefix website run test:brand` validates
-the outline source, transparent asset padding, and favicon legibility.
+writes `social-card.png` and the editor icon through Sharp, and fails unless
+their dimensions and formats match their contracts. `pnpm --dir website run
+test:brand` validates the outline source, transparent asset padding, favicon
+legibility, and the editor icon's exact provenance.

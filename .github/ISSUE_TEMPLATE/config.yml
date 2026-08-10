@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/un3qual/jazz/security/advisories/new
+    about: Report suspected vulnerabilities privately, not in a public issue.
+  - name: Read the Jazz documentation
+    url: https://github.com/un3qual/jazz/tree/main/docs
+    about: Check the language, reference, compiler, and project documentation before asking a support question.
+  - name: Search existing issues
+    url: https://github.com/un3qual/jazz/issues?q=is%3Aissue
+    about: Find existing questions, workarounds, proposals, and known defects.

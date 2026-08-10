@@ -1,0 +1,143 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      compiler: ${{ steps.filter.outputs.compiler }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Detect compiler-relevant changes
+        id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        with:
+          predicate-quantifier: every
+          filters: |
+            compiler:
+              - '**'
+              - '!README.md'
+              - '!docs/**'
+              - '!rfcs/**'
+              - '!.codex/**'
+              - '!website/**'
+              - '!CONTRIBUTING.md'
+              - '!SECURITY.md'
+              - '!CHANGELOG.md'
+              - '!RELEASING.md'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/PULL_REQUEST_TEMPLATE.md'
+
+  docs-and-site:
+    name: Documentation and website
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Install website dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: website
+
+      - name: Check documentation and RFCs
+        run: nix develop .#docs --command bash scripts/check-docs.sh
+
+      - name: Check the website
+        run: bash scripts/check-website.sh
+
+      - name: Check CI workload policy
+        run: python3 scripts/test-check-ci-policy.py
+
+      - name: Check live CI workload policy
+        run: python3 scripts/check-ci-policy.py
+
+  compiler-fast:
+    name: Fast compiler checks
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+
+      - name: Cache Cabal dependencies and build output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cabal/store
+            dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
+
+      - name: Run the fast compiler tier
+        env:
+          JAZZ_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+        run: nix develop --command bash scripts/ci/fast-compiler.sh
+
+  pr-gate:
+    name: Pull request gate
+    if: always()
+    needs:
+      - changes
+      - docs-and-site
+      - compiler-fast
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every applicable check
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_RESULT: ${{ needs.docs-and-site.result }}
+          COMPILER_REQUIRED: ${{ needs.changes.outputs.compiler }}
+          COMPILER_RESULT: ${{ needs.compiler-fast.result }}
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          [[ "$DOCS_RESULT" == "success" ]]
+          if [[ "$COMPILER_REQUIRED" == "true" ]]; then
+            [[ "$COMPILER_RESULT" == "success" ]]
+          else
+            [[ "$COMPILER_REQUIRED" == "false" ]]
+            [[ "$COMPILER_RESULT" == "skipped" ]]
+          fi

@@ -216,6 +216,20 @@ class AuthorityCheckerTests(unittest.TestCase):
                 finally:
                     path.write_text(original, encoding="utf-8")
 
+    def test_large_documents_do_not_fail_after_an_early_match(self) -> None:
+        path = self.root / "docs/project/governance.md"
+        # The old rendered_markdown | rg pipeline failed under pipefail only when
+        # an early match left enough producer output to exceed the OS pipe buffer.
+        # Keep this payload multiple MiB so the regression is stable across hosts.
+        path.write_text(
+            path.read_text(encoding="utf-8") + ("\nordinary documentation" * 400_000),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_raw_html_block_cannot_satisfy_an_authority_statement(self) -> None:
         path = self.root / "docs/project/governance.md"
         original = path.read_text(encoding="utf-8")
