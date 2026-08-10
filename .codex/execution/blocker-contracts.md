@@ -141,28 +141,43 @@ Each blocked item should answer these questions:
   owns the mirrored backend-neutral CFG, explicit calls and closures,
   representations, layout requests, structured validation, and canonical
   parity.
+- Accepted decision: [RFC 0009: Typed-core closures and recursive callable groups](../../rfcs/accepted/0009-typed-core-closure-and-recursion.md)
+  fixes callable-shape and binder-reference transport, unary closure staging,
+  empty environments, deterministic capture identity, and the six-child
+  delivery order without changing normal compile/run.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
   normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: approve a closure/recursion design that fixes its
-  typed-core and lowering ownership, profile, failure ordering, and focused
-  verification before creating an executor-ready implementation child.
-- Decision needed: closure/recursion semantics and lowering boundary. Do not
-  infer an implementation scope from the completed scalar/direct-call profile.
-- Recommended default: preserve the completed opt-in boundary and normal
-  canonical-core/interpreter compile/run path while closure/recursion is
-  designed separately.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001`
-  (`docs` curation candidate only; not approved or ready for implementation).
-- Target paths: establish them in the closure/recursion design; do not reuse
-  or widen the completed child’s ownership list by implication.
-- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
-- Not in scope: promoting closure/recursion implementation, or promoting
-  control flow, patterns, multi-module or import integration, managed values,
-  layouts, runtime services, tail calls, LLVM emission, object generation,
-  linking, native-runtime or ABI implementation, a public compiler embedding
-  API, bytecode or a VM, or revival of removed legacy implementations.
+- Smallest unblocker: complete the promoted closure-call foundation child with
+  exact source-to-typed-core and independently constructed typed-core-to-IR
+  manifests while retaining every scalar/direct-call fixture.
+- Decision needed: none for the promoted child. RFC 0009 already fixes its
+  semantic boundary; any wider callable behavior belongs to a later child.
+- Recommended default: execute only the promoted closure-call foundation and
+  keep normal compile/run on canonical core and the reference interpreter.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-CALL-FOUNDATION-001`
+  (promoted to `Ready Now`; later RFC children remain unpromoted).
+- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+  `src/Jazz/Compiler/TypedCore.hs`; `src/Jazz/Compiler/TypedCore/Validate.hs`;
+  `jazz/compiler/TypedCoreTypes.jz`; `jazz/compiler/TypedCoreValidate.jz`;
+  `src/Jazz/Compiler/LoweredIR/Lower.hs`;
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`;
+  `test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`;
+  `test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`.
+- Verification: `cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
+  `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/ci/main-functional.sh`;
+  `git diff --check`.
+- Not in scope: scalar `let` lowering, inline or nested anonymous lambdas,
+  lexical capture, partial application, oversaturation, recursive groups,
+  control flow, patterns, multi-module or import integration, non-closure
+  managed values, runtime services, tail calls, LLVM emission, object
+  generation, linking, native-runtime or ABI implementation, a public compiler
+  embedding API, bytecode or a VM, or revival of removed legacy
+  implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
