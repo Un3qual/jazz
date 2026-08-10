@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
@@ -45,6 +46,7 @@ main = runTestSuite "JazzLoweredIRContract" tests
 tests :: [NamedTest]
 tests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
+    ("audits the complete fixed fixture partition", testFixtureManifestIntegrity),
     ("renders the scalar contract deterministically", testScalarContractRendering),
     ("renders the complete valid contract deterministically", testValidContractRendering),
     ("accepts every fixed valid program", testValidPrograms),
@@ -293,6 +295,15 @@ testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
   assertEqual "invalid fixture count" 31 (length invalidFixtures)
   assertEqual "complete fixture count" 44 (length validFixtures + length invalidFixtures)
+
+testFixtureManifestIntegrity :: IO ()
+testFixtureManifestIntegrity = do
+  let validNames = map validFixtureName validFixtures
+      invalidNames = map invalidFixtureName invalidFixtures
+      completeNames = validNames <> invalidNames
+  assertEqual "valid and invalid lowered-IR fixtures are disjoint" [] [name | name <- validNames, name `elem` invalidNames]
+  assertEqual "fixed lowered-IR fixture manifests are exhaustive" (expectedValidFixtureNames <> expectedInvalidFixtureNames) completeNames
+  assertEqual "fixed lowered-IR fixture names are unique" (length completeNames) (length (nub completeNames))
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =

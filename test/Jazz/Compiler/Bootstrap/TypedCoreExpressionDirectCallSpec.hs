@@ -39,6 +39,7 @@ main = runTestSuite "TypedCoreExpressionDirectCall" tests
 tests :: [NamedTest]
 tests =
   [ ("audits the complete producer fixture manifest", testFixtureManifest),
+    ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
@@ -55,6 +56,8 @@ tests =
     ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
     ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
+    ("retains closure-call argument and later sibling failures in source order", testClosureUseArgumentFailureOrder),
+    ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
@@ -85,11 +88,66 @@ tests =
   ]
 
 testFixtureManifest :: IO ()
-testFixtureManifest =
+testFixtureManifest = do
+  let acceptedSet = Set.fromList acceptedFixtureNames
+      rejectedSet = Set.fromList rejectedFixtureNames
+      completeSet = Set.fromList fixtureNames
+      priorSet = Set.fromList priorScalarDirectCallFixtureNames
+      expectedAcceptedNames =
+        [ "unit-entry",
+          "bool-entry",
+          "char-entry",
+          "default-int-entry",
+          "default-float-entry",
+          "explicit-numeric-widths",
+          "arithmetic-operators",
+          "ordering-operators",
+          "equality-operators",
+          "scalar-parameter-return",
+          "single-argument-direct-call",
+          "curried-multi-argument-direct-call",
+          "forward-direct-call-dag",
+          "nested-direct-calls",
+          "dollar-direct-call",
+          "exported-direct-function",
+          "named-function-value",
+          "higher-order-call",
+          "closure-result",
+          "callable-parameter-shadows-named-function",
+          "callable-parameter-shadows-enclosing-function",
+          "mixed-direct-and-value-use"
+        ]
+      expectedRejectedNames =
+        [ "source-diagnostic",
+          "invalid-portable-source-path",
+          "resolved-import",
+          "ambient-prelude-input",
+          "text-value",
+          "list-value",
+          "non-unit-tuple",
+          "data-value",
+          "conditional",
+          "pattern-case",
+          "local-block-binding",
+          "partial-direct-call",
+          "oversaturated-direct-call",
+          "capturing-function",
+          "self-recursive-function",
+          "mutually-recursive-functions",
+          "polymorphic-or-evidence-function",
+          "imported-direct-call",
+          "user-defined-operator-call"
+        ]
+  assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
+  assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
     >> assertEqual "accepted fixture count" 22 (length acceptedFixtureNames)
     >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 41 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
+    >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
+    >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
+    >> assertEqual "every prior scalar/direct-call fixture remains present" True (priorSet `Set.isSubsetOf` completeSet)
     >> assertEqual
       "supplemental forward visibility fixtures"
       [ "forward-polymorphic-function-invisibility",
@@ -108,6 +166,63 @@ testFixtureManifest =
       ["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float16", "Float32", "Float64"]
       explicitNumericTypes
     >> assertEqual "fixture entries follow the complete ordered manifest" fixtureNames (map fixtureName fixtures)
+
+testIndependentLowererManifest :: IO ()
+testIndependentLowererManifest = do
+  let validNames = map fst validIndependentLowererPrograms
+      invalidNames = map fst invalidLowererBoundaryPrograms
+      completeNames = map fst independentLowererPrograms
+      validSet = Set.fromList validNames
+      invalidSet = Set.fromList invalidNames
+      expectedValidNames =
+        [ "invalid-function-shape",
+          "invalid-function-shape-rhs",
+          "combined-statement-failure-order",
+          "closure-valued-parameter",
+          "closure-valued-result",
+          "closure-shaped-named-function",
+          "closure-shaped-named-application",
+          "callable-parameter-shadows-top-level-lowerer",
+          "direct-flattened-representation",
+          "non-concrete-closure-representation",
+          "callable-shape-body-disagreement",
+          "duplicate-parameter-function",
+          "duplicate-function-identity",
+          "capturing-function",
+          "self-recursive-function",
+          "closure-shaped-self-recursive-function",
+          "mutually-recursive-functions",
+          "bare-function-value",
+          "partial-direct-call",
+          "imported-direct-call",
+          "managed-scalar-entry",
+          "conditional-entry"
+        ]
+      expectedInvalidNames =
+        [ "closure-shape-flattened-recipe",
+          "direct-shape-staged-recipe",
+          "variable-binder-reference-mismatch"
+        ]
+  assertEqual "valid independent typed-core fixture names" expectedValidNames validNames
+  assertEqual "invalid independent typed-core fixture names" expectedInvalidNames invalidNames
+  assertEqual "independent typed-core fixture names are unique" (length completeNames) (Set.size (Set.fromList completeNames))
+  assertEqual "valid and invalid independent typed-core fixtures are disjoint" Set.empty (Set.intersection validSet invalidSet)
+  assertEqual "valid and invalid independent typed-core fixtures are exhaustive" (expectedValidNames <> expectedInvalidNames) completeNames
+  assertEqual
+    "valid independent lowerer fixtures contain no malformed typed core"
+    []
+    [ (name, failures)
+    | (name, programValue) <- validIndependentLowererPrograms,
+      let failures = validateTypedProgram programValue,
+      not (null failures)
+    ]
+  assertEqual
+    "invalid independent lowerer fixtures all fail typed-core validation"
+    []
+    [ name
+    | (name, programValue) <- invalidLowererBoundaryPrograms,
+      null (validateTypedProgram programValue)
+    ]
 
 testRejectedManifestProducerFailures :: IO ()
 testRejectedManifestProducerFailures = do
@@ -237,6 +352,27 @@ testLowererCallableBoundary =
               [0]
               LoweredIRUnsupportedExpression
               LoweredIRNoFailureDetail
+          ]
+        ),
+        ( "combined-statement-failure-order",
+          [ statementFailure
+              0
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "seed")),
+            expressionFailure
+              0
+              [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail,
+            statementFailure
+              1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "message")),
+            expressionFailure
+              1
+              [0]
+              LoweredIRUnsupportedRepresentation
+              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
           ]
         ),
         ( "direct-flattened-representation",
@@ -556,6 +692,61 @@ testNonLocalCallArgumentFailureAccumulation = do
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "non-local-call argument failure repeatability" firstRun secondRun
   assertEqual "non-local-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
+
+testClosureUseArgumentFailureOrder :: IO ()
+testClosureUseArgumentFailureOrder = do
+  let fixture = producerEdgeFixture "closure-use-argument-failure-order"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "seed"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
+              TypedCoreStructuredValueUnsupported
+              TypedCoreListValueDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "closure-use argument failure inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "closure-use argument failure repeatability" firstRun secondRun
+  assertEqual "closure-use argument and later sibling failure order" expected (typedCoreProductionStatus firstRun)
+
+testClosureShapeClassificationCollapse :: IO ()
+testClosureShapeClassificationCollapse = do
+  let fixture = fixtureByName "mixed-direct-and-value-use"
+      expectedShapes =
+        [ ("apply", TypedDirectCallableShape),
+          ("apply", TypedDirectCallableShape),
+          ("identity", TypedClosureCallableShape),
+          ("identity", TypedClosureCallableShape)
+        ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "mixed callable-use classification repeatability" firstRun secondRun
+  case typedCoreProductionStatus firstRun of
+    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ statements _] _) ->
+      assertEqual "mixed callable-use scheme classifications" expectedShapes (callableSchemeShapes statements)
+    status -> failTest ("mixed callable-use fixture did not produce typed core: " <> Text.pack (show status))
+  where
+    callableSchemeShapes statements =
+      [ (identifier, shape)
+      | statement <- statements,
+        (name, TypedScheme _ _ _ _ _ _ (Just shape)) <- case statement of
+          TypedSignatureStatement _ name _ schemeValue -> [(name, schemeValue)]
+          TypedLetStatement _ name _ schemeValue _ -> [(name, schemeValue)]
+          _ -> [],
+        TypedResolvedName TypedCurrentModule TypedValueNamespace identifier <- [name]
+      ]
 
 testNarrowLiteralDirectCall :: IO ()
 testNarrowLiteralDirectCall =

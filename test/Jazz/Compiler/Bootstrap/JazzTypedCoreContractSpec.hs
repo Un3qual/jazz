@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 34 (length invalidFixtures)
+  assertEqual "invalid fixture count" 36 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 51 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 53 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -251,10 +251,14 @@ assertTextLeftContains label expected result =
 
 testFixtureCoverage :: IO ()
 testFixtureCoverage = do
-  let names = map validFixtureName validFixtures <> map invalidFixtureName invalidFixtures
+  let validNames = map validFixtureName validFixtures
+      invalidNames = map invalidFixtureName invalidFixtures
+      names = validNames <> invalidNames
       observedKinds =
         [kind | fixture <- invalidFixtures, TypedCoreValidationFailure _ kind _ <- invalidFixtureFailures fixture]
           <> [kind | program <- reviewRegressionPrograms, TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
+  assertEqual "valid and invalid fixture names are disjoint" [] [name | name <- validNames, name `elem` invalidNames]
+  assertEqual "fixed fixture manifests are exhaustive" (expectedValidFixtureNames <> expectedInvalidFixtureNames) names
   assertEqual "fixture names are unique" (length names) (length (nub names))
   assertEqual "review regression programs are unique" (length reviewRegressionPrograms) (length (nub reviewRegressionPrograms))
   assertEqual "uncovered validation kinds" [] (filter (`notElem` observedKinds) allValidationKinds)
@@ -12996,6 +13000,7 @@ expectedInvalidFixtureNames =
     "callable-recipe-signature",
     "callable-zero-argument-stage",
     "callable-missing-shape",
+    "combined-callable-failure-order",
     "scalar-carrying-shape",
     "missing-binder-reference",
     "unknown-binder-reference",
@@ -13003,6 +13008,7 @@ expectedInvalidFixtureNames =
     "application-function-shape",
     "application-argument-type",
     "application-result-type",
+    "oversaturation-after-non-callable-result",
     "if-condition-type",
     "if-branch-type",
     "pattern-scrutinee-type",
@@ -13034,6 +13040,7 @@ invalidFixtures =
     callableRecipeSignatureFixture,
     callableZeroArgumentStageFixture,
     callableMissingShapeFixture,
+    combinedCallableFailureOrderFixture,
     scalarCarryingShapeFixture,
     missingBinderReferenceFixture,
     unknownBinderReferenceFixture,
@@ -13041,6 +13048,7 @@ invalidFixtures =
     applicationFunctionShapeFixture,
     applicationArgumentTypeFixture,
     applicationResultTypeFixture,
+    oversaturationAfterNonCallableResultFixture,
     ifConditionTypeFixture,
     ifBranchTypeFixture,
     patternScrutineeTypeFixture,
@@ -13225,6 +13233,64 @@ callableMissingShapeFixture =
     scheme = TypedScheme valueBinder [] [] [] boolToBoolType boolToBoolRecipe Nothing
     program = signatureProgram fixture valueBinder valueName scheme
 
+combinedCallableFailureOrderFixture :: InvalidFixture
+combinedCallableFailureOrderFixture =
+  InvalidFixture fixture program failures
+  where
+    fixture = "combined-callable-failure-order"
+    modulePath = fixtureModulePath fixture
+    functionName = fixtureValueName "callable"
+    functionBinder = fixtureBinder fixture 0 functionName
+    argumentName = fixtureValueName "argument"
+    argumentBinder = binder modulePath [0, 0] argumentName
+    functionScheme =
+      TypedScheme
+        functionBinder
+        []
+        []
+        []
+        boolToBoolType
+        boolToBoolRecipe
+        Nothing
+    functionExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        argumentBinder
+        argumentName
+        (TypedVariableExpr boolInfo argumentName Nothing)
+    laterExpression =
+      TypedLiteralExpr boolInfo (TypedCharacterLiteral 'x')
+    statements =
+      [ TypedLetStatement
+          functionBinder
+          functionName
+          span1
+          functionScheme
+          functionExpression,
+        expressionStatement 2 laterExpression
+      ]
+    program =
+      singleModuleProgram
+        fixture
+        relativeSource
+        []
+        statements
+        emptyInterface
+        boolInfo
+        modulePath
+    failures =
+      [ statementFailure fixture 0 TypedCallableShapeMismatch (TypedBinderDetail functionBinder),
+        TypedCoreValidationFailure
+          (TypedExpressionPath modulePath [0] [0, 0])
+          TypedBinderReferenceMismatch
+          (TypedBinderDetail argumentBinder),
+        expressionFailureAt
+          fixture
+          1
+          TypedLiteralTypeMismatch
+          (TypedTypeDetail TypedCharType TypedBoolType)
+      ]
+
 scalarCarryingShapeFixture :: InvalidFixture
 scalarCarryingShapeFixture =
   InvalidFixture fixture program [statementFailure fixture 0 TypedCallableShapeMismatch (TypedBinderDetail valueBinder)]
@@ -13304,6 +13370,29 @@ applicationResultTypeFixture =
     functionName = resolved TypedCurrentModule TypedValueNamespace "argument"
     functionExpr = TypedLambdaExpr boolToBoolInfo (binder (fixtureModulePath fixture) [0, 0] functionName) functionName trueExpr
     expression = TypedApplyExpr textInfo functionExpr trueExpr
+
+oversaturationAfterNonCallableResultFixture :: InvalidFixture
+oversaturationAfterNonCallableResultFixture =
+  expressionFixture
+    fixture
+    expression
+    [ expressionFailure
+        fixture
+        TypedApplicationFunctionMismatch
+        (TypedTypeDetail boolToBoolType TypedBoolType)
+    ]
+  where
+    fixture = "oversaturation-after-non-callable-result"
+    argumentName = fixtureValueName "argument"
+    argumentBinder = binder (fixtureModulePath fixture) [0, 0] argumentName
+    functionExpr =
+      TypedLambdaExpr
+        boolToBoolInfo
+        argumentBinder
+        argumentName
+        (fixtureBoundVariableExpr argumentBinder boolInfo argumentName)
+    completeApplication = TypedApplyExpr boolInfo functionExpr trueExpr
+    expression = TypedApplyExpr boolInfo completeApplication falseExpr
 
 ifConditionTypeFixture :: InvalidFixture
 ifConditionTypeFixture =

@@ -161,12 +161,14 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
       validateStatementProfiles modulePath functionShapes localValueNames statements
     recursiveFailures =
       recursiveFunctionFailures modulePath functionShapes functionCalls
+    statementFailures =
+      orderedStatementFailures
+        (length statements)
+        [shapeFailures, recursiveFailures, profileFailures]
     allFailures =
       moduleFailures
         <> resultRepresentationFailures
-        <> shapeFailures
-        <> profileFailures
-        <> recursiveFailures
+        <> statementFailures
     emitProgram =
       case ( maybeResultRepresentation,
             traverse (emitFunction modulePath functionShapes) functionShapes,
@@ -207,6 +209,24 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
                   LoweredIRUnsupportedModule
                   LoweredIRNoFailureDetail
               ]
+
+orderedStatementFailures ::
+  Int ->
+  [[LoweredIRLoweringFailure]] ->
+  [LoweredIRLoweringFailure]
+orderedStatementFailures statementCount failureGroups =
+  concatMap failuresAtStatement [0 .. statementCount - 1]
+  where
+    failuresAtStatement statementIndex =
+      concatMap
+        (filter (ownedByStatement statementIndex))
+        failureGroups
+    ownedByStatement statementIndex (LoweredIRLoweringFailure path _ _) =
+      case path of
+        TypedStatementPath _ (owner : _) -> owner == statementIndex
+        TypedExpressionPath _ (owner : _) _ -> owner == statementIndex
+        TypedPatternPath _ (owner : _) _ -> owner == statementIndex
+        _ -> False
 
 supportedModuleMetadata ::
   [TypedResolvedImport] ->

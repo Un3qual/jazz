@@ -5,6 +5,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     fixtureNames,
     acceptedFixtureNames,
     rejectedFixtureNames,
+    priorScalarDirectCallFixtureNames,
     fixtures,
     expectedUnitProgram,
     scalarExpectedLoweredPrograms,
@@ -21,7 +22,9 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     independentClosureExpectedLoweredPrograms,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
+    validIndependentLowererPrograms,
     invalidLowererBoundaryPrograms,
+    independentLowererPrograms,
     lowererStructuralBoundaryPrograms,
     producerEdgeFixtures,
     ordinaryForwardVisibilityFixture,
@@ -70,6 +73,46 @@ acceptedFixtureNames = map fixtureName acceptedFixtures
 
 rejectedFixtureNames :: [Text]
 rejectedFixtureNames = map fixtureName rejectedFixtures
+
+priorScalarDirectCallFixtureNames :: [Text]
+priorScalarDirectCallFixtureNames =
+  [ "unit-entry",
+    "bool-entry",
+    "char-entry",
+    "default-int-entry",
+    "default-float-entry",
+    "explicit-numeric-widths",
+    "arithmetic-operators",
+    "ordering-operators",
+    "equality-operators",
+    "scalar-parameter-return",
+    "single-argument-direct-call",
+    "curried-multi-argument-direct-call",
+    "forward-direct-call-dag",
+    "nested-direct-calls",
+    "dollar-direct-call",
+    "exported-direct-function",
+    "source-diagnostic",
+    "invalid-portable-source-path",
+    "resolved-import",
+    "ambient-prelude-input",
+    "text-value",
+    "list-value",
+    "non-unit-tuple",
+    "data-value",
+    "conditional",
+    "pattern-case",
+    "local-block-binding",
+    "named-function-value",
+    "partial-direct-call",
+    "oversaturated-direct-call",
+    "capturing-function",
+    "self-recursive-function",
+    "mutually-recursive-functions",
+    "polymorphic-or-evidence-function",
+    "imported-direct-call",
+    "user-defined-operator-call"
+  ]
 
 fixtures :: [Fixture]
 fixtures = acceptedFixtures <> rejectedFixtures
@@ -1049,6 +1092,7 @@ lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
+    ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
     ("closure-valued-result", closureValuedResultLowererProgram),
     ("closure-shaped-named-function", closureShapeLowererProgram),
@@ -1068,12 +1112,20 @@ lowererBoundaryPrograms =
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
 
+validIndependentLowererPrograms :: [(Text, TypedProgram)]
+validIndependentLowererPrograms =
+  lowererBoundaryPrograms <> lowererStructuralBoundaryPrograms
+
 invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
   [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
     ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
     ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram)
   ]
+
+independentLowererPrograms :: [(Text, TypedProgram)]
+independentLowererPrograms =
+  validIndependentLowererPrograms <> invalidLowererBoundaryPrograms
 
 lowererStructuralBoundaryPrograms :: [(Text, TypedProgram)]
 lowererStructuralBoundaryPrograms =
@@ -1401,6 +1453,41 @@ invalidScalarBindingRhsProgram =
     seedBinder = TypedBinderId (modulePath, [0], seedName)
     seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
+combinedStatementFailureOrderLowererProgram :: TypedProgram
+combinedStatementFailureOrderLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedLetStatement
+            seedBinder
+            seedName
+            (TypedSpan 1 1)
+            seedScheme
+            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2)),
+          TypedLetStatement
+            messageBinder
+            messageName
+            (TypedSpan 2 1)
+            messageScheme
+            (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [1], messageName)
+    messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing
+
 capturingLowererProgram :: TypedProgram
 capturingLowererProgram =
   TypedProgram
@@ -1599,6 +1686,21 @@ producerEdgeFixtures =
               "combine :: Int -> Int -> Int.",
               "combine = \\(left, right) -> left + right.",
               "combine seed."
+            ]
+        )
+    ),
+    ( "closure-use-argument-failure-order",
+      sourceFixtureNoExports
+        "closure-use-argument-failure-order"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "apply :: (Int -> Int) -> Int.",
+              "apply = \\(function) -> function seed.",
+              "identity :: Int -> Int.",
+              "identity = \\(item) -> item.",
+              "apply identity.",
+              "[1]."
             ]
         )
     ),
