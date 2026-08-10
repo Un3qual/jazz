@@ -90,7 +90,10 @@ acceptedFixtures =
     sourceFixture "exported-direct-function" exportedDirectFunctionSource,
     sourceFixtureNoExports "named-function-value" namedFunctionValueSource,
     sourceFixtureNoExports "higher-order-call" higherOrderCallSource,
-    sourceFixtureNoExports "closure-result" closureResultSource
+    sourceFixtureNoExports "closure-result" closureResultSource,
+    sourceFixtureNoExports "callable-parameter-shadows-named-function" callableParameterShadowsNamedFunctionSource,
+    sourceFixtureNoExports "callable-parameter-shadows-enclosing-function" callableParameterShadowsEnclosingFunctionSource,
+    sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -431,6 +434,32 @@ closedCallableExpectedPrograms =
         []
         [boolIdentityFunction, chooseFunction]
         (directCall "choose" [boolInfo] boolCallableInfo [boolExpr False])
+    ),
+    ( "callable-parameter-shadows-named-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolCombineFunction, applyCombineParameterFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "callable-parameter-shadows-enclosing-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [selfShadowingApplyFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "mixed-direct-and-value-use",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, boolIdentityFunction]
+        ( binaryExpr
+            boolInfo
+            "=="
+            (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+            (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+        )
     )
   ]
 
@@ -1534,6 +1563,38 @@ closureResultSource =
       "choose False."
     ]
 
+callableParameterShadowsNamedFunctionSource :: Text
+callableParameterShadowsNamedFunctionSource =
+  Text.unlines
+    [ "combine :: Bool -> Bool -> Bool.",
+      "combine = \\(left, right) -> left.",
+      "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(combine) -> combine True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+callableParameterShadowsEnclosingFunctionSource :: Text
+callableParameterShadowsEnclosingFunctionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(apply) -> apply True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+mixedDirectAndValueUseSource :: Text
+mixedDirectAndValueUseSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity == identity True."
+    ]
+
 partialDirectCallSource :: Text
 partialDirectCallSource =
   Text.unlines
@@ -1747,6 +1808,33 @@ applyFunction =
     boolInfo
     TypedDirectCallableShape
     (directCall "function" [boolInfo] boolInfo [boolExpr True])
+
+boolCombineFunction :: ExpectedFunction
+boolCombineFunction =
+  ExpectedFunction
+    "combine"
+    [("left", boolInfo), ("right", boolInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (variableExpr "left" boolInfo)
+
+applyCombineParameterFunction :: ExpectedFunction
+applyCombineParameterFunction =
+  ExpectedFunction
+    "apply"
+    [("combine", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "combine" [boolInfo] boolInfo [boolExpr True])
+
+selfShadowingApplyFunction :: ExpectedFunction
+selfShadowingApplyFunction =
+  ExpectedFunction
+    "apply"
+    [("apply", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "apply" [boolInfo] boolInfo [boolExpr True])
 
 chooseFunction :: ExpectedFunction
 chooseFunction =

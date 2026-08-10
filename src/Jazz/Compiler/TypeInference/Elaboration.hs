@@ -428,6 +428,29 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           argumentFailures = concatMap fst finalizedArguments
        in case callee of
             ProvisionalVariableExpression name _
+              | Map.member name parameters ->
+                  let expectedArity = 1
+                      actualArity = length arguments
+                      arityFailures =
+                        [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
+                        | actualArity /= expectedArity
+                        ]
+                      (calleeFailures, maybeCallee) =
+                        finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
+                      childFailures = calleeFailures <> argumentFailures
+                   in case arityFailures of
+                        _ : _ -> (arityFailures <> childFailures, Nothing)
+                        [] ->
+                          case (resultTypes, finalizedArguments) of
+                            ([resultType], [(_, maybeArgument)]) ->
+                              let (resultInfoFailures, maybeResultInfo) =
+                                    case scalarOrCallableInfo statementIndex childPath resultType of
+                                      Left failure -> ([failure], Nothing)
+                                      Right info -> ([], Just info)
+                                  failures = childFailures <> resultInfoFailures
+                                  typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
+                               in (failures, if null failures then typedApplication else Nothing)
+                            _ -> ([], Nothing)
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
@@ -460,29 +483,6 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                                       (zip resultInfos typedArguments)
                                   )
                            in (failures, if null failures then typedApplication else Nothing)
-              | Map.member name parameters ->
-                  let expectedArity = 1
-                      actualArity = length arguments
-                      arityFailures =
-                        [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
-                        | actualArity /= expectedArity
-                        ]
-                      (calleeFailures, maybeCallee) =
-                        finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
-                      childFailures = calleeFailures <> argumentFailures
-                   in case arityFailures of
-                        _ : _ -> (arityFailures <> childFailures, Nothing)
-                        [] ->
-                          case (resultTypes, finalizedArguments) of
-                            ([resultType], [(_, maybeArgument)]) ->
-                              let (resultInfoFailures, maybeResultInfo) =
-                                    case scalarOrCallableInfo statementIndex childPath resultType of
-                                      Left failure -> ([failure], Nothing)
-                                      Right info -> ([], Just info)
-                                  failures = childFailures <> resultInfoFailures
-                                  typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
-                               in (failures, if null failures then typedApplication else Nothing)
-                            _ -> ([], Nothing)
             ProvisionalVariableExpression name _ ->
               ( failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))
                   : argumentFailures,
@@ -672,19 +672,25 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             CyclicSCC names -> names
         ]
 
-    localCalls functions expression =
-      case expression of
-        ProvisionalApplyExpression _ function argument ->
-          let (callee, _, _) = applicationSpine expression
-              own =
-                case callee of
-                  ProvisionalVariableExpression name _
-                    | Map.member name functions -> Set.singleton name
-                  _ -> Set.empty
-           in own <> localCalls functions function <> localCalls functions argument
-        ProvisionalLambdaExpression _ _ body -> localCalls functions body
-        ProvisionalBinaryExpression _ _ _ left right -> localCalls functions left <> localCalls functions right
-        _ -> Set.empty
+    localCalls functions = go Set.empty
+      where
+        go lexicalNames expression =
+          case expression of
+            ProvisionalApplyExpression _ function argument ->
+              let (callee, _, _) = applicationSpine expression
+                  own =
+                    case callee of
+                      ProvisionalVariableExpression name _
+                        | Set.notMember name lexicalNames,
+                          Map.member name functions ->
+                            Set.singleton name
+                      _ -> Set.empty
+               in own <> go lexicalNames function <> go lexicalNames argument
+            ProvisionalLambdaExpression parameterName _ body ->
+              go (Set.insert parameterName lexicalNames) body
+            ProvisionalBinaryExpression _ _ _ left right ->
+              go lexicalNames left <> go lexicalNames right
+            _ -> Set.empty
 
     finalizeExports functions callableShapes =
       foldl'

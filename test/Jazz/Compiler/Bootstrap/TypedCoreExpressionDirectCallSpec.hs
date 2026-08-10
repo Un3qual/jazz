@@ -84,9 +84,9 @@ tests =
 testFixtureManifest :: IO ()
 testFixtureManifest =
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 19 (length acceptedFixtureNames)
+    >> assertEqual "accepted fixture count" 22 (length acceptedFixtureNames)
     >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 38 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "unique fixture count" 41 (Set.size (Set.fromList fixtureNames))
     >> assertEqual
       "supplemental forward visibility fixtures"
       [ "forward-polymorphic-function-invisibility",
