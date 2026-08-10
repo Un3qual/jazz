@@ -4291,6 +4291,7 @@ stagedClosureRecipeCompatible typeValue recipe =
 flattenClosureRecipe :: TypedRepresentationRecipe -> Maybe ([TypedRepresentationRecipe], TypedRepresentationRecipe)
 flattenClosureRecipe recipe =
   case recipe of
+    TypedClosureRecipe [] _ -> Nothing
     TypedClosureRecipe arguments result ->
       case flattenClosureRecipe result of
         Just (remainingArguments, finalResult) -> Just (arguments <> remainingArguments, finalResult)

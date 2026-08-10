@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 33 (length invalidFixtures)
+  assertEqual "invalid fixture count" 34 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 50 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 51 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -12994,6 +12994,7 @@ expectedInvalidFixtureNames =
     "type-representation-mismatch",
     "data-recipe-declaration",
     "callable-recipe-signature",
+    "callable-zero-argument-stage",
     "callable-missing-shape",
     "scalar-carrying-shape",
     "missing-binder-reference",
@@ -13031,6 +13032,7 @@ invalidFixtures =
     typeRepresentationMismatchFixture,
     dataRecipeDeclarationFixture,
     callableRecipeSignatureFixture,
+    callableZeroArgumentStageFixture,
     callableMissingShapeFixture,
     scalarCarryingShapeFixture,
     missingBinderReferenceFixture,
@@ -13200,6 +13202,17 @@ callableRecipeSignatureFixture =
     expectedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     actualRecipe = TypedClosureRecipe [TypedCharRecipe] TypedBoolRecipe
     scheme = fixtureScheme valueBinder [] [] [] (TypedFunctionType TypedBoolType TypedBoolType) actualRecipe
+    program = signatureProgram fixture valueBinder valueName scheme
+
+callableZeroArgumentStageFixture :: InvalidFixture
+callableZeroArgumentStageFixture =
+  InvalidFixture fixture program [statementFailure fixture 0 TypedCallableRecipeMismatch (TypedRecipeDetail boolToBoolRecipe actualRecipe)]
+  where
+    fixture = "callable-zero-argument-stage"
+    valueName = fixtureValueName "callable"
+    valueBinder = fixtureBinder fixture 0 valueName
+    actualRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [] TypedBoolRecipe)
+    scheme = TypedScheme valueBinder [] [] [] boolToBoolType actualRecipe (Just TypedDirectCallableShape)
     program = signatureProgram fixture valueBinder valueName scheme
 
 callableMissingShapeFixture :: InvalidFixture

@@ -633,6 +633,7 @@ lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
+    ("closure-callable-shape", closureShapeLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
@@ -660,6 +661,26 @@ conditionalLowererProgram =
   expectedScalarProgram
     intInfo
     (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2))
+
+closureShapeLowererProgram :: TypedProgram
+closureShapeLowererProgram =
+  case expectedFunctionProgram [] [identityFunction] (intExpr 1) of
+    TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+      TypedProgram
+        prelude
+        [TypedModule path source imports exports interface (map markClosure statements) moduleInfo]
+        entryPath
+    _ -> error "closure-shape lowerer fixture changed shape"
+  where
+    markClosure statement =
+      case statement of
+        TypedSignatureStatement owner name spanValue schemeValue ->
+          TypedSignatureStatement owner name spanValue (closureScheme schemeValue)
+        TypedLetStatement owner name spanValue schemeValue expression ->
+          TypedLetStatement owner name spanValue (closureScheme schemeValue) expression
+        other -> other
+    closureScheme (TypedScheme owner parameters evidence primitive typeValue recipe _) =
+      TypedScheme owner parameters evidence primitive typeValue recipe (Just TypedClosureCallableShape)
 
 duplicateParameterLowererProgram :: TypedProgram
 duplicateParameterLowererProgram =
@@ -753,10 +774,12 @@ capturingLowererProgram =
         []
         (TypedModuleInterface [] [] [] [])
         ( scalarStatement
-            <> expectedFunctionStatements 1 2 addSeedFunction
+            <> map
+              (bindExpectedStatementVariables bindings)
+              (expectedFunctionStatements 1 2 addSeedFunction)
             <> [ TypedExpressionStatement
                    (TypedSpan 4 1)
-                   (directCall "addSeed" [intInfo] intInfo [intExpr 41])
+                   (bindExpectedExpressionVariables bindings (directCall "addSeed" [intInfo] intInfo [intExpr 41]))
                ]
         )
         intInfo
@@ -765,6 +788,9 @@ capturingLowererProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
+    addSeedName = resolvedName "addSeed"
+    addSeedBinder = TypedBinderId (modulePath, [2], addSeedName)
+    bindings = Map.fromList [(seedName, seedBinder), (addSeedName, addSeedBinder)]
     seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
     scalarStatement =
       [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
@@ -1713,21 +1739,31 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         [TypedModuleExport TypedValueNamespace name | name <- sort exportedNames]
         typedInterface
         statements
-        (typedExpressionInfo terminalExpression)
+        (typedExpressionInfo boundTerminalExpression)
     ]
     modulePath
   where
+    functionOwners =
+      Map.fromList
+        [ ( resolvedName (expectedFunctionName function),
+            TypedBinderId (modulePath, [functionOffset * 2 + 1], resolvedName (expectedFunctionName function))
+          )
+        | (functionOffset, function) <- zip [0 ..] functions
+        ]
     functionStatements =
       concat
-        [ expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function
+        [ map
+            (bindExpectedStatementVariables functionOwners)
+            (expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function)
         | (functionOffset, function) <- zip [0 ..] functions,
           let signatureIndex = functionOffset * 2,
           let bindingIndex = signatureIndex + 1
         ]
     terminalIndex = length functionStatements
+    boundTerminalExpression = bindExpectedExpressionVariables functionOwners terminalExpression
     statements =
       functionStatements
-        <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) terminalExpression]
+        <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) boundTerminalExpression]
     typedInterface =
       TypedModuleInterface
         [ TypedValueInterface
@@ -1814,6 +1850,39 @@ resolvedName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 
 variableExpr :: Text -> TypedNodeInfo -> TypedExpr
 variableExpr name info = TypedVariableExpr info (resolvedName name) Nothing
+
+bindExpectedStatementVariables :: Map.Map TypedCoreName TypedBinderId -> TypedStatement -> TypedStatement
+bindExpectedStatementVariables bindings statement =
+  case statement of
+    TypedLetStatement owner name spanValue schemeValue expression ->
+      TypedLetStatement owner name spanValue schemeValue (bindExpectedExpressionVariables bindings expression)
+    TypedExpressionStatement spanValue expression ->
+      TypedExpressionStatement spanValue (bindExpectedExpressionVariables bindings expression)
+    other -> other
+
+bindExpectedExpressionVariables :: Map.Map TypedCoreName TypedBinderId -> TypedExpr -> TypedExpr
+bindExpectedExpressionVariables bindings expression =
+  case expression of
+    TypedLiteralExpr {} -> expression
+    TypedVariableExpr info name _ -> TypedVariableExpr info name (Map.lookup name bindings)
+    TypedLambdaExpr info owner name body ->
+      TypedLambdaExpr info owner name (bindExpectedExpressionVariables (Map.insert name owner bindings) body)
+    TypedOperatorValueExpr {} -> expression
+    TypedListExpr info values -> TypedListExpr info (map recurse values)
+    TypedTupleExpr info values -> TypedTupleExpr info (map recurse values)
+    TypedApplyExpr info function argument -> TypedApplyExpr info (recurse function) (recurse argument)
+    TypedTypeApplicationExpr info function spanValue typeValue -> TypedTypeApplicationExpr info (recurse function) spanValue typeValue
+    TypedIfExpr info condition consequent alternative -> TypedIfExpr info (recurse condition) (recurse consequent) (recurse alternative)
+    TypedPatternCaseExpr info scrutinee arms ->
+      TypedPatternCaseExpr info (recurse scrutinee) (map bindArm arms)
+    TypedBinaryExpr info operator left right -> TypedBinaryExpr info operator (recurse left) (recurse right)
+    TypedLeftSectionExpr info left operator -> TypedLeftSectionExpr info (recurse left) operator
+    TypedRightSectionExpr info operator right -> TypedRightSectionExpr info operator (recurse right)
+    TypedBlockExpr info statements -> TypedBlockExpr info (map (bindExpectedStatementVariables bindings) statements)
+  where
+    recurse = bindExpectedExpressionVariables bindings
+    bindArm (TypedCaseArm patternValue guard result) =
+      TypedCaseArm patternValue (recurse <$> guard) (recurse result)
 
 typedExpressionType :: TypedNodeInfo -> TypedType
 typedExpressionType (TypedNodeInfo expressionType _ _ _) = expressionType

@@ -206,6 +206,13 @@ testLowererCallableBoundary =
               LoweredIRNoFailureDetail
           ]
         ),
+        ( "closure-callable-shape",
+          [ statementFailure
+              1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
         ( "capturing-function",
           [ statementFailure
               0

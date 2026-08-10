@@ -357,12 +357,12 @@ localValueIdentifier name =
     _ -> Nothing
 
 monomorphicSchemeContract :: TypedScheme -> Maybe (TypedType, TypedRepresentationRecipe)
-monomorphicSchemeContract (TypedScheme _ typeParameters evidence primitive typeValue recipe _)
+monomorphicSchemeContract (TypedScheme _ typeParameters evidence primitive typeValue recipe (Just TypedDirectCallableShape))
   | null typeParameters,
     null evidence,
     null primitive =
       Just (typeValue, recipe)
-  | otherwise = Nothing
+monomorphicSchemeContract _ = Nothing
 
 flattenLeadingLambdas ::
   TypedType ->

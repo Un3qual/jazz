@@ -288,7 +288,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   ProvisionalLambdaExpression {} -> []
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
               (expressionFailures, maybeExpression) =
-                finalizeExpression functions statementIndex [0] Set.empty FunctionBindingExpression expression
+                finalizeExpression functions statementIndex [0] Map.empty FunctionBindingExpression expression
               infoResult = callableInfo statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
               failures = generatedOperatorFailures <> rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
@@ -299,7 +299,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
            in (failures, if null failures then typedStatement else Nothing)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
-                finalizeExpression functions statementIndex [] Set.empty ScalarExpression expression
+                finalizeExpression functions statementIndex [] Map.empty ScalarExpression expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
         ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
           ( statementFailure statementIndex kind detail
@@ -339,16 +339,19 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
               ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
                 Nothing
               )
-          | Set.member name parameters ->
+          | Just parameterBinder <- Map.lookup name parameters ->
               case scalarInfo statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
-                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) Nothing))
+                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) (Just parameterBinder)))
           | Just function <- Map.lookup name functions ->
               case expressionRole of
                 CalleeExpression ->
                   case callableInfo statementIndex childPath (functionType function) of
                     Left failure -> ([failure], Nothing)
-                    Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) Nothing))
+                    Right info ->
+                      let typedName = resolvedValueName name
+                          functionBinder = binderAt (functionStatementIndex function) [] typedName
+                       in ([], Just (TypedVariableExpr info typedName (Just functionBinder)))
                 _ ->
                   ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
                     Nothing
@@ -369,18 +372,18 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                             childPath
                             TypedCoreDuplicateParameterUnsupported
                             (TypedCoreNameDetail (identifierText parameterName))
-                        | Set.member parameterName parameters
+                        | Map.member parameterName parameters
                         ]
                       parameterPath = childPath
+                      parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
                       (bodyFailures, maybeBody) =
                         finalizeExpression
                           functions
                           statementIndex
                           (childPath <> [0])
-                          (Set.insert parameterName parameters)
+                          (Map.insert parameterName parameterBinder parameters)
                           FunctionBindingExpression
                           body
-                      parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
                       failures = duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
             _ ->
