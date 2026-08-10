@@ -203,6 +203,8 @@ testIndependentLowererManifest = do
           "mutually-recursive-functions",
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
+          "nested-lambda-closure-value-self-recursion",
+          "direct-shaped-closure-value-self-recursion",
           "bare-function-value",
           "partial-direct-call",
           "imported-direct-call",
@@ -491,6 +493,30 @@ testLowererCallableBoundary =
           [ statementFailure
               3
               LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop"))
+          ]
+        ),
+        ( "nested-lambda-closure-value-self-recursion",
+          [ statementFailure
+              3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
+              3
+              [0, 0, 1]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
+          ]
+        ),
+        ( "direct-shaped-closure-value-self-recursion",
+          [ statementFailure
+              3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
+              3
+              [0, 0, 1]
+              LoweredIRCallableValueUnsupported
               (LoweredIRNameFailureDetail (currentName "loop"))
           ]
         ),

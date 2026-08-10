@@ -85,9 +85,8 @@ data FunctionShape = FunctionShape
     functionShapeBody :: TypedExpr
   }
 
-data ExpressionCheck = ExpressionCheck
-  { expressionCheckFailures :: [LoweredIRLoweringFailure],
-    expressionCheckDependencies :: [TypedBinderId]
+newtype ExpressionCheck = ExpressionCheck
+  { expressionCheckFailures :: [LoweredIRLoweringFailure]
   }
 
 lowerTypedCoreExpressionDirectCall :: TypedProgram -> LoweredIRLoweringResult
@@ -596,7 +595,10 @@ validateStatementProfiles modulePath functions localValueNames =
                       (functionShapeBody function)
                in continue
                     (expressionCheckFailures check : reversedFailureChunks)
-                    ((functionShapeBinder function, expressionCheckDependencies check) : reversedCalls)
+                    ( ( functionShapeBinder function,
+                        localFunctionDependencies functions (functionShapeBody function)
+                      ) : reversedCalls
+                    )
         TypedExpressionStatement _ expression ->
           let check =
                 inspectExpression
@@ -639,7 +641,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
             Just function
               | functionShapeCallableShape function == TypedClosureCallableShape,
                 loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
-                  ExpressionCheck [] [functionShapeBinder function]
+                  noExpressionFailures
             Just _ ->
               oneFailure
                 LoweredIRCallableValueUnsupported
@@ -675,11 +677,10 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
       oneFailure LoweredIRUnsupportedExpression LoweredIRNoFailureDetail
   where
     path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
-    noExpressionFailures = ExpressionCheck [] []
+    noExpressionFailures = ExpressionCheck []
     oneFailure kind detail =
       ExpressionCheck
         [LoweredIRLoweringFailure path kind detail]
-        []
     representationCheck info =
       case loweredRepresentation (typedNodeRecipe info) of
         Just _ -> noExpressionFailures
@@ -707,7 +708,6 @@ combineExpressionChecks :: [ExpressionCheck] -> ExpressionCheck
 combineExpressionChecks checks =
   ExpressionCheck
     (concatMap expressionCheckFailures checks)
-    (concatMap expressionCheckDependencies checks)
 
 inspectApplication ::
   [Text] ->
@@ -740,9 +740,9 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape,
                 actualArity == 1 ->
-                  ExpressionCheck [] [functionShapeBinder target]
+                  ExpressionCheck []
               | expectedArity == actualArity ->
-                  ExpressionCheck [] [functionShapeBinder target]
+                  ExpressionCheck []
               | otherwise ->
                   ExpressionCheck
                     [ LoweredIRLoweringFailure
@@ -750,13 +750,12 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                         LoweredIRCallArityUnsupported
                         (LoweredIRArityFailureDetail expectedArity actualArity)
                     ]
-                    [functionShapeBinder target]
               where
                 expectedArity = length (functionShapeParameters target)
             Nothing
               | Just _ <- findParameterShape binderReference parameters,
                 actualArity == 1 ->
-                  ExpressionCheck [] []
+                  ExpressionCheck []
               | Just _ <- findParameterShape binderReference parameters ->
                   ExpressionCheck
                     [ LoweredIRLoweringFailure
@@ -764,10 +763,9 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                         LoweredIRCallArityUnsupported
                         (LoweredIRArityFailureDetail 1 actualArity)
                     ]
-                    []
             Nothing
               | name `elem` localValueNames ->
-                  ExpressionCheck [] []
+                  ExpressionCheck []
             Nothing ->
               ExpressionCheck
                 [ LoweredIRLoweringFailure
@@ -775,7 +773,6 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                     LoweredIRNonLocalCallUnsupported
                     (LoweredIRNameFailureDetail name)
                 ]
-                []
         _ ->
           ExpressionCheck
             [ LoweredIRLoweringFailure
@@ -783,9 +780,42 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                 LoweredIRCallableValueUnsupported
                 LoweredIRNoFailureDetail
             ]
-            []
 
     actualArity = length arguments
+
+localFunctionDependencies :: [FunctionShape] -> TypedExpr -> [TypedBinderId]
+localFunctionDependencies functions expression =
+  case expression of
+    TypedLiteralExpr {} -> []
+    TypedVariableExpr _ _ binderReference ->
+      case findFunctionShape binderReference functions of
+        Just function -> [functionShapeBinder function]
+        Nothing -> []
+    TypedLambdaExpr _ _ _ body -> dependencies body
+    TypedOperatorValueExpr {} -> []
+    TypedListExpr _ elements -> concatMap dependencies elements
+    TypedTupleExpr _ elements -> concatMap dependencies elements
+    TypedApplyExpr _ function argument -> dependencies function <> dependencies argument
+    TypedTypeApplicationExpr _ function _ _ -> dependencies function
+    TypedIfExpr _ condition thenExpression elseExpression ->
+      dependencies condition <> dependencies thenExpression <> dependencies elseExpression
+    TypedPatternCaseExpr _ scrutinee arms ->
+      dependencies scrutinee <> concatMap armDependencies arms
+    TypedBinaryExpr _ _ left right -> dependencies left <> dependencies right
+    TypedLeftSectionExpr _ left _ -> dependencies left
+    TypedRightSectionExpr _ _ right -> dependencies right
+    TypedBlockExpr _ statements -> concatMap statementDependencies statements
+  where
+    dependencies = localFunctionDependencies functions
+    armDependencies (TypedCaseArm _ maybeGuard result) =
+      maybe [] dependencies maybeGuard <> dependencies result
+    statementDependencies statement =
+      case statement of
+        TypedLetStatement _ _ _ _ initializer -> dependencies initializer
+        TypedExpressionStatement _ result -> dependencies result
+        TypedImplStatement (TypedImplDeclaration _ _ methods) -> concatMap methodDependencies methods
+        _ -> []
+    methodDependencies (TypedMethodDefinition _ _ _ _ body) = dependencies body
 
 loweredIRGeneratedIdentityFailureDetail :: LoweredLayoutId -> LoweredIRLoweringDetail
 loweredIRGeneratedIdentityFailureDetail (LoweredLayoutId identityValue) =

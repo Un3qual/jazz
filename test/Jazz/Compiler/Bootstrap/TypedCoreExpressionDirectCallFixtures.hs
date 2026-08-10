@@ -1156,6 +1156,8 @@ lowererBoundaryPrograms =
     ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
+    ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
+    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
@@ -1684,6 +1686,22 @@ closureValueMutualRecursiveLowererProgram =
   expectedFunctionProgram
     []
     [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
+    (boolExpr True)
+
+directShapedClosureValueSelfRecursiveLowererProgram :: TypedProgram
+directShapedClosureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ applyFunction,
+      closurePassingLoopFunction {expectedFunctionShape = TypedDirectCallableShape}
+    ]
+    (boolExpr True)
+
+nestedLambdaClosureValueSelfRecursiveLowererProgram :: TypedProgram
+nestedLambdaClosureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, nestedLambdaClosurePassingLoopFunction]
     (boolExpr True)
 
 bareFunctionLowererProgram :: TypedProgram
@@ -2718,6 +2736,28 @@ closurePassingLoopFunction =
     boolInfo
     TypedClosureCallableShape
     (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "loop" boolCallableInfo])
+
+nestedLambdaClosurePassingLoopFunction :: ExpectedFunction
+nestedLambdaClosurePassingLoopFunction =
+  ExpectedFunction
+    "loop"
+    [("item", boolInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    ( directCall
+        "apply"
+        [boolCallableInfo]
+        boolInfo
+        [ TypedLambdaExpr
+            boolCallableInfo
+            nestedParameterBinder
+            nestedParameterName
+            (directCall "loop" [boolInfo] boolInfo [variableExpr "nested" boolInfo])
+        ]
+    )
+  where
+    nestedParameterName = resolvedName "nested"
+    nestedParameterBinder = TypedBinderId (modulePath, [3, 0, 0, 1], nestedParameterName)
 
 closurePassingLeftFunction :: ExpectedFunction
 closurePassingLeftFunction =
