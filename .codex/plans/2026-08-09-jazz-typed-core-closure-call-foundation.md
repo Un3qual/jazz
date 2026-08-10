@@ -252,7 +252,7 @@ supersedes: []
   cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
   ```
 
-  Expected: representation/shape fixtures pass twice; closure emission fixtures remain red until Task 4.
+  Expected: every Task 3 representation/shape fixture passes twice. Do not introduce closure-emission fixtures until Task 4, so this checkpoint remains fully green.
 
 - [ ] **Step 7: Commit the representation milestone.**
 
