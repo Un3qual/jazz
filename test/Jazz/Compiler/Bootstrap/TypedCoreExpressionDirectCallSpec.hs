@@ -46,6 +46,7 @@ tests =
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
     ("validates typed core before checking the lowering profile", testLoweringPrecedence),
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
+    ("rejects malformed callable recipes and binder references before lowering", testInvalidLowererTypedCoreBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
@@ -215,11 +216,50 @@ testLowererCallableBoundary =
               LoweredIRNoFailureDetail
           ]
         ),
-        ( "closure-callable-shape",
+        ( "closure-valued-parameter",
+          [ expressionFailure
+              1
+              [0, 0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "function"))
+          ]
+        ),
+        ( "closure-valued-result",
+          [ expressionFailure
+              3
+              [0, 0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "closure-shaped-named-function",
+          [ expressionFailure
+              2
+              [0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "direct-flattened-representation",
+          [ expressionFailure
+              2
+              [0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "combine"))
+          ]
+        ),
+        ( "non-concrete-closure-representation",
           [ statementFailure
               1
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "callable-shape-body-disagreement",
+          [ statementFailure
+              3
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "choose"))
           ]
         ),
         ( "capturing-function",
@@ -268,8 +308,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "bare-function-value",
-          [ callableModuleResultFailure,
-            expressionFailure
+          [ expressionFailure
               2
               [0]
               LoweredIRCallableValueUnsupported
@@ -277,8 +316,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "partial-direct-call",
-          [ callableModuleResultFailure,
-            expressionFailure
+          [ expressionFailure
               2
               [0]
               LoweredIRCallArityUnsupported
@@ -315,13 +353,47 @@ testLowererCallableBoundary =
         kind
         detail
     currentName = TypedResolvedName TypedCurrentModule TypedValueNamespace
-    callableModuleResultFailure =
-      LoweredIRLoweringFailure
-        (TypedModulePath ["App", "Main"])
-        LoweredIRUnsupportedRepresentation
-        ( LoweredIRRecipeFailureDetail
-            (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+
+testInvalidLowererTypedCoreBoundary :: IO ()
+testInvalidLowererTypedCoreBoundary =
+  mapM_ assertBoundary expectedResults
+  where
+    assertBoundary (name, expectedFailures) =
+      case lookup name invalidLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " invalid lowerer boundary program is missing")
+        Just programValue -> do
+          let firstRun = lowerTypedCoreExpressionDirectCall programValue
+              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " repeatable typed-core rejection") firstRun secondRun
+          assertEqual (name <> " exact typed-core rejection") (LoweredIRTypedCoreFailures expectedFailures) firstRun
+
+    expectedResults =
+      [ ( "closure-shape-flattened-recipe",
+          [ callableShapeFailure 0,
+            callableShapeFailure 1
+          ]
+        ),
+        ( "direct-shape-staged-recipe",
+          [ callableShapeFailure 0,
+            callableShapeFailure 1
+          ]
+        ),
+        ( "variable-binder-reference-mismatch",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [2] [0])
+              TypedBinderReferenceMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [999], currentName "identity")))
+          ]
         )
+      ]
+    callableShapeFailure statementIndex =
+      TypedCoreValidationFailure
+        (TypedStatementPath ["App", "Main"] [statementIndex])
+        TypedCallableShapeMismatch
+        ( TypedBinderDetail
+            (TypedBinderId (["App", "Main"], [statementIndex], currentName "combine"))
+        )
+    currentName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 
 testLowererStructuralBoundary :: IO ()
 testLowererStructuralBoundary =

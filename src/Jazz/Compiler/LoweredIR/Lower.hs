@@ -66,12 +66,14 @@ data LoweringState = LoweringState
   }
 
 data FunctionParameterShape = FunctionParameterShape
-  { functionParameterName :: TypedCoreName,
+  { functionParameterBinder :: TypedBinderId,
     functionParameter :: LoweredParameter
   }
 
 data FunctionShape = FunctionShape
-  { functionShapeName :: TypedCoreName,
+  { functionShapeBinder :: TypedBinderId,
+    functionShapeName :: TypedCoreName,
+    functionShapeCallableShape :: TypedCallableShape,
     functionShapeId :: LoweredFunctionId,
     functionShapeStatementIndex :: Int,
     functionShapeParameters :: [FunctionParameterShape],
@@ -331,15 +333,21 @@ collectFunctionShape ::
   Maybe FunctionShape
 collectFunctionShape modulePath statementIndex name scheme expression = do
   identifier <- localValueIdentifier name
-  (schemeType, schemeRecipe) <- monomorphicSchemeContract scheme
+  (schemeBinder, schemeType, schemeRecipe, callableShape) <- monomorphicSchemeContract scheme
   (parameters, resultRepresentation, reversedBodyPath, body) <-
-    flattenLeadingLambdas schemeType schemeRecipe [0] [] expression
+    case callableShape of
+      TypedDirectCallableShape ->
+        flattenLeadingLambdas schemeType schemeRecipe [0] [] expression
+      TypedClosureCallableShape ->
+        collectUnaryClosureShape schemeType schemeRecipe [0] expression
   if null parameters
     then Nothing
     else
       Just
         FunctionShape
-          { functionShapeName = name,
+          { functionShapeBinder = schemeBinder,
+            functionShapeName = name,
+            functionShapeCallableShape = callableShape,
             functionShapeId =
               LoweredFunctionId
                 (Text.intercalate "::" (modulePath <> [identifier])),
@@ -356,13 +364,54 @@ localValueIdentifier name =
     TypedResolvedName TypedCurrentModule TypedValueNamespace identifier -> Just identifier
     _ -> Nothing
 
-monomorphicSchemeContract :: TypedScheme -> Maybe (TypedType, TypedRepresentationRecipe)
-monomorphicSchemeContract (TypedScheme _ typeParameters evidence primitive typeValue recipe (Just TypedDirectCallableShape))
+monomorphicSchemeContract :: TypedScheme -> Maybe (TypedBinderId, TypedType, TypedRepresentationRecipe, TypedCallableShape)
+monomorphicSchemeContract (TypedScheme owner typeParameters evidence primitive typeValue recipe (Just callableShape))
   | null typeParameters,
     null evidence,
     null primitive =
-      Just (typeValue, recipe)
+      Just (owner, typeValue, recipe, callableShape)
 monomorphicSchemeContract _ = Nothing
+
+collectUnaryClosureShape ::
+  TypedType ->
+  TypedRepresentationRecipe ->
+  [Int] ->
+  TypedExpr ->
+  Maybe ([FunctionParameterShape], LoweredRepresentation, [Int], TypedExpr)
+collectUnaryClosureShape expectedType expectedRecipe reversedExpressionPath expression =
+  case expression of
+    TypedLambdaExpr info parameterBinder _ body -> do
+      if typedNodeType info == expectedType && typedNodeRecipe info == expectedRecipe
+        then pure ()
+        else Nothing
+      (argumentType, resultType) <-
+        case expectedType of
+          TypedFunctionType argument result -> Just (argument, result)
+          _ -> Nothing
+      (argumentRecipe, resultRecipe) <-
+        case expectedRecipe of
+          TypedClosureRecipe [argument] result -> Just (argument, result)
+          _ -> Nothing
+      parameterRepresentation <- valueRepresentation argumentType argumentRecipe
+      resultRepresentation <- valueRepresentation resultType resultRecipe
+      if typedNodeType (typedExpressionInfo body) == resultType
+        && typedNodeRecipe (typedExpressionInfo body) == resultRecipe
+        then
+          Just
+            ( [ FunctionParameterShape
+                  { functionParameterBinder = parameterBinder,
+                    functionParameter =
+                      LoweredParameter
+                        (LoweredParameterId "arg1")
+                        parameterRepresentation
+                  }
+              ],
+              resultRepresentation,
+              0 : reversedExpressionPath,
+              body
+            )
+        else Nothing
+    _ -> Nothing
 
 flattenLeadingLambdas ::
   TypedType ->
@@ -373,7 +422,7 @@ flattenLeadingLambdas ::
   Maybe ([FunctionParameterShape], LoweredRepresentation, [Int], TypedExpr)
 flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reversedParameters expression =
   case expression of
-    TypedLambdaExpr info _ parameterName body -> do
+    TypedLambdaExpr info parameterBinder _ body -> do
       if typedNodeType info == expectedType && typedNodeRecipe info == expectedRecipe
         then pure ()
         else Nothing
@@ -391,11 +440,11 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
                   _ -> TypedClosureRecipe rest result
               )
           _ -> Nothing
-      parameterRepresentation <- scalarRepresentation argumentType argumentRecipe
+      parameterRepresentation <- valueRepresentation argumentType argumentRecipe
       let parameterIndex = length reversedParameters + 1
           parameter =
             FunctionParameterShape
-              { functionParameterName = parameterName,
+              { functionParameterBinder = parameterBinder,
                 functionParameter =
                   LoweredParameter
                     (LoweredParameterId ("arg" <> Text.pack (show parameterIndex)))
@@ -408,7 +457,7 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
         (parameter : reversedParameters)
         body
     _ -> do
-      resultRepresentation <- scalarRepresentation expectedType expectedRecipe
+      resultRepresentation <- valueRepresentation expectedType expectedRecipe
       if typedNodeType (typedExpressionInfo expression) == expectedType
         && typedNodeRecipe (typedExpressionInfo expression) == expectedRecipe
         then Just (reverse reversedParameters, resultRepresentation, reversedExpressionPath, expression)
@@ -426,6 +475,12 @@ scalarRepresentation typeValue recipe =
     (TypedNumericType _, Just representation@LoweredUnsignedIntegerRepresentation {}) -> Just representation
     (TypedNumericType _, Just representation@LoweredFloatRepresentation {}) -> Just representation
     _ -> Nothing
+
+valueRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
+valueRepresentation typeValue recipe =
+  case (typeValue, loweredRepresentation recipe) of
+    (TypedFunctionType {}, Just representation@LoweredClosureRepresentation {}) -> Just representation
+    _ -> scalarRepresentation typeValue recipe
 
 validateStatementProfiles ::
   [Text] ->
@@ -503,14 +558,14 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
   case expression of
     TypedLiteralExpr info _ ->
       representationCheck info
-    TypedVariableExpr info name _ ->
-      case find ((== name) . functionParameterName) parameters of
+    TypedVariableExpr info name binderReference ->
+      case findParameterShape binderReference parameters of
         Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
           | loweredRepresentation (typedNodeRecipe info) == Just expectedRepresentation ->
               noExpressionFailures
           | otherwise -> representationCheck info
         Nothing ->
-          case find ((== name) . functionShapeName) functions of
+          case findFunctionShape binderReference functions of
             Just _ ->
               oneFailure
                 LoweredIRCallableValueUnsupported
@@ -606,9 +661,17 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
         argument
     targetCheck =
       case callee of
-        TypedVariableExpr _ name _ ->
-          case find ((== name) . functionShapeName) functions of
+        TypedVariableExpr _ name binderReference ->
+          case findFunctionShape binderReference functions of
             Just target
+              | functionShapeCallableShape target == TypedClosureCallableShape ->
+                  ExpressionCheck
+                    [ LoweredIRLoweringFailure
+                        path
+                        LoweredIRCallableValueUnsupported
+                        (LoweredIRNameFailureDetail name)
+                    ]
+                    []
               | expectedArity == actualArity ->
                   ExpressionCheck [] [name]
               | otherwise ->
@@ -622,6 +685,15 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
               where
                 expectedArity = length (functionShapeParameters target)
                 actualArity = length arguments
+            Nothing
+              | Just _ <- findParameterShape binderReference parameters ->
+                  ExpressionCheck
+                    [ LoweredIRLoweringFailure
+                        path
+                        LoweredIRCallableValueUnsupported
+                        (LoweredIRNameFailureDetail name)
+                    ]
+                    []
             Nothing
               | name `elem` localValueNames ->
                   ExpressionCheck [] []
@@ -654,6 +726,16 @@ applicationSpine rootPath =
             ((1 : currentPath, argument) : arguments)
             function
         _ -> (expression, currentPath, arguments)
+
+findFunctionShape :: Maybe TypedBinderId -> [FunctionShape] -> Maybe FunctionShape
+findFunctionShape binderReference functions = do
+  binder <- binderReference
+  find ((== binder) . functionShapeBinder) functions
+
+findParameterShape :: Maybe TypedBinderId -> [FunctionParameterShape] -> Maybe FunctionParameterShape
+findParameterShape binderReference parameters = do
+  binder <- binderReference
+  find ((== binder) . functionParameterBinder) parameters
 
 recursiveFunctionFailures ::
   [Text] ->
@@ -782,8 +864,8 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
   case expression of
     TypedLiteralExpr info literal ->
       lowerLiteral path info literal state
-    TypedVariableExpr info name _ ->
-      case find ((== name) . functionParameterName) parameters of
+    TypedVariableExpr info _ binderReference ->
+      case findParameterShape binderReference parameters of
         Just (FunctionParameterShape _ (LoweredParameter parameterId representation))
           | loweredRepresentation (typedNodeRecipe info) == Just representation ->
               ([], Just (LoweredFunctionParameterOperand parameterId representation), state)
@@ -929,9 +1011,11 @@ lowerApplication ::
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerApplication modulePath statementPath expressionPath path functions parameters state expression =
   case callee of
-    TypedVariableExpr _ name _ ->
-      case find ((== name) . functionShapeName) functions of
+    TypedVariableExpr _ name binderReference ->
+      case findFunctionShape binderReference functions of
         Just target
+          | functionShapeCallableShape target == TypedClosureCallableShape ->
+              callableValueUnsupported name
           | length arguments == length (functionShapeParameters target) ->
               case resultRepresentationFailures <> argumentFailures of
                 failures@(_ : _) -> (failures, Nothing, argumentState)
@@ -967,15 +1051,18 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
                 Nothing,
                 state
               )
-        Nothing ->
-          ( [ LoweredIRLoweringFailure
-                path
-                LoweredIRNonLocalCallUnsupported
-                (LoweredIRNameFailureDetail name)
-            ],
-            Nothing,
-            state
-          )
+        Nothing
+          | Just _ <- findParameterShape binderReference parameters ->
+              callableValueUnsupported name
+          | otherwise ->
+              ( [ LoweredIRLoweringFailure
+                    path
+                    LoweredIRNonLocalCallUnsupported
+                    (LoweredIRNameFailureDetail name)
+                ],
+                Nothing,
+                state
+              )
     _ ->
       ( [ LoweredIRLoweringFailure
             path
@@ -986,6 +1073,15 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
         state
       )
   where
+    callableValueUnsupported name =
+      ( [ LoweredIRLoweringFailure
+            path
+            LoweredIRCallableValueUnsupported
+            (LoweredIRNameFailureDetail name)
+        ],
+        Nothing,
+        state
+      )
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
@@ -1054,6 +1150,13 @@ loweredRepresentation recipe =
     TypedFloatRecipe bits ->
       LoweredFloatRepresentation <$> floatWidth bits
     TypedCharRecipe -> Just LoweredCharRepresentation
+    TypedClosureRecipe arguments result -> do
+      argumentRepresentations <- traverse loweredRepresentation arguments
+      resultRepresentation <- loweredRepresentation result
+      pure
+        ( LoweredClosureRepresentation
+            (LoweredCallSignature argumentRepresentations resultRepresentation)
+        )
     _ -> Nothing
 
 integerWidth :: Int -> Maybe LoweredIntegerWidth

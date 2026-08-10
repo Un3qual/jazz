@@ -18,6 +18,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     lowererBoundaryPrograms,
+    invalidLowererBoundaryPrograms,
     lowererStructuralBoundaryPrograms,
     producerEdgeFixtures,
     ordinaryForwardVisibilityFixture,
@@ -690,7 +691,12 @@ lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
-    ("closure-callable-shape", closureShapeLowererProgram),
+    ("closure-valued-parameter", closureValuedParameterLowererProgram),
+    ("closure-valued-result", closureValuedResultLowererProgram),
+    ("closure-shaped-named-function", closureShapeLowererProgram),
+    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
+    ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
+    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
@@ -699,6 +705,13 @@ lowererBoundaryPrograms =
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
+  ]
+
+invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
+invalidLowererBoundaryPrograms =
+  [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
+    ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
+    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram)
   ]
 
 lowererStructuralBoundaryPrograms :: [(Text, TypedProgram)]
@@ -721,23 +734,212 @@ conditionalLowererProgram =
 
 closureShapeLowererProgram :: TypedProgram
 closureShapeLowererProgram =
-  case expectedFunctionProgram [] [identityFunction] (intExpr 1) of
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction]
+    (variableExpr "identity" boolCallableInfo)
+
+closureValuedParameterLowererProgram :: TypedProgram
+closureValuedParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction]
+    (boolExpr True)
+
+closureValuedResultLowererProgram :: TypedProgram
+closureValuedResultLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction, chooseFunction]
+    (boolExpr True)
+
+directFlattenedRepresentationLowererProgram :: TypedProgram
+directFlattenedRepresentationLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction]
+    (variableExpr "combine" (functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo))
+
+nonConcreteClosureRepresentationLowererProgram :: TypedProgram
+nonConcreteClosureRepresentationLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (polymorphicScheme signatureBinder),
+          TypedLetStatement
+            bindingBinder
+            functionName
+            (TypedSpan 2 1)
+            (polymorphicScheme bindingBinder)
+            ( TypedLambdaExpr
+                polymorphicInfo
+                parameterBinder
+                parameterName
+                (TypedVariableExpr parameterInfo parameterName (Just parameterBinder))
+            ),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    typeParameter = TypedTypeParameterId 0
+    parameterName = resolvedName "item"
+    functionName = resolvedName "identity"
+    signatureBinder = TypedBinderId (modulePath, [0], functionName)
+    bindingBinder = TypedBinderId (modulePath, [1], functionName)
+    parameterBinder = TypedBinderId (modulePath, [1, 0], parameterName)
+    parameterInfo =
+      TypedNodeInfo
+        (TypedTypeParameterType typeParameter)
+        (TypedRepresentationParameterRecipe typeParameter)
+        []
+        []
+    polymorphicInfo =
+      TypedNodeInfo
+        (TypedFunctionType (typedExpressionType parameterInfo) (typedExpressionType parameterInfo))
+        ( TypedClosureRecipe
+            [typedExpressionRecipe parameterInfo]
+            (typedExpressionRecipe parameterInfo)
+        )
+        []
+        []
+    polymorphicScheme owner =
+      TypedScheme
+        owner
+        [typeParameter]
+        []
+        []
+        (typedExpressionType polymorphicInfo)
+        (typedExpressionRecipe polymorphicInfo)
+        (Just TypedClosureCallableShape)
+
+callableShapeBodyDisagreementLowererProgram :: TypedProgram
+callableShapeBodyDisagreementLowererProgram =
+  rewriteChooserShape
+    ( expectedFunctionProgram
+        []
+        [ boolCombineFunction,
+          ExpectedFunction
+            "choose"
+            [("ignored", boolInfo)]
+            binaryCallableInfo
+            TypedClosureCallableShape
+            (variableExpr "combine" binaryCallableInfo)
+        ]
+        (boolExpr True)
+    )
+  where
+    binaryCallableInfo = functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo
+    stagedChooserInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (typedExpressionType binaryCallableInfo))
+        ( TypedClosureRecipe
+            [TypedBoolRecipe]
+            (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+        )
+        []
+        []
+    rewriteChooserShape programValue =
+      case programValue of
+        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+          TypedProgram
+            prelude
+            [ TypedModule
+                path
+                source
+                imports
+                exports
+                interface
+                (zipWith rewriteStatement [0 :: Int ..] statements)
+                moduleInfo
+            ]
+            entryPath
+        _ -> error "callable shape/body disagreement lowerer fixture changed shape"
+    rewriteStatement statementIndex statement
+      | statementIndex == 2 = rewriteSchemeStatement statement
+      | statementIndex == 3 = rewriteBindingStatement statement
+      | otherwise = statement
+    rewriteSchemeStatement statement =
+      case statement of
+        TypedSignatureStatement owner name spanValue schemeValue ->
+          TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
+        _ -> error "callable shape/body disagreement signature changed shape"
+    rewriteBindingStatement statement =
+      case statement of
+        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body) ->
+          TypedLetStatement
+            owner
+            name
+            spanValue
+            (rewriteScheme schemeValue)
+            (TypedLambdaExpr stagedChooserInfo parameterOwner parameterName body)
+        _ -> error "callable shape/body disagreement binding changed shape"
+    rewriteScheme (TypedScheme owner parameters evidence primitive typeValue _ shape) =
+      TypedScheme owner parameters evidence primitive typeValue (typedExpressionRecipe stagedChooserInfo) shape
+
+closureShapeFlattenedRecipeLowererProgram :: TypedProgram
+closureShapeFlattenedRecipeLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction {expectedFunctionShape = TypedClosureCallableShape}]
+    (boolExpr True)
+
+directShapeStagedRecipeLowererProgram :: TypedProgram
+directShapeStagedRecipeLowererProgram =
+  rewriteRootRecipe
+    (expectedFunctionProgram [] [boolCombineFunction] (boolExpr True))
+  where
+    stagedInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+        []
+        []
+    rewriteRootRecipe programValue =
+      case programValue of
+        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+          TypedProgram
+            prelude
+            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            entryPath
+        _ -> error "direct staged-recipe lowerer fixture changed shape"
+    rewriteStatement statement =
+      case statement of
+        TypedSignatureStatement owner name spanValue schemeValue ->
+          TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
+        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body) ->
+          TypedLetStatement
+            owner
+            name
+            spanValue
+            (rewriteScheme schemeValue)
+            (TypedLambdaExpr stagedInfo parameterOwner parameterName body)
+        other -> other
+    rewriteScheme (TypedScheme owner parameters evidence primitive typeValue _ shape) =
+      TypedScheme owner parameters evidence primitive typeValue (typedExpressionRecipe stagedInfo) shape
+
+variableBinderReferenceMismatchLowererProgram :: TypedProgram
+variableBinderReferenceMismatchLowererProgram =
+  case expectedFunctionProgram [] [boolIdentityFunction] (variableExpr "identity" boolCallableInfo) of
     TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
       TypedProgram
         prelude
-        [TypedModule path source imports exports interface (map markClosure statements) moduleInfo]
+        [TypedModule path source imports exports interface (map corruptTerminal statements) moduleInfo]
         entryPath
-    _ -> error "closure-shape lowerer fixture changed shape"
+    _ -> error "variable binder-reference lowerer fixture changed shape"
   where
-    markClosure statement =
+    wrongBinder = TypedBinderId (modulePath, [999], resolvedName "identity")
+    corruptTerminal statement =
       case statement of
-        TypedSignatureStatement owner name spanValue schemeValue ->
-          TypedSignatureStatement owner name spanValue (closureScheme schemeValue)
-        TypedLetStatement owner name spanValue schemeValue expression ->
-          TypedLetStatement owner name spanValue (closureScheme schemeValue) expression
+        TypedExpressionStatement spanValue (TypedVariableExpr info name _) ->
+          TypedExpressionStatement spanValue (TypedVariableExpr info name (Just wrongBinder))
         other -> other
-    closureScheme (TypedScheme owner parameters evidence primitive typeValue recipe _) =
-      TypedScheme owner parameters evidence primitive typeValue recipe (Just TypedClosureCallableShape)
 
 duplicateParameterLowererProgram :: TypedProgram
 duplicateParameterLowererProgram =
