@@ -9,6 +9,7 @@ module Jazz.Compiler.RecursiveBindings
     collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
+    exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
     lookupLambdaCapturedNames
@@ -354,6 +355,7 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
               | Set.member dependencyName outerBindingNames -> Nothing
               | dependencyName == bindingNameText ->
                   if selfAliasLikeReference bindingNameText valueExpr
+                    || exprContainsFunctionBranch valueExpr
                     then Just statementIndex
                     else Nothing
               | otherwise -> closestFutureDeclaration declarationStatements
@@ -402,6 +404,67 @@ inferSelfRecursiveBindings predicate =
               (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
+
+-- Keep callable-shape recognition beside canonical recursive ownership so
+-- nested and top-level scopes agree on lambda self recursion.
+exprContainsFunctionBranch :: Expr -> Bool
+exprContainsFunctionBranch expr =
+  case expr of
+    ELambda {} -> True
+    EIf _ thenExpr elseExpr ->
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
+    EPatternCase _ caseArms ->
+      any
+        (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
+        caseArms
+    EBlock statements ->
+      scopeContainsFunctionBranch statements
+    _ -> False
+
+scopeContainsFunctionBranch :: [Statement] -> Bool
+scopeContainsFunctionBranch statements =
+  case reverse statements of
+    SExpr _ expr : _ ->
+      exprContainsFunctionBranchViaScopeBindings
+        (collectScopeBindingExprs statements)
+        Set.empty
+        expr
+    _ -> False
+  where
+    exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
+      case scopeExpr of
+        EVar bindingName ->
+          case Map.lookup bindingName scopeBindings of
+            Just bindingExpr
+              | Set.notMember bindingName visitedBindings ->
+                  exprContainsFunctionBranchViaScopeBindings
+                    scopeBindings
+                    (Set.insert bindingName visitedBindings)
+                    bindingExpr
+            _ -> False
+        ELambda {} -> True
+        EIf _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EPatternCase _ caseArms ->
+          any
+            ( \(CaseArm _ _ bodyExpr) ->
+                exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            )
+            caseArms
+        EBlock nestedStatements ->
+          scopeContainsFunctionBranch nestedStatements
+        _ -> False
+
+    collectScopeBindingExprs =
+      foldl' collect Map.empty
+      where
+        collect scopeBindings statement =
+          case statement of
+            SLet bindingName _ valueExpr ->
+              Map.insert bindingName valueExpr scopeBindings
+            _ -> scopeBindings
 
 selfAliasLikeReference :: Name -> Expr -> Bool
 selfAliasLikeReference bindingName =

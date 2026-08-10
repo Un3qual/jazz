@@ -2209,6 +2209,18 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "nested-self-recursive-lambda-local-ownership",
+      sourceFixtureNoExports
+        "nested-self-recursive-lambda-local-ownership"
+        ( Text.unlines
+            [ "owner :: Bool -> Bool.",
+              "owner = \\(item) -> { loop = \\(nested) -> loop nested. item. }.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> owner item.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-block-later-signed-shadow-control",
       sourceFixtureNoExports
         "rejected-block-later-signed-shadow-control"

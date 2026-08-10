@@ -93,6 +93,7 @@ tests =
     ("retains every established canonical recursion owner exactly once", testCanonicalRecursionTransportControls),
     ("resolves a nested alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-alias-mutual-recursion"),
     ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
+    ("keeps a nested self-recursive lambda local to its block", testNestedSelfRecursiveLambdaOwnership),
     ("selects the nearest of three same-name declarations", testCanonicalCallableRebindingDependencies "three-same-name-nearest-prior-mutual-recursion"),
     ("preserves canonical self recursion when no prior binding exists", testCanonicalCallableRebindingDependencies "canonical-self-recursion-no-prior"),
     ("preserves canonical mutual recursion between peers", testCanonicalCallableRebindingDependencies "canonical-mutual-recursion-peers"),
@@ -1979,6 +1980,28 @@ testNestedPriorOuterAliasOwnership requestedName = do
               (TypedCoreNameDetail name) <- failures
           ]
         _ -> []
+
+testNestedSelfRecursiveLambdaOwnership :: IO ()
+testNestedSelfRecursiveLambdaOwnership = do
+  let fixture = producerEdgeFixture "nested-self-recursive-lambda-local-ownership"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+              TypedCoreNestedBlockUnsupported
+              TypedCoreLocalBlockDetail
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "nested self-recursive lambda ordinary diagnostics"
+    []
+    ( filter
+        isErrorDiagnostic
+        (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+    )
+  assertEqual "nested self-recursive lambda repeatability" firstRun secondRun
+  assertEqual "nested self-recursive lambda exact local ownership" expected (typedCoreProductionStatus firstRun)
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =

@@ -45,6 +45,8 @@ tests =
     ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
     ("ordinary rebinding initializers resolve the nearest prior local binding", testFreeVarsScopeResolvesPriorLocalInitializerName),
     ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
+    ("recursive groups keep top-level self-recursive lambdas", testRecursiveGroupsKeepTopLevelSelfRecursiveLambda),
+    ("recursive groups keep top-level mutually recursive lambdas", testRecursiveGroupsKeepTopLevelMutualLambdas),
     ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
@@ -57,6 +59,8 @@ tests =
     ("nested operator aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion),
     ("nested aliases without an outer declaration remain local self cycles", testRecursiveGroupsKeepNoOuterNestedAliasLocal),
     ("nested aliases do not resolve to the current enclosing declaration", testRecursiveGroupsKeepCurrentNestedAliasLocal),
+    ("nested self-recursive lambdas stay out of enclosing SCCs", testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal),
+    ("nested conditional self-recursive lambdas stay out of enclosing SCCs", testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal),
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
@@ -140,6 +144,44 @@ testRecursiveGroupsKeepSingletonSelfRecursion =
   where
     indexedStatements =
       [ (0, SLet (ident "f") span0 (EVar (ident "f")))
+      ]
+
+testRecursiveGroupsKeepTopLevelSelfRecursiveLambda :: IO ()
+testRecursiveGroupsKeepTopLevelSelfRecursiveLambda =
+  assertEqual
+    "top-level lambda self recursion"
+    (Map.fromList [(1, [1])])
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ ( 1,
+          SLet
+            (ident "loop")
+            span0
+            (ELambda (ident "item") (EApply (EVar (ident "loop")) (EVar (ident "item"))))
+        )
+      ]
+
+testRecursiveGroupsKeepTopLevelMutualLambdas :: IO ()
+testRecursiveGroupsKeepTopLevelMutualLambdas =
+  assertEqual
+    "top-level lambda mutual recursion"
+    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ ( 1,
+          SLet
+            (ident "left")
+            span0
+            (ELambda (ident "item") (EApply (EVar (ident "right")) (EVar (ident "item"))))
+        ),
+        ( 3,
+          SLet
+            (ident "right")
+            span0
+            (ELambda (ident "item") (EApply (EVar (ident "left")) (EVar (ident "item"))))
+        )
       ]
 
 testRecursiveGroupsIgnoreSameNameNonAliasReference :: IO ()
@@ -344,6 +386,56 @@ testRecursiveGroupsKeepCurrentNestedAliasLocal =
             )
         )
       ]
+
+testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal :: IO ()
+testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal =
+  assertEqual
+    "nested self-recursive lambda does not form an enclosing mutual SCC"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty nestedSelfRecursiveLambdaStatements)
+
+testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal :: IO ()
+testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal =
+  assertEqual
+    "nested conditional self-recursive lambda does not form an enclosing mutual SCC"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      nestedSelfRecursiveLambdaStatementsWith
+        ( EIf
+            (ELit (LBool True))
+            (ELambda (ident "nested") (EApply (EVar (ident "loop")) (EVar (ident "nested"))))
+            (ELambda (ident "nested") (EVar (ident "nested")))
+        )
+
+nestedSelfRecursiveLambdaStatements :: [(Int, Statement)]
+nestedSelfRecursiveLambdaStatements =
+  nestedSelfRecursiveLambdaStatementsWith
+    (ELambda (ident "nested") (EApply (EVar (ident "loop")) (EVar (ident "nested"))))
+
+nestedSelfRecursiveLambdaStatementsWith :: Expr -> [(Int, Statement)]
+nestedSelfRecursiveLambdaStatementsWith localLoopExpr =
+  [ ( 1,
+      SLet
+        (ident "owner")
+        span0
+        ( ELambda
+            (ident "item")
+            ( EBlock
+                [ SLet (ident "loop") span0 localLoopExpr,
+                  SExpr span0 (EVar (ident "item"))
+                ]
+            )
+        )
+    ),
+    ( 3,
+      SLet
+        (ident "loop")
+        span0
+        (ELambda (ident "item") (EApply (EVar (ident "owner")) (EVar (ident "item"))))
+    )
+  ]
 
 nestedPriorOuterMutualStatements :: Expr -> [(Int, Statement)]
 nestedPriorOuterMutualStatements nestedAliasExpr =
