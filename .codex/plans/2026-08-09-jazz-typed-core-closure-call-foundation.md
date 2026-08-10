@@ -134,6 +134,7 @@ supersedes: []
 
 **Files:**
 
+- Modify: `src/Jazz/Compiler/TypeInference.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Elaboration.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
@@ -350,6 +351,8 @@ supersedes: []
 
 - [ ] **Step 4: Centralize ordered accumulation.** Classify the owning statement before descending, retain child failure chunks in traversal order, and remove callable/capture/arity failures only where the new child makes that exact behavior reachable. Do not sort failures or derive order from `Map`/`Set` iteration.
 
+  Accumulate all input-path failures before module-path failures in `productionStatus`, and emit module-path export/missing-result failures before statement failures in finalization.
+
 - [ ] **Step 5: Run G1 twice.**
 
   ```bash
@@ -362,7 +365,7 @@ supersedes: []
 - [ ] **Step 6: Commit the failure-order milestone.**
 
   ```bash
-  git add src/Jazz/Compiler/TypeInference/Elaboration.hs src/Jazz/Compiler/TypedCore/Validate.hs jazz/compiler/TypedCoreValidate.jz src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
+  git add src/Jazz/Compiler/TypeInference.hs src/Jazz/Compiler/TypeInference/Elaboration.hs src/Jazz/Compiler/TypedCore/Validate.hs jazz/compiler/TypedCoreValidate.jz src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
   git commit -m "test: lock closure call failure ordering"
   ```
 
