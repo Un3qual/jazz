@@ -12,6 +12,13 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const websiteDirectory = path.resolve(scriptDirectory, '..');
 const imageDirectory = path.join(websiteDirectory, 'static/img');
 const rendererPath = path.join(scriptDirectory, 'render-social-card.mjs');
+const bellhookCenterline = 'M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295';
+const wordmarkPaths = [
+  'M535 92H615V300C615 362 577 396 519 396C499 396 481 392 466 386L480 326C491 330 502 332 513 332C528 332 535 321 535 300Z',
+  'M635 390L710 92H780L857 390H783L771 337H702L690 390ZM715 278H758L737 183Z',
+  'M865 92H1008V154L939 327H1011V390H857V329L929 157H865Z',
+  'M1018 92H1161V154L1092 327H1164V390H1010V329L1082 157H1018Z',
+];
 
 async function copySynchronizedSocialCard(renderer, directory) {
   const committedPath = path.join(imageDirectory, 'social-card.svg');
@@ -46,6 +53,44 @@ async function transparentBounds(assetName) {
   }
   return {minX, minY, maxX, maxY, width: info.width, height: info.height};
 }
+
+test('every vector logo uses the approved balanced wide-bold Bellhook geometry', async () => {
+  for (const assetName of [
+    'jazz-mark.svg',
+    'jazz-mark-dark.svg',
+    'jazz-wordmark.svg',
+    'jazz-wordmark-dark.svg',
+    'favicon.svg',
+    'social-card.svg',
+  ]) {
+    const source = await readFile(path.join(imageDirectory, assetName), 'utf8');
+    assert.equal(
+      source.split(bellhookCenterline).length - 1,
+      2,
+      `${assetName} must contain the approved centerline exactly twice`,
+    );
+    assert.match(source, /stroke-width="120"/);
+    assert.match(source, /stroke-width="72"/);
+    assert.match(source, /stop-color="#FFE66A"/);
+    assert.match(source, /stop-color="#FFC43D"/);
+    assert.match(source, /stop-color="#F47A32"/);
+    assert.doesNotMatch(source, /stroke-width="38"|#D49A35/);
+    assert.doesNotMatch(source, /<(?:filter|mask|image|script|text)\b|href=/);
+  }
+});
+
+test('wordmark surfaces use the approved matched Jazz lettering', async () => {
+  for (const assetName of [
+    'jazz-wordmark.svg',
+    'jazz-wordmark-dark.svg',
+    'social-card.svg',
+  ]) {
+    const source = await readFile(path.join(imageDirectory, assetName), 'utf8');
+    for (const wordmarkPath of wordmarkPaths) {
+      assert.ok(source.includes(wordmarkPath), `${assetName} is missing an approved letter path`);
+    }
+  }
+});
 
 test('standalone marks and wordmarks retain transparent canvas padding', async () => {
   for (const assetName of [

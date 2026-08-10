@@ -91,15 +91,8 @@ button:focus-visible,
 }
 
 .navbar__logo {
-  height: 2.4rem;
-  width: 2rem;
-}
-
-.jazzNavbarTitle {
-  color: var(--jazz-ink);
-  font-size: 1.05rem;
-  font-weight: 760;
-  letter-spacing: -0.035em;
+  height: 2.5rem;
+  width: 6.25rem;
 }
 
 .navbar__link {

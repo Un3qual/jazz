@@ -366,6 +366,8 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
+  assert.match(config, /src:\s*'img\/jazz-wordmark\.svg'/);
+  assert.match(config, /srcDark:\s*'img\/jazz-wordmark-dark\.svg'/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);

@@ -1,7 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
   <title>Jazz favicon</title>
-  <desc>A simplified brass saxophone J on a deep ink square.</desc>
-  <rect width="64" height="64" rx="14" fill="#171824"/>
-  <path d="M17 14c5-3 9-4 15-4h8c5 0 8 4 8 9v20c0 11-7 17-17 17-8 0-14-5-14-12 0-6 5-10 11-10" fill="none" stroke="#D49A35" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m25 32 7 7 7-9" fill="#D49A35" stroke="#F3EDDF" stroke-width="3" stroke-linejoin="round"/>
+  <desc>A compact wide-brass Bellhook J on a deep ink square.</desc>
+  <defs>
+    <linearGradient id="jazz-favicon-brass" x1="64" y1="72" x2="396" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE66A"/>
+      <stop offset=".48" stop-color="#FFC43D"/>
+      <stop offset="1" stop-color="#F47A32"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#24182C"/>
+  <g transform="translate(2 3) scale(.125)">
+    <rect x="20" y="94" width="108" height="36" rx="18" fill="#F3EDDF"/>
+    <rect x="31" y="103" width="63" height="18" rx="9" fill="#FFD54C"/>
+    <path d="M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295" fill="none" stroke="#F3EDDF" stroke-width="120" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295" fill="none" stroke="url(#jazz-favicon-brass)" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="393" cy="178" r="14" fill="#24182C"/>
+    <circle cx="393" cy="232" r="14" fill="#24182C"/>
+    <circle cx="393" cy="286" r="14" fill="#24182C"/>
+  </g>
 </svg>
