@@ -1961,6 +1961,108 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-block-initializer-self-recursion",
+      sourceFixtureNoExports
+        "rejected-block-initializer-self-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop = loop item. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-initializer-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-block-initializer-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> { right = right item. item. }.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = left item. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-later-signed-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-later-signed-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> {",
+              "  observed = loop item.",
+              "  loop :: Bool -> Bool.",
+              "  loop = \\(nested) -> nested.",
+              "  loop item.",
+              "}.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-local-shadow-cycle-control",
+      sourceFixtureNoExports
+        "rejected-block-local-shadow-cycle-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> forward item.",
+              "forward :: Bool -> Bool.",
+              "forward = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-parameter-shadow-cycle-control",
+      sourceFixtureNoExports
+        "rejected-block-parameter-shadow-cycle-control"
+        ( Text.unlines
+            [ "forward :: (Bool -> Bool) -> Bool.",
+              "forward = \\(loop) -> { loop True. }.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> forward identity.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-operator-value-self-recursion",
+      sourceFixtureNoExports
+        "rejected-operator-value-self-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> (%%) left right.",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-infix-operator-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-infix-operator-mutual-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "operator ~~ tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> left ~~ right.",
+              "(~~) :: Int -> Int -> Int.",
+              "(~~) = \\(left, right) -> left %% right.",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-section-operator-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-section-operator-mutual-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "operator ~~ tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> (left ~~) right.",
+              "(~~) :: Int -> Int -> Int.",
+              "(~~) = \\(left, right) -> (%% right) left.",
+              "0."
+            ]
+        )
+    ),
     ( "unit-forward-function",
       sourceFixtureNoExports
         "unit-forward-function"

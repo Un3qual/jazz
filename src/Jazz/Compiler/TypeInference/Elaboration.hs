@@ -30,7 +30,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), ImplMethod (..), Literal (..), NumericType (..), Pattern (..), SignaturePayload (..), SignatureType (..), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), ImplMethod (..), Literal (..), NumericType (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog (numericTypeIsIntegral)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
@@ -47,7 +47,9 @@ import Jazz.Compiler.Name
     Name (..),
     NameNamespace (..),
     identifierText,
+    operatorBindingName,
   )
+import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
     resolveType,
@@ -193,7 +195,7 @@ expressionDependencyNames = go
         ELit {} -> Set.empty
         EVar name -> Set.singleton name
         ELambda parameterName body -> Set.delete parameterName (go body)
-        EOperatorValue {} -> Set.empty
+        EOperatorValue operatorSymbol -> operatorDependencies operatorSymbol
         EList elements -> foldMap go elements
         ETuple elements -> foldMap go elements
         EApply function argument -> go function <> go argument
@@ -201,38 +203,27 @@ expressionDependencyNames = go
         EIf condition thenExpression elseExpression ->
           go condition <> go thenExpression <> go elseExpression
         EPatternCase scrutinee arms -> go scrutinee <> foldMap armDependencies arms
-        EBinary _ left right -> go left <> go right
-        ESectionLeft left _ -> go left
-        ESectionRight _ right -> go right
+        EBinary operatorSymbol left right ->
+          operatorDependencies operatorSymbol <> go left <> go right
+        ESectionLeft left operatorSymbol -> operatorDependencies operatorSymbol <> go left
+        ESectionRight operatorSymbol right -> operatorDependencies operatorSymbol <> go right
         EBlock statements -> blockDependencies Set.empty statements
     armDependencies (CaseArm patternValue maybeGuard result) =
       let boundNames = patternBindingNames patternValue
        in (maybe Set.empty go maybeGuard <> go result) Set.\\ boundNames
     methodDependencies (ImplMethod _ _ body) = go body
     blockDependencies _ [] = Set.empty
-    blockDependencies lexicalNames statements@(statement : rest) =
+    blockDependencies lexicalNames (statement : rest) =
       case statement of
         SLet name _ initializer ->
-          let initializerLexicalNames = Set.insert name (lexicalNames <> forwardFunctionNames statements)
-           in (go initializer Set.\\ initializerLexicalNames)
-                <> blockDependencies (Set.insert name lexicalNames) rest
+          (go initializer Set.\\ lexicalNames)
+            <> blockDependencies (Set.insert name lexicalNames) rest
         SExpr _ result ->
           (go result Set.\\ lexicalNames) <> blockDependencies lexicalNames rest
         SImpl _ _ _ methods ->
           (foldMap methodDependencies methods Set.\\ lexicalNames)
             <> blockDependencies lexicalNames rest
         _ -> blockDependencies lexicalNames rest
-    forwardFunctionNames statements =
-      Set.fromList
-        [ name
-        | SSignature name _ signature <- statements,
-          functionSignature signature
-        ]
-    functionSignature signature =
-      case signature of
-        SignatureType (TypeFunction _ _) -> True
-        ConstrainedSignature _ (TypeFunction _ _) -> True
-        _ -> False
     patternBindingNames patternValue =
       case patternValue of
         PWildcard -> Set.empty
@@ -244,6 +235,9 @@ expressionDependencyNames = go
         PTuple elements -> foldMap patternBindingNames elements
         PAs name nested -> Set.insert name (patternBindingNames nested)
         POr alternatives -> foldMap patternBindingNames alternatives
+    operatorDependencies operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol = Set.empty
+      | otherwise = Set.singleton (operatorBindingName operatorSymbol)
 
 data ExpressionRole
   = FunctionBindingExpression TypedCallableShape

@@ -20,8 +20,9 @@ import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
+import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference
+import Jazz.Compiler.TypeInference.Elaboration (expressionDependencyNames)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ExpressionType (TBoolType),
@@ -86,6 +87,7 @@ tests =
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
     ("preserves recursion dependencies through rejected producer trees", testRejectedProducerDependencyTransport),
+    ("maps non-builtin operator forms and excludes builtins", testOperatorDependencyNames),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
     ("ranks every input failure before resolved-module failures", testInputModuleFailureOrder),
@@ -1857,6 +1859,53 @@ testRejectedProducerDependencyTransport =
         [ statementFailure 1 "loop",
           expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
         ]
+      ),
+      ( "rejected-block-initializer-self-recursion",
+        [ statementFailure 1 "loop",
+          expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+      ),
+      ( "rejected-block-initializer-mutual-recursion",
+        [ statementFailure 1 "left",
+          expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
+          statementFailure 3 "right",
+          expressionFailure 3 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+      ),
+      ( "rejected-block-later-signed-shadow-control",
+        [ statementFailure 1 "loop",
+          expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+      ),
+      ( "rejected-block-local-shadow-cycle-control",
+        [expressionFailure 3 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]
+      ),
+      ( "rejected-block-parameter-shadow-cycle-control",
+        [expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]
+      ),
+      ( "rejected-operator-value-self-recursion",
+        [ generatedOperatorFailure 1,
+          statementFailure 1 "$operator:%25%25",
+          userOperatorFailure 1 [0, 0, 0, 0, 0]
+        ]
+      ),
+      ( "rejected-infix-operator-mutual-recursion",
+        [ generatedOperatorFailure 1,
+          statementFailure 1 "$operator:%25%25",
+          userOperatorFailure 1 [0, 0, 0],
+          generatedOperatorFailure 3,
+          statementFailure 3 "$operator:%7E%7E",
+          userOperatorFailure 3 [0, 0, 0]
+        ]
+      ),
+      ( "rejected-section-operator-mutual-recursion",
+        [ generatedOperatorFailure 1,
+          statementFailure 1 "$operator:%25%25",
+          userOperatorFailure 1 [0, 0, 0, 0],
+          generatedOperatorFailure 3,
+          statementFailure 3 "$operator:%7E%7E",
+          userOperatorFailure 3 [0, 0, 0, 0]
+        ]
       )
     ]
   where
@@ -1864,7 +1913,13 @@ testRejectedProducerDependencyTransport =
       let fixture = producerEdgeFixture name
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
-      assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
       assertEqual (name <> " repeatable production") firstRun secondRun
       assertEqual
         (name <> " exact rejected-tree recursion result")
@@ -1875,11 +1930,54 @@ testRejectedProducerDependencyTransport =
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreRecursiveFunctionUnsupported
         (TypedCoreNameDetail name)
+    generatedOperatorFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUserDefinedOperatorUnsupported
+        TypedCoreUnsupportedRootDetail
+    userOperatorFailure statementIndex childPath =
+      expressionFailure
+        statementIndex
+        childPath
+        TypedCoreUserDefinedOperatorUnsupported
+        TypedCoreUnsupportedRootDetail
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
+
+testOperatorDependencyNames :: IO ()
+testOperatorDependencyNames = do
+  let userOperator = operatorBindingName "%%"
+      literal = ELit (LInt 1)
+  assertEqual
+    "operator value dependency"
+    (Set.singleton userOperator)
+    (expressionDependencyNames (EOperatorValue "%%"))
+  assertEqual
+    "infix operator dependency"
+    (Set.singleton userOperator)
+    (expressionDependencyNames (EBinary "%%" literal literal))
+  assertEqual
+    "left section operator dependency"
+    (Set.singleton userOperator)
+    (expressionDependencyNames (ESectionLeft literal "%%"))
+  assertEqual
+    "right section operator dependency"
+    (Set.singleton userOperator)
+    (expressionDependencyNames (ESectionRight "%%" literal))
+  assertEqual
+    "builtin operator forms are dependency free"
+    Set.empty
+    ( foldMap
+        expressionDependencyNames
+        [ EOperatorValue "+",
+          EBinary "+" literal literal,
+          ESectionLeft literal "+",
+          ESectionRight "+" literal
+        ]
+    )
 
 producerEdgeFixture :: Text -> Fixture
 producerEdgeFixture name =
