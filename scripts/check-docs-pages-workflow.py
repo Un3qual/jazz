@@ -36,6 +36,7 @@ REQUIRED_FRAGMENTS = (
     "on:\n  push:\n    branches:\n      - main",
     "      - \"docs/**\"",
     "      - \"website/**\"",
+    "      - \"editors/vscode-jazz/syntaxes/jazz.tmLanguage.json\"",
     "  workflow_dispatch:",
     "permissions: {}",
     "  build:\n    permissions:\n      contents: read",

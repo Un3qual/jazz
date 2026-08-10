@@ -24,13 +24,34 @@ fi
 
 release_parent="$ROOT/artifacts/release"
 release_directory="$release_parent/$JAZZ_RELEASE_VERSION"
+lock_parent="$release_parent/.locks"
+release_lock="$lock_parent/$JAZZ_RELEASE_VERSION"
+mkdir -p "$lock_parent"
+if ! mkdir "$release_lock" 2>/dev/null; then
+  printf 'FAIL: release build is already in progress for %s\n' "$JAZZ_RELEASE_VERSION" >&2
+  exit 1
+fi
+
+work_root=""
+cleanup() {
+  if [[ -n "$work_root" ]]; then
+    rm -r -- "$work_root"
+  fi
+  if ! rmdir "$release_lock" 2>/dev/null; then
+    :
+  fi
+  if ! rmdir "$lock_parent" 2>/dev/null; then
+    :
+  fi
+}
+trap cleanup EXIT
+
 if [[ -e "$release_directory" ]]; then
   printf 'FAIL: release artifact directory already exists: %s\n' "$release_directory" >&2
   exit 1
 fi
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/jazz-alpha.XXXXXX")"
-trap 'rm -r -- "$work_root"' EXIT
 evidence_root="$work_root/extended"
 sdist_root="$work_root/sdist"
 nix_result="$work_root/nix-result"

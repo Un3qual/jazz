@@ -52,6 +52,12 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Documentation Pages workflow checks passed.\n", result.stdout)
 
+    def test_editor_grammar_changes_trigger_pages(self) -> None:
+        self.assertIn(
+            '      - "editors/vscode-jazz/syntaxes/jazz.tmLanguage.json"',
+            self.workflow.read_text(encoding="utf-8"),
+        )
+
     def test_actions_must_use_immutable_commits(self) -> None:
         self.replace(PNPM_ACTION, "pnpm/action-setup@v4")
         self.assert_violation("action must use an immutable commit")

@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
@@ -45,6 +46,8 @@ jobs:
 
       - name: Run complete ordinary verification
         id: ordinary
+        env:
+          JAZZ_DIFF_BASE: ${{ github.event.before }}
         run: nix develop --command bash scripts/ci/main-functional.sh
 
       - name: Collect ordinary test logs

@@ -81,6 +81,15 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation("missing required public page")
         self.assert_violation("required public page cannot be draft")
 
+    def test_required_page_can_explicitly_disable_draft_mode(self) -> None:
+        self.replace_once(
+            "docs/getting-started/overview.md",
+            "sidebar_position: 1",
+            "sidebar_position: 1\ndraft: false",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_docs_reject_non_markdown_files_and_escaping_symlinks(self) -> None:
         (self.root / "docs/internal.txt").write_text("not a page\n", encoding="utf-8")
         outside = self.root / "internal.md"
@@ -142,6 +151,22 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         compiler.chmod(0o755)
         self.assert_violation("Jazz fragment has invalid syntax", "--jazz-bin", str(compiler))
+
+    def test_compiler_operational_failure_does_not_validate_fragments(self) -> None:
+        compiler = self.root / "fixture-jazz"
+        compiler.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "print('fixture compiler unavailable', file=sys.stderr)\n"
+            "raise SystemExit(64)\n",
+            encoding="utf-8",
+        )
+        compiler.chmod(0o755)
+        self.assert_violation(
+            "Jazz fragment check failed without a compiler diagnostic",
+            "--jazz-bin",
+            str(compiler),
+        )
 
 
 if __name__ == "__main__":

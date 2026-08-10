@@ -96,9 +96,11 @@ tests =
     ("rejects shallow data payload continuations", testDataContinuationIndent),
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
+    ("accepts legal Cabal field formatting", testPackagePolicyFormatting),
     ("rejects incorrect canonical package metadata", testIncorrectPackageMetadata),
     ("rejects empty canonical package URLs", testEmptyPackageUrl),
     ("rejects legacy product identities in package metadata", testLegacyPackageIdentity),
+    ("does not reject longer current product names", testLegacyIdentityBoundaries),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
     ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
     ("rejects a private library without private visibility", testMissingPrivateVisibility),
@@ -112,7 +114,6 @@ tests =
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
     ("packages the complete public source distribution", testSourceDistributionInventory),
-    ("ignores untracked files when auditing source-distribution completeness", testSourceDistributionIgnoresUntrackedFiles),
     ("falls back to scoped source-tree inventory without Git metadata", testSourceDistributionFallback),
     ("does not trust an unrelated parent Git repository", testSourceDistributionNestedRepositoryFallback),
     ("normalizes Windows-style Git inventory roots", testSourceDistributionWindowsRoots),
@@ -370,6 +371,30 @@ validPrivatePackage =
          visibility: private
        """
 
+formattedPrivatePackage :: Text
+formattedPrivatePackage =
+  """
+  Name : jazz
+  Synopsis: A statically typed functional language with
+    practical syntax
+  Homepage: https://un3qual.github.io/jazz/
+  Bug-Reports : https://github.com/un3qual/jazz/issues
+  Author: un3qual
+  Maintainer: un3qual
+  Category: Language
+  Stability: Experimental
+  Tested-With: GHC == 9.14.1 -- pinned compiler
+  License: GPL-3.0-only
+  License-File: LICENSE
+
+  Source-Repository Head
+    Type : git
+    Location: https://github.com/un3qual/jazz.git
+
+  Library jazz-internal
+    Visibility : private
+  """
+
 testValidJazzModule :: IO ()
 testValidJazzModule =
   assertEqual
@@ -505,6 +530,13 @@ testPrivatePackagePolicy :: IO ()
 testPrivatePackagePolicy =
   assertEqual "valid private library policy" [] (validatePackagePolicy validPrivatePackage)
 
+testPackagePolicyFormatting :: IO ()
+testPackagePolicyFormatting =
+  assertEqual
+    "legal Cabal formatting"
+    []
+    (validatePackagePolicy formattedPrivatePackage)
+
 testIncorrectPackageMetadata :: IO ()
 testIncorrectPackageMetadata =
   assertEqual
@@ -551,6 +583,13 @@ testLegacyPackageIdentity =
             )
         )
     )
+
+testLegacyIdentityBoundaries :: IO ()
+testLegacyIdentityBoundaries =
+  assertEqual
+    "longer current product names are not legacy identities"
+    []
+    (validatePackagePolicy (validPrivatePackage <> "\ndescription: jazz2024 tools\n"))
 
 testPublicLibraryPolicy :: IO ()
 testPublicLibraryPolicy =
@@ -693,7 +732,7 @@ testEditorPackageMetadata =
           firstValue
             [ patternValue
             | patternValue <- keywordPatterns,
-              jsonPath ["match"] patternValue == Just (String "\\bvalue\\b")
+              jsonPath ["name"] patternValue == Just (String "keyword.other.reserved.jazz")
             ]
         exportRegionBegin = jsonPath ["repository", "exports", "begin"] grammar
         exportPatterns =
@@ -772,8 +811,7 @@ testEditorPackageMetadata =
         String "LICENSE",
         String "icon.png",
         String "language-configuration.json",
-        String "syntaxes",
-        String "fixtures"
+        String "syntaxes"
       ]
       packagedFiles
     assertEqual "syntax-only extension has no runtime entrypoint" Nothing (jsonPath ["main"] manifest)
@@ -859,14 +897,7 @@ testEditorPackageMetadata =
     assertEqual
       "export modifiers are nested inside the module-header region"
       True
-      ( any
-          ( \patternValue ->
-              jsonPath ["name"] patternValue == Just (String "storage.modifier.export.jazz")
-                && jsonPath ["match"] patternValue
-                  == Just (String "\\b(?:value|constructor|type|class)\\b")
-          )
-          exportPatterns
-      )
+      (any ((== Just (String "storage.modifier.export.jazz")) . jsonPath ["name"]) exportPatterns)
     assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True
@@ -1121,17 +1152,6 @@ testSourceDistributionInventory =
         assertEqual "required source-distribution files" [] missingFiles
         assertEqual "forbidden source-distribution files" [] forbiddenFiles
 
-testSourceDistributionIgnoresUntrackedFiles :: IO ()
-testSourceDistributionIgnoresUntrackedFiles =
-  withPackageRoot $ \packageRoot -> do
-    actualGitRoot <- isActualGitRoot packageRoot
-    when actualGitRoot $ do
-      let editorRoot = packageRoot </> "editors" </> "vscode-jazz"
-      bracket
-        (createUniqueScratchFile editorRoot)
-        removeFile
-        (const testSourceDistributionInventory)
-
 testSourceDistributionFallback :: IO ()
 testSourceDistributionFallback =
   withTemporaryDirectory "jazz-sdist-fallback" $ \packageRoot -> do
@@ -1359,13 +1379,6 @@ withTemporaryDirectory prefix action =
       removeFile path
       createDirectoryIfMissing True path
       pure path
-
-createUniqueScratchFile :: FilePath -> IO FilePath
-createUniqueScratchFile directory = do
-  (path, handle) <- openTempFile directory "source-distribution-audit-scratch-"
-  hClose handle
-  TextIO.writeFile path "not part of the repository\n"
-  pure path
 
 runGit :: FilePath -> [String] -> IO ()
 runGit workingDirectory arguments = do

@@ -7,6 +7,7 @@ on:
     paths:
       - "docs/**"
       - "website/**"
+      - "editors/vscode-jazz/syntaxes/jazz.tmLanguage.json"
       - "examples/functions/factorial.jz"
       - "scripts/example-cases.tsv"
       - "scripts/check-website.sh"

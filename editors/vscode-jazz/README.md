@@ -21,12 +21,12 @@ extensions directory and reload the editor window. On macOS or Linux, run these
 commands from the Jazz repository root:
 
 ```sh
-mkdir -p "$HOME/.vscode/extensions/jazz-language-0.1.0"
-cp -R editors/vscode-jazz/. "$HOME/.vscode/extensions/jazz-language-0.1.0/"
+mkdir -p "$HOME/.vscode/extensions/jazz-lang.jazz-language-0.1.0"
+cp -R editors/vscode-jazz/. "$HOME/.vscode/extensions/jazz-lang.jazz-language-0.1.0/"
 ```
 
 On Windows, copy `editors/vscode-jazz` to
-`%USERPROFILE%\.vscode\extensions\jazz-language-0.1.0`. VS Code will then
+`%USERPROFILE%\.vscode\extensions\jazz-lang.jazz-language-0.1.0`. VS Code will then
 associate `.jz` files with the `Jazz` language and the `source.jazz` TextMate
 grammar.
 

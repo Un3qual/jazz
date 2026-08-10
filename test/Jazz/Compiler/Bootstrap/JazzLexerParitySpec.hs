@@ -9,29 +9,29 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalLexerComparison
   ( canonicalizeLexResult,
     normalizeCanonicalSourcePath,
-    renderCanonicalLexResult
+    renderCanonicalLexResult,
   )
 import Jazz.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
     runModuleGraph,
-    runRuntimeErrors
+    runRuntimeErrors,
   )
 import Jazz.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
+  ( ModuleResolutionConfig (..),
   )
-import Jazz.Compiler.Parser.Lexer (tokenizeDetailed)
 import Jazz.Compiler.Parser.FixtureCorpus
   ( ParserFixture (..),
-    parserFixtureCorpus
+    parserFixtureCorpus,
   )
+import Jazz.Compiler.Parser.Lexer (tokenizeDetailed)
 import Jazz.Compiler.Runtime (RuntimeValue (VText), renderRuntimeValue)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import Jazz.TestSource
   ( readCheckedInJazzProjectModuleSource,
@@ -112,8 +112,8 @@ testLongRunParity :: IO ()
 testLongRunParity = do
   interpretedRun <- lookupEnv "JAZZ_NEXT_RUNGHC_IN_CABAL"
   let runLength = maybe 200000 (const 20000) interpretedRun
-  assertJazzParity "fixtures/lexer/long-identifier.jz" (Text.replicate runLength "x")
-  assertJazzParity "fixtures/lexer/long-quoted-text.jz" ("\"" <> Text.replicate runLength "x" <> "\"")
+  assertJazzParityWithin "long identifier" "fixtures/lexer/long-identifier.jz" (Text.replicate runLength "x")
+  assertJazzParityWithin "long quoted text" "fixtures/lexer/long-quoted-text.jz" ("\"" <> Text.replicate runLength "x" <> "\"")
 
 testTimeoutClassification :: IO ()
 testTimeoutClassification = do
@@ -136,6 +136,14 @@ assertLargeTokenCount label source expectedCount = do
 
 tryWithin :: Int -> IO a -> IO (Either SomeException (Maybe a))
 tryWithin microseconds action = try (timeout microseconds action)
+
+assertJazzParityWithin :: Text -> FilePath -> Text -> IO ()
+assertJazzParityWithin label logicalPath source = do
+  timedResult <- tryWithin 60000000 (assertJazzParity logicalPath source)
+  case timedResult of
+    Right Nothing -> failTest (label <> " timed out")
+    Left err -> failTest (label <> " leaked host exception: " <> Text.pack (show err))
+    Right (Just ()) -> pure ()
 
 assertJazzParity :: FilePath -> Text -> IO ()
 assertJazzParity logicalPath source = do

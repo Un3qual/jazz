@@ -84,7 +84,8 @@ FRAGMENT_RECEIPTS = Path("scripts/public-doc-fragments.tsv")
 EXAMPLE_HEADER = ("name", "sources", "expected", "args")
 FRAGMENT_HEADER = ("document", "ordinal", "sha256")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
-DRAFT_RE = re.compile(r"(?mi)^draft\s*:")
+DRAFT_RE = re.compile(r"(?mi)^draft\s*:\s*true\s*(?:#.*)?$")
+DIAGNOSTIC_RE = re.compile(r"(?m)\bE[0-9]{4}\b")
 JAZZ_FENCE_RE = re.compile(r"(?m)^```jazz(?:[ \t].*)?\r?$", re.IGNORECASE)
 EXAMPLE_MARKER_RE = re.compile(r"<!--\s*jazz-example:.*?-->", re.DOTALL)
 EXAMPLE_BINDING_RE = re.compile(
@@ -245,7 +246,9 @@ def check_fragment_syntax(
                 text=True,
                 timeout=30,
             )
-            if "E0001" not in last_result.stderr:
+            if last_result.returncode == 0:
+                return
+            if DIAGNOSTIC_RE.search(last_result.stderr) and "E0001" not in last_result.stderr:
                 return
     except subprocess.TimeoutExpired:
         violations.append(f"{document}: Jazz fragment syntax check timed out")
@@ -254,6 +257,11 @@ def check_fragment_syntax(
         violations.append(f"{document}: could not run Jazz fragment check: {error}")
         return
     if last_result is not None:
+        if DIAGNOSTIC_RE.search(last_result.stderr) is None:
+            violations.append(
+                f"{document}: Jazz fragment check failed without a compiler diagnostic"
+            )
+            return
         diagnostic = next(
             (line for line in last_result.stderr.splitlines() if "E0001" in line),
             "E0001",

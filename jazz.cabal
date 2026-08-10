@@ -46,6 +46,7 @@ extra-source-files:
     test/fixtures/runtime-observation/**/*.jz
     AGENTS.md
     flake.nix
+    flake.lock
     cabal.project
     cabal.project.profile-hotspots
     cabal.project.profile-stages

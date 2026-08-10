@@ -269,6 +269,40 @@ test('Jazz TextMate grammar recognizes Unicode identifiers', async () => {
   assert.ok(scopesByContent.get('Éclair')?.has('entity.name.type.jazz'));
 });
 
+test('Jazz TextMate grammar keeps keywords and builtins inside Unicode identifiers', async () => {
+  const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
+  for (const [source, forbiddenScope] of [
+    ['λif', 'keyword.control.jazz'],
+    ['λBool', 'support.type.builtin.jazz'],
+  ]) {
+    const {tokens} = tokenizeJazz(source, 'light', {includeExplanation: true});
+    assert.equal(tokenScopes(tokens).has(forbiddenScope), false, source);
+    assert.equal(tokens.flat().map(({content}) => content).join(''), source);
+  }
+
+  const {tokens} = tokenizeJazz('if Bool', 'light', {includeExplanation: true});
+  const scopes = tokenScopes(tokens);
+  assert.ok(scopes.has('keyword.control.jazz'));
+  assert.ok(scopes.has('support.type.builtin.jazz'));
+});
+
+test('Jazz TextMate grammar scopes only canonical numeric suffixes', async () => {
+  const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
+  const numericContents = (source) => {
+    const {tokens} = tokenizeJazz(source, 'light', {includeExplanation: true});
+    return tokens
+      .flat()
+      .filter((token) =>
+        tokenScopes([[token]]).has('constant.numeric.jazz'),
+      )
+      .map(({content}) => content);
+  };
+
+  assert.deepEqual(numericContents('42i16'), ['42']);
+  assert.deepEqual(numericContents('42f16'), ['42']);
+  assert.deepEqual(numericContents('1.5f16'), ['1.5f16']);
+});
+
 test('site metadata, local brand assets, and non-Jazz Prism themes are configured', () => {
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);

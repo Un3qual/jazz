@@ -32,7 +32,10 @@ class ArtifactVerifierTests(unittest.TestCase):
             fixture_root = Path(temporary_directory)
             store_root = fixture_root / "store"
             payload = fixture_root / "jazz-verifier-fixture"
-            payload.write_text("Jazz Nix closure fixture\n", encoding="utf-8")
+            (payload / "bin").mkdir(parents=True)
+            jazz = payload / "bin/jazz"
+            jazz.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            jazz.chmod(0o755)
             added = subprocess.run(
                 [
                     "nix-store",
@@ -58,6 +61,34 @@ class ArtifactVerifierTests(unittest.TestCase):
                 check=True,
             )
             cls.nix_export = exported.stdout
+
+            non_jazz_payload = fixture_root / "not-jazz"
+            non_jazz_payload.write_text("not a Jazz executable\n", encoding="utf-8")
+            non_jazz_added = subprocess.run(
+                [
+                    "nix-store",
+                    "--store",
+                    f"local?root={store_root}",
+                    "--add",
+                    str(non_jazz_payload),
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            cls.non_jazz_root = non_jazz_added.stdout.strip()
+            non_jazz_exported = subprocess.run(
+                [
+                    "nix-store",
+                    "--store",
+                    f"local?root={store_root}",
+                    "--export",
+                    cls.non_jazz_root,
+                ],
+                capture_output=True,
+                check=True,
+            )
+            cls.non_jazz_export = non_jazz_exported.stdout
 
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -135,6 +166,8 @@ class ArtifactVerifierTests(unittest.TestCase):
             f"jazz-{VERSION}-source.tar.gz",
             {
                 "jazz-0.1.0.0/jazz.cabal": b"name: jazz\nversion: 0.1.0.0\n",
+                "jazz-0.1.0.0/flake.nix": b"{}\n",
+                "jazz-0.1.0.0/flake.lock": b"{}\n",
                 "jazz-0.1.0.0/src/Jazz/Compiler.hs": b"module Jazz.Compiler where\n",
             },
         )
@@ -221,17 +254,55 @@ class ArtifactVerifierTests(unittest.TestCase):
         self.archive(
             source_name,
             {
-                "jazz-0.1.0.0/jazz.cabal": b"name: jazz\n",
+                "jazz-0.1.0.0/jazz.cabal": b"name: jazz\nversion: 0.1.0.0\n",
+                "jazz-0.1.0.0/flake.nix": b"{}\n",
+                "jazz-0.1.0.0/flake.lock": b"{}\n",
                 "jazz-0.1.0.0/.codex/execution/queue.md": b"internal\n",
             },
         )
         self.write_checksums()
         self.assert_rejected("source archive contains forbidden path")
 
+    def test_rejects_source_version_that_differs_from_the_alpha_line(self) -> None:
+        source_name = f"jazz-{VERSION}-source.tar.gz"
+        self.archive(
+            source_name,
+            {
+                "jazz-0.2.0.0/jazz.cabal": b"name: jazz\nversion: 0.2.0.0\n",
+                "jazz-0.2.0.0/src/Jazz/Compiler.hs": b"module Jazz.Compiler where\n",
+            },
+        )
+        self.write_checksums()
+        self.assert_rejected("source package version does not match the alpha version")
+
     def test_rejects_docs_without_the_static_index(self) -> None:
         self.archive(f"jazz-{VERSION}-docs.tar.gz", {"assets/site.js": b";\n"})
         self.write_checksums()
         self.assert_rejected("docs archive is missing index.html")
+
+    def test_rejects_docs_that_violate_the_publication_boundary(self) -> None:
+        cases = (
+            ("assets/site.js", b"fetch('https://example.com/runtime.js')\n"),
+            ("docs/status/index.html", b"<p>.codex/execution/queue.md</p>\n"),
+        )
+        for path, contents in cases:
+            with self.subTest(path=path):
+                self.write_valid_artifact_set()
+                self.archive(
+                    f"jazz-{VERSION}-docs.tar.gz",
+                    {
+                        "index.html": b"<!doctype html><title>Jazz</title>\n",
+                        path: contents,
+                    },
+                )
+                self.write_checksums()
+                self.assert_rejected("docs archive violates the publication boundary")
+
+    def test_rejects_a_truncated_gzip_stream(self) -> None:
+        docs = self.release_directory / f"jazz-{VERSION}-docs.tar.gz"
+        docs.write_bytes(docs.read_bytes()[:-8])
+        self.write_checksums()
+        self.assert_rejected("archive is not a complete gzip stream")
 
     def test_rejects_nix_closure_without_its_recorded_root(self) -> None:
         absent_root = "/nix/store/cccccccccccccccccccccccccccccccc-jazz-0.1.0.0"
@@ -259,6 +330,19 @@ class ArtifactVerifierTests(unittest.TestCase):
         )
         self.write_checksums()
         self.assert_rejected("Nix runtime closure export cannot be imported")
+
+    def test_rejects_nix_root_without_an_executable_jazz(self) -> None:
+        self.archive(
+            f"jazz-{VERSION}-nix-{SYSTEM}.tar.gz",
+            {
+                "nix-closure/closure.nar": self.non_jazz_export,
+                "nix-closure/root-store-path": f"{self.non_jazz_root}\n".encode(),
+                "nix-closure/store-paths": f"{self.non_jazz_root}\n".encode(),
+                "nix-closure/system": f"{SYSTEM}\n".encode(),
+            },
+        )
+        self.write_checksums()
+        self.assert_rejected("Nix closure root does not provide executable bin/jazz")
 
     def test_rejects_nix_store_paths_not_present_in_the_export(self) -> None:
         advertised_paths = sorted((NIX_DEPENDENCY, self.nix_root))
@@ -293,6 +377,10 @@ class ArtifactVerifierTests(unittest.TestCase):
             f"""#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "--store" && "$3" == "--import" ]]; then
+  local_store="${{2#local?root=}}"
+  mkdir -p "$local_store{NIX_ROOT}/bin"
+  printf '#!/usr/bin/env bash\n' > "$local_store{NIX_ROOT}/bin/jazz"
+  chmod +x "$local_store{NIX_ROOT}/bin/jazz"
   printf '%s\\n' '{NIX_ROOT}' '{NIX_DEPENDENCY}'
 elif [[ "$1" == "--store" && "$3" == "--query" && "$4" == "--requisites" ]]; then
   printf '%s\\n' '{NIX_ROOT}' '{NIX_DEPENDENCY}'
@@ -406,6 +494,10 @@ fi
         (repository / "fixtures/evidence").mkdir(parents=True)
         shutil.copy2(BUILD, repository / "scripts/release/build-alpha.sh")
         shutil.copy2(VERIFY, repository / "scripts/release/verify-artifacts.py")
+        shutil.copy2(
+            VERIFY.parent.parent / "check-website-boundary.py",
+            repository / "scripts/check-website-boundary.py",
+        )
         (repository / ".gitignore").write_text(
             "/artifacts/\n/website/build/\n", encoding="utf-8"
         )
@@ -431,6 +523,10 @@ elif [[ "$1" == "--query" && "$2" == "--requisites" ]]; then
 elif [[ "$1" == "--export" ]]; then
   command cat fixtures/closure.nar
 elif [[ "$1" == "--store" && "$3" == "--import" ]]; then
+  local_store="${{2#local?root=}}"
+  mkdir -p "$local_store{self.nix_root}/bin"
+  printf '#!/usr/bin/env bash\n' > "$local_store{self.nix_root}/bin/jazz"
+  chmod +x "$local_store{self.nix_root}/bin/jazz"
   printf '%s\\n' '{self.nix_root}'
 elif [[ "$1" == "--store" && "$3" == "--query" && "$4" == "--requisites" ]]; then
   printf '%s\\n' '{self.nix_root}'
@@ -451,10 +547,14 @@ fi
             destination.write_bytes(contents)
         source_fixture = repository / "fixtures/jazz-0.1.0.0.tar.gz"
         with tarfile.open(source_fixture, "w:gz") as archive:
-            contents = b"name: jazz\nversion: 0.1.0.0\n"
-            member = tarfile.TarInfo("jazz-0.1.0.0/jazz.cabal")
-            member.size = len(contents)
-            archive.addfile(member, io.BytesIO(contents))
+            for name, contents in (
+                ("jazz.cabal", b"name: jazz\nversion: 0.1.0.0\n"),
+                ("flake.nix", b"{}\n"),
+                ("flake.lock", b"{}\n"),
+            ):
+                member = tarfile.TarInfo(f"jazz-0.1.0.0/{name}")
+                member.size = len(contents)
+                archive.addfile(member, io.BytesIO(contents))
 
         candidate = repository / "scripts/ci/release-candidate.sh"
         candidate.write_text(
@@ -463,6 +563,7 @@ set -euo pipefail
 [[ ! -e "$JAZZ_ARTIFACT_ROOT" ]]
 [[ "$JAZZ_ARTIFACT_ROOT" != "$JAZZ_RELEASE_OUTPUT_ROOT" ]]
 mkdir -p "$JAZZ_ARTIFACT_ROOT" "$JAZZ_RELEASE_SDIST_ROOT" "$(dirname "$JAZZ_NIX_RESULT")" website/build
+sleep 0.5
 cp -R fixtures/evidence/. "$JAZZ_ARTIFACT_ROOT/"
 cp fixtures/jazz-0.1.0.0.tar.gz "$JAZZ_RELEASE_SDIST_ROOT/"
 cp -R fixtures/nix-result "$JAZZ_NIX_RESULT"
@@ -483,15 +584,31 @@ cp -R fixtures/docs/. website/build/
         environment = os.environ.copy()
         environment["JAZZ_RELEASE_VERSION"] = VERSION
         environment["PATH"] = str(repository / "fixtures/bin") + os.pathsep + environment["PATH"]
-        result = subprocess.run(
+        first = subprocess.Popen(
             ["bash", "scripts/release/build-alpha.sh"],
             cwd=repository,
             env=environment,
             text=True,
-            capture_output=True,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        second = subprocess.Popen(
+            ["bash", "scripts/release/build-alpha.sh"],
+            cwd=repository,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        results = []
+        for process in (first, second):
+            stdout, stderr = process.communicate(timeout=30)
+            results.append((process.returncode, stdout, stderr))
+        successes = [result for result in results if result[0] == 0]
+        failures = [result for result in results if result[0] != 0]
+        self.assertEqual(len(successes), 1, results)
+        self.assertEqual(len(failures), 1, results)
+        self.assertIn("release build is already in progress", failures[0][2])
         final_directory = repository / "artifacts/release" / VERSION
         verification = subprocess.run(
             [sys.executable, "scripts/release/verify-artifacts.py", str(final_directory)],

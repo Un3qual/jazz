@@ -362,6 +362,10 @@ def check_fast(contents: str, violations: list[str]) -> None:
         r'cabal\s+test\s+"\$\{test_components\[@\]\}".*--test-show-details=direct',
     )
     require_command(violations, tier, contents, "cabal check", r"cabal\s+check")
+    if not has_command(
+        contents, r"python3\s+scripts/release/test-verify-artifacts\.py"
+    ):
+        violations.append("fast compiler tier must run release verifier behavior tests")
     require_command(
         violations,
         tier,
@@ -370,6 +374,10 @@ def check_fast(contents: str, violations: list[str]) -> None:
         r"bash\s+scripts/check-examples\.sh",
     )
     require_command(violations, tier, contents, "git diff --check", r"git\s+diff\s+--check")
+    if 'git diff --check "$JAZZ_DIFF_BASE...HEAD"' not in contents:
+        violations.append(
+            "fast compiler tier must check the committed diff when JAZZ_DIFF_BASE is set"
+        )
     components = array_body(contents, "test_components")
     for component in FAST_COMPONENTS:
         if not re.search(rf"(?<![a-z0-9-]){re.escape(component)}(?![a-z0-9-])", components):
@@ -397,6 +405,16 @@ def check_main(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    if not has_command(contents, r"python3\s+scripts/test-check-ci-policy\.py"):
+        violations.append("main functional tier must run CI policy behavior tests")
+    if not has_command(
+        contents, r"python3\s+scripts/release/test-verify-artifacts\.py"
+    ):
+        violations.append("main functional tier must run release verifier behavior tests")
+    if 'git diff --check "$JAZZ_DIFF_BASE...HEAD"' not in contents:
+        violations.append(
+            "main functional tier must check the committed diff when JAZZ_DIFF_BASE is set"
+        )
     require_command(
         violations,
         tier,
@@ -788,6 +806,11 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
     for token, command in checks:
         if not re.search(rf"(?m)^\s*(?:-\s+)?run:\s*{command}\s*$", job):
             violations.append(f"docs-and-site job is missing required check: {token}")
+    if not re.search(
+        r"(?m)^\s*(?:-\s+)?run:\s*python3\s+scripts/test-check-ci-policy\.py\s*$",
+        job,
+    ):
+        violations.append("docs-and-site job must run CI policy behavior tests")
 
     compiler_toolchain = re.compile(
         r"(?i)\bcabal\b|\bghc(?:up)?\b|\bnix\b|install-nix-action|setup-haskell"
@@ -1268,8 +1291,8 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
             "extended evidence upload must include the owned artifact root",
         ),
         (
-            r"(?m)^\s*if-no-files-found:\s*error\s*$",
-            "extended evidence upload must fail when evidence is missing",
+            r"(?m)^\s*if-no-files-found:\s*warn\s*$",
+            "extended evidence upload must tolerate a failed run without evidence",
         ),
         (
             r"(?m)^\s*retention-days:\s*30\s*$",
@@ -1371,6 +1394,12 @@ def check_release_workflow(root: Path, violations: list[str]) -> None:
         or any(token in joined_text(contents) for token in publication_tokens)
     ):
         violations.append("release workflow must be read-only and must not publish")
+
+    concurrency = indented_block(contents, "concurrency", 0)
+    if "${{ inputs.version || github.ref_name }}" not in concurrency:
+        violations.append(
+            "release workflow concurrency must include the requested version"
+        )
 
     job = workflow_job(contents, "release")
     if not job:

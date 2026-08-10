@@ -34,6 +34,7 @@
             ./docs
             ./editors/vscode-jazz
             ./examples
+            ./flake.lock
             ./flake.nix
             ./jazz
             ./jazz.cabal

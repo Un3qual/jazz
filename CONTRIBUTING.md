@@ -76,7 +76,7 @@ Check changed Haskell files with the repository's pinned formatter, passing
 explicit file paths:
 
 ```bash
-ormolu --mode check src/Jazz/Compiler/Parser.hs test/Jazz/ParserSpec.hs
+ormolu --mode check src/Jazz/Compiler/Parser.hs test/Jazz/Compiler/Parser/ParserFoundationSpec.hs
 ```
 
 For public documentation or website work, run:

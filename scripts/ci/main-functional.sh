@@ -9,8 +9,14 @@ actionlint
 cabal build all
 cabal test all --test-show-details=direct
 cabal check
+python3 scripts/test-check-ci-policy.py
+python3 scripts/release/test-verify-artifacts.py
 bash scripts/check-docs.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-examples.sh
 nix flake check
-git diff --check
+if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
+  git diff --check "$JAZZ_DIFF_BASE...HEAD"
+else
+  git diff --check
+fi

@@ -8,6 +8,7 @@ accidental internal references or remote runtime dependencies.
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -93,15 +94,14 @@ def check_config(root: Path, violations: list[str]) -> None:
             violations.append(f"{CONFIG}: {message}")
 
 
-def check_built_output(root: Path, violations: list[str]) -> None:
-    build = root / BUILD
+def check_output_tree(build: Path, label_root: Path, violations: list[str]) -> None:
     if not build.exists():
         return
     for path in sorted(build.rglob("*")):
         if not path.is_file() or path.suffix.casefold() not in TEXT_SUFFIXES:
             continue
         source = read_text(path)
-        relative = path.relative_to(root).as_posix()
+        relative = path.relative_to(label_root).as_posix()
         if source is None:
             violations.append(f"{relative}: generated text is not readable UTF-8")
             continue
@@ -121,6 +121,10 @@ def check_built_output(root: Path, violations: list[str]) -> None:
                     )
 
 
+def check_built_output(root: Path, violations: list[str]) -> None:
+    check_output_tree(root / BUILD, root, violations)
+
+
 def validate(root: Path) -> list[str]:
     violations: list[str] = []
     check_config(root, violations)
@@ -129,11 +133,22 @@ def validate(root: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) > 2:
-        print("usage: check-website-boundary.py [repository-root]", file=sys.stderr)
-        return 2
-    root = Path(argv[1]).resolve() if len(argv) == 2 else Path(__file__).resolve().parent.parent
-    violations = validate(root)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repository_root", nargs="?")
+    parser.add_argument("--build-directory")
+    arguments = parser.parse_args(argv[1:])
+    if arguments.build_directory is not None:
+        build = Path(arguments.build_directory).resolve()
+        violations: list[str] = []
+        check_output_tree(build, build, violations)
+        violations = sorted(set(violations))
+    else:
+        root = (
+            Path(arguments.repository_root).resolve()
+            if arguments.repository_root is not None
+            else Path(__file__).resolve().parent.parent
+        )
+        violations = validate(root)
     if violations:
         print("Website boundary checks failed:")
         for violation in violations:

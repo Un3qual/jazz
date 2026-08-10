@@ -25,8 +25,7 @@
     "LICENSE",
     "icon.png",
     "language-configuration.json",
-    "syntaxes",
-    "fixtures"
+    "syntaxes"
   ],
   "engines": {
     "vscode": "^1.85.0"

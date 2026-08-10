@@ -51,4 +51,4 @@ release.
 - Nothing yet.
 
 [Unreleased]: https://github.com/un3qual/jazz/compare/v0.1.0-alpha.1...HEAD
-[0.1.0-alpha.1]: https://github.com/un3qual/jazz/compare/archive/pre-root-canonicalization-2026-07-31...v0.1.0-alpha.1
+[0.1.0-alpha.1]: https://github.com/un3qual/jazz/compare/1df2c5bd2524cdd52bd18e989967373e255f80d3...v0.1.0-alpha.1

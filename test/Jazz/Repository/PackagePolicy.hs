@@ -7,7 +7,7 @@ module Jazz.Repository.PackagePolicy
   )
 where
 
-import Data.Char (isSpace)
+import Data.Char (isAlphaNum, isSpace)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -38,7 +38,7 @@ validatePackagePolicy source =
         actualValue /= Just expectedValue
       ]
     sourceRepositoryBody =
-      case [body | (header, body) <- topLevelStanzas sourceLines, header == "source-repository head"] of
+      case [body | (header, body) <- topLevelStanzas sourceLines, normalizedHeader header == "source-repository head"] of
         [] -> Nothing
         body : _ -> Just body
     sourceRepositoryViolations =
@@ -50,18 +50,18 @@ validatePackagePolicy source =
             let actualValue = fieldValue fieldName body,
             actualValue /= Just expectedValue
           ]
-    normalizedSource = Text.toCaseFold source
+    metadataValues = fmap snd (logicalFields sourceLines)
     legacyIdentityViolations =
       [ LegacyPackageIdentity identity
       | identity <- legacyPackageIdentities,
-        Text.toCaseFold identity `Text.isInfixOf` normalizedSource
+        any (containsIdentity identity) metadataValues
       ]
     privateLibraryHeader = "library jazz-internal"
     libraryStanzas = filter (isLibraryHeader . fst) (topLevelStanzas sourceLines)
     hasPublicLibrary =
       any isPublicLibraryStanza libraryStanzas
     privateLibraryBody =
-      case [body | (header, body) <- libraryStanzas, header == privateLibraryHeader] of
+      case [body | (header, body) <- libraryStanzas, normalizedHeader header == privateLibraryHeader] of
         [] -> Nothing
         body : _ -> Just body
     publicLibraryViolations =
@@ -74,7 +74,7 @@ validatePackagePolicy source =
       case privateLibraryBody of
         Nothing -> []
         Just body
-          | any ((== "visibility: private") . Text.strip) body -> []
+          | fmap Text.toCaseFold (fieldValue "visibility" body) == Just "private" -> []
           | otherwise -> [MissingPrivateLibraryVisibility]
 
 renderPackagePolicyViolation :: PackagePolicyViolation -> Text
@@ -142,18 +142,67 @@ legacyPackageIdentities =
 
 topLevelFieldValue :: Text -> [Text] -> Maybe Text
 topLevelFieldValue fieldName sourceLines =
-  fieldValue fieldName (filter isTopLevelLine sourceLines)
-
-fieldValue :: Text -> [Text] -> Maybe Text
-fieldValue fieldName sourceLines =
-  case [ Text.strip (Text.drop 1 remainder)
-       | line <- sourceLines,
-         let (candidateName, remainder) = Text.breakOn ":" (Text.strip line),
-         candidateName == fieldName,
-         not (Text.null remainder)
+  case [ value
+       | (indentation, candidateName, value) <- logicalFieldEntries sourceLines,
+         indentation == 0,
+         candidateName == Text.toCaseFold fieldName
        ] of
     [] -> Nothing
     value : _ -> Just value
+
+fieldValue :: Text -> [Text] -> Maybe Text
+fieldValue fieldName sourceLines =
+  case [value | (candidateName, value) <- logicalFields sourceLines, candidateName == Text.toCaseFold fieldName] of
+    [] -> Nothing
+    value : _ -> Just value
+
+logicalFields :: [Text] -> [(Text, Text)]
+logicalFields sourceLines =
+  [(fieldName, value) | (_, fieldName, value) <- logicalFieldEntries sourceLines]
+
+logicalFieldEntries :: [Text] -> [(Int, Text, Text)]
+logicalFieldEntries [] = []
+logicalFieldEntries (line : remaining) =
+  case Text.breakOn ":" (Text.stripStart line) of
+    (candidateName, remainder)
+      | not (Text.null (Text.strip candidateName)),
+        not (Text.null remainder),
+        Text.all validFieldNameCharacter (Text.strip candidateName) ->
+          let indentation = Text.length (Text.takeWhile isSpace line)
+              (continuations, rest) = span (isContinuation indentation) remaining
+              value =
+                Text.unwords
+                  ( filter
+                      (not . Text.null)
+                      (stripComment (Text.drop 1 remainder) : fmap stripComment continuations)
+                  )
+           in (indentation, Text.toCaseFold (Text.strip candidateName), value)
+                : logicalFieldEntries rest
+    _ -> logicalFieldEntries remaining
+  where
+    validFieldNameCharacter character =
+      isAlphaNum character || character == '-'
+    isContinuation indentation candidate =
+      Text.null (Text.strip candidate)
+        || Text.length (Text.takeWhile isSpace candidate) > indentation
+
+stripComment :: Text -> Text
+stripComment = Text.strip . fst . Text.breakOn "--"
+
+normalizedHeader :: Text -> Text
+normalizedHeader = Text.toCaseFold . Text.unwords . Text.words . stripComment
+
+containsIdentity :: Text -> Text -> Bool
+containsIdentity identity value =
+  any hasBoundaries (Text.breakOnAll foldedIdentity (Text.toCaseFold value))
+  where
+    foldedIdentity = Text.toCaseFold identity
+    hasBoundaries (prefix, matchAndSuffix) =
+      let suffix = Text.drop (Text.length foldedIdentity) matchAndSuffix
+       in maybe True (not . identifierCharacter . snd) (Text.unsnoc prefix)
+            && maybe True (not . identifierCharacter . fst) (Text.uncons suffix)
+    identifierCharacter character =
+      isAlphaNum character || character `elem` ("_'!" :: String)
 
 isTopLevelLine :: Text -> Bool
 isTopLevelLine line =
@@ -174,11 +223,11 @@ topLevelStanzas (line : remaining)
 
 isLibraryHeader :: Text -> Bool
 isLibraryHeader header =
-  case Text.words header of
+  case Text.words (normalizedHeader header) of
     "library" : _ -> True
     _ -> False
 
 isPublicLibraryStanza :: (Text, [Text]) -> Bool
 isPublicLibraryStanza (header, body) =
-  header == "library"
-    || any ((== "visibility: public") . Text.strip) body
+  normalizedHeader header == "library"
+    || fmap Text.toCaseFold (fieldValue "visibility" body) == Just "public"

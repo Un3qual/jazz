@@ -81,6 +81,9 @@ jobs:
         run: bash scripts/check-website.sh
 
       - name: Check CI workload policy
+        run: python3 scripts/test-check-ci-policy.py
+
+      - name: Check live CI workload policy
         run: python3 scripts/check-ci-policy.py
 
   compiler-fast:
@@ -94,6 +97,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
@@ -109,6 +113,8 @@ jobs:
             ${{ runner.os }}-cabal-
 
       - name: Run the fast compiler tier
+        env:
+          JAZZ_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
         run: nix develop --command bash scripts/ci/fast-compiler.sh
 
   pr-gate:

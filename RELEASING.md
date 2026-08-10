@@ -67,8 +67,10 @@ shasum -a 256 -c SHA256SUMS
 ```
 
 The source archive must exclude internal `.codex` state, dependency/build
-output, profiles, and benchmark results. The docs archive must contain the
-static site index. Extended evidence must contain normalized corpus output,
+output, profiles, and benchmark results, and it must include both `flake.nix`
+and `flake.lock`. The docs archive must contain the static site index and pass
+the same generated-output publication-boundary scan as the deployed site.
+Extended evidence must contain normalized corpus output,
 deterministic profiles, benchmark metadata/results, and its SHA-256 manifest.
 
 The Nix archive is a same-system runtime closure, not a copied result tree. It
@@ -99,11 +101,18 @@ In either case the workflow runs `scripts/release/build-alpha.sh` through the
 Nix development shell and uploads the complete verified directory for 30 days.
 It does not create a GitHub release, push a tag, or publish a package.
 
-Download the workflow artifact, confirm its version and source revision, run
-`scripts/release/verify-artifacts.py` against it, and verify its own
-`SHA256SUMS`. Compare archives byte-for-byte only when the system and all build
-inputs match. Publish one complete verified artifact set; do not combine local
-and CI archives under a single checksum file.
+Download the workflow artifact into a directory named for the alpha version.
+From a checkout of the exact source revision, run the tracked verifier against
+that download directory, then verify its own `SHA256SUMS`:
+
+```bash
+python3 scripts/release/verify-artifacts.py /path/to/0.1.0-alpha.1
+(cd /path/to/0.1.0-alpha.1 && shasum -a 256 -c SHA256SUMS)
+```
+
+Compare archives byte-for-byte only when the system and all build inputs match.
+Publish one complete verified artifact set; do not combine local and CI
+archives under a single checksum file.
 
 ## Publication checklist
 

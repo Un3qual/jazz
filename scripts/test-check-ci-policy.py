@@ -85,8 +85,13 @@ VALID_FAST = script(
     test_components=({' '.join(FAST_COMPONENTS)})
     cabal test "${{test_components[@]}}" --test-show-details=direct
     cabal check
+    python3 scripts/release/test-verify-artifacts.py
     bash scripts/check-examples.sh
-    git diff --check
+    if [[ -n "${{JAZZ_DIFF_BASE:-}}" ]]; then
+      git diff --check "$JAZZ_DIFF_BASE...HEAD"
+    else
+      git diff --check
+    fi
     """
 )
 
@@ -95,11 +100,17 @@ VALID_MAIN = script(
     cabal build all
     cabal test all --test-show-details=direct
     cabal check
+    python3 scripts/test-check-ci-policy.py
+    python3 scripts/release/test-verify-artifacts.py
     bash scripts/check-docs.sh
     bash scripts/check-execution-queue.sh
     bash scripts/check-examples.sh
     nix flake check
-    git diff --check
+    if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
+      git diff --check "$JAZZ_DIFF_BASE...HEAD"
+    else
+      git diff --check
+    fi
     """
 )
 
@@ -258,6 +269,8 @@ VALID_PR_WORKFLOW = textwrap.dedent(
           - name: Check website
             run: bash scripts/check-website.sh
           - name: Check CI policy
+            run: python3 scripts/test-check-ci-policy.py
+          - name: Check live CI policy
             run: python3 scripts/check-ci-policy.py
       compiler-fast:
         needs: changes
@@ -414,7 +427,7 @@ VALID_EXTENDED_WORKFLOW = textwrap.dedent(
             with:
               name: extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
               path: artifacts/extended/
-              if-no-files-found: error
+              if-no-files-found: warn
               retention-days: 30
           - name: Summarize extended verification
             if: always()
@@ -482,7 +495,7 @@ VALID_RELEASE_WORKFLOW = textwrap.dedent(
       contents: read
 
     concurrency:
-      group: release-${{ github.ref }}
+      group: release-${{ github.ref }}-${{ inputs.version || github.ref_name }}
       cancel-in-progress: false
 
     jobs:
@@ -664,6 +677,24 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 self.write("scripts/ci/fast-compiler.sh", VALID_FAST + forbidden + "\n")
                 self.assert_violation(f"fast compiler tier contains forbidden token: {forbidden}")
 
+    def test_fast_tier_runs_release_verifier_behavior_tests(self) -> None:
+        self.write(
+            "scripts/ci/fast-compiler.sh",
+            VALID_FAST.replace("python3 scripts/release/test-verify-artifacts.py\n", ""),
+        )
+        self.assert_violation(
+            "fast compiler tier must run release verifier behavior tests"
+        )
+
+    def test_fast_tier_checks_the_committed_pull_request_diff(self) -> None:
+        self.write(
+            "scripts/ci/fast-compiler.sh",
+            VALID_FAST.replace('git diff --check "$JAZZ_DIFF_BASE...HEAD"', "git diff --check"),
+        )
+        self.assert_violation(
+            "fast compiler tier must check the committed diff when JAZZ_DIFF_BASE is set"
+        )
+
     def test_fast_tier_rejects_spaced_and_continued_benchmark_commands(self) -> None:
         for forbidden_command in ("cabal  bench jazz-bench\n", "cabal \\\n  bench jazz-bench\n"):
             with self.subTest(forbidden_command=forbidden_command):
@@ -693,6 +724,33 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.write("scripts/ci/main-functional.sh", VALID_MAIN + forbidden + "\n")
                 self.assert_violation(f"main functional tier contains forbidden token: {forbidden}")
+
+    def test_main_tier_runs_validator_behavior_tests(self) -> None:
+        for command, expected in (
+            (
+                "python3 scripts/test-check-ci-policy.py\n",
+                "main functional tier must run CI policy behavior tests",
+            ),
+            (
+                "python3 scripts/release/test-verify-artifacts.py\n",
+                "main functional tier must run release verifier behavior tests",
+            ),
+        ):
+            with self.subTest(command=command):
+                self.write(
+                    "scripts/ci/main-functional.sh",
+                    VALID_MAIN.replace(command, ""),
+                )
+                self.assert_violation(expected)
+
+    def test_main_tier_checks_the_committed_push_diff(self) -> None:
+        self.write(
+            "scripts/ci/main-functional.sh",
+            VALID_MAIN.replace('git diff --check "$JAZZ_DIFF_BASE...HEAD"', "git diff --check"),
+        )
+        self.assert_violation(
+            "main functional tier must check the committed diff when JAZZ_DIFF_BASE is set"
+        )
 
     def test_main_tier_rejects_indirect_extended_and_release_entry_points(self) -> None:
         for forbidden in (
@@ -997,6 +1055,17 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 self.write(".github/workflows/release.yml", fixture)
                 self.assert_violation("release workflow must be read-only and must not publish")
 
+    def test_release_workflow_serializes_each_version(self) -> None:
+        self.write(
+            ".github/workflows/release.yml",
+            VALID_RELEASE_WORKFLOW.replace(
+                "-${{ inputs.version || github.ref_name }}", ""
+            ),
+        )
+        self.assert_violation(
+            "release workflow concurrency must include the requested version"
+        )
+
     def test_release_workflow_requires_toolchains_timeout_owned_script_and_upload(self) -> None:
         requirements = (
             ("timeout-minutes: 480", "release job must have a 480-minute timeout"),
@@ -1264,8 +1333,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "extended evidence upload must include the owned artifact root",
             ),
             (
-                "if-no-files-found: error",
-                "extended evidence upload must fail when evidence is missing",
+                "if-no-files-found: warn",
+                "extended evidence upload must tolerate a failed run without evidence",
             ),
             (
                 "retention-days: 30",
@@ -1737,6 +1806,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ("bash scripts/check-docs.sh", "docs-and-site job is missing required check: scripts/check-docs.sh"),
             ("bash scripts/check-spec-authority.sh", "docs-and-site job is missing required check: scripts/check-spec-authority.sh"),
             ("bash scripts/check-website.sh", "docs-and-site job is missing required check: scripts/check-website.sh"),
+            ("python3 scripts/test-check-ci-policy.py", "docs-and-site job must run CI policy behavior tests"),
             ("python3 scripts/check-ci-policy.py", "docs-and-site job is missing required check: scripts/check-ci-policy.py"),
         ):
             with self.subTest(old=old):

@@ -39,5 +39,10 @@ actionlint
 cabal build all
 cabal test "${test_components[@]}" --test-show-details=direct
 cabal check
+python3 scripts/release/test-verify-artifacts.py
 bash scripts/check-examples.sh
-git diff --check
+if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
+  git diff --check "$JAZZ_DIFF_BASE...HEAD"
+else
+  git diff --check
+fi

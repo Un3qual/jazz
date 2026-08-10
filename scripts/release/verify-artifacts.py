@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 
@@ -48,6 +51,14 @@ class CheckedArchive:
         self.path = path
         if not path.is_file() or path.stat().st_size == 0:
             raise VerificationError(f"archive is missing or empty: {path.name}")
+        try:
+            with gzip.open(path, "rb") as compressed:
+                while compressed.read(1024 * 1024):
+                    pass
+        except (OSError, EOFError, gzip.BadGzipFile, zlib.error) as error:
+            raise VerificationError(
+                f"archive is not a complete gzip stream: {path.name}"
+            ) from error
         try:
             self.archive = tarfile.open(path, "r:gz")
         except (OSError, tarfile.TarError) as error:
@@ -112,6 +123,12 @@ class CheckedArchive:
         with destination.open("wb") as stream:
             shutil.copyfileobj(extracted, stream)
 
+    def copy_tree_to(self, destination: Path) -> None:
+        for name in sorted(self.regular_files()):
+            output = destination.joinpath(*PurePosixPath(name).parts)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            self.copy_to(name, output)
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -147,7 +164,7 @@ def verify_checksums(release_directory: Path, archives: set[str]) -> None:
             raise VerificationError(f"SHA-256 mismatch: {filename}")
 
 
-def verify_source(archive: CheckedArchive) -> None:
+def verify_source(archive: CheckedArchive, version: str) -> None:
     files = archive.regular_files()
     roots = {PurePosixPath(name).parts[0] for name in files}
     if len(roots) != 1:
@@ -155,8 +172,31 @@ def verify_source(archive: CheckedArchive) -> None:
     package_root = next(iter(roots))
     if re.fullmatch(r"jazz-[0-9]+(?:\.[0-9]+)+", package_root) is None:
         raise VerificationError("source archive package root is not a numeric Jazz sdist")
-    if f"{package_root}/jazz.cabal" not in files:
+    cabal_path = f"{package_root}/jazz.cabal"
+    if cabal_path not in files:
         raise VerificationError("source archive is missing jazz.cabal")
+    try:
+        cabal_source = archive.read(cabal_path).decode("utf-8")
+    except UnicodeError as error:
+        raise VerificationError("source archive jazz.cabal is not UTF-8") from error
+    version_match = re.search(
+        r"(?mi)^version\s*:\s*([0-9]+(?:\.[0-9]+)+)\s*(?:--.*)?$",
+        cabal_source,
+    )
+    package_version = package_root.removeprefix("jazz-")
+    alpha_components = tuple(int(part) for part in version.split("-alpha.", 1)[0].split("."))
+    package_components = tuple(int(part) for part in package_version.split("."))
+    if (
+        version_match is None
+        or version_match.group(1) != package_version
+        or len(package_components) < len(alpha_components)
+        or package_components[: len(alpha_components)] != alpha_components
+        or any(component != 0 for component in package_components[len(alpha_components) :])
+    ):
+        raise VerificationError("source package version does not match the alpha version")
+    for required in ("flake.nix", "flake.lock"):
+        if f"{package_root}/{required}" not in files:
+            raise VerificationError(f"source archive is missing {required}")
 
     forbidden_roots = {
         ".codex",
@@ -265,12 +305,36 @@ def verify_nix(archive: CheckedArchive, system: str) -> None:
             raise VerificationError("Nix closure query returned non-UTF-8 store paths") from error
         if sorted(set(root_requisites)) != store_paths:
             raise VerificationError("Nix closure root requisites do not match the imported export")
+        root_executable = (
+            local_store / root_lines[0].lstrip("/") / "bin" / "jazz"
+        )
+        if not root_executable.is_file() or not os.access(root_executable, os.X_OK):
+            raise VerificationError(
+                "Nix closure root does not provide executable bin/jazz"
+            )
 
 
 def verify_docs(archive: CheckedArchive) -> None:
     index = archive.members.get("index.html")
     if index is None or not index.isreg() or index.size == 0:
         raise VerificationError("docs archive is missing index.html")
+    with tempfile.TemporaryDirectory(prefix="jazz-docs-verify-") as temporary_directory:
+        build = Path(temporary_directory)
+        archive.copy_tree_to(build)
+        boundary = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parents[1] / "check-website-boundary.py"),
+                "--build-directory",
+                str(build),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if boundary.returncode != 0:
+            raise VerificationError("docs archive violates the publication boundary")
 
 
 def decode_json(archive: CheckedArchive, name: str) -> object:
@@ -428,7 +492,7 @@ def verify_release_directory(release_directory: Path) -> tuple[str, str]:
     try:
         for name in sorted(archives):
             checked[name] = CheckedArchive(release_directory / name)
-        verify_source(checked[source_name])
+        verify_source(checked[source_name], version)
         verify_nix(checked[nix_name], system)
         verify_docs(checked[docs_name])
         verify_evidence(checked[evidence_name], version)
