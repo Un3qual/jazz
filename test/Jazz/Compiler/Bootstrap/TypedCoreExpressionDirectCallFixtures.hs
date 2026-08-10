@@ -694,6 +694,8 @@ lowererBoundaryPrograms =
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
     ("closure-valued-result", closureValuedResultLowererProgram),
     ("closure-shaped-named-function", closureShapeLowererProgram),
+    ("closure-shaped-named-application", closureShapeApplicationLowererProgram),
+    ("callable-parameter-shadows-top-level-lowerer", callableParameterShadowsTopLevelLowererProgram),
     ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
@@ -738,6 +740,20 @@ closureShapeLowererProgram =
     []
     [boolIdentityFunction]
     (variableExpr "identity" boolCallableInfo)
+
+closureShapeApplicationLowererProgram :: TypedProgram
+closureShapeApplicationLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction]
+    (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+
+callableParameterShadowsTopLevelLowererProgram :: TypedProgram
+callableParameterShadowsTopLevelLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction, applyCombineParameterFunction]
+    (boolExpr True)
 
 closureValuedParameterLowererProgram :: TypedProgram
 closureValuedParameterLowererProgram =
@@ -856,30 +872,26 @@ callableShapeBodyDisagreementLowererProgram =
                 imports
                 exports
                 interface
-                (zipWith rewriteStatement [0 :: Int ..] statements)
+                (map rewriteStatement statements)
                 moduleInfo
             ]
             entryPath
         _ -> error "callable shape/body disagreement lowerer fixture changed shape"
-    rewriteStatement statementIndex statement
-      | statementIndex == 2 = rewriteSchemeStatement statement
-      | statementIndex == 3 = rewriteBindingStatement statement
-      | otherwise = statement
-    rewriteSchemeStatement statement =
+    chooserName = resolvedName "choose"
+    rewriteStatement statement =
       case statement of
-        TypedSignatureStatement owner name spanValue schemeValue ->
-          TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
-        _ -> error "callable shape/body disagreement signature changed shape"
-    rewriteBindingStatement statement =
-      case statement of
-        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body) ->
-          TypedLetStatement
-            owner
-            name
-            spanValue
-            (rewriteScheme schemeValue)
-            (TypedLambdaExpr stagedChooserInfo parameterOwner parameterName body)
-        _ -> error "callable shape/body disagreement binding changed shape"
+        TypedSignatureStatement owner name spanValue schemeValue
+          | name == chooserName ->
+              TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
+        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body)
+          | name == chooserName ->
+              TypedLetStatement
+                owner
+                name
+                spanValue
+                (rewriteScheme schemeValue)
+                (TypedLambdaExpr stagedChooserInfo parameterOwner parameterName body)
+        _ -> statement
     rewriteScheme (TypedScheme owner parameters evidence primitive typeValue _ shape) =
       TypedScheme owner parameters evidence primitive typeValue (typedExpressionRecipe stagedChooserInfo) shape
 

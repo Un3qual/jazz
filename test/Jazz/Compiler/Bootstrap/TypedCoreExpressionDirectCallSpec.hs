@@ -176,7 +176,7 @@ testAcceptedManifestPipeline =
                     _ -> failTest (name <> " did not produce lowered IR")
                 Nothing ->
                   assertEqual
-                    (name <> " is intentionally producer-only in Task 2")
+                    (name <> " is intentionally producer-only until Task 4")
                     True
                     (name `elem` map fst closedCallableExpectedPrograms)
             _ -> failTest (name <> " did not produce typed core")
@@ -238,6 +238,22 @@ testLowererCallableBoundary =
               [0]
               LoweredIRCallableValueUnsupported
               (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "closure-shaped-named-application",
+          [ expressionFailure
+              2
+              [0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "identity"))
+          ]
+        ),
+        ( "callable-parameter-shadows-top-level-lowerer",
+          [ expressionFailure
+              3
+              [0, 0]
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (currentName "combine"))
           ]
         ),
         ( "direct-flattened-representation",
