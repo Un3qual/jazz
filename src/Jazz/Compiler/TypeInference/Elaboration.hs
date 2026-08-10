@@ -24,16 +24,23 @@ where
 import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (Literal (..), NumericType (..), Statement (..))
+import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog (numericTypeIsIntegral)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
-import Jazz.Compiler.ModuleExports (ModuleExport (..), exportInventoryEntries)
-import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
+import Jazz.Compiler.ModuleExports
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
+    ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..),
+    inventoryHasExport,
+  )
+import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
@@ -200,7 +207,8 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
             ]
-          productionFailures = concatMap fst finalizedStatements <> fst exportResult <> missingResultFailures
+          moduleFailures = missingResultFailures <> fst exportResult
+          productionFailures = moduleFailures <> concatMap fst finalizedStatements
        in case productionFailures of
             _ : _ -> TypedCoreProductionUnsupported productionFailures
             [] ->
@@ -696,7 +704,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       foldl'
         collect
         ([], TypedModuleInterface [] [] [] [])
-        (Set.toAscList (exportInventoryEntries (resolvedModuleExportInventory resolvedModule)))
+        orderedModuleExports
       where
         collect (failures, TypedModuleInterface values datas classes impls) (ModuleExport namespace name)
           | namespace == ValueNamespace =
@@ -712,6 +720,94 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
           | otherwise =
               (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
+
+    orderedModuleExports =
+      stableUniqueExports
+        ( case coreModuleDeclaredExports coreModule of
+            Nothing -> filter publicExport sourceOrderedDeclarations
+            Just declaredExports ->
+              concatMap exportsForSelector (declaredModuleExportSelectors declaredExports)
+        )
+      where
+        coreModule = resolvedModuleCore resolvedModule
+        publicInventory = resolvedModuleExportInventory resolvedModule
+        publicExport = (`inventoryHasExport` publicInventory)
+        sourceOrderedDeclarations =
+          case coreModuleExpr coreModule of
+            EBlock statements -> concatMap statementExports statements
+            _ -> []
+
+        statementExports statement =
+          case statement of
+            SLet name _ _
+              | not (generatedOperatorName name) ->
+                  [ModuleExport ValueNamespace (identifierText name)]
+            SData _ typeName _ constructors ->
+              ModuleExport TypeNamespace (identifierText typeName)
+                : [ ModuleExport ConstructorNamespace (identifierText constructorName)
+                  | DataConstructor constructorName _ <- constructors
+                  ]
+            SClass _ className _ _ ->
+              [ModuleExport CapabilityNamespace (identifierText className)]
+            _ -> []
+
+        generatedOperatorName name =
+          case name of
+            GeneratedName (OperatorBinding _) -> True
+            _ -> False
+
+        exportsForSelector selector =
+          case selector of
+            ModuleExportSelector maybeNamespace name ->
+              let matchingDeclarations =
+                    [ export
+                    | export <- sourceOrderedDeclarations,
+                      moduleExportName export == name,
+                      maybe True (== moduleExportNamespace export) maybeNamespace,
+                      publicExport export
+                    ]
+               in case matchingDeclarations of
+                    _ : _ -> matchingDeclarations
+                    [] ->
+                      [ export
+                      | namespace <- maybe exportNamespaces (: []) maybeNamespace,
+                        let export = ModuleExport namespace name,
+                        publicExport export
+                      ]
+            ModuleTypeExportSelector typeName _ constructorSelector ->
+              filter publicExport (ModuleExport TypeNamespace typeName : selectedConstructors typeName constructorSelector)
+
+        selectedConstructors typeName constructorSelector =
+          case constructorSelector of
+            AbstractType -> []
+            AllTypeConstructors _ -> sourceConstructors typeName
+            SelectedTypeConstructors constructors ->
+              [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
+              | constructor <- NonEmpty.toList constructors
+              ]
+
+        sourceConstructors typeName =
+          case coreModuleExpr coreModule of
+            EBlock statements ->
+              concat
+                [ [ModuleExport ConstructorNamespace (identifierText constructorName) | DataConstructor constructorName _ <- constructors]
+                | SData _ sourceTypeName _ constructors <- statements,
+                  identifierText sourceTypeName == typeName
+                ]
+            _ -> []
+
+        exportNamespaces =
+          [ ValueNamespace,
+            ConstructorNamespace,
+            TypeNamespace,
+            CapabilityNamespace
+          ]
+
+        stableUniqueExports = reverse . snd . foldl' keep (Set.empty, [])
+          where
+            keep (seen, exports) export
+              | Set.member export seen = (seen, exports)
+              | otherwise = (Set.insert export seen, export : exports)
 
     scalarInfo statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of

@@ -36,7 +36,6 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
   )
 where
 
-import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -1093,6 +1092,7 @@ lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
     ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
+    ("recursion-descendant-failure-order", recursionDescendantFailureOrderLowererProgram),
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
     ("closure-valued-result", closureValuedResultLowererProgram),
     ("closure-shaped-named-function", closureShapeLowererProgram),
@@ -1487,6 +1487,50 @@ combinedStatementFailureOrderLowererProgram =
     messageName = resolvedName "message"
     messageBinder = TypedBinderId (modulePath, [1], messageName)
     messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing
+
+recursionDescendantFailureOrderLowererProgram :: TypedProgram
+recursionDescendantFailureOrderLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        ( scalarStatement
+            <> map
+              (bindExpectedStatementVariables bindings)
+              (expectedFunctionStatements 1 2 loopFunction)
+            <> [ TypedExpressionStatement
+                   (TypedSpan 4 1)
+                   (bindExpectedExpressionVariables bindings (directCall "loop" [intInfo] intInfo [intExpr 1]))
+               ]
+        )
+        intInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    loopName = resolvedName "loop"
+    loopBinder = TypedBinderId (modulePath, [2], loopName)
+    bindings = Map.fromList [(seedName, seedBinder), (loopName, loopBinder)]
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    scalarStatement =
+      [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
+    loopFunction =
+      ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        ( binaryExpr
+            intInfo
+            "+"
+            (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+            (variableExpr "seed" intInfo)
+        )
 
 capturingLowererProgram :: TypedProgram
 capturingLowererProgram =
@@ -2612,7 +2656,7 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         modulePath
         validSourcePath
         []
-        [TypedModuleExport TypedValueNamespace name | name <- sort exportedNames]
+        [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
         typedInterface
         statements
         (typedExpressionInfo boundTerminalExpression)
@@ -2645,7 +2689,7 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         [ TypedValueInterface
             (resolvedName name)
             (functionScheme bindingIndex function)
-        | name <- sort exportedNames,
+        | name <- exportedNames,
           (functionOffset, function) <- zip [0 ..] functions,
           expectedFunctionName function == name,
           let bindingIndex = functionOffset * 2 + 1

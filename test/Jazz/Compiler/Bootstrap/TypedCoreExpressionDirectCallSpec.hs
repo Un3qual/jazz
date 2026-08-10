@@ -18,8 +18,8 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleExports (ModuleExport (..), exportInventory)
-import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
+import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
+import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypeInference.Types
@@ -79,11 +79,13 @@ tests =
     ("reports rejected scalar profile nodes twice", testRejectedScalarProfile),
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
     ("retains statement failures when the module result is missing", testMissingResultFailureAccumulation),
+    ("ranks module failures before statement failures in authored export order", testModuleFailureOrder),
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
+    ("ranks every input failure before resolved-module failures", testInputModuleFailureOrder),
     ("reports every additional foundation profile failure", testAdditionalProfileFailures)
   ]
 
@@ -178,6 +180,7 @@ testIndependentLowererManifest = do
         [ "invalid-function-shape",
           "invalid-function-shape-rhs",
           "combined-statement-failure-order",
+          "recursion-descendant-failure-order",
           "closure-valued-parameter",
           "closure-valued-result",
           "closure-shaped-named-function",
@@ -373,6 +376,22 @@ testLowererCallableBoundary =
               [0]
               LoweredIRUnsupportedRepresentation
               (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
+          ]
+        ),
+        ( "recursion-descendant-failure-order",
+          [ statementFailure
+              0
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "seed")),
+            statementFailure
+              2
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
+              2
+              [0, 0, 1]
+              LoweredIRCaptureUnsupported
+              (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
         ( "direct-flattened-representation",
@@ -1420,17 +1439,17 @@ testMissingResultFailureAccumulation = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 1)
               TypedCoreUnsupportedRootExpression
               TypedCoreUnsupportedRootDetail,
             TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
               TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail
+              (TypedCoreNameDetail "seed")
           ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
@@ -1441,6 +1460,54 @@ testMissingResultFailureAccumulation = do
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "missing-result failure repeatability" firstRun secondRun
   assertEqual "missing-result complete failure accumulation" expected (typedCoreProductionStatus firstRun)
+
+testModuleFailureOrder :: IO ()
+testModuleFailureOrder = do
+  let fixture = fixtureByName "unit-entry"
+      selectors =
+        [ ModuleExportSelector (Just ValueNamespace) "zeta",
+          ModuleExportSelector (Just ValueNamespace) "alpha"
+        ]
+      inventory =
+        exportInventory
+          [ ModuleExport ValueNamespace "zeta",
+            ModuleExport ValueNamespace "alpha"
+          ]
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedExport
+              (TypedCoreNameDetail "zeta"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedExport
+              (TypedCoreNameDetail "alpha"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 0)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail
+          ]
+  resolvedModule <- resolveFixtureModule fixture
+  let coreModule = resolvedModuleCore resolvedModule
+      mutatedModule =
+        resolvedModule
+          { resolvedModuleExportInventory = inventory,
+            resolvedModuleCore =
+              coreModule
+                { coreModuleDeclaredExports =
+                    Just (DeclaredModuleExports (SourceSpan 1 1) selectors),
+                  coreModuleExpr = EBlock [SLet "ignored" (SourceSpan 2 1) (ETuple [])]
+                }
+          }
+  firstRun <- produceResolvedFixture fixture mutatedModule
+  secondRun <- produceResolvedFixture fixture mutatedModule
+  assertEqual "module failure order repeatability" firstRun secondRun
+  assertEqual "module failures precede statements in authored export order" expected (typedCoreProductionStatus firstRun)
 
 testCompoundFailureAccumulation :: IO ()
 testCompoundFailureAccumulation = do
@@ -1609,6 +1676,35 @@ testInputFailures =
         [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail]
     _ -> failTest "foundation input fixtures are missing"
 
+testInputModuleFailureOrder :: IO ()
+testInputModuleFailureOrder = do
+  let fixture = fixtureByName "resolved-import"
+      combinedFixture =
+        fixture
+          { fixtureSourcePath = TypedSourcePath "/private/host/Main.jz",
+            fixtureInputs =
+              (fixtureInputs fixture)
+                { inferenceCurrentModulePath = Just ["Other", "Main"],
+                  inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding TBoolType),
+                  inferenceImportedClassNames = Set.singleton "PreludeClass"
+                }
+          }
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail,
+            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail,
+            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail,
+            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreResolvedImportsUnsupported
+              TypedCoreNoFailureDetail
+          ]
+  firstRun <- produceFixture combinedFixture
+  secondRun <- produceFixture combinedFixture
+  assertEqual "input/module failure order repeatability" firstRun secondRun
+  assertEqual "all input failures precede module failures" expected (typedCoreProductionStatus firstRun)
+
 assertUnsupported :: Fixture -> [TypedCoreProductionFailure] -> IO ()
 assertUnsupported fixture expectedFailures = do
   result <- produceFixture fixture
@@ -1660,7 +1756,16 @@ testAdditionalProfileFailures =
           unsupportedExport =
             resolvedUnitModule
               { resolvedModuleExportInventory =
-                  exportInventory [ModuleExport ValueNamespace "missing"]
+                  exportInventory [ModuleExport ValueNamespace "missing"],
+                resolvedModuleCore =
+                  (resolvedModuleCore resolvedUnitModule)
+                    { coreModuleDeclaredExports =
+                        Just
+                          ( DeclaredModuleExports
+                              (SourceSpan 1 1)
+                              [ModuleExportSelector (Just ValueNamespace) "missing"]
+                          )
+                    }
               }
           leadingStatement =
             withExpression
