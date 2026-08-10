@@ -32,3 +32,11 @@ semantic baseline.
 
 Only `Implemented`, `Partial`, and `Planned` are used as status labels. A
 partial area has working, tested behavior but retains a stated boundary.
+
+The opt-in typed-core and backend-neutral lowering profile includes closed
+named functions as values, recursively represented unary closure parameters
+and results, explicit empty environments, and unary higher-order closure calls.
+Ordinary compile and run remain on canonical core and the reference interpreter.
+The opt-in profile still excludes scalar bindings, anonymous or nested
+closures, lexical capture, currying and partial application, oversaturation,
+and recursion.

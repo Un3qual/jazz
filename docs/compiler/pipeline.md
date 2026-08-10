@@ -34,8 +34,14 @@ program results.
 ## Opt-in backend preparation
 
 A bounded typed-core producer can retain a validated single-module scalar and
-direct-call profile during inference, then lower it to validated
-backend-neutral control-flow IR. This path does not participate in ordinary
-compile or run. Closure/recursion lowering, full control flow, multi-module
+direct-call profile during inference. The opt-in path also transports closed
+named functions as values, recursively represented unary closure parameters
+and results, explicit empty environments, and unary higher-order closure calls
+into validated backend-neutral control-flow IR.
+
+This path does not participate in ordinary compile or run, which remain on
+canonical core and the reference interpreter. Scalar bindings,
+anonymous or nested closures, lexical capture, currying and partial
+application, oversaturation, recursion, full control flow, multi-module
 integration, native emission, linking, and a native runtime remain promotion
 gates. See the current [status](../project/status.md).
