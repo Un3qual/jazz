@@ -91,6 +91,8 @@ tests =
     ("trusts canonical ownership across multiple scalar shadows", testInterveningScalarCanonicalOwnership "multiple-intervening-scalars-canonical-ownership"),
     ("trusts canonical ownership across callable and scalar shadows", testInterveningScalarCanonicalOwnership "interleaved-callable-scalar-canonical-ownership"),
     ("retains every established canonical recursion owner exactly once", testCanonicalRecursionTransportControls),
+    ("resolves a nested alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-alias-mutual-recursion"),
+    ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
     ("selects the nearest of three same-name declarations", testCanonicalCallableRebindingDependencies "three-same-name-nearest-prior-mutual-recursion"),
     ("preserves canonical self recursion when no prior binding exists", testCanonicalCallableRebindingDependencies "canonical-self-recursion-no-prior"),
     ("preserves canonical mutual recursion between peers", testCanonicalCallableRebindingDependencies "canonical-mutual-recursion-peers"),
@@ -1938,6 +1940,35 @@ testCanonicalRecursionTransportControls =
         (name <> " exact recursive owner order and multiplicity")
         expectedOwners
         (recursiveOwners (typedCoreProductionStatus firstRun))
+    recursiveOwners status =
+      case status of
+        TypedCoreProductionUnsupported failures ->
+          [ (statementIndex, name)
+          | TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath _ statementIndex)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail name) <- failures
+          ]
+        _ -> []
+
+testNestedPriorOuterAliasOwnership :: Text -> IO ()
+testNestedPriorOuterAliasOwnership requestedName = do
+  let fixture = producerEdgeFixture requestedName
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    (requestedName <> " ordinary diagnostics")
+    []
+    ( filter
+        isErrorDiagnostic
+        (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+    )
+  assertEqual (requestedName <> " repeatability") firstRun secondRun
+  assertEqual
+    (requestedName <> " exact prior-outer recursive owner order and multiplicity")
+    [(1, "left"), (3, "right")]
+    (recursiveOwners (typedCoreProductionStatus firstRun))
+  where
     recursiveOwners status =
       case status of
         TypedCoreProductionUnsupported failures ->

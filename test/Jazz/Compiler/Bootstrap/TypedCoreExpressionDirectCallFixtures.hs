@@ -2185,6 +2185,30 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "nested-prior-outer-alias-mutual-recursion",
+      sourceFixtureNoExports
+        "nested-prior-outer-alias-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = left. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "nested-prior-outer-conditional-alias-mutual-recursion",
+      sourceFixtureNoExports
+        "nested-prior-outer-conditional-alias-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = if item then left else left. item. }.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-block-later-signed-shadow-control",
       sourceFixtureNoExports
         "rejected-block-later-signed-shadow-control"

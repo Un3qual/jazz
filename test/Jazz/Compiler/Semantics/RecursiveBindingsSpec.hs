@@ -18,6 +18,7 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Name
   ( Name,
     mkIdentifier,
+    operatorBindingName,
     sourceName
   )
 import Jazz.Compiler.RecursiveBindings
@@ -51,6 +52,11 @@ tests =
     ("nested local self recursion stays local to the block", testFreeVarsScopeKeepsNestedSelfRecursionLocal),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
     ("nested ordinary initializers retain enclosing mutual recursion", testRecursiveGroupsKeepNestedInitializerMutualRecursion),
+    ("nested aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion),
+    ("nested conditional aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion),
+    ("nested operator aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion),
+    ("nested aliases without an outer declaration remain local self cycles", testRecursiveGroupsKeepNoOuterNestedAliasLocal),
+    ("nested aliases do not resolve to the current enclosing declaration", testRecursiveGroupsKeepCurrentNestedAliasLocal),
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
@@ -256,6 +262,111 @@ testRecursiveGroupsKeepNestedInitializerMutualRecursion =
             )
         )
       ]
+
+testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion :: IO ()
+testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion =
+  assertEqual
+    "nested alias preserves prior outer mutual edge"
+    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
+    (inferRecursiveGroupsOrdered Set.empty (nestedPriorOuterMutualStatements (EVar (ident "left"))))
+
+testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion :: IO ()
+testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion =
+  assertEqual
+    "nested conditional alias preserves prior outer mutual edge"
+    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
+    ( inferRecursiveGroupsOrdered
+        Set.empty
+        ( nestedPriorOuterMutualStatements
+            (EIf (ELit (LBool True)) (EVar (ident "left")) (EVar (ident "left")))
+        )
+    )
+
+testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion :: IO ()
+testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion =
+  assertEqual
+    "nested operator alias preserves prior outer mutual edge"
+    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    operatorName = operatorBindingName "%%"
+    indexedStatements =
+      [ (1, SLet operatorName span0 (EVar (ident "peer"))),
+        ( 3,
+          SLet
+            (ident "peer")
+            span0
+            ( EBlock
+                [ SLet operatorName span0 (EOperatorValue "%%"),
+                  SExpr span0 (ELit (LInt 0))
+                ]
+            )
+        )
+      ]
+
+testRecursiveGroupsKeepNoOuterNestedAliasLocal :: IO ()
+testRecursiveGroupsKeepNoOuterNestedAliasLocal =
+  assertEqual
+    "nested alias keeps a local self cycle instead of resolving to a future outer peer"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ ( 1,
+          SLet
+            (ident "owner")
+            span0
+            ( EBlock
+                [ SLet (ident "local") span0 (EVar (ident "local")),
+                  SExpr span0 (ELit (LInt 0))
+                ]
+            )
+        ),
+        (3, SLet (ident "local") span0 (EVar (ident "owner")))
+      ]
+
+testRecursiveGroupsKeepCurrentNestedAliasLocal :: IO ()
+testRecursiveGroupsKeepCurrentNestedAliasLocal =
+  assertEqual
+    "nested alias does not manufacture an enclosing self edge"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ ( 1,
+          SLet
+            (ident "owner")
+            span0
+            ( EBlock
+                [ SLet (ident "owner") span0 (EVar (ident "owner")),
+                  SExpr span0 (ELit (LInt 0))
+                ]
+            )
+        )
+      ]
+
+nestedPriorOuterMutualStatements :: Expr -> [(Int, Statement)]
+nestedPriorOuterMutualStatements nestedAliasExpr =
+  [ ( 1,
+      SLet
+        (ident "left")
+        span0
+        (ELambda (ident "item") (EApply (EVar (ident "right")) (EVar (ident "item"))))
+    ),
+    ( 3,
+      SLet
+        (ident "right")
+        span0
+        ( ELambda
+            (ident "item")
+            ( EBlock
+                [ SLet (ident "left") span0 nestedAliasExpr,
+                  SExpr span0 (EVar (ident "item"))
+                ]
+            )
+        )
+    )
+  ]
 
 testRecursiveGroupsDoNotLeakNestedBlockPeers :: IO ()
 testRecursiveGroupsDoNotLeakNestedBlockPeers =

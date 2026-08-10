@@ -129,7 +129,11 @@ lookupLambdaCapturedNames parameterName bodyExpr =
       | otherwise = go rest
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
-freeVarsExprWithBound = freeVarsExprUsing freeVarsScopeWithBound
+freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
+
+freeVarsExprWithVisibleBindings :: Set Name -> Set Name -> Expr -> Set Name
+freeVarsExprWithVisibleBindings visibleBindingNames =
+  freeVarsExprUsing (freeVarsScopeWithVisibleBindings visibleBindingNames)
 
 -- | Names that may need to come from the environment when a closure is
 -- created. Unlike recursive-binding analysis, an ordinary binding is not in
@@ -230,12 +234,17 @@ closureCaptureCandidatesScopeWithBound initialBound statements =
           )
 
 freeVarsScopeWithBound :: Set Name -> [Statement] -> Set Name
-freeVarsScopeWithBound initialBound statements =
+freeVarsScopeWithBound = freeVarsScopeWithVisibleBindings Set.empty
+
+freeVarsScopeWithVisibleBindings :: Set Name -> Set Name -> [Statement] -> Set Name
+freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
   snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered initialBound indexedStatements
+      inferRecursiveGroupsOrdered
+        (Set.union visibleBindingNames initialBound)
+        indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
 
     recursiveGroupMemberNames statementIndex =
@@ -255,14 +264,18 @@ freeVarsScopeWithBound initialBound statements =
         SData {} -> (boundNames, freeNames)
         SExpr _ expr ->
           ( boundNames,
-            Set.union freeNames (freeVarsExprWithBound boundNames expr)
+            Set.union
+              freeNames
+              (freeVarsExprWithVisibleBindings visibleBindingNames boundNames expr)
           )
         SLet bindingName _ valueExpr ->
           let boundWithSelf = Set.insert bindingName boundNames
               rhsBoundNames = Set.union boundNames (recursiveGroupMemberNames statementIndex)
            in
             ( boundWithSelf,
-              Set.union freeNames (freeVarsExprWithBound rhsBoundNames valueExpr)
+              Set.union
+                freeNames
+                (freeVarsExprWithVisibleBindings visibleBindingNames rhsBoundNames valueExpr)
             )
 
 inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
@@ -300,7 +313,11 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
       let localDependencyNames =
             Set.filter
               (`Map.member` declarationStatementsByName)
-              (freeVarsExprWithBound Set.empty valueExpr)
+              ( freeVarsExprWithVisibleBindings
+                  (visibleBindingNamesBefore statementIndex)
+                  Set.empty
+                  valueExpr
+              )
           resolvedDependencies =
             Set.fromList
               [ dependencyStatementIndex
@@ -310,6 +327,16 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
               ]
        in
         Map.insert statementIndex resolvedDependencies dependencies
+
+    visibleBindingNamesBefore statementIndex =
+      Set.union
+        outerBindingNames
+        ( Set.fromList
+            [ bindingName
+              | (candidateIndex, bindingName, _) <- declarationInfo,
+                candidateIndex < statementIndex
+            ]
+        )
 
     resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
