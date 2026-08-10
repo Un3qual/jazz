@@ -1,0 +1,53 @@
+{
+  "name": "jazz-language-website",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "prestart": "node scripts/sync-factorial.mjs",
+    "start": "docusaurus start",
+    "prebuild": "node scripts/sync-factorial.mjs",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve",
+    "typecheck": "tsc --noEmit",
+    "clear": "docusaurus clear",
+    "render:brand": "node scripts/render-social-card.mjs",
+    "test:brand": "node --test scripts/test-brand-assets.mjs",
+    "test:experience": "node --test scripts/test-experience.mjs",
+    "check": "npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@mdx-js/react": "3.1.1",
+    "clsx": "2.1.1",
+    "prism-react-renderer": "2.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/tsconfig": "3.10.2",
+    "@docusaurus/types": "3.10.2",
+    "@types/react": "19.2.18",
+    "fontkit": "2.0.4",
+    "sharp": "0.35.3",
+    "typescript": "6.0.2"
+  },
+  "browserslist": {
+    "production": [
+      ">0.5%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome version",
+      "last 3 firefox version",
+      "last 5 safari version"
+    ]
+  },
+  "engines": {
+    "node": ">=22 <23"
+  }
+}

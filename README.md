@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="./jazz_logo.png" alt="Jazz logo" width="132" />
+  <picture>
+    <source srcset="./website/static/img/jazz-wordmark-dark.svg" media="(prefers-color-scheme: dark)" />
+    <img src="./website/static/img/jazz-wordmark.svg" alt="Jazz" width="280" />
+  </picture>
 </p>
 
 # Jazz
@@ -103,8 +106,8 @@ presented as runnable language syntax.
   propose changes.
 - [Issue tracker](https://github.com/un3qual/jazz/issues) — report defects and
   discuss focused improvements.
-- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/) — the
-  documentation site will publish with the website workstream.
+- [Website (available after merge and Pages enablement)](https://un3qual.github.io/jazz/)
+  — enabling GitHub Pages for GitHub Actions is a post-merge follow-up.
 
 ## Contributing
 

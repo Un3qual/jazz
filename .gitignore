@@ -6,3 +6,4 @@ benchmark-results/
 profile-results/
 website/node_modules/
 website/build/
+website/.docusaurus/

@@ -17,10 +17,12 @@ from urllib.parse import unquote, urlsplit
 from example_cases import case_source_binding_violation
 from markdown_targets import (
     FULL_REFERENCE_RE,
+    MarkdownInlineLink,
     decode_markdown_escapes_and_html_entities,
     html_image_targets,
     html_visible_text,
     html_reference_targets,
+    markdown_inline_links,
     rendered_heading_fragments,
     rendered_heading_levels,
     unescape_markdown_punctuation,
@@ -71,7 +73,18 @@ BANNED_REFERENCES = (
 
 README_TAGLINE = "A statically typed functional language with practical syntax"
 README_MATURITY_NOTICE = "Experimental / pre-1.0"
+README_LOGO_PATH = "website/static/img/jazz-wordmark.svg"
+README_DARK_LOGO_PATH = "website/static/img/jazz-wordmark-dark.svg"
 README_FACTORIAL_PATH = "examples/functions/factorial.jz"
+PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
+PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
+README_WEBSITE_LABEL = f"Website ({PROSPECTIVE_WEBSITE_LABEL})"
+GETTING_STARTED_WEBSITE_LABEL = (
+    f"Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})"
+)
+PAGES_ACTIVATION_FOLLOW_UP = (
+    "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up"
+)
 README_FACTORIAL_MARKER = (
     f"<!-- jazz-example: executable path={README_FACTORIAL_PATH} -->"
 )
@@ -93,7 +106,7 @@ README_REQUIRED_LINKS = (
     "docs/project/roadmap.md",
     "docs/project/contributing.md",
     "https://github.com/un3qual/jazz/issues",
-    "https://un3qual.github.io/jazz/",
+    PUBLIC_WEBSITE_URL,
 )
 README_BANNED_TERMS = (
     *PUBLIC_IDENTITY_BANNED_TERMS,
@@ -119,7 +132,7 @@ README_REQUIRED_SECTIONS = (
     "## License",
 )
 README_ORDERED_TOKENS = (
-    "jazz_logo.png",
+    README_LOGO_PATH,
     README_TAGLINE,
     README_MATURITY_NOTICE,
     README_FACTORIAL_MARKER,
@@ -174,7 +187,6 @@ REQUIRED_PAGES = (
 REQUIRED_PAGE_FORBIDDEN_FRONT_MATTER = frozenset({"draft"})
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_DEFINITION_BLOCK_RE = re.compile(
     r"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*(?:\r?\n|$)"
     r"(?:[ \t]{1,3}(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\))"
@@ -368,6 +380,23 @@ def markdown_link_target(raw_target: str) -> str:
 
 def decoded_public_policy_text(text: str) -> str:
     return decode_markdown_escapes_and_html_entities(text).casefold()
+
+
+def visible_link_has_label(
+    links: list[MarkdownInlineLink], expected_label: str, expected_target: str
+) -> bool:
+    return any(
+        not link.is_image
+        and link.label == expected_label
+        and markdown_link_target(link.raw_target) == expected_target
+        for link in links
+    )
+
+
+def visible_text_contains_phrase(text: str, expected: str) -> bool:
+    normalized_text = " ".join(text.split()).casefold()
+    normalized_expected = " ".join(expected.split()).casefold()
+    return normalized_expected in normalized_text
 
 
 def local_markdown_fragment_violation(
@@ -1049,7 +1078,9 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         without_inert_html_subtrees(visible_markdown(text))
     )
     image_targets = [
-        match.group(1) for match in MARKDOWN_IMAGE_RE.finditer(visible_text)
+        link.raw_target
+        for link in markdown_inline_links(visible_text)
+        if link.is_image
     ]
     image_targets.extend(
         html_image_targets(
@@ -1058,6 +1089,7 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
     )
     image_targets.extend(used_reference_image_targets(visible_text))
     local_logo_found = False
+    local_dark_logo_found = False
     for raw_target in image_targets:
         target = unquote(markdown_link_target(raw_target))
         parsed = urlsplit(target)
@@ -1074,10 +1106,16 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
                 f"README.md: local image does not exist in repository: {target}"
             )
             continue
-        if candidate.name == "jazz_logo.png":
+        if candidate == (root / README_LOGO_PATH).resolve():
             local_logo_found = True
+        if candidate == (root / README_DARK_LOGO_PATH).resolve():
+            local_dark_logo_found = True
     if not local_logo_found:
         violations.append("README.md: logo must use a repository-local path")
+    if not local_dark_logo_found:
+        violations.append(
+            "README.md: dark-mode logo must use the canonical repository-local path"
+        )
 
     if not has_bound_executable_marker(text, README_FACTORIAL_PATH):
         violations.append("README.md: missing executable factorial marker")
@@ -1088,10 +1126,9 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         if command not in quick_start_commands:
             violations.append(f"README.md: missing quick-start command: {command}")
 
+    inline_links = markdown_inline_links(visible_text)
     raw_link_targets = [
-        match.group(1)
-        for match in LINK_RE.finditer(visible_text)
-        if not match.group(0).startswith("!")
+        link.raw_target for link in inline_links if not link.is_image
     ]
     raw_link_targets.extend(used_reference_targets(visible_text))
     raw_link_targets.extend(
@@ -1112,12 +1149,15 @@ def validate_readme(root: Path, text: str, violations: list[str]) -> None:
         link_violation = local_readme_link_violation(root, raw_link_target)
         if link_violation is not None:
             violations.append(f"README.md: {link_violation}")
-    if (
-        "[Website (publishing with Workstream 3)]"
-        "(https://un3qual.github.io/jazz/)" not in text
+    if not visible_link_has_label(
+        inline_links, README_WEBSITE_LABEL, PUBLIC_WEBSITE_URL
     ):
         violations.append(
-            "README.md: website must be labeled as publishing with Workstream 3"
+            "README.md: website must use the prospective canonical Website label"
+        )
+    if not visible_text_contains_phrase(visible_text, PAGES_ACTIVATION_FOLLOW_UP):
+        violations.append(
+            "README.md: missing post-merge GitHub Pages activation follow-up"
         )
     license_source = markdown_section_body_source(text, "## License") or ""
     visible_license_source = without_indented_code_blocks(
@@ -1266,9 +1306,23 @@ def validate(root: Path, jazz_binary: Path | None) -> list[str]:
         visible_body = without_indented_code_blocks(
             without_inert_html_subtrees(visible_markdown(markdown_body))
         )
-        raw_link_targets = [
-            match.group(1) for match in LINK_RE.finditer(visible_body)
-        ]
+        inline_links = markdown_inline_links(visible_body)
+        if display == "docs/getting-started/overview.md":
+            if not visible_link_has_label(
+                inline_links,
+                GETTING_STARTED_WEBSITE_LABEL,
+                PUBLIC_WEBSITE_URL,
+            ):
+                violations.append(
+                    f"{display}: missing visible prospective website link"
+                )
+            if not visible_text_contains_phrase(
+                visible_body, PAGES_ACTIVATION_FOLLOW_UP
+            ):
+                violations.append(
+                    f"{display}: missing post-merge GitHub Pages activation follow-up"
+                )
+        raw_link_targets = [link.raw_target for link in inline_links]
         raw_link_targets.extend(used_reference_targets(visible_body))
         raw_link_targets.extend(used_reference_image_targets(visible_body))
         raw_link_targets.extend(

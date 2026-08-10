@@ -50,6 +50,8 @@
             hlint
             git
             ripgrep
+            actionlint
+            nodejs_22
             toolPkgs.nodePackages.prettier
           ];
         };

@@ -449,6 +449,78 @@ def _is_escaped_markdown_character(text: str, position: int) -> bool:
     return backslashes % 2 == 1
 
 
+@dataclass(frozen=True)
+class MarkdownInlineLink:
+    label: str
+    raw_target: str
+    is_image: bool
+
+
+def _inline_label_end(text: str, start: int) -> int | None:
+    depth = 1
+    position = start
+    while position < len(text):
+        character = text[position]
+        if character == "\\" and position + 1 < len(text):
+            position += 2
+            continue
+        if character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return position
+        position += 1
+    return None
+
+
+def markdown_inline_links(text: str) -> list[MarkdownInlineLink]:
+    """Extract rendered inline links and images, including nested labels."""
+    links: list[MarkdownInlineLink] = []
+    position = 0
+    while position < len(text):
+        if text[position] != "[" or _is_escaped_markdown_character(text, position):
+            position += 1
+            continue
+        is_image = (
+            position > 0
+            and text[position - 1] == "!"
+            and not _is_escaped_markdown_character(text, position - 1)
+        )
+        label_start = position + 1
+        label_end = _inline_label_end(text, label_start)
+        if label_end is None or label_end + 1 >= len(text) or text[label_end + 1] != "(":
+            position += 1
+            continue
+        inline_end = _inline_link_end(text, label_end + 1)
+        if inline_end is None:
+            position = label_end + 1
+            continue
+        target_start = _skip_space_tabs(text, label_end + 2)
+        line_break_end = _line_ending_end(text, target_start)
+        if line_break_end is not None:
+            target_start = _skip_space_tabs(text, line_break_end)
+        if target_start < len(text) and text[target_start] == ")":
+            raw_target = ""
+        else:
+            destination = _link_destination_at(text, target_start)
+            if destination is None:
+                position = inline_end
+                continue
+            raw_target = destination[0]
+        label = text[label_start:label_end]
+        links.append(
+            MarkdownInlineLink(
+                label=label,
+                raw_target=raw_target,
+                is_image=is_image,
+            )
+        )
+        links.extend(markdown_inline_links(label))
+        position = inline_end
+    return links
+
+
 def _inline_link_end(text: str, start: int) -> int | None:
     if start >= len(text) or text[start] != "(":
         return None

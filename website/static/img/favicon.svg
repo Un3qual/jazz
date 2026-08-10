@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
+  <title>Jazz favicon</title>
+  <desc>A simplified brass saxophone J on a deep ink square.</desc>
+  <rect width="64" height="64" rx="14" fill="#171824"/>
+  <path d="M17 14c5-3 9-4 15-4h8c5 0 8 4 8 9v20c0 11-7 17-17 17-8 0-14-5-14-12 0-6 5-10 11-10" fill="none" stroke="#D49A35" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m25 32 7 7 7-9" fill="#D49A35" stroke="#F3EDDF" stroke-width="3" stroke-linejoin="round"/>
+</svg>

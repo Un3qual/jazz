@@ -14,6 +14,17 @@ from pathlib import Path
 CHECKER_PATH = Path(__file__).with_name("check-public-docs.py")
 
 FACTORIAL_PATH = "examples/functions/factorial.jz"
+WORDMARK_PATH = "website/static/img/jazz-wordmark.svg"
+DARK_WORDMARK_PATH = "website/static/img/jazz-wordmark-dark.svg"
+PUBLIC_WEBSITE_URL = "https://un3qual.github.io/jazz/"
+PROSPECTIVE_WEBSITE_LABEL = "available after merge and Pages enablement"
+README_WEBSITE_LINK = (
+    f"[Website ({PROSPECTIVE_WEBSITE_LABEL})]({PUBLIC_WEBSITE_URL})"
+)
+GETTING_STARTED_WEBSITE_LINK = (
+    f"[Jazz documentation website ({PROSPECTIVE_WEBSITE_LABEL})]"
+    f"({PUBLIC_WEBSITE_URL})"
+)
 FACTORIAL_SOURCE = (
     "factorial :: Int -> Int.\n"
     "factorial =\n"
@@ -72,7 +83,12 @@ def page(title: str = "Fixture", body: str = "Fixture body.\n") -> str:
 
 def valid_readme(*, extra: str = "") -> str:
     lines = [
-        '<img src="./jazz_logo.png" alt="Jazz" width="120" />',
+        '<p align="center">',
+        "  <picture>",
+        f'    <source srcset="./{DARK_WORDMARK_PATH}" media="(prefers-color-scheme: dark)" />',
+        f'    <img src="./{WORDMARK_PATH}" alt="Jazz" width="280" />',
+        "  </picture>",
+        "</p>",
         "",
         "# Jazz",
         "",
@@ -121,7 +137,8 @@ def valid_readme(*, extra: str = "") -> str:
         "- [Roadmap](docs/project/roadmap.md)",
         "- [Contribution guide](docs/project/contributing.md)",
         "- [Issue tracker](https://github.com/un3qual/jazz/issues)",
-        "- [Website (publishing with Workstream 3)](https://un3qual.github.io/jazz/)",
+        f"- {README_WEBSITE_LINK}",
+        "  — enabling GitHub Pages for GitHub Actions is a post-merge follow-up.",
         "",
         "## Contributing",
         "",
@@ -171,7 +188,12 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.jazz_binary.chmod(0o755)
         self.example_cases: list[tuple[str, list[str], str, str]] = []
         self.write_example_cases()
-        (self.root / "jazz_logo.png").write_bytes(b"fixture")
+        wordmark = self.root / WORDMARK_PATH
+        wordmark.parent.mkdir(parents=True)
+        wordmark.write_text("<svg></svg>\n", encoding="utf-8")
+        (self.root / DARK_WORDMARK_PATH).write_text(
+            "<svg></svg>\n", encoding="utf-8"
+        )
         (self.root / "LICENSE").write_text("Fixture license.\n", encoding="utf-8")
         factorial = self.root / FACTORIAL_PATH
         factorial.parent.mkdir(parents=True)
@@ -191,6 +213,14 @@ class PublicDocsCheckerTests(unittest.TestCase):
             target = self.root / "docs" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(page(relative), encoding="utf-8")
+        (self.root / "docs/getting-started/overview.md").write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -327,14 +357,34 @@ class PublicDocsCheckerTests(unittest.TestCase):
 
     def test_readme_requires_local_logo_without_raw_query(self) -> None:
         readme = valid_readme().replace(
-            './jazz_logo.png',
-            "https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true",
+            f'./{WORDMARK_PATH}',
+            "https://github.com/un3qual/jazz/blob/main/website/static/img/jazz-wordmark.svg?raw=true",
         )
         (self.root / "README.md").write_text(readme, encoding="utf-8")
         result = self.run_checker()
         self.assertIn("README.md: logo must use a repository-local path", result.stdout)
         self.assertIn("README.md: image must use a repository-local path", result.stdout)
         self.assertIn("README.md: image URLs must not use ?raw=true", result.stdout)
+
+    def test_readme_requires_canonical_wordmark_path(self) -> None:
+        alternate = self.root / "website/static/img/alternate.svg"
+        alternate.write_text("<svg></svg>\n", encoding="utf-8")
+        readme = valid_readme().replace(
+            WORDMARK_PATH, "website/static/img/alternate.svg"
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation("README.md: logo must use a repository-local path")
+
+    def test_readme_requires_canonical_dark_mode_wordmark_path(self) -> None:
+        readme = valid_readme().replace(
+            f'    <source srcset="./{DARK_WORDMARK_PATH}" '
+            'media="(prefers-color-scheme: dark)" />\n',
+            "",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: dark-mode logo must use the canonical repository-local path"
+        )
 
     def test_readme_rejects_unquoted_remote_html_image_source(self) -> None:
         (self.root / "README.md").write_text(
@@ -347,12 +397,12 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_readme_rejects_remote_html_srcset_candidates(self) -> None:
         responsive_images = (
             (
-                '<img src="./jazz_logo.png" '
-                'srcset="./jazz_logo.png 1x, https://example.com/track.png 2x">'
+                f'<img src="./{WORDMARK_PATH}" '
+                f'srcset="./{WORDMARK_PATH} 1x, https://example.com/track.png 2x">'
             ),
             (
                 '<picture><source srcset="https://example.com/track.png 2x">'
-                '<img src="./jazz_logo.png" alt="Jazz"></picture>'
+                f'<img src="./{WORDMARK_PATH}" alt="Jazz"></picture>'
             ),
         )
         for responsive_image in responsive_images:
@@ -405,6 +455,143 @@ class PublicDocsCheckerTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn("README.md: missing GPL-3.0-only license link", result.stdout)
+
+    def test_readme_requires_honest_prospective_website_label(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"[Website]({PUBLIC_WEBSITE_URL})",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: website must use the prospective canonical Website label"
+        )
+
+    def test_readme_comment_decoy_cannot_hide_stale_website_wording(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"<!-- {README_WEBSITE_LINK} -->",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
+        )
+
+    def test_readme_inline_code_decoy_cannot_hide_stale_website_wording(
+        self,
+    ) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"``{README_WEBSITE_LINK}``",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
+        )
+
+    def test_readme_escaped_website_link_decoy_is_not_visible(self) -> None:
+        readme = valid_readme().replace(
+            README_WEBSITE_LINK,
+            f"\\{README_WEBSITE_LINK}",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        result = self.run_checker()
+        self.assertIn(
+            "README.md: website must use the prospective canonical Website label",
+            result.stdout,
+        )
+        self.assertIn(
+            f"README.md: missing required navigation link: {PUBLIC_WEBSITE_URL}",
+            result.stdout,
+        )
+
+    def test_readme_requires_post_merge_pages_follow_up(self) -> None:
+        readme = valid_readme().replace(
+            "enabling GitHub Pages for GitHub Actions is a post-merge follow-up",
+            "the documentation is published",
+        )
+        (self.root / "README.md").write_text(readme, encoding="utf-8")
+        self.assert_violation(
+            "README.md: missing post-merge GitHub Pages activation follow-up"
+        )
+
+    def test_getting_started_requires_canonical_website_link(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page("Getting started", "Read the local language guide.\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
+    def test_getting_started_code_only_website_link_is_not_visible(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"```text\n{GETTING_STARTED_WEBSITE_LINK}\n```\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
+    def test_getting_started_escaped_website_link_is_not_visible(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"\\{GETTING_STARTED_WEBSITE_LINK}\n\n"
+                "Enabling GitHub Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing visible prospective website link"
+        )
+
+    def test_getting_started_requires_post_merge_pages_follow_up(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/getting-started/overview.md: missing post-merge GitHub Pages activation follow-up"
+        )
+
+    def test_getting_started_accepts_soft_wrapped_pages_follow_up(self) -> None:
+        overview = self.root / "docs/getting-started/overview.md"
+        overview.write_text(
+            page(
+                "Getting started",
+                f"The {GETTING_STARTED_WEBSITE_LINK} will publish these guides.\n\n"
+                "Enabling GitHub\n"
+                "Pages for GitHub Actions is a post-merge follow-up.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_readme_license_link_must_be_rendered_in_license_section(self) -> None:
         license_link = "[GPL-3.0-only](LICENSE)"
@@ -1174,6 +1361,47 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation(
             "docs/index.md: public link escapes docs into rfcs/: ../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_angle_bracket_links_with_parentheses_that_escape_docs(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(body="[Decision](<../rfcs/accepted/draft(1.md>)\n"),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: "
+            "../rfcs/accepted/draft(1.md"
+        )
+
+    def test_comment_literal_inside_fence_cannot_hide_later_links(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "```text\n"
+                    "<!-- an example literal\n"
+                    "```\n\n"
+                    "[Decision](../rfcs/accepted/0001.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: "
+            "../rfcs/accepted/0001.md"
+        )
+
+    def test_rejects_escaping_images_nested_inside_link_labels(self) -> None:
+        (self.root / "docs/index.md").write_text(
+            page(
+                body=(
+                    "[![Private diagram](../rfcs/private.png)]"
+                    "(language/overview.md)\n"
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "docs/index.md: public link escapes docs into rfcs/: ../rfcs/private.png"
         )
 
     def test_rejects_html_links_that_escape_to_internal_trees(self) -> None:

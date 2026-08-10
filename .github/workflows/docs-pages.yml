@@ -1,0 +1,100 @@
+name: Deploy documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "website/**"
+      - "examples/functions/factorial.jz"
+      - "scripts/example-cases.tsv"
+      - "scripts/check-website.sh"
+      - "scripts/check-docs-pages-workflow.py"
+      - "scripts/check-website-boundary.py"
+      - "scripts/check-public-docs.py"
+      - "scripts/example_cases.py"
+      - "scripts/markdown_targets.py"
+      - "scripts/markdown_visibility.py"
+      - "scripts/public-doc-fragments.tsv"
+      - "README.md"
+      - ".github/workflows/docs-pages.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    permissions:
+      contents: read # Checkout reads the source used to build the site.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+        working-directory: website
+
+      - name: Check brand assets
+        run: npm run test:brand
+        working-directory: website
+
+      - name: Check website experience
+        run: npm run test:experience
+        working-directory: website
+
+      - name: Type-check website
+        run: npm run typecheck
+        working-directory: website
+
+      - name: Check Pages workflow contract
+        run: python3 scripts/check-docs-pages-workflow.py
+
+      - name: Check public documentation
+        run: python3 scripts/check-public-docs.py
+
+      - name: Check source publication boundary
+        run: python3 scripts/check-website-boundary.py
+
+      - name: Build website
+        run: npm run build
+        working-directory: website
+
+      - name: Check generated publication boundary
+        run: python3 scripts/check-website-boundary.py
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: website/build
+
+  deploy:
+    permissions:
+      pages: write # Publish the checked Pages artifact.
+      id-token: write # Authenticate the deployment through OIDC.
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
