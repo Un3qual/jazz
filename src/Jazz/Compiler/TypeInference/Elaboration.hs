@@ -15,6 +15,7 @@ module Jazz.Compiler.TypeInference.Elaboration
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
+    expressionDependencyNames,
     specializeInferredExpression,
     finalizeTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
@@ -29,7 +30,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (..), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), ImplMethod (..), Literal (..), NumericType (..), Pattern (..), SignaturePayload (..), SignatureType (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog (numericTypeIsIntegral)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
@@ -168,7 +169,7 @@ data ProvisionalTypedExpr
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
+  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) (Set.Set Name) ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   deriving (Eq, Show)
@@ -177,8 +178,72 @@ data FunctionProfile = FunctionProfile
   { functionStatementIndex :: Int,
     functionType :: ExpressionType,
     functionArity :: Int,
-    functionExpression :: ProvisionalTypedExpr
+    functionDependencyNames :: Set.Set Name
   }
+
+-- | Canonical free value references for dependency analysis. This walks the
+-- resolved core expression rather than the provisional production tree, so a
+-- rejected expression cannot erase a recursion edge. Finalization intersects
+-- these names with the local function table and assigns permanent binders.
+expressionDependencyNames :: Expr -> Set.Set Name
+expressionDependencyNames = go
+  where
+    go expression =
+      case expression of
+        ELit {} -> Set.empty
+        EVar name -> Set.singleton name
+        ELambda parameterName body -> Set.delete parameterName (go body)
+        EOperatorValue {} -> Set.empty
+        EList elements -> foldMap go elements
+        ETuple elements -> foldMap go elements
+        EApply function argument -> go function <> go argument
+        ETypeApplication function _ _ -> go function
+        EIf condition thenExpression elseExpression ->
+          go condition <> go thenExpression <> go elseExpression
+        EPatternCase scrutinee arms -> go scrutinee <> foldMap armDependencies arms
+        EBinary _ left right -> go left <> go right
+        ESectionLeft left _ -> go left
+        ESectionRight _ right -> go right
+        EBlock statements -> blockDependencies Set.empty statements
+    armDependencies (CaseArm patternValue maybeGuard result) =
+      let boundNames = patternBindingNames patternValue
+       in (maybe Set.empty go maybeGuard <> go result) Set.\\ boundNames
+    methodDependencies (ImplMethod _ _ body) = go body
+    blockDependencies _ [] = Set.empty
+    blockDependencies lexicalNames statements@(statement : rest) =
+      case statement of
+        SLet name _ initializer ->
+          let initializerLexicalNames = Set.insert name (lexicalNames <> forwardFunctionNames statements)
+           in (go initializer Set.\\ initializerLexicalNames)
+                <> blockDependencies (Set.insert name lexicalNames) rest
+        SExpr _ result ->
+          (go result Set.\\ lexicalNames) <> blockDependencies lexicalNames rest
+        SImpl _ _ _ methods ->
+          (foldMap methodDependencies methods Set.\\ lexicalNames)
+            <> blockDependencies lexicalNames rest
+        _ -> blockDependencies lexicalNames rest
+    forwardFunctionNames statements =
+      Set.fromList
+        [ name
+        | SSignature name _ signature <- statements,
+          functionSignature signature
+        ]
+    functionSignature signature =
+      case signature of
+        SignatureType (TypeFunction _ _) -> True
+        ConstrainedSignature _ (TypeFunction _ _) -> True
+        _ -> False
+    patternBindingNames patternValue =
+      case patternValue of
+        PWildcard -> Set.empty
+        PVariable name -> Set.singleton name
+        PLiteral {} -> Set.empty
+        PConstructor _ fields -> foldMap patternBindingNames fields
+        PList elements -> foldMap patternBindingNames elements
+        PConsList headPattern tailPattern -> patternBindingNames headPattern <> patternBindingNames tailPattern
+        PTuple elements -> foldMap patternBindingNames elements
+        PAs name nested -> Set.insert name (patternBindingNames nested)
+        POr alternatives -> foldMap patternBindingNames alternatives
 
 data ExpressionRole
   = FunctionBindingExpression TypedCallableShape
@@ -273,7 +338,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   let typedName = resolvedValueName name
                       owner = binderAt statementIndex [] typedName
                    in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info)))
-        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
+        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding _ expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
               callableShape = shapeFor callableShapes name
@@ -598,27 +663,27 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect functions statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ expressionType _ expression
+            ProvisionalFunctionBinding statementIndex name _ expressionType _ dependencyNames expression
               | lambdaCount expression > 0 ->
                   Map.insertWith
                     (\_ firstFunction -> firstFunction)
                     name
-                    (FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
+                    (FunctionProfile statementIndex expressionType (lambdaCount expression) dependencyNames)
                     functions
             _ -> functions
 
     callableShapeTable functions statements =
       foldl'
-        (collectStatementCallableUses functions)
+        (collectStatementCallableUses functions Set.empty)
         (Map.map (const TypedDirectCallableShape) functions)
         statements
 
-    collectStatementCallableUses functions callableShapes statement =
+    collectStatementCallableUses functions lexicalNames callableShapes statement =
       case statement of
-        ProvisionalFunctionBinding _ _ _ _ _ expression ->
-          collectExpressionCallableUses functions Set.empty callableShapes expression
+        ProvisionalFunctionBinding _ _ _ _ _ _ expression ->
+          collectExpressionCallableUses functions lexicalNames callableShapes expression
         ProvisionalTerminalExpression _ _ expression ->
-          collectExpressionCallableUses functions Set.empty callableShapes expression
+          collectExpressionCallableUses functions lexicalNames callableShapes expression
         _ -> callableShapes
 
     collectExpressionCallableUses functions lexicalNames callableShapes expression =
@@ -651,10 +716,28 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             (collectExpressionCallableUses functions lexicalNames callableShapes left)
             right
         ProvisionalScopeStatements nestedStatements ->
-          foldl' (collectStatementCallableUses functions) callableShapes nestedStatements
+          collectScopeCallableUses functions lexicalNames callableShapes nestedStatements
         _ -> callableShapes
 
     markClosure name = Map.insert name TypedClosureCallableShape
+
+    collectScopeCallableUses functions = go
+      where
+        go _ callableShapes [] = callableShapes
+        go lexicalNames callableShapes statements@(statement : rest) =
+          case statement of
+            ProvisionalFunctionBinding _ name _ _ _ _ expression ->
+              let expressionLexicalNames = Set.insert name (lexicalNames <> forwardFunctionNames statements)
+                  nextShapes = collectExpressionCallableUses functions expressionLexicalNames callableShapes expression
+               in go (Set.insert name lexicalNames) nextShapes rest
+            ProvisionalTerminalExpression _ _ expression ->
+              go lexicalNames (collectExpressionCallableUses functions lexicalNames callableShapes expression) rest
+            _ -> go lexicalNames callableShapes rest
+        forwardFunctionNames statements =
+          Set.fromList
+            [ name
+            | ProvisionalSignature _ name _ (TFunctionType _ _) <- statements
+            ]
 
     shapeFor callableShapes name =
       Map.findWithDefault TypedDirectCallableShape name callableShapes
@@ -664,7 +747,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect (seenNames, reboundStatements) statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ _ _ _
+            ProvisionalFunctionBinding statementIndex name _ _ _ _ _
               | Set.member name seenNames ->
                   (seenNames, Map.insert statementIndex name reboundStatements)
               | otherwise ->
@@ -678,14 +761,14 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             stronglyConnComp
               [ ( (name, binder),
                   binder,
-                  Set.toList (localFunctionDependencies functionBinders (functionExpression function))
+                  Set.toList (localFunctionDependencies functionBinders (functionDependencyNames function))
                 )
               | (name, function) <- Map.toList functions,
                 let binder = functionBinders Map.! name
               ],
           name <- case component of
             AcyclicSCC (candidate, binder)
-              | Set.member binder (localFunctionDependencies functionBinders (functionExpression (functions Map.! candidate))) -> [candidate]
+              | Set.member binder (localFunctionDependencies functionBinders (functionDependencyNames (functions Map.! candidate))) -> [candidate]
             AcyclicSCC _ -> []
             CyclicSCC functionsInCycle -> map fst functionsInCycle
         ]
@@ -695,22 +778,12 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             (\name function -> binderAt (functionStatementIndex function) [] (resolvedValueName name))
             functions
 
-    localFunctionDependencies functionBinders = go Set.empty
-      where
-        go lexicalNames expression =
-          case expression of
-            ProvisionalVariableExpression name _
-              | Set.notMember name lexicalNames,
-                Just binder <- Map.lookup name functionBinders ->
-                  Set.singleton binder
-              | otherwise -> Set.empty
-            ProvisionalApplyExpression _ function argument ->
-              go lexicalNames function <> go lexicalNames argument
-            ProvisionalLambdaExpression parameterName _ body ->
-              go (Set.insert parameterName lexicalNames) body
-            ProvisionalBinaryExpression _ _ _ left right ->
-              go lexicalNames left <> go lexicalNames right
-            _ -> Set.empty
+    localFunctionDependencies functionBinders dependencyNames =
+      Set.fromList
+        [ binder
+        | name <- Set.toList dependencyNames,
+          Just binder <- [Map.lookup name functionBinders]
+        ]
 
     finalizeExports functions callableShapes =
       foldl'

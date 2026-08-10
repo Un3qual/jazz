@@ -1158,6 +1158,9 @@ lowererBoundaryPrograms =
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
     ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
+    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
+    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
+    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
@@ -1704,6 +1707,113 @@ nestedLambdaClosureValueSelfRecursiveLowererProgram =
     [applyFunction, nestedLambdaClosurePassingLoopFunction]
     (boolExpr True)
 
+shapeRejectedSelfRecursiveLowererProgram :: TypedProgram
+shapeRejectedSelfRecursiveLowererProgram =
+  shapeRejectedCycleLowererProgram [("loop", "loop")]
+
+shapeRejectedMutualRecursiveLowererProgram :: TypedProgram
+shapeRejectedMutualRecursiveLowererProgram =
+  shapeRejectedCycleLowererProgram [("left", "right"), ("right", "left")]
+
+shapeRejectedCycleLowererProgram :: [(Text, Text)] -> TypedProgram
+shapeRejectedCycleLowererProgram functions =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        (concatMap functionStatements indexedFunctions <> [TypedExpressionStatement (TypedSpan (length functions * 2 + 1) 1) (boolExpr True)])
+        boolInfo
+    ]
+    modulePath
+  where
+    indexedFunctions = zip [0 ..] functions
+    binders =
+      Map.fromList
+        [ (resolvedName name, TypedBinderId (modulePath, [bindingIndex], resolvedName name))
+        | (functionIndex, (name, _)) <- indexedFunctions,
+          let bindingIndex = functionIndex * 2 + 1
+        ]
+    functionStatements (functionIndex, (name, target)) =
+      let signatureIndex = functionIndex * 2
+          bindingIndex = signatureIndex + 1
+          function = ExpectedFunction name [("item", boolInfo)] boolInfo TypedDirectCallableShape (boolExpr True)
+          functionName = resolvedName name
+          signatureBinder = TypedBinderId (modulePath, [signatureIndex], functionName)
+          bindingBinder = TypedBinderId (modulePath, [bindingIndex], functionName)
+       in [ TypedSignatureStatement
+              signatureBinder
+              functionName
+              (TypedSpan (signatureIndex + 1) 1)
+              (functionScheme signatureIndex function),
+            bindExpectedStatementVariables binders
+              ( TypedLetStatement
+                  bindingBinder
+                  functionName
+                  (TypedSpan (bindingIndex + 1) 1)
+                  (functionScheme bindingIndex function)
+                  (shapeRejectedConditionalBody bindingIndex target)
+              )
+          ]
+    shapeRejectedConditionalBody statementIndex target =
+      TypedIfExpr
+        boolCallableInfo
+        (boolExpr True)
+        (branchLambda statementIndex 1 target)
+        (branchLambda statementIndex 2 target)
+    branchLambda statementIndex branchIndex target =
+      let parameterName = resolvedName "item"
+          parameterBinder = TypedBinderId (modulePath, [statementIndex, 0, branchIndex], parameterName)
+       in TypedLambdaExpr
+            boolCallableInfo
+            parameterBinder
+            parameterName
+            (directCall target [boolInfo] boolInfo [TypedVariableExpr boolInfo parameterName (Just parameterBinder)])
+
+shapeRejectedBinderShadowControlLowererProgram :: TypedProgram
+shapeRejectedBinderShadowControlLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (functionScheme 0 function),
+          TypedLetStatement
+            bindingBinder
+            functionName
+            (TypedSpan 2 1)
+            (functionScheme 1 function)
+            ( TypedIfExpr
+                functionNodeInfo
+                (boolExpr True)
+                (branchLambda 1)
+                (branchLambda 2)
+            ),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    functionName = resolvedName "loop"
+    function = ExpectedFunction "loop" [("loop", boolCallableInfo)] boolInfo TypedDirectCallableShape (boolExpr True)
+    signatureBinder = TypedBinderId (modulePath, [0], functionName)
+    bindingBinder = TypedBinderId (modulePath, [1], functionName)
+    functionNodeInfo = functionInfo [("loop", boolCallableInfo)] boolInfo
+    branchLambda branchIndex =
+      let parameterBinder = TypedBinderId (modulePath, [1, 0, branchIndex], functionName)
+       in TypedLambdaExpr
+            functionNodeInfo
+            parameterBinder
+            functionName
+            (TypedApplyExpr boolInfo (TypedVariableExpr boolCallableInfo functionName (Just parameterBinder)) (boolExpr True))
+
 bareFunctionLowererProgram :: TypedProgram
 bareFunctionLowererProgram =
   expectedFunctionProgram
@@ -1804,6 +1914,50 @@ producerEdgeFixtures =
               "loop :: Int -> Int.",
               "loop = \\(item) -> loop (if True then item else item).",
               "loop 1."
+            ]
+        )
+    ),
+    ( "rejected-conditional-self-recursion",
+      sourceFixtureNoExports
+        "rejected-conditional-self-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> if item then loop False else item.",
+              "loop True."
+            ]
+        )
+    ),
+    ( "rejected-block-conditional-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-block-conditional-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> { right item. }.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> if item then left False else item.",
+              "left True."
+            ]
+        )
+    ),
+    ( "rejected-block-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-parameter-shadow-control"
+        ( Text.unlines
+            [ "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(function) -> function True.",
+              "forward :: (Bool -> Bool) -> Bool.",
+              "forward = \\(forward) -> { apply forward. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-later-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-later-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop item. loop = \\(nested) -> nested. loop item. }.",
+              "True."
             ]
         )
     ),

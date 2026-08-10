@@ -72,6 +72,12 @@ data FunctionParameterShape = FunctionParameterShape
     functionParameter :: LoweredParameter
   }
 
+data FunctionDeclaration = FunctionDeclaration
+  { functionDeclarationBinder :: TypedBinderId,
+    functionDeclarationName :: TypedCoreName,
+    functionDeclarationStatementIndex :: Int
+  }
+
 data FunctionShape = FunctionShape
   { functionShapeBinder :: TypedBinderId,
     functionShapeName :: TypedCoreName,
@@ -145,6 +151,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
     entryBlockId = LoweredBlockId "entry"
     (shapeFailures, functionShapes, localValueNames) =
       collectFunctionShapes modulePath statements
+    functionDeclarations = collectFunctionDeclarations statements
     moduleFailures
       | supportedModuleMetadata imports exports moduleInterface functionShapes =
           []
@@ -157,13 +164,13 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath (TypedModulePath modulePath) (typedNodeRecipe moduleInfo)
     (profileFailures, functionDependencies) =
-      validateStatementProfiles modulePath functionShapes localValueNames statements
+      validateStatementProfiles modulePath functionDeclarations functionShapes localValueNames statements
     recursiveFailures =
-      recursiveFunctionFailures modulePath functionShapes functionDependencies
+      recursiveFunctionFailures modulePath functionDeclarations functionDependencies
     statementFailures =
       orderedStatementFailures
         (length statements)
-        [shapeFailures, recursiveFailures, profileFailures]
+        [recursiveFailures, shapeFailures, profileFailures]
     allFailures =
       moduleFailures
         <> resultRepresentationFailures
@@ -353,6 +360,24 @@ collectFunctionShapes modulePath =
             nextSeenNames
             nextSeenGeneratedIdentities
             rest
+
+collectFunctionDeclarations :: [TypedStatement] -> [FunctionDeclaration]
+collectFunctionDeclarations =
+  go 0
+  where
+    go _ [] = []
+    go statementIndex (statement : rest) =
+      case statement of
+        TypedLetStatement binder name _ scheme _
+          | callableScheme scheme ->
+              FunctionDeclaration binder name statementIndex : continue
+        _ -> continue
+      where
+        continue = go (statementIndex + 1) rest
+    callableScheme (TypedScheme _ _ _ _ typeValue _ maybeCallableShape) =
+      case (typeValue, maybeCallableShape) of
+        (TypedFunctionType {}, Just _) -> True
+        _ -> False
 
 duplicateLeadingParameters :: TypedExpr -> [([Int], TypedCoreName)]
 duplicateLeadingParameters =
@@ -553,11 +578,12 @@ valueRepresentation typeValue recipe =
 
 validateStatementProfiles ::
   [Text] ->
+  [FunctionDeclaration] ->
   [FunctionShape] ->
   [TypedCoreName] ->
   [TypedStatement] ->
   ([LoweredIRLoweringFailure], [(TypedBinderId, [TypedBinderId])])
-validateStatementProfiles modulePath functions localValueNames =
+validateStatementProfiles modulePath declarations functions localValueNames =
   go 0 [] []
   where
     go _ reversedFailureChunks reversedCalls [] =
@@ -566,10 +592,17 @@ validateStatementProfiles modulePath functions localValueNames =
       case statement of
         TypedSignatureStatement {} -> continue reversedFailureChunks reversedCalls
         TypedLetStatement _ _ _ _ expression ->
-          case find ((== statementIndex) . functionShapeStatementIndex) functions of
+          let nextCalls =
+                case find ((== statementIndex) . functionDeclarationStatementIndex) declarations of
+                  Just declaration ->
+                    ( functionDeclarationBinder declaration,
+                      localFunctionDependencies declarations expression
+                    ) : reversedCalls
+                  Nothing -> reversedCalls
+           in case find ((== statementIndex) . functionShapeStatementIndex) functions of
             Nothing ->
               case expression of
-                TypedLambdaExpr {} -> continue reversedFailureChunks reversedCalls
+                TypedLambdaExpr {} -> continue reversedFailureChunks nextCalls
                 _ ->
                   let check =
                         inspectExpression
@@ -582,7 +615,7 @@ validateStatementProfiles modulePath functions localValueNames =
                           expression
                    in continue
                         (expressionCheckFailures check : reversedFailureChunks)
-                        reversedCalls
+                        nextCalls
             Just function ->
               let check =
                     inspectExpression
@@ -595,10 +628,7 @@ validateStatementProfiles modulePath functions localValueNames =
                       (functionShapeBody function)
                in continue
                     (expressionCheckFailures check : reversedFailureChunks)
-                    ( ( functionShapeBinder function,
-                        localFunctionDependencies functions (functionShapeBody function)
-                      ) : reversedCalls
-                    )
+                    nextCalls
         TypedExpressionStatement _ expression ->
           let check =
                 inspectExpression
@@ -783,13 +813,13 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
 
     actualArity = length arguments
 
-localFunctionDependencies :: [FunctionShape] -> TypedExpr -> [TypedBinderId]
-localFunctionDependencies functions expression =
+localFunctionDependencies :: [FunctionDeclaration] -> TypedExpr -> [TypedBinderId]
+localFunctionDependencies declarations expression =
   case expression of
     TypedLiteralExpr {} -> []
     TypedVariableExpr _ _ binderReference ->
-      case findFunctionShape binderReference functions of
-        Just function -> [functionShapeBinder function]
+      case findFunctionDeclaration binderReference declarations of
+        Just declaration -> [functionDeclarationBinder declaration]
         Nothing -> []
     TypedLambdaExpr _ _ _ body -> dependencies body
     TypedOperatorValueExpr {} -> []
@@ -806,7 +836,7 @@ localFunctionDependencies functions expression =
     TypedRightSectionExpr _ _ right -> dependencies right
     TypedBlockExpr _ statements -> concatMap statementDependencies statements
   where
-    dependencies = localFunctionDependencies functions
+    dependencies = localFunctionDependencies declarations
     armDependencies (TypedCaseArm _ maybeGuard result) =
       maybe [] dependencies maybeGuard <> dependencies result
     statementDependencies statement =
@@ -839,6 +869,11 @@ findFunctionShape binderReference functions = do
   binder <- binderReference
   find ((== binder) . functionShapeBinder) functions
 
+findFunctionDeclaration :: Maybe TypedBinderId -> [FunctionDeclaration] -> Maybe FunctionDeclaration
+findFunctionDeclaration binderReference declarations = do
+  binder <- binderReference
+  find ((== binder) . functionDeclarationBinder) declarations
+
 findParameterShape :: Maybe TypedBinderId -> [FunctionParameterShape] -> Maybe FunctionParameterShape
 findParameterShape binderReference parameters = do
   binder <- binderReference
@@ -865,16 +900,16 @@ functionEnvironmentParameter function = do
 
 recursiveFunctionFailures ::
   [Text] ->
-  [FunctionShape] ->
+  [FunctionDeclaration] ->
   [(TypedBinderId, [TypedBinderId])] ->
   [LoweredIRLoweringFailure]
-recursiveFunctionFailures modulePath functions functionDependencies =
+recursiveFunctionFailures modulePath declarations functionDependencies =
   [ LoweredIRLoweringFailure
-      (TypedStatementPath modulePath [functionShapeStatementIndex function])
+      (TypedStatementPath modulePath [functionDeclarationStatementIndex declaration])
       LoweredIRRecursiveFunctionUnsupported
-      (LoweredIRNameFailureDetail (functionShapeName function))
-  | function <- functions,
-    recursivelyReaches (functionShapeBinder function)
+      (LoweredIRNameFailureDetail (functionDeclarationName declaration))
+  | declaration <- declarations,
+    recursivelyReaches (functionDeclarationBinder declaration)
   ]
   where
     recursivelyReaches source =

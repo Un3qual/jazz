@@ -85,6 +85,7 @@ tests =
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
+    ("preserves recursion dependencies through rejected producer trees", testRejectedProducerDependencyTransport),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
     ("ranks every input failure before resolved-module failures", testInputModuleFailureOrder),
@@ -205,6 +206,9 @@ testIndependentLowererManifest = do
           "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
           "direct-shaped-closure-value-self-recursion",
+          "shape-rejected-self-recursion",
+          "shape-rejected-mutual-recursion",
+          "shape-rejected-binder-shadow-control",
           "bare-function-value",
           "partial-direct-call",
           "imported-direct-call",
@@ -518,6 +522,63 @@ testLowererCallableBoundary =
               [0, 0, 1]
               LoweredIRCallableValueUnsupported
               (LoweredIRNameFailureDetail (currentName "loop"))
+          ]
+        ),
+        ( "shape-rejected-self-recursion",
+          [ statementFailure
+              1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            statementFailure
+              1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
+              1
+              [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
+          ]
+        ),
+        ( "shape-rejected-mutual-recursion",
+          [ statementFailure
+              1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "left")),
+            statementFailure
+              1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "left")),
+            expressionFailure
+              1
+              [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail,
+            statementFailure
+              3
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "right")),
+            statementFailure
+              3
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "right")),
+            expressionFailure
+              3
+              [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
+          ]
+        ),
+        ( "shape-rejected-binder-shadow-control",
+          [ statementFailure
+              1
+              LoweredIRInvalidFunctionShape
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
+              1
+              [0]
+              LoweredIRUnsupportedExpression
+              LoweredIRNoFailureDetail
           ]
         ),
         ( "bare-function-value",
@@ -1773,6 +1834,52 @@ testSameStatementFailureKindOrder = do
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "self-recursive rebinding repeatability" firstRun secondRun
   assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
+
+testRejectedProducerDependencyTransport :: IO ()
+testRejectedProducerDependencyTransport =
+  mapM_ assertExact
+    [ ( "rejected-conditional-self-recursion",
+        [ statementFailure 1 "loop",
+          expressionFailure 1 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+        ]
+      ),
+      ( "rejected-block-conditional-mutual-recursion",
+        [ statementFailure 1 "left",
+          expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
+          statementFailure 3 "right",
+          expressionFailure 3 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+        ]
+      ),
+      ( "rejected-block-parameter-shadow-control",
+        [expressionFailure 3 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]
+      ),
+      ( "rejected-block-later-shadow-control",
+        [ statementFailure 1 "loop",
+          expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+      )
+    ]
+  where
+    assertExact (name, expectedFailures) = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact rejected-tree recursion result")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+    statementFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail name)
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
 
 producerEdgeFixture :: Text -> Fixture
 producerEdgeFixture name =

@@ -81,6 +81,7 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
     blockProductionFailureKindAndDetail,
+    expressionDependencyNames,
     specializeInferredExpression,
   )
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
@@ -755,6 +756,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                                 bindingSpan
                                 bindingType
                                 maybeNextBinding
+                                (expressionDependencyNames valueExpr)
                                 expression
                             ]
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
