@@ -397,6 +397,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
         ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
           ( recursiveFailures
+              <> rebindingFailures
               <> ( statementFailure statementIndex kind detail
                      : map (qualifyInferredFailure statementIndex []) childFailures
                  ),
@@ -409,6 +410,10 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
             recursiveFailures =
               [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
               | Set.member owner recursiveBinders
+              ]
+            rebindingFailures =
+              [ statementFailure statementIndex TypedCoreFunctionRebindingUnsupported (TypedCoreNameDetail (identifierText name))
+              | Map.member statementIndex reboundFunctions
               ]
         ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
           ( statementFailure statementIndex kind detail
@@ -790,15 +795,18 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect (seenNames, reboundStatements) statement =
           case statement of
-            ProvisionalFunctionBinding declaration _
-              | Set.member name seenNames ->
-                  (seenNames, Map.insert statementIndex name reboundStatements)
-              | otherwise ->
-                  (Set.insert name seenNames, reboundStatements)
-              where
-                statementIndex = provisionalCallableStatementIndex declaration
-                name = provisionalCallableName declaration
+            ProvisionalFunctionBinding declaration _ -> collectDeclaration seenNames reboundStatements declaration
+            ProvisionalUnsupportedCallableBinding declaration _ _ _ -> collectDeclaration seenNames reboundStatements declaration
             _ -> (seenNames, reboundStatements)
+
+        collectDeclaration seenNames reboundStatements declaration
+          | Set.member name seenNames =
+              (seenNames, Map.insert statementIndex name reboundStatements)
+          | otherwise =
+              (Set.insert name seenNames, reboundStatements)
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
 
     recursiveDeclarationBinders declarations =
       Set.fromList

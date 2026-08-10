@@ -94,6 +94,12 @@ tests =
     ("resolves a nested alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-alias-mutual-recursion"),
     ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
     ("keeps a nested self-recursive lambda local to its block", testNestedSelfRecursiveLambdaOwnership),
+    ("classifies an accepted then rejected callable rebinding", testRejectedCallableRebinding "accepted-then-rejected-callable-rebinding"),
+    ("classifies a rejected then accepted callable rebinding", testRejectedCallableRebinding "rejected-then-accepted-callable-rebinding"),
+    ("classifies repeated rejected callable rebindings", testRejectedCallableRebinding "repeated-rejected-callable-rebinding"),
+    ("keeps a prior scalar out of rejected callable rebinding", testRejectedCallableRebinding "scalar-then-rejected-callable-control"),
+    ("retains accepted callable ownership across a scalar before rejection", testRejectedCallableRebinding "accepted-scalar-rejected-callable-rebinding"),
+    ("retains rejected callable ownership across a scalar before acceptance", testRejectedCallableRebinding "rejected-scalar-accepted-callable-rebinding"),
     ("selects the nearest of three same-name declarations", testCanonicalCallableRebindingDependencies "three-same-name-nearest-prior-mutual-recursion"),
     ("preserves canonical self recursion when no prior binding exists", testCanonicalCallableRebindingDependencies "canonical-self-recursion-no-prior"),
     ("preserves canonical mutual recursion between peers", testCanonicalCallableRebindingDependencies "canonical-mutual-recursion-peers"),
@@ -2002,6 +2008,86 @@ testNestedSelfRecursiveLambdaOwnership = do
     )
   assertEqual "nested self-recursive lambda repeatability" firstRun secondRun
   assertEqual "nested self-recursive lambda exact local ownership" expected (typedCoreProductionStatus firstRun)
+
+testRejectedCallableRebinding :: Text -> IO ()
+testRejectedCallableRebinding requestedName =
+  case lookup requestedName expectedResults of
+    Just expectedFailures -> assertExact requestedName expectedFailures
+    Nothing -> error "rejected callable rebinding fixture has no expected result"
+  where
+    expectedResults =
+      [ ( "accepted-then-rejected-callable-rebinding",
+          [ rebindingFailure 3,
+            rootFailure 3,
+            conditionalFailure 3
+          ]
+        ),
+        ( "rejected-then-accepted-callable-rebinding",
+          [ rootFailure 1,
+            conditionalFailure 1,
+            rebindingFailure 3
+          ]
+        ),
+        ( "repeated-rejected-callable-rebinding",
+          [ rootFailure 1,
+            conditionalFailure 1,
+            rebindingFailure 3,
+            rootFailure 3,
+            conditionalFailure 3
+          ]
+        ),
+        ( "scalar-then-rejected-callable-control",
+          [ rootFailure 0,
+            rootFailure 2,
+            conditionalFailure 2
+          ]
+        ),
+        ( "accepted-scalar-rejected-callable-rebinding",
+          [ rootFailure 2,
+            rebindingFailure 4,
+            rootFailure 4,
+            conditionalFailure 4
+          ]
+        ),
+        ( "rejected-scalar-accepted-callable-rebinding",
+          [ rootFailure 1,
+            conditionalFailure 1,
+            rootFailure 2,
+            rebindingFailure 4
+          ]
+        )
+      ]
+    assertExact name expectedFailures = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
+      assertEqual (name <> " repeatability") firstRun secondRun
+      assertEqual
+        (name <> " exact callable rebinding result")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+    rebindingFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreFunctionRebindingUnsupported
+        (TypedCoreNameDetail "f")
+    rootFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+    conditionalFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [0])
+        TypedCoreControlFlowUnsupported
+        TypedCoreConditionalDetail
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =

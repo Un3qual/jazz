@@ -2221,6 +2221,79 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "accepted-then-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "accepted-then-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-then-accepted-callable-rebinding",
+      sourceFixtureNoExports
+        "rejected-then-accepted-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "repeated-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "repeated-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if False then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "scalar-then-rejected-callable-control",
+      sourceFixtureNoExports
+        "scalar-then-rejected-callable-control"
+        ( Text.unlines
+            [ "f = True.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "accepted-scalar-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "accepted-scalar-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f = True.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-scalar-accepted-callable-rebinding",
+      sourceFixtureNoExports
+        "rejected-scalar-accepted-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f = True.",
+              "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-block-later-signed-shadow-control",
       sourceFixtureNoExports
         "rejected-block-later-signed-shadow-control"
