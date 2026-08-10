@@ -1695,6 +1695,30 @@ rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-uni
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+    ( "default-exported-polymorphic-callable",
+      sourceFixture
+        "default-exported-polymorphic-callable"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "identity :: a -> a.",
+              "identity = \\(item) -> item.",
+              "()."
+            ]
+        )
+    ),
+    ( "self-recursive-function-rebinding",
+      sourceFixtureNoExports
+        "self-recursive-function-rebinding"
+        ( Text.unlines
+            [ "loop :: Int -> Int.",
+              "loop = \\(item) -> loop item.",
+              "loop :: Int -> Int.",
+              "loop = \\(item) -> loop (if True then item else item).",
+              "loop 1."
+            ]
+        )
+    ),
     ( "unit-forward-function",
       sourceFixtureNoExports
         "unit-forward-function"

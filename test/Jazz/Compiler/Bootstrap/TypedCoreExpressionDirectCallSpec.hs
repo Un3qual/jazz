@@ -80,9 +80,11 @@ tests =
     ("rejects modules without an executable result twice", testMissingModuleResultProduction),
     ("retains statement failures when the module result is missing", testMissingResultFailureAccumulation),
     ("ranks module failures before statement failures in authored export order", testModuleFailureOrder),
+    ("keeps exported callable-info failures statement-owned and unique", testExportedCallableFailureOwnership),
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
+    ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
     ("reports the initial input profile failures", testInputFailures),
     ("ranks every input failure before resolved-module failures", testInputModuleFailureOrder),
@@ -1509,6 +1511,46 @@ testModuleFailureOrder = do
   assertEqual "module failure order repeatability" firstRun secondRun
   assertEqual "module failures precede statements in authored export order" expected (typedCoreProductionStatus firstRun)
 
+testExportedCallableFailureOwnership :: IO ()
+testExportedCallableFailureOwnership = do
+  let fixture = producerEdgeFixture "default-exported-polymorphic-callable"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionModulePath ["App", "Main"])
+              TypedCoreUnsupportedExport
+              (TypedCoreNameDetail "seed"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreUnsupportedRootExpression
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+              TypedCoreUnresolvedExpressionType
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreNonMonomorphicFunctionUnsupported
+              (TypedCoreNameDetail "identity"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+              TypedCoreUnresolvedExpressionType
+              TypedCoreUnsupportedRootDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0])
+              TypedCoreUnresolvedExpressionType
+              TypedCoreUnsupportedRootDetail
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "default-exported polymorphic callable inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "default-exported polymorphic callable repeatability" firstRun secondRun
+  assertEqual "export callable failure remains statement-owned and unique" expected (typedCoreProductionStatus firstRun)
+
 testCompoundFailureAccumulation :: IO ()
 testCompoundFailureAccumulation = do
   let fixture = producerEdgeFixture "nested-unsupported-children"
@@ -1642,6 +1684,34 @@ testProducerIdentityBoundary =
         (name <> " exact identity failure")
         (TypedCoreProductionUnsupported expectedFailures)
         (typedCoreProductionStatus firstRun)
+
+testSameStatementFailureKindOrder :: IO ()
+testSameStatementFailureKindOrder = do
+  let fixture = producerEdgeFixture "self-recursive-function-rebinding"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail "loop"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail "loop"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreFunctionRebindingUnsupported
+              (TypedCoreNameDetail "loop"),
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
+              TypedCoreControlFlowUnsupported
+              TypedCoreConditionalDetail
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+  assertEqual "self-recursive rebinding repeatability" firstRun secondRun
+  assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
 
 producerEdgeFixture :: Text -> Fixture
 producerEdgeFixture name =

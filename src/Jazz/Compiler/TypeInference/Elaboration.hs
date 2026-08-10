@@ -302,7 +302,13 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 finalizeExpression functions callableShapes statementIndex [0] Map.empty (FunctionBindingExpression callableShape) expression
               infoResult = callableInfo callableShape statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
-              failures = generatedOperatorFailures <> rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
+              owningStatementFailures =
+                shapeFailures
+                  <> generatedOperatorFailures
+                  <> recursiveFailures
+                  <> rebindingFailures
+                  <> schemeFailures
+              failures = owningStatementFailures <> infoFailures <> expressionFailures
               typedStatement = do
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
@@ -716,7 +722,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                           let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
                               owner = binderAt (functionStatementIndex function) [] typedName
                            in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner callableShape info)]) datas classes impls)
-                        Left failure -> (failures <> [failure], TypedModuleInterface values datas classes impls)
+                        Left _ -> (failures, TypedModuleInterface values datas classes impls)
                 _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
           | otherwise =
               (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
