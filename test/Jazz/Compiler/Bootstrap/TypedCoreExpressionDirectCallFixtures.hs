@@ -18,6 +18,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
+    independentClosureExpectedLoweredPrograms,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     invalidLowererBoundaryPrograms,
@@ -721,10 +722,78 @@ closedCallableExpectedLoweredPrograms =
         (loweredTemporary 7 LoweredBoolRepresentation)
     )
   ]
-  where
-    identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
-    identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
-    identityLayoutAt5 = LoweredLayout identityLayoutIdAt5 (LoweredClosureEnvironmentLayout [])
+
+independentClosureExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+independentClosureExpectedLoweredPrograms =
+  [ ( "closure-valued-parameter",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolApplyFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "closure-valued-result",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [ expectedBoolIdentityClosure identityLayoutIdAt1,
+          expectedLocalFunction
+            "choose"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            boolClosureRepresentation
+            [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+              expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+            ]
+            (loweredTemporary 2 boolClosureRepresentation)
+        ]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "closure-shaped-named-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        boolClosureRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+        ]
+        (loweredTemporary 2 boolClosureRepresentation)
+    ),
+    ( "closure-shaped-named-application",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1,
+          expectedPrimitiveInstruction
+            3
+            LoweredBoolRepresentation
+            (LoweredComparisonPrimitive LoweredEqual)
+            [loweredImmediate (LoweredBoolImmediate True), loweredImmediate (LoweredBoolImmediate False)],
+          expectedClosureCallInstruction
+            4
+            LoweredBoolRepresentation
+            (loweredTemporary 2 boolClosureRepresentation)
+            [loweredTemporary 3 LoweredBoolRepresentation]
+        ]
+        (loweredTemporary 4 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-shadows-top-level-lowerer",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolCombineFunction, expectedBoolApplyFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    )
+  ]
+
+identityLayoutAt1, identityLayoutAt3, identityLayoutAt5 :: LoweredLayout
+identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
+identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
+identityLayoutAt5 = LoweredLayout identityLayoutIdAt5 (LoweredClosureEnvironmentLayout [])
 
 rfcClosureEnvironmentIdentityProgram :: (TypedProgram, LoweredProgram)
 rfcClosureEnvironmentIdentityProgram = (typedProgram, loweredProgram)
@@ -992,6 +1061,7 @@ lowererBoundaryPrograms =
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("self-recursive-function", selfRecursiveLowererProgram),
+    ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
     ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
@@ -1035,7 +1105,12 @@ closureShapeApplicationLowererProgram =
   expectedFunctionProgram
     []
     [boolIdentityFunction]
-    (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+    ( directCall
+        "identity"
+        [boolInfo]
+        boolInfo
+        [binaryExpr boolInfo "==" (boolExpr True) (boolExpr False)]
+    )
 
 callableParameterShadowsTopLevelLowererProgram :: TypedProgram
 callableParameterShadowsTopLevelLowererProgram =
@@ -1377,6 +1452,19 @@ selfRecursiveLowererProgram =
         (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "loop" [intInfo] intInfo [intExpr 1])
+
+closureShapedSelfRecursiveLowererProgram :: TypedProgram
+closureShapedSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        TypedClosureCallableShape
+        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (boolExpr True)
 
 mutuallyRecursiveLowererProgram :: TypedProgram
 mutuallyRecursiveLowererProgram =

@@ -192,16 +192,9 @@ testRfcClosureEnvironmentIdentity = do
 
 testSupportedClosureLowererBoundary :: IO ()
 testSupportedClosureLowererBoundary =
-  mapM_ assertSupported names
+  mapM_ assertSupported independentClosureExpectedLoweredPrograms
   where
-    names =
-      [ "closure-valued-parameter",
-        "closure-valued-result",
-        "closure-shaped-named-function",
-        "closure-shaped-named-application",
-        "callable-parameter-shadows-top-level-lowerer"
-      ]
-    assertSupported name =
+    assertSupported (name, expectedProgram) =
       case lookup name lowererBoundaryPrograms of
         Nothing -> failTest (name <> " supported lowerer program is missing")
         Just programValue -> do
@@ -209,10 +202,8 @@ testSupportedClosureLowererBoundary =
               secondRun = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
           assertEqual (name <> " repeatable closure lowering") firstRun secondRun
-          case firstRun of
-            LoweredIRSucceeded loweredProgram ->
-              assertEqual (name <> " exact lowered validation") [] (validateLoweredProgram loweredProgram)
-            _ -> failTest (name <> " did not lower successfully")
+          assertEqual (name <> " exact closure lowering") (LoweredIRSucceeded expectedProgram) firstRun
+          assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testLowererCallableBoundary :: IO ()
 testLowererCallableBoundary =
@@ -298,6 +289,13 @@ testLowererCallableBoundary =
           ]
         ),
         ( "self-recursive-function",
+          [ statementFailure
+              1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop"))
+          ]
+        ),
+        ( "closure-shaped-self-recursive-function",
           [ statementFailure
               1
               LoweredIRRecursiveFunctionUnsupported

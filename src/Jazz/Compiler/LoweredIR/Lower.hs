@@ -30,6 +30,7 @@ data LoweredIRLoweringKind
   | LoweredIRUnsupportedOperator
   | LoweredIRInvalidFunctionShape
   | LoweredIRDuplicateFunctionIdentity
+  | LoweredIRDuplicateGeneratedIdentity
   | LoweredIRDuplicateParameterIdentity
   | LoweredIRCaptureUnsupported
   | LoweredIRRecursiveFunctionUnsupported
@@ -43,6 +44,7 @@ data LoweredIRLoweringDetail
   | LoweredIRRecipeFailureDetail TypedRepresentationRecipe
   | LoweredIROperatorFailureDetail TypedOperatorRef
   | LoweredIRNameFailureDetail TypedCoreName
+  | LoweredIRGeneratedIdentityFailureDetail Text
   | LoweredIRArityFailureDetail Int Int
   deriving (Eq, Show)
 
@@ -284,8 +286,8 @@ collectFunctionShapes modulePath =
                                 | Set.member identityValue seenGeneratedIdentities ->
                                     [ LoweredIRLoweringFailure
                                         (TypedStatementPath modulePath [statementIndex])
-                                        LoweredIRDuplicateFunctionIdentity
-                                        (LoweredIRNameFailureDetail name)
+                                        LoweredIRDuplicateGeneratedIdentity
+                                        (loweredIRGeneratedIdentityFailureDetail identityValue)
                                     ]
                               _ -> []
                           nextGeneratedIdentities =
@@ -718,7 +720,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape,
                 actualArity == 1 ->
-                  ExpressionCheck [] []
+                  ExpressionCheck [] [name]
               | expectedArity == actualArity ->
                   ExpressionCheck [] [name]
               | otherwise ->
@@ -764,6 +766,10 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
             []
 
     actualArity = length arguments
+
+loweredIRGeneratedIdentityFailureDetail :: LoweredLayoutId -> LoweredIRLoweringDetail
+loweredIRGeneratedIdentityFailureDetail (LoweredLayoutId identityValue) =
+  LoweredIRGeneratedIdentityFailureDetail identityValue
 
 applicationSpine :: [Int] -> TypedExpr -> (TypedExpr, [Int], [([Int], TypedExpr)])
 applicationSpine rootPath =
