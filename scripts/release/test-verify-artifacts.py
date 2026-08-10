@@ -163,15 +163,30 @@ class ArtifactVerifierTests(unittest.TestCase):
         }
         files["manifest.json"] = json.dumps(manifest, sort_keys=True).encode("utf-8") + b"\n"
 
+    def source_files(self) -> dict[str, bytes]:
+        return {
+            "jazz-0.1.0.0/jazz.cabal": b"name: jazz\nversion: 0.1.0.0\n",
+            "jazz-0.1.0.0/flake.nix": b"{}\n",
+            "jazz-0.1.0.0/flake.lock": b"{}\n",
+            "jazz-0.1.0.0/src/Jazz/Compiler.hs": b"module Jazz.Compiler where\n",
+            "jazz-0.1.0.0/app/Main.hs": b"module Main where\n",
+            "jazz-0.1.0.0/jazz/Prelude.jz": b"identity = \\(value) -> value.\n",
+            "jazz-0.1.0.0/test/Spec.hs": b"module Main where\n",
+        }
+
+    def docs_files(self) -> dict[str, bytes]:
+        return {
+            "index.html": b"<!doctype html><title>Jazz</title>\n",
+            "docs/getting-started/overview.html": b"<!doctype html><title>Getting started</title>\n",
+            "docs/language/overview.html": b"<!doctype html><title>Language</title>\n",
+            "docs/reference/lexical-grammar.html": b"<!doctype html><title>Reference</title>\n",
+            "assets/site.js": b";\n",
+        }
+
     def write_valid_artifact_set(self) -> None:
         self.archive(
             f"jazz-{VERSION}-source.tar.gz",
-            {
-                "jazz-0.1.0.0/jazz.cabal": b"name: jazz\nversion: 0.1.0.0\n",
-                "jazz-0.1.0.0/flake.nix": b"{}\n",
-                "jazz-0.1.0.0/flake.lock": b"{}\n",
-                "jazz-0.1.0.0/src/Jazz/Compiler.hs": b"module Jazz.Compiler where\n",
-            },
+            self.source_files(),
         )
         self.archive(
             f"jazz-{VERSION}-nix-{SYSTEM}.tar.gz",
@@ -184,7 +199,7 @@ class ArtifactVerifierTests(unittest.TestCase):
         )
         self.archive(
             f"jazz-{VERSION}-docs.tar.gz",
-            {"index.html": b"<!doctype html><title>Jazz</title>\n", "assets/site.js": b";\n"},
+            self.docs_files(),
         )
         self.archive(
             f"jazz-{VERSION}-benchmark-evidence.tar.gz",
@@ -256,9 +271,7 @@ class ArtifactVerifierTests(unittest.TestCase):
         self.archive(
             source_name,
             {
-                "jazz-0.1.0.0/jazz.cabal": b"name: jazz\nversion: 0.1.0.0\n",
-                "jazz-0.1.0.0/flake.nix": b"{}\n",
-                "jazz-0.1.0.0/flake.lock": b"{}\n",
+                **self.source_files(),
                 "jazz-0.1.0.0/.codex/execution/queue.md": b"internal\n",
             },
         )
@@ -277,10 +290,38 @@ class ArtifactVerifierTests(unittest.TestCase):
         self.write_checksums()
         self.assert_rejected("source package version does not match the alpha version")
 
+    def test_rejects_source_without_each_active_tree(self) -> None:
+        for root in ("src", "app", "jazz", "test"):
+            with self.subTest(root=root):
+                files = self.source_files()
+                for path in tuple(files):
+                    if path.startswith(f"jazz-0.1.0.0/{root}/"):
+                        del files[path]
+                self.archive(f"jazz-{VERSION}-source.tar.gz", files)
+                self.write_checksums()
+                self.assert_rejected(
+                    f"source archive is missing active {root}/ content"
+                )
+
     def test_rejects_docs_without_the_static_index(self) -> None:
         self.archive(f"jazz-{VERSION}-docs.tar.gz", {"assets/site.js": b";\n"})
         self.write_checksums()
         self.assert_rejected("docs archive is missing index.html")
+
+    def test_rejects_docs_without_each_required_public_route(self) -> None:
+        for route in (
+            "docs/getting-started/overview.html",
+            "docs/language/overview.html",
+            "docs/reference/lexical-grammar.html",
+        ):
+            with self.subTest(route=route):
+                files = self.docs_files()
+                del files[route]
+                self.archive(f"jazz-{VERSION}-docs.tar.gz", files)
+                self.write_checksums()
+                self.assert_rejected(
+                    f"docs archive is missing required public route: {route}"
+                )
 
     def test_rejects_docs_that_violate_the_publication_boundary(self) -> None:
         cases = (
@@ -292,10 +333,7 @@ class ArtifactVerifierTests(unittest.TestCase):
                 self.write_valid_artifact_set()
                 self.archive(
                     f"jazz-{VERSION}-docs.tar.gz",
-                    {
-                        "index.html": b"<!doctype html><title>Jazz</title>\n",
-                        path: contents,
-                    },
+                    {**self.docs_files(), path: contents},
                 )
                 self.write_checksums()
                 self.assert_rejected("docs archive violates the publication boundary")
@@ -515,9 +553,10 @@ fi
         (repository / ".gitignore").write_text(
             "/artifacts/\n/website/build/\n", encoding="utf-8"
         )
-        (repository / "fixtures/docs/index.html").write_text(
-            "<!doctype html><title>Jazz</title>\n", encoding="utf-8"
-        )
+        for relative_path, contents in self.docs_files().items():
+            destination = repository / "fixtures/docs" / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(contents)
         (repository / "fixtures/nix-result/bin/jazz").write_text(
             "#!/usr/bin/env bash\n", encoding="utf-8"
         )
@@ -562,12 +601,8 @@ fi
             destination.write_bytes(contents)
         source_fixture = repository / "fixtures/jazz-0.1.0.0.tar.gz"
         with tarfile.open(source_fixture, "w:gz") as archive:
-            for name, contents in (
-                ("jazz.cabal", b"name: jazz\nversion: 0.1.0.0\n"),
-                ("flake.nix", b"{}\n"),
-                ("flake.lock", b"{}\n"),
-            ):
-                member = tarfile.TarInfo(f"jazz-0.1.0.0/{name}")
+            for name, contents in self.source_files().items():
+                member = tarfile.TarInfo(name)
                 member.size = len(contents)
                 archive.addfile(member, io.BytesIO(contents))
 

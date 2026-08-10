@@ -756,6 +756,10 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
 
     required = (
         (
+            r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$",
+            "docs-and-site job must install the pinned Nix documentation toolchain",
+        ),
+        (
             r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v4\s*$",
             "docs-and-site job must use pnpm/action-setup@v4",
         ),
@@ -783,6 +787,10 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
             r"(?m)^\s*(?:-\s+)?run:\s*pnpm\s+install\s+--frozen-lockfile\s*\n\s+working-directory:\s*website\s*$",
             "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile",
         ),
+        (
+            r"(?m)^\s*(?:-\s+)?run:\s*nix\s+develop\s+\.\#docs\s+--command\s+bash\s+scripts/check-docs\.sh\s*$",
+            "docs-and-site job must run documentation checks in the pinned docs shell",
+        ),
     )
     for pattern, message in required:
         if not re.search(pattern, job):
@@ -797,9 +805,6 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
         )
 
     checks = (
-        ("scripts/check-public-docs.sh", r"bash\s+scripts/check-public-docs\.sh"),
-        ("scripts/check-docs.sh", r"bash\s+scripts/check-docs\.sh"),
-        ("scripts/check-spec-authority.sh", r"bash\s+scripts/check-spec-authority\.sh"),
         ("scripts/check-website.sh", r"bash\s+scripts/check-website\.sh"),
         ("scripts/check-ci-policy.py", r"python3\s+scripts/check-ci-policy\.py"),
     )
@@ -812,10 +817,11 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
     ):
         violations.append("docs-and-site job must run CI policy behavior tests")
 
-    compiler_toolchain = re.compile(
-        r"(?i)\bcabal\b|\bghc(?:up)?\b|\bnix\b|install-nix-action|setup-haskell"
-    )
-    if compiler_toolchain.search(job):
+    compiler_toolchain = re.compile(r"(?i)\bcabal\b|\bghc(?:up)?\b|setup-haskell")
+    nix_commands = re.findall(r"(?m)^\s*(?:-\s+)?run:\s*(nix\b.*)$", job)
+    if compiler_toolchain.search(job) or nix_commands != [
+        "nix develop .#docs --command bash scripts/check-docs.sh"
+    ]:
         violations.append("docs-and-site job must not install or invoke the compiler toolchain")
 
 

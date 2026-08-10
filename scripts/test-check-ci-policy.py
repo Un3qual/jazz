@@ -247,6 +247,8 @@ VALID_PR_WORKFLOW = textwrap.dedent(
         steps:
           - name: Check out repository
             uses: actions/checkout@v4
+          - name: Install Nix
+            uses: cachix/install-nix-action@v31
           - name: Set up pnpm
             uses: pnpm/action-setup@v4
             with:
@@ -260,12 +262,8 @@ VALID_PR_WORKFLOW = textwrap.dedent(
           - name: Install website dependencies
             run: pnpm install --frozen-lockfile
             working-directory: website
-          - name: Check public documentation
-            run: bash scripts/check-public-docs.sh
           - name: Check documentation and RFCs
-            run: bash scripts/check-docs.sh
-          - name: Check RFC authority
-            run: bash scripts/check-spec-authority.sh
+            run: nix develop .#docs --command bash scripts/check-docs.sh
           - name: Check website
             run: bash scripts/check-website.sh
           - name: Check CI policy
@@ -1833,17 +1831,16 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("changes job must default unclassified paths to compiler-relevant")
 
-    def test_docs_job_requires_node_cache_install_and_all_checks(self) -> None:
+    def test_docs_job_requires_pinned_tools_node_cache_install_and_all_checks(self) -> None:
         for old, expected in (
+            ("cachix/install-nix-action@v31", "docs-and-site job must install the pinned Nix documentation toolchain"),
             ("pnpm/action-setup@v4", "docs-and-site job must use pnpm/action-setup@v4"),
             ("version: 11.18.0", "docs-and-site job must use pnpm 11.18.0"),
             ("node-version: 22", "docs-and-site job must use Node 22"),
             ("cache: pnpm", "docs-and-site job must use the pnpm cache"),
             ("cache-dependency-path: website/pnpm-lock.yaml", "docs-and-site job must key the pnpm cache from website/pnpm-lock.yaml"),
             ("run: pnpm install --frozen-lockfile\n        working-directory: website", "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile"),
-            ("bash scripts/check-public-docs.sh", "docs-and-site job is missing required check: scripts/check-public-docs.sh"),
-            ("bash scripts/check-docs.sh", "docs-and-site job is missing required check: scripts/check-docs.sh"),
-            ("bash scripts/check-spec-authority.sh", "docs-and-site job is missing required check: scripts/check-spec-authority.sh"),
+            ("nix develop .#docs --command bash scripts/check-docs.sh", "docs-and-site job must run documentation checks in the pinned docs shell"),
             ("bash scripts/check-website.sh", "docs-and-site job is missing required check: scripts/check-website.sh"),
             ("python3 scripts/test-check-ci-policy.py", "docs-and-site job must run CI policy behavior tests"),
             ("python3 scripts/check-ci-policy.py", "docs-and-site job is missing required check: scripts/check-ci-policy.py"),
@@ -1867,12 +1864,11 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 )
                 self.assert_violation("docs-and-site job must run for every pull request")
 
-    def test_docs_job_rejects_compiler_toolchain_and_cabal_commands(self) -> None:
-        injection_point = "        run: bash scripts/check-public-docs.sh\n"
+    def test_docs_job_rejects_compiler_toolchain_and_unscoped_nix_commands(self) -> None:
+        injection_point = "        run: nix develop .#docs --command bash scripts/check-docs.sh\n"
         for command in (
             "cabal check",
             "nix develop --command true",
-            "cachix/install-nix-action@v31",
             "ghcup/setup@v1",
         ):
             with self.subTest(command=command):

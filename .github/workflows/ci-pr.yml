@@ -54,6 +54,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+
       - name: Set up pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -70,14 +73,8 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: website
 
-      - name: Check the public documentation boundary
-        run: bash scripts/check-public-docs.sh
-
       - name: Check documentation and RFCs
-        run: bash scripts/check-docs.sh
-
-      - name: Check RFC authority
-        run: bash scripts/check-spec-authority.sh
+        run: nix develop .#docs --command bash scripts/check-docs.sh
 
       - name: Check the website
         run: bash scripts/check-website.sh

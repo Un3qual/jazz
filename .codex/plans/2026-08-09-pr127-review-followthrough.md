@@ -133,9 +133,9 @@
 
 - [x] **Step 1: Run focused suites, full docs/site gates, full Nix flake check, compiler/build checks, actionlint, formatters, Python compilation, and `git diff --check`.**
 - [x] **Step 2: Review the diff for bot-specific wrappers, duplicated parsing, unreachable branches, and changes that conflict with the approved trust model.**
-- [ ] **Step 3: Commit and push `HEAD:codex/project-operations`.**
-- [ ] **Step 4: Reply to every actionable/duplicate thread with the pushed fix and verification, and answer stale/invalid threads with concrete current-tree evidence.**
-- [ ] **Step 5: Stop without fetching PR review state again.**
+- [x] **Step 3: Commit and push `HEAD:codex/project-operations`.**
+- [x] **Step 4: Reply to every actionable/duplicate thread with the pushed fix and verification, and answer stale/invalid threads with concrete current-tree evidence.**
+- [x] **Step 5: Stop without fetching PR review state again.**
 
 ### Task 6: Second review wave and CI recovery
 
@@ -153,5 +153,30 @@
 - [x] **Step 2: Add focused regressions for each accepted behavior gap and prove they fail before production edits.**
 - [x] **Step 3: Fix the authority-checker pipe failure, make the Nix shell self-contained, and consolidate active Docusaurus configuration validation around Docusaurus's loader.**
 - [x] **Step 4: Fix reachable publication, workflow, release, package-policy, and deterministic-asset regressions without adding parser surface.**
-- [ ] **Step 5: Run focused and full repository gates, perform an anti-slop diff review, commit, and push once.**
-- [ ] **Step 6: Reply to the frozen review threads with fixes or concrete non-goal evidence, then stop without refreshing.**
+- [x] **Step 5: Run focused and full repository gates, perform an anti-slop diff review, commit, and push once.**
+- [x] **Step 6: Reply to the frozen review threads with fixes or concrete non-goal evidence, then stop without refreshing.**
+
+### Task 7: Third review wave and pinned documentation tooling
+
+**Files:**
+
+- Modify: `scripts/release/test-verify-artifacts.py`
+- Modify: `scripts/release/verify-artifacts.py`
+- Modify: `website/scripts/test-experience.mjs`
+- Modify: `editors/vscode-jazz/syntaxes/jazz.tmLanguage.json`
+- Modify: `.github/workflows/ci-pr.yml`
+- Modify: `flake.nix`
+- Modify: `scripts/test-check-ci-policy.py`
+- Modify: `scripts/check-ci-policy.py`
+
+**Interfaces:**
+
+- Consumes: the frozen four-thread Codex review, the failed PR documentation job log, source/docs release archives, and the public contextual-keyword contract.
+- Produces: complete active source roots, required public docs routes, a compiler-free pinned documentation tool shell, and declaration-shape-only TextMate keyword scopes.
+
+- [x] **Step 1: Add release-verifier regressions for missing active source roots and missing required public routes, then confirm they fail.**
+- [x] **Step 2: Add a TextMate regression proving contextual words remain identifiers outside valid declaration shapes, then confirm it fails.**
+- [x] **Step 3: Extend the PR workflow policy fixture to require the pinned compiler-free documentation shell and reject the unpinned documentation command, then confirm it fails.**
+- [x] **Step 4: Implement the four root-cause fixes without adding parser wrappers or broadening the threat model.**
+- [x] **Step 5: Run focused tests, full docs/site and Nix gates, actionlint, formatting/lint/compile checks, and `git diff --check`; perform an anti-slop review.**
+- [ ] **Step 6: Commit and push once, reply to the frozen four threads with evidence, and stop without refreshing PR state.**

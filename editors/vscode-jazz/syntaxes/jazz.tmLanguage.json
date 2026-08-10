@@ -8,6 +8,7 @@
     {"include": "#numbers"},
     {"include": "#data-declarations"},
     {"include": "#exports"},
+    {"include": "#contextual-declarations"},
     {"include": "#keywords"},
     {"include": "#builtins"},
     {"include": "#purity"},
@@ -100,7 +101,28 @@
         },
         {
           "name": "keyword.declaration.jazz",
-          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])(?:module|import|as|data|class|impl|operator|tier|precedence|left|right|nonassoc)(?![\\p{Alphabetic}\\p{Number}_'!])"
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])(?:module|import|as|data)(?![\\p{Alphabetic}\\p{Number}_'!])"
+        }
+      ]
+    },
+    "contextual-declarations": {
+      "patterns": [
+        {
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])(class|impl)(?![\\p{Alphabetic}\\p{Number}_'!])(\\s+)(\\p{Lu}[\\p{Alphabetic}\\p{Number}_'!]*)(?=\\s*\\()",
+          "captures": {
+            "1": {"name": "keyword.declaration.jazz"},
+            "3": {"name": "entity.name.type.jazz"}
+          }
+        },
+        {
+          "match": "(?<![\\p{Alphabetic}\\p{Number}_'!])(operator)(?![\\p{Alphabetic}\\p{Number}_'!])(\\s+)([$+\\-*/|%&?^~<>:=@!]+)(\\s+)(tier|precedence)(\\s+)([0-9]+)(?:\\s+(left|right|nonassoc))?(?=\\s*\\.)",
+          "captures": {
+            "1": {"name": "keyword.declaration.jazz"},
+            "3": {"name": "keyword.operator.jazz"},
+            "5": {"name": "keyword.declaration.jazz"},
+            "7": {"name": "constant.numeric.jazz"},
+            "8": {"name": "keyword.declaration.jazz"}
+          }
         }
       ]
     },

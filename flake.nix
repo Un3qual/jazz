@@ -89,6 +89,15 @@
           ];
         };
 
+        devShells.docs = pkgs.mkShell {
+          packages = [
+            pkgs.git
+            pkgs.python3
+            pkgs.ripgrep
+            toolPkgs.nodePackages.prettier
+          ];
+        };
+
         checks.jazz-test-suite = jazz;
       });
 }

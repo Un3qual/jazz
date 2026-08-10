@@ -305,6 +305,46 @@ test('Jazz TextMate grammar keeps keywords and builtins inside Unicode identifie
   assert.ok(scopes.has('support.type.builtin.jazz'));
 });
 
+test('Jazz TextMate grammar scopes contextual words only in declaration shapes', async () => {
+  const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
+  const keywordScope = 'keyword.declaration.jazz';
+  const contextualWords = [
+    'class',
+    'impl',
+    'operator',
+    'tier',
+    'precedence',
+    'left',
+    'right',
+    'nonassoc',
+  ];
+  const ordinarySource = contextualWords
+    .map((word) => `${word} = 1.`)
+    .join('\n');
+  const {tokens: ordinaryTokens} = tokenizeJazz(ordinarySource, 'light', {
+    includeExplanation: true,
+  });
+  for (const token of ordinaryTokens.flat()) {
+    if (contextualWords.includes(token.content)) {
+      assert.equal(tokenScopes([[token]]).has(keywordScope), false, token.content);
+    }
+  }
+
+  const declarationSource = [
+    'class Equal(a) { }.',
+    'impl Equal(Int) { }.',
+    'operator %% precedence 25 right.',
+  ].join('\n');
+  const {tokens: declarationTokens} = tokenizeJazz(declarationSource, 'light', {
+    includeExplanation: true,
+  });
+  for (const word of ['class', 'impl', 'operator', 'precedence', 'right']) {
+    const token = declarationTokens.flat().find(({content}) => content === word);
+    assert.ok(token, `missing token: ${word}`);
+    assert.ok(tokenScopes([[token]]).has(keywordScope), word);
+  }
+});
+
 test('Jazz TextMate grammar scopes only canonical numeric suffixes', async () => {
   const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
   const numericContents = (source) => {

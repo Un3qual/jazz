@@ -212,6 +212,12 @@ def verify_source(archive: CheckedArchive, version: str) -> None:
     for required in ("flake.nix", "flake.lock"):
         if f"{package_root}/{required}" not in files:
             raise VerificationError(f"source archive is missing {required}")
+    for active_root in ("src", "app", "jazz", "test"):
+        prefix = f"{package_root}/{active_root}/"
+        if not any(name.startswith(prefix) for name in files):
+            raise VerificationError(
+                f"source archive is missing active {active_root}/ content"
+            )
 
     forbidden_roots = {
         ".codex",
@@ -333,6 +339,16 @@ def verify_docs(archive: CheckedArchive) -> None:
     index = archive.members.get("index.html")
     if index is None or not index.isreg() or index.size == 0:
         raise VerificationError("docs archive is missing index.html")
+    for route in (
+        "docs/getting-started/overview.html",
+        "docs/language/overview.html",
+        "docs/reference/lexical-grammar.html",
+    ):
+        page = archive.members.get(route)
+        if page is None or not page.isreg() or page.size == 0:
+            raise VerificationError(
+                f"docs archive is missing required public route: {route}"
+            )
     with tempfile.TemporaryDirectory(prefix="jazz-docs-verify-") as temporary_directory:
         build = Path(temporary_directory)
         archive.copy_tree_to(build)
