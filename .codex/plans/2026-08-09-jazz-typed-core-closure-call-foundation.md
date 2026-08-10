@@ -149,7 +149,7 @@ supersedes: []
 
   ```jazz
   identity :: Bool -> Bool.
-  identity = \(value) -> value.
+  identity = \(item) -> item.
   identity.
   ```
 
@@ -157,13 +157,13 @@ supersedes: []
   apply :: (Bool -> Bool) -> Bool.
   apply = \(function) -> function True.
   identity :: Bool -> Bool.
-  identity = \(value) -> value.
+  identity = \(item) -> item.
   apply identity.
   ```
 
   ```jazz
   identity :: Bool -> Bool.
-  identity = \(value) -> value.
+  identity = \(item) -> item.
   choose :: Bool -> Bool -> Bool.
   choose = \(ignored) -> identity.
   choose False.
