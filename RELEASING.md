@@ -63,7 +63,11 @@ Validate every archive against the generated checksums before publication:
 
 ```bash
 cd artifacts/release/0.1.0-alpha.1
-shasum -a 256 -c SHA256SUMS
+if command -v sha256sum >/dev/null; then
+  sha256sum -c SHA256SUMS
+else
+  shasum -a 256 -c SHA256SUMS
+fi
 ```
 
 The source archive must exclude internal `.codex` state, dependency/build
@@ -107,7 +111,14 @@ that download directory, then verify its own `SHA256SUMS`:
 
 ```bash
 python3 scripts/release/verify-artifacts.py /path/to/0.1.0-alpha.1
-(cd /path/to/0.1.0-alpha.1 && shasum -a 256 -c SHA256SUMS)
+(
+  cd /path/to/0.1.0-alpha.1
+  if command -v sha256sum >/dev/null; then
+    sha256sum -c SHA256SUMS
+  else
+    shasum -a 256 -c SHA256SUMS
+  fi
+)
 ```
 
 Compare archives byte-for-byte only when the system and all build inputs match.

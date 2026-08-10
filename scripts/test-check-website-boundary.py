@@ -71,6 +71,13 @@ class WebsiteBoundaryTests(unittest.TestCase):
         )
         self.assert_violation("generated output contains a non-allowlisted remote URL")
 
+    def test_built_output_rejects_object_data_remote_resources(self) -> None:
+        (self.build / "index.html").write_text(
+            '<object data="https://cdn.example/manual.pdf"></object>',
+            encoding="utf-8",
+        )
+        self.assert_violation("generated output contains a non-allowlisted remote URL")
+
     def test_built_output_allows_navigation_data_urls_and_local_assets(self) -> None:
         (self.build / "index.html").write_text(
             '<link rel="canonical" href="https://un3qual.github.io/jazz/">\n'

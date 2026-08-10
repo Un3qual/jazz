@@ -420,6 +420,10 @@ def check_example_sync(
     required_sources = (
         set().union(*(sources for sources, _ in cases.values())) if cases else set()
     )
+    for source_path in sorted(documented_sources - required_sources):
+        violations.append(
+            f"{source_path}: executable public fence is not compiler-backed by {EXAMPLE_CASES}"
+        )
     for source_path in sorted(required_sources - documented_sources):
         violations.append(f"{source_path}: example has no synchronized public fence")
     for case_name in sorted(set(cases) - documented_cases):

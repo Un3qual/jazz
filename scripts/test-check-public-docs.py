@@ -109,6 +109,20 @@ class PublicDocsCheckerTests(unittest.TestCase):
         self.assert_violation("executable fence differs from examples/functions/factorial.jz")
         self.assert_violation("documented output for case hello differs")
 
+    def test_executable_fences_use_compiler_backed_case_sources(self) -> None:
+        source_path = self.root / "examples/unlisted.jz"
+        source_path.write_text("41 + 1.\n", encoding="utf-8")
+        page = self.root / "docs/language/control-flow.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n<!-- jazz-example: executable path=examples/unlisted.jz -->\n\n"
+            + "```jazz\n41 + 1.\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "examples/unlisted.jz: executable public fence is not compiler-backed"
+        )
+
     def test_every_jazz_fence_has_an_explicit_sync_marker(self) -> None:
         self.replace_once(
             "docs/language/control-flow.md",

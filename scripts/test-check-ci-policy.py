@@ -274,7 +274,7 @@ VALID_PR_WORKFLOW = textwrap.dedent(
         needs: changes
         if: needs.changes.outputs.compiler == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 12
+        timeout-minutes: 30
         steps:
           - name: Check out repository
             uses: actions/checkout@v4
@@ -1882,7 +1882,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_compiler_job_requires_path_condition_timeout_nix_cache_and_fast_script(self) -> None:
         for old, expected in (
             ("if: needs.changes.outputs.compiler == 'true'", "compiler-fast job must run only for compiler-relevant changes"),
-            ("timeout-minutes: 12", "compiler-fast job must have a 12-minute timeout"),
+            ("timeout-minutes: 30", "compiler-fast job must have a 30-minute timeout"),
             ("cachix/install-nix-action@v31", "compiler-fast job must use cachix/install-nix-action@v31"),
             ("actions/cache@v4", "compiler-fast job must use actions/cache@v4"),
             ("~/.cabal/store", "compiler-fast cache must include ~/.cabal/store"),
@@ -1897,6 +1897,18 @@ class CiPolicyCheckerTests(unittest.TestCase):
                     VALID_PR_WORKFLOW.replace(old, "removed"),
                 )
                 self.assert_violation(expected)
+
+    def test_compiler_job_rejects_a_timeout_too_short_for_cold_nix_setup(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace(
+                "timeout-minutes: 30",
+                "timeout-minutes: 12",
+            ),
+        )
+        self.assert_violation(
+            "compiler-fast job must have a 30-minute timeout"
+        )
 
     def test_pull_request_workflow_rejects_every_extended_token(self) -> None:
         for token in (

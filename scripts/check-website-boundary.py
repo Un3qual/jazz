@@ -27,7 +27,7 @@ INTERNAL_TERMS = (
 )
 REMOTE_URL_RE = re.compile(r"(?:https?:)?//[^\s\"'`<>()\\]+", re.IGNORECASE)
 RESOURCE_ATTRIBUTE_RE = re.compile(
-    r"(?i)\b(?:src|srcset|poster)\s*=\s*(['\"])(.*?)\1"
+    r"(?i)\b(?:src|srcset|poster|data)\s*=\s*(['\"])(.*?)\1"
 )
 LINK_RESOURCE_RE = re.compile(
     r"(?is)<(?:link|image|use)\b[^>]*\b(?:xlink:)?href\s*=\s*(['\"])(.*?)\1"

@@ -840,8 +840,8 @@ def check_pr_compiler_job(contents: str, violations: list[str]) -> None:
             "compiler-fast job must run only for compiler-relevant changes",
         ),
         (
-            r"(?m)^\s*timeout-minutes:\s*12\s*$",
-            "compiler-fast job must have a 12-minute timeout",
+            r"(?m)^\s*timeout-minutes:\s*30\s*$",
+            "compiler-fast job must have a 30-minute timeout",
         ),
         (
             r"(?m)^\s*(?:-\s+)?uses:\s*cachix/install-nix-action@v31\s*$",

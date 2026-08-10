@@ -63,6 +63,13 @@
         pinnedPnpm = pkgs.writeShellScriptBin "pnpm" ''
           exec ${pkgs.nodejs_22}/bin/corepack pnpm@11.18.0 "$@"
         '';
+        documentationTools = [
+          pkgs.git
+          pkgs.lychee
+          pkgs.python3
+          pkgs.ripgrep
+          toolPkgs.nodePackages.prettier
+        ];
       in {
         packages = {
           inherit jazz;
@@ -80,22 +87,14 @@
             cabal-install
             ormolu
             hlint
-            git
-            ripgrep
             actionlint
             nodejs_22
             pinnedPnpm
-            toolPkgs.nodePackages.prettier
-          ];
+          ] ++ documentationTools;
         };
 
         devShells.docs = pkgs.mkShell {
-          packages = [
-            pkgs.git
-            pkgs.python3
-            pkgs.ripgrep
-            toolPkgs.nodePackages.prettier
-          ];
+          packages = documentationTools;
         };
 
         checks.jazz-test-suite = jazz;

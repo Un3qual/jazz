@@ -179,4 +179,30 @@
 - [x] **Step 3: Extend the PR workflow policy fixture to require the pinned compiler-free documentation shell and reject the unpinned documentation command, then confirm it fails.**
 - [x] **Step 4: Implement the four root-cause fixes without adding parser wrappers or broadening the threat model.**
 - [x] **Step 5: Run focused tests, full docs/site and Nix gates, actionlint, formatting/lint/compile checks, and `git diff --check`; perform an anti-slop review.**
-- [ ] **Step 6: Commit and push once, reply to the frozen four threads with evidence, and stop without refreshing PR state.**
+- [x] **Step 6: Commit and push once, reply to the frozen four threads with evidence, and stop without refreshing PR state.**
+
+### Task 8: Fourth review wave and cold-Nix CI budget
+
+**Files:**
+
+- Modify: `flake.nix`
+- Modify: `scripts/check-docs.sh`
+- Modify: `scripts/check-public-docs.py`
+- Modify: `scripts/test-check-public-docs.py`
+- Modify: `scripts/check-website-boundary.py`
+- Modify: `scripts/test-check-website-boundary.py`
+- Modify: `.github/workflows/ci-pr.yml`
+- Modify: `scripts/check-ci-policy.py`
+- Modify: `scripts/test-check-ci-policy.py`
+- Modify: `RELEASING.md`
+
+**Interfaces:**
+
+- Consumes: the frozen four-thread Codex review, the failed fast-compiler job log, README local links, emitted HTML resources, and checksum instructions.
+- Produces: established-tool README link validation, literal object-resource rejection, a bounded cold-Nix CI budget, and portable checksum verification.
+
+- [x] **Step 1: Freeze all review threads, top-level bot summaries, external annotations, and current Actions evidence before editing.**
+- [x] **Step 2: Prove the current docs gate accepts a broken README link and add failing object-resource and short-timeout behavior regressions.**
+- [x] **Step 3: Pin lychee through the existing Nix shells, require compiler-backed executable-fence sources, scan README links offline, scan literal object data resources, raise the fast tier to 30 minutes, and use the portable checksum fallback.**
+- [x] **Step 4: Run focused red-green checks, full docs/site and Nix gates, actionlint, formatting/lint/compile checks, and `git diff --check`; perform an anti-slop review.**
+- [x] **Step 5: Commit and push once, reply to the frozen four threads with fixes or trust-model evidence, and stop without refreshing PR state.**

@@ -46,6 +46,9 @@ fi
 if ! python3 scripts/test-check-spec-authority.py; then
   fail "scripts/test-check-spec-authority.py reported authority checker regressions"
 fi
+if ! lychee --offline --no-progress --include-fragments=anchor-only README.md; then
+  fail "README.md contains a broken local link or image target"
+fi
 
 required_rfcs=(
   "0001-language-authority-and-change-control"
