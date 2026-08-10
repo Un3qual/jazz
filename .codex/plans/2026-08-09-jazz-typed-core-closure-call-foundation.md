@@ -10,6 +10,7 @@ last_verified: 2026-08-09
 plan_section: "Task 1"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
   - src/Jazz/Compiler/TypedCore.hs
   - src/Jazz/Compiler/TypedCore/Validate.hs
   - jazz/compiler/TypedCoreTypes.jz
@@ -136,6 +137,7 @@ supersedes: []
 
 - Modify: `src/Jazz/Compiler/TypeInference.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Elaboration.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Scope.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
 
@@ -180,7 +182,7 @@ supersedes: []
 
   Expected: the new accepted cases report `TypedCoreCallableValueUnsupported`, and exact typed programs lack callable shapes and binder references.
 
-- [ ] **Step 3: Add whole-module callable-use classification.** Traverse provisional statements and expressions in source/preorder order. Record value use separately from a complete known application-spine call. Collapse multiple reasons to one final shape per binder, with closure shape winning. Do not inspect lowerer state and do not classify anonymous lambdas in this child.
+- [ ] **Step 3: Add whole-module callable-use classification.** Traverse provisional statements and expressions in source/preorder order. Record value use separately from a complete known application-spine call. Collapse multiple reasons to one final shape per binder, with closure shape winning. Preserve free resolved local-function dependency evidence through rejected profile forms and lexical scopes so recursion exclusion is independent of profile acceptance. Do not inspect lowerer state and do not classify anonymous lambdas in this child.
 
 - [ ] **Step 4: Thread binder-aware lexical contracts through finalization.** The top-level binder comes from `binderAt statementIndex [] typedName`; each leading lambda parameter comes from its existing statement/expression path. Emit `TypedVariableExpr info name (Just binder)` for local named functions and parameters, and `Nothing` only for declarations absent from the produced artifact.
 
@@ -200,7 +202,7 @@ supersedes: []
 - [ ] **Step 8: Commit the producer milestone.**
 
   ```bash
-  git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
+  git add src/Jazz/Compiler/TypeInference/Elaboration.hs src/Jazz/Compiler/TypeInference/Scope.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   git commit -m "feat: produce closed callable values"
   ```
 
