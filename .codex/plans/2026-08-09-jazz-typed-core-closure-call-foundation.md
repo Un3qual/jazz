@@ -373,6 +373,7 @@ supersedes: []
 
 **Files:**
 
+- Modify after gate portability is proven: `scripts/ci/main-functional.sh`
 - Modify after implementation is green: `docs/compiler/pipeline.md`
 - Modify after implementation is green: `docs/compiler/bootstrapping.md`
 - Modify after implementation is green: `docs/project/status.md`
@@ -398,6 +399,8 @@ supersedes: []
 
   Expected: warning-clean build, full ordinary test suite, repository audit, Cabal checks, documentation and queue checks, example smoke tests, flake checks, and diff checks all pass.
 
+  The script must propagate `nix-command` and `flakes` to its internal Nix invocations, matching the checked-in release scripts, so the documented outer command works without relying on global user configuration.
+
 - [ ] **Step 3: Update the three status owners with the exact landed boundary.** State that closed named function values, closure parameters/results, explicit empty environments, and higher-order unary closure calls work only through the opt-in path. State that scalar bindings, capture, currying, recursion, and normal compile/run cutover remain unavailable.
 
 - [ ] **Step 4: Close the queue row without over-promoting.** Remove this row, update the blocker’s completed-child evidence, and place `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001` only in the state supported by a newly written matching plan. If that plan has not been written and validated in the same closeout, leave it as the sole Next Curation Target rather than fabricating a ready row.
@@ -415,7 +418,7 @@ supersedes: []
 - [ ] **Step 7: Commit the verified closeout.**
 
   ```bash
-  git add docs/compiler/pipeline.md docs/compiler/bootstrapping.md docs/project/status.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
+  git add scripts/ci/main-functional.sh docs/compiler/pipeline.md docs/compiler/bootstrapping.md docs/project/status.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
   git commit -m "docs: close closure call foundation batch"
   ```
 
