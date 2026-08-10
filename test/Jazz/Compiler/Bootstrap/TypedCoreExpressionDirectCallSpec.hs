@@ -95,6 +95,7 @@ tests =
     ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
     ("keeps a nested self-recursive lambda local to its block", testNestedSelfRecursiveLambdaOwnership),
     ("classifies an accepted then rejected callable rebinding", testRejectedCallableRebinding "accepted-then-rejected-callable-rebinding"),
+    ("orders rejected callable recursion before rebinding and descendants", testRejectedCallableRebinding "rejected-recursive-callable-rebinding-order"),
     ("classifies a rejected then accepted callable rebinding", testRejectedCallableRebinding "rejected-then-accepted-callable-rebinding"),
     ("classifies repeated rejected callable rebindings", testRejectedCallableRebinding "repeated-rejected-callable-rebinding"),
     ("keeps a prior scalar out of rejected callable rebinding", testRejectedCallableRebinding "scalar-then-rejected-callable-control"),
@@ -2022,6 +2023,14 @@ testRejectedCallableRebinding requestedName =
             conditionalFailure 3
           ]
         ),
+        ( "rejected-recursive-callable-rebinding-order",
+          [ recursionFailure 3 "f",
+            rebindingFailure 3,
+            rootFailure 3,
+            conditionalFailure 3,
+            recursionFailure 5 "g"
+          ]
+        ),
         ( "rejected-then-accepted-callable-rebinding",
           [ rootFailure 1,
             conditionalFailure 1,
@@ -2078,6 +2087,11 @@ testRejectedCallableRebinding requestedName =
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreFunctionRebindingUnsupported
         (TypedCoreNameDetail "f")
+    recursionFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail name)
     rootFailure statementIndex =
       TypedCoreProductionFailure
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)

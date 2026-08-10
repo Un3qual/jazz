@@ -346,9 +346,10 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
           -- Rebindings snapshot the nearest earlier declaration. If there is no
           -- prior local binding, fall back to an outer binding before creating
           -- a forward edge to the first later local declaration. Same-name
-          -- references only become self-edges for alias-shaped wrappers; eager
-          -- self-use stays on the existing non-recursive path instead of
-          -- forcing itself into an SCC.
+          -- references become self-edges for alias-shaped wrappers and
+          -- callable-producing initializers, matching the cells owned during
+          -- evaluation. Eager scalar self-use stays on the existing
+          -- non-recursive path instead of forcing itself into an SCC.
           case closestPriorDeclaration declarationStatements of
             Just prior -> Just prior
             Nothing

@@ -2233,6 +2233,20 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-recursive-callable-rebinding-order",
+      sourceFixtureNoExports
+        "rejected-recursive-callable-rebinding-order"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> g item else \\(item) -> g item.",
+              "g :: Bool -> Bool.",
+              "g = \\(item) -> f item.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-then-accepted-callable-rebinding",
       sourceFixtureNoExports
         "rejected-then-accepted-callable-rebinding"
