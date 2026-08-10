@@ -536,6 +536,50 @@ fi
                 self.write_checksums()
                 self.assert_rejected("determinism evidence must be nonempty")
 
+    def test_build_alpha_rejects_a_mismatched_line_before_candidate_work(self) -> None:
+        repository = Path(self.temporary_directory.name) / "mismatch-repository"
+        (repository / "scripts/release").mkdir(parents=True)
+        (repository / "scripts/ci").mkdir(parents=True)
+        shutil.copy2(BUILD, repository / "scripts/release/build-alpha.sh")
+        (repository / ".gitignore").write_text("/artifacts/\n", encoding="utf-8")
+        (repository / "jazz.cabal").write_text(
+            "name: jazz\nversion: 0.1.0.0\n",
+            encoding="utf-8",
+        )
+        candidate_marker = repository / "artifacts/candidate-invoked"
+        candidate = repository / "scripts/ci/release-candidate.sh"
+        candidate.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "mkdir -p artifacts\n"
+            ": > artifacts/candidate-invoked\n",
+            encoding="utf-8",
+        )
+        candidate.chmod(0o755)
+        for command in (
+            ("git", "init", "-q"),
+            ("git", "config", "user.email", "fixture@example.com"),
+            ("git", "config", "user.name", "Fixture"),
+            ("git", "add", "."),
+            ("git", "commit", "-qm", "fixture"),
+        ):
+            subprocess.run(command, cwd=repository, check=True)
+
+        environment = os.environ.copy()
+        environment["JAZZ_RELEASE_VERSION"] = "0.2.0-alpha.1"
+        result = subprocess.run(
+            ["bash", "scripts/release/build-alpha.sh"],
+            cwd=repository,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match jazz.cabal version 0.1.0.0", result.stderr)
+        self.assertFalse(candidate_marker.exists())
+
     def test_build_alpha_assembles_and_verifies_a_fixture_candidate(self) -> None:
         repository = Path(self.temporary_directory.name) / "fixture-repository"
         (repository / "scripts/release").mkdir(parents=True)
@@ -549,6 +593,10 @@ fi
         shutil.copy2(
             VERIFY.parent.parent / "check-website-boundary.py",
             repository / "scripts/check-website-boundary.py",
+        )
+        (repository / "jazz.cabal").write_text(
+            "name: jazz\nversion: 0.1.0.0\n",
+            encoding="utf-8",
         )
         (repository / ".gitignore").write_text(
             "/artifacts/\n/website/build/\n", encoding="utf-8"

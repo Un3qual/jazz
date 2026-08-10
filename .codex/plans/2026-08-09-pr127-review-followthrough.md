@@ -206,3 +206,25 @@
 - [x] **Step 3: Pin lychee through the existing Nix shells, require compiler-backed executable-fence sources, scan README links offline, scan literal object data resources, raise the fast tier to 30 minutes, and use the portable checksum fallback.**
 - [x] **Step 4: Run focused red-green checks, full docs/site and Nix gates, actionlint, formatting/lint/compile checks, and `git diff --check`; perform an anti-slop review.**
 - [x] **Step 5: Commit and push once, reply to the frozen four threads with fixes or trust-model evidence, and stop without refreshing PR state.**
+
+### Task 9: Fifth review wave and fail-fast release identity
+
+**Files:**
+
+- Modify: `scripts/check-ci-policy.py`
+- Modify: `scripts/test-check-ci-policy.py`
+- Modify: `scripts/release/build-alpha.sh`
+- Modify: `scripts/release/test-verify-artifacts.py`
+- Modify: `scripts/test-check-spec-authority.py`
+
+**Interfaces:**
+
+- Consumes: the frozen four bot-last threads, current-head Codacy annotations, the PR event map, the requested alpha version, and `jazz.cabal` package version.
+- Produces: a pull-request-only trigger contract, release/Cabal line rejection before candidate execution, documented large-pipe regression coverage, and clean Python fixture formatting.
+
+- [x] **Step 1: Add a PR workflow mutation with `pull_request_target` and prove the policy currently accepts it.**
+- [x] **Step 2: Add a release fixture with a mismatched alpha line and prove the builder currently invokes the candidate before rejecting it.**
+- [x] **Step 3: Require exactly the `pull_request` event and compare the requested three-part alpha line with the Cabal version after removing only extra trailing zero components.**
+- [x] **Step 4: Wrap the current E501 fixture lines and document why the authority regression stays well above OS pipe-buffer capacity.**
+- [x] **Step 5: Run focused red-green checks, full repository gates, actionlint, Python compilation, and `git diff --check`; perform an anti-slop review.**
+- [x] **Step 6: Commit and push once, reply to the frozen four threads with evidence, and stop without refreshing PR state.**

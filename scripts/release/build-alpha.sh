@@ -17,6 +17,22 @@ if [[ ! "$JAZZ_RELEASE_VERSION" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
   exit 1
 fi
 
+cabal_version="$(sed -nE 's/^[[:space:]]*version:[[:space:]]*([0-9]+(\.[0-9]+)+)([[:space:]]*--.*)?$/\1/p' jazz.cabal)"
+if [[ ! "$cabal_version" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+  printf 'FAIL: jazz.cabal must declare exactly one numeric version\n' >&2
+  exit 1
+fi
+release_line="${JAZZ_RELEASE_VERSION%%-alpha.*}"
+cabal_release_line="$cabal_version"
+while [[ "$cabal_release_line" == *.*.*.* && "$cabal_release_line" == *.0 ]]; do
+  cabal_release_line="${cabal_release_line%.0}"
+done
+if [[ "$cabal_release_line" != "$release_line" ]]; then
+  printf 'FAIL: JAZZ_RELEASE_VERSION %s does not match jazz.cabal version %s\n' \
+    "$JAZZ_RELEASE_VERSION" "$cabal_version" >&2
+  exit 1
+fi
+
 if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
   printf 'FAIL: build-alpha requires a clean tracked and untracked worktree\n' >&2
   exit 1

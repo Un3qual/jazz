@@ -119,8 +119,10 @@ VALID_DETERMINISM = script(
     JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/determinism}"
     "$JAZZ_BIN" --run --runtime-stats=json examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/stats-one.stdout" 2>"$JAZZ_ARTIFACT_ROOT/stats-one.stderr"
     "$JAZZ_BIN" --run --runtime-stats=json examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/stats-two.stdout" 2>"$JAZZ_ARTIFACT_ROOT/stats-two.stderr"
-    "$JAZZ_BIN" --run --runtime-profile="$JAZZ_ARTIFACT_ROOT/profile-one.speedscope.json" examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/profile-one.stdout" 2>"$JAZZ_ARTIFACT_ROOT/profile-one.stderr"
-    "$JAZZ_BIN" --run --runtime-profile="$JAZZ_ARTIFACT_ROOT/profile-two.speedscope.json" examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/profile-two.stdout" 2>"$JAZZ_ARTIFACT_ROOT/profile-two.stderr"
+    "$JAZZ_BIN" --run --runtime-profile="$JAZZ_ARTIFACT_ROOT/profile-one.speedscope.json" \
+      examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/profile-one.stdout" 2>"$JAZZ_ARTIFACT_ROOT/profile-one.stderr"
+    "$JAZZ_BIN" --run --runtime-profile="$JAZZ_ARTIFACT_ROOT/profile-two.speedscope.json" \
+      examples/functions/factorial.jz >"$JAZZ_ARTIFACT_ROOT/profile-two.stdout" 2>"$JAZZ_ARTIFACT_ROOT/profile-two.stderr"
     cmp "$JAZZ_ARTIFACT_ROOT/stats-one.stdout" "$JAZZ_ARTIFACT_ROOT/stats-two.stdout"
     cmp "$JAZZ_ARTIFACT_ROOT/stats-one.stderr" "$JAZZ_ARTIFACT_ROOT/stats-two.stderr"
     cmp "$JAZZ_ARTIFACT_ROOT/profile-one.stdout" "$JAZZ_ARTIFACT_ROOT/profile-two.stdout"
@@ -134,10 +136,18 @@ VALID_EXTENDED = script(
     JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/extended}"
     if [[ -d "$JAZZ_ARTIFACT_ROOT" && -n "$(find "$JAZZ_ARTIFACT_ROOT" -mindepth 1 -print -quit)" ]]; then exit 1; fi
     mkdir -p "$JAZZ_ARTIFACT_ROOT/corpus" "$JAZZ_ARTIFACT_ROOT/benchmarks"
-    full_scale_components=(jazz-parser-scale-full-expression-spec jazz-parser-scale-full-declarations-spec jazz-parser-scale-full-control-flow-spec jazz-parser-scale-full-operator-spec)
+    full_scale_components=(
+      jazz-parser-scale-full-expression-spec
+      jazz-parser-scale-full-declarations-spec
+      jazz-parser-scale-full-control-flow-spec
+      jazz-parser-scale-full-operator-spec
+    )
     cabal test all "${full_scale_components[@]}" -ffull-parser-scale --test-show-details=always --test-log="$corpus_log_root/first/\\$test-suite.log"
     cabal test program-corpus-spec --test-show-details=always --test-log="$corpus_log_root/second/\\$test-suite.log"
-    python3 - "$corpus_log_root/first/program-corpus-spec.log" "$corpus_log_root/second/program-corpus-spec.log" "$JAZZ_ARTIFACT_ROOT/corpus/pass-one.txt" "$JAZZ_ARTIFACT_ROOT/corpus/pass-two.txt" <<'PY'
+    python3 - "$corpus_log_root/first/program-corpus-spec.log" \
+      "$corpus_log_root/second/program-corpus-spec.log" \
+      "$JAZZ_ARTIFACT_ROOT/corpus/pass-one.txt" \
+      "$JAZZ_ARTIFACT_ROOT/corpus/pass-two.txt" <<'PY'
     first_destination.write_text(normalize(first_log), encoding="utf-8")
     second_destination.write_text(normalize(second_log), encoding="utf-8")
     PY
@@ -1005,6 +1015,18 @@ class CiPolicyCheckerTests(unittest.TestCase):
         (self.root / ".github/workflows/ci-pr.yml").unlink()
         self.assert_violation("missing required pull-request workflow: .github/workflows/ci-pr.yml")
 
+    def test_pull_request_workflow_rejects_additional_triggers(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace(
+                "  pull_request:\n",
+                "  pull_request:\n  pull_request_target:\n",
+            ),
+        )
+        self.assert_violation(
+            "pull-request workflow must trigger only on pull_request"
+        )
+
     def test_main_workflow_is_required(self) -> None:
         (self.root / ".github/workflows/ci-main.yml").unlink()
         self.assert_violation("missing required main workflow: .github/workflows/ci-main.yml")
@@ -1839,7 +1861,10 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ("node-version: 22", "docs-and-site job must use Node 22"),
             ("cache: pnpm", "docs-and-site job must use the pnpm cache"),
             ("cache-dependency-path: website/pnpm-lock.yaml", "docs-and-site job must key the pnpm cache from website/pnpm-lock.yaml"),
-            ("run: pnpm install --frozen-lockfile\n        working-directory: website", "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile"),
+            (
+                "run: pnpm install --frozen-lockfile\n        working-directory: website",
+                "docs-and-site job must install only website dependencies with pnpm --frozen-lockfile",
+            ),
             ("nix develop .#docs --command bash scripts/check-docs.sh", "docs-and-site job must run documentation checks in the pinned docs shell"),
             ("bash scripts/check-website.sh", "docs-and-site job is missing required check: scripts/check-website.sh"),
             ("python3 scripts/test-check-ci-policy.py", "docs-and-site job must run CI policy behavior tests"),

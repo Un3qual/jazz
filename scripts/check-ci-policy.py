@@ -965,8 +965,9 @@ def check_pr_workflow(root: Path, violations: list[str]) -> None:
         return
     contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     trigger_block = indented_block(contents, "on", 0)
-    if "pull_request" not in yaml_mapping_keys(trigger_block, 2):
-        violations.append("pull-request workflow must trigger on pull_request")
+    events = yaml_mapping_keys(trigger_block, 2)
+    if events != ["pull_request"]:
+        violations.append("pull-request workflow must trigger only on pull_request")
 
     permissions = [line.strip() for line in indented_block(contents, "permissions", 0).splitlines() if line.strip()]
     if permissions != ["contents: read", "pull-requests: read"]:
