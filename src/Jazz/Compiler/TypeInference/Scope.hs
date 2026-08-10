@@ -75,6 +75,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
   ( InferredExpr (..),
     InferredProductionFailure (..),
+    ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     TypedCoreProductionFailureDetail (..),
@@ -746,19 +747,33 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       stateAfterCapturedConstraintPrune
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
+                  callableDeclaration =
+                    case nextBindingType of
+                      Just bindingType@TFunctionType {} ->
+                        Just
+                          ( ProvisionalCallableDeclaration
+                              statementIndex
+                              name
+                              bindingSpan
+                              bindingType
+                              maybeNextBinding
+                              (expressionDependencyNames valueExpr)
+                          )
+                      _ -> Nothing
                   provisional =
-                    case (mode, valueProductionFailures, nextBindingType, inferredProvisionalExpr rawValueResult) of
-                      (ProduceTypedCoreExpressionDirectCall, _, Just bindingType, Just expression)
+                    case (mode, valueProductionFailures, callableDeclaration, inferredProvisionalExpr rawValueResult) of
+                      (ProduceTypedCoreExpressionDirectCall, _, Just declaration, Just expression)
                         | ProvisionalLambdaExpression {} <- expression ->
-                            [ ProvisionalFunctionBinding
-                                statementIndex
-                                name
-                                bindingSpan
-                                bindingType
-                                maybeNextBinding
-                                (expressionDependencyNames valueExpr)
-                                expression
+                            [ProvisionalFunctionBinding declaration expression]
+                      (ProduceTypedCoreExpressionDirectCall, failures, Just declaration, _) ->
+                        [ ProvisionalUnsupportedCallableBinding
+                            declaration
+                            TypedCoreUnsupportedRootExpression
+                            TypedCoreUnsupportedRootDetail
+                            [ InferredProductionFailure (0 : childPath) kind detail
+                            | InferredProductionFailure childPath kind detail <- failures
                             ]
+                        ]
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
                         [ ProvisionalUnsupportedStatement
                             statementIndex

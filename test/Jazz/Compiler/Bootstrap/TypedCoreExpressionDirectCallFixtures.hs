@@ -1917,6 +1917,77 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-self-alias-recursion",
+      sourceFixtureNoExports
+        "rejected-self-alias-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = loop.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-mutual-alias-recursion",
+      sourceFixtureNoExports
+        "rejected-mutual-alias-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = right.",
+              "right :: Bool -> Bool.",
+              "right = left.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-alias-conditional-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-alias-conditional-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = right.",
+              "right :: Bool -> Bool.",
+              "right = if True then left else left.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-operator-alias-self-recursion",
+      sourceFixtureNoExports
+        "rejected-operator-alias-self-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = (%%).",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-alias-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rejected-alias-parameter-shadow-control"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = (\\(loop) -> loop) identity.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-alias-local-shadow-control",
+      sourceFixtureNoExports
+        "rejected-alias-local-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = {",
+              "  loop :: Bool -> Bool.",
+              "  loop = \\(item) -> item.",
+              "  loop.",
+              "}.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-conditional-self-recursion",
       sourceFixtureNoExports
         "rejected-conditional-self-recursion"

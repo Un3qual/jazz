@@ -86,6 +86,12 @@ tests =
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
+    ("preserves rejected self-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-self-alias-recursion"),
+    ("preserves rejected mutual-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-mutual-alias-recursion"),
+    ("preserves rejected conditional-root declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-alias-conditional-mutual-recursion"),
+    ("preserves rejected operator-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-operator-alias-self-recursion"),
+    ("keeps rejected callable parameter shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-parameter-shadow-control"),
+    ("keeps rejected callable local shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-local-shadow-control"),
     ("preserves recursion dependencies through rejected producer trees", testRejectedProducerDependencyTransport),
     ("maps non-builtin operator forms and excludes builtins", testOperatorDependencyNames),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
@@ -1836,6 +1842,80 @@ testSameStatementFailureKindOrder = do
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "self-recursive rebinding repeatability" firstRun secondRun
   assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
+
+testRejectedCallableDeclarationTransport :: Text -> IO ()
+testRejectedCallableDeclarationTransport requestedName =
+  case lookup requestedName expectedResults of
+    Just expectedFailures -> assertExact requestedName expectedFailures
+    Nothing -> error "rejected callable declaration fixture has no expected result"
+  where
+    expectedResults =
+      [ ( "rejected-self-alias-recursion",
+          [ recursionFailure 1 "loop",
+            rootFailure 1
+          ]
+        ),
+        ( "rejected-mutual-alias-recursion",
+          [ recursionFailure 1 "left",
+            rootFailure 1,
+            recursionFailure 3 "right",
+            rootFailure 3
+          ]
+        ),
+        ( "rejected-alias-conditional-mutual-recursion",
+          [ recursionFailure 1 "left",
+            rootFailure 1,
+            recursionFailure 3 "right",
+            rootFailure 3,
+            expressionFailure 3 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          ]
+        ),
+        ( "rejected-operator-alias-self-recursion",
+          [ recursionFailure 1 "$operator:%25%25",
+            rootFailure 1,
+            expressionFailure 1 [0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+          ]
+        ),
+        ( "rejected-alias-parameter-shadow-control",
+          [rootFailure 3]
+        ),
+        ( "rejected-alias-local-shadow-control",
+          [ rootFailure 1,
+            expressionFailure 1 [0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+          ]
+        )
+      ]
+    assertExact name expectedFailures = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        ( filter
+            isErrorDiagnostic
+            (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
+        )
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact declaration-owned rejection")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstRun)
+    recursionFailure statementIndex name =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail name)
+    rootFailure statementIndex =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
 
 testRejectedProducerDependencyTransport :: IO ()
 testRejectedProducerDependencyTransport =

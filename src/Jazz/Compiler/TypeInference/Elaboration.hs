@@ -12,6 +12,7 @@ module Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionMode (..),
     InferredProductionFailure (..),
     InferredExpr (..),
+    ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
@@ -171,16 +172,26 @@ data ProvisionalTypedExpr
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) (Set.Set Name) ProvisionalTypedExpr
+  | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
+  | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
+  deriving (Eq, Show)
+
+data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
+  { provisionalCallableStatementIndex :: Int,
+    provisionalCallableName :: Name,
+    provisionalCallableSpan :: SourceSpan,
+    provisionalCallableType :: ExpressionType,
+    provisionalCallableBinding :: Maybe TypeBinding,
+    provisionalCallableDependencyNames :: Set.Set Name
+  }
   deriving (Eq, Show)
 
 data FunctionProfile = FunctionProfile
   { functionStatementIndex :: Int,
     functionType :: ExpressionType,
-    functionArity :: Int,
-    functionDependencyNames :: Set.Set Name
+    functionArity :: Int
   }
 
 -- | Canonical free value references for dependency analysis. This walks the
@@ -257,10 +268,11 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
       let functions = functionTable provisionalStatements
+          declarations = callableDeclarations provisionalStatements
           callableShapes = callableShapeTable functions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
-          recursiveNames = recursiveFunctionNames functions
-          finalizedStatements = map (finalizeStatement functions callableShapes reboundFunctions recursiveNames) provisionalStatements
+          recursiveBinders = recursiveDeclarationBinders declarations
+          finalizedStatements = map (finalizeStatement functions callableShapes reboundFunctions recursiveBinders) provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
@@ -322,7 +334,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement functions callableShapes reboundFunctions recursiveNames statement =
+    finalizeStatement functions callableShapes reboundFunctions recursiveBinders statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           let callableShape = shapeFor callableShapes name
@@ -332,7 +344,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                   let typedName = resolvedValueName name
                       owner = binderAt statementIndex [] typedName
                    in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info)))
-        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding _ expression ->
+        ProvisionalFunctionBinding declaration expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
               callableShape = shapeFor callableShapes name
@@ -347,7 +359,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 ]
               recursiveFailures =
                 [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
-                | Set.member name recursiveNames
+                | Set.member owner recursiveBinders
                 ]
               schemeFailures =
                 case maybeBinding of
@@ -373,10 +385,31 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 typedExpression <- maybeExpression
                 pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info) typedExpression)
            in (failures, if null failures then typedStatement else Nothing)
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
+            spanValue = provisionalCallableSpan declaration
+            expressionType = provisionalCallableType declaration
+            maybeBinding = provisionalCallableBinding declaration
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
                 finalizeExpression functions callableShapes statementIndex [] Map.empty ScalarExpression expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+        ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
+          ( recursiveFailures
+              <> ( statementFailure statementIndex kind detail
+                     : map (qualifyInferredFailure statementIndex []) childFailures
+                 ),
+            Nothing
+          )
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
+            owner = binderAt statementIndex [] (resolvedValueName name)
+            recursiveFailures =
+              [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
+              | Set.member owner recursiveBinders
+              ]
         ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
           ( statementFailure statementIndex kind detail
               : map (qualifyInferredFailure statementIndex []) childFailures,
@@ -657,14 +690,28 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect functions statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ expressionType _ dependencyNames expression
+            ProvisionalFunctionBinding declaration expression
               | lambdaCount expression > 0 ->
                   Map.insertWith
                     (\_ firstFunction -> firstFunction)
                     name
-                    (FunctionProfile statementIndex expressionType (lambdaCount expression) dependencyNames)
+                    (FunctionProfile statementIndex expressionType (lambdaCount expression))
                     functions
+              where
+                statementIndex = provisionalCallableStatementIndex declaration
+                name = provisionalCallableName declaration
+                expressionType = provisionalCallableType declaration
             _ -> functions
+
+    callableDeclarations statements =
+      [ declaration
+      | statement <- statements,
+        declaration <-
+          case statement of
+            ProvisionalFunctionBinding candidate _ -> [candidate]
+            ProvisionalUnsupportedCallableBinding candidate _ _ _ -> [candidate]
+            _ -> []
+      ]
 
     callableShapeTable functions statements =
       foldl'
@@ -674,7 +721,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
 
     collectStatementCallableUses functions lexicalNames callableShapes statement =
       case statement of
-        ProvisionalFunctionBinding _ _ _ _ _ _ expression ->
+        ProvisionalFunctionBinding _ expression ->
           collectExpressionCallableUses functions lexicalNames callableShapes expression
         ProvisionalTerminalExpression _ _ expression ->
           collectExpressionCallableUses functions lexicalNames callableShapes expression
@@ -720,10 +767,12 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
         go _ callableShapes [] = callableShapes
         go lexicalNames callableShapes statements@(statement : rest) =
           case statement of
-            ProvisionalFunctionBinding _ name _ _ _ _ expression ->
+            ProvisionalFunctionBinding declaration expression ->
               let expressionLexicalNames = Set.insert name (lexicalNames <> forwardFunctionNames statements)
                   nextShapes = collectExpressionCallableUses functions expressionLexicalNames callableShapes expression
                in go (Set.insert name lexicalNames) nextShapes rest
+              where
+                name = provisionalCallableName declaration
             ProvisionalTerminalExpression _ _ expression ->
               go lexicalNames (collectExpressionCallableUses functions lexicalNames callableShapes expression) rest
             _ -> go lexicalNames callableShapes rest
@@ -741,43 +790,64 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect (seenNames, reboundStatements) statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ _ _ _ _
+            ProvisionalFunctionBinding declaration _
               | Set.member name seenNames ->
                   (seenNames, Map.insert statementIndex name reboundStatements)
               | otherwise ->
                   (Set.insert name seenNames, reboundStatements)
+              where
+                statementIndex = provisionalCallableStatementIndex declaration
+                name = provisionalCallableName declaration
             _ -> (seenNames, reboundStatements)
 
-    recursiveFunctionNames functions =
-      Set.fromList
-        [ name
-        | component <-
-            stronglyConnComp
-              [ ( (name, binder),
-                  binder,
-                  Set.toList (localFunctionDependencies functionBinders (functionDependencyNames function))
-                )
-              | (name, function) <- Map.toList functions,
-                let binder = functionBinders Map.! name
-              ],
-          name <- case component of
-            AcyclicSCC (candidate, binder)
-              | Set.member binder (localFunctionDependencies functionBinders (functionDependencyNames (functions Map.! candidate))) -> [candidate]
-            AcyclicSCC _ -> []
-            CyclicSCC functionsInCycle -> map fst functionsInCycle
-        ]
-      where
-        functionBinders =
-          Map.mapWithKey
-            (\name function -> binderAt (functionStatementIndex function) [] (resolvedValueName name))
-            functions
-
-    localFunctionDependencies functionBinders dependencyNames =
+    recursiveDeclarationBinders declarations =
       Set.fromList
         [ binder
-        | name <- Set.toList dependencyNames,
-          Just binder <- [Map.lookup name functionBinders]
+        | component <-
+            stronglyConnComp
+              [ ( binder,
+                  binder,
+                  Set.toList (declarationDependencies declaration)
+                )
+              | declaration <- declarations,
+                let binder = declarationBinder declaration
+              ],
+          binder <- case component of
+            AcyclicSCC candidate
+              | Set.member candidate (dependenciesFrom candidate) -> [candidate]
+            AcyclicSCC _ -> []
+            CyclicSCC declarationsInCycle -> declarationsInCycle
         ]
+      where
+        declarationBindersByName =
+          foldl'
+            ( \binders declaration ->
+                Map.insertWith
+                  (\_ firstBinder -> firstBinder)
+                  (provisionalCallableName declaration)
+                  (declarationBinder declaration)
+                  binders
+            )
+            Map.empty
+            declarations
+        declarationBinder declaration =
+          binderAt
+            (provisionalCallableStatementIndex declaration)
+            []
+            (resolvedValueName (provisionalCallableName declaration))
+        declarationDependencies declaration =
+          Set.fromList
+            [ dependencyBinder
+            | dependencyName <- Set.toList (provisionalCallableDependencyNames declaration),
+              dependencyBinder <-
+                if dependencyName == provisionalCallableName declaration
+                  then [declarationBinder declaration]
+                  else maybe [] pure (Map.lookup dependencyName declarationBindersByName)
+            ]
+        dependenciesFrom binder =
+          case filter ((== binder) . declarationBinder) declarations of
+            declaration : _ -> declarationDependencies declaration
+            [] -> Set.empty
 
     finalizeExports functions callableShapes =
       foldl'

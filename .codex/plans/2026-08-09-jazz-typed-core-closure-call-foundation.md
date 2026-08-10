@@ -1,36 +1,6 @@
----
-id: JN-BOOTSTRAP-TYPED-CORE-CLOSURE-CALL-FOUNDATION-001
-status: ready
-priority: P1
-size: L
-kind: impl
-autonomous_ready: yes
-depends_on: []
-last_verified: 2026-08-09
-plan_section: "Task 1"
-target_paths:
-  - src/Jazz/Compiler/TypeInference/Elaboration.hs
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - src/Jazz/Compiler/TypedCore.hs
-  - src/Jazz/Compiler/TypedCore/Validate.hs
-  - jazz/compiler/TypedCoreTypes.jz
-  - jazz/compiler/TypedCoreValidate.jz
-  - src/Jazz/Compiler/LoweredIR/Lower.hs
-  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
-  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
-  - test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
-  - test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
-verification:
-  - cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
-  - nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/ci/main-functional.sh
-  - git diff --check
-deliverable: "Produce and lower closed named function values, empty-environment unary closures, and higher-order closure calls while preserving the scalar/direct-call profile."
-supersedes: []
----
-
 # Jazz Typed-Core Closure-Call Foundation Implementation Plan
+
+**Completed and last verified:** 2026-08-10
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
