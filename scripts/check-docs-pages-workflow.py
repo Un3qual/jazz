@@ -42,7 +42,6 @@ REQUIRED_FRAGMENTS = (
     "  build:\n    permissions:\n      contents: read",
     "  deploy:\n    permissions:\n      pages: write",
     "      id-token: write",
-    "          persist-credentials: false",
     "          version: 11.18.0",
     "          node-version: 22",
     "          cache: pnpm",
@@ -63,7 +62,6 @@ ORDERED_STEPS = (
     "      - name: Type-check website",
     "      - name: Check Pages workflow contract",
     "      - name: Check public documentation",
-    "      - name: Check source publication boundary",
     "      - name: Build website",
     "      - name: Check generated publication boundary",
     "      - name: Configure GitHub Pages",
@@ -79,7 +77,7 @@ REQUIRED_COMMANDS = (
     "        run: pnpm run typecheck",
     "        run: python3 scripts/check-docs-pages-workflow.py",
     "        run: python3 scripts/check-public-docs.py",
-    "        run: python3 scripts/check-website-boundary.py",
+    "        run: python3 scripts/check-website-boundary.py --build-directory website/build",
     "        run: pnpm run build",
 )
 
@@ -90,14 +88,13 @@ CRITICAL_STEPS = (
     "Type-check website",
     "Check Pages workflow contract",
     "Check public documentation",
-    "Check source publication boundary",
     "Build website",
     "Check generated publication boundary",
 )
 
 
 def step_block(source: str, name: str) -> str:
-    marker = f"      - name: {name}"
+    marker = f"      - name: {name}\n"
     start = source.find(marker)
     if start < 0:
         return ""
@@ -130,13 +127,13 @@ def validate(root: Path) -> list[str]:
     checkout = step_block(source, "Check out repository")
     if re.search(r"(?m)^\s*(?:repository|ref):", checkout):
         violations.append("checkout must use the triggering repository and revision")
+    if re.search(r"(?m)^\s*persist-credentials:\s*false\s*$", checkout) is None:
+        violations.append("checkout must disable credential persistence")
 
     for fragment in REQUIRED_FRAGMENTS:
         if fragment not in source:
             if fragment == "permissions: {}":
                 violations.append("workflow permissions must be empty")
-            elif fragment == "          persist-credentials: false":
-                violations.append("checkout must disable credential persistence")
             else:
                 violations.append(f"required workflow setting is missing: {fragment.strip()}")
 
@@ -146,6 +143,9 @@ def validate(root: Path) -> list[str]:
 
     for name in CRITICAL_STEPS:
         block = step_block(source, name)
+        if not block:
+            violations.append(f"required workflow step is missing: {name}")
+            continue
         if re.search(r"(?m)^\s*(?:continue-on-error|if):", block):
             violations.append(f"critical workflow step must fail the job: {name}")
 

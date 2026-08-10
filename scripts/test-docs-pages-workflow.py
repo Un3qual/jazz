@@ -53,10 +53,11 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assertEqual("Documentation Pages workflow checks passed.\n", result.stdout)
 
     def test_editor_grammar_changes_trigger_pages(self) -> None:
-        self.assertIn(
+        self.replace(
             '      - "editors/vscode-jazz/syntaxes/jazz.tmLanguage.json"',
-            self.workflow.read_text(encoding="utf-8"),
+            '      - "editors/vscode-jazz/README.md"',
         )
+        self.assert_violation("required workflow setting is missing")
 
     def test_actions_must_use_immutable_commits(self) -> None:
         self.replace(PNPM_ACTION, "pnpm/action-setup@v4")
@@ -64,6 +65,14 @@ class DocsPagesWorkflowTests(unittest.TestCase):
 
     def test_checkout_must_not_persist_credentials(self) -> None:
         self.replace("persist-credentials: false", "persist-credentials: true")
+        self.assert_violation("checkout must disable credential persistence")
+
+    def test_checkout_credentials_are_checked_in_the_checkout_step(self) -> None:
+        self.replace("persist-credentials: false", "persist-credentials: true")
+        self.replace(
+            "          version: 11.18.0\n",
+            "          version: 11.18.0\n          persist-credentials: false\n",
+        )
         self.assert_violation("checkout must disable credential persistence")
 
     def test_checkout_cannot_override_repository_or_revision(self) -> None:
@@ -85,8 +94,15 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_build_and_boundary_commands_are_required(self) -> None:
         self.replace(
             "      - name: Check generated publication boundary\n"
-            "        run: python3 scripts/check-website-boundary.py\n",
+            "        run: python3 scripts/check-website-boundary.py --build-directory website/build\n",
             "",
+        )
+        self.assert_violation("required workflow step is missing")
+
+    def test_step_names_must_match_the_contract_exactly(self) -> None:
+        self.replace(
+            "      - name: Check generated publication boundary\n",
+            "      - name: Check generated publication boundary disabled\n",
         )
         self.assert_violation("required workflow step is missing")
 
@@ -109,7 +125,7 @@ class DocsPagesWorkflowTests(unittest.TestCase):
     def test_publication_boundary_must_run_before_upload(self) -> None:
         boundary = (
             "      - name: Check generated publication boundary\n"
-            "        run: python3 scripts/check-website-boundary.py\n\n"
+            "        run: python3 scripts/check-website-boundary.py --build-directory website/build\n\n"
         )
         upload = (
             "      - name: Upload GitHub Pages artifact\n"

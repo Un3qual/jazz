@@ -6,9 +6,7 @@
   "scripts": {
     "prestart": "node scripts/sync-factorial.mjs",
     "start": "docusaurus start",
-    "prebuild": "node scripts/sync-factorial.mjs",
-    "build": "docusaurus build",
-    "postbuild": "node scripts/check-built-highlighting.mjs",
+    "build": "node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-highlighting.mjs",
     "serve": "docusaurus serve",
     "typecheck": "tsc --noEmit",
     "clear": "docusaurus clear",

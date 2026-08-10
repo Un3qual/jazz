@@ -138,10 +138,10 @@ export async function renderEditorIcon({
   svgPath = editorIconSourcePath,
   pngPath = editorIconOutputPath,
 } = {}) {
-  const temporaryPath = path.join(
-    path.dirname(pngPath),
-    `.${path.basename(pngPath)}.tmp`,
+  const temporaryDirectory = await mkdtemp(
+    path.join(path.dirname(pngPath), `.${path.basename(pngPath)}-`),
   );
+  const temporaryPath = path.join(temporaryDirectory, path.basename(pngPath));
   try {
     await sharp(svgPath, {density: 72})
       .resize(editorIconSize, editorIconSize, {
@@ -173,7 +173,7 @@ export async function renderEditorIcon({
       `Rendered ${path.relative(process.cwd(), pngPath)} (${editorIconSize}x${editorIconSize}).`,
     );
   } finally {
-    await rm(temporaryPath, {force: true});
+    await rm(temporaryDirectory, {recursive: true, force: true});
   }
 }
 

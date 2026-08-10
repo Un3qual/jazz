@@ -25,6 +25,9 @@ HEX_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 STORE_PATH_PATTERN = re.compile(
     r"^/nix/store/[a-z0-9]{32}-[A-Za-z0-9+._?=-]+$"
 )
+MAX_UNCOMPRESSED_ARCHIVE_SIZE = 2 * 1024 * 1024 * 1024
+MIN_UNCOMPRESSED_ARCHIVE_BUDGET = 16 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200
 
 EVIDENCE_FILES = {
     "corpus/pass-one.txt",
@@ -51,10 +54,22 @@ class CheckedArchive:
         self.path = path
         if not path.is_file() or path.stat().st_size == 0:
             raise VerificationError(f"archive is missing or empty: {path.name}")
+        expansion_limit = min(
+            MAX_UNCOMPRESSED_ARCHIVE_SIZE,
+            max(
+                MIN_UNCOMPRESSED_ARCHIVE_BUDGET,
+                path.stat().st_size * MAX_COMPRESSION_RATIO,
+            ),
+        )
         try:
             with gzip.open(path, "rb") as compressed:
-                while compressed.read(1024 * 1024):
-                    pass
+                expanded_size = 0
+                while block := compressed.read(1024 * 1024):
+                    expanded_size += len(block)
+                    if expanded_size > expansion_limit:
+                        raise VerificationError(
+                            f"archive expands beyond its validation limit: {path.name}"
+                        )
         except (OSError, EOFError, gzip.BadGzipFile, zlib.error) as error:
             raise VerificationError(
                 f"archive is not a complete gzip stream: {path.name}"
@@ -334,7 +349,14 @@ def verify_docs(archive: CheckedArchive) -> None:
             check=False,
         )
         if boundary.returncode != 0:
-            raise VerificationError("docs archive violates the publication boundary")
+            details = "\n".join(
+                output.strip()
+                for output in (boundary.stdout, boundary.stderr)
+                if output.strip()
+            )
+            raise VerificationError(
+                f"docs archive violates the publication boundary:\n{details}"
+            )
 
 
 def decode_json(archive: CheckedArchive, name: str) -> object:
@@ -362,8 +384,7 @@ def verify_evidence(archive: CheckedArchive, version: str) -> None:
         digest = entry["sha256"]
         if not isinstance(path, str) or path in entries:
             raise VerificationError(f"duplicate artifact manifest path: {path}")
-        if CheckedArchive._safe_name(path) != path:
-            raise VerificationError(f"unsafe artifact manifest path: {path}")
+        CheckedArchive._safe_name(path)
         if not isinstance(digest, str) or HEX_SHA256_PATTERN.fullmatch(digest) is None:
             raise VerificationError(f"artifact manifest has an invalid SHA-256: {path}")
         entries[path] = digest

@@ -73,15 +73,12 @@ jobs:
       - name: Check public documentation
         run: python3 scripts/check-public-docs.py
 
-      - name: Check source publication boundary
-        run: python3 scripts/check-website-boundary.py
-
       - name: Build website
         run: pnpm run build
         working-directory: website
 
       - name: Check generated publication boundary
-        run: python3 scripts/check-website-boundary.py
+        run: python3 scripts/check-website-boundary.py --build-directory website/build
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5

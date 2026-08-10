@@ -40,9 +40,6 @@ cleanup() {
   if ! rmdir "$release_lock" 2>/dev/null; then
     :
   fi
-  if ! rmdir "$lock_parent" 2>/dev/null; then
-    :
-  fi
 }
 trap cleanup EXIT
 
@@ -103,8 +100,9 @@ if [[ ! "$root_store_path" =~ ^/nix/store/[a-z0-9]{32}-[A-Za-z0-9+._?=-]+$ ]]; t
   printf 'FAIL: Nix result does not resolve to a valid store path: %s\n' "$root_store_path" >&2
   exit 1
 fi
-LC_ALL=C nix-store --query --requisites "$nix_result" \
-  | LC_ALL=C sort -u > "$nix_closure_stage/store-paths"
+ordered_store_paths="$work_root/ordered-store-paths"
+LC_ALL=C nix-store --query --requisites "$nix_result" > "$ordered_store_paths"
+LC_ALL=C sort -u "$ordered_store_paths" > "$nix_closure_stage/store-paths"
 if ! grep -Fqx "$root_store_path" "$nix_closure_stage/store-paths"; then
   printf 'FAIL: Nix runtime closure does not include its root store path\n' >&2
   exit 1
@@ -112,7 +110,7 @@ fi
 closure_paths=()
 while IFS= read -r store_path; do
   closure_paths+=("$store_path")
-done < "$nix_closure_stage/store-paths"
+done < "$ordered_store_paths"
 if (( ${#closure_paths[@]} == 0 )); then
   printf 'FAIL: Nix runtime closure contains no store paths\n' >&2
   exit 1

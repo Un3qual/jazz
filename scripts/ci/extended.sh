@@ -110,9 +110,9 @@ if not results_path.is_file() or results_path.stat().st_size == 0:
 metadata = json.loads(environment_path.read_text(encoding="utf-8"))
 if not isinstance(metadata, dict):
     raise SystemExit("generated benchmark environment metadata must be a JSON object")
-if metadata["environment_label"] != expected_label:
+if metadata.get("environment_label") != expected_label:
     raise SystemExit("generated benchmark environment label does not match the invocation")
-if metadata["schema_version"] != 2:
+if metadata.get("schema_version") != 2:
     raise SystemExit("generated benchmark environment metadata schema must be version 2")
 if metadata.get("run_id") != run_directory.name:
     raise SystemExit("generated benchmark run id does not match its directory")

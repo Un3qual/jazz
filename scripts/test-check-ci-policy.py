@@ -151,8 +151,8 @@ VALID_EXTENDED = script(
     if len(run_directories) != 1: raise SystemExit(1)
     environment_path = run_directories[0] / "environment.json"
     results_path = run_directories[0] / "results.csv"
-    if metadata["environment_label"] != expected_label: raise SystemExit(1)
-    if metadata["schema_version"] != 2: raise SystemExit(1)
+    if metadata.get("environment_label") != expected_label: raise SystemExit(1)
+    if metadata.get("schema_version") != 2: raise SystemExit(1)
     if not results_path.is_file() or results_path.stat().st_size == 0: raise SystemExit(1)
     PY
     cabal test benchmark-metadata-spec --test-show-details=direct
@@ -898,8 +898,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.write(
             "scripts/ci/extended.sh",
             VALID_EXTENDED.replace(
-                'if metadata["environment_label"] != expected_label: raise SystemExit(1)',
-                'validation_claim = \'metadata["environment_label"] == expected_label\'',
+                'if metadata.get("environment_label") != expected_label: raise SystemExit(1)',
+                'validation_claim = \'metadata.get("environment_label") == expected_label\'',
             ),
         )
         self.assert_violation("extended tier must validate generated benchmark metadata")
@@ -1490,6 +1490,18 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 )
                 self.assert_violation("main workflow must trigger only on main pushes and manual dispatch")
 
+    def test_main_workflow_rejects_quoted_non_main_triggers(self) -> None:
+        self.write(
+            ".github/workflows/ci-main.yml",
+            VALID_MAIN_WORKFLOW.replace(
+                "  workflow_dispatch:\n",
+                "  workflow_dispatch:\n  \"pull_request\":\n",
+            ),
+        )
+        self.assert_violation(
+            "main workflow must trigger only on main pushes and manual dispatch"
+        )
+
     def test_main_workflow_requires_read_only_permissions_without_overrides(self) -> None:
         fixtures = (
             VALID_MAIN_WORKFLOW.replace("contents: read", "contents: write"),
@@ -1502,6 +1514,16 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(fixture=fixture):
                 self.write(".github/workflows/ci-main.yml", fixture)
                 self.assert_violation("main workflow must grant only read access to contents")
+
+    def test_main_workflow_rejects_quoted_job_permission_overrides(self) -> None:
+        self.write(
+            ".github/workflows/ci-main.yml",
+            VALID_MAIN_WORKFLOW.replace(
+                "  ordinary:\n    name:",
+                '  ordinary:\n    "permissions":\n      contents: write\n    name:',
+            ),
+        )
+        self.assert_violation("main workflow must grant only read access to contents")
 
     def test_main_workflow_requires_branch_scoped_cancellation(self) -> None:
         for old, expected in (
@@ -1565,37 +1587,40 @@ class CiPolicyCheckerTests(unittest.TestCase):
                     ".github/workflows/ci-main.yml",
                     VALID_MAIN_WORKFLOW.replace(old, "removed", 1),
                 )
-                self.assert_violation(
-                    "main workflow must stage only ordinary logs with their source paths"
-                )
+                self.assert_violation(expected)
 
     def test_main_workflow_uploads_only_staged_logs_on_failure_for_seven_days(self) -> None:
-        for old, expected in (
+        for old, replacement, expected in (
             (
                 "      - name: Collect ordinary test logs\n        if: failure() && steps.ordinary.outcome == 'failure'",
+                "      - name: Collect ordinary test logs\n        if: always() && steps.ordinary.outcome == 'failure'",
                 "main workflow must collect ordinary test logs only for ordinary failure",
             ),
             (
                 "      - name: Upload ordinary test logs\n        if: failure() && steps.ordinary.outcome == 'failure'",
+                "      - name: Upload ordinary test logs\n        if: always() && steps.ordinary.outcome == 'failure'",
                 "main workflow must upload ordinary test logs only for ordinary failure",
             ),
             (
                 "uses: actions/upload-artifact@v4",
+                "uses: actions/upload-artifact@v3",
                 "main workflow must use actions/upload-artifact@v4 for ordinary logs",
             ),
             (
                 "path: artifacts/ordinary-test-logs",
+                "path: dist-newstyle",
                 "main workflow must upload only staged ordinary test logs",
             ),
             (
                 "retention-days: 7",
+                "retention-days: 30",
                 "main workflow ordinary logs must have seven-day retention",
             ),
         ):
             with self.subTest(old=old):
                 self.write(
                     ".github/workflows/ci-main.yml",
-                    VALID_MAIN_WORKFLOW.replace(old, old.replace("failure()", "always()").replace("@v4", "@v3").replace("artifacts/ordinary-test-logs", "dist-newstyle").replace("7", "30"), 1),
+                    VALID_MAIN_WORKFLOW.replace(old, replacement, 1),
                 )
                 self.assert_violation(expected)
 
@@ -1734,16 +1759,30 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("pull-request workflow must not override permissions in a job")
 
+    def test_pull_request_workflow_rejects_quoted_job_permission_overrides(self) -> None:
+        self.write(
+            ".github/workflows/ci-pr.yml",
+            VALID_PR_WORKFLOW.replace(
+                "  changes:\n    runs-on:",
+                '  changes:\n    "permissions":\n      contents: write\n    runs-on:',
+            ),
+        )
+        self.assert_violation("pull-request workflow must not override permissions in a job")
+
     def test_pull_request_workflow_requires_pr_scoped_cancellation(self) -> None:
-        for old, expected in (
-            ("  cancel-in-progress: true\n", "pull-request workflow must cancel superseded runs"),
+        for old, replacement, expected in (
+            (
+                "  cancel-in-progress: true\n",
+                "",
+                "pull-request workflow must cancel superseded runs",
+            ),
             (
                 "${{ github.workflow }}-pr-${{ github.event.pull_request.number }}",
+                "static-group",
                 "pull-request workflow concurrency must include workflow and pull-request number",
             ),
         ):
             with self.subTest(old=old):
-                replacement = "" if old.startswith("      cancel") else "static-group"
                 self.write(
                     ".github/workflows/ci-pr.yml",
                     VALID_PR_WORKFLOW.replace(old, replacement),

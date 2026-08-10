@@ -86,7 +86,9 @@ FRAGMENT_HEADER = ("document", "ordinal", "sha256")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 DRAFT_RE = re.compile(r"(?mi)^draft\s*:\s*true\s*(?:#.*)?$")
 DIAGNOSTIC_RE = re.compile(r"(?m)\bE[0-9]{4}\b")
-JAZZ_FENCE_RE = re.compile(r"(?m)^```jazz(?:[ \t].*)?\r?$", re.IGNORECASE)
+JAZZ_FENCE_RE = re.compile(
+    r"(?m)^[ ]{0,3}(?:`{3,}|~{3,})jazz(?:[ \t].*)?\r?$", re.IGNORECASE
+)
 EXAMPLE_MARKER_RE = re.compile(r"<!--\s*jazz-example:.*?-->", re.DOTALL)
 EXAMPLE_BINDING_RE = re.compile(
     r"<!--\s*jazz-example:\s*"
@@ -361,9 +363,10 @@ def check_example_sync(
                 if candidate is None or not candidate.is_file():
                     violations.append(f"{label}: invalid executable example: {source_path}")
                     continue
-                expected_source = normalized_fence(
-                    candidate.read_text(encoding="utf-8")
-                )
+                candidate_source = read_text(root, candidate, violations)
+                if candidate_source is None:
+                    continue
+                expected_source = normalized_fence(candidate_source)
                 if fence_source != expected_source:
                     violations.append(
                         f"{label}: executable fence differs from {source_path}"

@@ -117,6 +117,25 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation("Jazz fence must have an adjacent jazz-example marker")
 
+    def test_every_docusaurus_jazz_fence_shape_is_synchronized(self) -> None:
+        for opener, closer in (("~~~jazz", "~~~"), ("   ```jazz", "   ```")):
+            with self.subTest(opener=opener):
+                path = self.root / "docs/language/control-flow.md"
+                path.write_text(
+                    path.read_text(encoding="utf-8")
+                    + f'\n{opener}\nif hidden then "bypass" else "checker"\n{closer}\n',
+                    encoding="utf-8",
+                )
+                self.assert_violation("Jazz fence must have an adjacent jazz-example marker")
+                shutil.copy2(
+                    REPOSITORY_ROOT / "docs/language/control-flow.md",
+                    self.root / "docs/language/control-flow.md",
+                )
+
+    def test_unreadable_executable_example_is_a_boundary_violation(self) -> None:
+        (self.root / "examples/functions/factorial.jz").write_bytes(b"\xff")
+        self.assert_violation("cannot read UTF-8 text")
+
     def test_fragment_receipts_detect_unchecked_changes(self) -> None:
         self.replace_once(
             "docs/language/control-flow.md",

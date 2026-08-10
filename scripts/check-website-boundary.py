@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the Jazz-specific Docusaurus publication boundary.
+"""Validate the Jazz-specific built Docusaurus publication boundary.
 
-Docusaurus owns rendering and link resolution. This checker only preserves the
-repository's configured publication root and scans emitted text for ordinary
-accidental internal references or remote runtime dependencies.
+Docusaurus owns configuration, rendering, and link resolution. This checker
+only scans emitted text for accidental internal references or remote runtime
+dependencies.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 
 
-CONFIG = Path("website/docusaurus.config.ts")
-BUILD = Path("website/build")
 TEXT_SUFFIXES = {".css", ".html", ".js", ".svg"}
 INTERNAL_TERMS = (
     ".codex",
@@ -45,21 +43,6 @@ PRODUCTION_PREFIXES = (
     "//un3qual.github.io/jazz/",
 )
 
-CONFIG_REQUIREMENTS = (
-    ("url: 'https://un3qual.github.io'", "Docusaurus must use the production origin"),
-    ("baseUrl: '/jazz/'", "Docusaurus must use the /jazz/ base route"),
-    ("onBrokenLinks: 'throw'", "Docusaurus must fail broken links"),
-    (
-        "onBrokenMarkdownLinks: 'throw'",
-        "Docusaurus must fail broken Markdown links",
-    ),
-    ("format: 'md'", "Docusaurus must publish plain Markdown"),
-    ("path: '../docs'", "Docusaurus must publish only ../docs"),
-    ("routeBasePath: 'docs'", "Docusaurus must publish docs at /docs"),
-    ("blog: false", "Docusaurus blog publication must remain disabled"),
-)
-
-
 def read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
@@ -83,19 +66,9 @@ def resource_targets(source: str) -> list[str]:
     return targets
 
 
-def check_config(root: Path, violations: list[str]) -> None:
-    path = root / CONFIG
-    source = read_text(path)
-    if source is None:
-        violations.append(f"{CONFIG}: required UTF-8 Docusaurus configuration is missing")
-        return
-    for fragment, message in CONFIG_REQUIREMENTS:
-        if fragment not in source:
-            violations.append(f"{CONFIG}: {message}")
-
-
 def check_output_tree(build: Path, label_root: Path, violations: list[str]) -> None:
-    if not build.exists():
+    if not build.is_dir():
+        violations.append(f"{build}: build directory is missing")
         return
     for path in sorted(build.rglob("*")):
         if not path.is_file() or path.suffix.casefold() not in TEXT_SUFFIXES:
@@ -121,34 +94,14 @@ def check_output_tree(build: Path, label_root: Path, violations: list[str]) -> N
                     )
 
 
-def check_built_output(root: Path, violations: list[str]) -> None:
-    check_output_tree(root / BUILD, root, violations)
-
-
-def validate(root: Path) -> list[str]:
-    violations: list[str] = []
-    check_config(root, violations)
-    check_built_output(root, violations)
-    return sorted(set(violations))
-
-
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("repository_root", nargs="?")
-    parser.add_argument("--build-directory")
+    parser.add_argument("--build-directory", required=True)
     arguments = parser.parse_args(argv[1:])
-    if arguments.build_directory is not None:
-        build = Path(arguments.build_directory).resolve()
-        violations: list[str] = []
-        check_output_tree(build, build, violations)
-        violations = sorted(set(violations))
-    else:
-        root = (
-            Path(arguments.repository_root).resolve()
-            if arguments.repository_root is not None
-            else Path(__file__).resolve().parent.parent
-        )
-        violations = validate(root)
+    build = Path(arguments.build_directory).resolve()
+    violations: list[str] = []
+    check_output_tree(build, build, violations)
+    violations = sorted(set(violations))
     if violations:
         print("Website boundary checks failed:")
         for violation in violations:

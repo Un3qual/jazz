@@ -60,6 +60,9 @@
             mkdir -p "$HOME"
           '';
         });
+        pinnedPnpm = pkgs.writeShellScriptBin "pnpm" ''
+          exec ${pkgs.nodejs_22}/bin/corepack pnpm@11.18.0 "$@"
+        '';
       in {
         packages = {
           inherit jazz;
@@ -72,8 +75,8 @@
         };
 
         devShells.default = pkgs.mkShell {
+          inputsFrom = [ jazzBase.env ];
           packages = with pkgs; [
-            ghc
             cabal-install
             ormolu
             hlint
@@ -81,6 +84,7 @@
             ripgrep
             actionlint
             nodejs_22
+            pinnedPnpm
             toolPkgs.nodePackages.prettier
           ];
         };

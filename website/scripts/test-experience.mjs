@@ -215,9 +215,11 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   assert.match(renderer, /@theme-original\/CodeBlock\/Content/);
   assert.match(renderer, /tokenizeJazz/);
   assert.match(renderer, /data-jazz-highlighter="textmate"/);
+  assert.equal(packageJson.scripts.prebuild, undefined);
+  assert.equal(packageJson.scripts.postbuild, undefined);
   assert.equal(
-    packageJson.scripts.postbuild,
-    'node scripts/check-built-highlighting.mjs',
+    packageJson.scripts.build,
+    'node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-highlighting.mjs',
   );
 
   for (const relativePath of [
@@ -227,6 +229,23 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   ]) {
     assert.equal(existsSync(path.join(repositoryRoot, relativePath)), false);
   }
+});
+
+test('active Docusaurus configuration preserves the public site contract', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const classic = siteConfig.presets.find(([name]) => name === 'classic')?.[1];
+
+  assert.equal(siteConfig.url, 'https://un3qual.github.io');
+  assert.equal(siteConfig.baseUrl, '/jazz/');
+  assert.equal(siteConfig.onBrokenLinks, 'throw');
+  assert.equal(siteConfig.markdown.format, 'md');
+  assert.equal(siteConfig.markdown.hooks.onBrokenMarkdownLinks, 'throw');
+  assert.equal(classic.docs.path, '../docs');
+  assert.equal(classic.docs.routeBasePath, 'docs');
+  assert.equal(classic.blog, false);
 });
 
 test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => {

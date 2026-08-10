@@ -187,7 +187,9 @@ logicalFieldEntries (line : remaining) =
         || Text.length (Text.takeWhile isSpace candidate) > indentation
 
 stripComment :: Text -> Text
-stripComment = Text.strip . fst . Text.breakOn "--"
+stripComment source
+  | "--" `Text.isPrefixOf` Text.stripStart source = ""
+  | otherwise = Text.strip source
 
 normalizedHeader :: Text -> Text
 normalizedHeader = Text.toCaseFold . Text.unwords . Text.words . stripComment

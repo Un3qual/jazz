@@ -571,8 +571,8 @@ def check_extended(contents: str, violations: list[str]) -> None:
         '"environment.json"',
         '"results.csv"',
         "len(run_directories) != 1",
-        'metadata["environment_label"] != expected_label',
-        'metadata["schema_version"] != 2',
+        'metadata.get("environment_label") != expected_label',
+        'metadata.get("schema_version") != 2',
         "results_path.stat().st_size == 0",
     )
     if not all(token in contents for token in benchmark_validation):
@@ -958,7 +958,8 @@ def check_pr_workflow(root: Path, violations: list[str]) -> None:
         violations.append(f"missing required pull-request workflow: {PR_WORKFLOW_PATH}")
         return
     contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
-    if not re.search(r"(?m)^\s*pull_request\s*:\s*$", contents):
+    trigger_block = indented_block(contents, "on", 0)
+    if "pull_request" not in yaml_mapping_keys(trigger_block, 2):
         violations.append("pull-request workflow must trigger on pull_request")
 
     permissions = [line.strip() for line in indented_block(contents, "permissions", 0).splitlines() if line.strip()]
@@ -966,7 +967,7 @@ def check_pr_workflow(root: Path, violations: list[str]) -> None:
         violations.append(
             "pull-request workflow must grant only read access to contents and pull requests"
         )
-    if re.search(r"(?m)^    permissions\s*:", contents):
+    if "permissions" in yaml_mapping_keys(contents, 4):
         violations.append("pull-request workflow must not override permissions in a job")
 
     concurrency = indented_block(contents, "concurrency", 0)
@@ -995,7 +996,7 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
 
     contents = normalized_action_versions(active_text(path.read_text(encoding="utf-8")))
     trigger_block = indented_block(contents, "on", 0)
-    events = re.findall(r"(?m)^  ([a-z][a-z0-9_-]*):\s*$", trigger_block)
+    events = yaml_mapping_keys(trigger_block, 2)
     if "workflow_dispatch" not in events:
         violations.append("main workflow must support workflow_dispatch")
     if any(event not in {"push", "workflow_dispatch"} for event in events):
@@ -1017,8 +1018,8 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
         for line in indented_block(contents, "permissions", 0).splitlines()
         if line.strip()
     ]
-    if permissions != ["contents: read"] or re.search(
-        r"(?m)^    permissions\s*:", contents
+    if permissions != ["contents: read"] or "permissions" in yaml_mapping_keys(
+        contents, 4
     ):
         violations.append("main workflow must grant only read access to contents")
 

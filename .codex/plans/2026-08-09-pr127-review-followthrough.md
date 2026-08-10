@@ -136,3 +136,22 @@
 - [ ] **Step 3: Commit and push `HEAD:codex/project-operations`.**
 - [ ] **Step 4: Reply to every actionable/duplicate thread with the pushed fix and verification, and answer stale/invalid threads with concrete current-tree evidence.**
 - [ ] **Step 5: Stop without fetching PR review state again.**
+
+### Task 6: Second review wave and CI recovery
+
+**Files:**
+
+- Modify: focused documentation, website, workflow, release, Nix-shell, package-policy, and brand-asset validators identified by the frozen snapshot
+- Review: all 55 bot-last unresolved threads, including outdated and duplicate threads
+
+**Interfaces:**
+
+- Consumes: the frozen current-head review snapshot, failed GitHub Actions logs, and Codacy annotations.
+- Produces: behavior-level fixes for reachable accidental regressions, evidence-backed dispositions for non-goals, and one final push without a post-push refresh.
+
+- [x] **Step 1: Freeze the thread-aware snapshot and cluster current, outdated, duplicate, CI, and dependency findings.**
+- [x] **Step 2: Add focused regressions for each accepted behavior gap and prove they fail before production edits.**
+- [x] **Step 3: Fix the authority-checker pipe failure, make the Nix shell self-contained, and consolidate active Docusaurus configuration validation around Docusaurus's loader.**
+- [x] **Step 4: Fix reachable publication, workflow, release, package-policy, and deterministic-asset regressions without adding parser surface.**
+- [ ] **Step 5: Run focused and full repository gates, perform an anti-slop diff review, commit, and push once.**
+- [ ] **Step 6: Reply to the frozen review threads with fixes or concrete non-goal evidence, then stop without refreshing.**

@@ -20,13 +20,15 @@ VERIFY = Path(__file__).with_name("verify-artifacts.py")
 BUILD = Path(__file__).with_name("build-alpha.sh")
 VERSION = "0.1.0-alpha.1"
 SYSTEM = "aarch64-darwin"
-NIX_DEPENDENCY = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-runtime-dependency"
-NIX_ROOT = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-jazz-0.1.0.0"
+NIX_DEPENDENCY = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-runtime-dependency"
+NIX_ROOT = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-jazz-0.1.0.0"
 
 
 class ArtifactVerifierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if shutil.which("nix-store") is None:
+            raise unittest.SkipTest("nix-store is required for release verifier fixtures")
         temporary_parent = "/private/tmp" if Path("/private/tmp").is_dir() else None
         with tempfile.TemporaryDirectory(dir=temporary_parent) as temporary_directory:
             fixture_root = Path(temporary_directory)
@@ -105,7 +107,7 @@ class ArtifactVerifierTests(unittest.TestCase):
             for member_name, contents in files.items():
                 member = tarfile.TarInfo(member_name)
                 member.size = len(contents)
-                member.mode = 0o755 if member_name == "result/bin/jazz" else 0o644
+                member.mode = 0o644
                 archive.addfile(member, io.BytesIO(contents))
         return destination
 
@@ -297,6 +299,18 @@ class ArtifactVerifierTests(unittest.TestCase):
                 )
                 self.write_checksums()
                 self.assert_rejected("docs archive violates the publication boundary")
+                self.assert_rejected(
+                    "non-allowlisted remote URL" if path.endswith(".js") else "internal-only material"
+                )
+
+    def test_rejects_an_excessively_compressed_archive(self) -> None:
+        docs = self.release_directory / f"jazz-{VERSION}-docs.tar.gz"
+        self.archive(
+            docs.name,
+            {"index.html": b"<!doctype html>\n", "assets/padding.bin": b"0" * (20 * 1024 * 1024)},
+        )
+        self.write_checksums()
+        self.assert_rejected("archive expands beyond its validation limit")
 
     def test_rejects_a_truncated_gzip_stream(self) -> None:
         docs = self.release_directory / f"jazz-{VERSION}-docs.tar.gz"
@@ -517,19 +531,20 @@ fi
             f"""#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == "--query" && "$2" == "--outputs" ]]; then
-  printf '%s\\n' '{self.nix_root}'
+  printf '%s\\n' '{NIX_ROOT}'
 elif [[ "$1" == "--query" && "$2" == "--requisites" ]]; then
-  printf '%s\\n' '{self.nix_root}'
+  printf '%s\\n' '{NIX_DEPENDENCY}' '{NIX_ROOT}'
 elif [[ "$1" == "--export" ]]; then
+  [[ "$2" == '{NIX_DEPENDENCY}' && "$3" == '{NIX_ROOT}' ]]
   command cat fixtures/closure.nar
 elif [[ "$1" == "--store" && "$3" == "--import" ]]; then
   local_store="${{2#local?root=}}"
-  mkdir -p "$local_store{self.nix_root}/bin"
-  printf '#!/usr/bin/env bash\n' > "$local_store{self.nix_root}/bin/jazz"
-  chmod +x "$local_store{self.nix_root}/bin/jazz"
-  printf '%s\\n' '{self.nix_root}'
+  mkdir -p "$local_store{NIX_ROOT}/bin"
+  printf '#!/usr/bin/env bash\n' > "$local_store{NIX_ROOT}/bin/jazz"
+  chmod +x "$local_store{NIX_ROOT}/bin/jazz"
+  printf '%s\\n' '{NIX_DEPENDENCY}' '{NIX_ROOT}'
 elif [[ "$1" == "--store" && "$3" == "--query" && "$4" == "--requisites" ]]; then
-  printf '%s\\n' '{self.nix_root}'
+  printf '%s\\n' '{NIX_DEPENDENCY}' '{NIX_ROOT}'
 else
   exit 64
 fi
@@ -538,7 +553,7 @@ fi
         )
         os.chmod(repository / "fixtures/bin/nix-store", 0o755)
         (repository / "fixtures/bin/readlink").write_text(
-            f"#!/usr/bin/env bash\nprintf '%s\\n' '{self.nix_root}'\n", encoding="utf-8"
+            f"#!/usr/bin/env bash\nprintf '%s\\n' '{NIX_ROOT}'\n", encoding="utf-8"
         )
         os.chmod(repository / "fixtures/bin/readlink", 0o755)
         for relative_path, contents in self.evidence_files().items():
@@ -613,6 +628,7 @@ cp -R fixtures/docs/. website/build/
         verification = subprocess.run(
             [sys.executable, "scripts/release/verify-artifacts.py", str(final_directory)],
             cwd=repository,
+            env=environment,
             text=True,
             capture_output=True,
             check=False,

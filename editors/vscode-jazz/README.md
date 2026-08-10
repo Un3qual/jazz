@@ -37,7 +37,7 @@ with the standard VS Code extension tool, run:
 
 ```sh
 cd editors/vscode-jazz
-npx --yes @vscode/vsce package
+npx --yes @vscode/vsce@3.9.2 package
 code --install-extension jazz-language-0.1.0.vsix
 ```
 

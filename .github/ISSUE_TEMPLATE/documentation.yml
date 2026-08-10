@@ -23,4 +23,4 @@ body:
       label: Suggested correction
       description: Share corrected wording, an example, or relevant implementation evidence if available.
     validations:
-      required: true
+      required: false

@@ -1,4 +1,4 @@
-## Summary
+# Summary
 
 <!-- What problem does this solve, and what is the approach? -->
 

@@ -63,7 +63,8 @@ import Jazz.TestHarness
     runTestSuite,
   )
 import System.Directory
-  ( createDirectoryIfMissing,
+  ( canonicalizePath,
+    createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
     getTemporaryDirectory,
@@ -100,6 +101,7 @@ tests =
     ("rejects incorrect canonical package metadata", testIncorrectPackageMetadata),
     ("rejects empty canonical package URLs", testEmptyPackageUrl),
     ("rejects legacy product identities in package metadata", testLegacyPackageIdentity),
+    ("preserves inline double dashes in package metadata", testInlineDoubleDashPackageValue),
     ("does not reject longer current product names", testLegacyIdentityBoundaries),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
     ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
@@ -383,7 +385,8 @@ formattedPrivatePackage =
   Maintainer: un3qual
   Category: Language
   Stability: Experimental
-  Tested-With: GHC == 9.14.1 -- pinned compiler
+  -- Pinned compiler version.
+  Tested-With: GHC == 9.14.1
   License: GPL-3.0-only
   License-File: LICENSE
 
@@ -542,16 +545,16 @@ testIncorrectPackageMetadata =
   assertEqual
     "example-domain homepage is rejected"
     True
-    ( not
-        ( null
-            ( validatePackagePolicy
-                ( Text.replace
-                    "homepage: https://un3qual.github.io/jazz/"
-                    "homepage: https://example.com/jazz"
-                    validPrivatePackage
-                )
-            )
-        )
+    ( InvalidPackageField
+        "homepage"
+        "https://un3qual.github.io/jazz/"
+        (Just "https://example.com/jazz")
+        `elem` validatePackagePolicy
+          ( Text.replace
+              "homepage: https://un3qual.github.io/jazz/"
+              "homepage: https://example.com/jazz"
+              validPrivatePackage
+          )
     )
 
 testEmptyPackageUrl :: IO ()
@@ -559,16 +562,16 @@ testEmptyPackageUrl =
   assertEqual
     "empty bug-report URL is rejected"
     True
-    ( not
-        ( null
-            ( validatePackagePolicy
-                ( Text.replace
-                    "bug-reports: https://github.com/un3qual/jazz/issues"
-                    "bug-reports:"
-                    validPrivatePackage
-                )
-            )
-        )
+    ( InvalidPackageField
+        "bug-reports"
+        "https://github.com/un3qual/jazz/issues"
+        (Just "")
+        `elem` validatePackagePolicy
+          ( Text.replace
+              "bug-reports: https://github.com/un3qual/jazz/issues"
+              "bug-reports:"
+              validPrivatePackage
+          )
     )
 
 testLegacyPackageIdentity :: IO ()
@@ -576,13 +579,17 @@ testLegacyPackageIdentity =
   assertEqual
     "legacy product identity is rejected"
     True
-    ( not
-        ( null
-            ( validatePackagePolicy
-                (validPrivatePackage <> "\ndescription: JazzNext compiler\n")
-            )
-        )
+    ( LegacyPackageIdentity "JazzNext"
+        `elem` validatePackagePolicy
+          (validPrivatePackage <> "\ndescription: JazzNext compiler\n")
     )
+
+testInlineDoubleDashPackageValue :: IO ()
+testInlineDoubleDashPackageValue =
+  assertEqual
+    "inline double dash remains package metadata"
+    [LegacyPackageIdentity "JazzNext"]
+    (validatePackagePolicy (validPrivatePackage <> "\ndescription: tools -- JazzNext compiler\n"))
 
 testLegacyIdentityBoundaries :: IO ()
 testLegacyIdentityBoundaries =
@@ -1195,6 +1202,8 @@ testSourceDistributionWindowsRoots =
     TextIO.writeFile documentationPath "public contract\n"
     runGit packageRoot ["init", "--quiet"]
     runGit packageRoot ["add", "--", "docs/language/contract.md"]
+    actualRoot <- isActualGitRoot packageRoot
+    assertEqual "temporary repository is its actual Git root" True actualRoot
     files <- listRepositoryFiles packageRoot ["docs\\language"]
     assertEqual
       "Git inventory normalizes Windows pathspec separators"
@@ -1263,10 +1272,12 @@ isActualGitRoot packageRoot = do
   let rootCommand = (proc "git" ["rev-parse", "--show-toplevel"]) {cwd = Just packageRoot}
   rootResult <-
     try (readCreateProcessWithExitCode rootCommand "") :: IO (Either IOException (ExitCode, String, String))
-  pure $ case rootResult of
-    Right (ExitSuccess, standardOutput, _) ->
-      normalise (Text.unpack (Text.strip (Text.pack standardOutput))) == normalise packageRoot
-    _ -> False
+  case rootResult of
+    Right (ExitSuccess, standardOutput, _) -> do
+      reportedRoot <- canonicalizePath (Text.unpack (Text.strip (Text.pack standardOutput)))
+      expectedRoot <- canonicalizePath packageRoot
+      pure (normalise reportedRoot == normalise expectedRoot)
+    _ -> pure False
 
 listTrackedRepositoryFiles :: FilePath -> [FilePath] -> IO [FilePath]
 listTrackedRepositoryFiles packageRoot relativeRoots = do
@@ -1318,9 +1329,7 @@ normalizeSourceDistributionPath = dropCurrentDirectory . map normalizeSeparator
     normalizeSeparator '\\' = '/'
     normalizeSeparator character = character
     dropCurrentDirectory path =
-      case stripPrefix "./" path of
-        Just normalized -> dropCurrentDirectory normalized
-        Nothing -> path
+      maybe path dropCurrentDirectory (stripPrefix "./" path)
 
 normalizeSourceDistributionPaths :: [FilePath] -> [FilePath]
 normalizeSourceDistributionPaths =
@@ -1369,8 +1378,8 @@ splitOn separator values =
     (segment, _ : remaining) -> segment : splitOn separator remaining
 
 withTemporaryDirectory :: FilePath -> (FilePath -> IO result) -> IO result
-withTemporaryDirectory prefix action =
-  bracket acquire removePathForcibly action
+withTemporaryDirectory prefix =
+  bracket acquire removePathForcibly
   where
     acquire = do
       temporaryRoot <- getTemporaryDirectory

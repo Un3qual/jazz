@@ -155,6 +155,24 @@ test('VS Code icon is a deterministic 128px raster of the canonical Jazz mark', 
   }
 });
 
+test('concurrent VS Code icon renders isolate their temporary output', async () => {
+  const renderer = await import('./render-social-card.mjs');
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'jazz-editor-icon-concurrency-'),
+  );
+  const pngPath = path.join(temporaryDirectory, 'icon.png');
+  try {
+    await Promise.all(
+      Array.from({length: 4}, () => renderer.renderEditorIcon({pngPath})),
+    );
+    const metadata = await sharp(pngPath).metadata();
+    assert.equal(metadata.width, 128);
+    assert.equal(metadata.height, 128);
+  } finally {
+    await rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
 test('social card uses generated Manrope outlines and requires its local font asset', async () => {
   const socialCard = await readFile(path.join(imageDirectory, 'social-card.svg'), 'utf8');
   assert.doesNotMatch(socialCard, /<text\b/);
