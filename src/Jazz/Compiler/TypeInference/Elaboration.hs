@@ -197,7 +197,8 @@ data FunctionProfile = FunctionProfile
 -- | Canonical free value references for dependency analysis. This walks the
 -- resolved core expression rather than the provisional production tree, so a
 -- rejected expression cannot erase a recursion edge. Finalization intersects
--- these names with the local function table and assigns permanent binders.
+-- these names with all callable declarations through declarationBindersByName
+-- and assigns permanent binders.
 expressionDependencyNames :: Expr -> Set.Set Name
 expressionDependencyNames = go
   where
