@@ -8,6 +8,7 @@ import Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
     canonicalLoweredProgramsRuntimeValue,
     canonicalLoweredValidationFailuresRuntimeValue,
+    closureEmissionContractPrograms,
     decodeCanonicalLoweredValidationFailuresRuntimeValue
   )
 import Jazz.Compiler.Bootstrap.CanonicalValue
@@ -64,7 +65,7 @@ tests =
     ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
     ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
-    ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity),
+    ("matches Haskell validation for all 44 Jazz fixtures twice", testJazzValidationParity),
     ("matches Haskell validation for every hardening regression twice", testJazzHardeningParity)
   ]
 
@@ -291,7 +292,7 @@ testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
   assertEqual "invalid fixture count" 31 (length invalidFixtures)
-  assertEqual "complete fixture count" 41 (length validFixtures + length invalidFixtures)
+  assertEqual "complete fixture count" 44 (length validFixtures + length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -468,7 +469,7 @@ testCompleteFailureOrder =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 10 (length validFixtures)
+  assertEqual "valid fixture count" 13 (length validFixtures)
 
 testValidContractRendering :: IO ()
 testValidContractRendering = do
@@ -695,6 +696,7 @@ validFixtures =
     ValidFixture "runtime-service-call" runtimeServiceCallProgram,
     ValidFixture "text-list-layouts" textListLayoutsProgram
   ]
+    <> [ValidFixture ("typed-core-" <> name) programValue | (name, programValue) <- closureEmissionContractPrograms]
 
 expectedValidFixtureNames :: [Text]
 expectedValidFixtureNames =
@@ -707,7 +709,10 @@ expectedValidFixtureNames =
     "closure-call",
     "closure-tail-call",
     "runtime-service-call",
-    "text-list-layouts"
+    "text-list-layouts",
+    "typed-core-named-function-value",
+    "typed-core-higher-order-call",
+    "typed-core-closure-result"
   ]
 
 validConstructorInventory :: [Text]

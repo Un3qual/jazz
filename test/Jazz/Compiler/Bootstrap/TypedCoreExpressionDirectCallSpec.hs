@@ -45,6 +45,8 @@ tests =
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
     ("validates typed core before checking the lowering profile", testLoweringPrecedence),
+    ("uses the exact RFC closure environment identity grammar", testRfcClosureEnvironmentIdentity),
+    ("lowers every independent unary closure boundary twice", testSupportedClosureLowererBoundary),
     ("rechecks every callable restriction on arbitrary valid typed programs", testLowererCallableBoundary),
     ("rejects malformed callable recipes and binder references before lowering", testInvalidLowererTypedCoreBoundary),
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
@@ -137,6 +139,7 @@ testAcceptedManifestPipeline =
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
+        <> closedCallableExpectedLoweredPrograms
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -174,13 +177,42 @@ testAcceptedManifestPipeline =
                     LoweredIRSucceeded loweredProgram ->
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
-                Nothing ->
-                  assertEqual
-                    (name <> " is intentionally producer-only until Task 4")
-                    True
-                    (name `elem` map fst closedCallableExpectedPrograms)
+                Nothing -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testRfcClosureEnvironmentIdentity :: IO ()
+testRfcClosureEnvironmentIdentity = do
+  let (typedProgram, expectedProgram) = rfcClosureEnvironmentIdentityProgram
+      firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+      secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+  assertEqual "RFC identity typed-core validation" [] (validateTypedProgram typedProgram)
+  assertEqual "RFC identity repeatable lowering" firstRun secondRun
+  assertEqual "RFC identity exact lowering" (LoweredIRSucceeded expectedProgram) firstRun
+
+testSupportedClosureLowererBoundary :: IO ()
+testSupportedClosureLowererBoundary =
+  mapM_ assertSupported names
+  where
+    names =
+      [ "closure-valued-parameter",
+        "closure-valued-result",
+        "closure-shaped-named-function",
+        "closure-shaped-named-application",
+        "callable-parameter-shadows-top-level-lowerer"
+      ]
+    assertSupported name =
+      case lookup name lowererBoundaryPrograms of
+        Nothing -> failTest (name <> " supported lowerer program is missing")
+        Just programValue -> do
+          let firstRun = lowerTypedCoreExpressionDirectCall programValue
+              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable closure lowering") firstRun secondRun
+          case firstRun of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " exact lowered validation") [] (validateLoweredProgram loweredProgram)
+            _ -> failTest (name <> " did not lower successfully")
 
 testLowererCallableBoundary :: IO ()
 testLowererCallableBoundary =
@@ -214,46 +246,6 @@ testLowererCallableBoundary =
               [0]
               LoweredIRUnsupportedExpression
               LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "closure-valued-parameter",
-          [ expressionFailure
-              1
-              [0, 0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "function"))
-          ]
-        ),
-        ( "closure-valued-result",
-          [ expressionFailure
-              3
-              [0, 0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "closure-shaped-named-function",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "closure-shaped-named-application",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "callable-parameter-shadows-top-level-lowerer",
-          [ expressionFailure
-              3
-              [0, 0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "combine"))
           ]
         ),
         ( "direct-flattened-representation",

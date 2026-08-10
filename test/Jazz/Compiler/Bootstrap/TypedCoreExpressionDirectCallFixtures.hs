@@ -17,6 +17,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
+    closedCallableExpectedLoweredPrograms,
+    rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     invalidLowererBoundaryPrograms,
     lowererStructuralBoundaryPrograms,
@@ -627,6 +629,293 @@ directCallExpectedLoweredPrograms =
         (loweredTemporary 1 int64Representation)
     )
   ]
+
+closedCallableExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+closedCallableExpectedLoweredPrograms =
+  [ ( "named-function-value",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        boolClosureRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+        ]
+        (loweredTemporary 2 boolClosureRepresentation)
+    ),
+    ( "higher-order-call",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "closure-result",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [ expectedBoolIdentityClosure identityLayoutIdAt1,
+          expectedLocalFunction
+            "choose"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            boolClosureRepresentation
+            [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+              expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+            ]
+            (loweredTemporary 2 boolClosureRepresentation)
+        ]
+        boolClosureRepresentation
+        [expectedDirectCallInstruction 1 boolClosureRepresentation "choose" [loweredImmediate (LoweredBoolImmediate False)]]
+        (loweredTemporary 1 boolClosureRepresentation)
+    ),
+    ( "callable-parameter-shadows-named-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt5]
+        [ expectedBoolCombineFunction,
+          expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt5
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt5,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt5,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-shadows-enclosing-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "mixed-direct-and-value-use",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation],
+          expectedEmptyEnvironmentInstruction 4 identityLayoutIdAt3,
+          expectedClosureInstruction 5 "identity" identityLayoutIdAt3,
+          expectedClosureCallInstruction 6 LoweredBoolRepresentation (loweredTemporary 5 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate True)],
+          expectedPrimitiveInstruction
+            7
+            LoweredBoolRepresentation
+            (LoweredComparisonPrimitive LoweredEqual)
+            [loweredTemporary 3 LoweredBoolRepresentation, loweredTemporary 6 LoweredBoolRepresentation]
+        ]
+        (loweredTemporary 7 LoweredBoolRepresentation)
+    )
+  ]
+  where
+    identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
+    identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
+    identityLayoutAt5 = LoweredLayout identityLayoutIdAt5 (LoweredClosureEnvironmentLayout [])
+
+rfcClosureEnvironmentIdentityProgram :: (TypedProgram, LoweredProgram)
+rfcClosureEnvironmentIdentityProgram = (typedProgram, loweredProgram)
+  where
+    rfcModulePath = ["Main"]
+    functionName = TypedResolvedName TypedCurrentModule TypedValueNamespace "identity"
+    functionBinder = TypedBinderId (rfcModulePath, [0], functionName)
+    parameterName = TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+    parameterBinder = TypedBinderId (rfcModulePath, [0, 0], parameterName)
+    functionSchemeValue =
+      TypedScheme
+        functionBinder
+        []
+        []
+        []
+        (typedExpressionType boolCallableInfo)
+        (typedExpressionRecipe boolCallableInfo)
+        (Just TypedClosureCallableShape)
+    typedProgram =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            rfcModulePath
+            (TypedSourcePath "src/Main.jz")
+            []
+            []
+            (TypedModuleInterface [] [] [] [])
+            [ TypedLetStatement
+                functionBinder
+                functionName
+                (TypedSpan 1 1)
+                functionSchemeValue
+                ( TypedLambdaExpr
+                    boolCallableInfo
+                    parameterBinder
+                    parameterName
+                    (TypedVariableExpr boolInfo parameterName (Just parameterBinder))
+                ),
+              TypedExpressionStatement
+                (TypedSpan 2 1)
+                (TypedVariableExpr boolCallableInfo functionName (Just functionBinder))
+            ]
+            boolCallableInfo
+        ]
+        rfcModulePath
+    layoutId = LoweredLayoutId "$jz1$closure-env$m1$4:Main$p1$0$n8:identity"
+    closureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    functionId = LoweredFunctionId "Main::identity"
+    entryFunctionId = LoweredFunctionId "Main::$entry"
+    loweredProgram =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [LoweredLayout layoutId (LoweredClosureEnvironmentLayout [])]
+        []
+        [ LoweredFunction
+            functionId
+            (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            LoweredBoolRepresentation
+            [ LoweredBlock
+                (LoweredBlockId "entry")
+                []
+                []
+                (Just (LoweredReturn (LoweredFunctionParameterOperand (LoweredParameterId "arg1") LoweredBoolRepresentation)))
+            ]
+            (LoweredBlockId "entry"),
+          LoweredFunction
+            entryFunctionId
+            Nothing
+            []
+            closureRepresentation
+            [ LoweredBlock
+                (LoweredBlockId "entry")
+                []
+                [ LoweredInstruction
+                    (LoweredTemporaryId "t1")
+                    (LoweredManagedReferenceRepresentation layoutId)
+                    (LoweredConstructProduct layoutId []),
+                  LoweredInstruction
+                    (LoweredTemporaryId "t2")
+                    closureRepresentation
+                    ( LoweredConstructClosure
+                        functionId
+                        (LoweredTemporaryOperand (LoweredTemporaryId "t1") (LoweredManagedReferenceRepresentation layoutId))
+                    )
+                ]
+                (Just (LoweredReturn (LoweredTemporaryOperand (LoweredTemporaryId "t2") closureRepresentation)))
+            ]
+            (LoweredBlockId "entry")
+        ]
+        entryFunctionId
+
+identityLayoutIdAt1, identityLayoutIdAt3, identityLayoutIdAt5 :: LoweredLayoutId
+identityLayoutIdAt1 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
+identityLayoutIdAt3 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n8:identity"
+identityLayoutIdAt5 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$5$n8:identity"
+
+boolClosureRepresentation :: LoweredRepresentation
+boolClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+
+expectedClosureCallableLoweredProgram ::
+  [LoweredLayout] ->
+  [LoweredFunction] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredOperand ->
+  LoweredProgram
+expectedClosureCallableLoweredProgram layouts functions resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    layouts
+    []
+    ( functions
+        <> [ LoweredFunction
+               loweredEntryFunctionId
+               Nothing
+               []
+               resultRepresentation
+               [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+               (LoweredBlockId "entry")
+           ]
+    )
+    loweredEntryFunctionId
+
+expectedBoolIdentityClosure :: LoweredLayoutId -> LoweredFunction
+expectedBoolIdentityClosure layoutId =
+  LoweredFunction
+    (LoweredFunctionId "App::Main::identity")
+    (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+    [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+    LoweredBoolRepresentation
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        []
+        (Just (LoweredReturn (loweredParameter 1 LoweredBoolRepresentation)))
+    ]
+    (LoweredBlockId "entry")
+
+expectedBoolApplyFunction :: LoweredFunction
+expectedBoolApplyFunction =
+  expectedLocalFunction
+    "apply"
+    [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+    LoweredBoolRepresentation
+    [ expectedClosureCallInstruction
+        1
+        LoweredBoolRepresentation
+        (loweredParameter 1 boolClosureRepresentation)
+        [loweredImmediate (LoweredBoolImmediate True)]
+    ]
+    (loweredTemporary 1 LoweredBoolRepresentation)
+
+expectedBoolCombineFunction :: LoweredFunction
+expectedBoolCombineFunction =
+  expectedLocalFunction
+    "combine"
+    [ LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation,
+      LoweredParameter (LoweredParameterId "arg2") LoweredBoolRepresentation
+    ]
+    LoweredBoolRepresentation
+    []
+    (loweredParameter 1 LoweredBoolRepresentation)
+
+expectedEmptyEnvironmentInstruction :: Int -> LoweredLayoutId -> LoweredInstruction
+expectedEmptyEnvironmentInstruction index layoutId =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    (LoweredManagedReferenceRepresentation layoutId)
+    (LoweredConstructProduct layoutId [])
+
+expectedClosureInstruction :: Int -> Text -> LoweredLayoutId -> LoweredInstruction
+expectedClosureInstruction index functionName layoutId =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    boolClosureRepresentation
+    ( LoweredConstructClosure
+        (LoweredFunctionId ("App::Main::" <> functionName))
+        (loweredTemporary (index - 1) (LoweredManagedReferenceRepresentation layoutId))
+    )
+
+expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
+expectedClosureCallInstruction index representation functionOperand operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredClosureCall functionOperand operands)
 
 expectedCallableLoweredProgram ::
   [LoweredFunction] ->

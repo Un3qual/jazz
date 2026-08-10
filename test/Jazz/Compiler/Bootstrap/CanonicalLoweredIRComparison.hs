@@ -4,6 +4,7 @@ module Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
     canonicalLoweredProgramsRuntimeValue,
     canonicalLoweredValidationFailuresRuntimeValue,
+    closureEmissionContractPrograms,
     decodeCanonicalLoweredValidationFailuresRuntimeValue
   ) where
 
@@ -34,6 +35,121 @@ canonicalLoweredProgramRuntimeValue (LoweredProgram version layouts services fun
 
 canonicalLoweredProgramsRuntimeValue :: [LoweredProgram] -> RuntimeValue
 canonicalLoweredProgramsRuntimeValue = listValue canonicalLoweredProgramRuntimeValue
+
+closureEmissionContractPrograms :: [(Text, LoweredProgram)]
+closureEmissionContractPrograms =
+  [ ( "named-function-value",
+      closureProgram
+        identityLayoutAt1
+        [identityFunction identityLayoutIdAt1]
+        closureRepresentation
+        [ constructEnvironment 1 identityLayoutIdAt1,
+          constructClosure 2 identityLayoutIdAt1
+        ]
+        (temporary 2 closureRepresentation)
+    ),
+    ( "higher-order-call",
+      closureProgram
+        identityLayoutAt3
+        [applyFunction, identityFunction identityLayoutIdAt3]
+        LoweredBoolRepresentation
+        [ constructEnvironment 1 identityLayoutIdAt3,
+          constructClosure 2 identityLayoutIdAt3,
+          instruction 3 LoweredBoolRepresentation (LoweredDirectCall applyFunctionId [temporary 2 closureRepresentation])
+        ]
+        (temporary 3 LoweredBoolRepresentation)
+    ),
+    ( "closure-result",
+      closureProgram
+        identityLayoutAt1
+        [identityFunction identityLayoutIdAt1, chooseFunction]
+        closureRepresentation
+        [instruction 1 closureRepresentation (LoweredDirectCall chooseFunctionId [LoweredImmediateOperand (LoweredBoolImmediate False)])]
+        (temporary 1 closureRepresentation)
+    )
+  ]
+  where
+    identityLayoutAt1, identityLayoutAt3 :: LoweredLayout
+    identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
+    identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
+    identityLayoutIdAt1, identityLayoutIdAt3 :: LoweredLayoutId
+    identityLayoutIdAt1 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
+    identityLayoutIdAt3 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n8:identity"
+    closureRepresentation :: LoweredRepresentation
+    closureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    identityFunction :: LoweredLayoutId -> LoweredFunction
+    identityFunction layoutId =
+      function
+        identityFunctionId
+        (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        LoweredBoolRepresentation
+        []
+        (LoweredFunctionParameterOperand (LoweredParameterId "arg1") LoweredBoolRepresentation)
+    applyFunction :: LoweredFunction
+    applyFunction =
+      function
+        applyFunctionId
+        Nothing
+        [LoweredParameter (LoweredParameterId "arg1") closureRepresentation]
+        LoweredBoolRepresentation
+        [ instruction
+            1
+            LoweredBoolRepresentation
+            ( LoweredClosureCall
+                (LoweredFunctionParameterOperand (LoweredParameterId "arg1") closureRepresentation)
+                [LoweredImmediateOperand (LoweredBoolImmediate True)]
+            )
+        ]
+        (temporary 1 LoweredBoolRepresentation)
+    chooseFunction :: LoweredFunction
+    chooseFunction =
+      function
+        chooseFunctionId
+        Nothing
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        closureRepresentation
+        [ constructEnvironment 1 identityLayoutIdAt1,
+          constructClosure 2 identityLayoutIdAt1
+        ]
+        (temporary 2 closureRepresentation)
+    identityFunctionId, applyFunctionId, chooseFunctionId, entryFunctionId :: LoweredFunctionId
+    identityFunctionId = LoweredFunctionId "App::Main::identity"
+    applyFunctionId = LoweredFunctionId "App::Main::apply"
+    chooseFunctionId = LoweredFunctionId "App::Main::choose"
+    entryFunctionId = LoweredFunctionId "App::Main::$entry"
+    closureProgram :: LoweredLayout -> [LoweredFunction] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+    closureProgram layout functions resultRepresentation instructions resultOperand =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [layout]
+        []
+        (functions <> [function entryFunctionId Nothing [] resultRepresentation instructions resultOperand])
+        entryFunctionId
+    function :: LoweredFunctionId -> Maybe LoweredParameter -> [LoweredParameter] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredFunction
+    function functionId environment parameters resultRepresentation instructions resultOperand =
+      LoweredFunction
+        functionId
+        environment
+        parameters
+        resultRepresentation
+        [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+        (LoweredBlockId "entry")
+    instruction :: Int -> LoweredRepresentation -> LoweredOperation -> LoweredInstruction
+    instruction index representation operation =
+      LoweredInstruction (LoweredTemporaryId ("t" <> Text.pack (show index))) representation operation
+    temporary :: Int -> LoweredRepresentation -> LoweredOperand
+    temporary index representation =
+      LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
+    constructEnvironment :: Int -> LoweredLayoutId -> LoweredInstruction
+    constructEnvironment index layoutId =
+      instruction index (LoweredManagedReferenceRepresentation layoutId) (LoweredConstructProduct layoutId [])
+    constructClosure :: Int -> LoweredLayoutId -> LoweredInstruction
+    constructClosure index layoutId =
+      instruction
+        index
+        closureRepresentation
+        (LoweredConstructClosure identityFunctionId (temporary (index - 1) (LoweredManagedReferenceRepresentation layoutId)))
 
 canonicalLoweredValidationFailuresRuntimeValue :: [LoweredIRValidationFailure] -> RuntimeValue
 canonicalLoweredValidationFailuresRuntimeValue = listValue validationFailureValue
