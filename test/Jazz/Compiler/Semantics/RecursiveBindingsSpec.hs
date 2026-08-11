@@ -57,6 +57,12 @@ tests =
     ("recursive groups resolve aliases in their definition-site pattern scope", testRecursiveGroupsRespectAliasDefinitionPatternScope),
     ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
+    ( "recursive groups follow forward aliases within a nested recursive group",
+      testRecursiveGroupsFollowNestedRecursiveForwardAlias
+    ),
+    ( "recursive groups reject ordinary nested forward callable aliases",
+      testRecursiveGroupsRejectNestedNonRecursiveForwardAlias
+    ),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
     ("recursive groups let a scalar block rebinding hide a prior callable", testRecursiveGroupsPreferLatestScalarBlockRebinding),
     ("recursive groups ignore eager self operator use in a conditional", testRecursiveGroupsIgnoreEagerOperatorConditional),
@@ -335,6 +341,47 @@ testRecursiveGroupsFollowPriorBlockCallableRebinding =
       [ SLet (ident "inner") span0 innerCallable,
         SLet (ident "inner") span0 (EVar (ident "inner"))
       ]
+
+testRecursiveGroupsFollowNestedRecursiveForwardAlias :: IO ()
+testRecursiveGroupsFollowNestedRecursiveForwardAlias =
+  assertEqual
+    "nested recursive peer makes its forward alias callable-producing"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    aliasName = ident "a"
+    targetName = ident "b"
+    argumentName = ident "x"
+    recursiveCall = EApply (EVar functionName) (EVar argumentName)
+    callableBranch = ELambda argumentName recursiveCall
+    functionBody =
+      EBlock
+        [ SLet aliasName span0 (EVar targetName),
+          SLet targetName span0 (EIf (ELit (LBool False)) (EVar aliasName) callableBranch),
+          SExpr span0 (EVar aliasName)
+        ]
+
+testRecursiveGroupsRejectNestedNonRecursiveForwardAlias :: IO ()
+testRecursiveGroupsRejectNestedNonRecursiveForwardAlias =
+  assertEqual
+    "ordinary nested forward declaration does not make its alias callable-producing"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    aliasName = ident "a"
+    targetName = ident "b"
+    argumentName = ident "x"
+    functionBody =
+      EBlock
+        [ SLet aliasName span0 (EVar targetName),
+          SLet
+            targetName
+            span0
+            (ELambda argumentName (EApply (EVar functionName) (EVar argumentName))),
+          SExpr span0 (EVar aliasName)
+        ]
 
 testRecursiveGroupsUseLatestBlockCallableRebinding :: IO ()
 testRecursiveGroupsUseLatestBlockCallableRebinding =
