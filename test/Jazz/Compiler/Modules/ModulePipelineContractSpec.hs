@@ -47,7 +47,9 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
     evaluateCompiledProgram,
     evaluateCompiledProgramWithHost,
-    lookupRuntimeModule
+    lookupRuntimeModule,
+    prepareRuntimeImportSelection,
+    runtimeExportSelectedBy
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
 import Jazz.Compiler.RuntimeHost
@@ -78,7 +80,7 @@ import Jazz.Compiler.ModuleGraph
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
-    NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
     identifierText,
     mkIdentifier,
     resolvedImportedName,
@@ -110,6 +112,7 @@ tests =
     ("compiled modules retain private interfaces with public inventories", testCompiledModuleKeepsPrivateInterfaceWithPublicInventory),
     ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
+    ("prepared runtime import selection is reusable across export kinds", testPreparedRuntimeImportSelectionIsReusable),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
@@ -535,6 +538,50 @@ explicitCapabilitySources =
         """
       )
     ]
+
+testPreparedRuntimeImportSelectionIsReusable :: IO ()
+testPreparedRuntimeImportSelectionIsReusable =
+  mapM_ assertSelection
+    [ ("whole import", importDecl Nothing Nothing, candidates),
+      ( "selective namespace collision",
+        importDecl Nothing (Just ["Shared"]),
+        Set.fromList [sharedValue, sharedConstructor, sharedMethod]
+      ),
+      ("selective capability", importDecl Nothing (Just ["Eq"]), Set.singleton equalityMethod),
+      ( "alias import",
+        importDecl (Just "Library") Nothing,
+        Set.fromList [sharedValue, sharedConstructor, answerValue]
+      )
+    ]
+  where
+    dependencyPath = ["Lib", "Selection"]
+    sharedValueExport = ModuleExport ValueNamespace "Shared"
+    sharedConstructorExport = ModuleExport ConstructorNamespace "Shared"
+    answerExport = ModuleExport ValueNamespace "answer"
+    publicInventory =
+      exportInventory
+        [ sharedValueExport,
+          sharedConstructorExport,
+          ModuleExport TypeNamespace "Shared",
+          ModuleExport CapabilityNamespace "Shared",
+          answerExport,
+          ModuleExport CapabilityNamespace "Eq"
+        ]
+    sharedValue = RuntimeBindingExport sharedValueExport
+    sharedConstructor = RuntimeBindingExport sharedConstructorExport
+    answerValue = RuntimeBindingExport answerExport
+    sharedMethod = RuntimeCapabilityMethodExport "Shared" "choose"
+    equalityMethod = RuntimeCapabilityMethodExport "Eq" "equals"
+    candidates = Set.fromList [sharedValue, sharedConstructor, answerValue, sharedMethod, equalityMethod]
+
+    importDecl alias symbols = ResolvedImport (SourceSpan 1 1) dependencyPath alias symbols
+
+    assertSelection (label, resolvedImport, expected) =
+      let preparedSelection = prepareRuntimeImportSelection resolvedImport publicInventory
+       in assertEqual
+            label
+            expected
+            (Set.filter (runtimeExportSelectedBy preparedSelection) candidates)
 
 testModuleExportIdentityPreservesNamespaces :: IO ()
 testModuleExportIdentityPreservesNamespaces = do
