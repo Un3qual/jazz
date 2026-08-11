@@ -6,7 +6,9 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Expr (..),
     SignatureConstraint (..),
@@ -58,13 +60,18 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
+    DeferredExplicitConstraint (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
     SolverState (..),
     inferClassFacts,
     inferCurrentModulePath,
+    inferDeferredExplicitConstraintCount,
+    inferDeferredExplicitConstraints,
     inferErrorCount,
+    inferInferredClassConstraintCount,
+    inferInferredClassConstraints,
     inferNextTypeVar,
     initialInferState,
     modifyDeclarationState,
@@ -84,9 +91,11 @@ import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    ScopeCapabilityFacts,
     TypeBinding (..),
     TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..)
+    TypeSchemePrimitiveConstraint (..),
+    emptyScopeCapabilityFacts
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -104,6 +113,7 @@ inferenceOwnershipTests =
     ("runtime template child failures propagate through lists and functions", testRuntimeTemplateChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
+    ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
     ("solver resolves long substitution chains and compound types", testSolverResolvesLongSubstitutionChains),
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
@@ -217,6 +227,55 @@ testStateRecordModifiers = do
                 initialInferState
             )
         )
+
+testInferenceOutputConstraintCursors :: IO ()
+testInferenceOutputConstraintCursors = do
+  assertEqual
+    "chronological deferred constraints"
+    [firstDeferred, secondDeferred]
+    (inferDeferredExplicitConstraints stateWithConstraints)
+  assertEqual
+    "deferred cursor"
+    2
+    (inferDeferredExplicitConstraintCount stateWithConstraints)
+  assertEqual
+    "newest-first inferred constraints"
+    [secondInferred, firstInferred]
+    (inferInferredClassConstraints stateWithConstraints)
+  assertEqual
+    "inferred cursor"
+    2
+    (inferInferredClassConstraintCount stateWithConstraints)
+  where
+    stateWithConstraints =
+      modifyInferenceOutput
+        ( \output ->
+            output
+              { outputDeferredConstraints = Seq.fromList [firstDeferred, secondDeferred],
+                outputDeferredConstraintCount = 2,
+                outputInferredConstraints = [secondInferred, firstInferred],
+                outputInferredConstraintCount = 2
+              }
+        )
+        initialInferState
+    firstDeferred = deferredConstraint "Eq" TIntType
+    secondDeferred = deferredConstraint "Show" TTextType
+    firstInferred = TypeSchemeInferredConstraint "Eq" TIntType
+    secondInferred = TypeSchemeMethodConstraint "Show" "Show::show" TTextType
+
+deferredConstraint :: Text -> ExpressionType -> DeferredExplicitConstraint
+deferredConstraint constraintName argumentType =
+  DeferredExplicitConstraint
+    { deferredConstraintName = constraintName,
+      deferredMethodKey = Nothing,
+      deferredWasInferred = False,
+      deferredArgumentType = argumentType,
+      deferredVisibleFacts = emptyFacts,
+      deferredStructuralFacts = emptyFacts
+    }
+  where
+    emptyFacts :: ScopeCapabilityFacts
+    emptyFacts = emptyScopeCapabilityFacts
 
 testSchemeConstraintDeduplicationOrder :: IO ()
 testSchemeConstraintDeduplicationOrder =

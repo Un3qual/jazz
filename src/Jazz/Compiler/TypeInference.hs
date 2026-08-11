@@ -136,9 +136,7 @@ import Jazz.Compiler.TypeInference.State
     InferenceOutput (..),
     ModuleInferenceState (..),
     inferDataTypes,
-    inferDeferredExplicitConstraints,
     inferErrorsRev,
-    inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     inferRuntimeTypeHints,
     inferVisibleTypes,
@@ -1232,9 +1230,13 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
     ( \output ->
         output
           { outputDeferredConstraints =
-              inferDeferredExplicitConstraints stateBeforeFunction,
+              outputDeferredConstraints (inferOutput stateBeforeFunction),
+            outputDeferredConstraintCount =
+              outputDeferredConstraintCount (inferOutput stateBeforeFunction),
             outputInferredConstraints =
-              inferInferredClassConstraints stateBeforeFunction
+              outputInferredConstraints (inferOutput stateBeforeFunction),
+            outputInferredConstraintCount =
+              outputInferredConstraintCount (inferOutput stateBeforeFunction)
           }
     )
     stateAfterApplication

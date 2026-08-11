@@ -98,9 +98,10 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     SolverState (..),
     inferDataTypes,
-    inferDeferredExplicitConstraints,
+    inferDeferredExplicitConstraintCount,
     inferErrorCount,
     inferErrorsRev,
+    inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferNumericVars,
     inferRigidTypeVars,
@@ -1237,8 +1238,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                 output
                   { outputErrorsRev = inferErrorsRev originalState,
                     outputRuntimeHints = inferRuntimeTypeHints originalState,
-                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState,
-                    outputInferredConstraints = inferInferredClassConstraints originalState
+                    outputDeferredConstraints = outputDeferredConstraints (inferOutput originalState),
+                    outputDeferredConstraintCount = inferDeferredExplicitConstraintCount originalState,
+                    outputInferredConstraints = inferInferredClassConstraints originalState,
+                    outputInferredConstraintCount = inferInferredClassConstraintCount originalState
                   }
             )
             previewState
@@ -1711,19 +1714,22 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
         ( \output ->
             output
               { outputInferredConstraints =
-                  filter
-                    (not . capturedInScheme . resolveTypeSchemeConstraint state)
-                    statementConstraints
-                    ++ priorConstraints
+                  retainedStatementConstraints ++ priorConstraints,
+                outputInferredConstraintCount =
+                  priorConstraintCount + length retainedStatementConstraints
               }
         )
         state
   where
-    priorConstraintCount = length (inferInferredClassConstraints statementStartState)
+    priorConstraintCount = inferInferredClassConstraintCount statementStartState
     currentConstraints = inferInferredClassConstraints state
-    statementConstraintCount = max 0 (length currentConstraints - priorConstraintCount)
+    statementConstraintCount = max 0 (inferInferredClassConstraintCount state - priorConstraintCount)
     statementConstraints = take statementConstraintCount currentConstraints
     priorConstraints = drop statementConstraintCount currentConstraints
+    retainedStatementConstraints =
+      filter
+        (not . capturedInScheme . resolveTypeSchemeConstraint state)
+        statementConstraints
     capturedConstraints =
       [ resolveTypeSchemeConstraint state constraint
         | binding <- bindings,

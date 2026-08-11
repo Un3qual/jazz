@@ -51,7 +51,7 @@ data ExpressionType
   | TDataType Name [ExpressionType]
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
@@ -99,7 +99,7 @@ instantiateConstructorFieldType typeParameterBindings fieldType =
         <*> instantiateConstructorFieldType typeParameterBindings resultType
 
 data IntegerLiteralRange = IntegerLiteralRange Integer Integer
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data NumericConstraint
   = AnyNumericConstraint
@@ -137,7 +137,7 @@ data TypeSchemeConstraint
   = TypeSchemeConstraint Text ExpressionType
   | TypeSchemeInferredConstraint Text ExpressionType
   | TypeSchemeMethodConstraint Text Text ExpressionType
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 type TypeEnv = Map Name TypeBinding
 

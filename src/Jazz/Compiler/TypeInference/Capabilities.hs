@@ -43,11 +43,13 @@ module Jazz.Compiler.TypeInference.Capabilities
   ) where
 
 import Control.Applicative ((<|>))
+import Data.Foldable (toList)
 import Data.List (uncons)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -126,9 +128,10 @@ import Jazz.Compiler.TypeInference.State
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
-    inferDeferredExplicitConstraints,
+    inferDeferredExplicitConstraintCount,
     inferErrorCount,
     inferGeneratedEqualityClassFacts,
+    inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     modifyDeclarationState,
@@ -712,8 +715,8 @@ newInferredClassConstraints :: InferState -> InferState -> [TypeSchemeConstraint
 newInferredClassConstraints previousState state =
   take newConstraintCount (inferInferredClassConstraints state)
   where
-    previousConstraintCount = length (inferInferredClassConstraints previousState)
-    currentConstraintCount = length (inferInferredClassConstraints state)
+    previousConstraintCount = inferInferredClassConstraintCount previousState
+    currentConstraintCount = inferInferredClassConstraintCount state
     newConstraintCount = max 0 (currentConstraintCount - previousConstraintCount)
 
 inferredConstraintTargetPreserved :: InferState -> Set Int -> ExpressionType -> Bool
@@ -909,8 +912,10 @@ deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints stat
         ( \output ->
             output
               { outputDeferredConstraints =
-                  inferDeferredExplicitConstraints state
-                    ++ map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints
+                  outputDeferredConstraints output
+                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints),
+                outputDeferredConstraintCount =
+                  outputDeferredConstraintCount output + length explicitConstraints
               }
         )
         state
@@ -961,15 +966,21 @@ resolveStatementDeferredExplicitConstraints :: [TypeSchemeConstraint] -> InferSt
 resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state =
   foldl' resolveDeferredExplicitConstraint stateWithoutStatementConstraints statementConstraints
   where
-    priorConstraints = inferDeferredExplicitConstraints statementStartState
-    currentConstraints = inferDeferredExplicitConstraints state
+    priorConstraintCount = inferDeferredExplicitConstraintCount statementStartState
+    currentConstraints = outputDeferredConstraints (inferOutput state)
+    priorConstraints = Seq.take priorConstraintCount currentConstraints
     statementConstraints =
       filter
         (not . deferredConstraintIsEntailed state entailingConstraints)
-        (drop (length priorConstraints) currentConstraints)
+        (toList (Seq.drop priorConstraintCount currentConstraints))
     stateWithoutStatementConstraints =
       modifyInferenceOutput
-        (\output -> output {outputDeferredConstraints = priorConstraints})
+        ( \output ->
+            output
+              { outputDeferredConstraints = priorConstraints,
+                outputDeferredConstraintCount = priorConstraintCount
+              }
+        )
         state
 
 deferredConstraintIsEntailed :: InferState -> [TypeSchemeConstraint] -> DeferredExplicitConstraint -> Bool
@@ -1858,7 +1869,8 @@ addInferredClassConstraint constraintName argumentType state =
     ( \output ->
         output
           { outputInferredConstraints =
-              TypeSchemeInferredConstraint constraintName argumentType : inferInferredClassConstraints state
+              TypeSchemeInferredConstraint constraintName argumentType : outputInferredConstraints output,
+            outputInferredConstraintCount = outputInferredConstraintCount output + 1
           }
     )
     state
@@ -1869,7 +1881,8 @@ addInferredMethodClassConstraint constraintName methodKey argumentType state =
     ( \output ->
         output
           { outputInferredConstraints =
-              TypeSchemeMethodConstraint constraintName methodKey argumentType : inferInferredClassConstraints state
+              TypeSchemeMethodConstraint constraintName methodKey argumentType : outputInferredConstraints output,
+            outputInferredConstraintCount = outputInferredConstraintCount output + 1
           }
     )
     state

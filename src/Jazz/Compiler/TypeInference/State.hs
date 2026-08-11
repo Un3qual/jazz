@@ -14,10 +14,12 @@ module Jazz.Compiler.TypeInference.State
     inferCurrentModulePath,
     inferRuntimeHintPath,
     inferDataTypes,
+    inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
     inferGeneratedEqualityClassFacts,
+    inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     inferNextTypeVar,
@@ -35,8 +37,11 @@ module Jazz.Compiler.TypeInference.State
 
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -86,8 +91,10 @@ data ModuleInferenceState = ModuleInferenceState
 
 data InferenceOutput = InferenceOutput
   { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
-    outputDeferredConstraints :: [DeferredExplicitConstraint],
+    outputDeferredConstraints :: Seq DeferredExplicitConstraint,
+    outputDeferredConstraintCount :: Int,
     outputInferredConstraints :: [TypeSchemeConstraint],
+    outputInferredConstraintCount :: Int,
     outputErrorsRev :: [Diagnostic],
     outputErrorCount :: Int
   }
@@ -154,8 +161,10 @@ initialInferState =
       inferOutput =
         InferenceOutput
           { outputRuntimeHints = Map.empty,
-            outputDeferredConstraints = [],
+            outputDeferredConstraints = Seq.empty,
+            outputDeferredConstraintCount = 0,
             outputInferredConstraints = [],
+            outputInferredConstraintCount = 0,
             outputErrorsRev = [],
             outputErrorCount = 0
           }
@@ -213,10 +222,16 @@ inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]
-inferDeferredExplicitConstraints = outputDeferredConstraints . inferOutput
+inferDeferredExplicitConstraints = toList . outputDeferredConstraints . inferOutput
+
+inferDeferredExplicitConstraintCount :: InferState -> Int
+inferDeferredExplicitConstraintCount = outputDeferredConstraintCount . inferOutput
 
 inferInferredClassConstraints :: InferState -> [TypeSchemeConstraint]
 inferInferredClassConstraints = outputInferredConstraints . inferOutput
+
+inferInferredClassConstraintCount :: InferState -> Int
+inferInferredClassConstraintCount = outputInferredConstraintCount . inferOutput
 
 inferErrorsRev :: InferState -> [Diagnostic]
 inferErrorsRev = outputErrorsRev . inferOutput
