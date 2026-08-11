@@ -1,23 +1,22 @@
 ---
-id: JN-COMPILER-PERFORMANCE-RECURSIVE-PREVIEWS-007
+id: JN-COMPILER-PERFORMANCE-RECURSIVE-FACTS-008
 status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3e: Reuse recursive-group previews"
+plan_section: "Task 4a: Build recursive dependency facts in one pass"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs
+  - src/Jazz/Compiler/RecursiveBindings.hs
+  - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-previews --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
+  - cabal test jazz-recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-facts --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Reuse recursive-group preview inference across semantically equivalent intervening statements so each future body is inferred once per necessary environment state, preserving transactional output, diagnostics, and type-variable identity."
+deliverable: "Build same-name declaration order and visible-before dependency facts with append-efficient, source-order folds, preserving nested visibility, rebinding resolution, SCC membership, and declaration order."
 last_verified: 2026-08-10
 ---
 
@@ -689,28 +688,69 @@ scans, but it deliberately did not remove this duplicate body inference.
 `test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Characterize the exact environment facts, solver watermark, output
+- [x] Characterize the exact environment facts, solver watermark, output
       rollback, diagnostics, signatures, rebindings, and dependency guards that
       make two recursive previews reusable or distinct.
-- [ ] Add a focused probe that counts future recursive-body inference across
+- [x] Add a focused probe that counts future recursive-body inference across
       multiple safe intervening lets and demonstrates the old repeated-work
       growth without asserting wall-clock time.
-- [ ] Cache an immutable preview product at the narrowest semantically valid
+- [x] Cache an immutable preview product at the narrowest semantically valid
       scope. Reuse it only when referenced bindings, capability facts, pending
       signatures, and solver identities are equivalent; keep the existing path
       for genuinely distinct environments.
-- [ ] Preserve the allocation watermark and discard all speculative diagnostics,
+- [x] Preserve the allocation watermark and discard all speculative diagnostics,
       runtime hints, deferred constraints, inferred constraints, and production
       artifacts exactly as today.
-- [ ] Run the complete binding-signature and generated-stage suites, then record
+- [x] Run the complete binding-signature and generated-stage suites, then record
       a compatible interleaved-recursive-group curve plus stable-stage, hotspot,
       and live-heap evidence for the largest case.
+
+### Recursive-preview reuse receipt
+
+The implementation landed in `d74541d1`; the isolating generated fixture landed
+in `0ac59993`. A narrow source-order cache keys preview products by recursive
+group frontier and processed member, retains only generalized bindings plus the
+next type-variable watermark, and is cleared across every statement kind that
+can change the relevant environment. Advancing a real group member drops that
+group's cached previews immediately. Actual source-order inference still owns
+all diagnostics, output, constraints, runtime hints, and production artifacts.
+
+The deterministic ownership probe inferred 13 bodies before the change and 11
+after it: five binding seeds, five actual source bodies, and one reusable
+preview. The complete binding-signature and generated-stage suites pass, fixing
+diagnostic order, signatures, rebindings, deferred/inferred constraint order,
+type-variable identity, exact runtime output `(1, True)`, and benchmark registry
+ownership without a physical threshold.
+
+The compatible optimized receipts are
+`benchmark-results/compiler-recursive-preview-before/20260811T050916785367000000Z/`
+and
+`benchmark-results/compiler-recursive-preview-after/20260811T050953880070000000Z/`.
+After excluding run identity, revision, timestamp, and the intentional label,
+their environment metadata is identical and both source trees were clean.
+
+| Groups | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before copied | After copied |
+| -----: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ------------: | -----------: |
+|     16 |     2.056 |    1.831 |            1.1x |         6,126,500 |        5,710,508 |                   1.1x |       298,111 |      265,372 |
+|     32 |     5.749 |    5.365 |            1.1x |        15,178,835 |       14,426,541 |                   1.1x |     1,605,148 |    1,589,327 |
+|     64 |    14.824 |   13.643 |            1.1x |        42,740,438 |       41,324,377 |                   1.0x |     4,703,825 |    4,378,728 |
+|    128 |    40.647 |   36.961 |            1.1x |       135,229,333 |      132,779,408 |                   1.0x |    11,930,251 |   11,573,524 |
+
+The optimized high-water at 128 groups fell from 18 MB to 17 MB. In the
+standalone stable-stage profile, elapsed time fell from 67.2 ms to 61.8 ms and
+process allocation from 5,875,739,408 to 5,706,648,888 bytes. Its sampled
+maximum residency moved from 4,769,264 to 5,783,552 bytes, while the independent
+cost-centre heap census was effectively flat at 3,984,872 versus 3,985,160
+bytes. Both results are retained: the cache earns a repeatable CPU/allocation
+gain and bounded lifetime, but this batch does not claim a standalone residency
+win. Stable-stage, eventlog, hotspot, and heap artifacts are under
+`profile-results/compiler-recursive-preview-{before,after}/`.
 
 ## Task 3: Remove type-checker asymptotic work
 
 - [x] Replace append/length delta tracking with append-efficient buffers and
       explicit cursors while preserving constraint order.
-- [ ] Infer each recursive body once per necessary environment state and cache
+- [x] Infer each recursive body once per necessary environment state and cache
       reusable group results.
 - [x] Maintain environment free-variable summaries or levels instead of
       rescanning the complete visible environment per generalization.
@@ -729,6 +769,31 @@ scans, but it deliberately did not remove this duplicate body inference.
       semantics agree.
 - [ ] Assign stable lambda IDs during owned lowering, compute capture plans
       once, and stop retaining/searching lambda `Expr` bodies as keys.
+
+### Task 4a: Build recursive dependency facts in one pass
+
+`inferRecursiveGroupsOrdered` currently builds each same-name declaration list
+with `old ++ new` and reconstructs the complete visible-before name set by
+scanning every declaration for every declaration. This is independent of the
+already-fixed recursive-preview interval scan and remains on every resolver,
+inference, analyzer, nested free-variable, and runtime-scope analysis path.
+
+**Files:** `src/Jazz/Compiler/RecursiveBindings.hs`,
+`test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Preserve the existing generated interleaved-recursive curve as the full
+      compiler baseline and add a direct deterministic fact-builder probe only
+      if the existing corpus does not isolate same-name/visibility growth.
+- [ ] Build ascending same-name declaration indices with prepend-and-finalize
+      or another append-efficient representation.
+- [ ] Thread the visible-before set through the source-order dependency fold so
+      each declaration extends it once instead of rescanning all declarations.
+- [ ] Preserve nearest-prior, outer-shadowing, same-name self-cell, first-future,
+      nested-scope, SCC, and source-order contracts exactly.
+- [ ] Run the recursive-binding and generated-stage suites, capture compatible
+      before/after optimized plus stable-stage/hotspot/heap evidence, commit the
+      batch, and then promote immutable fact transport.
 
 ## Task 5: Index interfaces and compact compiled lifetime
 
