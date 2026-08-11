@@ -76,6 +76,7 @@ compilerScaleCases =
   map sequentialPolymorphicCase [64, 128, 256, 512]
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
+    <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map constrainedSignaturesCase [32, 64, 128, 256]
     <> map deferredConstraintBurstCase [128, 256, 512, 1024]
     <> map deepNestedLambdasCase [16, 32, 64, 128]
@@ -281,6 +282,66 @@ interleavedRecursiveGroupsSource groupCount =
           <> recursiveBindingName "left" groupIndex
           <> " 1."
       ]
+
+recursivePreviewBurstCase :: Int -> CompilerScaleCase
+recursivePreviewBurstCase groupCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "recursive-preview-burst-" <> paddedDecimal 4 groupCount,
+      compilerScaleCaseScenario = InterleavedRecursiveGroups,
+      compilerScaleCaseSize = groupCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (recursivePreviewBurstSource groupCount),
+      compilerScaleCaseExpectedOutput = "(1, True)"
+    }
+
+recursivePreviewBurstSource :: Int -> Text
+recursivePreviewBurstSource groupCount =
+  Text.unlines
+    ( ["module Main {"]
+        <> concatMap renderGroup [0 .. groupCount - 1]
+        <> [ "  ("
+               <> recursiveBindingName "late" finalGroup
+               <> ", "
+               <> recursiveBindingName "previewThree" finalGroup
+               <> ").",
+             "}"
+           ]
+    )
+  where
+    finalGroup = groupCount - 1
+    renderGroup groupIndex =
+      [ "  "
+          <> recursiveBindingName "left" groupIndex
+          <> " = if True then \\(item) -> item else "
+          <> recursiveBindingName "right" groupIndex
+          <> ".",
+        renderPreview "previewOne" groupIndex,
+        renderPreview "previewTwo" groupIndex,
+        renderPreview "previewThree" groupIndex,
+        "  "
+          <> recursiveBindingName "right" groupIndex
+          <> " = if False then \\(item) -> item else "
+          <> recursiveBindingName "left" groupIndex
+          <> ".",
+        "  "
+          <> recursiveBindingName "late" groupIndex
+          <> " = "
+          <> recursiveBindingName "left" groupIndex
+          <> " 1."
+      ]
+    renderPreview prefix groupIndex =
+      "  "
+        <> recursiveBindingName prefix groupIndex
+        <> " = "
+        <> recursiveBindingName "left" groupIndex
+        <> " True."
 
 recursiveBindingName :: Text -> Int -> Text
 recursiveBindingName prefix groupIndex = prefix <> paddedDecimal 4 groupIndex

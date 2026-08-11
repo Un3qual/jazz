@@ -48,6 +48,7 @@ tests =
     ("sequential polymorphism preserves exact compiler semantics", testSequentialPolymorphismSemantics),
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
+    ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
     ("constrained signatures preserve exact compiler semantics", testConstrainedSignatureSemantics),
     ("deferred constraint bursts preserve exact compiler semantics", testDeferredConstraintBurstSemantics),
     ("deep nested lambdas preserve exact compiler semantics", testDeepNestedLambdaSemantics),
@@ -77,6 +78,10 @@ testCompilerScaleRegistry =
       ("interleaved-recursive-groups-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("interleaved-recursive-groups-0064", InterleavedRecursiveGroups, 64, Nothing),
       ("interleaved-recursive-groups-0128", InterleavedRecursiveGroups, 128, Nothing),
+      ("recursive-preview-burst-0016", InterleavedRecursiveGroups, 16, Nothing),
+      ("recursive-preview-burst-0032", InterleavedRecursiveGroups, 32, Nothing),
+      ("recursive-preview-burst-0064", InterleavedRecursiveGroups, 64, Nothing),
+      ("recursive-preview-burst-0128", InterleavedRecursiveGroups, 128, Nothing),
       ("constrained-signatures-0032", ConstrainedSignatures, 32, Nothing),
       ("constrained-signatures-0064", ConstrainedSignatures, 64, Nothing),
       ("constrained-signatures-0128", ConstrainedSignatures, 128, Nothing),
@@ -195,6 +200,14 @@ testInterleavedRecursiveGroupSemantics = do
   programCase <- loadCompilerScaleCase "interleaved-recursive-groups-0016"
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "interleaved recursive group output" "(1, True)" actualOutput
+  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testRecursivePreviewBurstSemantics :: IO ()
+testRecursivePreviewBurstSemantics = do
+  programCase <- loadCompilerScaleCase "recursive-preview-burst-0016"
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "recursive preview burst output" "(1, True)" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
