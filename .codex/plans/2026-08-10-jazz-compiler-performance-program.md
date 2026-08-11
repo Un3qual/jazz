@@ -1,25 +1,22 @@
 ---
-id: JN-COMPILER-PERFORMANCE-OPERATOR-TABLE-015
+id: JN-COMPILER-PERFORMANCE-IMPORT-ALIAS-SCAN-016
 status: ready
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 6a: Preindex operator scope"
+plan_section: "Task 6b: Remove parser and resolver repeat passes"
 target_paths:
-  - src/Jazz/Compiler/Parser/Context.hs
-  - src/Jazz/Compiler/Parser/Operator.hs
-  - src/Jazz/Compiler/Parser/Declaration.hs
-  - src/Jazz/Compiler/Parser/Expression.hs
-  - test/Jazz/Compiler/Parser/ExpressionParserSpec.hs
+  - src/Jazz/Compiler/Parser.hs
+  - test/Jazz/Compiler/Parser/DeclarationParserSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test expression-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-operator-table --time-mode=cpu --jazz-scale-case=large-operator-tables-0016 --jazz-scale-case=large-operator-tables-0032 --jazz-scale-case=large-operator-tables-0064 --jazz-scale-case=large-operator-tables-0128 --pattern=parse-lower +RTS -T -RTS' --jobs=1
+  - cabal test declaration-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-import-alias-scan --time-mode=cpu --jazz-scale-case=nested-blocks-0016 --jazz-scale-case=nested-blocks-0032 --jazz-scale-case=nested-blocks-0064 --jazz-scale-case=nested-blocks-0128 --pattern=parse-lower +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Build and incrementally update one scope-aware operator index so expression parsing no longer allocates declared-plus-builtin lists or linearly scans fixity metadata for every operator, while preserving declaration visibility, duplicate rules, fixity, associativity, diagnostics, and hosted parity."
+deliverable: "Stop rescanning nested token tails for import aliases in scopes where imports are invalid, while preserving legal top-level and module-body forward-alias visibility, nested-import diagnostics, exact ASTs, and hosted parity."
 last_verified: 2026-08-11
 ---
 
@@ -1090,15 +1087,33 @@ peak also fell from 17 MB to 16 MB. Artifacts are under
 
 ### Task 6a: Preindex operator scope
 
-- [ ] Record the large-operator-table parse/lower curve and
+- [x] Record the large-operator-table parse/lower curve and
       stable-stage/hotspot/heap evidence before changing parser context.
-- [ ] Replace repeated `declaredOperators <> builtinOperatorInfos` allocation
+- [x] Replace repeated `declaredOperators <> builtinOperatorInfos` allocation
       and scans with one incrementally updated, scope-local symbol index.
-- [ ] Preserve declaration-before-use visibility, duplicate/reserved checks,
+- [x] Preserve declaration-before-use visibility, duplicate/reserved checks,
       custom precedence and associativity, diagnostics, exact surface/Core ASTs,
       module isolation, and hosted parity.
-- [ ] Run expression/operator parser and generated-stage suites, capture
+- [x] Run expression/operator parser and generated-stage suites, capture
       comparable after evidence, and promote import-alias scan removal.
+
+The indexed operator table landed in `75408fc1`. Parser context now carries one
+scope-local `Map Text OperatorInfo` plus a declared-symbol `Set`, so builtin and
+user fixity lookup is logarithmic and no use site constructs or scans a
+declared-plus-builtin list. Incremental insertion preserves declaration-before-
+use behavior, while the separate set preserves binding/signature eligibility
+and duplicate diagnostics. Expression, fixity, invalid-syntax, section, and
+generated-stage suites pass.
+
+At 128 declarations, CPU fell from 1.550 ms to 1.479 ms (4.6%), allocation from
+9,432,895 to 9,083,236 bytes (3.7%), and copied bytes from 620,284 to 580,884
+(6.4%); the 7 MiB benchmark peak was unchanged. The stable profiled process
+allocated 7,789,845,096 versus 7,497,572,296 bytes (3.8% less), copied 3.4% less,
+and maximum residency moved from 982,344 to 970,928 bytes. The independent heap
+census sampled 678,040 versus 687,216 bytes, a small non-win that is reported
+rather than hidden. Artifacts are under
+`benchmark-results/compiler-operator-table-{before,after}/` and
+`profile-results/compiler-operator-table-{before,after}/`.
 
 ### Task 6b: Remove parser and resolver repeat passes
 
