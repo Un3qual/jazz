@@ -170,7 +170,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface s
     statementFailures =
       orderedStatementFailures
         (length statements)
-        [recursiveFailures, shapeFailures, profileFailures]
+        [shapeFailures, recursiveFailures, profileFailures]
     allFailures =
       moduleFailures
         <> resultRepresentationFailures

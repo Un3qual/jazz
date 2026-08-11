@@ -1178,7 +1178,6 @@ lowererBoundaryPrograms =
     ("closure-shaped-named-application", closureShapeApplicationLowererProgram),
     ("callable-parameter-shadows-top-level-lowerer", callableParameterShadowsTopLevelLowererProgram),
     ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
-    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
@@ -1189,11 +1188,9 @@ lowererBoundaryPrograms =
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
-    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
     ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
     ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
     ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
-    ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
@@ -1207,7 +1204,10 @@ invalidLowererBoundaryPrograms =
   [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
     ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
     ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
-    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram)
+    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram),
+    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
+    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
+    ("bare-function-value", bareFunctionLowererProgram)
   ]
 
 independentLowererPrograms :: [(Text, TypedProgram)]
