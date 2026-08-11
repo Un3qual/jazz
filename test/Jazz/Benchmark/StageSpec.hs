@@ -49,6 +49,7 @@ tests =
     ("sequential polymorphism preserves exact compiler semantics", testSequentialPolymorphismSemantics),
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("resolver fact-rich modules preserve exact compiler semantics", testResolverFactRichSemantics),
+    ("typed validation handoff lowers exact valid programs", testTypedValidationHandoffSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
     ("same-name rebinding bursts preserve exact compiler semantics", testRecursiveRebindingBurstSemantics),
@@ -89,6 +90,10 @@ testCompilerScaleRegistry =
       ("resolver-fact-rich-0032", ResolverFactRich, 32, Nothing),
       ("resolver-fact-rich-0064", ResolverFactRich, 64, Nothing),
       ("resolver-fact-rich-0128", ResolverFactRich, 128, Nothing),
+      ("typed-validation-handoff-0064", TypedValidationHandoff, 64, Nothing),
+      ("typed-validation-handoff-0128", TypedValidationHandoff, 128, Nothing),
+      ("typed-validation-handoff-0256", TypedValidationHandoff, 256, Nothing),
+      ("typed-validation-handoff-0512", TypedValidationHandoff, 512, Nothing),
       ("interleaved-recursive-groups-0016", InterleavedRecursiveGroups, 16, Nothing),
       ("interleaved-recursive-groups-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("interleaved-recursive-groups-0064", InterleavedRecursiveGroups, 64, Nothing),
@@ -233,6 +238,12 @@ testResolverFactRichSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "resolver fact-rich output" "Token" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testTypedValidationHandoffSemantics :: IO ()
+testTypedValidationHandoffSemantics = do
+  programCase <- loadCompilerScaleCase "typed-validation-handoff-0064"
+  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testInterleavedRecursiveGroupSemantics :: IO ()

@@ -28,6 +28,7 @@ data BenchmarkGroup
   = ParseLowerBenchmark
   | AnalysisBenchmark
   | ModulePreparationBenchmark
+  | TypedLoweringBenchmark
   | RuntimeBenchmark
   | WholeProgramBenchmark
   deriving (Bounded, Enum, Eq, Ord, Show)
@@ -67,6 +68,7 @@ benchmarkGroupName group =
     ParseLowerBenchmark -> "parse-lower"
     AnalysisBenchmark -> "analysis"
     ModulePreparationBenchmark -> "module-preparation"
+    TypedLoweringBenchmark -> "typed-lowering"
     RuntimeBenchmark -> "runtime"
     WholeProgramBenchmark -> "whole-program"
 
@@ -76,6 +78,7 @@ benchmarkGroupStages group =
     ParseLowerBenchmark -> [LexingStage, ParsingStage, LoweringStage]
     AnalysisBenchmark -> [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]
     ModulePreparationBenchmark -> [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]
+    TypedLoweringBenchmark -> [TypeInferenceStage, LoweringStage]
     RuntimeBenchmark -> [EvaluationStage, HostOperationStage]
     WholeProgramBenchmark -> [minBound .. maxBound]
 

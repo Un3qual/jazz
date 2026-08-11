@@ -33,6 +33,7 @@ data CompilerScaleScenario
   | WideModuleFanout
   | SharedInterfaceFanout
   | ResolverFactRich
+  | TypedValidationHandoff
   | InterleavedRecursiveGroups
   | RecursiveRebindings
   | ConstrainedSignatures
@@ -81,6 +82,7 @@ compilerScaleCases =
     <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
     <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
     <> map resolverFactRichCase [16, 32, 64, 128]
+    <> map typedValidationHandoffCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
@@ -272,6 +274,20 @@ resolverFactRichTypesSource =
 resolverFactRichValuesSource :: Text
 resolverFactRichValuesSource =
   "module Support::Values (identity, seed) { identity = \\(item) -> item. seed = 1. }"
+
+typedValidationHandoffCase :: Int -> CompilerScaleCase
+typedValidationHandoffCase expressionCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = "typed-validation-handoff-" <> paddedDecimal 4 expressionCount,
+      compilerScaleCaseScenario = TypedValidationHandoff,
+      compilerScaleCaseSize = expressionCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
 
 moduleName :: Int -> Text
 moduleName index = "Module" <> paddedDecimal 4 index

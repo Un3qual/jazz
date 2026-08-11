@@ -216,6 +216,20 @@ runSmoke :: [ProgramCase] -> IO ()
 runSmoke programCases =
   forM_ ([minBound .. maxBound] :: [BenchmarkGroup]) $ \benchmarkGroup ->
     case find (isFastParticipant benchmarkGroup) programCases of
+      Nothing
+        | benchmarkGroup == TypedLoweringBenchmark ->
+            case find ((benchmarkGroup `elem`) . compilerScaleCaseBenchmarks) compilerScaleCases of
+              Nothing ->
+                ioError (userError "no generated case participates in typed-lowering smoke")
+              Just programCase -> do
+                TextIO.putStrLn
+                  ( "SMOKE "
+                      <> benchmarkGroupName benchmarkGroup
+                      <> "/"
+                      <> compilerScaleCaseIdentifier programCase
+                  )
+                prepareCompilerScaleBenchmark benchmarkGroup programCase
+                  >>= runPreparedCompilerScaleBenchmark
       Nothing ->
         ioError
           ( userError

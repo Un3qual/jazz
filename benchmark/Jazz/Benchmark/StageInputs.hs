@@ -34,12 +34,17 @@ import Jazz.Benchmark.ScaleCases
     compilerScaleCaseExpectedOutput,
     compilerScaleCaseIdentifier,
     compilerScaleCaseResolutionConfig,
+    compilerScaleCaseSize,
     compilerScaleCaseSource,
   )
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
+import Jazz.Compiler.LoweredIR.Lower
+  ( LoweredIRLoweringResult (..),
+    lowerTypedCoreExpressionDirectCall,
+  )
 import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
 import Jazz.Compiler.ModuleGraph
   ( ResolvedModule (..),
@@ -53,13 +58,13 @@ import Jazz.Compiler.ModuleInterface
     compiledModuleErrors,
     compiledProgramErrors,
   )
-import Jazz.Compiler.ModuleRuntime
-  ( RuntimeProgram (runtimeProgramOutput),
-    evaluateCompiledProgram,
-  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolveProgramWithAmbientExports,
+  )
+import Jazz.Compiler.ModuleRuntime
+  ( RuntimeProgram (runtimeProgramOutput),
+    evaluateCompiledProgram,
   )
 import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
 import Jazz.Compiler.Parser.Lexer (tokenize)
@@ -74,6 +79,8 @@ import Jazz.Compiler.Profiling
     withCompilerStage,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
@@ -99,6 +106,7 @@ data PreparedCompilerScaleBenchmark
   = PreparedCompilerScaleParseLower CompilerScaleCase Text
   | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
+  | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
 instance NFData PreparedBenchmark where
@@ -131,6 +139,8 @@ instance NFData PreparedCompilerScaleBenchmark where
                 resolvedModule `seq`
                   ()
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
+      PreparedCompilerScaleTypedLowering programCase typedProgram ->
+        rnf programCase `seq` typedProgram `seq` ()
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
@@ -169,6 +179,7 @@ prepareBenchmark benchmarkGroup programCase =
             entryModule
         )
     ModulePreparationBenchmark -> pure (PreparedModulePreparation programCase)
+    TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> PreparedRuntime programCase <$> prepareValidProgram programCase
     WholeProgramBenchmark -> pure (PreparedWholeProgram programCase)
 
@@ -210,6 +221,17 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
             entryModule
         )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
+    TypedLoweringBenchmark -> do
+      let typedProgram = typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
+      case validateTypedProgram typedProgram of
+        [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
+        failures ->
+          ioError
+            ( userError
+                ( "typed-lowering scale fixture is invalid: "
+                    <> show failures
+                )
+            )
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
 
@@ -262,6 +284,16 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
       case compiledResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right compiledProgram -> requireNoCompileErrors compiledProgram
+    PreparedCompilerScaleTypedLowering _ typedProgram ->
+      withCompilerStage LoweringStage $ do
+        case validateTypedProgram typedProgram of
+          failures@(_ : _) ->
+            ioError (userError ("trusted typed program failed producer validation: " <> show failures))
+          [] ->
+            case lowerTypedCoreExpressionDirectCall typedProgram of
+              LoweredIRSucceeded _ -> pure ()
+              loweringResult ->
+                ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
     PreparedCompilerScaleWholeProgram programCase -> do
       actualOutput <- runCompilerScaleCase programCase
       if actualOutput == compilerScaleCaseExpectedOutput programCase
@@ -355,6 +387,43 @@ runCompilerScaleCase programCase = do
       Left diagnostic -> failBenchmarkDiagnostic diagnostic
       Right runtimeProgram ->
         pure (maybe "" renderRuntimeValue (runtimeProgramOutput runtimeProgram))
+
+typedValidationBenchmarkProgram :: Int -> TypedProgram
+typedValidationBenchmarkProgram expressionCount =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        (TypedSourcePath "compiler-scale/TypedValidation.jz")
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [TypedExpressionStatement (TypedSpan 1 1) expression]
+        intInfo
+    ]
+    modulePath
+  where
+    modulePath = ["TypedValidation"]
+    intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
+    intExpression :: Int -> TypedExpr
+    intExpression value =
+      TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))
+    expression =
+      foldl'
+        (\left value -> TypedBinaryExpr intInfo (TypedBuiltinOperator "+") left (intExpression value))
+        (intExpression 0)
+        [1 .. expressionCount]
+
+unsupportedCorpusGroup :: BenchmarkGroup -> ProgramCase -> IO value
+unsupportedCorpusGroup benchmarkGroup programCase =
+  ioError
+    ( userError
+        ( "unsupported corpus benchmark group for "
+            <> Text.unpack (programCaseIdentifier programCase)
+            <> ": "
+            <> show benchmarkGroup
+        )
+    )
 
 unsupportedCompilerScaleGroup :: BenchmarkGroup -> CompilerScaleCase -> IO value
 unsupportedCompilerScaleGroup benchmarkGroup programCase =

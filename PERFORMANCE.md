@@ -132,6 +132,7 @@ The benchmark tree has five boundaries:
 | `parse-lower`        | Tokenize, parse the surface program, and lower to the core AST |
 | `analysis`           | Re-analyze the lowered entry module with imported interfaces   |
 | `module-preparation` | Discover, resolve, analyze, and prepare a module program       |
+| `typed-lowering`     | Validate trusted Typed Core and lower it into Lowered IR       |
 | `runtime`            | Evaluate an already prepared program                           |
 | `whole-program`      | Load the entry program through final runtime result            |
 
@@ -160,6 +161,7 @@ scenario families isolate these growth curves:
 | Wide module fanout, width 1       | 64, 128, 256, 512       | `module-preparation`, `whole-program` | `0`                      |
 | Shared-interface fanout, width 16 | 16, 32, 64, 128 modules | `module-preparation`, `whole-program` | `0`                      |
 | Resolver fact-rich declarations   | 16, 32, 64, 128 groups  | `module-preparation`                  | `Token`                  |
+| Typed validation handoff          | 64, 128, 256, 512 nodes | `typed-lowering`                      | valid Lowered IR         |
 | Interleaved recursive groups      | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
 | Constrained signatures            | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
 | Deep nested lambdas               | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
