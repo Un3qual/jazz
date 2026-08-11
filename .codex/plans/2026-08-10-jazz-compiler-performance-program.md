@@ -1,25 +1,29 @@
 ---
-id: JN-COMPILER-PERFORMANCE-OWNED-PREFIX-CURSOR-017
+id: JN-COMPILER-PERFORMANCE-INDEXED-TOKENS-018
 status: ready
 priority: P1
-size: M
+size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
 plan_section: "Task 6b: Remove parser and resolver repeat passes"
 target_paths:
+  - src/Jazz/Compiler/Parser/Lexer.hs
+  - src/Jazz/Compiler/Parser.hs
   - src/Jazz/Compiler/Parser/Declaration.hs
+  - src/Jazz/Compiler/Parser/Expression.hs
+  - src/Jazz/Compiler/Parser/Pattern.hs
   - src/Jazz/Compiler/Parser/TokenParser.hs
   - test/Jazz/Compiler/Parser/DeclarationParserSpec.hs
   - test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs
   - test/Jazz/Compiler/Parser/TokenParserSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test token-parser-spec declaration-parser-spec module-import-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-owned-prefix-cursor --time-mode=cpu --jazz-scale-case=long-token-stream-01024 --jazz-scale-case=long-token-stream-04096 --jazz-scale-case=long-token-stream-16384 --jazz-scale-case=long-token-stream-65536 --pattern=parse-lower +RTS -T -RTS' --jobs=1
+  - cabal test token-parser-spec expression-parser-spec declaration-parser-spec module-import-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-indexed-tokens --time-mode=cpu --jazz-scale-case=long-token-stream-01024 --jazz-scale-case=long-token-stream-04096 --jazz-scale-case=long-token-stream-16384 --jazz-scale-case=long-token-stream-65536 --pattern=parse-lower +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Advance Megaparsec directly to the remainder returned by owned declaration parsers and reuse one compact-signature parse for discrimination and output, while preserving token remainders, exact diagnostics and spans, ASTs, and hosted parity."
+deliverable: "Move parser input to indexed token storage with source-backed spans and a state-correct cursor, then eliminate the owned-prefix adapter's second consumed-prefix walk without retaining prior input; preserve token payloads required by semantics, exact diagnostics/spans, ASTs, and hosted parity."
 last_verified: 2026-08-11
 ---
 
@@ -1122,8 +1126,10 @@ rather than hidden. Artifacts are under
 
 - [x] Collect legal import aliases in
       the main module parse rather than rescanning nested token tails.
-- [ ] Replace the owned-prefix/list adapter with one cursor-based parse and
-      reuse compact-signature discrimination.
+- [x] Reuse one compact-signature parse for discrimination and output.
+- [ ] Replace the owned-prefix/list adapter with one state-correct cursor as
+      part of indexed token storage; do not retain earlier input in Megaparsec
+      position state.
 - [ ] Move tokens to indexed storage with source offsets/spans and own `Text`
       only where later semantics require it.
 - [ ] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
@@ -1149,6 +1155,25 @@ to 751,968 bytes (1.3%), and the independent heap census fell from 570,120 to
 563,800 bytes (1.1%). Artifacts are under
 `benchmark-results/compiler-import-alias-scan-{before,after}/` and
 `profile-results/compiler-import-alias-scan-{before,after}/`.
+
+Compact-signature parse reuse landed in `97da3c48`, after `df61c708` added the
+parse/lower boundary to the existing constrained-signature scale family. The
+alias-versus-signature discriminator now returns the already parsed signature
+instead of parsing the same token prefix again. Exact compact/non-compact,
+constructor/lowercase, alias-shadowing, diagnostic-span, and generated-stage
+tests pass. At 256 signatures, CPU fell from 7.852 ms to 7.700 ms (1.9%);
+allocation, copied bytes, the 10 MiB benchmark peak, and exact 3.15 MB stable
+maximum residency were flat. The independent heap census moved from 2,420,464
+to 2,463,824 bytes, so no residency win is claimed. Artifacts are under
+`benchmark-results/compiler-compact-signature-{before,after}/` and
+`profile-results/compiler-compact-signature-{before,after}/`.
+
+A direct list-remainder `setInput` experiment was deliberately rejected. It
+cut long-stream CPU and allocation, but Megaparsec's parser/position state kept
+earlier input live: stable maximum residency rose from 31,834,880 to 37,068,168
+bytes (16.4%) and the heap census rose about 18%. The ignored exploratory
+artifacts remain under `compiler-owned-prefix-cursor-*`. The cursor removal is
+therefore coupled to indexed token storage rather than masking the regression.
 
 ## Full closeout
 
