@@ -54,6 +54,8 @@ tests =
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
     ("recursive groups let a scalar block rebinding hide a prior callable", testRecursiveGroupsPreferLatestScalarBlockRebinding),
+    ("recursive groups ignore eager self operator use in a conditional", testRecursiveGroupsIgnoreEagerOperatorConditional),
+    ("recursive groups retain alias-only operator self cycles", testRecursiveGroupsKeepAliasOnlyOperatorSelfCycle),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("nested local self recursion stays local to the block", testFreeVarsScopeKeepsNestedSelfRecursionLocal),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
@@ -298,6 +300,30 @@ innerCallable =
   ELambda
     (ident "x")
     (EApply (EVar (ident "f")) (EVar (ident "x")))
+
+testRecursiveGroupsIgnoreEagerOperatorConditional :: IO ()
+testRecursiveGroupsIgnoreEagerOperatorConditional =
+  assertEqual
+    "eager operator condition prevents alias-only self ownership"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet operatorName span0 conditionalExpr)])
+  where
+    operatorName = operatorBindingName "%%"
+    conditionalExpr =
+      EIf
+        (EBinary "%%" (ELit (LBool True)) (ELit (LBool False)))
+        (EOperatorValue "%%")
+        (EOperatorValue "%%")
+
+testRecursiveGroupsKeepAliasOnlyOperatorSelfCycle :: IO ()
+testRecursiveGroupsKeepAliasOnlyOperatorSelfCycle =
+  assertEqual
+    "operator value alias retains self ownership"
+    (Map.fromList [(0, [0])])
+    ( inferRecursiveGroupsOrdered
+        Set.empty
+        [(0, SLet (operatorBindingName "%%") span0 (EOperatorValue "%%"))]
+    )
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =

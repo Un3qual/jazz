@@ -111,6 +111,7 @@ tests =
     ("preserves rejected mutual-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-mutual-alias-recursion"),
     ("preserves rejected conditional-root declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-alias-conditional-mutual-recursion"),
     ("preserves rejected operator-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-operator-alias-self-recursion"),
+    ("keeps eager operator conditions out of alias-only recursion", testRejectedCallableDeclarationTransport "rejected-eager-operator-conditional-control"),
     ("keeps rejected callable parameter shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-parameter-shadow-control"),
     ("keeps rejected callable local shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-local-shadow-control"),
     ("keeps eager self use outside an unrelated callable result", testRejectedCallableDeclarationTransport "rejected-eager-self-before-callable-result-control"),
@@ -2205,6 +2206,14 @@ testRejectedCallableDeclarationTransport requestedName =
           [ recursionFailure 1 "$operator:%25%25",
             rootFailure 1,
             expressionFailure 1 [0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+          ]
+        ),
+        ( "rejected-eager-operator-conditional-control",
+          [ rootFailure 1,
+            expressionFailure 1 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
+            expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 1 [0, 1] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+            expressionFailure 1 [0, 2] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
           ]
         ),
         ( "rejected-alias-parameter-shadow-control",

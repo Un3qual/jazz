@@ -2093,6 +2093,17 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-eager-operator-conditional-control",
+      sourceFixtureNoExports
+        "rejected-eager-operator-conditional-control"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Bool -> Bool -> Bool.",
+              "(%%) = if True %% False then (%%) else (%%).",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-alias-parameter-shadow-control",
       sourceFixtureNoExports
         "rejected-alias-parameter-shadow-control"

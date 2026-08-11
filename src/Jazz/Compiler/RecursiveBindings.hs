@@ -594,25 +594,10 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
       case expr of
         ELit {} -> noSummary
         EVar name ->
-          if Set.member name boundNames
-              then noSummary
-              else
-                case lookupScopeBinding name scopeBindings of
-                  Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
-                    | Set.notMember identity visitedBindings ->
-                        nonAliasSummary
-                          bindingPath
-                          boundNames
-                          priorBindings
-                          (Set.insert identity visitedBindings)
-                          bindingExpr
-                  Just _ -> noSummary
-                  Nothing ->
-                    if name == bindingName
-                      then (False, True)
-                      else noSummary
+          nonAliasReferenceSummary boundNames scopeBindings visitedBindings name
         ELambda {} -> noSummary
-        EOperatorValue {} -> noSummary
+        EOperatorValue operatorSymbol ->
+          nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
         EList elements ->
           foldl'
             combineSummaries
@@ -664,17 +649,22 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
               | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
                 let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
-        EBinary _ leftExpr rightExpr ->
+        EBinary operatorSymbol leftExpr rightExpr ->
           foldl'
             combineSummaries
             noSummary
-            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr,
+            [ nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol,
+              nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr,
               nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings rightExpr
             ]
-        ESectionLeft leftExpr _ ->
-          nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr
-        ESectionRight _ rightExpr ->
-          nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings rightExpr
+        ESectionLeft leftExpr operatorSymbol ->
+          combineSummaries
+            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr)
+        ESectionRight operatorSymbol rightExpr ->
+          combineSummaries
+            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings rightExpr)
         EBlock blockStatements ->
           foldl'
             combineSummaries
@@ -690,3 +680,29 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                       [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
                     _ -> []
             ]
+
+    nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol = noSummary
+      | otherwise =
+          nonAliasReferenceSummary
+            boundNames
+            scopeBindings
+            visitedBindings
+            (operatorBindingName operatorSymbol)
+
+    nonAliasReferenceSummary boundNames scopeBindings visitedBindings name
+      | Set.member name boundNames = noSummary
+      | otherwise =
+          case lookupScopeBinding name scopeBindings of
+            Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
+              | Set.notMember identity visitedBindings ->
+                  nonAliasSummary
+                    bindingPath
+                    boundNames
+                    priorBindings
+                    (Set.insert identity visitedBindings)
+                    bindingExpr
+            Just _ -> noSummary
+            Nothing
+              | name == bindingName -> (False, True)
+              | otherwise -> noSummary
