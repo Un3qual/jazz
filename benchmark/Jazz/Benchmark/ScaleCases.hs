@@ -77,6 +77,7 @@ compilerScaleCases =
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map constrainedSignaturesCase [32, 64, 128, 256]
+    <> map deferredConstraintBurstCase [128, 256, 512, 1024]
     <> map deepNestedLambdasCase [16, 32, 64, 128]
     <> map largeOperatorTablesCase [16, 32, 64, 128]
     <> map nestedBlocksCase [16, 32, 64, 128]
@@ -332,6 +333,39 @@ constrainedSignaturesSource signatureCount =
 
 constrainedBindingName :: Int -> Text
 constrainedBindingName index = "constrained" <> paddedDecimal 4 index
+
+deferredConstraintBurstCase :: Int -> CompilerScaleCase
+deferredConstraintBurstCase useCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "deferred-constraint-burst-" <> paddedDecimal 4 useCount,
+      compilerScaleCaseScenario = ConstrainedSignatures,
+      compilerScaleCaseSize = useCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (deferredConstraintBurstSource useCount),
+      compilerScaleCaseExpectedOutput =
+        "[" <> Text.intercalate ", " (replicate useCount "1") <> "]"
+    }
+
+deferredConstraintBurstSource :: Int -> Text
+deferredConstraintBurstSource useCount =
+  Text.unlines
+    [ "module Main {",
+      "  class ScaleConstraint(a) { }.",
+      "  impl ScaleConstraint(Int) { }.",
+      "  constrained :: @{ScaleConstraint(a)}: a -> a.",
+      "  constrained = \\(item) -> item.",
+      "  ["
+        <> Text.intercalate ", " (replicate useCount "constrained 1")
+        <> "].",
+      "}"
+    ]
 
 deepNestedLambdasCase :: Int -> CompilerScaleCase
 deepNestedLambdasCase depth =

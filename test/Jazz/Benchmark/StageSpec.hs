@@ -49,6 +49,7 @@ tests =
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("constrained signatures preserve exact compiler semantics", testConstrainedSignatureSemantics),
+    ("deferred constraint bursts preserve exact compiler semantics", testDeferredConstraintBurstSemantics),
     ("deep nested lambdas preserve exact compiler semantics", testDeepNestedLambdaSemantics),
     ("large operator tables exercise parse and lower", testLargeOperatorTableParseLower),
     ("nested blocks exercise parse and lower", testNestedBlocksParseLower),
@@ -80,6 +81,10 @@ testCompilerScaleRegistry =
       ("constrained-signatures-0064", ConstrainedSignatures, 64, Nothing),
       ("constrained-signatures-0128", ConstrainedSignatures, 128, Nothing),
       ("constrained-signatures-0256", ConstrainedSignatures, 256, Nothing),
+      ("deferred-constraint-burst-0128", ConstrainedSignatures, 128, Nothing),
+      ("deferred-constraint-burst-0256", ConstrainedSignatures, 256, Nothing),
+      ("deferred-constraint-burst-0512", ConstrainedSignatures, 512, Nothing),
+      ("deferred-constraint-burst-1024", ConstrainedSignatures, 1024, Nothing),
       ("deep-nested-lambdas-0016", DeepNestedLambdas, 16, Nothing),
       ("deep-nested-lambdas-0032", DeepNestedLambdas, 32, Nothing),
       ("deep-nested-lambdas-0064", DeepNestedLambdas, 64, Nothing),
@@ -198,6 +203,17 @@ testConstrainedSignatureSemantics = do
   programCase <- loadCompilerScaleCase "constrained-signatures-0032"
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "constrained signature output" "(1, True)" actualOutput
+  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testDeferredConstraintBurstSemantics :: IO ()
+testDeferredConstraintBurstSemantics = do
+  programCase <- loadCompilerScaleCase "deferred-constraint-burst-0128"
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual
+    "deferred constraint burst output"
+    ("[" <> Text.intercalate ", " (replicate 128 "1") <> "]")
+    actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
