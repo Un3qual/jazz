@@ -2046,7 +2046,9 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
 
 constructorArgumentTypes :: Map Text DataTypeBinding -> [Name] -> [SignatureType] -> InferState -> ([ConstructorArgumentType], InferState)
 constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialState =
-  foldl' collectField ([], initialState) fieldTypes
+  let (argumentTypesRev, finalState) =
+        foldl' collectField ([], initialState) fieldTypes
+   in (reverse argumentTypesRev, finalState)
   where
     signatureVariables =
       Map.fromList
@@ -2054,19 +2056,18 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
           | (position, parameterName) <- zip [0 :: Int ..] typeParameters
         ]
 
-    collectField (argumentTypes, stateAcc) fieldType =
+    collectField (argumentTypesRev, stateAcc) fieldType =
       case Signature.signatureTypeToExpressionType (stateWithPredeclaredDataTypes stateAcc) signatureVariables fieldType of
         Right _ ->
-          ( argumentTypes
-              ++ [ConstructorArgumentStructured fieldType],
+          ( ConstructorArgumentStructured fieldType : argumentTypesRev,
             stateAcc
           )
         Left (Signature.UnknownNamedType payloadName) ->
-          ( argumentTypes ++ [ConstructorArgumentFresh],
+          ( ConstructorArgumentFresh : argumentTypesRev,
             addTypeError stateAcc (mkUnknownConstructorPayloadTypeError payloadName)
           )
         Left failure ->
-          ( argumentTypes ++ [ConstructorArgumentFresh],
+          ( ConstructorArgumentFresh : argumentTypesRev,
             addTypeError
               stateAcc
               (mkInvalidConstructorPayloadTypeError (Signature.renderSignatureTypeFailure failure))

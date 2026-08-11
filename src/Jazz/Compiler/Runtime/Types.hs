@@ -1,6 +1,7 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Cycle-breaking runtime data shared by the evaluator and pure semantics.
 module Jazz.Compiler.Runtime.Types
@@ -31,6 +32,7 @@ module Jazz.Compiler.Runtime.Types
         VSectionLeft,
         VSectionRight,
         VConstructor,
+        VConstructorApplication,
         VQualifiedMethod,
         VTyped,
         VExplicitTypeApplication,
@@ -42,6 +44,10 @@ module Jazz.Compiler.Runtime.Types
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
+    RuntimeConstructorArguments,
+    appendRuntimeConstructorArgument,
+    constructorApplicationIsSaturated,
+    runtimeConstructorArgumentCount,
     constructorIsSaturated,
     RuntimeCell,
     RuntimeEnv,
@@ -139,6 +145,11 @@ data RuntimeClosure = RuntimeClosure
     runtimeClosureCallableIdentity :: RuntimeCallableIdentity
   }
 
+-- | Append-efficient constructor application state. The public 'VConstructor'
+-- pattern preserves the historical ordered-list view while the evaluator uses
+-- this cached count and sequence during currying.
+data RuntimeConstructorArguments = RuntimeConstructorArguments !Int !(Seq RuntimeValue)
+
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
@@ -152,7 +163,7 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VConstructor Name [Name] Name [SignatureType] [RuntimeValue]
+  | VConstructorState Name [Name] Name !Int [SignatureType] RuntimeConstructorArguments
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
   | VTyped SignatureType RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
@@ -183,16 +194,17 @@ instance Eq RuntimeValue where
       (VText leftText, VText rightText) -> leftText == rightText
       (VList leftElements _, VList rightElements _) -> leftElements == rightElements
       (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
-      ( VConstructor leftTypeName leftTypeParameters leftName leftConstructorArguments leftArgs,
-        VConstructor rightTypeName rightTypeParameters rightName rightConstructorArguments rightArgs
+      ( VConstructorState leftTypeName leftTypeParameters leftName leftArity leftConstructorArguments leftArgs,
+        VConstructorState rightTypeName rightTypeParameters rightName rightArity rightConstructorArguments rightArgs
         )
-          | constructorIsSaturated leftConstructorArguments leftArgs,
-            constructorIsSaturated rightConstructorArguments rightArgs ->
+          | constructorApplicationIsSaturated leftArity leftArgs,
+            constructorApplicationIsSaturated rightArity rightArgs ->
               leftTypeName == rightTypeName
                 && leftTypeParameters == rightTypeParameters
                 && leftName == rightName
                 && leftConstructorArguments == rightConstructorArguments
-                && leftArgs == rightArgs
+                && runtimeConstructorArgumentsInOrder leftArgs
+                  == runtimeConstructorArgumentsInOrder rightArgs
       _ -> False
 
 instance Eq RuntimeMethodCandidate where
@@ -226,8 +238,15 @@ instance Show RuntimeValue where
         "VSectionLeft " <> show operatorSymbol <> " " <> show operand
       VSectionRight operatorSymbol operand ->
         "VSectionRight " <> show operatorSymbol <> " " <> show operand
-      VConstructor typeName _ constructorName constructorArguments capturedArgs ->
-        "VConstructor " <> show typeName <> " " <> show constructorName <> " " <> show constructorArguments <> " " <> show capturedArgs
+      VConstructorState typeName _ constructorName _ constructorArguments capturedArgs ->
+        "VConstructor "
+          <> show typeName
+          <> " "
+          <> show constructorName
+          <> " "
+          <> show constructorArguments
+          <> " "
+          <> show (runtimeConstructorArgumentsInOrder capturedArgs)
       VQualifiedMethod methodKey _ _ candidates capturedArgs ->
         "VQualifiedMethod " <> show methodKey <> " " <> show candidates <> " " <> show capturedArgs
       VTyped typeHint innerValue ->
@@ -242,6 +261,33 @@ instance Show RuntimeValue where
 -- could be used to build nested wrappers.
 pattern VExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
 pattern VExplicitResultHints hints innerValue <- VRuntimeExplicitResultHints hints innerValue
+
+-- | Historical ordered-list constructor view used by runtime semantics and
+-- tests. Construction establishes the cached arity/count invariants once.
+pattern VConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeValue] -> RuntimeValue
+pattern VConstructor typeName typeParameters constructorName fieldTypes capturedArgs <-
+  VConstructorState
+    typeName
+    typeParameters
+    constructorName
+    _
+    fieldTypes
+    (runtimeConstructorArgumentsInOrder -> capturedArgs)
+  where
+    VConstructor typeName typeParameters constructorName fieldTypes capturedArgs =
+      VConstructorState
+        typeName
+        typeParameters
+        constructorName
+        (length fieldTypes)
+        fieldTypes
+        (runtimeConstructorArgumentsFromList capturedArgs)
+
+-- | Evaluator-only view that avoids converting captured arguments back to a
+-- list between curried applications.
+pattern VConstructorApplication :: Name -> [Name] -> Name -> Int -> [SignatureType] -> RuntimeConstructorArguments -> RuntimeValue
+pattern VConstructorApplication typeName typeParameters constructorName arity fieldTypes capturedArgs =
+  VConstructorState typeName typeParameters constructorName arity fieldTypes capturedArgs
 
 {-# COMPLETE
   VInt,
@@ -330,3 +376,22 @@ data ModuleEvaluationMode
 constructorIsSaturated :: [SignatureType] -> [RuntimeValue] -> Bool
 constructorIsSaturated fieldTypes capturedArgs =
   length capturedArgs >= length fieldTypes
+
+runtimeConstructorArgumentsFromList :: [RuntimeValue] -> RuntimeConstructorArguments
+runtimeConstructorArgumentsFromList capturedArgs =
+  RuntimeConstructorArguments (length capturedArgs) (Seq.fromList capturedArgs)
+
+runtimeConstructorArgumentsInOrder :: RuntimeConstructorArguments -> [RuntimeValue]
+runtimeConstructorArgumentsInOrder (RuntimeConstructorArguments _ capturedArgs) =
+  Foldable.toList capturedArgs
+
+runtimeConstructorArgumentCount :: RuntimeConstructorArguments -> Int
+runtimeConstructorArgumentCount (RuntimeConstructorArguments capturedCount _) = capturedCount
+
+appendRuntimeConstructorArgument :: RuntimeValue -> RuntimeConstructorArguments -> RuntimeConstructorArguments
+appendRuntimeConstructorArgument argumentValue (RuntimeConstructorArguments capturedCount capturedArgs) =
+  RuntimeConstructorArguments (capturedCount + 1) (capturedArgs Seq.|> argumentValue)
+
+constructorApplicationIsSaturated :: Int -> RuntimeConstructorArguments -> Bool
+constructorApplicationIsSaturated constructorArity capturedArgs =
+  runtimeConstructorArgumentCount capturedArgs >= constructorArity

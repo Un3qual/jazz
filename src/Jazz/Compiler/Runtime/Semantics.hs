@@ -109,11 +109,14 @@ import Jazz.Compiler.Runtime.Types
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
+    RuntimeConstructorArguments,
     RuntimeValue (..),
     attachRuntimeExplicitResultHints,
+    constructorApplicationIsSaturated,
     constructorIsSaturated,
     data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
+    runtimeConstructorArgumentCount,
     runtimeEvidenceTarget
   )
 import Numeric (showHex)
@@ -1019,10 +1022,10 @@ isRuntimeText runtimeValue =
 
 -- | Constructor values are curried like builtins until their declared arity is
 -- saturated; extra applications are runtime errors.
-applyConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-applyConstructor typeName typeParameters constructorName fieldTypes arguments
-  | length arguments <= constructorArity =
-      Right (VConstructor typeName typeParameters constructorName fieldTypes arguments)
+applyConstructor :: Name -> [Name] -> Name -> Int -> [SignatureType] -> RuntimeConstructorArguments -> Either Diagnostic RuntimeValue
+applyConstructor typeName typeParameters constructorName constructorArity fieldTypes arguments
+  | receivedArity <= constructorArity =
+      Right (VConstructorApplication typeName typeParameters constructorName constructorArity fieldTypes arguments)
   | otherwise =
       Left
         ( runtimeDiagnostic
@@ -1032,11 +1035,11 @@ applyConstructor typeName typeParameters constructorName fieldTypes arguments
                 <> "' expected "
                 <> renderArityCount constructorArity
                 <> " but received "
-                <> renderArityCount (length arguments)
+                <> renderArityCount receivedArity
             )
         )
   where
-    constructorArity = length fieldTypes
+    receivedArity = runtimeConstructorArgumentCount arguments
 
 renderArityCount :: Int -> Text
 renderArityCount count =
@@ -1298,8 +1301,8 @@ isFunctionValue value =
     VClosure {} -> True
     VBuiltin {} -> True
     VOperator {} -> True
-    VConstructor _ _ _ constructorArguments capturedArgs ->
-      not (constructorIsSaturated constructorArguments capturedArgs)
+    VConstructorApplication _ _ _ constructorArity _ capturedArgs ->
+      not (constructorApplicationIsSaturated constructorArity capturedArgs)
     VQualifiedMethod {} -> True
     _ -> False
 

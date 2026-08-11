@@ -217,8 +217,9 @@ import Jazz.Compiler.Runtime.Types
     RuntimeExplicitResultHints,
     RuntimeValue (..),
     ScopeResult (..),
+    appendRuntimeConstructorArgument,
     attachRuntimeExplicitResultHints,
-    constructorIsSaturated,
+    constructorApplicationIsSaturated,
     foldRuntimeExplicitResultHints,
     data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
@@ -2179,17 +2180,19 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             _ ->
               throwRuntimeDiagnostic
                 (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
-        VConstructor typeName typeParameters constructorName constructorArguments capturedArgs -> do
+        VConstructorApplication typeName typeParameters constructorName constructorArity constructorArguments capturedArgs -> do
+          let arguments = appendRuntimeConstructorArgument argumentValue capturedArgs
           resultValue <-
             liftRuntimeResult
               ( applyConstructor
                   typeName
                   typeParameters
                   constructorName
+                  constructorArity
                   constructorArguments
-                  (capturedArgs <> [argumentValue])
+                  arguments
               )
-          if constructorIsSaturated constructorArguments (capturedArgs <> [argumentValue])
+          if constructorApplicationIsSaturated constructorArity arguments
             then recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction SaturatedAdtConstruction 1)
             else pure ()
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
@@ -2243,7 +2246,7 @@ runtimeApplicationKind runtimeValue =
     VOperator {} -> Just OperatorApplication
     VSectionLeft {} -> Just OperatorApplication
     VSectionRight {} -> Just OperatorApplication
-    VConstructor {} -> Just ConstructorApplication
+    VConstructorApplication {} -> Just ConstructorApplication
     VQualifiedMethod {} -> Just MethodApplication
     _ -> Nothing
 
@@ -2256,7 +2259,7 @@ runtimeCallableIdentity runtimeValue =
     VOperator operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionLeft operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
-    VConstructor _ _ constructorName _ _ ->
+    VConstructorApplication _ _ constructorName _ _ _ ->
       Just (ConstructorCallable (renderName constructorName))
     VQualifiedMethod methodKey _ _ _ _ -> Just (MethodCallable methodKey)
     _ -> Nothing
