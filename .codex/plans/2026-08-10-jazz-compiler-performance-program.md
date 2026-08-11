@@ -63,15 +63,15 @@ cost-centre profiling, Bash, Python 3, Nix.
 
 ## Current-tree audit and deduplicated inventory
 
-| Batch | Original items | Confirmed current-tree shape | Dependency and disposition |
-| --- | --- | --- | --- |
-| A. Verification and scale evidence | verification-flow requirements | `main-functional.sh` runs an ordinary Cabal build and complete suite, then starts a fresh Nix package build; main, extended, and release commands do not bound Cabal/Nix jobs; the benchmark corpus does not isolate the required compiler growth curves | Land bounded phase selection first, then generated scenarios before any optimization |
-| B. Type-checker asymptotics | 1, 7 (constraint dedupe), 9, 10, 15 | `Solver.hs` follows substitution chains through `Map Int ExpressionType`; `Scope.hs` performs recursive previews and whole-environment free-variable scans; deferred deltas are list/length based; constraint dedupe uses ordered linear membership | Add scale cases first; make buffers/cursors explicit, remove duplicate recursive inference, maintain environment free-variable summaries, then zonk/compress substitutions |
-| C. Reusable scope and capture facts | 12, 13 | `RecursiveBindings.hs`, resolution, inference, analyzer, nested walks, and runtime planning recompute related dependency facts; lambda hints retain/search `Expr` bodies | Requires B's inference ownership to be stable; introduce reusable scope facts, then stable lambda IDs and capture plans |
-| D. Module interfaces and artifact lifetime | 2, 3, 11, 18 | `ModuleCompiler.lookupDependency` linearly scans prior modules per import; interface imports deep-rebase schemes and merge maps/sets per module; `CompiledModule` retains `ResolvedModule` plus compiled `Expr`; `CompiledProgram` duplicates diagnostic list spines; ordinary inference retains final state through analyzer work | Index dependencies first, then cache canonical/rebased interfaces, compact compiled artifacts, and finalize ordinary inference state earlier |
-| E. Parser and resolver passes | 4, 5, 6, 14, 17 | operator lookup combines declared and builtin lists per use; alias collection scans remaining tokens; owned-prefix parsing reparses/scans consumed input; tokens are list-backed and retain payload plus lexeme; resolver lowers and separately walks `SurfaceExpr` for several fact sets | Preindex cheap scope facts first, replace owned-prefix parsing with one cursor, then change token storage/ownership; fuse resolver facts after parser ownership is stable |
-| F. Checked handoffs and remaining accumulation | 7 (analyzer lists), 16 | analyzer diagnostics include append-heavy construction; Typed Core production validates and Lowered IR validates the same trusted artifact again | Safe after the larger ownership changes; add an opaque checked boundary and finish list-builder cleanup |
-| Global guard | 8 | benchmark forcing is explicitly isolated in `benchmark/Jazz/Benchmark/Force.hs` and profiling tests | Not a standalone optimization; every batch must preserve this boundary unless heap evidence says otherwise |
+| Batch                                          | Original items                      | Confirmed current-tree shape                                                                                                                                                                                                                                                                                                       | Dependency and disposition                                                                                                                                                 |
+| ---------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Verification and scale evidence             | verification-flow requirements      | `main-functional.sh` runs an ordinary Cabal build and complete suite, then starts a fresh Nix package build; main, extended, and release commands do not bound Cabal/Nix jobs; the benchmark corpus does not isolate the required compiler growth curves                                                                           | Land bounded phase selection first, then generated scenarios before any optimization                                                                                       |
+| B. Type-checker asymptotics                    | 1, 7 (constraint dedupe), 9, 10, 15 | `Solver.hs` follows substitution chains through `Map Int ExpressionType`; `Scope.hs` performs recursive previews and whole-environment free-variable scans; deferred deltas are list/length based; constraint dedupe uses ordered linear membership                                                                                | Add scale cases first; make buffers/cursors explicit, remove duplicate recursive inference, maintain environment free-variable summaries, then zonk/compress substitutions |
+| C. Reusable scope and capture facts            | 12, 13                              | `RecursiveBindings.hs`, resolution, inference, analyzer, nested walks, and runtime planning recompute related dependency facts; lambda hints retain/search `Expr` bodies                                                                                                                                                           | Requires B's inference ownership to be stable; introduce reusable scope facts, then stable lambda IDs and capture plans                                                    |
+| D. Module interfaces and artifact lifetime     | 2, 3, 11, 18                        | `ModuleCompiler.lookupDependency` linearly scans prior modules per import; interface imports deep-rebase schemes and merge maps/sets per module; `CompiledModule` retains `ResolvedModule` plus compiled `Expr`; `CompiledProgram` duplicates diagnostic list spines; ordinary inference retains final state through analyzer work | Index dependencies first, then cache canonical/rebased interfaces, compact compiled artifacts, and finalize ordinary inference state earlier                               |
+| E. Parser and resolver passes                  | 4, 5, 6, 14, 17                     | operator lookup combines declared and builtin lists per use; alias collection scans remaining tokens; owned-prefix parsing reparses/scans consumed input; tokens are list-backed and retain payload plus lexeme; resolver lowers and separately walks `SurfaceExpr` for several fact sets                                          | Preindex cheap scope facts first, replace owned-prefix parsing with one cursor, then change token storage/ownership; fuse resolver facts after parser ownership is stable  |
+| F. Checked handoffs and remaining accumulation | 7 (analyzer lists), 16              | analyzer diagnostics include append-heavy construction; Typed Core production validates and Lowered IR validates the same trusted artifact again                                                                                                                                                                                   | Safe after the larger ownership changes; add an opaque checked boundary and finish list-builder cleanup                                                                    |
+| Global guard                                   | 8                                   | benchmark forcing is explicitly isolated in `benchmark/Jazz/Benchmark/Force.hs` and profiling tests                                                                                                                                                                                                                                | Not a standalone optimization; every batch must preserve this boundary unless heap evidence says otherwise                                                                 |
 
 The clusters remove overlap without discarding any issue. Item 18 is sequenced
 with compiled-artifact lifetime work rather than treated as a second analyzer
@@ -86,14 +86,14 @@ M1 Max, Darwin/aarch64, GHC 9.14, Cabal library 3.16.1.0, one RTS capability,
 and profiling build mode. The exact benchmark leaf was
 `All.jazz.module-preparation.identifier-classifier`.
 
-| Evidence | Pre-change observation | Artifact |
-| --- | --- | --- |
-| `tasty-bench` CPU result | 37.518875 ms mean; 3.746531896 ms two standard deviations | `benchmark-results/compiler-performance-baseline/20260811T014048055686000000Z/results.csv` |
-| Per-operation allocation | 106,370,822 bytes allocated; 14,937,384 bytes copied | same `results.csv` |
-| Per-operation peak memory | 12,582,912 bytes | same `results.csv` |
-| Whole benchmark process RTS | 3,324,191,416 bytes cumulative allocation; 2,674,152 bytes maximum residency; 12 MiB total memory in use | `profile-results/compiler-performance-baseline/module-preparation.stats` |
-| Stable stage profile | JSON cost-centre profile with runtime-preparation, type-inference, constraint-solving, static-analysis, parser, and resolver frames | `profile-results/compiler-performance-baseline/module-preparation.prof` |
-| Live heap | cost-centre-stack heap samples at 1 ms | `profile-results/compiler-performance-baseline/module-preparation.heap.hp` |
+| Evidence                    | Pre-change observation                                                                                                              | Artifact                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `tasty-bench` CPU result    | 37.518875 ms mean; 3.746531896 ms two standard deviations                                                                           | `benchmark-results/compiler-performance-baseline/20260811T014048055686000000Z/results.csv` |
+| Per-operation allocation    | 106,370,822 bytes allocated; 14,937,384 bytes copied                                                                                | same `results.csv`                                                                         |
+| Per-operation peak memory   | 12,582,912 bytes                                                                                                                    | same `results.csv`                                                                         |
+| Whole benchmark process RTS | 3,324,191,416 bytes cumulative allocation; 2,674,152 bytes maximum residency; 12 MiB total memory in use                            | `profile-results/compiler-performance-baseline/module-preparation.stats`                   |
+| Stable stage profile        | JSON cost-centre profile with runtime-preparation, type-inference, constraint-solving, static-analysis, parser, and resolver frames | `profile-results/compiler-performance-baseline/module-preparation.prof`                    |
+| Live heap                   | cost-centre-stack heap samples at 1 ms                                                                                              | `profile-results/compiler-performance-baseline/module-preparation.heap.hp`                 |
 
 The first attempted measurement used the invalid Tasty pattern
 `jazz/module-preparation` and executed no benchmark. Listing the registered
@@ -108,16 +108,16 @@ assert the exact semantic/artifact result at a small size, and expose at least
 four increasing sizes. Initial sizes are starting points; reduce them if a
 pre-change curve risks exhausting the machine rather than widening limits.
 
-| Scenario | Isolates | Initial sizes | Timed/profiled boundary | Primary issue cluster |
-| --- | --- | --- | --- | --- |
-| Sequential polymorphic bindings | repeated generalization and substitution application | 64, 128, 256, 512 bindings | analysis and module preparation | B: 1, 10, 15 |
-| Interleaved recursive groups | previews, future-body reinference, dependency/SCC facts | 16, 32, 64, 128 groups | analysis and module preparation | B/C: 9, 12 |
-| Constrained signatures | constraint buffering, delta cursors, ordered dedupe | 32, 64, 128, 256 signatures | analysis | B/F: 7, 15 |
-| Deep nested lambdas | repeated free-variable walks and AST-keyed hint lookup | 16, 32, 64, 128 lambdas | analysis and runtime preparation | C: 13 |
-| Wide module fanout with large interfaces | dependency lookup, rebasing, interface copying, compiled retention | 8, 16, 32, 64 imports with 16 exports each | module preparation and whole program | D: 2, 3, 11, 18 |
-| Large operator tables | combined-list allocation and linear symbol lookup | 16, 32, 64, 128 declarations | parse/lower | E: 4 |
-| Nested blocks | redundant alias scans and parser cursor ownership | 16, 32, 64, 128 blocks | parse/lower | E: 5, 17 |
-| Long token streams | list cursor cost, duplicated lexeme storage, prefix rescans | 1K, 4K, 16K, 64K tokens | parse/lower plus heap | E: 6, 17 |
+| Scenario                                 | Isolates                                                           | Initial sizes                              | Timed/profiled boundary              | Primary issue cluster |
+| ---------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------ | ------------------------------------ | --------------------- |
+| Sequential polymorphic bindings          | repeated generalization and substitution application               | 64, 128, 256, 512 bindings                 | analysis and module preparation      | B: 1, 10, 15          |
+| Interleaved recursive groups             | previews, future-body reinference, dependency/SCC facts            | 16, 32, 64, 128 groups                     | analysis and module preparation      | B/C: 9, 12            |
+| Constrained signatures                   | constraint buffering, delta cursors, ordered dedupe                | 32, 64, 128, 256 signatures                | analysis                             | B/F: 7, 15            |
+| Deep nested lambdas                      | repeated free-variable walks and AST-keyed hint lookup             | 16, 32, 64, 128 lambdas                    | analysis and runtime preparation     | C: 13                 |
+| Wide module fanout with large interfaces | dependency lookup, rebasing, interface copying, compiled retention | 8, 16, 32, 64 imports with 16 exports each | module preparation and whole program | D: 2, 3, 11, 18       |
+| Large operator tables                    | combined-list allocation and linear symbol lookup                  | 16, 32, 64, 128 declarations               | parse/lower                          | E: 4                  |
+| Nested blocks                            | redundant alias scans and parser cursor ownership                  | 16, 32, 64, 128 blocks                     | parse/lower                          | E: 5, 17              |
+| Long token streams                       | list cursor cost, duplicated lexeme storage, prefix rescans        | 1K, 4K, 16K, 64K tokens                    | parse/lower plus heap                | E: 6, 17              |
 
 No scenario gains a wall-clock assertion. A deterministic test owns source,
 diagnostic, binder, and artifact equality; `jazz-bench` and GHC profiling own
@@ -142,22 +142,22 @@ physical comparison artifacts.
 `scripts/test-check-ci-policy.py`, `PERFORMANCE.md`.
 
 - [ ] Add behavior tests proving main verification has explicit
-  `all|compiler|repository|nix|low-memory` phases, defaults to authoritative
-  `all`, rejects invalid phases/job values before executing work, and skips Nix
-  only in the documented low-memory phase.
+      `all|compiler|repository|nix|low-memory` phases, defaults to authoritative
+      `all`, rejects invalid phases/job values before executing work, and skips Nix
+      only in the documented low-memory phase.
 - [ ] Add policy mutations requiring `--jobs="$JAZZ_CABAL_JOBS"` on every
-  heavyweight Cabal build/test/bench command and bounded `--max-jobs`/`--cores`
-  on internal Nix builds/checks.
+      heavyweight Cabal build/test/bench command and bounded `--max-jobs`/`--cores`
+      on internal Nix builds/checks.
 - [ ] Implement phase functions in `main-functional.sh`. Default Cabal jobs,
-  Nix max jobs, and Nix cores to `1`; keep no-argument CI behavior authoritative.
+      Nix max jobs, and Nix cores to `1`; keep no-argument CI behavior authoritative.
 - [ ] Propagate the same bounded variables through extended and release
-  verification. Preserve required experimental features and all current
-  extended/release evidence.
+      verification. Preserve required experimental features and all current
+      extended/release evidence.
 - [ ] Document low-memory local use and state that release publication still
-  requires the full main, extended, Nix, packaging, and artifact gates.
+      requires the full main, extended, Nix, packaging, and artifact gates.
 - [ ] Run the four frontmatter verification commands, commit this child, remove
-  its completed queue row, and leave Task 2 as the next performance-program
-  promotion candidate.
+      its completed queue row, and leave Task 2 as the next performance-program
+      promotion candidate.
 
 ## Task 2: Add generated compiler scale scenarios
 
@@ -167,64 +167,64 @@ and `benchmark/Jazz/Benchmark/`; modify `benchmark/Jazz/Benchmark/Stages.hs`,
 tests.
 
 - [ ] Add the eight scenarios from the matrix with exact small semantic
-  results, stable identifiers, selected size metadata, and no physical
-  thresholds.
+      results, stable identifiers, selected size metadata, and no physical
+      thresholds.
 - [ ] Keep production-shaped corpus cases unchanged; generated cases are an
-  explicit compiler-scale benchmark family rather than fake corpus entries.
+      explicit compiler-scale benchmark family rather than fake corpus entries.
 - [ ] Add CLI selection that can run one scenario and one size, plus list-tests
-  coverage so profiling commands name exact leaves.
+      coverage so profiling commands name exact leaves.
 - [ ] Record all pre-optimization curves one process at a time and prioritize B
-  and D using total allocation, maximum residency, and growth shape.
+      and D using total allocation, maximum residency, and growth shape.
 
 ## Task 3: Remove type-checker asymptotic work
 
 - [ ] Replace append/length delta tracking with append-efficient buffers and
-  explicit cursors while preserving constraint order.
+      explicit cursors while preserving constraint order.
 - [ ] Infer each recursive body once per necessary environment state and cache
-  reusable group results.
+      reusable group results.
 - [ ] Maintain environment free-variable summaries or levels instead of
-  rescanning the complete visible environment per generalization.
+      rescanning the complete visible environment per generalization.
 - [ ] Replace repeated substitution-chain resolution with an `IntMap`-backed
-  zonk/compression boundary and avoid re-resolving child subtrees during
-  recursive unification.
+      zonk/compression boundary and avoid re-resolving child subtrees during
+      recursive unification.
 - [ ] Replace ordered linear constraint membership with stable-identity sets
-  while emitting constraints in original order.
+      while emitting constraints in original order.
 
 ## Task 4: Reuse recursive scope and lambda capture facts
 
 - [ ] Build declaration visibility, same-name indices, dependencies, and SCCs
-  in one pass with append-efficient builders.
+      in one pass with append-efficient builders.
 - [ ] Transport reusable immutable scope facts to resolution, inference,
-  analyzer, free-variable, and runtime-scope consumers only where their
-  semantics agree.
+      analyzer, free-variable, and runtime-scope consumers only where their
+      semantics agree.
 - [ ] Assign stable lambda IDs during owned lowering, compute capture plans
-  once, and stop retaining/searching lambda `Expr` bodies as keys.
+      once, and stop retaining/searching lambda `Expr` bodies as keys.
 
 ## Task 5: Index interfaces and compact compiled lifetime
 
 - [ ] Thread a first-match-preserving module-path index through module
-  compilation and keep the duplicate-path contract exact.
+      compilation and keep the duplicate-path contract exact.
 - [ ] Canonicalize interface names and cache ambient prelude/dependency rebases
-  so module compilation does not deep-copy unchanged schemes/declarations.
+      so module compilation does not deep-copy unchanged schemes/declarations.
 - [ ] Split runtime/debug metadata from full resolved/compiled AST retention and
-  remove the aggregate diagnostic spine where per-module order can be consumed
-  directly.
+      remove the aggregate diagnostic spine where per-module order can be consumed
+      directly.
 - [ ] Finalize ordinary inference into the compact interface/solver result
-  before analyzer work; retain the full state only for Typed Core production.
+      before analyzer work; retain the full state only for Typed Core production.
 
 ## Task 6: Reduce parser/resolver passes and checked-boundary cleanup
 
 - [ ] Preindex scope-aware operator metadata and collect legal import aliases in
-  the main module parse rather than rescanning nested token tails.
+      the main module parse rather than rescanning nested token tails.
 - [ ] Replace the owned-prefix/list adapter with one cursor-based parse and
-  reuse compact-signature discrimination.
+      reuse compact-signature discrimination.
 - [ ] Move tokens to indexed storage with source offsets/spans and own `Text`
-  only where later semantics require it.
+      only where later semantics require it.
 - [ ] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
-  traversal or an equivalent returned lowering product.
+      traversal or an equivalent returned lowering product.
 - [ ] Introduce an opaque validated Typed Program handoff so trusted
-  producer-to-lowerer transport validates once, while external artifacts remain
-  checked.
+      producer-to-lowerer transport validates once, while external artifacts remain
+      checked.
 - [ ] Finish reverse-builder/ordered-set cleanup for analyzer diagnostics.
 
 ## Full closeout

@@ -20,6 +20,46 @@ The commands below assume the repository root and its Nix development shell:
 nix --extra-experimental-features 'nix-command flakes' develop
 ```
 
+## Bounded local verification
+
+Run only one Cabal, Jazz, profiling, or Nix command at a time. The verification
+scripts default Cabal jobs, Nix build jobs, and Nix cores to `1`; override the
+defaults only when the machine has measured capacity:
+
+```bash
+JAZZ_CABAL_JOBS=2 JAZZ_NIX_JOBS=2 JAZZ_NIX_CORES=2 \
+  bash scripts/ci/main-functional.sh
+```
+
+With no phase selection, `main-functional.sh` remains the authoritative main
+gate: repository preflight, the ordinary Cabal build and complete test suite,
+repository checks, and `nix flake check`. During a focused batch, select the
+narrowest completed phase instead of restarting the whole gate after every
+edit:
+
+```bash
+JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=repository bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=nix bash scripts/ci/main-functional.sh
+```
+
+On a memory-constrained development machine, the low-memory phase runs the
+compiler and repository phases serially and deliberately omits Nix:
+
+```bash
+JAZZ_MAIN_PHASE=low-memory bash scripts/ci/main-functional.sh
+```
+
+The script prints that omission so its receipt cannot be mistaken for complete
+main or release evidence. Before publication, run exactly one fresh full
+closeout after the final source change. Release candidates still require the
+complete main, extended/profile, Nix build, packaging, website, determinism,
+and artifact-validation gates through `scripts/ci/release-candidate.sh`.
+
+If a long command goes quiet, inspect and keep waiting for that process. Do not
+start a duplicate Cabal, Jazz, profiling, or Nix invocation merely because a
+terminal session stopped displaying output.
+
 ## Correctness and semantic budgets
 
 The corpus suite is the deterministic performance gate. It runs all `fast` and

@@ -422,6 +422,35 @@ def check_main(contents: str, violations: list[str]) -> None:
         "--test-show-details=direct",
         r"cabal\s+test\s+all\s+--test-show-details=direct",
     )
+    if "all | compiler | repository | nix | low-memory" not in contents:
+        violations.append(
+            "main functional tier must expose all, compiler, repository, nix, and low-memory phases"
+        )
+    if 'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"' not in contents:
+        violations.append("main functional tier must default JAZZ_CABAL_JOBS to 1")
+    if not all(
+        has_command(contents, pattern)
+        for pattern in (
+            r'cabal\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+            r'cabal\s+test\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        )
+    ):
+        violations.append("main functional tier must bound Cabal build and test jobs")
+    if not has_command(
+        contents,
+        r'nix\s+flake\s+check[^\n]*--max-jobs\s+"\$JAZZ_NIX_JOBS"[^\n]*--cores\s+"\$JAZZ_NIX_CORES"',
+    ):
+        violations.append("main functional tier must bound Nix max jobs and cores")
+    if "low-memory verification omits the Nix flake check" not in contents:
+        violations.append(
+            "main functional tier must disclose the omitted Nix gate in low-memory mode"
+        )
+    require_nix_features_before(
+        contents,
+        "scripts/ci/main-functional.sh",
+        "nix flake check",
+        violations,
+    )
     reject_tokens(violations, "main functional tier", contents, MAIN_FORBIDDEN)
 
 
@@ -560,6 +589,18 @@ def check_extended(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    if 'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"' not in contents:
+        violations.append("extended tier must default JAZZ_CABAL_JOBS to 1")
+    bounded_commands = (
+        r'cabal\s+test\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+test\s+program-corpus-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+--project-file=cabal\.project\.profile-stages\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+--project-file=cabal\.project\.profile-hotspots\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+bench\s+jazz-bench[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+test\s+benchmark-metadata-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+    )
+    if not all(has_command(contents, pattern) for pattern in bounded_commands):
+        violations.append("extended tier must bound every heavyweight Cabal command")
     require_tokens(
         violations,
         tier,
@@ -619,6 +660,15 @@ def check_release(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    if "export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES" not in contents:
+        violations.append(
+            "release candidate tier must export bounded Cabal and Nix workers"
+        )
+    if not has_command(
+        contents,
+        r'nix\s+build\s+\.\#jazz[^\n]*--max-jobs\s+"\$JAZZ_NIX_JOBS"[^\n]*--cores\s+"\$JAZZ_NIX_CORES"',
+    ):
+        violations.append("release candidate tier must bound Nix max jobs and cores")
 
     category_tokens = (
         "required_artifacts = {",

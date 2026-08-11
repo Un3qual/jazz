@@ -12,6 +12,8 @@ from pathlib import Path
 
 
 CHECKER = Path(__file__).with_name("check-ci-policy.py")
+REPOSITORY_ROOT = CHECKER.parents[1]
+MAIN_FUNCTIONAL_SCRIPT = REPOSITORY_ROOT / "scripts/ci/main-functional.sh"
 
 REQUIRED_WORKFLOWS = {
     ".github/workflows/ci-pr.yml",
@@ -97,15 +99,26 @@ VALID_FAST = script(
 
 VALID_MAIN = script(
     """
-    cabal build all
-    cabal test all --test-show-details=direct
+    NIX_CONFIG+='extra-experimental-features = nix-command flakes'
+    export NIX_CONFIG
+    JAZZ_MAIN_PHASE="${JAZZ_MAIN_PHASE-all}"
+    JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+    JAZZ_NIX_JOBS="${JAZZ_NIX_JOBS-1}"
+    JAZZ_NIX_CORES="${JAZZ_NIX_CORES-1}"
+    case "$JAZZ_MAIN_PHASE" in
+      all | compiler | repository | nix | low-memory) ;;
+      *) exit 2 ;;
+    esac
+    cabal build all --jobs="$JAZZ_CABAL_JOBS"
+    cabal test all --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"
     cabal check
     python3 scripts/test-check-ci-policy.py
     python3 scripts/release/test-verify-artifacts.py
     bash scripts/check-docs.sh
     bash scripts/check-execution-queue.sh
     bash scripts/check-examples.sh
-    nix flake check
+    nix flake check --max-jobs "$JAZZ_NIX_JOBS" --cores "$JAZZ_NIX_CORES"
+    printf 'NOTE: low-memory verification omits the Nix flake check\\n' >&2
     if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
       git diff --check "$JAZZ_DIFF_BASE...HEAD"
     else
@@ -133,6 +146,7 @@ VALID_DETERMINISM = script(
 
 VALID_EXTENDED = script(
     """
+    JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
     JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/extended}"
     if [[ -d "$JAZZ_ARTIFACT_ROOT" && -n "$(find "$JAZZ_ARTIFACT_ROOT" -mindepth 1 -print -quit)" ]]; then exit 1; fi
     mkdir -p "$JAZZ_ARTIFACT_ROOT/corpus" "$JAZZ_ARTIFACT_ROOT/benchmarks"
@@ -142,8 +156,8 @@ VALID_EXTENDED = script(
       jazz-parser-scale-full-control-flow-spec
       jazz-parser-scale-full-operator-spec
     )
-    cabal test all "${full_scale_components[@]}" -ffull-parser-scale --test-show-details=always --test-log="$corpus_log_root/first/\\$test-suite.log"
-    cabal test program-corpus-spec --test-show-details=always --test-log="$corpus_log_root/second/\\$test-suite.log"
+    cabal test all "${full_scale_components[@]}" -ffull-parser-scale --test-show-details=always --test-log="$corpus_log_root/first/\\$test-suite.log" --jobs="$JAZZ_CABAL_JOBS"
+    cabal test program-corpus-spec --test-show-details=always --test-log="$corpus_log_root/second/\\$test-suite.log" --jobs="$JAZZ_CABAL_JOBS"
     python3 - "$corpus_log_root/first/program-corpus-spec.log" \
       "$corpus_log_root/second/program-corpus-spec.log" \
       "$JAZZ_ARTIFACT_ROOT/corpus/pass-one.txt" \
@@ -153,9 +167,9 @@ VALID_EXTENDED = script(
     PY
     cmp "$JAZZ_ARTIFACT_ROOT/corpus/pass-one.txt" "$JAZZ_ARTIFACT_ROOT/corpus/pass-two.txt"
     JAZZ_ARTIFACT_ROOT="$JAZZ_ARTIFACT_ROOT/determinism" bash scripts/ci/determinism.sh
-    cabal --project-file=cabal.project.profile-stages build all
-    cabal --project-file=cabal.project.profile-hotspots build all
-    cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"
+    cabal --project-file=cabal.project.profile-stages build all --jobs="$JAZZ_CABAL_JOBS"
+    cabal --project-file=cabal.project.profile-hotspots build all --jobs="$JAZZ_CABAL_JOBS"
+    cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" --jobs="$JAZZ_CABAL_JOBS"
     python3 - "$JAZZ_ARTIFACT_ROOT/benchmarks" "$JAZZ_BENCHMARK_LABEL" <<'PY'
     run_directories = [path for path in label_root.iterdir() if path.is_dir()]
     if len(run_directories) != 1: raise SystemExit(1)
@@ -165,7 +179,7 @@ VALID_EXTENDED = script(
     if metadata.get("schema_version") != 2: raise SystemExit(1)
     if not results_path.is_file() or results_path.stat().st_size == 0: raise SystemExit(1)
     PY
-    cabal test benchmark-metadata-spec --test-show-details=direct
+    cabal test benchmark-metadata-spec --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"
     manifest_path="$JAZZ_ARTIFACT_ROOT/manifest.json"
     python3 - "$JAZZ_ARTIFACT_ROOT" "$manifest_path" <<'PY'
     for path in sorted(artifact_root.rglob("*")):
@@ -179,6 +193,10 @@ VALID_RELEASE = script(
     r"""
     NIX_CONFIG+='extra-experimental-features = nix-command flakes'
     export NIX_CONFIG
+    JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+    JAZZ_NIX_JOBS="${JAZZ_NIX_JOBS-1}"
+    JAZZ_NIX_CORES="${JAZZ_NIX_CORES-1}"
+    export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES
     : "${JAZZ_RELEASE_VERSION:?JAZZ_RELEASE_VERSION is required}"
     if [[ ! "$JAZZ_RELEASE_VERSION" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then exit 1; fi
     JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/release-candidate/$JAZZ_RELEASE_VERSION/extended}"
@@ -194,7 +212,7 @@ VALID_RELEASE = script(
     bash scripts/ci/main-functional.sh
     bash scripts/ci/extended.sh
     cabal sdist all
-    nix build .#jazz
+    nix build .#jazz --max-jobs "$JAZZ_NIX_JOBS" --cores "$JAZZ_NIX_CORES"
     require_path website/build/index.html
     require_path dist-newstyle/sdist
     require_path result
@@ -556,6 +574,131 @@ VALID_RELEASE_WORKFLOW = textwrap.dedent(
 ).lstrip()
 
 
+class MainFunctionalScriptTests(unittest.TestCase):
+    """Exercise phase selection without running the heavyweight commands."""
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.bin_root = self.root / "bin"
+        self.bin_root.mkdir()
+        self.command_log = self.root / "commands.log"
+        for command in ("actionlint", "bash", "cabal", "nix", "python3"):
+            self.write_stub(command)
+        self.write_git_stub()
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def write_stub(self, command: str) -> None:
+        path = self.bin_root / command
+        path.write_text(
+            "#!/bin/bash\n"
+            f"printf '{command} %s\\n' \"$*\" >>\"$JAZZ_TEST_COMMAND_LOG\"\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+
+    def write_git_stub(self) -> None:
+        path = self.bin_root / "git"
+        path.write_text(
+            "#!/bin/bash\n"
+            "if [[ \"$*\" == *'rev-parse --show-toplevel'* ]]; then\n"
+            "  printf '%s\\n' \"$JAZZ_TEST_ROOT\"\n"
+            "else\n"
+            "  printf 'git %s\\n' \"$*\" >>\"$JAZZ_TEST_COMMAND_LOG\"\n"
+            "fi\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+
+    def run_main(self, **overrides: str) -> subprocess.CompletedProcess[str]:
+        environment = {
+            "PATH": f"{self.bin_root}:/usr/bin:/bin",
+            "JAZZ_TEST_COMMAND_LOG": str(self.command_log),
+            "JAZZ_TEST_ROOT": str(self.root),
+            **overrides,
+        }
+        return subprocess.run(
+            ["/bin/bash", str(MAIN_FUNCTIONAL_SCRIPT)],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
+
+    def logged_commands(self) -> list[str]:
+        if not self.command_log.exists():
+            return []
+        return self.command_log.read_text(encoding="utf-8").splitlines()
+
+    def test_default_runs_the_complete_authoritative_main_gate(self) -> None:
+        result = self.run_main()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.logged_commands(),
+            [
+                "actionlint ",
+                "cabal build all --jobs=1",
+                "cabal test all --test-show-details=direct --jobs=1",
+                "cabal check",
+                "python3 scripts/test-check-ci-policy.py",
+                "python3 scripts/release/test-verify-artifacts.py",
+                "bash scripts/check-docs.sh",
+                "bash scripts/check-execution-queue.sh",
+                "bash scripts/check-examples.sh",
+                "git diff --check",
+                "nix flake check --max-jobs 1 --cores 1",
+            ],
+        )
+
+    def test_low_memory_runs_bounded_compiler_and_repository_without_nix(self) -> None:
+        result = self.run_main(JAZZ_MAIN_PHASE="low-memory")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.logged_commands(),
+            [
+                "actionlint ",
+                "cabal build all --jobs=1",
+                "cabal test all --test-show-details=direct --jobs=1",
+                "cabal check",
+                "python3 scripts/test-check-ci-policy.py",
+                "python3 scripts/release/test-verify-artifacts.py",
+                "bash scripts/check-docs.sh",
+                "bash scripts/check-execution-queue.sh",
+                "bash scripts/check-examples.sh",
+                "git diff --check",
+            ],
+        )
+        self.assertIn("low-memory verification omits the Nix flake check", result.stderr)
+
+    def test_nix_phase_runs_only_one_bounded_flake_check(self) -> None:
+        result = self.run_main(JAZZ_MAIN_PHASE="nix")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.logged_commands(),
+            ["nix flake check --max-jobs 1 --cores 1"],
+        )
+
+    def test_invalid_phase_and_job_values_fail_before_work(self) -> None:
+        invalid_environments = (
+            {"JAZZ_MAIN_PHASE": "unknown"},
+            {"JAZZ_CABAL_JOBS": "0"},
+            {"JAZZ_NIX_JOBS": "many"},
+            {"JAZZ_NIX_CORES": ""},
+        )
+        for invalid_environment in invalid_environments:
+            with self.subTest(invalid_environment=invalid_environment):
+                if self.command_log.exists():
+                    self.command_log.unlink()
+                result = self.run_main(**invalid_environment)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.logged_commands(), [])
+
+
 class CiPolicyCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -792,6 +935,42 @@ class CiPolicyCheckerTests(unittest.TestCase):
         )
         self.assert_violation("main functional tier is missing required token: --test-show-details=direct")
 
+    def test_main_tier_requires_phases_and_bounded_workers(self) -> None:
+        mutations = (
+            (
+                VALID_MAIN.replace(
+                    "all | compiler | repository | nix | low-memory",
+                    "all | compiler",
+                ),
+                "main functional tier must expose all, compiler, repository, nix, and low-memory phases",
+            ),
+            (
+                VALID_MAIN.replace(
+                    'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"\n', ""
+                ),
+                "main functional tier must default JAZZ_CABAL_JOBS to 1",
+            ),
+            (
+                VALID_MAIN.replace(' --jobs="$JAZZ_CABAL_JOBS"', "", 1),
+                "main functional tier must bound Cabal build and test jobs",
+            ),
+            (
+                VALID_MAIN.replace(' --max-jobs "$JAZZ_NIX_JOBS"', "", 1),
+                "main functional tier must bound Nix max jobs and cores",
+            ),
+            (
+                VALID_MAIN.replace(
+                    "printf 'NOTE: low-memory verification omits the Nix flake check\\n' >&2\n",
+                    "",
+                ),
+                "main functional tier must disclose the omitted Nix gate in low-memory mode",
+            ),
+        )
+        for contents, expected in mutations:
+            with self.subTest(expected=expected):
+                self.write("scripts/ci/main-functional.sh", contents)
+                self.assert_violation(expected)
+
     def test_policy_rejects_an_obvious_dead_code_guard(self) -> None:
         self.write(
             "scripts/ci/main-functional.sh",
@@ -842,6 +1021,44 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.write("scripts/ci/extended.sh", VALID_EXTENDED.replace(required, ""))
                 self.assert_violation(f"extended tier is missing required token: {required}")
+
+    def test_extended_tier_bounds_every_heavy_cabal_command(self) -> None:
+        mutations = (
+            (
+                VALID_EXTENDED.replace(
+                    'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"\n', ""
+                ),
+                "extended tier must default JAZZ_CABAL_JOBS to 1",
+            ),
+            (
+                VALID_EXTENDED.replace(' --jobs="$JAZZ_CABAL_JOBS"', "", 1),
+                "extended tier must bound every heavyweight Cabal command",
+            ),
+            (
+                VALID_EXTENDED.replace(
+                    'build all --jobs="$JAZZ_CABAL_JOBS"', "build all", 1
+                ),
+                "extended tier must bound every heavyweight Cabal command",
+            ),
+            (
+                VALID_EXTENDED.replace(
+                    'cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" --jobs="$JAZZ_CABAL_JOBS"',
+                    'cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"',
+                ),
+                "extended tier must bound every heavyweight Cabal command",
+            ),
+            (
+                VALID_EXTENDED.replace(
+                    'cabal test benchmark-metadata-spec --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"',
+                    "cabal test benchmark-metadata-spec --test-show-details=direct",
+                ),
+                "extended tier must bound every heavyweight Cabal command",
+            ),
+        )
+        for contents, expected in mutations:
+            with self.subTest(expected=expected):
+                self.write("scripts/ci/extended.sh", contents)
+                self.assert_violation(expected)
 
     def test_extended_tier_requires_owned_benchmark_arguments_and_manifest(self) -> None:
         for required in (
@@ -944,6 +1161,25 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.write("scripts/ci/release-candidate.sh", VALID_RELEASE.replace(required, ""))
                 self.assert_violation(f"release candidate tier is missing required token: {required}")
+
+    def test_release_tier_propagates_bounded_workers_to_nested_gates(self) -> None:
+        mutations = (
+            (
+                VALID_RELEASE.replace(
+                    "export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES\n",
+                    "",
+                ),
+                "release candidate tier must export bounded Cabal and Nix workers",
+            ),
+            (
+                VALID_RELEASE.replace(' --max-jobs "$JAZZ_NIX_JOBS"', "", 1),
+                "release candidate tier must bound Nix max jobs and cores",
+            ),
+        )
+        for contents, expected in mutations:
+            with self.subTest(expected=expected):
+                self.write("scripts/ci/release-candidate.sh", contents)
+                self.assert_violation(expected)
 
     def test_release_tier_requires_every_extended_artifact_category(self) -> None:
         self.write(
