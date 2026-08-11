@@ -76,6 +76,8 @@ tests =
     ("typed wide export provider scale cases have exact metadata", testTypedWideExportProvidersRegistry),
     ("smallest typed wide export provider case executes prepared validation", testTypedWideExportProvidersSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
+    ("capability candidate width scale cases have exact metadata", testCapabilityCandidateWidthRegistry),
+    ("smallest capability candidate width case preserves real and prepared semantics", testCapabilityCandidateWidthSemantics),
     ("host-free opaque environments preserve exact runtime output", testHostFreeOpaqueEnvironmentSemantics),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
@@ -198,6 +200,10 @@ testCompilerScaleRegistry =
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
       ("wide-constructor-application-0256", WideConstructorApplication, 256, Nothing),
+      ("capability-candidate-width-0016", CapabilityCandidateWidth, 16, Nothing),
+      ("capability-candidate-width-0032", CapabilityCandidateWidth, 32, Nothing),
+      ("capability-candidate-width-0064", CapabilityCandidateWidth, 64, Nothing),
+      ("capability-candidate-width-0128", CapabilityCandidateWidth, 128, Nothing),
       ("host-free-opaque-environment-0064", HostFreeOpaqueEnvironment, 64, Nothing),
       ("host-free-opaque-environment-0256", HostFreeOpaqueEnvironment, 256, Nothing),
       ("host-free-opaque-environment-1024", HostFreeOpaqueEnvironment, 1024, Nothing),
@@ -477,6 +483,37 @@ testWideConstructorApplicationSemantics = do
   assertEqual "wide constructor output" "(<function>, (0, 16, 31))" actualOutput
   runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
   runPreparedCompilerScaleBenchmark runtimePrepared
+
+testCapabilityCandidateWidthRegistry :: IO ()
+testCapabilityCandidateWidthRegistry =
+  assertEqual
+    "capability candidate width registry"
+    [ ("capability-candidate-width-0016", 16, 1, [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark], "15"),
+      ("capability-candidate-width-0032", 32, 1, [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark], "31"),
+      ("capability-candidate-width-0064", 64, 1, [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark], "63"),
+      ("capability-candidate-width-0128", 128, 1, [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark], "127")
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseSourceCount programCase,
+        compilerScaleCaseBenchmarks programCase,
+        compilerScaleCaseExpectedOutput programCase
+      )
+      | programCase <- compilerScaleCases,
+        compilerScaleCaseScenario programCase == CapabilityCandidateWidth
+    ]
+
+testCapabilityCandidateWidthSemantics :: IO ()
+testCapabilityCandidateWidthSemantics = do
+  programCase <- loadCompilerScaleCase "capability-candidate-width-0016"
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "capability candidate width final-target output" "15" actualOutput
+  mapM_
+    ( \benchmarkGroup -> do
+        prepared <- prepareCompilerScaleBenchmark benchmarkGroup programCase
+        runPreparedCompilerScaleBenchmark prepared
+    )
+    [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark]
 
 testHostFreeOpaqueEnvironmentSemantics :: IO ()
 testHostFreeOpaqueEnvironmentSemantics = do

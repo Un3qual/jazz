@@ -41,6 +41,7 @@ data CompilerScaleScenario
   | TypedForwardSignedFunctions
   | TypedWideExportProviders
   | WideConstructorApplication
+  | CapabilityCandidateWidth
   | HostFreeOpaqueEnvironment
   | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
@@ -103,6 +104,7 @@ baseCompilerScaleCases =
     <> map typedForwardSignedFunctionsCase [128, 512, 1024, 2048]
     <> map typedWideExportProvidersCase [128, 512, 1024, 2048]
     <> map wideConstructorApplicationCase [32, 64, 128, 256]
+    <> map capabilityCandidateWidthCase [16, 32, 64, 128]
     <> map hostFreeOpaqueEnvironmentCase [64, 256, 1024, 4096]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
@@ -400,6 +402,53 @@ wideConstructorApplicationSource fieldCount =
     partialCount = fieldCount `div` 2
     renderValue = Text.pack . show
     fieldName fieldIndex = "field" <> paddedDecimal 4 fieldIndex
+
+capabilityCandidateWidthCase :: Int -> CompilerScaleCase
+capabilityCandidateWidthCase candidateCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "capability-candidate-width-" <> paddedDecimal 4 candidateCount,
+      compilerScaleCaseScenario = CapabilityCandidateWidth,
+      compilerScaleCaseSize = candidateCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (capabilityCandidateWidthSource candidateCount),
+      compilerScaleCaseExpectedOutput = Text.pack (show (candidateCount - 1))
+    }
+
+capabilityCandidateWidthSource :: Int -> Text
+capabilityCandidateWidthSource candidateCount =
+  Text.unlines
+    ( [ "module Main {",
+        "  class CandidateValue(a) {",
+        "    candidateValue :: a -> Int.",
+        "  }."
+      ]
+        <> concatMap renderCandidate [0 .. candidateCount - 1]
+        <> [ "  CandidateValue::candidateValue "
+               <> candidateTargetName (candidateCount - 1)
+               <> ".",
+             "}"
+           ]
+    )
+  where
+    renderCandidate candidateIndex =
+      [ "  data " <> targetName <> " = " <> targetName <> ".",
+        "  impl CandidateValue(" <> targetName <> ") {",
+        "    candidateValue = \\(candidate) -> " <> Text.pack (show candidateIndex) <> ".",
+        "  }."
+      ]
+      where
+        targetName = candidateTargetName candidateIndex
+
+candidateTargetName :: Int -> Text
+candidateTargetName candidateIndex =
+  "CandidateTarget" <> paddedDecimal 4 candidateIndex
 
 hostFreeOpaqueEnvironmentCase :: Int -> CompilerScaleCase
 hostFreeOpaqueEnvironmentCase bindingCount =
