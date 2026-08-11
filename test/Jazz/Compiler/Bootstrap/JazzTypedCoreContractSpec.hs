@@ -56,7 +56,12 @@ main = runTestSuite "JazzTypedCoreContract" tests
 
 tests :: [NamedTest]
 tests =
-  coreTests <> map fst reviewRegressionGroups <> [("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)]
+  coreTests
+    <> map fst reviewRegressionGroups
+    <> [ ("uses nearest-prior dependencies through rebinding", testNearestPriorBindingDependencies),
+         ("preserves source-ordered recursive visibility", testSourceOrderedRecursiveVisibility),
+         ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
+       ]
 
 coreTests :: [NamedTest]
 coreTests =
@@ -4025,6 +4030,35 @@ testSameScopeValueRebinding =
     "signed value rebinding remains valid and last-wins"
     []
     (validateTypedProgram sameScopeValueRebindingProgram)
+
+testNearestPriorBindingDependencies :: IO ()
+testNearestPriorBindingDependencies =
+  assertEqual
+    "acyclic binding chains resolve a repeated name to its nearest prior declaration"
+    []
+    (validateTypedProgram nearestPriorBindingDependencyProgram)
+
+testSourceOrderedRecursiveVisibility :: IO ()
+testSourceOrderedRecursiveVisibility =
+  assertEqual
+    "recursive groups retain source order without leaking future peers to interleaved statements"
+    [ expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        1
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail")),
+      expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        3
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail")),
+      expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        5
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail"))
+    ]
+    (validateTypedProgram sourceOrderedRecursiveVisibilityProgram)
 
 testForwardSignedFunctionVisibility :: IO ()
 testForwardSignedFunctionVisibility = do
@@ -8539,6 +8573,86 @@ sameScopeValueRebindingProgram =
           secondScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "latest")),
         expressionStatement 4 (fixtureBoundVariableExpr secondOwner textInfo valueName)
+      ]
+
+nearestPriorBindingDependencyProgram :: TypedProgram
+nearestPriorBindingDependencyProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nearest-prior-binding-dependency"
+    modulePath = fixtureModulePath fixture
+    repeatedName = fixtureValueName "item"
+    linkName = fixtureValueName "link"
+    resultName = fixtureValueName "result"
+    firstOwner = binder modulePath [0] repeatedName
+    linkOwner = binder modulePath [1] linkName
+    secondOwner = binder modulePath [2] repeatedName
+    resultOwner = binder modulePath [3] resultName
+    statements =
+      [ TypedLetStatement firstOwner repeatedName span1 (monoScheme firstOwner) trueExpr,
+        TypedLetStatement
+          linkOwner
+          linkName
+          span1
+          (monoScheme linkOwner)
+          (fixtureBoundVariableExpr firstOwner boolInfo repeatedName),
+        TypedLetStatement
+          secondOwner
+          repeatedName
+          span1
+          (monoScheme secondOwner)
+          (fixtureBoundVariableExpr linkOwner boolInfo linkName),
+        TypedLetStatement
+          resultOwner
+          resultName
+          span1
+          (monoScheme resultOwner)
+          (fixtureBoundVariableExpr secondOwner boolInfo repeatedName),
+        expressionStatement 4 (fixtureBoundVariableExpr resultOwner boolInfo resultName)
+      ]
+
+sourceOrderedRecursiveVisibilityProgram :: TypedProgram
+sourceOrderedRecursiveVisibilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolToBoolInfo modulePath
+  where
+    fixture = "review-source-ordered-recursive-visibility"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    bridgeName = fixtureValueName "bridge"
+    middleName = fixtureValueName "middle"
+    tailName = fixtureValueName "tail"
+    firstOwner = binder modulePath [0] firstName
+    bridgeOwner = binder modulePath [2] bridgeName
+    middleOwner = binder modulePath [4] middleName
+    tailOwner = binder modulePath [6] tailName
+    recursiveBinding statementIndex owner name peerOwner peerName =
+      let argumentName = fixtureValueName ("argument" <> Text.pack (show statementIndex))
+          argumentOwner = binder modulePath [statementIndex, 0] argumentName
+       in TypedLetStatement
+            owner
+            name
+            span1
+            (fixtureScheme owner [] [] [] boolToBoolType boolToBoolRecipe)
+            ( TypedLambdaExpr
+                boolToBoolInfo
+                argumentOwner
+                argumentName
+                ( TypedApplyExpr
+                    boolInfo
+                    (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
+                    (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+                )
+            )
+    unseenTail = fixtureVariableExpr boolToBoolInfo tailName
+    statements =
+      [ recursiveBinding 0 firstOwner firstName tailOwner tailName,
+        expressionStatement 1 unseenTail,
+        recursiveBinding 2 bridgeOwner bridgeName firstOwner firstName,
+        expressionStatement 3 unseenTail,
+        recursiveBinding 4 middleOwner middleName bridgeOwner bridgeName,
+        expressionStatement 5 unseenTail,
+        recursiveBinding 6 tailOwner tailName middleOwner middleName,
+        expressionStatement 7 (fixtureBoundVariableExpr middleOwner boolToBoolInfo middleName)
       ]
 
 forwardModuleReferenceProgram :: TypedProgram

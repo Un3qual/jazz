@@ -36,6 +36,8 @@ data CompilerScaleScenario
   | RuntimeImportWidth
   | ResolverFactRich
   | TypedValidationHandoff
+  | LoweredTemporaryValidation
+  | TypedRecursiveStatementGraph
   | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
   | RecursiveRebindings
@@ -44,6 +46,8 @@ data CompilerScaleScenario
   | LargeOperatorTables
   | NestedBlocks
   | LongTokenStream
+  | IdentifierTokenStream
+  | LiteralTokenStream
   deriving (Eq, Ord, Show)
 
 instance NFData CompilerScaleScenario where
@@ -90,6 +94,8 @@ baseCompilerScaleCases =
     <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
     <> map resolverFactRichCase [16, 32, 64, 128]
     <> map typedValidationHandoffCase [64, 128, 256, 512]
+    <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
+    <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
@@ -100,6 +106,8 @@ baseCompilerScaleCases =
     <> map largeOperatorTablesCase [16, 32, 64, 128]
     <> map nestedBlocksCase [16, 32, 64, 128]
     <> map longTokenStreamCase [1024, 4096, 16384, 65536]
+    <> map identifierTokenStreamCase [1024, 4096, 16384, 65536]
+    <> map literalTokenStreamCase [1024, 4096, 16384, 65536]
 
 compilerScaleCaseSource :: CompilerScaleCase -> FilePath -> Maybe Text
 compilerScaleCaseSource programCase path =
@@ -292,6 +300,36 @@ typedValidationHandoffCase expressionCount =
       compilerScaleCaseInterfaceWidth = Nothing,
       compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
       compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
+
+loweredTemporaryValidationCase :: Int -> CompilerScaleCase
+loweredTemporaryValidationCase instructionCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "lowered-temporary-validation-" <> paddedDecimal 4 instructionCount,
+      compilerScaleCaseScenario = LoweredTemporaryValidation,
+      compilerScaleCaseSize = instructionCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["LoweredTemporaryValidation"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
+
+typedRecursiveStatementGraphCase :: Int -> CompilerScaleCase
+typedRecursiveStatementGraphCase statementCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "typed-recursive-statement-graph-" <> paddedDecimal 4 statementCount,
+      compilerScaleCaseScenario = TypedRecursiveStatementGraph,
+      compilerScaleCaseSize = statementCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["TypedRecursiveStatementGraph"],
       compilerScaleCaseResolutionConfig = scaleResolutionConfig,
       compilerScaleCaseSources = Map.empty,
       compilerScaleCaseExpectedOutput = ""
@@ -837,6 +875,40 @@ longTokenStreamSource tokenCount =
     [ "token" <> paddedDecimal 5 index <> " = 0."
     | index <- [0 .. tokenCount `div` 4 - 1]
     ]
+
+identifierTokenStreamCase :: Int -> CompilerScaleCase
+identifierTokenStreamCase tokenCount =
+  tokenStreamCase
+    "identifier-token-stream-"
+    IdentifierTokenStream
+    tokenCount
+    ( Text.unlines
+        [ "token" <> paddedDecimal 5 index <> " = token" <> paddedDecimal 5 index <> "."
+        | index <- [0 .. tokenCount `div` 4 - 1]
+        ]
+    )
+
+literalTokenStreamCase :: Int -> CompilerScaleCase
+literalTokenStreamCase tokenCount =
+  tokenStreamCase
+    "literal-token-stream-"
+    LiteralTokenStream
+    tokenCount
+    (Text.unlines (replicate (tokenCount `div` 2) "0."))
+
+tokenStreamCase :: Text -> CompilerScaleScenario -> Int -> Text -> CompilerScaleCase
+tokenStreamCase identifierPrefix scenario tokenCount source =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = identifierPrefix <> paddedDecimal 5 tokenCount,
+      compilerScaleCaseScenario = scenario,
+      compilerScaleCaseSize = tokenCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [ParseLowerBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.singleton (scaleModuleRoot </> "Main.jz") source,
+      compilerScaleCaseExpectedOutput = ""
+    }
 
 paddedDecimal :: Int -> Int -> Text
 paddedDecimal width value = Text.justifyRight width '0' (Text.pack (show value))

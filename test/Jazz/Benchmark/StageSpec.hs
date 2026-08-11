@@ -67,6 +67,10 @@ tests =
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("resolver fact-rich modules preserve exact compiler semantics", testResolverFactRichSemantics),
     ("typed validation handoff lowers exact valid programs", testTypedValidationHandoffSemantics),
+    ("lowered temporary validation scale cases have exact metadata", testLoweredTemporaryValidationRegistry),
+    ("smallest lowered temporary validation executes prepared validation", testLoweredTemporaryValidationSmallestCase),
+    ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
+    ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
@@ -79,6 +83,7 @@ tests =
     ("large operator tables exercise parse and lower", testLargeOperatorTableParseLower),
     ("nested blocks exercise parse and lower", testNestedBlocksParseLower),
     ("long token streams have exact token counts", testLongTokenStreamExactSize),
+    ("identifier and literal token controls have exact token counts", testTokenStreamControlsExactSize),
     ("selects requested cases before stage preparation", testCaseSelection),
     ("parse-lower setup does not require module compilation", testParseLowerSetupBoundary),
     ("parse-lower setup reports entry-source read failures", testParseLowerSourceReadFailure),
@@ -167,6 +172,14 @@ testCompilerScaleRegistry =
       ("typed-validation-handoff-0128", TypedValidationHandoff, 128, Nothing),
       ("typed-validation-handoff-0256", TypedValidationHandoff, 256, Nothing),
       ("typed-validation-handoff-0512", TypedValidationHandoff, 512, Nothing),
+      ("lowered-temporary-validation-0064", LoweredTemporaryValidation, 64, Nothing),
+      ("lowered-temporary-validation-0256", LoweredTemporaryValidation, 256, Nothing),
+      ("lowered-temporary-validation-1024", LoweredTemporaryValidation, 1024, Nothing),
+      ("lowered-temporary-validation-4096", LoweredTemporaryValidation, 4096, Nothing),
+      ("typed-recursive-statement-graph-0128", TypedRecursiveStatementGraph, 128, Nothing),
+      ("typed-recursive-statement-graph-0512", TypedRecursiveStatementGraph, 512, Nothing),
+      ("typed-recursive-statement-graph-1024", TypedRecursiveStatementGraph, 1024, Nothing),
+      ("typed-recursive-statement-graph-2048", TypedRecursiveStatementGraph, 2048, Nothing),
       ("analyzer-diagnostic-chain-0064", AnalyzerDiagnosticChain, 64, Nothing),
       ("analyzer-diagnostic-chain-0128", AnalyzerDiagnosticChain, 128, Nothing),
       ("analyzer-diagnostic-chain-0256", AnalyzerDiagnosticChain, 256, Nothing),
@@ -207,6 +220,14 @@ testCompilerScaleRegistry =
       ("long-token-stream-04096", LongTokenStream, 4096, Nothing),
       ("long-token-stream-16384", LongTokenStream, 16384, Nothing),
       ("long-token-stream-65536", LongTokenStream, 65536, Nothing),
+      ("identifier-token-stream-01024", IdentifierTokenStream, 1024, Nothing),
+      ("identifier-token-stream-04096", IdentifierTokenStream, 4096, Nothing),
+      ("identifier-token-stream-16384", IdentifierTokenStream, 16384, Nothing),
+      ("identifier-token-stream-65536", IdentifierTokenStream, 65536, Nothing),
+      ("literal-token-stream-01024", LiteralTokenStream, 1024, Nothing),
+      ("literal-token-stream-04096", LiteralTokenStream, 4096, Nothing),
+      ("literal-token-stream-16384", LiteralTokenStream, 16384, Nothing),
+      ("literal-token-stream-65536", LiteralTokenStream, 65536, Nothing),
       ("nested-runtime-applications-0064", NestedRuntimeApplications, 64, Nothing),
       ("nested-runtime-applications-0128", NestedRuntimeApplications, 128, Nothing),
       ("nested-runtime-applications-0256", NestedRuntimeApplications, 256, Nothing),
@@ -331,6 +352,52 @@ testTypedValidationHandoffSemantics = do
   prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
+testLoweredTemporaryValidationRegistry :: IO ()
+testLoweredTemporaryValidationRegistry =
+  assertEqual
+    "lowered temporary validation registry"
+    [ ("lowered-temporary-validation-0064", 64, [TypedLoweringBenchmark]),
+      ("lowered-temporary-validation-0256", 256, [TypedLoweringBenchmark]),
+      ("lowered-temporary-validation-1024", 1024, [TypedLoweringBenchmark]),
+      ("lowered-temporary-validation-4096", 4096, [TypedLoweringBenchmark])
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseBenchmarks programCase
+      )
+      | programCase <- compilerScaleCases,
+        compilerScaleCaseScenario programCase == LoweredTemporaryValidation
+    ]
+
+testLoweredTemporaryValidationSmallestCase :: IO ()
+testLoweredTemporaryValidationSmallestCase = do
+  programCase <- loadCompilerScaleCase "lowered-temporary-validation-0064"
+  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testTypedRecursiveStatementGraphRegistry :: IO ()
+testTypedRecursiveStatementGraphRegistry =
+  assertEqual
+    "typed recursive statement graph registry"
+    [ ("typed-recursive-statement-graph-0128", 128, [TypedLoweringBenchmark]),
+      ("typed-recursive-statement-graph-0512", 512, [TypedLoweringBenchmark]),
+      ("typed-recursive-statement-graph-1024", 1024, [TypedLoweringBenchmark]),
+      ("typed-recursive-statement-graph-2048", 2048, [TypedLoweringBenchmark])
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseBenchmarks programCase
+      )
+      | programCase <- compilerScaleCases,
+        compilerScaleCaseScenario programCase == TypedRecursiveStatementGraph
+    ]
+
+testTypedRecursiveStatementGraphSmallestCase :: IO ()
+testTypedRecursiveStatementGraphSmallestCase = do
+  programCase <- loadCompilerScaleCase "typed-recursive-statement-graph-0128"
+  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
 testAnalyzerDiagnosticChainSemantics :: IO ()
 testAnalyzerDiagnosticChainSemantics = do
   programCase <- loadCompilerScaleCase "analyzer-diagnostic-chain-0064"
@@ -430,6 +497,24 @@ testLongTokenStreamExactSize = do
   assertEqual "long token stream token count" 1024 (length tokens)
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
+
+testTokenStreamControlsExactSize :: IO ()
+testTokenStreamControlsExactSize =
+  mapM_ assertExactTokenCount ["identifier-token-stream-01024", "literal-token-stream-01024"]
+  where
+    assertExactTokenCount identifier = do
+      programCase <- loadCompilerScaleCase identifier
+      source <-
+        case compilerScaleCaseEntrySource programCase of
+          Nothing -> failTest (identifier <> " is missing its entry source")
+          Just value -> pure value
+      tokens <-
+        case tokenize source of
+          Left diagnostic -> failTest (identifier <> " did not tokenize: " <> Text.pack (show diagnostic))
+          Right values -> pure values
+      assertEqual (identifier <> " token count") 1024 (length tokens)
+      prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
+      runPreparedCompilerScaleBenchmark prepared
 
 testCaseSelection :: IO ()
 testCaseSelection = do

@@ -51,10 +51,12 @@ import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
+import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
   ( LoweredIRLoweringResult (..),
     lowerValidatedTypedCoreExpressionDirectCall,
   )
+import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
 import Jazz.Compiler.ModuleGraph
   ( ResolvedModule (..),
@@ -121,6 +123,7 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleRuntime CompilerScaleCase CompiledProgram
+  | PreparedCompilerScaleLoweredValidation CompilerScaleCase LoweredProgram
   | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
   | PreparedCompilerScaleDiagnosticAnalysis CompilerScaleCase Expr Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
@@ -157,8 +160,10 @@ instance NFData PreparedCompilerScaleBenchmark where
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
       PreparedCompilerScaleRuntime programCase compiledProgram ->
         rnf programCase `seq` forceCompiledProgram compiledProgram
+      PreparedCompilerScaleLoweredValidation programCase loweredProgram ->
+        rnf programCase `seq` forceLoweredProgramArtifact loweredProgram
       PreparedCompilerScaleTypedLowering programCase typedProgram ->
-        rnf programCase `seq` typedProgram `seq` ()
+        rnf programCase `seq` forceTypedProgramArtifact typedProgram
       PreparedCompilerScaleDiagnosticAnalysis programCase expression expectedDiagnosticCount ->
         rnf programCase `seq` forceExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
@@ -252,17 +257,31 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                 entryModule
             )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
-    TypedLoweringBenchmark -> do
-      let typedProgram = typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
-      case validateTypedProgram typedProgram of
-        [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
-        failures ->
-          ioError
-            ( userError
-                ( "typed-lowering scale fixture is invalid: "
-                    <> show failures
+    TypedLoweringBenchmark ->
+      case compilerScaleCaseScenario programCase of
+        LoweredTemporaryValidation -> do
+          let loweredProgram = loweredTemporaryValidationProgram (compilerScaleCaseSize programCase)
+          evaluate (forceLoweredProgramArtifact loweredProgram)
+          case validateLoweredProgram loweredProgram of
+            [] -> pure (PreparedCompilerScaleLoweredValidation programCase loweredProgram)
+            failures ->
+              ioError (userError ("lowered validation scale fixture is invalid: " <> show failures))
+        scenario -> do
+          let typedProgram =
+                case scenario of
+                  TypedRecursiveStatementGraph ->
+                    typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
+                  _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
+          evaluate (forceTypedProgramArtifact typedProgram)
+          case validateTypedProgram typedProgram of
+            [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
+            failures ->
+              ioError
+                ( userError
+                    ( "typed-lowering scale fixture is invalid: "
+                        <> show failures
+                    )
                 )
-            )
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
       compiledProgram <- prepareValidCompilerScaleProgram programCase
@@ -322,16 +341,30 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
         let runtimeResult = evaluateCompiledProgram compiledProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedCompilerScaleRuntimeResult programCase runtimeResult
-    PreparedCompilerScaleTypedLowering _ typedProgram ->
-      withCompilerStage LoweringStage $ do
-        case validateTypedProgramOnce typedProgram of
-          Left failures ->
-            ioError (userError ("trusted typed program failed producer validation: " <> show failures))
-          Right validatedProgram ->
-            case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
-              LoweredIRSucceeded _ -> pure ()
-              loweringResult ->
-                ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
+    PreparedCompilerScaleLoweredValidation _ loweredProgram ->
+      withCompilerStage LoweringStage $
+        case validateLoweredProgram loweredProgram of
+          [] -> pure ()
+          failures ->
+            ioError (userError ("lowered validation benchmark failed: " <> show failures))
+    PreparedCompilerScaleTypedLowering programCase typedProgram ->
+      case compilerScaleCaseScenario programCase of
+        TypedRecursiveStatementGraph ->
+          withCompilerStage TypeInferenceStage $
+            case validateTypedProgram typedProgram of
+              [] -> pure ()
+              failures ->
+                ioError (userError ("typed validation benchmark failed: " <> show failures))
+        _ ->
+          withCompilerStage LoweringStage $ do
+            case validateTypedProgramOnce typedProgram of
+              Left failures ->
+                ioError (userError ("trusted typed program failed producer validation: " <> show failures))
+              Right validatedProgram ->
+                case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
+                  LoweredIRSucceeded _ -> pure ()
+                  loweringResult ->
+                    ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
     PreparedCompilerScaleDiagnosticAnalysis _ expression expectedDiagnosticCount ->
       withCompilerStage StaticAnalysisStage $ do
         analysisResult <- analyzeProgram defaultWarningSettings expression
@@ -474,6 +507,144 @@ typedValidationBenchmarkProgram expressionCount =
         (\left value -> TypedBinaryExpr intInfo (TypedBuiltinOperator "+") left (intExpression value))
         (intExpression 0)
         [1 .. expressionCount]
+
+loweredTemporaryValidationProgram :: Int -> LoweredProgram
+loweredTemporaryValidationProgram instructionCount
+  | instructionCount <= 0 = error "lowered temporary validation size must be positive"
+  | otherwise =
+      LoweredProgram
+        supportedLoweredIRVersion
+        []
+        []
+        [ LoweredFunction
+            functionId
+            Nothing
+            []
+            int64Representation
+            [LoweredBlock blockId [] instructions (Just (LoweredReturn finalOperand))]
+            blockId
+        ]
+        functionId
+  where
+    functionId = LoweredFunctionId "main"
+    blockId = LoweredBlockId "entry"
+    int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    temporaryId instructionIndex =
+      LoweredTemporaryId ("value" <> Text.justifyRight 5 '0' (Text.pack (show instructionIndex)))
+    immediate value =
+      LoweredImmediateOperand
+        (LoweredSignedIntegerImmediate LoweredIntegerWidth64 value)
+    temporary instructionIndex =
+      LoweredTemporaryOperand (temporaryId instructionIndex) int64Representation
+    operandFor instructionIndex
+      | instructionIndex == 0 = immediate 0
+      | otherwise = temporary (instructionIndex - 1)
+    instructions =
+      [ LoweredInstruction
+          (temporaryId instructionIndex)
+          int64Representation
+          ( LoweredPrimitiveOperation
+              (LoweredArithmeticPrimitive LoweredAdd)
+              [operandFor instructionIndex, immediate 1]
+          )
+      | instructionIndex <- [0 .. instructionCount - 1]
+      ]
+    finalOperand = temporary (instructionCount - 1)
+
+typedRecursiveStatementGraphProgram :: Int -> TypedProgram
+typedRecursiveStatementGraphProgram statementCount
+  | statementCount < graphGroupWidth || statementCount `rem` graphGroupWidth /= 0 =
+      error "typed recursive statement graph size must be a positive multiple of eight"
+  | otherwise =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            modulePath
+            (TypedSourcePath "compiler-scale/TypedRecursiveStatementGraph.jz")
+            []
+            []
+            (TypedModuleInterface [] [] [] [])
+            (bindings <> [TypedExpressionStatement spanValue terminalExpression])
+            boolInfo
+        ]
+        modulePath
+  where
+    graphGroupWidth = 8
+    groupCount = statementCount `div` graphGroupWidth
+    bindings = concatMap graphGroup [0 .. groupCount - 1]
+    modulePath = ["TypedRecursiveStatementGraph"]
+    spanValue = TypedSpan 1 1
+    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+    trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
+    historyName =
+      TypedResolvedName TypedCurrentModule TypedValueNamespace "history"
+    graphName prefix groupIndex =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedValueNamespace
+        (prefix <> Text.justifyRight 4 '0' (Text.pack (show groupIndex)))
+    graphOwner statementIndex name =
+      TypedBinderId (modulePath, [statementIndex], name)
+    boundVariable owner name = TypedVariableExpr boolInfo name (Just owner)
+    binding owner name expression =
+      TypedLetStatement
+        owner
+        name
+        spanValue
+        (TypedScheme owner [] [] [] TypedBoolType TypedBoolRecipe Nothing)
+        expression
+    graphGroup groupIndex =
+      [ binding firstHistoryOwner historyName firstHistoryExpression,
+        binding chainOneOwner chainOneName (boundVariable firstHistoryOwner historyName),
+        binding secondHistoryOwner historyName (boundVariable chainOneOwner chainOneName),
+        binding chainTwoOwner chainTwoName (boundVariable secondHistoryOwner historyName),
+        binding mutualLeftOwner mutualLeftName (boundVariable mutualRightOwner mutualRightName),
+        binding chainThreeOwner chainThreeName (boundVariable chainTwoOwner chainTwoName),
+        binding mutualRightOwner mutualRightName (boundVariable mutualLeftOwner mutualLeftName),
+        binding
+          tailOwner
+          tailName
+          ( TypedIfExpr
+              boolInfo
+              (boundVariable chainThreeOwner chainThreeName)
+              (boundVariable mutualRightOwner mutualRightName)
+              (boundVariable chainThreeOwner chainThreeName)
+          )
+      ]
+      where
+        baseIndex = groupIndex * graphGroupWidth
+        chainOneName = graphName "chainOne" groupIndex
+        chainTwoName = graphName "chainTwo" groupIndex
+        chainThreeName = graphName "chainThree" groupIndex
+        mutualLeftName = graphName "mutualLeft" groupIndex
+        mutualRightName = graphName "mutualRight" groupIndex
+        tailName = graphName "tail" groupIndex
+        firstHistoryOwner = graphOwner baseIndex historyName
+        chainOneOwner = graphOwner (baseIndex + 1) chainOneName
+        secondHistoryOwner = graphOwner (baseIndex + 2) historyName
+        chainTwoOwner = graphOwner (baseIndex + 3) chainTwoName
+        mutualLeftOwner = graphOwner (baseIndex + 4) mutualLeftName
+        chainThreeOwner = graphOwner (baseIndex + 5) chainThreeName
+        mutualRightOwner = graphOwner (baseIndex + 6) mutualRightName
+        tailOwner = graphOwner (baseIndex + 7) tailName
+        firstHistoryExpression
+          | groupIndex == 0 = trueExpression
+          | otherwise =
+              let previousTailName = graphName "tail" (groupIndex - 1)
+                  previousTailOwner = graphOwner (baseIndex - 1) previousTailName
+               in boundVariable previousTailOwner previousTailName
+    terminalName = graphName "tail" (groupCount - 1)
+    terminalOwner = graphOwner (statementCount - 1) terminalName
+    terminalExpression = boundVariable terminalOwner terminalName
+
+-- Typed Core deliberately keeps malformed states constructible and therefore
+-- has no blanket NFData instance. Derived Show still traverses every artifact
+-- field, so forcing its result keeps all generation outside the timed region.
+forceTypedProgramArtifact :: TypedProgram -> ()
+forceTypedProgramArtifact typedProgram = rnf (show typedProgram)
+
+forceLoweredProgramArtifact :: LoweredProgram -> ()
+forceLoweredProgramArtifact loweredProgram = rnf (show loweredProgram)
 
 unsupportedCorpusGroup :: BenchmarkGroup -> ProgramCase -> IO value
 unsupportedCorpusGroup benchmarkGroup programCase =

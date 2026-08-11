@@ -69,6 +69,8 @@ tests =
     ("preserves derived and zero-padded lexemes", testPreservesDerivedAndZeroPaddedLexemes),
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
     ("preserves first-character lexer dispatch contracts", testFirstCharacterLexerDispatch),
+    ("preserves standalone and signed-looking minus adjacency", testMinusAdjacency),
+    ("accepts ignored input terminated by end of input", testIgnoredInputAtEndOfInput),
     ("preserves lexer dispatch failure diagnostics", testLexerDispatchFailureDiagnostics),
     ("rejects malformed Char and Text literals", testRejectsMalformedCharAndTextLiterals),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
@@ -282,6 +284,38 @@ testFirstCharacterLexerDispatch = do
       (TOperator "$", "$", SourceSpan 7 59)
     ]
     [(tokenKind token, tokenLexeme token, tokenSpan token) | token <- tokens]
+
+testMinusAdjacency :: IO ()
+testMinusAdjacency = do
+  tokens <- lexSource "- -1 - 1"
+  assertEqual
+    "minus token kinds, lexemes, and spans"
+    [ (TOperator "-", "-", SourceSpan 1 1),
+      (TOperator "-", "-", SourceSpan 1 3),
+      (TInt 1, "1", SourceSpan 1 4),
+      (TOperator "-", "-", SourceSpan 1 6),
+      (TInt 1, "1", SourceSpan 1 8)
+    ]
+    [(tokenKind token, tokenLexeme token, tokenSpan token) | token <- tokens]
+  case tokens of
+    _ : compactMinus : compactInteger : spacedMinus : spacedInteger : [] -> do
+      assertEqual "signed-looking integer adjacency" True (isImmediatelyAfter compactMinus compactInteger)
+      assertEqual "spaced integer adjacency" False (isImmediatelyAfter spacedMinus spacedInteger)
+    _ -> failTest "expected standalone, compact, and spaced minus token groups"
+
+testIgnoredInputAtEndOfInput :: IO ()
+testIgnoredInputAtEndOfInput =
+  mapM_
+    ( \(label, source) ->
+        case tokenize source of
+          Left diagnostic ->
+            failTest (label <> ": expected no tokens, got " <> renderDiagnostic diagnostic)
+          Right tokens -> assertEqual label [] tokens
+    )
+    [ ("empty input", ""),
+      ("whitespace-only input", " \t\n  "),
+      ("final comment without newline", "# final comment")
+    ]
 
 testLexerDispatchFailureDiagnostics :: IO ()
 testLexerDispatchFailureDiagnostics =
