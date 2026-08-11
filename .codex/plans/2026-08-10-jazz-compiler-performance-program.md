@@ -1,27 +1,24 @@
 ---
 id: JN-COMPILER-PERFORMANCE-PROGRAM-001
-status: complete
+status: ready
 priority: P1
-size: L
+size: S
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
-plan_section: "Full closeout"
+plan_section: "Independent review follow-up"
 target_paths:
-  - src/
-  - jazz/
-  - app/
-  - test/
-  - benchmark/
-  - scripts/ci/
+  - src/Jazz/Compiler/RecursiveBindings.hs
+  - scripts/ci/release-candidate.sh
+  - scripts/check-ci-policy.py
+  - scripts/test-check-ci-policy.py
   - PERFORMANCE.md
 verification:
-  - JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
-  - JAZZ_RELEASE_VERSION=0.1.0-alpha.1 JAZZ_MAIN_PHASE=repository bash scripts/ci/release-candidate.sh
+  - cabal test recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - JAZZ_RELEASE_VERSION=0.1.0-alpha.2 bash scripts/ci/release-candidate.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-  - git diff --check
-deliverable: "Measured and removed the prioritized Jazz compiler CPU, allocation, and residency problems while preserving public semantics and exact artifacts."
+deliverable: "Force the complete main release gate, remove the remaining same-name recursive dependency scan, retain compatible physical evidence, and finish independent re-review."
 last_verified: 2026-08-11
 ---
 
@@ -1277,6 +1274,51 @@ residency. The independent heap census was effectively flat at 483,696 versus
 `benchmark-results/compiler-diagnostic-builders-{before,after}/` and
 `profile-results/compiler-diagnostic-builders-{before,after}/`.
 
+## Independent review follow-up
+
+The first independent closeout review found two important gaps: the release
+wrapper inherited `JAZZ_MAIN_PHASE`, allowing a caller to replace its mandatory
+complete main gate with a partial phase, and same-name recursive dependency
+resolution still filtered the full declaration history for every reference.
+It also found drift in the benchmark inventory in `PERFORMANCE.md`.
+
+- [x] Add a failing CI-policy behavior test proving the release tier cannot
+      inherit a partial main phase, then force `JAZZ_MAIN_PHASE=all` inside the
+      release boundary.
+- [x] Record the 128-to-1,024 same-name rebinding curve at the reviewed
+      pre-change revision.
+- [x] Replace per-reference declaration-list filtering with source-order
+      latest-prior and first-declaration maps while preserving outer-binding,
+      self-reference, first-future, SCC, and declaration-order semantics.
+- [x] Run the focused recursive-binding and benchmark-stage suites and capture
+      compatible optimized, stable-stage, RTS-stat, eventlog, and live-heap
+      evidence.
+- [x] Correct the durable benchmark group, stress-family, timed-boundary, and
+      generated smoke-fixture documentation.
+- [ ] Run one fresh mandatory release candidate without a caller-controlled
+      main phase, update the final receipts, and obtain independent re-review.
+
+The release-policy correction landed in `ae69e77a`, with all 111 behavior tests
+and the live policy checker passing. The dependency-map change landed in
+`a546bac6`; the complete focused semantic suites passed. Compatible optimized
+receipts are under
+`benchmark-results/compiler-recursive-latest-{before,after}-review/`.
+
+| Bindings | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before copied | After copied |
+| -------: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ------------: | -----------: |
+|      128 |     0.644 |    0.514 |            1.3x |        56,829,318 |        1,719,177 |                  33.1x |     2,951,699 |       73,859 |
+|      256 |     2.626 |    1.084 |            2.4x |       146,948,098 |        3,471,477 |                  42.3x |     8,426,756 |      294,691 |
+|      512 |     7.135 |    3.011 |            2.4x |       427,899,558 |        7,047,232 |                  60.7x |    26,901,102 |    1,704,481 |
+|    1,024 |    20.675 |    8.674 |            2.4x |     1,313,578,132 |       14,400,483 |                  91.2x |    93,938,734 |    7,344,773 |
+
+At 1,024 bindings, the stable-stage profile moved from 35.6 ms / 172 MB
+allocated / 25 MB peak to 13.8 ms / 21 MB / 24 MB. Exact `+RTS -s` maximum
+residency fell from 7,591,160 to 6,979,952 bytes, and the independent 1 ms heap
+census was effectively flat at 5,283,368 versus 5,261,800 bytes. Whole-process
+RTS allocation totals are retained but not compared because the faster run
+completed more adaptive benchmark iterations. Profiles are under
+`profile-results/compiler-recursive-latest-{before,after}-review/`.
+
 ## Full closeout
 
 After the final source change, run exactly one complete ordinary closeout, one
@@ -1286,12 +1328,14 @@ retain semantic and exact-artifact results, summarize timing/allocation/maximum
 residency without universal thresholds, and update `PERFORMANCE.md` only for
 durable workflow changes.
 
-The program closed on `38355358`. The authoritative main gate completed through
+The preliminary closeout ran on `38355358`. The authoritative main gate completed through
 its documented resumable phases: the complete serial compiler phase passed,
 the repository phase passed after the formatting-only queue correction, and
 `nix flake check --max-jobs 1 --cores 1` passed. The release closeout then ran
 `release-candidate.sh` once with `JAZZ_MAIN_PHASE=repository`, reusing the
-same-commit compiler/Nix receipt rather than repeating it. Website checks, the
+same-commit compiler/Nix receipt rather than repeating it. Independent review
+correctly rejected that partial release invocation as a final receipt; the
+fresh mandatory release in the follow-up above supersedes it. Website checks, the
 full extended/parser-scale suite, two identical corpus passes, deterministic
 statistics and profiles, stage/hotspot builds, all 78 release benchmarks,
 benchmark metadata validation, source distribution, bounded Nix package build,
