@@ -32,6 +32,7 @@ data CompilerScaleScenario
   = SequentialPolymorphicBindings
   | WideModuleFanout
   | InterleavedRecursiveGroups
+  | RecursiveRebindings
   | ConstrainedSignatures
   | DeepNestedLambdas
   | LargeOperatorTables
@@ -77,6 +78,7 @@ compilerScaleCases =
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
+    <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
     <> map constrainedSignaturesCase [32, 64, 128, 256]
     <> map deferredConstraintBurstCase [128, 256, 512, 1024]
     <> map deepNestedLambdasCase [16, 32, 64, 128]
@@ -345,6 +347,32 @@ recursivePreviewBurstSource groupCount =
 
 recursiveBindingName :: Text -> Int -> Text
 recursiveBindingName prefix groupIndex = prefix <> paddedDecimal 4 groupIndex
+
+recursiveRebindingBurstCase :: Int -> CompilerScaleCase
+recursiveRebindingBurstCase bindingCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "recursive-rebinding-burst-" <> paddedDecimal 4 bindingCount,
+      compilerScaleCaseScenario = RecursiveRebindings,
+      compilerScaleCaseSize = bindingCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (recursiveRebindingBurstSource bindingCount),
+      compilerScaleCaseExpectedOutput = Text.pack (show (bindingCount - 1))
+    }
+
+recursiveRebindingBurstSource :: Int -> Text
+recursiveRebindingBurstSource bindingCount =
+  Text.unlines
+    ( ["module Main {", "  rebound = 0."]
+        <> replicate (bindingCount - 1) "  rebound = rebound + 1."
+        <> ["  rebound.", "}"]
+    )
 
 constrainedSignaturesCase :: Int -> CompilerScaleCase
 constrainedSignaturesCase signatureCount =

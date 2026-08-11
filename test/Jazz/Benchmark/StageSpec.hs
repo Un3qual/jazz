@@ -49,6 +49,7 @@ tests =
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
+    ("same-name rebinding bursts preserve exact compiler semantics", testRecursiveRebindingBurstSemantics),
     ("constrained signatures preserve exact compiler semantics", testConstrainedSignatureSemantics),
     ("deferred constraint bursts preserve exact compiler semantics", testDeferredConstraintBurstSemantics),
     ("deep nested lambdas preserve exact compiler semantics", testDeepNestedLambdaSemantics),
@@ -82,6 +83,10 @@ testCompilerScaleRegistry =
       ("recursive-preview-burst-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("recursive-preview-burst-0064", InterleavedRecursiveGroups, 64, Nothing),
       ("recursive-preview-burst-0128", InterleavedRecursiveGroups, 128, Nothing),
+      ("recursive-rebinding-burst-0128", RecursiveRebindings, 128, Nothing),
+      ("recursive-rebinding-burst-0256", RecursiveRebindings, 256, Nothing),
+      ("recursive-rebinding-burst-0512", RecursiveRebindings, 512, Nothing),
+      ("recursive-rebinding-burst-1024", RecursiveRebindings, 1024, Nothing),
       ("constrained-signatures-0032", ConstrainedSignatures, 32, Nothing),
       ("constrained-signatures-0064", ConstrainedSignatures, 64, Nothing),
       ("constrained-signatures-0128", ConstrainedSignatures, 128, Nothing),
@@ -208,6 +213,14 @@ testRecursivePreviewBurstSemantics = do
   programCase <- loadCompilerScaleCase "recursive-preview-burst-0016"
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "recursive preview burst output" "(1, True)" actualOutput
+  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testRecursiveRebindingBurstSemantics :: IO ()
+testRecursiveRebindingBurstSemantics = do
+  programCase <- loadCompilerScaleCase "recursive-rebinding-burst-0128"
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "same-name rebinding burst output" "127" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
