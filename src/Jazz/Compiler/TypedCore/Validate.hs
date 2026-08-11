@@ -2353,7 +2353,7 @@ validateDataDeclaration context path (TypedDataDeclaration spanValue name parame
           [failure path TypedDataRecipeMismatch (TypedArityDetail (length fields) (length recipes))]
       | otherwise = concat (zipWith fieldFailure fields recipes)
     fieldFailure fieldType recipe =
-      case expectedRecipe fieldType of
+      case expectedValueRecipe fieldType of
         Just expected
           | validRecipeWidth recipe && expected /= recipe ->
               [failure path TypedDataRecipeMismatch (TypedRecipeDetail expected recipe)]
@@ -2595,12 +2595,29 @@ validateLambda path requireStagedRecipe info body =
     recipeFailures
       | requireStagedRecipe = validateStagedLambdaRecipe path info
       | otherwise = []
+    bodyInfo = typedExpressionInfo body
     resultFailures =
       case typedNodeType info of
         TypedFunctionType _ expectedResult
-          | expectedResult == typedNodeType (typedExpressionInfo body) -> []
-          | otherwise -> [failure path TypedLambdaResultMismatch (TypedTypeDetail expectedResult (typedNodeType (typedExpressionInfo body)))]
-        actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo body)) (typedNodeType (typedExpressionInfo body))) actual)]
+          | expectedResult /= typedNodeType bodyInfo ->
+              [failure path TypedLambdaResultMismatch (TypedTypeDetail expectedResult (typedNodeType bodyInfo))]
+          | nodeInfoHasCompatibleIntrinsicContract info,
+            lambdaBodyHasCompatibleIntrinsicContract requireStagedRecipe body,
+            Just expectedBodyRecipe <- callableResultRecipe (typedNodeRecipe info) ->
+              recipeContractFailures path TypedLambdaResultMismatch expectedBodyRecipe bodyInfo
+          | otherwise -> []
+        actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType bodyInfo) (typedNodeType bodyInfo)) actual)]
+
+lambdaBodyHasCompatibleIntrinsicContract :: Bool -> TypedExpr -> Bool
+lambdaBodyHasCompatibleIntrinsicContract requireStagedRecipe body =
+  nodeInfoHasCompatibleIntrinsicContract bodyInfo
+    && case body of
+      TypedLambdaExpr {}
+        | requireStagedRecipe ->
+            stagedClosureRecipeCompatible (typedNodeType bodyInfo) (typedNodeRecipe bodyInfo)
+      _ -> True
+  where
+    bodyInfo = typedExpressionInfo body
 
 schemeRequiresStagedLeadingLambdaRecipe :: TypedScheme -> Bool
 schemeRequiresStagedLeadingLambdaRecipe (TypedScheme _ _ _ _ _ _ callableShape) =
@@ -3370,9 +3387,14 @@ validateApplication path (TypedNodeInfo resultType resultRecipe _ resultSelectio
               (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo argument)) resultType) actualFunctionType)
           ]
     actualArgument = typedNodeType (typedExpressionInfo argument)
+    argumentInfo = typedExpressionInfo argument
     argumentFailures expected
-      | applicationTypesCompatible expected actualArgument = []
-      | otherwise = [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expected actualArgument)]
+      | not (applicationTypesCompatible expected actualArgument) =
+          [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expected actualArgument)]
+      | callableRecipeCompatible functionType functionRecipe,
+        Just expectedArgumentRecipe <- callableArgumentRecipe functionRecipe =
+          recipeContractFailures path TypedApplicationArgumentMismatch expectedArgumentRecipe argumentInfo
+      | otherwise = []
     resultFailures expected
       | not (applicationTypesCompatible expected resultType) =
           [failure path TypedApplicationResultMismatch (TypedTypeDetail expected resultType)]
@@ -3440,6 +3462,23 @@ applicationResultRecipe recipe =
         argumentRecipe : rest ->
           TypedClosureRecipe [argumentRecipe] (stageRemainingArguments rest resultRecipe)
 
+callableArgumentRecipe :: TypedRepresentationRecipe -> Maybe TypedRepresentationRecipe
+callableArgumentRecipe recipe =
+  case recipe of
+    TypedClosureRecipe (argumentRecipe : _) _ -> Just argumentRecipe
+    _ -> Nothing
+
+callableResultRecipe :: TypedRepresentationRecipe -> Maybe TypedRepresentationRecipe
+callableResultRecipe recipe =
+  case recipe of
+    TypedClosureRecipe (_ : remainingArguments) resultRecipe ->
+      Just
+        ( case remainingArguments of
+            [] -> resultRecipe
+            _ -> TypedClosureRecipe remainingArguments resultRecipe
+        )
+    _ -> Nothing
+
 applicationTypesCompatible :: TypedType -> TypedType -> Bool
 applicationTypesCompatible expected actual =
   normalizeDefaultScalarAliases expected == normalizeDefaultScalarAliases actual
@@ -3462,24 +3501,35 @@ normalizeDefaultScalarAliases typeValue =
     other -> other
 
 validateConditional :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
-validateConditional path (TypedNodeInfo resultType _ _ _) condition thenExpression elseExpression =
+validateConditional path resultInfo@(TypedNodeInfo resultType _ _ _) condition thenExpression elseExpression =
   conditionFailures <> branchFailures <> resultFailures
   where
+    thenInfo = typedExpressionInfo thenExpression
+    elseInfo = typedExpressionInfo elseExpression
     conditionType = typedNodeType (typedExpressionInfo condition)
-    thenType = typedNodeType (typedExpressionInfo thenExpression)
-    elseType = typedNodeType (typedExpressionInfo elseExpression)
+    thenType = typedNodeType thenInfo
+    elseType = typedNodeType elseInfo
     conditionFailures
       | conditionType == TypedBoolType = []
       | otherwise = [failure path TypedConditionalConditionMismatch (TypedTypeDetail TypedBoolType conditionType)]
     branchFailures
-      | thenType == elseType = []
-      | otherwise = [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType elseType)]
+      | thenType /= elseType = [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType elseType)]
+      | nodeInfoHasCompatibleIntrinsicContract thenInfo =
+          recipeContractFailures path TypedConditionalBranchMismatch (typedNodeRecipe thenInfo) elseInfo
+      | otherwise = []
     resultFailures
-      | thenType /= elseType || resultType == thenType = []
-      | otherwise = [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType resultType)]
+      | thenType /= elseType || resultType /= thenType =
+          if thenType == elseType
+            then [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType resultType)]
+            else []
+      | typedNodeRecipe thenInfo /= typedNodeRecipe elseInfo = []
+      | nodeInfoHasCompatibleIntrinsicContract thenInfo,
+        nodeInfoHasCompatibleIntrinsicContract elseInfo =
+          recipeContractFailures path TypedConditionalBranchMismatch (typedNodeRecipe thenInfo) resultInfo
+      | otherwise = []
 
 validateCase :: ModuleContext -> [Int] -> [Int] -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> [TypedCaseArm] -> [TypedCoreValidationFailure]
-validateCase context statementLocation expressionPath path (TypedNodeInfo resultType _ _ _) scrutinee arms =
+validateCase context statementLocation expressionPath path resultInfo@(TypedNodeInfo resultType _ _ _) scrutinee arms =
   emptyArmFailures <> concatMap (uncurry validateArm) (zip [0 ..] arms)
   where
     scrutineeType = typedNodeType (typedExpressionInfo scrutinee)
@@ -3513,13 +3563,18 @@ validateCase context statementLocation expressionPath path (TypedNodeInfo result
               (TypedTypeDetail TypedBoolType (typedNodeType (typedExpressionInfo guard)))
           ]
     resultFailures armIndex resultExpression
-      | typedNodeType (typedExpressionInfo resultExpression) == resultType = []
-      | otherwise =
+      | typedNodeType armInfo /= resultType =
           [ failure
-              (TypedPatternPath (moduleContextPath context) statementLocation (expressionPath <> [armIndex]))
+              armPath
               TypedPatternArmResultMismatch
-              (TypedTypeDetail resultType (typedNodeType (typedExpressionInfo resultExpression)))
+              (TypedTypeDetail resultType (typedNodeType armInfo))
           ]
+      | nodeInfoHasCompatibleIntrinsicContract resultInfo =
+          recipeContractFailures armPath TypedPatternArmResultMismatch (typedNodeRecipe resultInfo) armInfo
+      | otherwise = []
+      where
+        armInfo = typedExpressionInfo resultExpression
+        armPath = TypedPatternPath (moduleContextPath context) statementLocation (expressionPath <> [armIndex])
 
 validatePattern :: ModuleContext -> [Int] -> [Int] -> TypedType -> TypedPattern -> [TypedCoreValidationFailure]
 validatePattern context statementLocation patternPath expectedType patternValue =
@@ -4390,6 +4445,9 @@ stagedClosureRecipe typeValue =
 expectedRecipe :: TypedType -> Maybe TypedRepresentationRecipe
 expectedRecipe = expectedRecipeWithCallableStaging False
 
+expectedValueRecipe :: TypedType -> Maybe TypedRepresentationRecipe
+expectedValueRecipe = expectedRecipeWithCallableStaging True
+
 expectedRecipeWithCallableStaging :: Bool -> TypedType -> Maybe TypedRepresentationRecipe
 expectedRecipeWithCallableStaging stageCallable typeValue =
   case typeValue of
@@ -4567,6 +4625,17 @@ nodeContractFailures :: TypedCoreValidationPath -> TypedCoreValidationKind -> Ty
 nodeContractFailures path kind expected actual
   | typedNodeType expected /= typedNodeType actual = [failure path kind (TypedTypeDetail (typedNodeType expected) (typedNodeType actual))]
   | typedNodeRecipe expected /= typedNodeRecipe actual = [failure path kind (TypedRecipeDetail (typedNodeRecipe expected) (typedNodeRecipe actual))]
+  | otherwise = []
+
+nodeInfoHasCompatibleIntrinsicContract :: TypedNodeInfo -> Bool
+nodeInfoHasCompatibleIntrinsicContract (TypedNodeInfo typeValue recipe _ _) =
+  validRecipeWidth recipe && typeRecipeCompatible typeValue recipe
+
+recipeContractFailures :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedRepresentationRecipe -> TypedNodeInfo -> [TypedCoreValidationFailure]
+recipeContractFailures path kind expectedRecipeValue actualInfo
+  | nodeInfoHasCompatibleIntrinsicContract actualInfo,
+    expectedRecipeValue /= typedNodeRecipe actualInfo =
+      [failure path kind (TypedRecipeDetail expectedRecipeValue (typedNodeRecipe actualInfo))]
   | otherwise = []
 
 validateVisibleNameInNamespaces :: [TypedNameNamespace] -> ModuleContext -> TypedCoreValidationPath -> TypedCoreName -> [TypedCoreValidationFailure]

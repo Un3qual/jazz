@@ -229,7 +229,6 @@ testIndependentLowererManifest = do
           "callable-parameter-value-shadows-enclosing-function-lowerer",
           "direct-flattened-representation",
           "non-concrete-closure-representation",
-          "callable-shape-body-disagreement",
           "duplicate-parameter-function",
           "duplicate-function-identity",
           "capturing-function",
@@ -252,6 +251,7 @@ testIndependentLowererManifest = do
       expectedInvalidNames =
         [ "closure-shape-flattened-recipe",
           "direct-shape-staged-recipe",
+          "callable-shape-body-disagreement",
           "variable-binder-reference-mismatch"
         ]
   assertEqual "valid independent typed-core fixture names" expectedValidNames validNames
@@ -465,13 +465,6 @@ testLowererCallableBoundary =
               1
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "callable-shape-body-disagreement",
-          [ statementFailure
-              3
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "choose"))
           ]
         ),
         ( "capturing-function",
@@ -701,6 +694,16 @@ testInvalidLowererTypedCoreBoundary =
         ( "direct-shape-staged-recipe",
           [ callableShapeFailure 0,
             callableShapeFailure 1
+          ]
+        ),
+        ( "callable-shape-body-disagreement",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [3] [0])
+              TypedLambdaResultMismatch
+              ( TypedRecipeDetail
+                  (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+                  (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
+              )
           ]
         ),
         ( "variable-binder-reference-mismatch",

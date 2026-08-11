@@ -81,7 +81,7 @@ coreTests =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 18 (length validFixtures)
+  assertEqual "valid fixture count" 19 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 41 (length invalidFixtures)
+  assertEqual "invalid fixture count" 46 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 59 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 65 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -11906,6 +11906,7 @@ expectedValidFixtureNames =
     "list-tuple-data-recipes",
     "callable-recipes",
     "staged-callable-parameter",
+    "staged-callable-data-field",
     "monomorphic-binding",
     "generalized-binding",
     "implicit-instantiation",
@@ -11935,6 +11936,7 @@ validProgram fixtureName =
     "list-tuple-data-recipes" -> listTupleDataRecipesProgram
     "callable-recipes" -> callableRecipesProgram
     "staged-callable-parameter" -> stagedCallableParameterProgram
+    "staged-callable-data-field" -> stagedCallableDataFieldProgram
     "monomorphic-binding" -> monomorphicBindingProgram
     "generalized-binding" -> generalizedBindingProgram
     "implicit-instantiation" -> implicitInstantiationProgram
@@ -12186,6 +12188,30 @@ stagedCallableParameterProgram =
     functionInfo = info functionType functionRecipe
     functionScheme = TypedScheme functionBinder [] [] [] functionType functionRecipe (Just TypedClosureCallableShape)
     functionExpression = TypedLambdaExpr functionInfo parameterBinder parameterName trueExpr
+
+stagedCallableDataFieldProgram :: TypedProgram
+stagedCallableDataFieldProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [TypedDataStatement declaration]
+    emptyInterface
+    boolInfo
+    (fixtureModulePath fixture)
+  where
+    fixture = "staged-callable-data-field"
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Handler"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Handler"
+    constructorBinder = fixtureBinder fixture 0 constructorName
+    fieldType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    fieldRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [TypedConstructorDeclaration constructorBinder constructorName [fieldType] [fieldRecipe]]
 
 callableShapesBinderReferencesProgram :: TypedProgram
 callableShapesBinderReferencesProgram =
@@ -13139,6 +13165,11 @@ expectedInvalidFixtureNames =
     "binder-reference-contract-mismatch",
     "application-function-shape",
     "application-argument-type",
+    "flattened-callable-data-field",
+    "pattern-arm-recipe-join",
+    "if-branch-recipe-join",
+    "direct-lambda-tail-recipe-progression",
+    "application-argument-recipe-staging",
     "application-result-type",
     "application-result-recipe-staging",
     "oversaturation-after-non-callable-result",
@@ -13184,6 +13215,11 @@ invalidFixtures =
     binderReferenceContractMismatchFixture,
     applicationFunctionShapeFixture,
     applicationArgumentTypeFixture,
+    flattenedCallableDataFieldFixture,
+    patternArmRecipeJoinFixture,
+    ifBranchRecipeJoinFixture,
+    directLambdaTailRecipeProgressionFixture,
+    applicationArgumentRecipeStagingFixture,
     applicationResultTypeFixture,
     applicationResultRecipeStagingFixture,
     oversaturationAfterNonCallableResultFixture,
@@ -13336,6 +13372,28 @@ dataRecipeDeclarationFixture =
     constructorBinder = fixtureBinder fixture 0 constructorName
     declaration =
       TypedDataDeclaration span1 dataName [] [TypedConstructorDeclaration constructorBinder constructorName [TypedBoolType] [TypedSignedIntegerRecipe 64]]
+    program = singleModuleProgram fixture relativeSource [] [TypedDataStatement declaration] emptyInterface boolInfo (fixtureModulePath fixture)
+
+flattenedCallableDataFieldFixture :: InvalidFixture
+flattenedCallableDataFieldFixture =
+  InvalidFixture
+    fixture
+    program
+    [statementFailure fixture 0 TypedDataRecipeMismatch (TypedRecipeDetail expectedRecipe actualRecipe)]
+  where
+    fixture = "flattened-callable-data-field"
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Handler"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Handler"
+    constructorBinder = fixtureBinder fixture 0 constructorName
+    fieldType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    expectedRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    actualRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [TypedConstructorDeclaration constructorBinder constructorName [fieldType] [actualRecipe]]
     program = singleModuleProgram fixture relativeSource [] [TypedDataStatement declaration] emptyInterface boolInfo (fixtureModulePath fixture)
 
 callableRecipeSignatureFixture :: InvalidFixture
@@ -13606,6 +13664,50 @@ applicationArgumentTypeFixture =
     argumentExpr = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
     expression = TypedApplyExpr boolInfo functionExpr argumentExpr
 
+applicationArgumentRecipeStagingFixture :: InvalidFixture
+applicationArgumentRecipeStagingFixture =
+  InvalidFixture
+    fixture
+    program
+    [expressionFailureAt fixture 1 TypedApplicationArgumentMismatch (TypedRecipeDetail stagedCallableRecipe directCallableRecipe)]
+  where
+    fixture = "application-argument-recipe-staging"
+    modulePath = fixtureModulePath fixture
+    directName = fixtureValueName "direct"
+    directBinder = binder modulePath [0] directName
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0, 0] outerName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0, 0] innerName
+    directType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    directCallableRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    stagedCallableRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    directInfo = info directType directCallableRecipe
+    directScheme = TypedScheme directBinder [] [] [] directType directCallableRecipe (Just TypedDirectCallableShape)
+    directExpression =
+      TypedLambdaExpr
+        directInfo
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            innerBinder
+            innerName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "ok"))
+        )
+    callableName = fixtureValueName "callable"
+    callableBinder = binder modulePath [1, 0, 0] callableName
+    applyType = TypedFunctionType directType TypedBoolType
+    applyInfo = info applyType (TypedClosureRecipe [stagedCallableRecipe] TypedBoolRecipe)
+    functionExpression = TypedLambdaExpr applyInfo callableBinder callableName trueExpr
+    argumentExpression = TypedVariableExpr directInfo directName (Just directBinder)
+    application = TypedApplyExpr boolInfo functionExpression argumentExpression
+    statements =
+      [ TypedLetStatement directBinder directName span1 directScheme directExpression,
+        expressionStatement 2 application
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+
 applicationResultTypeFixture :: InvalidFixture
 applicationResultTypeFixture =
   expressionFixture fixture expression [expressionFailure fixture TypedApplicationResultMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
@@ -13651,6 +13753,51 @@ applicationResultRecipeStagingFixture =
         )
     expression = TypedApplyExpr (info resultType actualResultRecipe) functionExpr trueExpr
 
+directLambdaTailRecipeProgressionFixture :: InvalidFixture
+directLambdaTailRecipeProgressionFixture =
+  InvalidFixture
+    fixture
+    program
+    [expressionFailureAt fixture 0 TypedLambdaResultMismatch (TypedRecipeDetail expectedTailRecipe actualTailRecipe)]
+  where
+    fixture = "direct-lambda-tail-recipe-progression"
+    modulePath = fixtureModulePath fixture
+    functionName = fixtureValueName "direct"
+    functionBinder = binder modulePath [0] functionName
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0, 0] outerName
+    middleName = fixtureValueName "middle"
+    middleBinder = binder modulePath [0, 0, 0] middleName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0, 0, 0] innerName
+    functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType (TypedFunctionType TypedBoolType TypedTextType))
+    functionRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe, TypedBoolRecipe] TypedManagedTextRecipe
+    expectedTailRecipe = TypedClosureRecipe [TypedCharRecipe, TypedBoolRecipe] TypedManagedTextRecipe
+    actualTailRecipe = TypedClosureRecipe [TypedCharRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+    functionInfo = info functionType functionRecipe
+    functionScheme = TypedScheme functionBinder [] [] [] functionType functionRecipe (Just TypedDirectCallableShape)
+    functionExpression =
+      TypedLambdaExpr
+        functionInfo
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType (TypedFunctionType TypedBoolType TypedTextType)) actualTailRecipe)
+            middleBinder
+            middleName
+            ( TypedLambdaExpr
+                (info (TypedFunctionType TypedBoolType TypedTextType) (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe))
+                innerBinder
+                innerName
+                (TypedLiteralExpr textInfo (TypedTextLiteral "ok"))
+            )
+        )
+    statements =
+      [ TypedLetStatement functionBinder functionName span1 functionScheme functionExpression,
+        expressionStatement 2 (TypedVariableExpr functionInfo functionName (Just functionBinder))
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface functionInfo modulePath
+
 oversaturationAfterNonCallableResultFixture :: InvalidFixture
 oversaturationAfterNonCallableResultFixture =
   expressionFixture
@@ -13690,6 +13837,68 @@ ifBranchTypeFixture =
     elseExpression = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
     expression = TypedIfExpr boolInfo trueExpr trueExpr elseExpression
 
+ifBranchRecipeJoinFixture :: InvalidFixture
+ifBranchRecipeJoinFixture =
+  InvalidFixture
+    fixture
+    program
+    [expressionFailureAt fixture 2 TypedConditionalBranchMismatch (TypedRecipeDetail directRecipe closureRecipe)]
+  where
+    fixture = "if-branch-recipe-join"
+    modulePath = fixtureModulePath fixture
+    callableType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    directRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    closureRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    directInfo = info callableType directRecipe
+    closureInfo = info callableType closureRecipe
+    directName = fixtureValueName "direct"
+    directBinder = binder modulePath [0] directName
+    closureName = fixtureValueName "closure"
+    closureBinder = binder modulePath [1] closureName
+    directOuterName = fixtureValueName "directOuter"
+    directOuterBinder = binder modulePath [0, 0] directOuterName
+    directInnerName = fixtureValueName "directInner"
+    directInnerBinder = binder modulePath [0, 0, 0] directInnerName
+    closureOuterName = fixtureValueName "closureOuter"
+    closureOuterBinder = binder modulePath [1, 0] closureOuterName
+    closureInnerName = fixtureValueName "closureInner"
+    closureInnerBinder = binder modulePath [1, 0, 0] closureInnerName
+    directExpression =
+      TypedLambdaExpr
+        directInfo
+        directOuterBinder
+        directOuterName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            directInnerBinder
+            directInnerName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "direct"))
+        )
+    closureExpression =
+      TypedLambdaExpr
+        closureInfo
+        closureOuterBinder
+        closureOuterName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            closureInnerBinder
+            closureInnerName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "closure"))
+        )
+    statements =
+      [ TypedLetStatement directBinder directName span1 (TypedScheme directBinder [] [] [] callableType directRecipe (Just TypedDirectCallableShape)) directExpression,
+        TypedLetStatement closureBinder closureName span1 (TypedScheme closureBinder [] [] [] callableType closureRecipe (Just TypedClosureCallableShape)) closureExpression,
+        expressionStatement
+          3
+          ( TypedIfExpr
+              closureInfo
+              trueExpr
+              (TypedVariableExpr directInfo directName (Just directBinder))
+              (TypedVariableExpr closureInfo closureName (Just closureBinder))
+          )
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface closureInfo modulePath
+
 patternScrutineeTypeFixture :: InvalidFixture
 patternScrutineeTypeFixture =
   expressionFixture fixture expression [patternFailure fixture TypedPatternScrutineeMismatch (TypedTypeDetail TypedCharType TypedBoolType)]
@@ -13714,6 +13923,56 @@ patternArmResultTypeFixture =
     fixture = "pattern-arm-result-type"
     result = literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')
     expression = TypedPatternCaseExpr boolInfo trueExpr [TypedCaseArm (TypedWildcardPattern boolInfo) Nothing result]
+
+patternArmRecipeJoinFixture :: InvalidFixture
+patternArmRecipeJoinFixture =
+  InvalidFixture
+    fixture
+    program
+    [ TypedCoreValidationFailure
+        (TypedPatternPath modulePath [1] [0, 0])
+        TypedPatternArmResultMismatch
+        (TypedRecipeDetail closureRecipe directRecipe)
+    ]
+  where
+    fixture = "pattern-arm-recipe-join"
+    modulePath = fixtureModulePath fixture
+    callableType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    directRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    closureRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    directInfo = info callableType directRecipe
+    closureInfo = info callableType closureRecipe
+    directName = fixtureValueName "direct"
+    directBinder = binder modulePath [0] directName
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0, 0] outerName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0, 0] innerName
+    directExpression =
+      TypedLambdaExpr
+        directInfo
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            innerBinder
+            innerName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "direct"))
+        )
+    caseExpression =
+      TypedPatternCaseExpr
+        closureInfo
+        trueExpr
+        [ TypedCaseArm
+            (TypedWildcardPattern boolInfo)
+            Nothing
+            (TypedVariableExpr directInfo directName (Just directBinder))
+        ]
+    statements =
+      [ TypedLetStatement directBinder directName span1 (TypedScheme directBinder [] [] [] callableType directRecipe (Just TypedDirectCallableShape)) directExpression,
+        expressionStatement 2 caseExpression
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface closureInfo modulePath
 
 orPatternBinderContractFixture :: InvalidFixture
 orPatternBinderContractFixture =

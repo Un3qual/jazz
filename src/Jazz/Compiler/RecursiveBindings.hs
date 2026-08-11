@@ -437,6 +437,9 @@ scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statem
         )
     recursiveGroupsByStatement =
       inferRecursiveGroupsOrdered outerBindingNames indexedStatements
+    -- This is an intentional lazy knot: bindingByStatement depends on each
+    -- definition environment, which in turn reads visibleBindingsByStatement.
+    -- Keep ScopeBindingExpr fields and this Data.Map usage lazy.
     bindingByStatement =
       Map.fromList
         [ ( statementIndex,

@@ -1180,7 +1180,6 @@ lowererBoundaryPrograms =
     ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
     ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
-    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
@@ -1207,6 +1206,7 @@ invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
   [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
     ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
+    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
     ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram)
   ]
 

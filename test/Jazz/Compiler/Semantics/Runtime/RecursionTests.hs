@@ -629,13 +629,16 @@ testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
 
 testNestedRecursiveForwardAliasRuntimeSuccess :: IO ()
 testNestedRecursiveForwardAliasRuntimeSuccess = do
-  result <-
-    runSource
-      defaultWarningSettings
-      "f = { a = b. b = if False then a else \\(x) -> if x == 0 then 0 else f (x - 1). a. }. f 3."
+  plan <- scopePlanForSource ResolveKernelOnly source
+  assertEqual "nested forward alias is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
+  assertEqual "nested forward alias gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
+  result <- runSource defaultWarningSettings source
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "0") (runOutput result)
+  where
+    source =
+      "f = { a = b. b = if False then a else \\(x) -> if x == 0 then 0 else f (x - 1). a. }. f 3."
 
 testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
 testRecursiveDeclaredUserOperatorRuntimeSuccess = do
