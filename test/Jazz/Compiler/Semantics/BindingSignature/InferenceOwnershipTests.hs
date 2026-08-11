@@ -55,6 +55,7 @@ import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
     applySubstitution,
     bindTypeVar,
+    freshTypeVar,
     resolveType,
     unifyTypes
   )
@@ -126,6 +127,7 @@ inferenceOwnershipTests =
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
     ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
+    ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
 
@@ -524,6 +526,32 @@ testRecursivePreviewSolverStateIsTransactional =
         _ -> (Just TBoolType, state)
 
     previewSentinel = 1000000
+
+testRecursivePreviewReuseAtSameFrontier :: IO ()
+testRecursivePreviewReuseAtSameFrontier =
+  assertEqual
+    "five binding seeds, five source bodies, and one reusable preview"
+    11
+    (inferNextTypeVar finalState)
+  where
+    (_, finalState) =
+      inferScopeType
+        Set.empty
+        allocatingInfer
+        ResolveKernelOnly
+        Map.empty
+        initialInferState
+        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
+          SLet "earlyOne" (SourceSpan 2 1) (EVar "probe"),
+          SLet "earlyTwo" (SourceSpan 3 1) (EVar "probe"),
+          SLet "earlyThree" (SourceSpan 4 1) (EVar "probe"),
+          SLet "right" (SourceSpan 5 1) (EVar "left")
+        ]
+
+    allocatingInfer :: InferExprFn
+    allocatingInfer _ _ state _ =
+      let (_, nextState) = freshTypeVar state
+       in (Just TBoolType, nextState)
 
 testOperatorRulePresenceAndSectionSupport :: IO ()
 testOperatorRulePresenceAndSectionSupport = do

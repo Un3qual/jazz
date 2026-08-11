@@ -378,7 +378,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
-        go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+        go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
       provisionalExpr =
         case mode of
@@ -448,16 +448,16 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     stateAfterBindingSeeds = preparedScopeState scopePreparation
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
+    go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates recursiveGroupPreviewCache moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, publishVisibleTypes env state, [], [])
         (statementIndex, statement) : rest ->
           let stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
            in case statement of
             SModule _ modulePath ->
-              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass classSpan capabilityName parameters methods ->
               let validationState =
                     seedStatementCapabilityFact
@@ -472,7 +472,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -508,7 +508,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -527,7 +527,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
               let (nextEnv, nextState) =
                     registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go nextEnv (typeEnvFreeVariables nextEnv) lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                    go nextEnv (typeEnvFreeVariables nextEnv) lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -552,7 +552,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                         )
                   signatureState = state
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go env envFreeVariables lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
                   provisional =
                     case (mode, nextPendingSignature) of
                       (ProduceTypedCoreExpressionDirectCall, Just pendingSignature)
@@ -562,8 +562,8 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
-                  (envForStatement, stateForStatement) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource
+                  (envForStatement, stateForStatement, recursiveGroupPreviewCacheForStatement) =
+                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource recursiveGroupPreviewCache
                   recursiveGroupStartStatesForStatement =
                     rememberRecursiveGroupStart statementIndex stateForStatement recursiveGroupStartStates
                   matchingPendingSignature =
@@ -786,8 +786,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       statementIndex
                       nextEnv
                       nextEnvFreeVariablesBeforeRecursiveGroupGeneralization
+                  recursiveGroupPreviewCacheAfterStatement =
+                    dropAdvancedRecursiveGroupPreview statementIndex recursiveGroupPreviewCacheForStatement
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go nextEnv nextEnvFreeVariables lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
+                    go nextEnv nextEnvFreeVariables lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement recursiveGroupPreviewCacheAfterStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
                   canonicalRecursiveGroupMembers =
                     Map.lookup statementIndex recursiveGroupsByStatement
                   callableDeclaration =
@@ -839,8 +841,8 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       <> restProductionFailures
                in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
             SExpr exprSpan expr ->
-              let (envForStatement, stateForStatement) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource
+              let (envForStatement, stateForStatement, _) =
+                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource recursiveGroupPreviewCache
                   (exprResult, rawStateAfterExpr) = inferExpression mode builtinMode envForStatement stateForStatement expr
                   expressionProductionFailures =
                     nestedBlockProductionFailures expr exprResult
@@ -864,7 +866,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           Set.empty
                       Nothing -> stateAfterExplicitConstraintCheck
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go env envFreeVariables exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
+                    go env envFreeVariables exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
                   provisional =
                     case (mode, expressionProductionFailures, inferredProvisionalExpr exprResult) of
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), Just ProvisionalScopeStatements {}) ->
@@ -1103,52 +1105,102 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                 Nothing -> summary
             Nothing -> summary
 
-    exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> (TypeEnv, InferState)
-    exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state =
+    dropAdvancedRecursiveGroupPreview statementIndex previewCache =
+      case Map.lookup statementIndex recursiveGroupsByStatement >>= uncons of
+        Just (firstMember, _) ->
+          Map.filterWithKey
+            (\(cachedFirstMember, _) _ -> cachedFirstMember /= firstMember)
+            previewCache
+        Nothing -> previewCache
+
+    exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> RecursiveGroupPreviewCache -> (TypeEnv, InferState, RecursiveGroupPreviewCache)
+    exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state previewCache =
       foldl'
         exposeGroup
-        (currentEnv, state)
+        (currentEnv, state, previewCache)
         (Map.findWithDefault [] statementIndex recursiveGroupsByInterveningLet)
       where
-        exposeGroup (envAcc, stateAcc) groupMembers =
-          case unsnoc groupMembers of
-            Nothing ->
-              (envAcc, stateAcc)
-            Just (_, lastMember)
+        exposeGroup (envAcc, stateAcc, cacheAcc) groupMembers =
+          case (uncons groupMembers, unsnoc groupMembers, unsnoc processedMembers) of
+            (Just (firstMember, _), Just (_, lastMember), Just (_, processedLastMember))
               | statementIndex `elem` groupMembers ->
-                  (envAcc, stateAcc)
+                  (envAcc, stateAcc, cacheAcc)
               | statementIndex > lastMember ->
-                  (envAcc, stateAcc)
+                  (envAcc, stateAcc, cacheAcc)
               | any (`Set.member` signedBindingStatements) groupMembers ->
-                  (envAcc, stateAcc)
+                  (envAcc, stateAcc, cacheAcc)
               | interleavedBindingFeedsLaterGroup statementIndex groupMembers ->
-                  (envAcc, stateAcc)
+                  (envAcc, stateAcc, cacheAcc)
               | laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers ->
-                  (envAcc, stateAcc)
-              | null processedMembers ->
-                  (envAcc, stateAcc)
+                  (envAcc, stateAcc, cacheAcc)
               | otherwise ->
-                  case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
-                    Nothing ->
-                      (envAcc, stateAcc)
-                    Just previewState ->
-                      let groupBindingNames =
-                            Set.fromList
-                              [ bindingName
-                                | memberIndex <- groupMembers,
-                                  Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
-                              ]
-                          envOutsideGroup =
-                            foldl' (flip Map.delete) envAcc groupBindingNames
-                          nextEnv =
-                            foldl'
-                              (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
-                              envAcc
-                              processedMembers
-                          nextState = rollbackPreviewState stateAcc previewState
-                       in (nextEnv, nextState)
+                  let previewKey = (firstMember, processedLastMember)
+                   in case Map.lookup previewKey cacheAcc of
+                        Just cachedPreview ->
+                          ( applyRecursiveGroupPreview statementIndex envAcc cachedPreview,
+                            reserveRecursiveGroupPreviewState stateAcc cachedPreview,
+                            cacheAcc
+                          )
+                        Nothing ->
+                          case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
+                            Nothing ->
+                              (envAcc, stateAcc, cacheAcc)
+                            Just previewState ->
+                              let groupBindingNames =
+                                    Set.fromList
+                                      [ bindingName
+                                        | memberIndex <- groupMembers,
+                                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                                      ]
+                                  envOutsideGroup =
+                                    foldl' (flip Map.delete) envAcc groupBindingNames
+                                  nextEnv =
+                                    foldl'
+                                      (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
+                                      envAcc
+                                      processedMembers
+                                  cachedPreview =
+                                    RecursiveGroupPreview
+                                      { recursiveGroupPreviewBindings =
+                                          Map.fromList
+                                            [ (memberIndex, binding)
+                                              | memberIndex <- processedMembers,
+                                                Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
+                                                latestBindingIndexBefore statementIndex bindingName == Just memberIndex,
+                                                Just binding <- [Map.lookup bindingName nextEnv]
+                                            ],
+                                        recursiveGroupPreviewNextTypeVar = solverNextTypeVar (inferSolver previewState)
+                                      }
+                                  nextState = rollbackPreviewState stateAcc previewState
+                               in (nextEnv, nextState, Map.insert previewKey cachedPreview cacheAcc)
+            _ ->
+              (envAcc, stateAcc, cacheAcc)
           where
             processedMembers = filter (< statementIndex) groupMembers
+
+        applyRecursiveGroupPreview currentStatementIndex envAcc cachedPreview =
+          foldl'
+            applyBinding
+            envAcc
+            (Map.toAscList (recursiveGroupPreviewBindings cachedPreview))
+          where
+            applyBinding bindingEnv (memberIndex, binding) =
+              case Map.lookup memberIndex bindingNamesByStatement of
+                Just bindingName
+                  | latestBindingIndexBefore currentStatementIndex bindingName == Just memberIndex ->
+                      Map.insert bindingName binding bindingEnv
+                _ -> bindingEnv
+
+        reserveRecursiveGroupPreviewState stateAcc cachedPreview =
+          stateAcc
+            { inferSolver =
+                (inferSolver stateAcc)
+                  { solverNextTypeVar =
+                      max
+                        (solverNextTypeVar (inferSolver stateAcc))
+                        (recursiveGroupPreviewNextTypeVar cachedPreview)
+                  }
+            }
 
     interleavedBindingFeedsLaterGroup :: Int -> [Int] -> Bool
     interleavedBindingFeedsLaterGroup statementIndex groupMembers =
@@ -1313,6 +1365,13 @@ data ForwardFunctionBinding = ForwardFunctionBinding
   { forwardFunctionName :: Name,
     forwardFunctionType :: ExpressionType
   }
+
+data RecursiveGroupPreview = RecursiveGroupPreview
+  { recursiveGroupPreviewBindings :: Map Int TypeBinding,
+    recursiveGroupPreviewNextTypeVar :: Int
+  }
+
+type RecursiveGroupPreviewCache = Map (Int, Int) RecursiveGroupPreview
 
 data PreparedSignature
   = PreparedSignature (Maybe PendingSignatureType) Bool
