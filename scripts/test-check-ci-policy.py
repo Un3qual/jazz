@@ -156,7 +156,8 @@ VALID_EXTENDED = script(
       jazz-parser-scale-full-control-flow-spec
       jazz-parser-scale-full-operator-spec
     )
-    cabal test all "${full_scale_components[@]}" -ffull-parser-scale --test-show-details=always --test-log="$corpus_log_root/first/\\$test-suite.log" --jobs="$JAZZ_CABAL_JOBS"
+    cabal test all "${full_scale_components[@]}" -ffull-parser-scale \
+--test-show-details=always --test-log="$corpus_log_root/first/\\$test-suite.log" --jobs="$JAZZ_CABAL_JOBS"
     cabal test program-corpus-spec --test-show-details=always --test-log="$corpus_log_root/second/\\$test-suite.log" --jobs="$JAZZ_CABAL_JOBS"
     python3 - "$corpus_log_root/first/program-corpus-spec.log" \
       "$corpus_log_root/second/program-corpus-spec.log" \
@@ -169,7 +170,9 @@ VALID_EXTENDED = script(
     JAZZ_ARTIFACT_ROOT="$JAZZ_ARTIFACT_ROOT/determinism" bash scripts/ci/determinism.sh
     cabal --project-file=cabal.project.profile-stages build all --jobs="$JAZZ_CABAL_JOBS"
     cabal --project-file=cabal.project.profile-hotspots build all --jobs="$JAZZ_CABAL_JOBS"
-    cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" --jobs="$JAZZ_CABAL_JOBS"
+    cabal bench jazz-bench \
+--benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" \
+--jobs="$JAZZ_CABAL_JOBS"
     python3 - "$JAZZ_ARTIFACT_ROOT/benchmarks" "$JAZZ_BENCHMARK_LABEL" <<'PY'
     run_directories = [path for path in label_root.iterdir() if path.is_dir()]
     if len(run_directories) != 1: raise SystemExit(1)
@@ -1042,8 +1045,17 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ),
             (
                 VALID_EXTENDED.replace(
-                    'cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" --jobs="$JAZZ_CABAL_JOBS"',
-                    'cabal bench jazz-bench --benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"',
+                    (
+                        'cabal bench jazz-bench --benchmark-options="'
+                        '--environment-label=${JAZZ_BENCHMARK_LABEL} '
+                        '--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" '
+                        '--jobs="$JAZZ_CABAL_JOBS"'
+                    ),
+                    (
+                        'cabal bench jazz-bench --benchmark-options="'
+                        '--environment-label=${JAZZ_BENCHMARK_LABEL} '
+                        '--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"'
+                    ),
                 ),
                 "extended tier must bound every heavyweight Cabal command",
             ),
