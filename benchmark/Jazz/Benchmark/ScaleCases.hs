@@ -38,6 +38,7 @@ data CompilerScaleScenario
   | TypedValidationHandoff
   | LoweredTemporaryValidation
   | TypedRecursiveStatementGraph
+  | TypedForwardSignedFunctions
   | WideConstructorApplication
   | HostFreeOpaqueEnvironment
   | AnalyzerDiagnosticChain
@@ -98,6 +99,7 @@ baseCompilerScaleCases =
     <> map typedValidationHandoffCase [64, 128, 256, 512]
     <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
     <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
+    <> map typedForwardSignedFunctionsCase [128, 512, 1024, 2048]
     <> map wideConstructorApplicationCase [32, 64, 128, 256]
     <> map hostFreeOpaqueEnvironmentCase [64, 256, 1024, 4096]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
@@ -410,6 +412,28 @@ hostFreeOpaqueEnvironmentSource bindingCount =
            ]
         <> ["  seed.", "}"]
     )
+
+typedForwardSignedFunctionsCase :: Int -> CompilerScaleCase
+typedForwardSignedFunctionsCase size =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = identifier,
+      compilerScaleCaseScenario = TypedForwardSignedFunctions,
+      compilerScaleCaseSize = size,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["TypedForwardSignedFunctions"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
+  where
+    identifier =
+      case size of
+        128 -> "typed-forward-signed-functions-0128"
+        512 -> "typed-forward-signed-functions-0512"
+        1024 -> "typed-forward-signed-functions-1024"
+        2048 -> "typed-forward-signed-functions-2048"
+        _ -> error "unsupported typed forward signed function scale"
 
 analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
 analyzerDiagnosticChainCase expressionCount =

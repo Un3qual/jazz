@@ -271,6 +271,8 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                 case scenario of
                   TypedRecursiveStatementGraph ->
                     typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
+                  TypedForwardSignedFunctions ->
+                    typedForwardSignedFunctionsProgram (compilerScaleCaseSize programCase)
                   _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
           evaluate (forceTypedProgramArtifact typedProgram)
           case validateTypedProgram typedProgram of
@@ -640,6 +642,104 @@ typedRecursiveStatementGraphProgram statementCount
 -- Typed Core deliberately keeps malformed states constructible and therefore
 -- has no blanket NFData instance. Derived Show still traverses every artifact
 -- field, so forcing its result keeps all generation outside the timed region.
+typedForwardSignedFunctionsProgram :: Int -> TypedProgram
+typedForwardSignedFunctionsProgram functionCount
+  | functionCount <= 0 = error "typed forward signed function count must be positive"
+  | otherwise =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            modulePath
+            source
+            []
+            []
+            (TypedModuleInterface [] [] [] [])
+            (concatMap functionPair [0 .. functionCount - 1] <> [terminalStatement])
+            boolInfo
+        ]
+        modulePath
+  where
+    modulePath = ["TypedForwardSignedFunctions"]
+    source = TypedSourcePath "compiler-scale/TypedForwardSignedFunctions.jz"
+    statementSpan = TypedSpan 1 1
+    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+    functionType = TypedFunctionType TypedBoolType TypedBoolType
+    functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
+    functionInfo = TypedNodeInfo functionType functionRecipe [] []
+
+    indexedName :: Text -> Int -> TypedCoreName
+    indexedName prefix index =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedValueNamespace
+        (prefix <> Text.justifyRight 4 '0' (Text.pack (show index)))
+
+    functionName :: Int -> TypedCoreName
+    functionName index = indexedName "forward" index
+
+    argumentName :: Int -> TypedCoreName
+    argumentName index = indexedName "argument" index
+
+    signatureOwner index =
+      TypedBinderId (modulePath, [2 * index], functionName index)
+    bindingOwner index =
+      TypedBinderId (modulePath, [2 * index + 1], functionName index)
+    argumentOwner index =
+      TypedBinderId (modulePath, [2 * index + 1, 0], argumentName index)
+
+    functionScheme owner =
+      TypedScheme
+        owner
+        []
+        []
+        []
+        functionType
+        functionRecipe
+        (Just TypedDirectCallableShape)
+
+    variable info owner name = TypedVariableExpr info name (Just owner)
+
+    functionBody index
+      | index == functionCount - 1 =
+          variable boolInfo (argumentOwner index) (argumentName index)
+      | otherwise =
+          TypedApplyExpr
+            boolInfo
+            ( variable
+                functionInfo
+                (bindingOwner (index + 1))
+                (functionName (index + 1))
+            )
+            (variable boolInfo (argumentOwner index) (argumentName index))
+
+    functionPair index =
+      [ TypedSignatureStatement
+          (signatureOwner index)
+          (functionName index)
+          statementSpan
+          (functionScheme (signatureOwner index)),
+        TypedLetStatement
+          (bindingOwner index)
+          (functionName index)
+          statementSpan
+          (functionScheme (bindingOwner index))
+          ( TypedLambdaExpr
+              functionInfo
+              (argumentOwner index)
+              (argumentName index)
+              (functionBody index)
+          )
+      ]
+
+    terminalStatement =
+      TypedExpressionStatement
+        statementSpan
+        ( TypedApplyExpr
+            boolInfo
+            (variable functionInfo (bindingOwner 0) (functionName 0))
+            (TypedLiteralExpr boolInfo (TypedBooleanLiteral True))
+        )
+
 forceTypedProgramArtifact :: TypedProgram -> ()
 forceTypedProgramArtifact typedProgram = rnf (show typedProgram)
 

@@ -71,6 +71,8 @@ tests =
     ("smallest lowered temporary validation executes prepared validation", testLoweredTemporaryValidationSmallestCase),
     ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
     ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
+    ("typed forward signed function scale cases have exact metadata", testTypedForwardSignedFunctionsRegistry),
+    ("smallest typed forward signed function case executes prepared validation", testTypedForwardSignedFunctionsSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
     ("host-free opaque environments preserve exact runtime output", testHostFreeOpaqueEnvironmentSemantics),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
@@ -182,6 +184,10 @@ testCompilerScaleRegistry =
       ("typed-recursive-statement-graph-0512", TypedRecursiveStatementGraph, 512, Nothing),
       ("typed-recursive-statement-graph-1024", TypedRecursiveStatementGraph, 1024, Nothing),
       ("typed-recursive-statement-graph-2048", TypedRecursiveStatementGraph, 2048, Nothing),
+      ("typed-forward-signed-functions-0128", TypedForwardSignedFunctions, 128, Nothing),
+      ("typed-forward-signed-functions-0512", TypedForwardSignedFunctions, 512, Nothing),
+      ("typed-forward-signed-functions-1024", TypedForwardSignedFunctions, 1024, Nothing),
+      ("typed-forward-signed-functions-2048", TypedForwardSignedFunctions, 2048, Nothing),
       ("wide-constructor-application-0032", WideConstructorApplication, 32, Nothing),
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
@@ -382,6 +388,29 @@ testLoweredTemporaryValidationRegistry =
 testLoweredTemporaryValidationSmallestCase :: IO ()
 testLoweredTemporaryValidationSmallestCase = do
   programCase <- loadCompilerScaleCase "lowered-temporary-validation-0064"
+  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testTypedForwardSignedFunctionsRegistry :: IO ()
+testTypedForwardSignedFunctionsRegistry =
+  assertEqual
+    "typed forward signed function registry"
+    [ ("typed-forward-signed-functions-0128", 128, [TypedLoweringBenchmark]),
+      ("typed-forward-signed-functions-0512", 512, [TypedLoweringBenchmark]),
+      ("typed-forward-signed-functions-1024", 1024, [TypedLoweringBenchmark]),
+      ("typed-forward-signed-functions-2048", 2048, [TypedLoweringBenchmark])
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseBenchmarks programCase
+      )
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == TypedForwardSignedFunctions
+    ]
+
+testTypedForwardSignedFunctionsSmallestCase :: IO ()
+testTypedForwardSignedFunctionsSmallestCase = do
+  programCase <- loadCompilerScaleCase "typed-forward-signed-functions-0128"
   prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
