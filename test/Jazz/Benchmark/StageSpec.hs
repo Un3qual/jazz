@@ -71,6 +71,7 @@ tests =
     ("smallest lowered temporary validation executes prepared validation", testLoweredTemporaryValidationSmallestCase),
     ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
     ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
+    ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
@@ -180,6 +181,10 @@ testCompilerScaleRegistry =
       ("typed-recursive-statement-graph-0512", TypedRecursiveStatementGraph, 512, Nothing),
       ("typed-recursive-statement-graph-1024", TypedRecursiveStatementGraph, 1024, Nothing),
       ("typed-recursive-statement-graph-2048", TypedRecursiveStatementGraph, 2048, Nothing),
+      ("wide-constructor-application-0032", WideConstructorApplication, 32, Nothing),
+      ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
+      ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
+      ("wide-constructor-application-0256", WideConstructorApplication, 256, Nothing),
       ("analyzer-diagnostic-chain-0064", AnalyzerDiagnosticChain, 64, Nothing),
       ("analyzer-diagnostic-chain-0128", AnalyzerDiagnosticChain, 128, Nothing),
       ("analyzer-diagnostic-chain-0256", AnalyzerDiagnosticChain, 256, Nothing),
@@ -397,6 +402,18 @@ testTypedRecursiveStatementGraphSmallestCase = do
   programCase <- loadCompilerScaleCase "typed-recursive-statement-graph-0128"
   prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
+
+testWideConstructorApplicationSemantics :: IO ()
+testWideConstructorApplicationSemantics = do
+  programCase <- loadCompilerScaleCase "wide-constructor-application-0032"
+  assertEqual
+    "wide constructor benchmark groups"
+    [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "wide constructor output" "(<function>, (0, 16, 31))" actualOutput
+  runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
+  runPreparedCompilerScaleBenchmark runtimePrepared
 
 testAnalyzerDiagnosticChainSemantics :: IO ()
 testAnalyzerDiagnosticChainSemantics = do

@@ -38,6 +38,7 @@ data CompilerScaleScenario
   | TypedValidationHandoff
   | LoweredTemporaryValidation
   | TypedRecursiveStatementGraph
+  | WideConstructorApplication
   | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
   | RecursiveRebindings
@@ -96,6 +97,7 @@ baseCompilerScaleCases =
     <> map typedValidationHandoffCase [64, 128, 256, 512]
     <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
     <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
+    <> map wideConstructorApplicationCase [32, 64, 128, 256]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
@@ -334,6 +336,49 @@ typedRecursiveStatementGraphCase statementCount =
       compilerScaleCaseSources = Map.empty,
       compilerScaleCaseExpectedOutput = ""
     }
+
+wideConstructorApplicationCase :: Int -> CompilerScaleCase
+wideConstructorApplicationCase fieldCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "wide-constructor-application-" <> paddedDecimal 4 fieldCount,
+      compilerScaleCaseScenario = WideConstructorApplication,
+      compilerScaleCaseSize = fieldCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton (scaleModuleRoot </> "Main.jz") (wideConstructorApplicationSource fieldCount),
+      compilerScaleCaseExpectedOutput =
+        "(<function>, (0, "
+          <> Text.pack (show (fieldCount `div` 2))
+          <> ", "
+          <> Text.pack (show (fieldCount - 1))
+          <> "))"
+    }
+
+wideConstructorApplicationSource :: Int -> Text
+wideConstructorApplicationSource fieldCount =
+  Text.unlines
+    [ "data Wide = Wide " <> Text.unwords (replicate fieldCount "Int") <> ".",
+      "partial = Wide " <> Text.unwords (map renderValue [0 .. partialCount - 1]) <> ".",
+      "wideValue = partial " <> Text.unwords (map renderValue [partialCount .. fieldCount - 1]) <> ".",
+      "result = case wideValue { | Wide "
+        <> Text.unwords (map fieldName [0 .. fieldCount - 1])
+        <> " -> ("
+        <> fieldName 0
+        <> ", "
+        <> fieldName partialCount
+        <> ", "
+        <> fieldName (fieldCount - 1)
+        <> ") }.",
+      "(partial, result)."
+    ]
+  where
+    partialCount = fieldCount `div` 2
+    renderValue = Text.pack . show
+    fieldName fieldIndex = "field" <> paddedDecimal 4 fieldIndex
 
 analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
 analyzerDiagnosticChainCase expressionCount =
