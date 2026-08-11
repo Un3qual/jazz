@@ -84,7 +84,8 @@ import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( buildRecursiveScopeFacts,
+  ( RecursiveScopeFacts,
+    buildRecursiveScopeFacts,
   )
 import Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
@@ -237,61 +238,74 @@ inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr 
 
 inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
 inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr =
-  fst <$> inferExpressionWithInputsAndSourceUnitStatementsAndState inputs hiddenStatementIndices preludeStatementIndices expr
-
-inferExpressionWithInputsAndSourceUnitStatementsAndState :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO (InferenceResult, InferState)
-inferExpressionWithInputsAndSourceUnitStatementsAndState inputs hiddenStatementIndices preludeStatementIndices expr =
-  do
-    (inferenceResult, finalState, _, _) <-
-      inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode
-        InferenceOnly
-        inputs
-        hiddenStatementIndices
-        preludeStatementIndices
-        expr
-    pure (inferenceResult, finalState)
-
-inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Set Int -> Expr -> IO (InferenceResult, InferState, InferredExpr, Map Int (Name, SourceSpan))
-inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hiddenStatementIndices preludeStatementIndices expr =
   {-# SCC "jazz-stage:type-inference" #-}
-  do
+  let (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
+        inferExpressionWork InferenceOnly inputs preludeStatementIndices expr
+      finalizedInference = finalizeInferenceState inputs expr finalState
+   in forceFinalizedInferenceContainers finalizedInference `seq`
+        finishInference
+          InferenceOnly
+          inputs
+          hiddenStatementIndices
+          expr
+          inferredResult
+          forwardBindings
+          topLevelRecursiveScopeFacts
+          finalizedInference
+
+inferExpressionWork :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Expr -> (InferredExpr, InferState, Map Int (Name, SourceSpan), Maybe RecursiveScopeFacts)
+inferExpressionWork mode inputs preludeStatementIndices expr =
   let initialState = initialStateForInference inputs
-      (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
-        case expr of
-          EBlock statements ->
-            let recursiveScopeFactsValue =
-                  buildRecursiveScopeFacts
-                    ( Set.union
-                        (Map.keysSet (inferenceImportedTypes inputs))
-                        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (inferenceBuiltinMode inputs)))
-                    )
-                    (zip [0 ..] statements)
-                (blockResult, blockState, bindings) =
-                  inferScopeTypeWithModeAndForwardBindingsUsingFacts
-                    recursiveScopeFactsValue
-                    preludeStatementIndices
-                    ( \childMode childBuiltin childEnv childState childExpr ->
-                        inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
-                    )
-                    mode
-                    (inferenceBuiltinMode inputs)
-                    (inferenceImportedTypes inputs)
-                    initialState
-                    statements
-             in (blockResult, blockState, bindings, Just recursiveScopeFactsValue)
-          _ ->
-            let (result, resultState) =
-                  inferExprTypeWithMode
-                    True
-                    mode
-                    preludeStatementIndices
-                    (inferenceBuiltinMode inputs)
-                    (inferenceImportedTypes inputs)
-                    initialState
-                    expr
-             in (result, resultState, Map.empty, Nothing)
-      typeErrors = reverse (inferErrorsRev finalState)
-      runtimeTypeHints = inferRuntimeTypeHints finalState
+   in case expr of
+        EBlock statements ->
+          let recursiveScopeFactsValue =
+                buildRecursiveScopeFacts
+                  ( Set.union
+                      (Map.keysSet (inferenceImportedTypes inputs))
+                      (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (inferenceBuiltinMode inputs)))
+                  )
+                  (zip [0 ..] statements)
+              (blockResult, blockState, bindings) =
+                inferScopeTypeWithModeAndForwardBindingsUsingFacts
+                  recursiveScopeFactsValue
+                  preludeStatementIndices
+                  ( \childMode childBuiltin childEnv childState childExpr ->
+                      inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
+                  )
+                  mode
+                  (inferenceBuiltinMode inputs)
+                  (inferenceImportedTypes inputs)
+                  initialState
+                  statements
+           in (blockResult, blockState, bindings, Just recursiveScopeFactsValue)
+        _ ->
+          let (result, resultState) =
+                inferExprTypeWithMode
+                  True
+                  mode
+                  preludeStatementIndices
+                  (inferenceBuiltinMode inputs)
+                  (inferenceImportedTypes inputs)
+                  initialState
+                  expr
+           in (result, resultState, Map.empty, Nothing)
+
+data FinalizedInference = FinalizedInference
+  { finalizedTypeErrors :: [Diagnostic],
+    finalizedRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
+    finalizedModuleInterface :: ModuleInterface
+  }
+
+finalizeInferenceState :: InferenceInputs -> Expr -> InferState -> FinalizedInference
+finalizeInferenceState inputs expr finalState =
+  FinalizedInference
+    { finalizedTypeErrors = reverse (inferErrorsRev finalState),
+      finalizedRuntimeTypeHints = inferRuntimeTypeHints finalState,
+      finalizedModuleInterface = moduleInterfaceFromState inputs expr finalState
+    }
+
+finishInference :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Expr -> InferredExpr -> Map Int (Name, SourceSpan) -> Maybe RecursiveScopeFacts -> FinalizedInference -> IO InferenceResult
+finishInference mode inputs hiddenStatementIndices expr inferredResult forwardBindings topLevelRecursiveScopeFacts finalizedInference = do
   AnalysisResult _ analyzerDiagnostics <-
     case topLevelRecursiveScopeFacts of
       Just recursiveScopeFactsValue ->
@@ -307,26 +321,67 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
           expr
   inferredExpressionType inferredResult `seq`
     pure
-      ( InferenceResult
-          { inferredExpr = expr,
-            inferredDiagnostics = analyzerDiagnostics <> typeErrors,
-            inferredRuntimeTypeHints = runtimeTypeHints,
-            inferredModuleInterface = moduleInterfaceFromState inputs expr finalState
-          },
-        finalState,
-        inferredResult,
-        forwardBindings
-      )
+      InferenceResult
+        { inferredExpr = expr,
+          inferredDiagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference,
+          inferredRuntimeTypeHints = finalizedRuntimeTypeHints finalizedInference,
+          inferredModuleInterface = finalizedModuleInterface finalizedInference
+        }
+
+-- Ordinary inference materializes only the output containers needed after the
+-- analyzer walk. Values remain lazy and the Typed Core producer skips this
+-- boundary because its finalizer still needs the complete solver state.
+forceFinalizedInferenceContainers :: FinalizedInference -> ()
+forceFinalizedInferenceContainers finalizedInference =
+  forceListSpine (finalizedTypeErrors finalizedInference) `seq`
+    forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
+      forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
+
+forceModuleInterfaceContainers :: ModuleInterface -> ()
+forceModuleInterfaceContainers moduleInterface =
+  forceMapEntriesWhnf (interfaceValueTypes moduleInterface) `seq`
+    forceMapEntriesWhnf (interfaceDataTypes moduleInterface) `seq`
+      forceMapEntriesWhnf (interfaceClassFacts moduleInterface) `seq`
+        forceSetEntriesWhnf (interfaceGeneratedEqualityClassFacts moduleInterface) `seq`
+          forceSetEntriesWhnf (interfaceConcreteImplFacts moduleInterface) `seq`
+            forceMapEntriesWhnf (interfaceClassMethods moduleInterface) `seq`
+              forceMapEntriesWhnf (interfaceConcreteImplMethods moduleInterface) `seq`
+                forceMapEntriesWhnf (interfaceRuntimeHints moduleInterface)
+
+forceMapEntriesWhnf :: Map key value -> ()
+forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `seq` forced) ()
+
+forceSetEntriesWhnf :: Set value -> ()
+forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
+
+forceListSpine :: [value] -> ()
+forceListSpine values =
+  case values of
+    [] -> ()
+    _ : remaining -> forceListSpine remaining
 
 inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->
   TypedSourcePath ->
   ModuleGraph.ResolvedModule ->
   IO TypedCoreProductionResult
-inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule = do
+inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule =
+  {-# SCC "jazz-stage:type-inference" #-}
+  do
   let expression = ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)
-  (inferenceResult, finalState, inferredResult, _) <-
-    inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode ProduceTypedCoreExpressionDirectCall inputs Set.empty Set.empty expression
+      (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
+        inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty expression
+      finalizedInference = finalizeInferenceState inputs expression finalState
+  inferenceResult <-
+    finishInference
+      ProduceTypedCoreExpressionDirectCall
+      inputs
+      Set.empty
+      expression
+      inferredResult
+      forwardBindings
+      topLevelRecursiveScopeFacts
+      finalizedInference
   pure
     TypedCoreProductionResult
       { typedCoreProductionInferenceResult = inferenceResult,
