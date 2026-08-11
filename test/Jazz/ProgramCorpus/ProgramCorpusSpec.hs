@@ -417,6 +417,8 @@ testAlgorithmicWorkloads = do
         False
         (GenericAdtsFeature `elem` programCaseFeatures programCase)
 
+-- Typed lowering is exercised by generated compiler-scale cases; the checked-in
+-- corpus is not expected to cover 'TypedLoweringBenchmark'.
 corpusBenchmarkGroups :: [BenchmarkGroup]
 corpusBenchmarkGroups =
   filter (/= TypedLoweringBenchmark) [minBound .. maxBound]

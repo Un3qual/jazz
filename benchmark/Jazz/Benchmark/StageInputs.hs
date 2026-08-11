@@ -353,18 +353,14 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
             ioError (userError ("lowered validation benchmark failed: " <> show failures))
     PreparedCompilerScaleTypedLowering programCase typedProgram ->
       case compilerScaleCaseScenario programCase of
-        TypedRecursiveStatementGraph ->
-          withCompilerStage TypeInferenceStage $
-            case validateTypedProgram typedProgram of
-              [] -> pure ()
-              failures ->
-                ioError (userError ("typed validation benchmark failed: " <> show failures))
-        TypedWideExportProviders ->
-          withCompilerStage TypeInferenceStage $
-            case validateTypedProgram typedProgram of
-              [] -> pure ()
-              failures ->
-                ioError (userError ("typed validation benchmark failed: " <> show failures))
+        scenario
+          | scenario == TypedRecursiveStatementGraph
+              || scenario == TypedWideExportProviders ->
+              withCompilerStage TypeInferenceStage $
+                case validateTypedProgram typedProgram of
+                  [] -> pure ()
+                  failures ->
+                    ioError (userError ("typed validation benchmark failed: " <> show failures))
         _ ->
           withCompilerStage LoweringStage $ do
             case validateTypedProgramOnce typedProgram of

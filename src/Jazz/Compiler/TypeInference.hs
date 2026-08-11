@@ -1314,8 +1314,6 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplic
         output
           { outputDeferredConstraints =
               outputDeferredConstraints (inferOutput stateBeforeFunction),
-            outputDeferredConstraintCount =
-              outputDeferredConstraintCount (inferOutput stateBeforeFunction),
             outputInferredConstraints =
               outputInferredConstraints (inferOutput stateBeforeFunction),
             outputInferredConstraintCount =

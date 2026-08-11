@@ -1105,6 +1105,8 @@ duplicateTemporaryFirstRepresentationProgram =
 
 duplicateBlockTemporaryRepresentationProgram :: LoweredProgram
 duplicateBlockTemporaryRepresentationProgram =
+  -- Duplicate block lookup is intentionally last-block-wins: the returned
+  -- temporary therefore resolves to the second entry block's Bool value.
   program
     []
     []

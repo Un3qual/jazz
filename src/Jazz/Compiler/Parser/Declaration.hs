@@ -172,6 +172,9 @@ parseCapabilityDeclarationTokensDetailed parseImplExpression =
   mapLeft capabilityFailureDetailed
     . parseCapabilityDeclarationFromTokens parseImplExpression
 
+-- | Bridge for list-based expression parsers. The wrapped parser must return
+-- the unconsumed suffix of its input list in the original order because the
+-- cursor advance is derived from the suffix length.
 adaptListExpressionParser ::
   ([Token] -> Either error (SurfaceExpr, [Token])) ->
   ImplExpressionParser error

@@ -166,12 +166,13 @@ dereferenceType state expressionType =
     TVarType typeVar ->
       case IntMap.lookup typeVar (inferSubst state) of
         Nothing -> (expressionType, state)
-        Just replacementType ->
+        Just replacementType@(TVarType replacementVar) ->
           let (resolvedType, resolvedState) = dereferenceType state replacementType
               compressedState =
-                if replacementType == resolvedType
-                  then resolvedState
-                  else
+                case resolvedType of
+                  TVarType resolvedVar
+                    | resolvedVar == replacementVar -> resolvedState
+                  _ ->
                     modifySolverState
                       ( \solver ->
                           solver
@@ -181,6 +182,8 @@ dereferenceType state expressionType =
                       )
                       resolvedState
            in (resolvedType, compressedState)
+        Just replacementType ->
+          (replacementType, state)
     _ -> (expressionType, state)
 
 unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState

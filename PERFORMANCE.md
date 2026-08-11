@@ -157,25 +157,36 @@ mode still executes one case per boundary; because no corpus case owns the
 fixture for that one boundary. The registered case families isolate these
 growth curves:
 
-| Scenario                          | Stable case sizes       | Timed groups                                      | Exact result or artifact |
-| --------------------------------- | ----------------------- | ------------------------------------------------- | ------------------------ |
-| Sequential polymorphic bindings   | 64, 128, 256, 512       | `analysis`, `module-preparation`                  | `(42, True)`             |
-| Wide module fanout, width 16      | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program`             | `0`                      |
-| Wide module fanout, width 1       | 64, 128, 256, 512       | `module-preparation`, `whole-program`             | `0`                      |
-| Shared-interface fanout, width 16 | 16, 32, 64, 128 modules | `module-preparation`, `whole-program`             | `0`                      |
-| Resolver fact-rich declarations   | 16, 32, 64, 128 groups  | `module-preparation`                              | `Token`                  |
-| Typed validation handoff          | 64, 128, 256, 512 nodes | `typed-lowering`                                  | valid Lowered IR         |
-| Analyzer diagnostic chains        | 64, 128, 256, 512 nodes | `analysis`                                        | exact error count        |
-| Interleaved recursive groups      | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`                  | `(1, True)`              |
-| Recursive preview bursts          | 16, 32, 64, 128 groups  | `analysis`                                        | `(1, True)`              |
-| Recursive rebinding bursts        | 128, 256, 512, 1024     | `analysis`                                        | final rebound value      |
-| Constrained signatures            | 32, 64, 128, 256        | `parse-lower`, `analysis`                         | `(1, True)`              |
-| Deferred constraint bursts        | 128, 256, 512, 1024     | `analysis`                                        | exact result list        |
-| Deep nested lambdas               | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`, `whole-program` | `(1, depth)`             |
-| Large declared operator tables    | 16, 32, 64, 128 symbols | `parse-lower`                                     | parses and lowers        |
-| Nested expression blocks          | 16, 32, 64, 128 levels  | `parse-lower`                                     | parses and lowers        |
-| Ambiguous case-arm pipe bodies    | 64, 128, 256, 512 terms | `parse-lower`                                     | one left-associated body |
-| Exact long token streams          | 1,024 to 65,536 tokens  | `parse-lower`                                     | exact token count        |
+| Scenario                          | Stable case sizes                   | Timed groups                                      | Exact result or artifact            |
+| --------------------------------- | ----------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| Sequential polymorphic bindings   | 64, 128, 256, 512                   | `analysis`, `module-preparation`                  | `(42, True)`                        |
+| Wide module fanout, width 16      | 8, 16, 32, 64 modules               | `module-preparation`, `whole-program`             | `0`                                 |
+| Wide module fanout, width 1       | 64, 128, 256, 512                   | `module-preparation`, `whole-program`             | `0`                                 |
+| Shared-interface fanout, width 16 | 16, 32, 64, 128 modules             | `module-preparation`, `whole-program`             | `0`                                 |
+| Resolver fact-rich declarations   | 16, 32, 64, 128 groups              | `module-preparation`                              | `Token`                             |
+| Typed validation handoff          | 64, 128, 256, 512 nodes             | `typed-lowering`                                  | valid Lowered IR                    |
+| Lowered temporary validation      | 64, 256, 1024, 4096 instructions    | `typed-lowering`                                  | valid Lowered IR                    |
+| Typed recursive statement graph   | 128, 512, 1024, 2048 statements     | `typed-lowering`                                  | valid Typed Core graph              |
+| Typed forward-signed functions    | 128, 512, 1024, 2048 functions      | `typed-lowering`                                  | valid Lowered IR                    |
+| Typed wide export providers       | 128, 512, 1024, 2048 providers      | `typed-lowering`                                  | valid Typed Core export inventory   |
+| Wide constructor applications     | 32, 64, 128, 256 fields             | `analysis`, `runtime`, `whole-program`            | `(<function>, (0, midpoint, last))` |
+| Capability candidate width        | 16, 32, 64, 128 candidates          | `analysis`, `runtime`, `whole-program`            | last candidate index                |
+| Host-free opaque environments     | 64, 256, 1024, 4096 bindings        | `runtime`, `whole-program`                        | `1`                                 |
+| Analyzer diagnostic chains        | 64, 128, 256, 512 nodes             | `analysis`                                        | exact error count                   |
+| Interleaved recursive groups      | 16, 32, 64, 128 groups              | `analysis`, `module-preparation`                  | `(1, True)`                         |
+| Recursive preview bursts          | 16, 32, 64, 128 groups              | `analysis`                                        | `(1, True)`                         |
+| Recursive rebinding bursts        | 128, 256, 512, 1024                 | `analysis`                                        | final rebound value                 |
+| Constrained signatures            | 32, 64, 128, 256                    | `parse-lower`, `analysis`                         | `(1, True)`                         |
+| Deferred constraint bursts        | 128, 256, 512, 1024                 | `analysis`                                        | exact result list                   |
+| Deep nested lambdas               | 16, 32, 64, 128 levels              | `analysis`, `module-preparation`, `whole-program` | `(1, depth)`                        |
+| Large declared operator tables    | 16, 32, 64, 128 symbols             | `parse-lower`                                     | parses and lowers                   |
+| Nested expression blocks          | 16, 32, 64, 128 levels              | `parse-lower`                                     | parses and lowers                   |
+| Ambiguous case-arm pipe bodies    | 64, 128, 256, 512 terms             | `parse-lower`                                     | one left-associated body            |
+| Exact long token streams          | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Identifier token streams          | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Literal token streams             | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Nested runtime applications       | 64, 128, 256, 512 levels            | `runtime`                                         | `7`                                 |
+| Runtime import width              | 64, 128, 256, 512 exports           | `runtime`, `whole-program`                        | `7`                                 |
 
 Case identifiers encode the controlling size, for example
 `sequential-polymorphic-bindings-0064` and

@@ -101,7 +101,6 @@ import Jazz.Compiler.TypeInference.State
     ModuleInferenceState (..),
     SolverState (..),
     inferDataTypes,
-    inferDeferredExplicitConstraintCount,
     inferErrorCount,
     inferErrorsRev,
     inferInferredClassConstraintCount,
@@ -1353,7 +1352,6 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                   { outputErrorsRev = inferErrorsRev originalState,
                     outputRuntimeHints = inferRuntimeTypeHints originalState,
                     outputDeferredConstraints = outputDeferredConstraints (inferOutput originalState),
-                    outputDeferredConstraintCount = inferDeferredExplicitConstraintCount originalState,
                     outputInferredConstraints = inferInferredClassConstraints originalState,
                     outputInferredConstraintCount = inferInferredClassConstraintCount originalState
                   }

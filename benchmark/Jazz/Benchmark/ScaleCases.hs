@@ -45,8 +45,10 @@ data CompilerScaleScenario
   | HostFreeOpaqueEnvironment
   | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
+  | RecursivePreviewBursts
   | RecursiveRebindings
   | ConstrainedSignatures
+  | DeferredConstraintBursts
   | DeepNestedLambdas
   | LargeOperatorTables
   | NestedBlocks
@@ -484,7 +486,8 @@ hostFreeOpaqueEnvironmentSource bindingCount =
 typedForwardSignedFunctionsCase :: Int -> CompilerScaleCase
 typedForwardSignedFunctionsCase size =
   CompilerScaleCase
-    { compilerScaleCaseIdentifier = identifier,
+    { compilerScaleCaseIdentifier =
+        "typed-forward-signed-functions-" <> paddedDecimal 4 size,
       compilerScaleCaseScenario = TypedForwardSignedFunctions,
       compilerScaleCaseSize = size,
       compilerScaleCaseInterfaceWidth = Nothing,
@@ -494,14 +497,6 @@ typedForwardSignedFunctionsCase size =
       compilerScaleCaseSources = Map.empty,
       compilerScaleCaseExpectedOutput = ""
     }
-  where
-    identifier =
-      case size of
-        128 -> "typed-forward-signed-functions-0128"
-        512 -> "typed-forward-signed-functions-0512"
-        1024 -> "typed-forward-signed-functions-1024"
-        2048 -> "typed-forward-signed-functions-2048"
-        _ -> error "unsupported typed forward signed function scale"
 
 analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
 analyzerDiagnosticChainCase expressionCount =
@@ -741,7 +736,7 @@ recursivePreviewBurstCase groupCount =
   CompilerScaleCase
     { compilerScaleCaseIdentifier =
         "recursive-preview-burst-" <> paddedDecimal 4 groupCount,
-      compilerScaleCaseScenario = InterleavedRecursiveGroups,
+      compilerScaleCaseScenario = RecursivePreviewBursts,
       compilerScaleCaseSize = groupCount,
       compilerScaleCaseInterfaceWidth = Nothing,
       compilerScaleCaseBenchmarks = [AnalysisBenchmark],
@@ -879,7 +874,7 @@ deferredConstraintBurstCase useCount =
   CompilerScaleCase
     { compilerScaleCaseIdentifier =
         "deferred-constraint-burst-" <> paddedDecimal 4 useCount,
-      compilerScaleCaseScenario = ConstrainedSignatures,
+      compilerScaleCaseScenario = DeferredConstraintBursts,
       compilerScaleCaseSize = useCount,
       compilerScaleCaseInterfaceWidth = Nothing,
       compilerScaleCaseBenchmarks = [AnalysisBenchmark],

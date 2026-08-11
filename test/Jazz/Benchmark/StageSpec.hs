@@ -225,10 +225,10 @@ testCompilerScaleRegistry =
       ("interleaved-recursive-groups-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("interleaved-recursive-groups-0064", InterleavedRecursiveGroups, 64, Nothing),
       ("interleaved-recursive-groups-0128", InterleavedRecursiveGroups, 128, Nothing),
-      ("recursive-preview-burst-0016", InterleavedRecursiveGroups, 16, Nothing),
-      ("recursive-preview-burst-0032", InterleavedRecursiveGroups, 32, Nothing),
-      ("recursive-preview-burst-0064", InterleavedRecursiveGroups, 64, Nothing),
-      ("recursive-preview-burst-0128", InterleavedRecursiveGroups, 128, Nothing),
+      ("recursive-preview-burst-0016", RecursivePreviewBursts, 16, Nothing),
+      ("recursive-preview-burst-0032", RecursivePreviewBursts, 32, Nothing),
+      ("recursive-preview-burst-0064", RecursivePreviewBursts, 64, Nothing),
+      ("recursive-preview-burst-0128", RecursivePreviewBursts, 128, Nothing),
       ("recursive-rebinding-burst-0128", RecursiveRebindings, 128, Nothing),
       ("recursive-rebinding-burst-0256", RecursiveRebindings, 256, Nothing),
       ("recursive-rebinding-burst-0512", RecursiveRebindings, 512, Nothing),
@@ -237,10 +237,10 @@ testCompilerScaleRegistry =
       ("constrained-signatures-0064", ConstrainedSignatures, 64, Nothing),
       ("constrained-signatures-0128", ConstrainedSignatures, 128, Nothing),
       ("constrained-signatures-0256", ConstrainedSignatures, 256, Nothing),
-      ("deferred-constraint-burst-0128", ConstrainedSignatures, 128, Nothing),
-      ("deferred-constraint-burst-0256", ConstrainedSignatures, 256, Nothing),
-      ("deferred-constraint-burst-0512", ConstrainedSignatures, 512, Nothing),
-      ("deferred-constraint-burst-1024", ConstrainedSignatures, 1024, Nothing),
+      ("deferred-constraint-burst-0128", DeferredConstraintBursts, 128, Nothing),
+      ("deferred-constraint-burst-0256", DeferredConstraintBursts, 256, Nothing),
+      ("deferred-constraint-burst-0512", DeferredConstraintBursts, 512, Nothing),
+      ("deferred-constraint-burst-1024", DeferredConstraintBursts, 1024, Nothing),
       ("deep-nested-lambdas-0016", DeepNestedLambdas, 16, Nothing),
       ("deep-nested-lambdas-0032", DeepNestedLambdas, 32, Nothing),
       ("deep-nested-lambdas-0064", DeepNestedLambdas, 64, Nothing),
@@ -395,19 +395,13 @@ testTypedValidationHandoffSemantics = do
 
 testLoweredTemporaryValidationRegistry :: IO ()
 testLoweredTemporaryValidationRegistry =
-  assertEqual
+  assertScenarioRegistry
     "lowered temporary validation registry"
+    LoweredTemporaryValidation
     [ ("lowered-temporary-validation-0064", 64, [TypedLoweringBenchmark]),
       ("lowered-temporary-validation-0256", 256, [TypedLoweringBenchmark]),
       ("lowered-temporary-validation-1024", 1024, [TypedLoweringBenchmark]),
       ("lowered-temporary-validation-4096", 4096, [TypedLoweringBenchmark])
-    ]
-    [ ( compilerScaleCaseIdentifier programCase,
-        compilerScaleCaseSize programCase,
-        compilerScaleCaseBenchmarks programCase
-      )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == LoweredTemporaryValidation
     ]
 
 testLoweredTemporaryValidationSmallestCase :: IO ()
@@ -418,19 +412,13 @@ testLoweredTemporaryValidationSmallestCase = do
 
 testTypedForwardSignedFunctionsRegistry :: IO ()
 testTypedForwardSignedFunctionsRegistry =
-  assertEqual
+  assertScenarioRegistry
     "typed forward signed function registry"
+    TypedForwardSignedFunctions
     [ ("typed-forward-signed-functions-0128", 128, [TypedLoweringBenchmark]),
       ("typed-forward-signed-functions-0512", 512, [TypedLoweringBenchmark]),
       ("typed-forward-signed-functions-1024", 1024, [TypedLoweringBenchmark]),
       ("typed-forward-signed-functions-2048", 2048, [TypedLoweringBenchmark])
-    ]
-    [ ( compilerScaleCaseIdentifier programCase,
-        compilerScaleCaseSize programCase,
-        compilerScaleCaseBenchmarks programCase
-      )
-    | programCase <- compilerScaleCases,
-      compilerScaleCaseScenario programCase == TypedForwardSignedFunctions
     ]
 
 testTypedForwardSignedFunctionsSmallestCase :: IO ()
@@ -441,19 +429,13 @@ testTypedForwardSignedFunctionsSmallestCase = do
 
 testTypedWideExportProvidersRegistry :: IO ()
 testTypedWideExportProvidersRegistry =
-  assertEqual
+  assertScenarioRegistry
     "typed wide export provider registry"
+    TypedWideExportProviders
     [ ("typed-wide-export-providers-0128", 128, [TypedLoweringBenchmark]),
       ("typed-wide-export-providers-0512", 512, [TypedLoweringBenchmark]),
       ("typed-wide-export-providers-1024", 1024, [TypedLoweringBenchmark]),
       ("typed-wide-export-providers-2048", 2048, [TypedLoweringBenchmark])
-    ]
-    [ ( compilerScaleCaseIdentifier programCase,
-        compilerScaleCaseSize programCase,
-        compilerScaleCaseBenchmarks programCase
-      )
-    | programCase <- compilerScaleCases,
-      compilerScaleCaseScenario programCase == TypedWideExportProviders
     ]
 
 testTypedWideExportProvidersSmallestCase :: IO ()
@@ -464,19 +446,26 @@ testTypedWideExportProvidersSmallestCase = do
 
 testTypedRecursiveStatementGraphRegistry :: IO ()
 testTypedRecursiveStatementGraphRegistry =
-  assertEqual
+  assertScenarioRegistry
     "typed recursive statement graph registry"
+    TypedRecursiveStatementGraph
     [ ("typed-recursive-statement-graph-0128", 128, [TypedLoweringBenchmark]),
       ("typed-recursive-statement-graph-0512", 512, [TypedLoweringBenchmark]),
       ("typed-recursive-statement-graph-1024", 1024, [TypedLoweringBenchmark]),
       ("typed-recursive-statement-graph-2048", 2048, [TypedLoweringBenchmark])
     ]
+
+assertScenarioRegistry :: Text -> CompilerScaleScenario -> [(Text, Int, [BenchmarkGroup])] -> IO ()
+assertScenarioRegistry label scenario expected =
+  assertEqual
+    label
+    expected
     [ ( compilerScaleCaseIdentifier programCase,
         compilerScaleCaseSize programCase,
         compilerScaleCaseBenchmarks programCase
       )
       | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == TypedRecursiveStatementGraph
+        compilerScaleCaseScenario programCase == scenario
     ]
 
 testTypedRecursiveStatementGraphSmallestCase :: IO ()

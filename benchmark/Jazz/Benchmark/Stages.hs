@@ -218,7 +218,9 @@ runSmoke programCases =
     case find (isFastParticipant benchmarkGroup) programCases of
       Nothing
         | benchmarkGroup == TypedLoweringBenchmark ->
-            case find ((benchmarkGroup `elem`) . compilerScaleCaseBenchmarks) compilerScaleCases of
+            case find
+              ((== "typed-validation-handoff-0064") . compilerScaleCaseIdentifier)
+              compilerScaleCases of
               Nothing ->
                 ioError (userError "no generated case participates in typed-lowering smoke")
               Just programCase -> do
@@ -301,7 +303,10 @@ selectedProgramCasePackageRoot programCases =
     programCase : _ -> pure (programCasePackageRoot programCase)
 
 corpusPackageRoot :: ProgramCorpus -> IO FilePath
-corpusPackageRoot = selectedProgramCasePackageRoot . programCorpusCases
+corpusPackageRoot corpus =
+  case programCorpusCases corpus of
+    [] -> ioError (userError "compiler scale benchmarks require a non-empty corpus")
+    programCase : _ -> pure (programCasePackageRoot programCase)
 
 finalizeRecordedBenchmarks :: BenchmarkArtifactPaths -> BenchmarkEnvironment -> IO ()
 finalizeRecordedBenchmarks artifactPaths environment = do

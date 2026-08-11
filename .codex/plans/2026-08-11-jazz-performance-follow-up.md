@@ -14,10 +14,7 @@ target_paths:
   - scripts/ci/
   - PERFORMANCE.md
 verification:
-  - JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh
-  - bash scripts/check-execution-queue.sh
-  - bash scripts/check-docs.sh
-  - git diff --check
+  - JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
 deliverable: "Correct benchmark ownership, remove evidence-backed asymptotic/allocation paths, and publish comparable receipts without semantic changes."
 last_verified: 2026-08-11
 ---

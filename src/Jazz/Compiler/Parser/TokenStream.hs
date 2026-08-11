@@ -128,4 +128,7 @@ instance TraversableStream TokenStream where
 sourcePositionForToken :: FilePath -> Lexer.Token -> SourcePos
 sourcePositionForToken label token =
   let spanValue = Lexer.tokenSpan token
-   in SourcePos label (mkPos (spanLine spanValue)) (mkPos (spanColumn spanValue))
+   in SourcePos
+        label
+        (mkPos (max 1 (spanLine spanValue)))
+        (mkPos (max 1 (spanColumn spanValue)))

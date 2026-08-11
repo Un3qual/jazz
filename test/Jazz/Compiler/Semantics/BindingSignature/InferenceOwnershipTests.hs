@@ -258,7 +258,6 @@ testInferenceOutputConstraintCursors = do
         ( \output ->
             output
               { outputDeferredConstraints = Seq.fromList [firstDeferred, secondDeferred],
-                outputDeferredConstraintCount = 2,
                 outputInferredConstraints = [secondInferred, firstInferred],
                 outputInferredConstraintCount = 2
               }

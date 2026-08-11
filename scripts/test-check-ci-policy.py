@@ -677,6 +677,36 @@ class MainFunctionalScriptTests(unittest.TestCase):
         )
         self.assertIn("low-memory verification omits the Nix flake check", result.stderr)
 
+    def test_compiler_phase_runs_only_bounded_compiler_commands(self) -> None:
+        result = self.run_main(JAZZ_MAIN_PHASE="compiler")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.logged_commands(),
+            [
+                "cabal build all --jobs=1",
+                "cabal test all --test-show-details=direct --jobs=1",
+                "cabal check",
+            ],
+        )
+
+    def test_repository_phase_runs_only_repository_commands(self) -> None:
+        result = self.run_main(JAZZ_MAIN_PHASE="repository")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.logged_commands(),
+            [
+                "actionlint ",
+                "python3 scripts/test-check-ci-policy.py",
+                "python3 scripts/release/test-verify-artifacts.py",
+                "bash scripts/check-docs.sh",
+                "bash scripts/check-execution-queue.sh",
+                "bash scripts/check-examples.sh",
+                "git diff --check",
+            ],
+        )
+
     def test_nix_phase_runs_only_one_bounded_flake_check(self) -> None:
         result = self.run_main(JAZZ_MAIN_PHASE="nix")
 

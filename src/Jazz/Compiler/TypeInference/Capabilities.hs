@@ -825,12 +825,8 @@ insertTypeEnvFreeVariables name binding summary =
     priorVariables =
       Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
     countsWithoutPriorBinding =
-      Set.foldl' decrementReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
+      Set.foldl' decrementTypeEnvFreeVariableReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
     incrementReference counts typeVar = IntMap.insertWith (+) typeVar 1 counts
-    decrementReference counts typeVar = IntMap.update decrement typeVar counts
-    decrement count
-      | count <= 1 = Nothing
-      | otherwise = Just (count - 1)
 
 deleteTypeEnvFreeVariables :: Name -> TypeEnvFreeVariables -> TypeEnvFreeVariables
 deleteTypeEnvFreeVariables name summary =
@@ -839,14 +835,18 @@ deleteTypeEnvFreeVariables name summary =
         Map.delete name (typeEnvBindingFreeVariables summary),
       typeEnvFreeVariableReferenceCounts =
         Set.foldl'
-          decrementReference
+          decrementTypeEnvFreeVariableReference
           (typeEnvFreeVariableReferenceCounts summary)
           priorVariables
     }
   where
     priorVariables =
       Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
-    decrementReference counts typeVar = IntMap.update decrement typeVar counts
+
+decrementTypeEnvFreeVariableReference :: IntMap Int -> Int -> IntMap Int
+decrementTypeEnvFreeVariableReference counts typeVar =
+  IntMap.update decrement typeVar counts
+  where
     decrement count
       | count <= 1 = Nothing
       | otherwise = Just (count - 1)
@@ -934,9 +934,7 @@ deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints stat
             output
               { outputDeferredConstraints =
                   outputDeferredConstraints output
-                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints),
-                outputDeferredConstraintCount =
-                  outputDeferredConstraintCount output + length explicitConstraints
+                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints)
               }
         )
         state
@@ -998,8 +996,7 @@ resolveStatementDeferredExplicitConstraints entailingConstraints statementStartS
       modifyInferenceOutput
         ( \output ->
             output
-              { outputDeferredConstraints = priorConstraints,
-                outputDeferredConstraintCount = priorConstraintCount
+              { outputDeferredConstraints = priorConstraints
               }
         )
         state

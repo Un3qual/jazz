@@ -92,7 +92,6 @@ data ModuleInferenceState = ModuleInferenceState
 data InferenceOutput = InferenceOutput
   { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
     outputDeferredConstraints :: Seq DeferredExplicitConstraint,
-    outputDeferredConstraintCount :: Int,
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputInferredConstraintCount :: Int,
     outputErrorsRev :: [Diagnostic],
@@ -162,7 +161,6 @@ initialInferState =
         InferenceOutput
           { outputRuntimeHints = Map.empty,
             outputDeferredConstraints = Seq.empty,
-            outputDeferredConstraintCount = 0,
             outputInferredConstraints = [],
             outputInferredConstraintCount = 0,
             outputErrorsRev = [],
@@ -225,7 +223,7 @@ inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]
 inferDeferredExplicitConstraints = toList . outputDeferredConstraints . inferOutput
 
 inferDeferredExplicitConstraintCount :: InferState -> Int
-inferDeferredExplicitConstraintCount = outputDeferredConstraintCount . inferOutput
+inferDeferredExplicitConstraintCount = Seq.length . outputDeferredConstraints . inferOutput
 
 inferInferredClassConstraints :: InferState -> [TypeSchemeConstraint]
 inferInferredClassConstraints = outputInferredConstraints . inferOutput

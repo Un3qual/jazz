@@ -1575,22 +1575,22 @@ recursiveGroupDependencies outerContext statements =
       ]
     declarationIndicesByName =
       Map.fromListWith
-        Map.union
-        [ (nameKey, Map.singleton index ())
+        Set.union
+        [ (nameKey, Set.singleton index)
         | (index, nameKey, _) <- declarations
         ]
     resolveDependency index ownName expression referencedName =
       case Map.lookup referencedName declarationIndicesByName of
         Nothing -> Nothing
         Just declarationIndices ->
-          case Map.lookupLT index declarationIndices of
-            Just (prior, ()) -> Just prior
+          case Set.lookupLT index declarationIndices of
+            Just prior -> Just prior
             Nothing
               | Set.member referencedName (moduleContextVisibleNames outerContext) -> Nothing
               | referencedName == ownName ->
                   if expressionCanBeRecursive outerContext ownName expression then Just index else Nothing
               | otherwise ->
-                  fst <$> Map.lookupGT index declarationIndices
+                  Set.lookupGT index declarationIndices
 
 expressionCanBeRecursive :: ModuleContext -> ResolvedNameKey -> TypedExpr -> Bool
 expressionCanBeRecursive context bindingName expression =
