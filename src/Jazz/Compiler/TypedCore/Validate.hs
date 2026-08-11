@@ -1866,7 +1866,12 @@ validateStatement context statementLocation statement =
         <> validateBinderDefinition context statementPath binderId name
         <> validateInferredScheme context statementPath binderId scheme
         <> validateBindingValue statementPath scheme (typedExpressionInfo expression)
-        <> validateNamedExpression (withSchemeScope scheme context) statementLocation [0] expression
+        <> validateNamedExpression
+          (withSchemeScope scheme context)
+          statementLocation
+          [0]
+          (schemeRequiresStagedLeadingLambdaRecipe scheme)
+          expression
     TypedSignatureStatement binderId name spanValue scheme ->
       validateSpan statementPath spanValue
         <> validateLocalDefinitionName context [TypedValueNamespace] statementPath name
@@ -1907,20 +1912,23 @@ validateSignatureBindingScheme :: TypedCoreValidationPath -> TypedScheme -> Type
 validateSignatureBindingScheme path signatureScheme bindingScheme =
   case signatureBindingSchemeMismatch signatureScheme bindingScheme of
     Nothing -> []
-    Just detail -> [failure path TypedBindingValueMismatch detail]
+    Just (kind, detail) -> [failure path kind detail]
 
-signatureBindingSchemeMismatch :: TypedScheme -> TypedScheme -> Maybe TypedCoreValidationDetail
+signatureBindingSchemeMismatch :: TypedScheme -> TypedScheme -> Maybe (TypedCoreValidationKind, TypedCoreValidationDetail)
 signatureBindingSchemeMismatch
   (TypedScheme _ signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe signatureShape)
-  (TypedScheme _ bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape)
+  (TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape)
     | signatureParameters /= bindingParameters =
-        Just (TypedArityDetail (length signatureParameters) (length bindingParameters))
-    | signatureEvidence /= bindingEvidence = Just TypedNoValidationDetail
-    | signaturePrimitive /= bindingPrimitive = Just TypedNoValidationDetail
-    | signatureType /= bindingType = Just (TypedTypeDetail signatureType bindingType)
-    | signatureRecipe /= bindingRecipe = Just (TypedRecipeDetail signatureRecipe bindingRecipe)
-    | signatureShape /= bindingShape = Just TypedNoValidationDetail
+        bindingMismatch (TypedArityDetail (length signatureParameters) (length bindingParameters))
+    | signatureEvidence /= bindingEvidence = bindingMismatch TypedNoValidationDetail
+    | signaturePrimitive /= bindingPrimitive = bindingMismatch TypedNoValidationDetail
+    | signatureType /= bindingType = bindingMismatch (TypedTypeDetail signatureType bindingType)
+    | signatureRecipe /= bindingRecipe = bindingMismatch (TypedRecipeDetail signatureRecipe bindingRecipe)
+    | signatureShape /= bindingShape =
+        Just (TypedCallableShapeMismatch, TypedBinderDetail bindingOwner)
     | otherwise = Nothing
+    where
+      bindingMismatch detail = Just (TypedBindingValueMismatch, detail)
 
 validateBinderDefinition :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedCoreName -> [TypedCoreValidationFailure]
 validateBinderDefinition context path binderId@(TypedBinderId (modulePath, lexicalPath, embeddedName)) publishedName
@@ -2453,7 +2461,18 @@ validateImplDeclaration context statementLocation path (TypedImplDeclaration spa
         <> validateBinderDefinition context path binderId name
         <> (if coreNameIdentifier name == Just methodKey then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail methodKey)])
         <> validateImplMethodContract context path implId methodKey (typedExpressionInfo expression)
-        <> validateNamedExpression (implMethodContext context implId methodKey) statementLocation [methodIndex] expression
+        <> validateNamedExpression
+          (implMethodContext context implId methodKey)
+          statementLocation
+          [methodIndex]
+          (implMethodRequiresStagedLeadingLambdaRecipe context implId methodKey)
+          expression
+
+implMethodRequiresStagedLeadingLambdaRecipe :: ModuleContext -> TypedImplId -> Text -> Bool
+implMethodRequiresStagedLeadingLambdaRecipe context implId methodKey =
+  case lookupImplMethodScheme context implId methodKey of
+    Right (Just (_, scheme)) -> schemeRequiresStagedLeadingLambdaRecipe scheme
+    _ -> True
 
 duplicateImplMethodFailures :: TypedCoreValidationPath -> [TypedMethodDefinition] -> [TypedCoreValidationFailure]
 duplicateImplMethodFailures path methods = snd (foldl' step (Set.empty, []) methods)
@@ -2522,9 +2541,9 @@ validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCore
 validateExpression context statementLocation expressionPath =
   validateExpressionWithParentSpan context statementLocation expressionPath True Nothing
 
-validateNamedExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
-validateNamedExpression context statementLocation expressionPath =
-  validateExpressionWithParentSpan context statementLocation expressionPath False Nothing
+validateNamedExpression :: ModuleContext -> [Int] -> [Int] -> Bool -> TypedExpr -> [TypedCoreValidationFailure]
+validateNamedExpression context statementLocation expressionPath requireStagedLeadingLambdaRecipe =
+  validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLeadingLambdaRecipe Nothing
 
 validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Bool -> Maybe TypedSpan -> TypedExpr -> [TypedCoreValidationFailure]
 validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLambdaRecipe parentExplicitSpan expression =
@@ -2545,9 +2564,14 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
         childContext
         statementLocation
         (expressionPath <> [childIndex])
-        True
+        (childRequiresStagedLambdaRecipe childIndex)
         (childExplicitSpan childIndex)
         child
+    childRequiresStagedLambdaRecipe childIndex =
+      case expression of
+        TypedLambdaExpr {}
+          | childIndex == 0 -> requireStagedLambdaRecipe
+        _ -> True
     childExplicitSpan childIndex =
       case expression of
         TypedTypeApplicationExpr _ _ explicitSpan _
@@ -2609,6 +2633,12 @@ validateLambda path requireStagedRecipe info body =
           | expectedResult == typedNodeType (typedExpressionInfo body) -> []
           | otherwise -> [failure path TypedLambdaResultMismatch (TypedTypeDetail expectedResult (typedNodeType (typedExpressionInfo body)))]
         actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo body)) (typedNodeType (typedExpressionInfo body))) actual)]
+
+schemeRequiresStagedLeadingLambdaRecipe :: TypedScheme -> Bool
+schemeRequiresStagedLeadingLambdaRecipe (TypedScheme _ _ _ _ _ _ callableShape) =
+  case callableShape of
+    Just TypedDirectCallableShape -> False
+    _ -> True
 
 validateStagedLambdaRecipe :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateStagedLambdaRecipe path info =

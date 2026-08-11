@@ -411,15 +411,13 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
        in (inferredExpressionType result, nextState)
 
     indexedStatements = zip [0 ..] statements
+    recursionOuterBindingNames =
+      Set.union
+        (Map.keysSet initialEnv)
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
     recursiveScopeFactsValue =
       fromMaybe
-        ( buildRecursiveScopeFacts
-            ( Set.union
-                (Map.keysSet initialEnv)
-                (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-            )
-            indexedStatements
-        )
+        (buildRecursiveScopeFacts recursionOuterBindingNames indexedStatements)
         suppliedRecursiveScopeFacts
     recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
     recursiveGroups =
@@ -448,8 +446,6 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                 [groupMembers]
                 groupsByStatement
             _ -> groupsByStatement
-    selfRecursiveFunctionStatements =
-      inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
     bindingIndicesByName =
       Map.foldlWithKey'
@@ -475,6 +471,8 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
           | statementIndex <- Set.toList previewGroupMemberIndices,
             Just (SLet _ _ valueExpr) <- [Map.lookup statementIndex statementsByIndex]
         ]
+    selfRecursiveFunctionStatements =
+      inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
     predeclaredDataTypes =

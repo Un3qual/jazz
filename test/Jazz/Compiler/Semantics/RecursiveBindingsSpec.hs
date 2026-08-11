@@ -61,6 +61,8 @@ tests =
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
+    ("recursive groups keep pattern binders from resolving through prior callables", testRecursiveGroupsRespectPatternBinderFunctionShadowing),
+    ("recursive groups resolve aliases in their definition-site pattern scope", testRecursiveGroupsRespectAliasDefinitionPatternScope),
     ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
@@ -81,7 +83,8 @@ tests =
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
-    ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized)
+    ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized),
+    ("self-recursive binding detection respects outer names", testInferSelfRecursiveBindingsRespectsOuterNames)
   ]
 
 testCollectBindingNames :: IO ()
@@ -311,6 +314,50 @@ testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
       EBlock
         [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
           SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
+        ]
+
+testRecursiveGroupsRespectPatternBinderFunctionShadowing :: IO ()
+testRecursiveGroupsRespectPatternBinderFunctionShadowing =
+  assertEqual
+    "pattern-bound scalar does not manufacture a recursive function owner"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    apparentName = ident "apparent"
+    capturedName = ident "captured"
+    functionBody =
+      EBlock
+        [ SLet apparentName span0 (ELambda (ident "x") (EVar (ident "x"))),
+          SLet capturedName span0 (ELambda (ident "x") (EVar functionName)),
+          SExpr
+            span0
+            ( EPatternCase
+                (ELit (LBool True))
+                [CaseArm (PVariable apparentName) Nothing (EVar apparentName)]
+            )
+        ]
+
+testRecursiveGroupsRespectAliasDefinitionPatternScope :: IO ()
+testRecursiveGroupsRespectAliasDefinitionPatternScope =
+  assertEqual
+    "pattern-bound use site does not hide an alias initializer's prior callable"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    targetName = ident "target"
+    aliasName = ident "alias"
+    functionBody =
+      EBlock
+        [ SLet targetName span0 (ELambda (ident "x") (EVar functionName)),
+          SLet aliasName span0 (EVar targetName),
+          SExpr
+            span0
+            ( EPatternCase
+                (ELit (LBool True))
+                [CaseArm (PVariable targetName) Nothing (EVar aliasName)]
+            )
         ]
 
 testRecursiveGroupsKeepCallablePatternGuardSelfReference :: IO ()
@@ -696,11 +743,11 @@ testInferSelfRecursiveBindingsIsParameterized = do
   assertEqual
     "wrapped lambda policy marks self recursion"
     (Set.singleton 0)
-    (inferSelfRecursiveBindings hasWrappedLambdaBranch indexedStatements)
+    (inferSelfRecursiveBindings Set.empty hasWrappedLambdaBranch indexedStatements)
   assertEqual
     "bare lambda policy does not mark wrapped self recursion"
     Set.empty
-    (inferSelfRecursiveBindings isBareLambda indexedStatements)
+    (inferSelfRecursiveBindings Set.empty isBareLambda indexedStatements)
   where
     indexedStatements =
       [ (0, SLet (ident "f") span0 wrappedSelfRecursiveExpr)
@@ -718,6 +765,27 @@ testInferSelfRecursiveBindingsIsParameterized = do
         _ -> False
 
     isBareLambda expr =
+      case expr of
+        ELambda {} -> True
+        _ -> False
+
+testInferSelfRecursiveBindingsRespectsOuterNames :: IO ()
+testInferSelfRecursiveBindingsRespectsOuterNames =
+  assertEqual
+    "an outer builtin-like name suppresses a self-recursive function cell"
+    Set.empty
+    (inferSelfRecursiveBindings (Set.singleton (ident "map")) isLambda indexedStatements)
+  where
+    indexedStatements =
+      [ ( 0,
+          SLet
+            (ident "map")
+            span0
+            (ELambda (ident "items") (EApply (EVar (ident "map")) (EVar (ident "items"))))
+        )
+      ]
+
+    isLambda expr =
       case expr of
         ELambda {} -> True
         _ -> False

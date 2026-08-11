@@ -4959,7 +4959,7 @@ module TypedCoreValidate (
       else if recipeEqual signatureRecipe bindingRecipe == False then
         [failure path TypedBindingValueMismatch (TypedRecipeDetail signatureRecipe bindingRecipe)]
       else if maybeCallableShapeEqual signatureShape bindingShape == False then
-        [failure path TypedBindingValueMismatch TypedNoValidationDetail]
+        [failure path TypedCallableShapeMismatch (TypedBinderDetail bindingOwner)]
       else
         []
   }.
@@ -5227,16 +5227,24 @@ module TypedCoreValidate (
   validateExpression = \(context, statementIndex, expressionPath, expression) ->
     validateExpressionWithParentSpan context statementIndex expressionPath True Nothing expression.
 
-  validateNamedExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure].
-  validateNamedExpression = \(context, statementIndex, expressionPath, expression) ->
-    validateExpressionWithParentSpan context statementIndex expressionPath False Nothing expression.
+  schemeRequiresStagedLeadingLambdaRecipe :: TypedScheme -> Bool.
+  schemeRequiresStagedLeadingLambdaRecipe = \(scheme) -> case scheme {
+    | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case callableShape {
+      | Just TypedDirectCallableShape -> False
+      | other -> True
+    }
+  }.
+
+  validateNamedExpression :: ModuleContext -> [Int] -> [Int] -> Bool -> TypedExpr -> [TypedCoreValidationFailure].
+  validateNamedExpression = \(context, statementIndex, expressionPath, requireStagedLeadingLambdaRecipe, expression) ->
+    validateExpressionWithParentSpan context statementIndex expressionPath requireStagedLeadingLambdaRecipe Nothing expression.
 
   validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Bool -> Maybe(TypedSpan) -> TypedExpr -> [TypedCoreValidationFailure].
   validateExpressionWithParentSpan = \(context, statementIndex, expressionPath, requireStagedLambdaRecipe, parentExplicitSpan, expression) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> {
       path = TypedExpressionPath modulePath statementIndex expressionPath.
       childFailures = case expression {
-        | TypedLambdaExpr info binder name body -> validateExpressionWithParentSpan (withLambdaContract info binder name context) statementIndex (listAppend expressionPath [0]) True Nothing body
+        | TypedLambdaExpr info binder name body -> validateExpressionWithParentSpan (withLambdaContract info binder name context) statementIndex (listAppend expressionPath [0]) requireStagedLambdaRecipe Nothing body
         | TypedListExpr info expressions -> listConcat (listMap (\(indexed) -> case indexed {
           | (index, child) -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [index]) True Nothing child
         }) (listIndexed expressions))
@@ -5705,6 +5713,14 @@ module TypedCoreValidate (
     }
   }.
 
+  implMethodRequiresStagedLeadingLambdaRecipe :: ModuleContext -> TypedImplId -> Text -> Bool.
+  implMethodRequiresStagedLeadingLambdaRecipe = \(context, implId, methodName) -> case implMethodScheme context implId methodName {
+    | Nothing -> True
+    | Just item -> case item {
+      | (parameters, scheme) -> schemeRequiresStagedLeadingLambdaRecipe scheme
+    }
+  }.
+
   validateMethodDefinitions :: ModuleContext -> [Int] -> TypedCoreValidationPath -> TypedImplId -> [TypedMethodDefinition] -> Int -> [TypedCoreValidationFailure].
   validateMethodDefinitions = \(context, statementIndex, path, enclosingImpl, methods, methodIndex) -> case methods {
     | [] -> []
@@ -5725,7 +5741,7 @@ module TypedCoreValidate (
           | TypedMethodId methodImpl methodName -> validateImplMethodContract context path enclosingImpl methodName (expressionInfo expression)
         },
         case methodId {
-          | TypedMethodId methodImpl methodName -> validateNamedExpression (implMethodContext context enclosingImpl methodName) statementIndex [methodIndex] expression
+          | TypedMethodId methodImpl methodName -> validateNamedExpression (implMethodContext context enclosingImpl methodName) statementIndex [methodIndex] (implMethodRequiresStagedLeadingLambdaRecipe context enclosingImpl methodName) expression
         },
         validateMethodDefinitions context statementIndex path enclosingImpl rest (methodIndex + 1)
       ]
@@ -5816,7 +5832,7 @@ module TypedCoreValidate (
             validateInferredSchemeWithOuterScope context path binder typeScope scheme,
             validateSchemeDataTypes context path scheme,
             validateBindingValue path scheme (expressionInfo expression),
-            validateNamedExpression (withSchemeScope scheme context) statementIndex [0] expression
+            validateNamedExpression (withSchemeScope scheme context) statementIndex [0] (schemeRequiresStagedLeadingLambdaRecipe scheme) expression
           ]
         | TypedSignatureStatement binder name span scheme -> listConcat [validateSpan path span, validateLocalDefinitionName context [TypedValueNamespace] path name, validateBinderDefinition context path binder name, validateSchemeWithOuterScope context path binder typeScope scheme, validateSchemeDataTypes context path scheme, validateSourceSchemeDataTypes context path scheme]
         | TypedDataStatement declaration -> validateDataDeclaration context path declaration
