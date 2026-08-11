@@ -418,6 +418,6 @@ these candidates should be reopened without new owning evidence.
 - [x] Run focused repository/docs checks after the final plan update.
 - [x] Request an independent whole-range code/performance review and resolve all
       critical or important findings.
-- [ ] Run exactly one fresh full main gate after the final source change.
+- [x] Run exactly one fresh full main gate after the final source change.
 - [ ] Push the branch, refresh pull-request checks/review state, and report the
       per-batch before/after CPU, allocation, copied-byte, and residency results.
