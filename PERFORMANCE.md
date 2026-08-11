@@ -151,12 +151,18 @@ interfaces.
 
 Compiler-scale cases are generated in memory and are opt-in, so the ordinary
 corpus tree, smoke run, and extended benchmark workload remain unchanged. The
-first two scenario families isolate these growth curves:
+scenario families isolate these growth curves:
 
-| Scenario                        | Stable case sizes     | Timed groups                          | Exact result |
-| ------------------------------- | --------------------- | ------------------------------------- | ------------ |
-| Sequential polymorphic bindings | 64, 128, 256, 512     | `analysis`, `module-preparation`      | `(42, True)` |
-| Wide module fanout, width 16    | 8, 16, 32, 64 modules | `module-preparation`, `whole-program` | `0`          |
+| Scenario                         | Stable case sizes       | Timed groups                          | Exact result or artifact |
+| -------------------------------- | ----------------------- | ------------------------------------- | ------------------------ |
+| Sequential polymorphic bindings  | 64, 128, 256, 512       | `analysis`, `module-preparation`      | `(42, True)`             |
+| Wide module fanout, width 16     | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program` | `0`                      |
+| Interleaved recursive groups     | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
+| Constrained signatures           | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
+| Deep nested lambdas              | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
+| Large declared operator tables   | 16, 32, 64, 128 symbols | `parse-lower`                         | parses and lowers        |
+| Nested expression blocks         | 16, 32, 64, 128 levels  | `parse-lower`                         | parses and lowers        |
+| Exact long token streams         | 1,024 to 65,536 tokens  | `parse-lower`                         | exact token count        |
 
 Case identifiers encode the controlling size, for example
 `sequential-polymorphic-bindings-0064` and
@@ -178,9 +184,11 @@ cabal bench jazz-bench --jobs=1 \
 ```
 
 Generated selectors cannot be combined with `--jazz-case` or `--jazz-smoke`.
-The semantic tests compile and evaluate the smallest case in each family and
-assert exact output; physical time, cumulative allocation, and maximum
-residency remain recorded evidence rather than deterministic thresholds. Use
+The semantic tests compile and evaluate the smallest runtime-capable case and
+assert exact output. Parser-only families traverse the real lexer, parser, and
+lowerer, and the smallest long-stream case asserts its exact token count.
+Physical time, cumulative allocation, and maximum residency remain recorded
+evidence rather than deterministic thresholds. Use
 `+RTS -T -RTS` when the optimized CSV must include `Allocated`, `Copied`, and
 `Peak Memory` columns; the captured environment records the `-T` configuration
 so comparisons cannot silently mix it with a timing-only run.

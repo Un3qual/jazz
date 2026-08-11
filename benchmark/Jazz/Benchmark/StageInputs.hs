@@ -30,6 +30,7 @@ import Jazz.Benchmark.Force
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
     compilerScaleCaseEntryModulePath,
+    compilerScaleCaseEntrySource,
     compilerScaleCaseExpectedOutput,
     compilerScaleCaseIdentifier,
     compilerScaleCaseResolutionConfig,
@@ -83,7 +84,8 @@ data PreparedBenchmark
   | PreparedWholeProgram ProgramCase
 
 data PreparedCompilerScaleBenchmark
-  = PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
+  = PreparedCompilerScaleParseLower CompilerScaleCase Text
+  | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
@@ -107,6 +109,8 @@ instance NFData PreparedBenchmark where
 instance NFData PreparedCompilerScaleBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
+      PreparedCompilerScaleParseLower programCase source ->
+        rnf programCase `seq` Text.length source `seq` ()
       PreparedCompilerScaleAnalysis programCase compiledProgram inputs dependencies resolvedModule ->
         rnf programCase `seq`
           forceCompiledProgram compiledProgram `seq`
@@ -157,6 +161,18 @@ prepareBenchmark benchmarkGroup programCase =
 prepareCompilerScaleBenchmark :: BenchmarkGroup -> CompilerScaleCase -> IO PreparedCompilerScaleBenchmark
 prepareCompilerScaleBenchmark benchmarkGroup programCase =
   case benchmarkGroup of
+    ParseLowerBenchmark -> do
+      source <-
+        case compilerScaleCaseEntrySource programCase of
+          Nothing ->
+            ioError
+              ( userError
+                  ( "compiler scale case is missing its entry source: "
+                      <> Text.unpack (compilerScaleCaseIdentifier programCase)
+                  )
+              )
+          Just value -> evaluate (Text.length value) >> pure value
+      pure (PreparedCompilerScaleParseLower programCase source)
     AnalysisBenchmark -> do
       compiledProgram <- prepareValidCompilerScaleProgram programCase
       entryModule <- requireCompilerScaleEntryModule programCase compiledProgram
@@ -176,7 +192,6 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
         )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
-    ParseLowerBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
     RuntimeBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
 
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
@@ -212,6 +227,7 @@ runPreparedBenchmark preparedBenchmark =
 runPreparedCompilerScaleBenchmark :: PreparedCompilerScaleBenchmark -> IO ()
 runPreparedCompilerScaleBenchmark preparedBenchmark =
   case preparedBenchmark of
+    PreparedCompilerScaleParseLower _ source -> runParseLower source
     PreparedCompilerScaleAnalysis _ _ inputs dependencies resolvedModule -> do
       compiledModule <-
         withCompilerStage TypeInferenceStage $ do

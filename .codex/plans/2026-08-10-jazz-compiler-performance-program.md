@@ -278,37 +278,37 @@ compiler/parser boundaries from the first slice.
 `benchmark/Jazz/Benchmark/StageInputs.hs`,
 `test/Jazz/Benchmark/StageSpec.hs`, and `PERFORMANCE.md`.
 
-- [ ] Register `interleaved-recursive-groups-{0016,0032,0064,0128}`. Each
+- [x] Register `interleaved-recursive-groups-{0016,0032,0064,0128}`. Each
       independent group must place a polymorphic use between mutually recursive
       members, participate in analysis and module-preparation, and preserve the
       exact runtime result `(1, True)` at the smallest size.
-- [ ] Register `constrained-signatures-{0032,0064,0128,0256}`. Generate one
+- [x] Register `constrained-signatures-{0032,0064,0128,0256}`. Generate one
       visible unary class, concrete `Int` and `Bool` impl facts, and that many
       explicitly constrained polymorphic identities. Participate in analysis
       and preserve `(1, True)` at the smallest size.
-- [ ] Register `deep-nested-lambdas-{0016,0032,0064,0128}`. Generate an explicit
+- [x] Register `deep-nested-lambdas-{0016,0032,0064,0128}`. Generate an explicit
       unary lambda chain whose result captures both the first and final
       parameters. Participate in analysis and module-preparation; the smallest
       case must return `(1, 16)`.
-- [ ] Register `large-operator-tables-{0016,0032,0064,0128}`. Generate unique,
+- [x] Register `large-operator-tables-{0016,0032,0064,0128}`. Generate unique,
       valid non-built-in operator symbols, declare every symbol, and parse one
       use per declaration. Participate only in parse/lower so runtime operator
       implementation is not conflated with lookup cost.
-- [ ] Register `nested-blocks-{0016,0032,0064,0128}`. Generate nested expression
+- [x] Register `nested-blocks-{0016,0032,0064,0128}`. Generate nested expression
       blocks with one local binding per level and participate only in
       parse/lower. The smallest case must parse and lower successfully.
-- [ ] Register exact `long-token-stream-{01024,04096,16384,65536}` cases. Each
+- [x] Register exact `long-token-stream-{01024,04096,16384,65536}` cases. Each
       source contains only four-token binding statements, so the identifier's
       size equals `length (tokenize source)` exactly. Participate only in
       parse/lower; the smallest test must assert exactly 1,024 tokens.
-- [ ] Add prepared parse/lower support for generated cases by forcing the owned
+- [x] Add prepared parse/lower support for generated cases by forcing the owned
       entry source during setup and reusing the existing lex/parse/lower
       boundary. Keep compiler-only groups unchanged and reject unsupported
       combinations.
-- [ ] Write registry and smallest-case tests before implementation. Every test
+- [x] Write registry and smallest-case tests before implementation. Every test
       must exercise the real compiler or parser and assert literal outputs,
       source counts, or token counts rather than physical time.
-- [ ] Run the focused suite, exact list-tree command, queue/docs checks, and
+- [x] Run the focused suite, exact list-tree command, queue/docs checks, and
       diff review serially; commit before physical measurement.
 - [ ] Record all 24 new cases in one optimized `+RTS -T` process. Profile the
       largest member of each family with serial RTS/stage/hotspot/heap commands,
