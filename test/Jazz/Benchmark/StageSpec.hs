@@ -12,6 +12,7 @@ import Jazz.Benchmark.ScaleCases
     CompilerScaleScenario (..),
     compilerScaleCaseBenchmarks,
     compilerScaleCaseEntrySource,
+    compilerScaleCaseExpectedOutput,
     compilerScaleCaseIdentifier,
     compilerScaleCaseInterfaceWidth,
     compilerScaleCaseScenario,
@@ -30,7 +31,19 @@ import Jazz.Benchmark.StageInputs
     runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
+import Jazz.Compiler.AST (Expr (EList))
+import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
+import Jazz.Compiler.ModuleExports
+  ( ModuleExport (ModuleExport),
+    exportInventory,
+  )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    DeclaredModuleExports (..),
+    ResolvedImport (..),
+    ResolvedModule (..),
+  )
+import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
     parseBenchmarkCommand,
@@ -57,6 +70,8 @@ tests =
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
+    ("runtime evidence compiler scale families are registered", testRuntimeEvidenceScaleFamilies),
+    ("smallest runtime evidence cases execute through prepared and real pipelines", testRuntimeEvidenceSmallestCases),
     ("same-name rebinding bursts preserve exact compiler semantics", testRecursiveRebindingBurstSemantics),
     ("constrained signatures preserve exact compiler semantics", testConstrainedSignatureSemantics),
     ("deferred constraint bursts preserve exact compiler semantics", testDeferredConstraintBurstSemantics),
@@ -72,6 +87,57 @@ tests =
     ("analysis uses module-aware imported interfaces", testModuleAwareAnalysis),
     ("runtime benchmarks reject unexpected results", testRuntimeResultValidation)
   ]
+
+testRuntimeEvidenceScaleFamilies :: IO ()
+testRuntimeEvidenceScaleFamilies = do
+  assertEqual
+    "nested runtime application registry"
+    [ ("nested-runtime-applications-0064", 64, 1, [RuntimeBenchmark], "7"),
+      ("nested-runtime-applications-0128", 128, 1, [RuntimeBenchmark], "7"),
+      ("nested-runtime-applications-0256", 256, 1, [RuntimeBenchmark], "7"),
+      ("nested-runtime-applications-0512", 512, 1, [RuntimeBenchmark], "7")
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseSourceCount programCase,
+        compilerScaleCaseBenchmarks programCase,
+        compilerScaleCaseExpectedOutput programCase
+      )
+      | programCase <- compilerScaleCases,
+        compilerScaleCaseScenario programCase == NestedRuntimeApplications
+    ]
+  assertEqual
+    "runtime import width registry"
+    [ ("runtime-import-width-0064", 64, Just 64, 2, [RuntimeBenchmark, WholeProgramBenchmark], "7"),
+      ("runtime-import-width-0128", 128, Just 128, 2, [RuntimeBenchmark, WholeProgramBenchmark], "7"),
+      ("runtime-import-width-0256", 256, Just 256, 2, [RuntimeBenchmark, WholeProgramBenchmark], "7"),
+      ("runtime-import-width-0512", 512, Just 512, 2, [RuntimeBenchmark, WholeProgramBenchmark], "7")
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseInterfaceWidth programCase,
+        compilerScaleCaseSourceCount programCase,
+        compilerScaleCaseBenchmarks programCase,
+        compilerScaleCaseExpectedOutput programCase
+      )
+      | programCase <- compilerScaleCases,
+        compilerScaleCaseScenario programCase == RuntimeImportWidth
+    ]
+
+testRuntimeEvidenceSmallestCases :: IO ()
+testRuntimeEvidenceSmallestCases =
+  mapM_
+    assertRuntimeCase
+    [ "nested-runtime-applications-0064",
+      "runtime-import-width-0064"
+    ]
+  where
+    assertRuntimeCase identifier = do
+      programCase <- loadCompilerScaleCase identifier
+      prepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
+      runPreparedCompilerScaleBenchmark prepared
+      output <- runCompilerScaleCase programCase
+      assertEqual (identifier <> " real-pipeline output") "7" output
 
 testCompilerScaleRegistry :: IO ()
 testCompilerScaleRegistry =
@@ -140,7 +206,15 @@ testCompilerScaleRegistry =
       ("long-token-stream-01024", LongTokenStream, 1024, Nothing),
       ("long-token-stream-04096", LongTokenStream, 4096, Nothing),
       ("long-token-stream-16384", LongTokenStream, 16384, Nothing),
-      ("long-token-stream-65536", LongTokenStream, 65536, Nothing)
+      ("long-token-stream-65536", LongTokenStream, 65536, Nothing),
+      ("nested-runtime-applications-0064", NestedRuntimeApplications, 64, Nothing),
+      ("nested-runtime-applications-0128", NestedRuntimeApplications, 128, Nothing),
+      ("nested-runtime-applications-0256", NestedRuntimeApplications, 256, Nothing),
+      ("nested-runtime-applications-0512", NestedRuntimeApplications, 512, Nothing),
+      ("runtime-import-width-0064", RuntimeImportWidth, 64, Just 64),
+      ("runtime-import-width-0128", RuntimeImportWidth, 128, Just 128),
+      ("runtime-import-width-0256", RuntimeImportWidth, 256, Just 256),
+      ("runtime-import-width-0512", RuntimeImportWidth, 512, Just 512)
     ]
     ( map
         ( \programCase ->
@@ -406,17 +480,22 @@ testPreparedAnalysisForcesResolvedModule = do
   prepared <- prepareBenchmark AnalysisBenchmark programCase
   case prepared of
     PreparedAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
-      assertPreparedResolvedModuleForced
-        "corpus analysis"
-        ( rnf
-            ( PreparedAnalysis
-                preparedCase
-                compiledProgram
-                inputs
-                dependencies
-                (poisonResolvedModule "corpus analysis resolved Core module was forced" resolvedModule)
-            )
+      mapM_
+        ( \(field, marker, poisonedModule) ->
+            assertPreparedResolvedModuleForced
+              ("corpus analysis " <> field)
+              marker
+              ( rnf
+                  ( PreparedAnalysis
+                      preparedCase
+                      compiledProgram
+                      inputs
+                      dependencies
+                      poisonedModule
+                  )
+              )
         )
+        (poisonResolvedModuleCases "corpus analysis" resolvedModule)
     _ -> failTest "analysis preparation returned the wrong prepared benchmark variant"
 
 testPreparedCompilerScaleAnalysisForcesResolvedModule :: IO ()
@@ -425,31 +504,114 @@ testPreparedCompilerScaleAnalysisForcesResolvedModule = do
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
   case prepared of
     PreparedCompilerScaleAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
-      assertPreparedResolvedModuleForced
-        "compiler-scale analysis"
-        ( rnf
-            ( PreparedCompilerScaleAnalysis
-                preparedCase
-                compiledProgram
-                inputs
-                dependencies
-                (poisonResolvedModule "compiler-scale analysis resolved Core module was forced" resolvedModule)
-            )
+      mapM_
+        ( \(field, marker, poisonedModule) ->
+            assertPreparedResolvedModuleForced
+              ("compiler-scale analysis " <> field)
+              marker
+              ( rnf
+                  ( PreparedCompilerScaleAnalysis
+                      preparedCase
+                      compiledProgram
+                      inputs
+                      dependencies
+                      poisonedModule
+                  )
+              )
         )
+        (poisonResolvedModuleCases "compiler-scale analysis" resolvedModule)
     _ -> failTest "analysis preparation returned the wrong prepared compiler-scale variant"
 
-poisonResolvedModule :: Text -> ResolvedModule -> ResolvedModule
-poisonResolvedModule message resolvedModule =
-  resolvedModule
-    { resolvedModuleCore = throw (userError (Text.unpack message))
-    }
+poisonResolvedModuleCases :: Text -> ResolvedModule -> [(Text, Text, ResolvedModule)]
+poisonResolvedModuleCases prefix resolvedModule =
+  [ poisonCase
+      "module path"
+      resolvedModule
+        { resolvedModulePath = resolvedModulePath resolvedModule <> [deferred "module path"]
+        },
+    poisonCase
+      "source path"
+      resolvedModule
+        { resolvedSourcePath = resolvedSourcePath resolvedModule <> deferred "source path"
+        },
+    poisonCase "import span" (withResolvedImport (baseResolvedImport {resolvedImportSpan = deferred "import span"})),
+    poisonCase "import path" (withResolvedImport (baseResolvedImport {resolvedImportPath = ["Lib", deferred "import path"]})),
+    poisonCase "import alias" (withResolvedImport (baseResolvedImport {resolvedImportAlias = Just (deferred "import alias")})),
+    poisonCase "import symbols" (withResolvedImport (baseResolvedImport {resolvedImportSymbols = Just ["value", deferred "import symbols"]})),
+    poisonCase
+      "export inventory"
+      resolvedModule
+        { resolvedModuleExportInventory =
+            exportInventory [ModuleExport ValueNamespace (deferred "export inventory")]
+        },
+    poisonCase
+      "Core declared path"
+      ( withCoreModule
+          ( \coreModule ->
+              coreModule
+                { coreModuleDeclaredPath = Just ["App", deferred "Core declared path"]
+                }
+          )
+      ),
+    poisonCase
+      "Core declared-export span"
+      ( withCoreModule
+          ( \coreModule ->
+              coreModule
+                { coreModuleDeclaredExports =
+                    Just
+                      ( DeclaredModuleExports
+                          (deferred "Core declared-export span")
+                          []
+                      )
+                }
+          )
+      ),
+    poisonCase
+      "Core declared-export selectors"
+      ( withCoreModule
+          ( \coreModule ->
+              coreModule
+                { coreModuleDeclaredExports =
+                    Just
+                      ( DeclaredModuleExports
+                          (SourceSpan 1 1)
+                          [deferred "Core declared-export selectors"]
+                      )
+                }
+          )
+      ),
+    poisonCase
+      "Core imports"
+      (withCoreModule (\coreModule -> coreModule {coreModuleImports = [deferred "Core imports"]})),
+    poisonCase
+      "Core expression"
+      (withCoreModule (\coreModule -> coreModule {coreModuleExpr = EList [deferred "Core expression"]}))
+  ]
+  where
+    poisonCase field poisonedModule = (field, marker field, poisonedModule)
+    marker field = prefix <> " " <> field <> " was forced"
+    deferred field = throw (userError (Text.unpack (marker field)))
+    withResolvedImport resolvedImport =
+      resolvedModule {resolvedModuleImports = [resolvedImport]}
+    withCoreModule updateCore =
+      resolvedModule
+        { resolvedModuleCore = updateCore (resolvedModuleCore resolvedModule)
+        }
+    baseResolvedImport =
+      ResolvedImport
+        { resolvedImportSpan = SourceSpan 1 1,
+          resolvedImportPath = ["Lib"],
+          resolvedImportAlias = Nothing,
+          resolvedImportSymbols = Nothing
+        }
 
-assertPreparedResolvedModuleForced :: Text -> () -> IO ()
-assertPreparedResolvedModuleForced label forced = do
+assertPreparedResolvedModuleForced :: Text -> Text -> () -> IO ()
+assertPreparedResolvedModuleForced label marker forced = do
   result <- try (evaluate forced) :: IO (Either IOException ())
   case result of
     Left exception
-      | "resolved Core module was forced" `Text.isInfixOf` Text.pack (show exception) -> pure ()
+      | marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
       | otherwise ->
           failTest
             ( label

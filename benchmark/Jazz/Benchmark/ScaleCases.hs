@@ -32,6 +32,8 @@ data CompilerScaleScenario
   = SequentialPolymorphicBindings
   | WideModuleFanout
   | SharedInterfaceFanout
+  | NestedRuntimeApplications
+  | RuntimeImportWidth
   | ResolverFactRich
   | TypedValidationHandoff
   | AnalyzerDiagnosticChain
@@ -78,6 +80,10 @@ forceBenchmarkGroups = foldr (\benchmarkGroup forced -> benchmarkGroup `seq` for
 
 compilerScaleCases :: [CompilerScaleCase]
 compilerScaleCases =
+  baseCompilerScaleCases <> runtimeEvidenceCompilerScaleCases
+
+baseCompilerScaleCases :: [CompilerScaleCase]
+baseCompilerScaleCases =
   map sequentialPolymorphicCase [64, 128, 256, 512]
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
@@ -314,6 +320,89 @@ valueName moduleIndex valueIndex =
     <> paddedDecimal 4 moduleIndex
     <> "Value"
     <> paddedDecimal 4 valueIndex
+
+runtimeEvidenceCompilerScaleCases :: [CompilerScaleCase]
+runtimeEvidenceCompilerScaleCases =
+  map nestedRuntimeApplicationsCase runtimeEvidenceScaleSizes
+    <> map runtimeImportWidthCase runtimeEvidenceScaleSizes
+
+runtimeEvidenceScaleSizes :: [Int]
+runtimeEvidenceScaleSizes = [64, 128, 256, 512]
+
+nestedRuntimeApplicationsCase :: Int -> CompilerScaleCase
+nestedRuntimeApplicationsCase applicationDepth =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "nested-runtime-applications-" <> paddedDecimal 4 applicationDepth,
+      compilerScaleCaseScenario = NestedRuntimeApplications,
+      compilerScaleCaseSize = applicationDepth,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [RuntimeBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (nestedRuntimeApplicationsSource applicationDepth),
+      compilerScaleCaseExpectedOutput = "7"
+    }
+
+nestedRuntimeApplicationsSource :: Int -> Text
+nestedRuntimeApplicationsSource applicationDepth =
+  Text.unlines
+    [ "module Main {",
+      "  "
+        <> Text.replicate applicationDepth "(\\(item) -> item) ("
+        <> "7"
+        <> Text.replicate applicationDepth ")"
+        <> ".",
+      "}"
+    ]
+
+runtimeImportWidthCase :: Int -> CompilerScaleCase
+runtimeImportWidthCase interfaceWidth =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "runtime-import-width-" <> paddedDecimal 4 interfaceWidth,
+      compilerScaleCaseScenario = RuntimeImportWidth,
+      compilerScaleCaseSize = interfaceWidth,
+      compilerScaleCaseInterfaceWidth = Just interfaceWidth,
+      compilerScaleCaseBenchmarks = [RuntimeBenchmark, WholeProgramBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.fromList
+          [ (scaleModuleRoot </> "Shared.jz", runtimeImportWidthDependencySource interfaceWidth),
+            (scaleModuleRoot </> "Main.jz", runtimeImportWidthEntrySource)
+          ],
+      compilerScaleCaseExpectedOutput = "7"
+    }
+
+runtimeImportWidthDependencySource :: Int -> Text
+runtimeImportWidthDependencySource interfaceWidth =
+  Text.unlines
+    ( ["module Shared {"]
+        <> [ "  "
+               <> runtimeImportValueName valueIndex
+               <> " = "
+               <> (if valueIndex == 0 then "7." else Text.pack (show valueIndex) <> ".")
+           | valueIndex <- [0 .. interfaceWidth - 1]
+           ]
+        <> ["}"]
+    )
+
+runtimeImportWidthEntrySource :: Text
+runtimeImportWidthEntrySource =
+  Text.unlines
+    [ "module Main {",
+      "  import Shared.",
+      "  " <> runtimeImportValueName 0 <> ".",
+      "}"
+    ]
+
+runtimeImportValueName :: Int -> Text
+runtimeImportValueName valueIndex =
+  "runtimeImportValue" <> paddedDecimal 4 valueIndex
 
 sharedInterfaceFanoutCase :: Int -> Int -> CompilerScaleCase
 sharedInterfaceFanoutCase dependentCount interfaceWidth =

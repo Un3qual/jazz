@@ -73,7 +73,10 @@ import Jazz.Compiler.Runtime.Observation.Render
   )
 import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
 import Jazz.Compiler.Runtime.Types
-  ( RuntimeHostEvaluationState (runtimeHostEvaluationContinuationDepth),
+  ( RuntimeHostEvaluationState
+      ( runtimeHostEvaluationActiveMachineCount,
+        runtimeHostEvaluationContinuationDepth
+      ),
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (runtimeHostArguments),
@@ -191,25 +194,9 @@ testNestedApplicationAccounting = do
   assertEqual "nested maximum continuation depth" 64 (runtimeMaximumContinuationDepth statistics)
   profile <- requireObservedProfile report
   assertEqual
-    "nested profile frames"
-    [ RuntimeProfileFrame RootCallable,
-      RuntimeProfileFrame (ClosureCallable "<entry>" 1 "value")
-    ]
-    (runtimeSemanticProfileFrames profile)
-  let profileEvents = runtimeSemanticProfileEvents profile
-  assertEqual "nested profile event count" 130 (length profileEvents)
-  case profileEvents of
-    RuntimeProfileOpen 0 0
-      : RuntimeProfileOpen 1 195
-      : RuntimeProfileClose 1 198
-      : _ -> pure ()
-    events -> failTest ("unexpected nested profile prefix: " <> Text.pack (show (take 3 events)))
-  case reverse profileEvents of
-    RuntimeProfileClose 0 450
-      : RuntimeProfileClose 1 450
-      : RuntimeProfileOpen 1 447
-      : _ -> pure ()
-    events -> failTest ("unexpected nested profile suffix: " <> Text.pack (show (take 3 events)))
+    "nested exact semantic profile"
+    expectedNestedApplicationProfile
+    profile
   profileOnlyReport <-
     requireObservedSuccess
       (evaluateRuntimeExprObserved RuntimeObservationProfile expression)
@@ -227,6 +214,8 @@ testDisabledObservationSkipsContinuationDepthState = do
               evaluationState <- get
               pure
                 [ Text.pack
+                    (show (runtimeHostEvaluationActiveMachineCount evaluationState)),
+                  Text.pack
                     (show (runtimeHostEvaluationContinuationDepth evaluationState))
                 ]
           }
@@ -247,9 +236,10 @@ testDisabledObservationSkipsContinuationDepthState = do
                 [SExpr (SourceSpan 1 1) expression]
           )
   case result of
-    Right ScopeResult {scopeResultValue = Just (VList [VText observedDepth] _)} ->
+    Right ScopeResult {scopeResultValue = Just (VList [VText observedMachineCount, VText observedDepth] _)} -> do
+      assertEqual "disabled active-machine state" "0" observedMachineCount
       assertEqual "disabled continuation-depth state" "0" observedDepth
-    _ -> failTest "expected one observed continuation-depth value"
+    _ -> failTest "expected observed active-machine and continuation-depth values"
 
 testClosureApplication :: IO ()
 testClosureApplication = do
@@ -585,6 +575,24 @@ nestedIdentityApplication depth =
     [1 .. depth]
   where
     identity = ELambda "value" (EVar "value")
+
+expectedNestedApplicationProfile :: RuntimeSemanticProfile
+expectedNestedApplicationProfile =
+  RuntimeSemanticProfile
+    { runtimeSemanticProfileTermination = RuntimeSucceeded,
+      runtimeSemanticProfileIncomplete = False,
+      runtimeSemanticProfileEndValue = 450,
+      runtimeSemanticProfileFrames =
+        [ RuntimeProfileFrame RootCallable,
+          RuntimeProfileFrame (ClosureCallable "<entry>" 1 "value")
+        ],
+      runtimeSemanticProfileEvents =
+        RuntimeProfileOpen 0 0
+          : concatMap
+            (\openTime -> [RuntimeProfileOpen 1 openTime, RuntimeProfileClose 1 (openTime + 3)])
+            [195, 199 .. 447]
+          <> [RuntimeProfileClose 0 450]
+    }
 
 zeroReport :: RuntimeObservationReport
 zeroReport =

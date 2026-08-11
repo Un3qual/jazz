@@ -120,6 +120,7 @@ data PreparedCompilerScaleBenchmark
   = PreparedCompilerScaleParseLower CompilerScaleCase Text
   | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
+  | PreparedCompilerScaleRuntime CompilerScaleCase CompiledProgram
   | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
   | PreparedCompilerScaleDiagnosticAnalysis CompilerScaleCase Expr Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
@@ -154,6 +155,8 @@ instance NFData PreparedCompilerScaleBenchmark where
                 forceResolvedModule resolvedModule `seq`
                   ()
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
+      PreparedCompilerScaleRuntime programCase compiledProgram ->
+        rnf programCase `seq` forceCompiledProgram compiledProgram
       PreparedCompilerScaleTypedLowering programCase typedProgram ->
         rnf programCase `seq` typedProgram `seq` ()
       PreparedCompilerScaleDiagnosticAnalysis programCase expression expectedDiagnosticCount ->
@@ -261,7 +264,9 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                 )
             )
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
-    RuntimeBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
+    RuntimeBenchmark -> do
+      compiledProgram <- prepareValidCompilerScaleProgram programCase
+      pure (PreparedCompilerScaleRuntime programCase compiledProgram)
 
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
 runPreparedBenchmark preparedBenchmark =
@@ -312,6 +317,11 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
       case compiledResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right compiledProgram -> requireNoCompileErrors compiledProgram
+    PreparedCompilerScaleRuntime programCase compiledProgram ->
+      withCompilerStage EvaluationStage $ do
+        let runtimeResult = evaluateCompiledProgram compiledProgram
+        evaluate (forceRuntimeProgramOutputResult runtimeResult)
+        requireExpectedCompilerScaleRuntimeResult programCase runtimeResult
     PreparedCompilerScaleTypedLowering _ typedProgram ->
       withCompilerStage LoweringStage $ do
         case validateTypedProgramOnce typedProgram of
@@ -476,17 +486,6 @@ unsupportedCorpusGroup benchmarkGroup programCase =
         )
     )
 
-unsupportedCompilerScaleGroup :: BenchmarkGroup -> CompilerScaleCase -> IO value
-unsupportedCompilerScaleGroup benchmarkGroup programCase =
-  ioError
-    ( userError
-        ( "unsupported compiler scale benchmark group for "
-            <> Text.unpack (compilerScaleCaseIdentifier programCase)
-            <> ": "
-            <> show benchmarkGroup
-        )
-    )
-
 requireNoCompileErrors :: CompiledProgram -> IO ()
 requireNoCompileErrors compiledProgram =
   case compiledProgramErrors compiledProgram of
@@ -504,6 +503,22 @@ requireExpectedRuntimeResult programCase runtimeResult =
           Left _ -> ""
           Right runtimeProgram -> maybe "" ((<> "\n") . renderRuntimeValue) (runtimeProgramOutput runtimeProgram)
    in requireExpectedBehavior programCase actualTermination actualStdout
+
+requireExpectedCompilerScaleRuntimeResult :: CompilerScaleCase -> Either Diagnostic RuntimeProgram -> IO ()
+requireExpectedCompilerScaleRuntimeResult programCase runtimeResult =
+  case runtimeResult of
+    Left diagnostic -> failBenchmarkDiagnostic diagnostic
+    Right runtimeProgram ->
+      let actualOutput = maybe "" renderRuntimeValue (runtimeProgramOutput runtimeProgram)
+       in if actualOutput == compilerScaleCaseExpectedOutput programCase
+            then pure ()
+            else
+              ioError
+                ( userError
+                    ( "compiler scale runtime benchmark did not preserve expected output: "
+                        <> Text.unpack (compilerScaleCaseIdentifier programCase)
+                    )
+                )
 
 requireExpectedProgramResult :: ProgramCase -> ProgramCaseResult -> IO ()
 requireExpectedProgramResult programCase result =
