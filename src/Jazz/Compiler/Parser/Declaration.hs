@@ -517,11 +517,15 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
                 (tokenSpan nameToken)
                 (DeclarationFailure (ReservedLiteralName BindingName name))
             )
-      | TIdentifier name <- tokenKind nameToken,
-        shouldParseQualifiedAliasStatement knownAliases name nameToken afterName ->
-          singleStatement <$> parseExprStatement parseExpression tokens
       | TIdentifier name <- tokenKind nameToken ->
-          singleStatement <$> parseSignature (mkIdentifier name) nameToken afterName
+          singleStatement
+            <$> parseSignatureOrQualifiedAlias
+              parseExpression
+              knownAliases
+              name
+              nameToken
+              afterName
+              tokens
     nameToken : afterName@(Token {tokenKind = TEquals} : _)
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -538,6 +542,20 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
     declaredOperators = parserDeclaredOperators context
     statementContext = parserStatementContext context
     singleStatement (statement, remaining) = ([statement], remaining)
+
+parseSignatureOrQualifiedAlias ::
+  ImplExpressionParser ParserFailure ->
+  Set Text ->
+  Text ->
+  Token ->
+  [Token] ->
+  [Token] ->
+  Either ParserFailure (SurfaceStatement, [Token])
+parseSignatureOrQualifiedAlias parseExpression knownAliases name nameToken tokensAfterName allTokens =
+  let parsedSignature = parseSignature (mkIdentifier name) nameToken tokensAfterName
+   in if shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName parsedSignature
+        then parseExprStatement parseExpression allTokens
+        else parsedSignature
 
 parseOperatorBinding ::
   ImplExpressionParser ParserFailure ->
@@ -1749,19 +1767,25 @@ registerImportAliases =
         SSImport _ _ (Just aliasName) Nothing -> Set.insert aliasName knownAliases
         _ -> knownAliases
 
-shouldParseQualifiedAliasStatement :: Set Text -> Text -> Token -> [Token] -> Bool
-shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName =
+shouldParseQualifiedAliasStatement ::
+  Set Text ->
+  Text ->
+  Token ->
+  [Token] ->
+  Either ParserFailure (SurfaceStatement, [Token]) ->
+  Bool
+shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName parsedSignature =
   case tokensAfterName of
     colonToken@Token {tokenKind = TColonColon} : _ ->
       isImmediatelyAfter nameToken colonToken
         && ( Set.member name knownAliases
-               || not (shouldParseCompactSignature name nameToken tokensAfterName)
+               || not (isCompactSignatureCandidate name parsedSignature)
            )
     _ -> False
 
-shouldParseCompactSignature :: Text -> Token -> [Token] -> Bool
-shouldParseCompactSignature name nameToken tokensAfterName =
-  case parseSignature (mkIdentifier name) nameToken tokensAfterName of
+isCompactSignatureCandidate :: Text -> Either ParserFailure (SurfaceStatement, [Token]) -> Bool
+isCompactSignatureCandidate name parsedSignature =
+  case parsedSignature of
     Right (SSSignature _ _ signaturePayload, remaining) ->
       if isConstructorIdentifierText name
         then
