@@ -1295,8 +1295,10 @@ It also found drift in the benchmark inventory in `PERFORMANCE.md`.
       evidence.
 - [x] Correct the durable benchmark group, stress-family, timed-boundary, and
       generated smoke-fixture documentation.
-- [ ] Run one fresh mandatory release candidate without a caller-controlled
-      main phase, update the final receipts, and obtain independent re-review.
+- [x] Run one fresh mandatory release candidate without a caller-controlled
+      main phase and update the final receipts.
+- [ ] Obtain independent re-review of the follow-up range, close the queue row,
+      and mark this plan complete.
 
 The release-policy correction landed in `ae69e77a`, with all 111 behavior tests
 and the live policy checker passing. The dependency-map change landed in
@@ -1319,6 +1321,15 @@ RTS allocation totals are retained but not compared because the faster run
 completed more adaptive benchmark iterations. Profiles are under
 `profile-results/compiler-recursive-latest-{before,after}-review/`.
 
+The fresh authoritative release ran at clean revision `c1a45073` as
+`JAZZ_RELEASE_VERSION=0.1.0-alpha.2 bash scripts/ci/release-candidate.sh`, with
+no caller-supplied `JAZZ_MAIN_PHASE`. The wrapper forced `all`; the complete
+ordinary suite, repository/docs/site checks, bounded flake check, all four full
+hosted-parser scale families, two exact corpus passes, deterministic statistics
+and profiles, both GHC profiling builds, all 78 release benchmarks, benchmark
+metadata, source distribution, bounded Nix package build, and release evidence
+validation passed in one serialized invocation.
+
 ## Full closeout
 
 After the final source change, run exactly one complete ordinary closeout, one
@@ -1328,23 +1339,17 @@ retain semantic and exact-artifact results, summarize timing/allocation/maximum
 residency without universal thresholds, and update `PERFORMANCE.md` only for
 durable workflow changes.
 
-The preliminary closeout ran on `38355358`. The authoritative main gate completed through
-its documented resumable phases: the complete serial compiler phase passed,
-the repository phase passed after the formatting-only queue correction, and
-`nix flake check --max-jobs 1 --cores 1` passed. The release closeout then ran
-`release-candidate.sh` once with `JAZZ_MAIN_PHASE=repository`, reusing the
-same-commit compiler/Nix receipt rather than repeating it. Independent review
-correctly rejected that partial release invocation as a final receipt; the
-fresh mandatory release in the follow-up above supersedes it. Website checks, the
-full extended/parser-scale suite, two identical corpus passes, deterministic
-statistics and profiles, stage/hotspot builds, all 78 release benchmarks,
-benchmark metadata validation, source distribution, bounded Nix package build,
-and release artifact validation all passed for `0.1.0-alpha.1`.
+The preliminary closeout ran on `38355358`. The authoritative main gate
+completed through its documented resumable phases, but the release closeout
+then ran `release-candidate.sh` with `JAZZ_MAIN_PHASE=repository`. Independent
+review correctly rejected that caller-controlled partial invocation as a final
+receipt. The clean `c1a45073` release above supersedes it and proves the wrapper
+itself owns the mandatory complete main phase.
 
-The extended manifest owns 14 SHA-256-verified artifacts under
-`artifacts/release-candidate/0.1.0-alpha.1/extended/manifest.json`. Its recorded
-benchmark is under
-`artifacts/release-candidate/0.1.0-alpha.1/extended/benchmarks/release-candidate/20260811T104059982499000000Z/`.
+The final extended manifest owns 14 SHA-256-verified artifacts under
+`artifacts/release-candidate/0.1.0-alpha.2/extended/manifest.json`. Its recorded
+78-case benchmark is under
+`artifacts/release-candidate/0.1.0-alpha.2/extended/benchmarks/release-candidate/20260811T115843401684000000Z/`.
 The final eight-family sample is under
 `benchmark-results/compiler-scale-final/20260811T104538581553000000Z/`. Because
 that sample deliberately combines families, its 10/57 MiB high-water values are
