@@ -1,24 +1,22 @@
 ---
-id: JN-COMPILER-PERFORMANCE-SCALE-MATRIX-002
+id: JN-COMPILER-PERFORMANCE-RECURSIVE-GROUP-003
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 2 follow-up: Complete the generated scale matrix"
+plan_section: "Task 3a: Index recursive-group scheme exposure"
 target_paths:
-  - benchmark/Jazz/Benchmark/ScaleCases.hs
-  - benchmark/Jazz/Benchmark/StageInputs.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
-  - PERFORMANCE.md
 verification:
-  - cabal test benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=long-token-stream-01024 --list-tests' --jobs=1
+  - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 --pattern=analysis +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
-  - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add the six remaining opt-in compiler scale families with exact semantic or parse-artifact tests, then record controlled CPU, allocation, and residency curves."
+deliverable: "Index only the recursive groups spanning each intervening let so scheme exposure no longer scans every recursive group, while preserving preview inference and diagnostics exactly."
 last_verified: 2026-08-10
 ---
 
@@ -310,13 +308,110 @@ compiler/parser boundaries from the first slice.
       source counts, or token counts rather than physical time.
 - [x] Run the focused suite, exact list-tree command, queue/docs checks, and
       diff review serially; commit before physical measurement.
-- [ ] Record all 24 new cases in one optimized `+RTS -T` process. Profile the
+- [x] Record all 24 new cases in one optimized `+RTS -T` process. Profile the
       largest member of each family with serial RTS/stage/hotspot/heap commands,
       reducing a size rather than widening limits if the controlled machine
       cannot finish safely.
-- [ ] Record the matrix, compare growth factors and dominant profiles, then
+- [x] Record the matrix, compare growth factors and dominant profiles, then
       promote the smallest evidence-backed optimization child. Do not use
       single-machine thresholds.
+
+### Complete generated scale-matrix receipt
+
+The implementation landed in `49073c43`. The canonical optimized run used the
+same Apple M1 Max / Darwin aarch64 host, GHC 9.14, one RTS capability, CPU time
+mode, and `+RTS -T -RTS` from a clean tree. Its 32 timed leaves and metadata are
+under
+`benchmark-results/compiler-scale-matrix-baseline/20260811T033036335127000000Z/`.
+Peak memory below is the optimized process high-water at that leaf; it is not a
+portable limit or an isolated per-case residency value.
+
+| Family / size                | Boundary           | Mean ms | Allocated bytes | Copied bytes | Peak memory bytes |
+| ---------------------------- | ------------------ | ------: | --------------: | -----------: | ----------------: |
+| recursive groups / 16        | analysis           |   2.894 |      10,305,680 |      494,169 |        63,963,136 |
+| recursive groups / 32        | analysis           |  12.812 |      57,403,636 |    1,371,256 |        63,963,136 |
+| recursive groups / 64        | analysis           |  77.296 |     401,231,121 |    3,314,538 |        63,963,136 |
+| recursive groups / 128       | analysis           | 574.666 |   3,055,875,427 |    8,963,052 |        63,963,136 |
+| recursive groups / 16        | module preparation |   7.445 |      29,355,218 |    3,002,519 |        63,963,136 |
+| recursive groups / 32        | module preparation |  18.263 |      80,855,598 |    4,520,340 |        63,963,136 |
+| recursive groups / 64        | module preparation |  85.532 |     433,536,163 |    8,314,713 |        63,963,136 |
+| recursive groups / 128       | module preparation | 599.103 |   3,106,018,222 |   18,311,522 |        63,963,136 |
+| constrained signatures / 32  | analysis           |   0.602 |       2,418,732 |       37,860 |        63,963,136 |
+| constrained signatures / 64  | analysis           |   1.289 |       4,882,866 |      141,755 |        63,963,136 |
+| constrained signatures / 128 | analysis           |   3.395 |      10,867,771 |      933,117 |        63,963,136 |
+| constrained signatures / 256 | analysis           |   8.375 |      27,095,142 |    2,651,298 |        63,963,136 |
+| nested lambdas / 16          | analysis           |   0.144 |         616,235 |        3,739 |        63,963,136 |
+| nested lambdas / 32          | analysis           |   0.225 |         904,590 |        9,313 |        63,963,136 |
+| nested lambdas / 64          | analysis           |   0.502 |       1,720,405 |       41,571 |        63,963,136 |
+| nested lambdas / 128         | analysis           |   1.481 |       4,273,202 |      295,726 |        63,963,136 |
+| nested lambdas / 16          | module preparation |   3.382 |      15,872,136 |    1,461,757 |        63,963,136 |
+| nested lambdas / 32          | module preparation |   3.590 |      16,758,530 |    1,525,205 |        63,963,136 |
+| nested lambdas / 64          | module preparation |   4.111 |      18,774,494 |    1,745,394 |        63,963,136 |
+| nested lambdas / 128         | module preparation |   5.830 |      23,836,726 |    2,857,681 |        63,963,136 |
+| operator table / 16          | parse/lower        |   0.140 |       1,130,163 |        8,330 |         6,291,456 |
+| operator table / 32          | parse/lower        |   0.291 |       2,273,446 |       32,796 |         6,291,456 |
+| operator table / 64          | parse/lower        |   0.641 |       4,603,133 |      132,215 |         7,340,032 |
+| operator table / 128         | parse/lower        |   1.639 |       9,432,882 |      667,116 |         8,388,608 |
+| nested blocks / 16           | parse/lower        |   0.103 |         876,635 |        4,621 |         8,388,608 |
+| nested blocks / 32           | parse/lower        |   0.252 |       1,941,774 |       20,572 |         8,388,608 |
+| nested blocks / 64           | parse/lower        |   0.752 |       4,760,308 |      109,391 |         8,388,608 |
+| nested blocks / 128          | parse/lower        |   2.706 |      13,154,168 |      672,519 |         8,388,608 |
+| token stream / 1,024         | parse/lower        |   0.840 |       6,706,406 |      286,220 |         8,388,608 |
+| token stream / 4,096         | parse/lower        |   4.719 |      26,815,808 |    3,174,848 |         9,437,184 |
+| token stream / 16,384        | parse/lower        |  20.903 |     107,253,149 |   17,856,651 |        22,020,096 |
+| token stream / 65,536        | parse/lower        |  88.379 |     429,003,568 |   82,010,695 |        63,963,136 |
+
+Serial stable-stage, hotspot, and live-heap artifacts for the largest member of
+all six families are under `profile-results/compiler-scale-matrix-baseline/`.
+The standalone receipts separate cumulative allocation from live residency:
+
+| Family                     | Profiled boundary | Stable per-op allocation | Process allocation | Maximum residency | Heap sampled peak | Dominant hotspot evidence                                                          |
+| -------------------------- | ----------------- | -----------------------: | -----------------: | ----------------: | ----------------: | ---------------------------------------------------------------------------------- |
+| Recursive groups / 128     | analysis          |                   3.4 GB |     14,693,851,184 |         3,052,648 |         3,064,480 | `inferScopeTypeInternal`; repeated name ordering and recursive free-variable walks |
+| Constrained signatures/256 | analysis          |                    39 MB |      5,373,753,624 |         3,218,504 |         2,196,680 | `freeTypeVariablesInEnv`, `freeTypeVariables`, and concrete impl fact projection   |
+| Nested lambdas / 128       | analysis          |                   6.3 MB |      3,422,709,304 |         1,223,608 |         1,147,768 | `applySubstitution` dominates both ticks and allocation                            |
+| Operator table / 128       | parse/lower       |                    14 MB |      7,789,820,168 |           982,216 |           678,344 | lexer/Megaparsec dominates; operator lookup is visible but secondary               |
+| Nested blocks / 128        | parse/lower       |                    22 MB |      5,922,440,160 |           761,896 |           568,152 | repeated list `span` dominates, matching owned-prefix rescans                      |
+| Token stream / 65,536      | parse/lower       |                   656 MB |      4,854,211,168 |        31,814,848 |        20,335,856 | lexer/Megaparsec plus list forcing; this is the strongest residency signal         |
+
+The new evidence changes the first priority. Eight times as many interleaved
+groups cost 198.6x CPU and 296.5x allocation in analysis. `Scope.hs` currently
+walks the complete deduplicated recursive-group set for every let before it can
+discover that almost every group is irrelevant; the promoted child indexes only
+groups whose declaration interval spans that let. Constrained signatures still
+confirm the environment-free-variable work, deep lambdas isolate substitution
+rebuilding, nested blocks isolate prefix/list rescans, and the exact token
+stream establishes the token ownership/residency baseline. Operator-table
+lookup remains real but lower priority because its allocation is close to
+linear and parsing is dominated by lexer/Megaparsec work.
+
+## Task 3a: Index recursive-group scheme exposure
+
+This pure internal representation change preserves recursive preview inference,
+diagnostics, declaration order, and generalized schemes. It only prevents lets
+from considering recursive groups that cannot possibly be visible there.
+
+**Files:** `src/Jazz/Compiler/TypeInference/Scope.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Keep the existing smallest generated recursive case and binding-signature
+      recursion suite as semantic red/green ownership. They already cover exact
+      output, interleaved polymorphic use, intervening dependencies, preview
+      diagnostics, deferred constraints, and inferred-constraint uniqueness.
+- [ ] Precompute the canonical recursive groups once, preserving their current
+      `Set` order, and index each non-member statement strictly between a
+      group's first and last declarations to only the groups spanning it.
+- [ ] Make `exposeVisibleRecursiveGroupSchemes` consume that index instead of
+      scanning every recursive group for every let. Keep every existing signed,
+      dependency, feed-forward, diagnostic, rollback, and latest-binding guard.
+- [ ] Run the two focused semantic suites serially, then record the four-case
+      optimized analysis curve with `+RTS -T` from a clean implementation
+      commit. Capture standalone stable-stage, hotspot, and heap after evidence
+      for the 128-group case.
+- [ ] Stop and diagnose any semantic or physical regression; do not widen
+      limits. Record before/after CPU, allocation, copied bytes, and residency,
+      close the child, and promote environment free-variable maintenance next.
 
 ## Task 3: Remove type-checker asymptotic work
 
