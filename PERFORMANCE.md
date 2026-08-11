@@ -157,6 +157,7 @@ scenario families isolate these growth curves:
 | -------------------------------- | ----------------------- | ------------------------------------- | ------------------------ |
 | Sequential polymorphic bindings  | 64, 128, 256, 512       | `analysis`, `module-preparation`      | `(42, True)`             |
 | Wide module fanout, width 16     | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program` | `0`                      |
+| Wide module fanout, width 1      | 64, 128, 256, 512       | `module-preparation`, `whole-program` | `0`                      |
 | Interleaved recursive groups     | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
 | Constrained signatures           | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
 | Deep nested lambdas              | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
@@ -166,7 +167,9 @@ scenario families isolate these growth curves:
 
 Case identifiers encode the controlling size, for example
 `sequential-polymorphic-bindings-0064` and
-`wide-module-fanout-0008x0016`. List one generated case with:
+`wide-module-fanout-0008x0016`; the final field is the interface width, so
+`wide-module-fanout-0064x0001` isolates dependency lookup with minimal rebasing.
+List one generated case with:
 
 ```bash
 cabal bench jazz-bench --jobs=1 \

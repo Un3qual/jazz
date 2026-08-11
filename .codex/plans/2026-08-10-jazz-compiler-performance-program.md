@@ -1,22 +1,22 @@
 ---
-id: JN-COMPILER-PERFORMANCE-MODULE-INDEX-011
+id: JN-COMPILER-PERFORMANCE-INTERFACE-REBASE-012
 status: ready
 priority: P1
-size: M
+size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 5a: Index module dependencies"
+plan_section: "Task 5b: Cache imported interfaces"
 target_paths:
   - src/Jazz/Compiler/ModuleCompiler.hs
   - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
   - cabal test module-pipeline-contract-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-module-index --time-mode=cpu --jazz-scale-case=wide-module-fanout-0008x0016 --jazz-scale-case=wide-module-fanout-0016x0016 --jazz-scale-case=wide-module-fanout-0032x0016 --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-interface-rebase --time-mode=cpu --jazz-scale-case=wide-module-fanout-0008x0016 --jazz-scale-case=wide-module-fanout-0016x0016 --jazz-scale-case=wide-module-fanout-0032x0016 --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Build and thread a compiled-module path index so every import dependency lookup is logarithmic while preserving dependency order, duplicate-path first-match behavior, diagnostics, and artifacts."
+deliverable: "Cache the ambient-prelude import and canonical whole dependency imports during program compilation so unchanged schemes, types, data declarations, and capability facts are rebased once while preserving selective/aliased imports, diagnostics, ordering, binder identity, and artifacts."
 last_verified: 2026-08-10
 ---
 
@@ -967,21 +967,50 @@ are under
 
 ### Task 5a: Index module dependencies
 
-- [ ] Record the clean `wide-module-fanout` module-preparation curve and
+- [x] Record the clean `wide-module-fanout` module-preparation curve and
       stable-stage/hotspot/heap evidence before changing lookup representation.
-- [ ] Add a focused exact-order/duplicate-path regression for the dependency
+- [x] Add a focused exact-order/duplicate-path regression for the dependency
       index boundary.
-- [ ] Carry an incrementally maintained `Map [Text] CompiledModule` beside the
+- [x] Carry an incrementally maintained `Map [Text] CompiledModule` beside the
       source-order module list and route every import lookup through it.
-- [ ] Preserve compiled module order, first-match behavior, diagnostics,
+- [x] Preserve compiled module order, first-match behavior, diagnostics,
       interfaces, runtime parity, and all exact artifacts.
-- [ ] Run the module pipeline and generated-stage suites, capture compatible
+- [x] Run the module pipeline and generated-stage suites, capture compatible
       after evidence, and promote interface rebasing/caching.
 
-- [ ] Thread a first-match-preserving module-path index through module
-      compilation and keep the duplicate-path contract exact.
+The path-index implementation landed in `5ccd7564`; `a0ef3fe4` added a second
+fanout family with one export per dependency to isolate lookup growth from
+interface rebasing. `compileResolvedProgram` now carries a strict `Map [Text]
+CompiledModule` beside the reversed source-order list. The public single-module
+entry point constructs a first-wins index, preserving the historical contract
+when a caller supplies duplicate paths. The focused module-pipeline and
+generated-stage suites pass with `--jobs=1`.
+
+The original width-16 curve remained dominated by interface rebasing and did
+not show a physical win. On the isolating width-1 curve, the 512-module case
+fell from 37.84 ms to 34.63 ms (8.5% CPU); allocation rose 0.28% and benchmark
+peak stayed at 33 MB, so this receipt claims only lookup CPU improvement. The
+stable profile fell from 77.1 ms / 174 MB allocated / 48 MB peak to 68.7 ms /
+165 MB / 47 MB. Exact RTS total allocation fell from 5,679,515,472 to
+5,389,995,368 bytes and maximum residency from 15,040,000 to 14,921,944 bytes;
+the independent heap census moved slightly upward from 10,128,048 to
+10,153,952 bytes. Artifacts are under
+`benchmark-results/compiler-module-lookup-{before,after}/` and
+`profile-results/compiler-module-lookup-{before,after}/`.
+
+### Task 5b: Cache imported interfaces
+
+- [ ] Record a clean indexed `wide-module-fanout` width-16 curve plus
+      stable-stage/hotspot/heap evidence before changing interface ownership.
 - [ ] Canonicalize interface names and cache ambient prelude/dependency rebases
       so module compilation does not deep-copy unchanged schemes/declarations.
+- [ ] Preserve selective and aliased imports, export inventories, diagnostics,
+      source order, binder identity, hosted parity, and exact artifacts.
+- [ ] Run focused module-pipeline and generated-stage suites, capture compatible
+      after evidence, and promote compiled-artifact lifetime reduction.
+
+### Task 5c: Compact compiled lifetime
+
 - [ ] Split runtime/debug metadata from full resolved/compiled AST retention and
       remove the aggregate diagnostic spine where per-module order can be consumed
       directly.
