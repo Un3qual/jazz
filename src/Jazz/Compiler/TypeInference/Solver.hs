@@ -14,7 +14,6 @@ module Jazz.Compiler.TypeInference.Solver
     integerLiteralRangeFitsNumericType,
     occursInType,
     resolveType,
-    resolveTypeHead,
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
     unifyTypeLists,
@@ -72,15 +71,6 @@ freshTypeVariable state =
 
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
-
-resolveTypeHead :: InferState -> ExpressionType -> ExpressionType
-resolveTypeHead state = go
-  where
-    go expressionType =
-      case expressionType of
-        TVarType typeVar ->
-          maybe expressionType go (IntMap.lookup typeVar (inferSubst state))
-        _ -> expressionType
 
 applySubstitution :: IntMap ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution substitution expressionType =

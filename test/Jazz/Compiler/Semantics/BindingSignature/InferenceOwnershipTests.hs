@@ -54,7 +54,6 @@ import Jazz.Compiler.TypeInference.Solver
     applySubstitution,
     bindTypeVar,
     resolveType,
-    resolveTypeHead,
     unifyTypes
   )
 import Jazz.Compiler.TypeInference.State
@@ -106,7 +105,6 @@ inferenceOwnershipTests =
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("solver resolves long substitution chains and compound types", testSolverResolvesLongSubstitutionChains),
-    ("solver head resolution preserves compound children", testSolverHeadResolutionPreservesCompoundChildren),
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
     ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
@@ -277,30 +275,6 @@ testUnificationPathCompressesSubstitutionChains =
                     [ (0, TVarType 1),
                       (1, TVarType 2),
                       (2, TIntType)
-                    ]
-              }
-        }
-
-testSolverHeadResolutionPreservesCompoundChildren :: IO ()
-testSolverHeadResolutionPreservesCompoundChildren = do
-  assertEqual
-    "head-resolved function"
-    (TFunctionType (TVarType 1) (TVarType 2))
-    (resolveTypeHead stateWithCompoundRoot (TVarType 0))
-  assertEqual
-    "fully resolved function"
-    (TFunctionType TIntType TBoolType)
-    (resolveType stateWithCompoundRoot (TVarType 0))
-  where
-    stateWithCompoundRoot =
-      initialInferState
-        { inferSolver =
-            (inferSolver initialInferState)
-              { solverSubstitution =
-                  IntMap.fromList
-                    [ (0, TFunctionType (TVarType 1) (TVarType 2)),
-                      (1, TIntType),
-                      (2, TBoolType)
                     ]
               }
         }
