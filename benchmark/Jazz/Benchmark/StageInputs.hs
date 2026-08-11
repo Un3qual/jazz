@@ -21,7 +21,9 @@ import Jazz.Benchmark.Force
     forceCompiledModules,
     forceCompiledProgram,
     forceCompiledProgramResult,
+    forceDiagnostic,
     forceExpr,
+    forceListWith,
     forceProgramCaseResult,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
@@ -29,16 +31,23 @@ import Jazz.Benchmark.Force
   )
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
+    CompilerScaleScenario (..),
     compilerScaleCaseEntryModulePath,
     compilerScaleCaseEntrySource,
     compilerScaleCaseExpectedOutput,
     compilerScaleCaseIdentifier,
     compilerScaleCaseResolutionConfig,
+    compilerScaleCaseScenario,
     compilerScaleCaseSize,
     compilerScaleCaseSource,
   )
+import Jazz.Compiler.AST (Expr (..))
+import Jazz.Compiler.Analyzer
+  ( AnalysisResult (..),
+    analyzeProgram,
+  )
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
 import Jazz.Compiler.LoweredIR.Lower
@@ -66,6 +75,7 @@ import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateCompiledProgram,
   )
+import Jazz.Compiler.Name (mkIdentifier, sourceName)
 import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
 import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
@@ -110,6 +120,7 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
+  | PreparedCompilerScaleDiagnosticAnalysis CompilerScaleCase Expr Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
 instance NFData PreparedBenchmark where
@@ -144,6 +155,8 @@ instance NFData PreparedCompilerScaleBenchmark where
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
       PreparedCompilerScaleTypedLowering programCase typedProgram ->
         rnf programCase `seq` typedProgram `seq` ()
+      PreparedCompilerScaleDiagnosticAnalysis programCase expression expectedDiagnosticCount ->
+        rnf programCase `seq` forceExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
@@ -201,28 +214,39 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
               )
           Just value -> evaluate (Text.length value) >> pure value
       pure (PreparedCompilerScaleParseLower programCase source)
-    AnalysisBenchmark -> do
-      compiledProgram <- prepareValidCompilerScaleProgram programCase
-      resolvedProgram <-
-        resolveBenchmarkProgram
-          (compilerScaleCaseResolutionConfig programCase)
-          (compilerScaleCaseEntryModulePath programCase)
-          (pure . compilerScaleCaseSource programCase)
-      entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
-      let entryPath = compiledProgramEntryPath compiledProgram
-          dependencies =
-            filter
-              ((/= entryPath) . compiledModulePath)
-              (compiledProgramModules compiledProgram)
-          inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
-      pure
-        ( PreparedCompilerScaleAnalysis
-            programCase
-            compiledProgram
-            inputs
-            dependencies
-            entryModule
-        )
+    AnalysisBenchmark ->
+      case compilerScaleCaseScenario programCase of
+        AnalyzerDiagnosticChain -> do
+          let expression = analyzerDiagnosticChainExpression (compilerScaleCaseSize programCase)
+          evaluate (forceExpr expression)
+          pure
+            ( PreparedCompilerScaleDiagnosticAnalysis
+                programCase
+                expression
+                (compilerScaleCaseSize programCase)
+            )
+        _ -> do
+          compiledProgram <- prepareValidCompilerScaleProgram programCase
+          resolvedProgram <-
+            resolveBenchmarkProgram
+              (compilerScaleCaseResolutionConfig programCase)
+              (compilerScaleCaseEntryModulePath programCase)
+              (pure . compilerScaleCaseSource programCase)
+          entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
+          let entryPath = compiledProgramEntryPath compiledProgram
+              dependencies =
+                filter
+                  ((/= entryPath) . compiledModulePath)
+                  (compiledProgramModules compiledProgram)
+              inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
+          pure
+            ( PreparedCompilerScaleAnalysis
+                programCase
+                compiledProgram
+                inputs
+                dependencies
+                entryModule
+            )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
     TypedLoweringBenchmark -> do
       let typedProgram = typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
@@ -297,6 +321,22 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
               LoweredIRSucceeded _ -> pure ()
               loweringResult ->
                 ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
+    PreparedCompilerScaleDiagnosticAnalysis _ expression expectedDiagnosticCount ->
+      withCompilerStage StaticAnalysisStage $ do
+        analysisResult <- analyzeProgram defaultWarningSettings expression
+        evaluate (forceListWith forceDiagnostic (analysisDiagnostics analysisResult))
+        let actualDiagnosticCount = length (filter isErrorDiagnostic (analysisDiagnostics analysisResult))
+        if actualDiagnosticCount == expectedDiagnosticCount
+          then pure ()
+          else
+            ioError
+              ( userError
+                  ( "analyzer diagnostic benchmark produced "
+                      <> show actualDiagnosticCount
+                      <> " errors; expected "
+                      <> show expectedDiagnosticCount
+                  )
+              )
     PreparedCompilerScaleWholeProgram programCase -> do
       actualOutput <- runCompilerScaleCase programCase
       if actualOutput == compilerScaleCaseExpectedOutput programCase
@@ -326,6 +366,13 @@ runParseLower source = do
   withCompilerStage LoweringStage $ do
     let expression = lowerSurfaceExpr surfaceProgram
     evaluate (forceExpr expression)
+
+analyzerDiagnosticChainExpression :: Int -> Expr
+analyzerDiagnosticChainExpression expressionCount =
+  foldl1 EApply
+    [ EVar (sourceName (mkIdentifier ("missing" <> Text.pack (show index))))
+    | index <- [0 .. expressionCount - 1]
+    ]
 
 prepareValidProgram :: ProgramCase -> IO CompiledProgram
 prepareValidProgram programCase = do

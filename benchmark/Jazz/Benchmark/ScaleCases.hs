@@ -34,6 +34,7 @@ data CompilerScaleScenario
   | SharedInterfaceFanout
   | ResolverFactRich
   | TypedValidationHandoff
+  | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
   | RecursiveRebindings
   | ConstrainedSignatures
@@ -83,6 +84,7 @@ compilerScaleCases =
     <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
     <> map resolverFactRichCase [16, 32, 64, 128]
     <> map typedValidationHandoffCase [64, 128, 256, 512]
+    <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
@@ -283,6 +285,20 @@ typedValidationHandoffCase expressionCount =
       compilerScaleCaseSize = expressionCount,
       compilerScaleCaseInterfaceWidth = Nothing,
       compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
+
+analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
+analyzerDiagnosticChainCase expressionCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = "analyzer-diagnostic-chain-" <> paddedDecimal 4 expressionCount,
+      compilerScaleCaseScenario = AnalyzerDiagnosticChain,
+      compilerScaleCaseSize = expressionCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [AnalysisBenchmark],
       compilerScaleCaseEntryModulePath = ["Main"],
       compilerScaleCaseResolutionConfig = scaleResolutionConfig,
       compilerScaleCaseSources = Map.empty,
