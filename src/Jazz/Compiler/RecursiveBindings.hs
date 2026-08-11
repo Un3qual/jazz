@@ -454,29 +454,35 @@ lookupScopeBinding requestedName =
 -- nested and top-level scopes agree on lambda self recursion.
 exprContainsFunctionBranch :: Expr -> Bool
 exprContainsFunctionBranch =
-  go [] [] Set.empty
+  go [] Set.empty [] Set.empty
   where
-    go expressionPath scopeBindings visitedBindings expr =
+    go expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
-        EVar bindingName ->
-          case lookupScopeBinding bindingName scopeBindings of
-            Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
-              | Set.notMember identity visitedBindings ->
-                  go
-                    bindingPath
-                    priorBindings
-                    (Set.insert identity visitedBindings)
-                    bindingExpr
-            _ -> False
+        EVar bindingName
+          | Set.member bindingName boundNames -> False
+          | otherwise ->
+              case lookupScopeBinding bindingName scopeBindings of
+                Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
+                  | Set.notMember identity visitedBindings ->
+                      go
+                        bindingPath
+                        boundNames
+                        priorBindings
+                        (Set.insert identity visitedBindings)
+                        bindingExpr
+                _ -> False
         ELambda {} -> True
+        ETypeApplication functionExpr _ _ ->
+          go (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
         EIf _ thenExpr elseExpr ->
-          go (expressionPath <> [1]) scopeBindings visitedBindings thenExpr
-            || go (expressionPath <> [2]) scopeBindings visitedBindings elseExpr
+          go (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr
+            || go (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
-            ( \(armIndex, CaseArm _ _ bodyExpr) ->
+            ( \(armIndex, CaseArm pattern _ bodyExpr) ->
                 go
                   (expressionPath <> [1, armIndex])
+                  (extendBoundWithPattern pattern boundNames)
                   scopeBindings
                   visitedBindings
                   bodyExpr
@@ -485,7 +491,7 @@ exprContainsFunctionBranch =
         EBlock statements ->
           case reverse (scopeStatementContexts expressionPath scopeBindings statements) of
             ScopeStatementContext (SExpr _ terminalExpr) terminalBindings terminalPath : _ ->
-              go terminalPath terminalBindings visitedBindings terminalExpr
+              go terminalPath boundNames terminalBindings visitedBindings terminalExpr
             _ -> False
         _ -> False
 

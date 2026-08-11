@@ -53,6 +53,7 @@ tests =
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
+    ("recursive groups keep pattern binders from resolving through prior callables", testRecursiveGroupsRespectPatternBinderFunctionShadowing),
     ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
@@ -250,6 +251,28 @@ testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
       EBlock
         [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
           SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
+        ]
+
+testRecursiveGroupsRespectPatternBinderFunctionShadowing :: IO ()
+testRecursiveGroupsRespectPatternBinderFunctionShadowing =
+  assertEqual
+    "pattern-bound scalar does not manufacture a recursive function owner"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    apparentName = ident "apparent"
+    capturedName = ident "captured"
+    functionBody =
+      EBlock
+        [ SLet apparentName span0 (ELambda (ident "x") (EVar (ident "x"))),
+          SLet capturedName span0 (ELambda (ident "x") (EVar functionName)),
+          SExpr
+            span0
+            ( EPatternCase
+                (ELit (LBool True))
+                [CaseArm (PVariable apparentName) Nothing (EVar apparentName)]
+            )
         ]
 
 testRecursiveGroupsKeepCallablePatternGuardSelfReference :: IO ()

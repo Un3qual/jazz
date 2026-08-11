@@ -13,14 +13,20 @@ import Data.Functor.Identity
   ( Identity,
     runIdentity
   )
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureType (..),
+  ( CaseArm (..),
     Expr (..),
     Literal (..),
     NumericType (..),
+    Pattern (..),
+    SignatureType (..),
     Statement (..)
+  )
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly)
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -41,6 +47,11 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
     runtimeValueExactlyMatchesConstraint
+  )
+import Jazz.Compiler.Runtime.ScopePlan
+  ( buildRuntimeScopePlan,
+    scopePlanIsRecursiveBinding,
+    scopePlanIsSelfRecursiveFunction
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
@@ -74,6 +85,7 @@ recursionTests =
     , ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError)
     , ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError)
     , ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer)
+    , ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility)
     , ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion)
     , ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError)
     , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
@@ -427,6 +439,42 @@ testPatternCaseBinderDoesNotAliasRecursivePeer = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "0") (runOutput result)
+
+testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
+testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
+  let plan =
+        buildRuntimeScopePlan
+          Set.empty
+          Nothing
+          ResolveKernelOnly
+          Set.empty
+          witnessStatements
+  assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
+  assertEqual "pattern-binder witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
+  result <- runSource defaultWarningSettings witnessSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    witnessSource =
+      "f = { apparent = \\(x) -> x. captured = \\(x) -> f. case True { | apparent -> apparent }. }. f."
+    witnessStatements =
+      [ SLet
+          "f"
+          (SourceSpan 1 1)
+          ( EBlock
+              [ SLet "apparent" (SourceSpan 1 1) (ELambda "x" (EVar "x")),
+                SLet "captured" (SourceSpan 1 1) (ELambda "x" (EVar "f")),
+                SExpr
+                  (SourceSpan 1 1)
+                  ( EPatternCase
+                      (ELit (LBool True))
+                      [CaseArm (PVariable "apparent") Nothing (EVar "apparent")]
+                  )
+              ]
+          ),
+        SExpr (SourceSpan 1 1) (EVar "f")
+      ]
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
