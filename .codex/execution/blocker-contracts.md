@@ -39,6 +39,48 @@ Each blocked item should answer these questions:
 
 ## Current Blockers
 
+### JN-COMPILER-PERFORMANCE-PROGRAM-001
+
+- Completed child: `JN-COMPILER-PERFORMANCE-VERIFICATION-001` landed in
+  `c2bbded9`. It bounds heavyweight Cabal/Nix work, adds phase selection and a
+  low-memory mode, and preserves one authoritative full closeout.
+- Completed child: `JN-COMPILER-PERFORMANCE-SCALE-BASELINES-001` landed in
+  `b7161746`. It adds opt-in sequential-polymorphism and wide-module-fanout
+  curves with exact real-pipeline semantics plus optimized, RTS, stable-stage,
+  hotspot, and live-heap receipts.
+- Accepted decision: [RFC 0008: Parser scale and performance tiers](../../rfcs/accepted/0008-parser-scale-and-performance-tiers.md)
+  separates deterministic semantic gates from machine-dependent physical
+  evidence and forbids single-machine timing thresholds.
+- Measured priority: sequential analysis grew 16.6x in CPU and 14.0x in
+  allocation over an 8x binding increase. Its hotspot profile attributes 131
+  ticks and 447,907,840 allocated bytes to `freeTypeVariablesInEnv`, making
+  incremental environment free-variable maintenance the leading optimization
+  candidate after matrix completion.
+- Smallest unblocker: write and validate a matching ready-plan for the six
+  remaining generated scenario families: interleaved recursive groups,
+  constrained signatures, deep nested lambdas, large operator tables, nested
+  blocks, and long token streams.
+- Decision needed: fix the exact stable case identifiers, valid deterministic
+  generators, smallest-case semantic/artifact results, participating benchmark
+  groups, and largest-case serial RTS/profile commands before promotion.
+- Recommended default: keep all generated cases opt-in; use the matrix sizes
+  already recorded in the performance program; compile through the ordinary
+  driver or parse through the ordinary parser; assert exact results only at
+  small sizes; record physical curves without thresholds; and stop or reduce a
+  largest size rather than widening machine limits.
+- Candidate child: `JN-COMPILER-PERFORMANCE-SCALE-MATRIX-002`.
+- Target paths: `benchmark/Jazz/Benchmark/ScaleCases.hs`;
+  `benchmark/Jazz/Benchmark/StageInputs.hs`;
+  `test/Jazz/Benchmark/StageSpec.hs`; `PERFORMANCE.md`.
+- Verification: `cabal test benchmark-stage-spec --test-show-details=failures --jobs=1`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
+  `git diff --check`.
+- Not in scope: changing type-inference, module, parser, token, AST, or runtime
+  representation; adding production strictness; changing public language
+  semantics, diagnostics or their order, binder identity, artifact schemas, or
+  hosted parity; adding wall-clock thresholds; or starting more than one
+  heavyweight process at a time.
+
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
 - Completed children: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary

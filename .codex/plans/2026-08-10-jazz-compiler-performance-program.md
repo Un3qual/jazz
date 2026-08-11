@@ -1,13 +1,14 @@
 ---
-id: JN-COMPILER-PERFORMANCE-SCALE-BASELINES-001
-status: ready
+id: JN-COMPILER-PERFORMANCE-PROGRAM-001
+status: blocked
 priority: P1
-size: L
+size: XL
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 2: Add generated compiler scale scenarios"
+plan_section: "Task 2: Add generated compiler scale scenarios follow-up"
 target_paths:
+  - benchmark/Jazz/Benchmark/ScaleCases.hs
   - benchmark/Jazz/Benchmark/Stages.hs
   - benchmark/Jazz/Benchmark/StageInputs.hs
   - test/Jazz/Benchmark/StageSpec.hs
@@ -19,7 +20,7 @@ verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add opt-in generated sequential-polymorphism and wide-module-fanout scale benchmarks with exact semantic tests, then record controlled pre-optimization CPU, allocation, and residency curves."
+deliverable: "Complete the remaining six generated compiler scale scenarios before promoting the first evidence-backed optimization child."
 last_verified: 2026-08-10
 ---
 
@@ -175,45 +176,98 @@ instead of inflating this child.
 `benchmark/Jazz/Benchmark/Stages.hs`, `benchmark/Jazz/Benchmark/StageInputs.hs`,
 `test/Jazz/Benchmark/StageSpec.hs`, `jazz.cabal`, and `PERFORMANCE.md`.
 
-- [ ] In `StageSpec.hs`, add a failing registry test for the literal identifiers
+- [x] In `StageSpec.hs`, add a failing registry test for the literal identifiers
       `sequential-polymorphic-bindings-{0064,0128,0256,0512}` and
       `wide-module-fanout-{0008,0016,0032,0064}x0016`, including scenario and
       size metadata. This catches missing sizes, unstable identities, or a
       generator silently changing the interface width.
-- [ ] Add failing real-pipeline tests that compile and run the smallest generated
+- [x] Add failing real-pipeline tests that compile and run the smallest generated
       program from each scenario. Sequential polymorphism must produce
       `(42, True)`; wide fanout must produce `0` with nine virtual sources at the
       `8 x 16` size. Do not assert physical timing.
-- [ ] Implement `ScaleCases.hs` as a pure owner of `CompilerScaleCase`, scenario
+- [x] Implement `ScaleCases.hs` as a pure owner of `CompilerScaleCase`, scenario
       metadata, deterministic source maps, module resolution configuration, and
       source lookup. Generate virtual module paths in memory; do not create
       corpus entries, checked-in fixtures, or temporary files.
-- [ ] Extend `StageInputs.hs` with prepared analysis, module-preparation, and
+- [x] Extend `StageInputs.hs` with prepared analysis, module-preparation, and
       whole-program boundaries for compiler scale cases. Reuse the ordinary
       compiler driver, forcing helpers, diagnostic rendering, compiled-module
       lookup, and exact runtime-output checks; do not add production forcing.
-- [ ] Add failing command/selection tests for repeatable
+- [x] Add failing command/selection tests for repeatable
       `--jazz-scale-case=IDENTIFIER`, missing/duplicate/unknown values, and
       rejection when mixed with `--jazz-case` or `--jazz-smoke`.
-- [ ] Extend `Stages.hs` with an opt-in `compiler-scale` benchmark tree. With no
+- [x] Extend `Stages.hs` with an opt-in `compiler-scale` benchmark tree. With no
       scale selector, preserve the existing corpus tree, smoke selection, and
       extended-gate workload exactly. Stable leaves must be addressable as
       `All.compiler-scale.<group>.<identifier>` and recorded metadata must keep
       the existing schema while listing the selected scale identifiers.
-- [ ] Add `ScaleCases.hs` to the benchmark and benchmark-stage test components;
+- [x] Add `ScaleCases.hs` to the benchmark and benchmark-stage test components;
       add `Stages.hs` and `Metadata.hs` to the focused test component only if the
       command parser tests require them. Document selector and exact leaf usage
       in `PERFORMANCE.md`.
-- [ ] Run the focused test, exact `--list-tests` selector, CI/queue/docs checks,
+- [x] Run the focused test, exact `--list-tests` selector, CI/queue/docs checks,
       and diff review serially; commit the implementation before physical runs.
-- [ ] Record CPU time, cumulative allocation, copied bytes, and peak memory for
+- [x] Record CPU time, cumulative allocation, copied bytes, and peak memory for
       all eight generated cases using one optimized benchmark process. Capture
       RTS `-s`, stable stage, hotspot, and heap evidence for the largest case in
       each scenario one process at a time. Record compatible environment and
       command metadata without adding a timing threshold.
-- [ ] Update this receipt and leave the remaining six generated scenarios as the
+- [x] Update this receipt and leave the remaining six generated scenarios as the
       next performance-program promotion candidate. Use the measured growth
       curves to choose the first optimization batch rather than assuming B or D.
+
+### First generated scale receipt
+
+The implementation landed in `b7161746`. The canonical optimized run used
+GHC 9.14 on Apple M1 Max / Darwin aarch64, one RTS capability, CPU time mode,
+and `+RTS -T -RTS` from a clean tree. Its durable metadata and all 16 samples
+are under
+`benchmark-results/compiler-scale-baseline/20260811T025843036178000000Z/`.
+Values below are per benchmark operation; peak memory is the CSV's reported
+high-water value, not a deterministic limit.
+
+| Sequential bindings | Boundary           | Mean ms | Allocated bytes | Copied bytes | Peak memory bytes |
+| ------------------: | ------------------ | ------: | --------------: | -----------: | ----------------: |
+|                  64 | analysis           |   1.223 |       4,767,015 |      149,355 |         7,340,032 |
+|                 128 | analysis           |   3.159 |      10,393,534 |      922,303 |         8,388,608 |
+|                 256 | analysis           |   7.796 |      24,937,278 |    2,624,971 |        12,582,912 |
+|                 512 | analysis           |  20.265 |      66,626,398 |    6,597,910 |        18,874,368 |
+|                  64 | module preparation |   4.990 |      24,070,226 |    2,243,971 |        18,874,368 |
+|                 128 | module preparation |   8.317 |      34,224,309 |    3,994,919 |        18,874,368 |
+|                 256 | module preparation |  15.021 |      58,020,831 |    7,750,299 |        18,874,368 |
+|                 512 | module preparation |  31.122 |     118,413,538 |   15,672,641 |        19,922,944 |
+
+| Fanout modules x width | Boundary           | Mean ms | Allocated bytes | Copied bytes | Peak memory bytes |
+| ---------------------: | ------------------ | ------: | --------------: | -----------: | ----------------: |
+|                 8 x 16 | module preparation |   4.521 |      21,041,027 |    2,027,642 |        19,922,944 |
+|                16 x 16 | module preparation |   6.165 |      27,445,577 |    3,132,915 |        19,922,944 |
+|                32 x 16 | module preparation |  10.966 |      40,279,722 |    6,658,760 |        19,922,944 |
+|                64 x 16 | module preparation |  18.337 |      66,000,121 |   11,848,023 |        22,020,096 |
+|                 8 x 16 | whole program      |   5.683 |      22,998,425 |    2,136,882 |        22,020,096 |
+|                16 x 16 | whole program      |   7.604 |      29,938,337 |    3,248,899 |        22,020,096 |
+|                32 x 16 | whole program      |  12.977 |      43,859,364 |    7,096,401 |        22,020,096 |
+|                64 x 16 | whole program      |  20.814 |      71,788,044 |   13,075,681 |        23,068,672 |
+
+The two largest module-preparation cases also have serial stable-stage JSON
+profiles and eventlogs, late-cost-centre hotspot profiles, separate 1 ms live
+heap profiles, and RTS summaries under
+`profile-results/compiler-scale-baseline/`. The sequential process allocated
+5,682,721,584 bytes cumulatively and reached 3,762,104 bytes maximum residency;
+the wide-fanout process allocated 3,274,961,312 bytes and reached 4,846,752
+bytes maximum residency. The separate heap profiles sampled peaks of about
+3.82 MB and 3.51 MB respectively.
+
+The evidence prioritizes environment free-variable maintenance as the first
+optimization child after the complete scale matrix. From 64 to 512 sequential
+bindings, analysis CPU grows 16.6x and allocation 14.0x for an 8x input. Its
+stable stage profile assigns 423 of 1,315 ticks and 1,382,073,712 allocated
+bytes to type inference. The hotspot profile assigns 131 ticks and 447,907,840
+allocated bytes to `freeTypeVariablesInEnv`, plus another 77 ticks each to
+`freeTypeVariables` and `freeTypeVariablesInScheme`. By contrast, 8x wider
+fanout grows module-preparation CPU 4.1x and allocation 3.1x; parser work and
+type inference dominate that profile, while `importSelectedInterface` is a
+smaller 19-tick / 105,475,608-byte signal. These are prioritization facts, not
+portable thresholds.
 
 ## Task 3: Remove type-checker asymptotic work
 
