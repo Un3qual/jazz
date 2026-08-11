@@ -355,8 +355,7 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
             Nothing
               | Set.member dependencyName outerBindingNames -> Nothing
               | dependencyName == bindingNameText ->
-                  if selfAliasLikeReference bindingNameText valueExpr
-                    || exprContainsFunctionBranch valueExpr
+                  if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
                     then Just statementIndex
                     else Nothing
               | otherwise -> closestFutureDeclaration declarationStatements
@@ -400,6 +399,7 @@ inferSelfRecursiveBindings predicate =
       case statement of
         SLet bindingName _ valueExpr
           | predicate valueExpr,
+            selfReferenceOwnsRecursiveCellWith predicate bindingName valueExpr,
             Set.member
               bindingName
               (freeVarsExprWithBound Set.empty valueExpr) ->
@@ -467,12 +467,17 @@ scopeContainsFunctionBranch statements =
               Map.insert bindingName valueExpr scopeBindings
             _ -> scopeBindings
 
-selfAliasLikeReference :: Name -> Expr -> Bool
-selfAliasLikeReference bindingName =
-  isAliasOnly . aliasSummary Set.empty Map.empty Set.empty
+selfReferenceOwnsRecursiveCell :: Name -> Expr -> Bool
+selfReferenceOwnsRecursiveCell =
+  selfReferenceOwnsRecursiveCellWith exprContainsFunctionBranch
+
+selfReferenceOwnsRecursiveCellWith :: (Expr -> Bool) -> Name -> Expr -> Bool
+selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateExpr =
+  not hasEagerPath
+    && (hasAliasPath || containsFunctionBranch candidateExpr)
   where
-    isAliasOnly (hasAliasPath, hasNonAliasPath) =
-      hasAliasPath && not hasNonAliasPath
+    (hasAliasPath, hasEagerPath) =
+      aliasSummary Set.empty Map.empty Set.empty candidateExpr
 
     noSummary = (False, False)
 

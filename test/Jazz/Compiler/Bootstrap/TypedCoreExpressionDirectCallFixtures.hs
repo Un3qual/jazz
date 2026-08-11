@@ -2119,6 +2119,16 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-eager-self-before-callable-result-control",
+      sourceFixtureNoExports
+        "rejected-eager-self-before-callable-result-control"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = { f True. \\(x) -> x. }.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-conditional-self-recursion",
       sourceFixtureNoExports
         "rejected-conditional-self-recursion"

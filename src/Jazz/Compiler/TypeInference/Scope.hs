@@ -82,7 +82,6 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
     blockProductionFailureKindAndDetail,
-    expressionDependencyNames,
     specializeInferredExpression,
   )
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
@@ -747,18 +746,8 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       stateAfterCapturedConstraintPrune
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
                     go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
-                  callableDependencyNames = expressionDependencyNames valueExpr
                   canonicalRecursiveGroupMembers =
-                    case Map.lookup statementIndex recursiveGroupsByStatement of
-                      Just groupMembers -> Just groupMembers
-                      Nothing
-                        | shouldSeedSelfRecursiveFunction statementIndex name envForStatement
-                            || ( exprContainsFunctionBranch valueExpr
-                                   && Set.member name callableDependencyNames
-                                   && Map.notMember name envForStatement
-                               ) ->
-                            Just [statementIndex]
-                      Nothing -> Nothing
+                    Map.lookup statementIndex recursiveGroupsByStatement
                   callableDeclaration =
                     case nextBindingType of
                       Just bindingType@TFunctionType {} ->

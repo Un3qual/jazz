@@ -50,6 +50,7 @@ tests =
     ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
+    ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("nested local self recursion stays local to the block", testFreeVarsScopeKeepsNestedSelfRecursionLocal),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
@@ -225,6 +226,22 @@ testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal =
       EBlock
         [ SExpr span0 (EBinary "+" (EVar (ident "f")) (ELit (LInt 1))),
           SExpr span0 (EVar (ident "f"))
+        ]
+
+testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult :: IO ()
+testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
+  assertEqual
+    "eager self use is not owned by an unrelated callable result"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 blockExpr)
+      ]
+    blockExpr =
+      EBlock
+        [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
+          SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
         ]
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()

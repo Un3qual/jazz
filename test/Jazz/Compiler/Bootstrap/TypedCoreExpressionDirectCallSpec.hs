@@ -113,6 +113,7 @@ tests =
     ("preserves rejected operator-alias declarations before profile acceptance", testRejectedCallableDeclarationTransport "rejected-operator-alias-self-recursion"),
     ("keeps rejected callable parameter shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-parameter-shadow-control"),
     ("keeps rejected callable local shadows out of declaration cycles", testRejectedCallableDeclarationTransport "rejected-alias-local-shadow-control"),
+    ("keeps eager self use outside an unrelated callable result", testRejectedCallableDeclarationTransport "rejected-eager-self-before-callable-result-control"),
     ("preserves recursion dependencies through rejected producer trees", testRejectedProducerDependencyTransport),
     ("maps non-builtin operator forms and excludes builtins", testOperatorDependencyNames),
     ("diagnostics take precedence over profile failures", testDiagnosticPrecedence),
@@ -2209,6 +2210,11 @@ testRejectedCallableDeclarationTransport requestedName =
           [rootFailure 3]
         ),
         ( "rejected-alias-local-shadow-control",
+          [ rootFailure 1,
+            expressionFailure 1 [0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+          ]
+        ),
+        ( "rejected-eager-self-before-callable-result-control",
           [ rootFailure 1,
             expressionFailure 1 [0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
           ]
