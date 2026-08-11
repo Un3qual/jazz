@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Module graph resolver for `module` and `import` forms. It loads source,
@@ -160,6 +161,24 @@ data ParsedModule = ParsedModule
     parsedModuleQualifiedReferences :: Set (Text, Text),
     parsedModuleQualifiedTypeReferences :: Set (Text, Text),
     parsedModuleCore :: ModuleGraph.CoreModule
+  }
+
+-- | All resolver-only facts derived from the parser surface tree. Keeping this
+-- as one product makes the single traversal explicit and prevents new module
+-- validation facts from quietly adding another whole-tree walk.
+data SurfaceModuleFacts = SurfaceModuleFacts
+  { surfaceFactImports :: [ParsedImport],
+    surfaceFactLocalInventory :: ModuleExportInventory,
+    surfaceFactConstructorOwners :: Map Text (Set Text),
+    surfaceFactReferences :: Set Text,
+    surfaceFactQualifiedReferences :: Set (Text, Text),
+    surfaceFactQualifiedTypeReferences :: Set (Text, Text)
+  }
+
+data SurfaceReferenceFacts = SurfaceReferenceFacts
+  { referenceFactUnqualified :: !(Set Text),
+    referenceFactQualifiedValues :: !(Set (Text, Text)),
+    referenceFactQualifiedTypes :: !(Set (Text, Text))
   }
 
 -- | Origin metadata for imported bindings/aliases used in collision
@@ -507,27 +526,23 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         )
     Right surfaceExpr -> do
       coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
-      let localInventory = collectModuleExportInventory surfaceExpr
-          constructorOwners = collectModuleConstructorOwners surfaceExpr
-          topLevelBindings =
-            Set.union
-              (exportNamesInNamespace ValueNamespace localInventory)
-              (exportNamesInNamespace ConstructorNamespace localInventory)
+      let facts = collectSurfaceModuleFacts surfaceExpr
+          localInventory = surfaceFactLocalInventory facts
       publicInventory <-
         validatePublicExportInventory
           sourcePath
           expectedModulePath
           (ModuleGraph.coreModuleDeclaredExports coreModule)
-          constructorOwners
+          (surfaceFactConstructorOwners facts)
           localInventory
       Right
         ParsedModule
-          { parsedModuleImports = collectImports surfaceExpr,
+          { parsedModuleImports = surfaceFactImports facts,
             parsedModuleLocalInventory = localInventory,
             parsedModulePublicInventory = publicInventory,
-            parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
-            parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr,
-            parsedModuleQualifiedTypeReferences = collectQualifiedTypeReferences surfaceExpr,
+            parsedModuleReferences = surfaceFactReferences facts,
+            parsedModuleQualifiedReferences = surfaceFactQualifiedReferences facts,
+            parsedModuleQualifiedTypeReferences = surfaceFactQualifiedTypeReferences facts,
             parsedModuleCore = coreModule
           }
 
@@ -644,60 +659,89 @@ data InvalidModuleExport = InvalidModuleExport
     invalidExportSummary :: Text
   }
 
-collectImports :: SurfaceExpr -> [ParsedImport]
-collectImports surfaceExpr =
+collectSurfaceModuleFacts :: SurfaceExpr -> SurfaceModuleFacts
+collectSurfaceModuleFacts surfaceExpr =
   case surfaceExpr of
-    SEBlock statements ->
-      [ ParsedImport spanValue modulePath alias importedSymbols
-      | SSImport spanValue modulePath alias importedSymbols <- statements
-      ]
-    _ -> []
+    SEBlock statements -> go [] [] Set.empty Map.empty emptySurfaceReferenceFacts statements
+    _ ->
+      finalize [] [] Set.empty Map.empty (collectExprReferenceFacts Set.empty surfaceExpr emptySurfaceReferenceFacts)
+  where
+    go !importsRev !exports !operatorBindings !constructorOwners !referenceFacts statements =
+      case statements of
+        [] -> finalize importsRev exports operatorBindings constructorOwners referenceFacts
+        statement : rest ->
+          go
+            (collectImport statement importsRev)
+            (collectExports statement exports)
+            (collectOperatorBinding statement operatorBindings)
+            (collectConstructorOwners statement constructorOwners)
+            (collectStatementReferenceFacts Set.empty statement referenceFacts)
+            rest
+
+    finalize importsRev exportsRev operatorBindings constructorOwners referenceFacts =
+      let localInventory = exportInventory (reverse exportsRev)
+          topLevelBindings =
+            Set.unions
+              [ operatorBindings,
+                exportNamesInNamespace ValueNamespace localInventory,
+                exportNamesInNamespace ConstructorNamespace localInventory
+              ]
+       in SurfaceModuleFacts
+            { surfaceFactImports = reverse importsRev,
+              surfaceFactLocalInventory = localInventory,
+              surfaceFactConstructorOwners = constructorOwners,
+              surfaceFactReferences = referenceFactUnqualified referenceFacts Set.\\ topLevelBindings,
+              surfaceFactQualifiedReferences = referenceFactQualifiedValues referenceFacts,
+              surfaceFactQualifiedTypeReferences = referenceFactQualifiedTypes referenceFacts
+            }
+
+    collectOperatorBinding statement bindingNames =
+      case statement of
+        SSLet bindingName _ _
+          | isOperatorBindingIdentifierText (identifierText bindingName) ->
+              Set.insert (identifierText bindingName) bindingNames
+        _ -> bindingNames
+
+    collectExports statement exportsRev =
+      case statement of
+        SSLet bindingName _ _
+          | not (isOperatorBindingIdentifierText (identifierText bindingName)) ->
+              ModuleExport ValueNamespace (identifierText bindingName) : exportsRev
+        SSData _ typeName _ constructors ->
+          foldl'
+            ( \current (SurfaceDataConstructor constructorName _) ->
+                ModuleExport ConstructorNamespace (identifierText constructorName) : current
+            )
+            (ModuleExport TypeNamespace (identifierText typeName) : exportsRev)
+            constructors
+        SSClass _ className _ _ ->
+          ModuleExport CapabilityNamespace (identifierText className) : exportsRev
+        _ -> exportsRev
+
+    collectImport statement importsRev =
+      case statement of
+        SSImport spanValue modulePath alias importedSymbols ->
+          ParsedImport spanValue modulePath alias importedSymbols : importsRev
+        _ -> importsRev
+
+    collectConstructorOwners statement owners =
+      case statement of
+        SSData _ typeName _ constructors ->
+          Map.insert
+            (identifierText typeName)
+            ( Set.fromList
+                [ identifierText constructorName
+                | SurfaceDataConstructor constructorName _ <- constructors
+                ]
+            )
+            owners
+        _ -> owners
 
 collectImportPaths :: [ParsedImport] -> [[Text]]
 collectImportPaths imports =
   [ parsedImportModulePath importDecl
   | importDecl <- imports
   ]
-
-collectModuleExportInventory :: SurfaceExpr -> ModuleExportInventory
-collectModuleExportInventory surfaceExpr =
-  exportInventory
-    ( case surfaceExpr of
-        SEBlock statements -> concatMap statementExports statements
-        _ -> []
-    )
-  where
-    statementExports statement =
-      case statement of
-        SSLet bindingName _ _
-          | not (isOperatorBindingIdentifierText (identifierText bindingName)) ->
-              [ModuleExport ValueNamespace (identifierText bindingName)]
-        SSData _ typeName _ constructors ->
-          ModuleExport TypeNamespace (identifierText typeName)
-            : [ ModuleExport ConstructorNamespace (identifierText constructorName)
-              | SurfaceDataConstructor constructorName _ <- constructors
-              ]
-        SSClass _ className _ _ ->
-          [ModuleExport CapabilityNamespace (identifierText className)]
-        _ -> []
-
-collectModuleConstructorOwners :: SurfaceExpr -> Map Text (Set Text)
-collectModuleConstructorOwners surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements -> Map.fromList (concatMap statementConstructorOwners statements)
-    _ -> Map.empty
-  where
-    statementConstructorOwners statement =
-      case statement of
-        SSData _ typeName _ constructors ->
-          [ ( identifierText typeName,
-              Set.fromList
-                [ identifierText constructorName
-                | SurfaceDataConstructor constructorName _ <- constructors
-                ]
-            )
-          ]
-        _ -> []
 
 resolveCoreModuleNames ::
   BuiltinResolutionMode ->
@@ -1052,134 +1096,148 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
             firstAlternative : rest ->
               foldl' Set.intersection (corePatternBinders firstAlternative) (map corePatternBinders rest)
 
--- | Collect unqualified free references used to validate explicit and alias
--- import visibility before core names are resolved structurally.
-collectReferencedNames :: SurfaceExpr -> Set Text
-collectReferencedNames = collectExprReferences Set.empty
+-- | The resolver needs three reference namespaces with identical expression
+-- recursion. Collect them together so each surface node is visited once.
+emptySurfaceReferenceFacts :: SurfaceReferenceFacts
+emptySurfaceReferenceFacts = SurfaceReferenceFacts Set.empty Set.empty Set.empty
 
-collectExprReferences :: Set Text -> SurfaceExpr -> Set Text
-collectExprReferences boundNames surfaceExpr =
+collectExprReferenceFacts :: Set Text -> SurfaceExpr -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectExprReferenceFacts boundNames surfaceExpr facts =
   case surfaceExpr of
-    SELit _ -> Set.empty
+    SELit _ -> facts
     SEVar name
-      | identifierText name `Set.member` boundNames -> Set.empty
-      | otherwise -> Set.singleton (identifierText name)
-    SEQualifiedVar _ _ -> Set.empty
+      | identifierText name `Set.member` boundNames -> facts
+      | otherwise ->
+          facts
+            { referenceFactUnqualified = Set.insert (identifierText name) (referenceFactUnqualified facts)
+            }
+    SEQualifiedVar qualifier member ->
+      facts
+        { referenceFactQualifiedValues =
+            Set.insert
+              (identifierText qualifier, identifierText member)
+              (referenceFactQualifiedValues facts)
+        }
     SELambda params body ->
       let parameterList = NonEmpty.toList params
-       in Set.union
-            (Set.unions (map collectLambdaParameterReferences parameterList))
-            ( collectExprReferences
-                (Set.union boundNames (Set.unions (map collectLambdaParameterBinders parameterList)))
-                body
-            )
+          parameterFacts = foldl' (flip collectLambdaParameterReferenceFacts) facts parameterList
+          parameterBinders = Set.unions (map collectLambdaParameterBinders parameterList)
+       in collectExprReferenceFacts (Set.union boundNames parameterBinders) body parameterFacts
     SEPatternLambda clauses ->
-      Set.unions
-        (map (collectPatternLambdaClauseReferences boundNames) (NonEmpty.toList clauses))
-    SEOperatorValue _ -> Set.empty
-    SEList items ->
-      Set.unions (map (collectExprReferences boundNames) items)
-    SETuple items ->
-      Set.unions (map (collectExprReferences boundNames) items)
+      foldl'
+        (\current clause -> collectPatternLambdaClauseReferenceFacts boundNames clause current)
+        facts
+        (NonEmpty.toList clauses)
+    SEOperatorValue _ -> facts
+    SEList items -> collectExprReferenceFactList boundNames items facts
+    SETuple items -> collectExprReferenceFactList boundNames items facts
     SEApply function argument ->
-      Set.union
-        (collectExprReferences boundNames function)
-        (collectExprReferences boundNames argument)
-    SETypeApplication function _ _ ->
-      collectExprReferences boundNames function
-    SEIf condition trueBranch falseBranch ->
-      Set.unions
-        [ collectExprReferences boundNames condition,
-          collectExprReferences boundNames trueBranch,
-          collectExprReferences boundNames falseBranch
-        ]
-    SECase scrutinee arms ->
-      Set.union
-        (collectExprReferences boundNames scrutinee)
-        (Set.unions (map (collectCaseArmReferences boundNames) arms))
-    SEBinary _ left right ->
-      Set.union
-        (collectExprReferences boundNames left)
-        (collectExprReferences boundNames right)
-    SESectionLeft left _ ->
-      collectExprReferences boundNames left
-    SESectionRight _ right ->
-      collectExprReferences boundNames right
-    SEBlock statements ->
-      collectBlockReferences boundNames statements
-
-collectBlockReferences :: Set Text -> [SurfaceStatement] -> Set Text
-collectBlockReferences boundNames statements =
-  Set.unions (map collectStatementReferences statements)
-  where
-    -- Match analyzer/runtime recursive binding semantics: all `let` binders in
-    -- a block are visible while collecting free import references.
-    blockBoundNames =
-      Set.union
+      collectExprReferenceFacts
         boundNames
-        ( Set.fromList
-            [ identifierText bindingName
-            | statement <- statements,
-              bindingName <-
-                case statement of
-                  SSLet name _ _ -> [name]
-                  _ -> []
-            ]
-        )
+        argument
+        (collectExprReferenceFacts boundNames function facts)
+    SETypeApplication function _ signatureType ->
+      collectSignatureTypeReferenceFacts
+        signatureType
+        (collectExprReferenceFacts boundNames function facts)
+    SEIf condition trueBranch falseBranch ->
+      collectExprReferenceFactList boundNames [condition, trueBranch, falseBranch] facts
+    SECase scrutinee arms ->
+      foldl'
+        (\current arm -> collectCaseArmReferenceFacts boundNames arm current)
+        (collectExprReferenceFacts boundNames scrutinee facts)
+        arms
+    SEBinary _ left right ->
+      collectExprReferenceFacts
+        boundNames
+        right
+        (collectExprReferenceFacts boundNames left facts)
+    SESectionLeft left _ -> collectExprReferenceFacts boundNames left facts
+    SESectionRight _ right -> collectExprReferenceFacts boundNames right facts
+    SEBlock statements -> collectBlockReferenceFacts boundNames statements facts
 
-    collectStatementReferences statement =
-      case statement of
-        SSLet _ _ valueExpr ->
-          collectExprReferences blockBoundNames valueExpr
-        SSExpr _ expr ->
-          collectExprReferences blockBoundNames expr
-        SSSignature {} -> Set.empty
-        SSData {} -> Set.empty
-        SSClass {} -> Set.empty
-        SSImpl _ _ _ methods ->
-          Set.unions
-            [ collectExprReferences blockBoundNames body
-            | SurfaceImplMethod _ _ body <- methods
-            ]
-        SSModule {} -> Set.empty
-        SSImport {} -> Set.empty
+collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectExprReferenceFactList boundNames expressions initialFacts =
+  foldl'
+    (\current expr -> collectExprReferenceFacts boundNames expr current)
+    initialFacts
+    expressions
 
-collectCaseArmReferences :: Set Text -> SurfaceCaseArm -> Set Text
-collectCaseArmReferences boundNames (SurfaceCaseArm patternValue guard body) =
-  let armBoundNames = Set.union boundNames (collectPatternBinders patternValue)
-   in Set.unions
-        [ collectPatternReferences patternValue,
-          maybe Set.empty (collectExprReferences armBoundNames) guard,
-          collectExprReferences armBoundNames body
+collectBlockReferenceFacts :: Set Text -> [SurfaceStatement] -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectBlockReferenceFacts boundNames statements facts =
+  foldl'
+    (\current statement -> collectStatementReferenceFacts blockBoundNames statement current)
+    facts
+    statements
+  where
+    blockBindingNames =
+      Set.fromList
+        [ identifierText bindingName
+        | SSLet bindingName _ _ <- statements
         ]
+    blockBoundNames = Set.union boundNames blockBindingNames
 
-collectPatternLambdaClauseReferences :: Set Text -> SurfacePatternLambdaClause -> Set Text
-collectPatternLambdaClauseReferences boundNames (SurfacePatternLambdaClause _ patterns body) =
+collectStatementReferenceFacts :: Set Text -> SurfaceStatement -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectStatementReferenceFacts boundNames statement facts =
+  case statement of
+    SSLet _ _ valueExpr -> collectExprReferenceFacts boundNames valueExpr facts
+    SSSignature _ _ payload -> collectSignaturePayloadReferenceFacts payload facts
+    SSData _ _ _ constructors ->
+      foldl'
+        (flip collectSignatureTypeReferenceFacts)
+        facts
+        [ fieldType
+        | SurfaceDataConstructor _ fieldTypes <- constructors,
+          fieldType <- fieldTypes
+        ]
+    SSClass _ _ _ methods ->
+      foldl'
+        (\current (SurfaceClassMethodSignature _ _ payload) -> collectSignaturePayloadReferenceFacts payload current)
+        facts
+        methods
+    SSImpl _ _ arguments methods ->
+      foldl'
+        (\current (SurfaceImplMethod _ _ body) -> collectExprReferenceFacts boundNames body current)
+        (foldl' (flip collectSignatureTypeReferenceFacts) facts arguments)
+        methods
+    SSModule {} -> facts
+    SSImport {} -> facts
+    SSExpr _ expr -> collectExprReferenceFacts boundNames expr facts
+
+collectCaseArmReferenceFacts :: Set Text -> SurfaceCaseArm -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectCaseArmReferenceFacts boundNames (SurfaceCaseArm patternValue guard body) facts =
+  let armBoundNames = Set.union boundNames (collectPatternBinders patternValue)
+      patternFacts = collectPatternReferenceFacts patternValue facts
+      guardFacts = maybe patternFacts (\guardExpr -> collectExprReferenceFacts armBoundNames guardExpr patternFacts) guard
+   in collectExprReferenceFacts armBoundNames body guardFacts
+
+collectPatternLambdaClauseReferenceFacts :: Set Text -> SurfacePatternLambdaClause -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectPatternLambdaClauseReferenceFacts boundNames (SurfacePatternLambdaClause _ patterns body) facts =
   let patternList = NonEmpty.toList patterns
-      clauseBoundNames =
-        Set.union boundNames (Set.unions (map collectPatternBinders patternList))
-   in Set.union
-        (Set.unions (map collectPatternReferences patternList))
-        (collectExprReferences clauseBoundNames body)
+      clauseBoundNames = Set.union boundNames (Set.unions (map collectPatternBinders patternList))
+      patternFacts = foldl' (flip collectPatternReferenceFacts) facts patternList
+   in collectExprReferenceFacts clauseBoundNames body patternFacts
 
-collectPatternReferences :: SurfacePattern -> Set Text
-collectPatternReferences patternValue =
+collectPatternReferenceFacts :: SurfacePattern -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectPatternReferenceFacts patternValue facts =
   case patternValue of
-    SPWildcard -> Set.empty
-    SPVariable _ -> Set.empty
-    SPLiteral _ -> Set.empty
+    SPWildcard -> facts
+    SPVariable _ -> facts
+    SPLiteral _ -> facts
     SPConstructor constructorName nestedPatterns ->
-      Set.insert (identifierText constructorName) (Set.unions (map collectPatternReferences nestedPatterns))
-    SPList nestedPatterns ->
-      Set.unions (map collectPatternReferences nestedPatterns)
+      foldl'
+        (flip collectPatternReferenceFacts)
+        facts
+          { referenceFactUnqualified =
+              Set.insert (identifierText constructorName) (referenceFactUnqualified facts)
+          }
+        nestedPatterns
+    SPList nestedPatterns -> foldl' (flip collectPatternReferenceFacts) facts nestedPatterns
     SPConsList headPattern tailPattern ->
-      Set.union (collectPatternReferences headPattern) (collectPatternReferences tailPattern)
-    SPTuple nestedPatterns ->
-      Set.unions (map collectPatternReferences nestedPatterns)
-    SPAs _ nestedPattern ->
-      collectPatternReferences nestedPattern
-    SPOr alternatives ->
-      Set.unions (map collectPatternReferences alternatives)
+      collectPatternReferenceFacts tailPattern (collectPatternReferenceFacts headPattern facts)
+    SPTuple nestedPatterns -> foldl' (flip collectPatternReferenceFacts) facts nestedPatterns
+    SPAs _ nestedPattern -> collectPatternReferenceFacts nestedPattern facts
+    SPOr alternatives -> foldl' (flip collectPatternReferenceFacts) facts alternatives
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =
@@ -1210,209 +1268,63 @@ commonPatternBinders alternatives =
         (collectPatternBinders firstAlternative)
         (map collectPatternBinders rest)
 
-collectLambdaParameterReferences :: SurfaceLambdaParameter -> Set Text
-collectLambdaParameterReferences parameter =
-  case parameter of
-    SurfaceLambdaIdentifier _ -> Set.empty
-    SurfaceLambdaPattern patternValue -> collectPatternReferences patternValue
-
 collectLambdaParameterBinders :: SurfaceLambdaParameter -> Set Text
 collectLambdaParameterBinders parameter =
   case parameter of
     SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
     SurfaceLambdaPattern patternValue -> collectPatternBinders patternValue
 
--- Qualified alias lookups live in the module-alias namespace. Lexical binders
--- intentionally do not shadow aliases, and this traversal should stay aligned
--- with `collectExprReferences` whenever new surface expression forms are added.
-collectQualifiedReferences :: SurfaceExpr -> Set (Text, Text)
-collectQualifiedReferences surfaceExpr =
-  case surfaceExpr of
-    SELit _ -> Set.empty
-    SEVar _ -> Set.empty
-    SEQualifiedVar qualifier member ->
-      Set.singleton (identifierText qualifier, identifierText member)
-    SELambda _ body ->
-      collectQualifiedReferences body
-    SEPatternLambda clauses ->
-      Set.unions
-        [ collectQualifiedReferences body
-        | SurfacePatternLambdaClause _ _ body <- NonEmpty.toList clauses
-        ]
-    SEOperatorValue _ -> Set.empty
-    SEList items ->
-      Set.unions (map collectQualifiedReferences items)
-    SETuple items ->
-      Set.unions (map collectQualifiedReferences items)
-    SEApply function argument ->
-      Set.union
-        (collectQualifiedReferences function)
-        (collectQualifiedReferences argument)
-    SETypeApplication function _ _ ->
-      collectQualifiedReferences function
-    SEIf condition trueBranch falseBranch ->
-      Set.unions
-        [ collectQualifiedReferences condition,
-          collectQualifiedReferences trueBranch,
-          collectQualifiedReferences falseBranch
-        ]
-    SECase scrutinee arms ->
-      Set.union
-        (collectQualifiedReferences scrutinee)
-        (Set.unions (map collectQualifiedCaseArmReferences arms))
-    SEBinary _ left right ->
-      Set.union
-        (collectQualifiedReferences left)
-        (collectQualifiedReferences right)
-    SESectionLeft left _ ->
-      collectQualifiedReferences left
-    SESectionRight _ right ->
-      collectQualifiedReferences right
-    SEBlock statements ->
-      Set.unions (map collectQualifiedStatementReferences statements)
+collectLambdaParameterReferenceFacts :: SurfaceLambdaParameter -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectLambdaParameterReferenceFacts parameter facts =
+  case parameter of
+    SurfaceLambdaIdentifier _ -> facts
+    SurfaceLambdaPattern patternValue -> collectPatternReferenceFacts patternValue facts
 
-collectQualifiedStatementReferences :: SurfaceStatement -> Set (Text, Text)
-collectQualifiedStatementReferences statement =
-  case statement of
-    SSLet _ _ valueExpr ->
-      collectQualifiedReferences valueExpr
-    SSExpr _ expr ->
-      collectQualifiedReferences expr
-    SSSignature {} -> Set.empty
-    SSData {} -> Set.empty
-    SSClass {} -> Set.empty
-    SSImpl _ _ _ methods ->
-      Set.unions
-        [ collectQualifiedReferences body
-        | SurfaceImplMethod _ _ body <- methods
-        ]
-    SSModule {} -> Set.empty
-    SSImport {} -> Set.empty
-
-collectQualifiedCaseArmReferences :: SurfaceCaseArm -> Set (Text, Text)
-collectQualifiedCaseArmReferences (SurfaceCaseArm _ guard body) =
-  Set.union
-    (maybe Set.empty collectQualifiedReferences guard)
-    (collectQualifiedReferences body)
-
--- Qualified type heads use the module-alias namespace just like qualified
--- value references, but visibility is checked against the public type
--- inventory before core-name resolution.
-collectQualifiedTypeReferences :: SurfaceExpr -> Set (Text, Text)
-collectQualifiedTypeReferences surfaceExpr =
-  case surfaceExpr of
-    SELit _ -> Set.empty
-    SEVar _ -> Set.empty
-    SEQualifiedVar _ _ -> Set.empty
-    SELambda _ body -> collectQualifiedTypeReferences body
-    SEPatternLambda clauses ->
-      Set.unions
-        [ collectQualifiedTypeReferences body
-        | SurfacePatternLambdaClause _ _ body <- NonEmpty.toList clauses
-        ]
-    SEOperatorValue _ -> Set.empty
-    SEList items -> Set.unions (map collectQualifiedTypeReferences items)
-    SETuple items -> Set.unions (map collectQualifiedTypeReferences items)
-    SEApply function argument ->
-      Set.union
-        (collectQualifiedTypeReferences function)
-        (collectQualifiedTypeReferences argument)
-    SETypeApplication function _ signatureType ->
-      Set.union
-        (collectQualifiedTypeReferences function)
-        (collectQualifiedSignatureTypeReferences signatureType)
-    SEIf condition trueBranch falseBranch ->
-      Set.unions
-        [ collectQualifiedTypeReferences condition,
-          collectQualifiedTypeReferences trueBranch,
-          collectQualifiedTypeReferences falseBranch
-        ]
-    SECase scrutinee arms ->
-      Set.union
-        (collectQualifiedTypeReferences scrutinee)
-        (Set.unions (map collectQualifiedCaseArmTypeReferences arms))
-    SEBinary _ left right ->
-      Set.union
-        (collectQualifiedTypeReferences left)
-        (collectQualifiedTypeReferences right)
-    SESectionLeft left _ -> collectQualifiedTypeReferences left
-    SESectionRight _ right -> collectQualifiedTypeReferences right
-    SEBlock statements ->
-      Set.unions (map collectQualifiedStatementTypeReferences statements)
-
-collectQualifiedStatementTypeReferences :: SurfaceStatement -> Set (Text, Text)
-collectQualifiedStatementTypeReferences statement =
-  case statement of
-    SSLet _ _ valueExpr -> collectQualifiedTypeReferences valueExpr
-    SSSignature _ _ payload -> collectQualifiedSignaturePayloadReferences payload
-    SSData _ _ _ constructors ->
-      Set.unions (map collectQualifiedDataConstructorTypeReferences constructors)
-    SSClass _ _ _ methods ->
-      Set.unions
-        [ collectQualifiedSignaturePayloadReferences payload
-        | SurfaceClassMethodSignature _ _ payload <- methods
-        ]
-    SSImpl _ _ arguments methods ->
-      Set.union
-        (Set.unions (map collectQualifiedSignatureTypeReferences arguments))
-        ( Set.unions
-            [ collectQualifiedTypeReferences body
-            | SurfaceImplMethod _ _ body <- methods
-            ]
-        )
-    SSModule {} -> Set.empty
-    SSImport {} -> Set.empty
-    SSExpr _ expr -> collectQualifiedTypeReferences expr
-
-collectQualifiedDataConstructorTypeReferences :: SurfaceDataConstructor -> Set (Text, Text)
-collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ fieldTypes) =
-  Set.unions (map collectQualifiedSignatureTypeReferences fieldTypes)
-
-collectQualifiedCaseArmTypeReferences :: SurfaceCaseArm -> Set (Text, Text)
-collectQualifiedCaseArmTypeReferences (SurfaceCaseArm _ guard body) =
-  Set.union
-    (maybe Set.empty collectQualifiedTypeReferences guard)
-    (collectQualifiedTypeReferences body)
-
-collectQualifiedSignaturePayloadReferences :: SurfaceSignaturePayload -> Set (Text, Text)
-collectQualifiedSignaturePayloadReferences payload =
+collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectSignaturePayloadReferenceFacts payload facts =
   case payload of
     SurfaceSignatureType signatureType ->
-      collectQualifiedSignatureTypeReferences signatureType
+      collectSignatureTypeReferenceFacts signatureType facts
     SurfaceConstrainedSignature constraints signatureType ->
-      Set.union
-        ( Set.unions
-            [ Set.unions (map collectQualifiedSignatureTypeReferences arguments)
-            | SurfaceSignatureConstraint _ arguments <- constraints
+      collectSignatureTypeReferenceFacts
+        signatureType
+        ( foldl'
+            (flip collectSignatureTypeReferenceFacts)
+            facts
+            [ argument
+            | SurfaceSignatureConstraint _ arguments <- constraints,
+              argument <- arguments
             ]
         )
-        (collectQualifiedSignatureTypeReferences signatureType)
-    SurfaceUnsupportedSignature _ -> Set.empty
+    SurfaceUnsupportedSignature _ -> facts
 
-collectQualifiedSignatureTypeReferences :: SurfaceSignatureType -> Set (Text, Text)
-collectQualifiedSignatureTypeReferences signatureType =
+collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectSignatureTypeReferenceFacts signatureType facts =
   case signatureType of
-    SurfaceTypeVariable name -> collectQualifiedIdentifierReference name
-    SurfaceTypeName name -> collectQualifiedIdentifierReference name
+    SurfaceTypeVariable name -> collectQualifiedTypeReference name facts
+    SurfaceTypeName name -> collectQualifiedTypeReference name facts
     SurfaceTypeApplication name arguments ->
-      Set.union
-        (collectQualifiedIdentifierReference name)
-        (Set.unions (map collectQualifiedSignatureTypeReferences arguments))
-    SurfaceTypeList innerType -> collectQualifiedSignatureTypeReferences innerType
+      foldl'
+        (flip collectSignatureTypeReferenceFacts)
+        (collectQualifiedTypeReference name facts)
+        arguments
+    SurfaceTypeList innerType -> collectSignatureTypeReferenceFacts innerType facts
     SurfaceTypeTuple elementTypes ->
-      Set.unions (map collectQualifiedSignatureTypeReferences elementTypes)
+      foldl' (flip collectSignatureTypeReferenceFacts) facts elementTypes
     SurfaceTypeFunction argumentType resultType ->
-      Set.union
-        (collectQualifiedSignatureTypeReferences argumentType)
-        (collectQualifiedSignatureTypeReferences resultType)
-    _ -> Set.empty
+      collectSignatureTypeReferenceFacts
+        resultType
+        (collectSignatureTypeReferenceFacts argumentType facts)
+    _ -> facts
 
-collectQualifiedIdentifierReference :: Identifier -> Set (Text, Text)
-collectQualifiedIdentifierReference name =
-  maybe
-    Set.empty
-    Set.singleton
-    (splitQualifiedIdentifierText (identifierText name))
+collectQualifiedTypeReference :: Identifier -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectQualifiedTypeReference name facts =
+  case splitQualifiedIdentifierText (identifierText name) of
+    Nothing -> facts
+    Just qualifiedReference ->
+      facts
+        { referenceFactQualifiedTypes = Set.insert qualifiedReference (referenceFactQualifiedTypes facts)
+        }
 
 -- | Validate alias and explicit-symbol imports after dependencies have been
 -- resolved so the exporting module inventories are known.
