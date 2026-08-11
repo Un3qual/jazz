@@ -52,9 +52,10 @@ import Jazz.Compiler.Name
     sourceName
   )
 import Jazz.Compiler.RecursiveBindings
-  ( collectBindingNames,
-    inferRecursiveGroupsOrdered,
-    inferSelfRecursiveBindings
+  ( buildRecursiveScopeFacts,
+    inferSelfRecursiveBindings,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups,
   )
 
 data RuntimeScopePlan = RuntimeScopePlan
@@ -87,20 +88,21 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = IntMap.fromDistinctAscList indexedStatements
-    recursiveGroupsMap =
-      inferRecursiveGroupsOrdered
+    recursiveScopeFactsValue =
+      buildRecursiveScopeFacts
         ( Set.union
             outerBindingNames
             (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
         )
         indexedStatements
+    recursiveGroupsMap = recursiveScopeGroups recursiveScopeFactsValue
     recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList recursiveGroupsMap)
     selfRecursiveFunctions =
       IntSet.fromList
         (Set.toList (inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements))
     bindingNames =
       IntMap.fromDistinctAscList
-        (Map.toAscList (collectBindingNames indexedStatements))
+        (Map.toAscList (recursiveScopeBindingNames recursiveScopeFactsValue))
     (_, modulePathsByStatement) =
       foldl'
         collectModulePath

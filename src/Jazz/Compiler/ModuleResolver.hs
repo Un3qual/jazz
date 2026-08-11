@@ -116,8 +116,9 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
 import Jazz.Compiler.RecursiveBindings
-  ( collectBindingNames,
-    inferRecursiveGroupsOrdered,
+  ( buildRecursiveScopeFacts,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups,
   )
 import System.FilePath
   ( normalise,
@@ -876,7 +877,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
       reverse resolvedStatementsRev
       where
         indexedStatements = zip [0 ..] statements
-        bindingNamesByStatement = collectBindingNames indexedStatements
+        bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
         outerBindingNames =
           Set.map
             (SourceName . mkIdentifier)
@@ -890,7 +891,8 @@ resolveCoreModuleNames builtinMode _modulePath ambientExports localInventory inv
                   builtinNamesInMode builtinMode
                 ]
             )
-        recursiveGroupsByStatement = inferRecursiveGroupsOrdered outerBindingNames indexedStatements
+        recursiveScopeFactsValue = buildRecursiveScopeFacts outerBindingNames indexedStatements
+        recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
         (_, resolvedStatementsRev) = foldl' resolveBlockStatement (initialBoundValues, []) indexedStatements
 
         resolveBlockStatement (visibleBoundValues, resolvedRev) (statementIndex, statement) =

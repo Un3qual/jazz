@@ -261,11 +261,12 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
   snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
     indexedStatements = zip [0 ..] statements
-    recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered
+    recursiveScopeFactsValue =
+      buildRecursiveScopeFacts
         (Set.union visibleBindingNames initialBound)
         indexedStatements
-    bindingNamesByStatement = collectBindingNames indexedStatements
+    recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
+    bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
 
     recursiveGroupMemberNames statementIndex =
       Set.fromList

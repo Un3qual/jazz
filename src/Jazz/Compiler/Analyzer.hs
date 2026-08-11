@@ -74,7 +74,7 @@ import Jazz.Compiler.Pattern
   )
 import Jazz.Compiler.RecursiveBindings
   ( RecursiveScopeFacts,
-    inferRecursiveGroupsOrdered,
+    buildRecursiveScopeFacts,
     recursiveScopeGroups
   )
 import Jazz.Compiler.Purity
@@ -407,9 +407,11 @@ collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenS
       case suppliedRecursiveScopeFacts of
         Just recursiveScopeFactsValue -> recursiveScopeGroups recursiveScopeFactsValue
         Nothing ->
-          inferRecursiveGroupsOrdered
-            (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
-            indexedStatements
+          recursiveScopeGroups
+            ( buildRecursiveScopeFacts
+                (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
+                indexedStatements
+            )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
     unusedBindingWarningsByStatement =
       collectUnusedBindingWarnings
