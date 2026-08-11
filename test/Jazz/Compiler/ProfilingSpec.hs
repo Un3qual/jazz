@@ -23,6 +23,7 @@ import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Compiler.Force
   ( forceCompiledModule,
     forceInferenceResult,
+    forceResolvedModule,
     forceRuntimeProgramOutputResult,
   )
 import Jazz.Compiler.ModuleExports
@@ -33,6 +34,10 @@ import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     ModuleInterface (..),
     emptyModuleInterface,
+  )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (RuntimeBindingExport),
@@ -76,6 +81,8 @@ tests =
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
     ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
+    ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
+    ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
@@ -223,6 +230,67 @@ testDeepCompiledModuleForcing =
       case result of
         Left _ -> pure ()
         Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+
+testResolvedModuleProductionLaziness :: IO ()
+testResolvedModuleProductionLaziness = do
+  let resolvedModule =
+        baseResolvedModule
+          { resolvedModuleCore = throw (userError "production forced the resolved Core module")
+          }
+  result <- try (evaluate resolvedModule) :: IO (Either IOException ResolvedModule)
+  case result of
+    Left exception -> throw exception
+    Right _ -> pure ()
+
+testDeepResolvedModuleForcing :: IO ()
+testDeepResolvedModuleForcing =
+  mapM_
+    assertResolvedContentForced
+    [ ( "module path",
+        baseResolvedModule
+          { resolvedModulePath = ["App", throw (userError "resolved module path was forced")]
+          }
+      ),
+      ( "source path",
+        baseResolvedModule
+          { resolvedSourcePath = "App/" <> throw (userError "resolved source path was forced")
+          }
+      ),
+      ( "imports",
+        baseResolvedModule
+          { resolvedModuleImports = [throw (userError "resolved import was forced")]
+          }
+      ),
+      ( "export inventory",
+        baseResolvedModule
+          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
+          }
+      ),
+      ( "Core expression",
+        baseResolvedModule
+          { resolvedModuleCore =
+              (resolvedModuleCore baseResolvedModule)
+                { coreModuleExpr = throw (userError "resolved Core expression was forced")
+                }
+          }
+      )
+    ]
+  where
+    assertResolvedContentForced (label, resolvedModule) = do
+      result <- try (evaluate (forceResolvedModule resolvedModule)) :: IO (Either IOException ())
+      case result of
+        Left _ -> pure ()
+        Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+
+baseResolvedModule :: ResolvedModule
+baseResolvedModule =
+  ResolvedModule
+    { resolvedModulePath = ["App", "Main"],
+      resolvedSourcePath = "App/Main.jazz",
+      resolvedModuleImports = [],
+      resolvedModuleExportInventory = exportInventory [],
+      resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+    }
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do

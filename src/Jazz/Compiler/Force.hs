@@ -9,6 +9,7 @@ module Jazz.Compiler.Force
     forceExpr,
     forceInferenceResult,
     forceListWith,
+    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
@@ -58,7 +59,12 @@ import Jazz.Compiler.ModuleExports
     ModuleTypeConstructorSelector (..),
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    DeclaredModuleExports (..),
+    ResolvedImport (..),
+    ResolvedModule (..),
+  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -586,6 +592,26 @@ forceCompiledModule compiledModule =
         forceModuleInterface (compiledModuleInterface compiledModule) `seq`
           forceListWith forceDiagnostic (compiledModuleDiagnostics compiledModule) `seq`
             forceExpr (compiledModuleExpr compiledModule)
+
+forceResolvedModule :: ResolvedModule -> ()
+forceResolvedModule resolvedModule =
+  forceListWhnf (resolvedModulePath resolvedModule) `seq`
+    forceListWhnf (resolvedSourcePath resolvedModule) `seq`
+      forceListWith forceResolvedImport (resolvedModuleImports resolvedModule) `seq`
+        forceModuleExportInventory (resolvedModuleExportInventory resolvedModule) `seq`
+          forceCoreModule (resolvedModuleCore resolvedModule)
+
+forceCoreModule :: CoreModule -> ()
+forceCoreModule coreModule =
+  forceMaybeWith forceListWhnf (coreModuleDeclaredPath coreModule) `seq`
+    forceMaybeWith forceDeclaredModuleExports (coreModuleDeclaredExports coreModule) `seq`
+      forceListWith forceResolvedImport (coreModuleImports coreModule) `seq`
+        forceExpr (coreModuleExpr coreModule)
+
+forceDeclaredModuleExports :: DeclaredModuleExports -> ()
+forceDeclaredModuleExports declaredExports =
+  forceSourceSpan (declaredModuleExportsSpan declaredExports) `seq`
+    forceListWith forceModuleExportSelector (declaredModuleExportSelectors declaredExports)
 
 forceResolvedImport :: ResolvedImport -> ()
 forceResolvedImport resolvedImport =

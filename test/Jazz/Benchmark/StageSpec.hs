@@ -2,7 +2,8 @@
 
 module Main (main) where
 
-import Control.Exception (IOException, try)
+import Control.DeepSeq (NFData (rnf))
+import Control.Exception (IOException, evaluate, throw, try)
 import Control.Monad (void)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -20,13 +21,16 @@ import Jazz.Benchmark.ScaleCases
     selectCompilerScaleCases,
   )
 import Jazz.Benchmark.StageInputs
-  ( prepareBenchmark,
+  ( PreparedBenchmark (PreparedAnalysis),
+    PreparedCompilerScaleBenchmark (PreparedCompilerScaleAnalysis),
+    prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
     runPreparedBenchmark,
     runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
+import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
     parseBenchmarkCommand,
@@ -63,6 +67,8 @@ tests =
     ("selects requested cases before stage preparation", testCaseSelection),
     ("parse-lower setup does not require module compilation", testParseLowerSetupBoundary),
     ("parse-lower setup reports entry-source read failures", testParseLowerSourceReadFailure),
+    ("corpus analysis setup deeply owns its resolved module", testPreparedAnalysisForcesResolvedModule),
+    ("compiler-scale analysis setup deeply owns its resolved module", testPreparedCompilerScaleAnalysisForcesResolvedModule),
     ("analysis uses module-aware imported interfaces", testModuleAwareAnalysis),
     ("runtime benchmarks reject unexpected results", testRuntimeResultValidation)
   ]
@@ -393,6 +399,64 @@ testParseLowerSourceReadFailure = do
     Left exception ->
       failTest ("expected a structured entry-source read failure, got " <> Text.pack (show exception))
     Right () -> failTest "expected parse-lower setup to reject an unreadable entry source"
+
+testPreparedAnalysisForcesResolvedModule :: IO ()
+testPreparedAnalysisForcesResolvedModule = do
+  programCase <- loadCase "identifier-classifier"
+  prepared <- prepareBenchmark AnalysisBenchmark programCase
+  case prepared of
+    PreparedAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
+      assertPreparedResolvedModuleForced
+        "corpus analysis"
+        ( rnf
+            ( PreparedAnalysis
+                preparedCase
+                compiledProgram
+                inputs
+                dependencies
+                (poisonResolvedModule "corpus analysis resolved Core module was forced" resolvedModule)
+            )
+        )
+    _ -> failTest "analysis preparation returned the wrong prepared benchmark variant"
+
+testPreparedCompilerScaleAnalysisForcesResolvedModule :: IO ()
+testPreparedCompilerScaleAnalysisForcesResolvedModule = do
+  programCase <- loadCompilerScaleCase "sequential-polymorphic-bindings-0064"
+  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
+  case prepared of
+    PreparedCompilerScaleAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
+      assertPreparedResolvedModuleForced
+        "compiler-scale analysis"
+        ( rnf
+            ( PreparedCompilerScaleAnalysis
+                preparedCase
+                compiledProgram
+                inputs
+                dependencies
+                (poisonResolvedModule "compiler-scale analysis resolved Core module was forced" resolvedModule)
+            )
+        )
+    _ -> failTest "analysis preparation returned the wrong prepared compiler-scale variant"
+
+poisonResolvedModule :: Text -> ResolvedModule -> ResolvedModule
+poisonResolvedModule message resolvedModule =
+  resolvedModule
+    { resolvedModuleCore = throw (userError (Text.unpack message))
+    }
+
+assertPreparedResolvedModuleForced :: Text -> () -> IO ()
+assertPreparedResolvedModuleForced label forced = do
+  result <- try (evaluate forced) :: IO (Either IOException ())
+  case result of
+    Left exception
+      | "resolved Core module was forced" `Text.isInfixOf` Text.pack (show exception) -> pure ()
+      | otherwise ->
+          failTest
+            ( label
+                <> " forcing failed before reaching its resolved module: "
+                <> Text.pack (show exception)
+            )
+    Right () -> failTest (label <> " left its resolved module lazy")
 
 testModuleAwareAnalysis :: IO ()
 testModuleAwareAnalysis = do

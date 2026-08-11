@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.StageInputs
-  ( PreparedBenchmark,
-    PreparedCompilerScaleBenchmark,
+  ( PreparedBenchmark (PreparedAnalysis),
+    PreparedCompilerScaleBenchmark (PreparedCompilerScaleAnalysis),
     prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
@@ -25,6 +25,7 @@ import Jazz.Benchmark.Force
     forceExpr,
     forceListWith,
     forceProgramCaseResult,
+    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
@@ -133,7 +134,7 @@ instance NFData PreparedBenchmark where
           forceCompiledProgram compiledProgram `seq`
             inputs `seq`
               forceCompiledModules dependencies `seq`
-                resolvedModule `seq`
+                forceResolvedModule resolvedModule `seq`
                   ()
       PreparedModulePreparation programCase -> programCaseIdentifier programCase `seq` ()
       PreparedRuntime programCase compiledProgram ->
@@ -150,7 +151,7 @@ instance NFData PreparedCompilerScaleBenchmark where
           forceCompiledProgram compiledProgram `seq`
             inputs `seq`
               forceCompiledModules dependencies `seq`
-                resolvedModule `seq`
+                forceResolvedModule resolvedModule `seq`
                   ()
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
       PreparedCompilerScaleTypedLowering programCase typedProgram ->
