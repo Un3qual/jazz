@@ -22,6 +22,7 @@ data FunctionContext = FunctionContext
     functionContextFunction :: LoweredFunction,
     functionContextBlocks :: Map LoweredBlockId LoweredBlock,
     functionContextTemporaryOwners :: Map LoweredTemporaryId (Set LoweredBlockId),
+    functionContextTemporaryRepresentations :: Map (LoweredBlockId, LoweredTemporaryId) LoweredRepresentation,
     functionContextParameters :: Map LoweredParameterId LoweredRepresentation
   }
 
@@ -149,6 +150,16 @@ validateFunction programContext function@(LoweredFunction functionId maybeEnviro
               [ (temporaryId, Set.singleton blockId)
                 | LoweredBlock blockId _ instructions _ <- blocks,
                   LoweredInstruction temporaryId _ _ <- instructions
+              ],
+          functionContextTemporaryRepresentations =
+            -- Duplicate block lookup already uses the last block in
+            -- 'blocksById'; within that block, retain the first definition of a
+            -- duplicate temporary just like the former instruction-list scan.
+            Map.fromListWith
+              (\_ firstRepresentation -> firstRepresentation)
+              [ ((blockId, temporaryId), representation)
+                | (blockId, LoweredBlock _ _ instructions _) <- Map.toList blocksById,
+                  LoweredInstruction temporaryId representation _ <- instructions
               ],
           functionContextParameters =
             Map.fromList
@@ -716,11 +727,10 @@ indexMaybe values index
     go (_ : rest) remaining = go rest (remaining - 1)
 
 lookupTemporaryRepresentation :: FunctionContext -> LoweredBlockId -> LoweredTemporaryId -> Maybe LoweredRepresentation
-lookupTemporaryRepresentation functionContext blockId temporaryId = do
-  LoweredBlock _ _ instructions _ <- Map.lookup blockId (functionContextBlocks functionContext)
-  case [representation | LoweredInstruction candidateId representation _ <- instructions, candidateId == temporaryId] of
-    representation : _ -> Just representation
-    [] -> Nothing
+lookupTemporaryRepresentation functionContext blockId temporaryId =
+  Map.lookup
+    (blockId, temporaryId)
+    (functionContextTemporaryRepresentations functionContext)
 
 instructionTemporaryId :: LoweredInstruction -> LoweredTemporaryId
 instructionTemporaryId (LoweredInstruction temporaryId _ _) = temporaryId
