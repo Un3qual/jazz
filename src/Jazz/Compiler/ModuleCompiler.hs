@@ -108,26 +108,30 @@ compileResolvedProgram inputs resolvedProgram =
         compiledProgramDiagnostics = compiledPreludeDiagnostics compiledPrelude <> moduleDiagnostics
       }
   where
+    ambientInterface = ambientPreludeInterface (compileInputPrelude inputs)
     foldModules compiledReversed compiledByPath remaining =
       case remaining of
         [] -> pure (compiledReversed, compiledByPath)
         resolvedModule : rest -> do
-          compiledModule <- compileResolvedModuleWithIndex inputs compiledByPath resolvedModule
+          compiledModule <- compileResolvedModuleWithIndex inputs ambientInterface compiledByPath resolvedModule
           foldModules
             (compiledModule : compiledReversed)
-            (Map.insert (resolvedModulePath resolvedModule) compiledModule compiledByPath)
+            (Map.insert (resolvedModulePath resolvedModule) (compiledDependency compiledModule) compiledByPath)
             rest
 
 compileResolvedModule :: CompileInputs -> [CompiledModule] -> ResolvedModule -> IO CompiledModule
 compileResolvedModule inputs compiledDependencies =
-  compileResolvedModuleWithIndex inputs (buildCompiledModulePathIndex compiledDependencies)
+  compileResolvedModuleWithIndex
+    inputs
+    (ambientPreludeInterface (compileInputPrelude inputs))
+    (buildCompiledDependencyPathIndex compiledDependencies)
 
-compileResolvedModuleWithIndex :: CompileInputs -> Map [Text] CompiledModule -> ResolvedModule -> IO CompiledModule
-compileResolvedModuleWithIndex inputs compiledDependenciesByPath resolvedModule = do
+compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> Map [Text] CompiledDependency -> ResolvedModule -> IO CompiledModule
+compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPath resolvedModule = do
   let importedInterface =
         foldl'
           mergeModuleInterfaces
-          (ambientPreludeInterface (compileInputPrelude inputs))
+          ambientInterface
           [ dependencyImportInterface importDecl dependency
             | importDecl <- resolvedModuleImports resolvedModule,
               Just dependency <- [Map.lookup (resolvedImportPath importDecl) compiledDependenciesByPath]
@@ -154,24 +158,54 @@ compileResolvedModuleWithIndex inputs compiledDependenciesByPath resolvedModule 
         compiledModuleExpr = inferredExpr inference
       }
 
-buildCompiledModulePathIndex :: [CompiledModule] -> Map [Text] CompiledModule
-buildCompiledModulePathIndex =
-  Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
+data CompiledDependency = CompiledDependency
+  { dependencyCompiledModule :: CompiledModule,
+    dependencyWholeInterface :: ImportedInterface
+  }
+
+compiledDependency :: CompiledModule -> CompiledDependency
+compiledDependency compiledModule =
+  CompiledDependency
+    { dependencyCompiledModule = compiledModule,
+      dependencyWholeInterface = importWholeCompiledModuleInterface compiledModule
+    }
+
+buildCompiledDependencyPathIndex :: [CompiledModule] -> Map [Text] CompiledDependency
+buildCompiledDependencyPathIndex =
+  Map.fromListWith (\_ firstDependency -> firstDependency)
     . map
-      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
+      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledDependency compiledModule))
 
 ambientPreludeInterface :: CompiledPrelude -> ImportedInterface
 ambientPreludeInterface compiledPrelude =
   importWholeInterface AmbientPrelude (compiledPreludeInterface compiledPrelude)
 
-dependencyImportInterface :: ResolvedImport -> CompiledModule -> ImportedInterface
-dependencyImportInterface importDecl compiledModule =
+dependencyImportInterface :: ResolvedImport -> CompiledDependency -> ImportedInterface
+dependencyImportInterface importDecl dependency =
+  case (resolvedImportAlias importDecl, resolvedImportSymbols importDecl) of
+    (Nothing, Nothing) -> dependencyWholeInterface dependency
+    (maybeAlias, maybeSymbols) ->
+      importSelectedInterface
+        (ImportedModule (resolvedImportPath importDecl))
+        maybeAlias
+        maybeSymbols
+        (resolvedModuleExportInventory resolvedModule)
+        (compiledModuleInterface compiledModule)
+  where
+    compiledModule = dependencyCompiledModule dependency
+    resolvedModule = compiledResolvedModule compiledModule
+
+importWholeCompiledModuleInterface :: CompiledModule -> ImportedInterface
+importWholeCompiledModuleInterface compiledModule =
   importSelectedInterface
-    (ImportedModule (resolvedImportPath importDecl))
-    (resolvedImportAlias importDecl)
-    (resolvedImportSymbols importDecl)
-    (resolvedModuleExportInventory (compiledResolvedModule compiledModule))
+    (ImportedModule modulePath)
+    Nothing
+    Nothing
+    (resolvedModuleExportInventory resolvedModule)
     (compiledModuleInterface compiledModule)
+  where
+    resolvedModule = compiledResolvedModule compiledModule
+    modulePath = resolvedModulePath resolvedModule
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
