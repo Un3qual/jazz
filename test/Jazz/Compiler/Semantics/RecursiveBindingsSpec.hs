@@ -26,10 +26,13 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.RecursiveBindings
   ( collectBindingNames,
     buildRecursiveScopeFacts,
+    collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
+    lambdaCaptureHintsChild,
+    lookupLambdaCapturedNames,
     recursiveScopeBindingNames,
     recursiveScopeGroups
   )
@@ -46,6 +49,7 @@ tests :: [NamedTest]
 tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
     ("recursive scope facts own binding names and ordered groups together", testRecursiveScopeFacts),
+    ("lambda capture plans address nested lambdas without AST keys", testLambdaCapturePlans),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
     ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
@@ -111,6 +115,40 @@ testRecursiveScopeFacts = do
           (1, SExpr span0 (ELit (LInt 0))),
           (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))) )
         ]
+
+testLambdaCapturePlans :: IO ()
+testLambdaCapturePlans = do
+  assertEqual
+    "outer lambda captures"
+    (Just (Set.singleton (ident "outside")))
+    (fst <$> lookupLambdaCapturedNames outerLambdaHints)
+  assertEqual
+    "nested lambda captures"
+    (Just (Set.fromList [ident "outside", ident "outer"]))
+    (fst <$> lookupLambdaCapturedNames nestedLambdaHints)
+  where
+    rootHints = collectLambdaCaptureHints expression
+    outerLambdaHints = lambdaCaptureHintsChild 1 rootHints
+    nestedBodyHints = maybe rootHints snd (lookupLambdaCapturedNames outerLambdaHints)
+    nestedLambdaHints = lambdaCaptureHintsChild 0 nestedBodyHints
+    expression =
+      EApply
+        (EVar (ident "consume"))
+        ( ELambda
+            (ident "outer")
+            ( EApply
+                ( ELambda
+                    (ident "inner")
+                    ( ETuple
+                        [ EVar (ident "outer"),
+                          EVar (ident "inner"),
+                          EVar (ident "outside")
+                        ]
+                    )
+                )
+                (EVar (ident "outer"))
+            )
+        )
 
 testFreeVarsLambdaParameterBound :: IO ()
 testFreeVarsLambdaParameterBound =

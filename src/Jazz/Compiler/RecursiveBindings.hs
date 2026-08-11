@@ -9,11 +9,13 @@ module Jazz.Compiler.RecursiveBindings
     closureCaptureCandidatesWithBound,
     collectBindingNames,
     collectLambdaCaptureHints,
+    emptyLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
+    lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
     recursiveScopeBindingNames,
     recursiveScopeGroups
@@ -23,6 +25,8 @@ import Data.Graph
   ( SCC (..),
     stronglyConnComp
   )
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.List
   ( unsnoc
   )
@@ -34,7 +38,6 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
-    ImplMethod (..),
     Statement (..)
   )
 import Jazz.Compiler.Name
@@ -42,7 +45,8 @@ import Jazz.Compiler.Name
     operatorBindingName
   )
 import Jazz.Compiler.Pattern
-  ( extendBoundWithPattern
+  ( extendBoundWithPattern,
+    patternBinderNames
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
@@ -73,80 +77,158 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
       recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
     }
 
--- | Free-variable facts arranged in the same nesting shape as the lambda AST.
--- Closures retain only their body's nested hints, avoiding both repeated AST
--- walks and retention of unrelated sibling expressions.
-data LambdaCaptureHint = LambdaCaptureHint Name Expr (Set Name) LambdaCaptureHints
+-- | Free-variable facts arranged in the same child-index shape as the lambda
+-- AST. The plan deliberately retains neither lambda bodies nor parameters, so
+-- runtime lookup cannot fall back to structural expression equality.
+data LambdaCaptureHint = LambdaCaptureHint (Set Name) LambdaCaptureHints
 
-type LambdaCaptureHints = [LambdaCaptureHint]
+data LambdaCaptureHints = LambdaCaptureHints
+  { lambdaCaptureHintAtRoot :: Maybe LambdaCaptureHint,
+    lambdaCaptureChildHints :: IntMap LambdaCaptureHints
+  }
+
+emptyLambdaCaptureHints :: LambdaCaptureHints
+emptyLambdaCaptureHints = LambdaCaptureHints Nothing IntMap.empty
+
+lambdaCaptureHintsChild :: Int -> LambdaCaptureHints -> LambdaCaptureHints
+lambdaCaptureHintsChild childIndex =
+  IntMap.findWithDefault emptyLambdaCaptureHints childIndex . lambdaCaptureChildHints
 
 collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
-collectLambdaCaptureHints expr =
+collectLambdaCaptureHints = snd . analyzeLambdaCaptures
+
+analyzeLambdaCaptures :: Expr -> (Set Name, LambdaCaptureHints)
+analyzeLambdaCaptures expr =
   case expr of
-    ELit _ -> []
-    EVar _ -> []
+    ELit _ -> emptyCaptureAnalysis
+    EVar name -> (Set.singleton name, emptyLambdaCaptureHints)
     ELambda parameterName bodyExpr ->
-      [ LambdaCaptureHint
-          parameterName
-          bodyExpr
-          (closureCaptureCandidatesWithBound (Set.singleton parameterName) bodyExpr)
-          (collectLambdaCaptureHints bodyExpr)
-      ]
-    EOperatorValue _ -> []
-    EList elements -> concatMap collectLambdaCaptureHints elements
-    ETuple elements -> concatMap collectLambdaCaptureHints elements
+      let (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
+          capturedNames = Set.delete parameterName bodyFreeNames
+       in ( capturedNames,
+            LambdaCaptureHints
+              (Just (LambdaCaptureHint capturedNames bodyHints))
+              IntMap.empty
+          )
+    EOperatorValue operatorSymbol ->
+      (operatorBindingFreeVar Set.empty operatorSymbol, emptyLambdaCaptureHints)
+    EList elements -> analyzeLambdaChildren elements
+    ETuple elements -> analyzeLambdaChildren elements
     EApply functionExpr argumentExpr ->
-      collectLambdaCaptureHints functionExpr
-        <> collectLambdaCaptureHints argumentExpr
+      analyzeLambdaChildren [functionExpr, argumentExpr]
     ETypeApplication functionExpr _ _ ->
-      collectLambdaCaptureHints functionExpr
+      analyzeLambdaChildren [functionExpr]
     EIf conditionExpr thenExpr elseExpr ->
-      collectLambdaCaptureHints conditionExpr
-        <> collectLambdaCaptureHints thenExpr
-        <> collectLambdaCaptureHints elseExpr
+      analyzeLambdaChildren [conditionExpr, thenExpr, elseExpr]
     EPatternCase scrutineeExpr caseArms ->
-      collectLambdaCaptureHints scrutineeExpr
-        <> concatMap collectCaseArmLambdaCaptureHints caseArms
-    EBinary _ leftExpr rightExpr ->
-      collectLambdaCaptureHints leftExpr
-        <> collectLambdaCaptureHints rightExpr
-    ESectionLeft leftExpr _ ->
-      collectLambdaCaptureHints leftExpr
-    ESectionRight _ rightExpr ->
-      collectLambdaCaptureHints rightExpr
+      analyzeLambdaPatternCase scrutineeExpr caseArms
+    EBinary operatorSymbol leftExpr rightExpr ->
+      let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+    ESectionLeft leftExpr operatorSymbol ->
+      let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+    ESectionRight operatorSymbol rightExpr ->
+      let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
     EBlock statements ->
-      concatMap collectStatementLambdaCaptureHints statements
+      analyzeLambdaScope statements
 
-collectCaseArmLambdaCaptureHints :: CaseArm -> LambdaCaptureHints
-collectCaseArmLambdaCaptureHints (CaseArm _ guardExpr bodyExpr) =
-  maybe [] collectLambdaCaptureHints guardExpr
-    <> collectLambdaCaptureHints bodyExpr
+emptyCaptureAnalysis :: (Set Name, LambdaCaptureHints)
+emptyCaptureAnalysis = (Set.empty, emptyLambdaCaptureHints)
 
-collectStatementLambdaCaptureHints :: Statement -> LambdaCaptureHints
-collectStatementLambdaCaptureHints statement =
-  case statement of
-    SLet _ _ valueExpr -> collectLambdaCaptureHints valueExpr
-    SImpl _ _ _ methods ->
-      concatMap
-        (\(ImplMethod _ _ methodExpr) -> collectLambdaCaptureHints methodExpr)
-        methods
-    SExpr _ valueExpr -> collectLambdaCaptureHints valueExpr
-    SSignature {} -> []
-    SData {} -> []
-    SClass {} -> []
-    SModule {} -> []
-    SImport {} -> []
-
-lookupLambdaCapturedNames :: Name -> Expr -> LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
-lookupLambdaCapturedNames parameterName bodyExpr =
-  go
+analyzeLambdaChildren :: [Expr] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaChildren expressions =
+  ( Set.unions freeNames,
+    LambdaCaptureHints Nothing (IntMap.fromList childHints)
+  )
   where
-    go [] = Nothing
-    go (LambdaCaptureHint hintParameter hintBody capturedNames nestedHints : rest)
-      | parameterName == hintParameter,
-        bodyExpr == hintBody =
-          Just (capturedNames, nestedHints)
-      | otherwise = go rest
+    analyses = map analyzeLambdaCaptures expressions
+    freeNames = map fst analyses
+    childHints =
+      [ (childIndex, hints)
+      | (childIndex, (_, hints)) <- zip [0 ..] analyses,
+        not (lambdaCaptureHintsAreEmpty hints)
+      ]
+
+analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaPatternCase scrutineeExpr caseArms =
+  foldl' analyzeArm initialAnalysis (zip [0 ..] caseArms)
+  where
+    (scrutineeFreeNames, scrutineeHints) = analyzeLambdaCaptures scrutineeExpr
+    initialAnalysis =
+      ( scrutineeFreeNames,
+        insertLambdaChildHint 0 scrutineeHints emptyLambdaCaptureHints
+      )
+
+    analyzeArm (freeNames, hints) (armIndex, CaseArm pattern guardExpr bodyExpr) =
+      ( Set.unions
+          [ freeNames,
+            Set.difference guardFreeNames boundNames,
+            Set.difference bodyFreeNames boundNames
+          ],
+        insertLambdaChildHint
+          bodyChildIndex
+          bodyHints
+          (insertLambdaChildHint guardChildIndex guardHints hints)
+      )
+      where
+        boundNames = patternBinderNames pattern
+        (guardFreeNames, guardHints) =
+          maybe emptyCaptureAnalysis analyzeLambdaCaptures guardExpr
+        (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
+        guardChildIndex = 1 + (2 * armIndex)
+        bodyChildIndex = guardChildIndex + 1
+
+analyzeLambdaScope :: [Statement] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaScope statements =
+  (freeNames, LambdaCaptureHints Nothing childHints)
+  where
+    (_, freeNames, childHints) =
+      foldl' analyzeStatement (Set.empty, Set.empty, IntMap.empty) (zip [0 ..] statements)
+
+    analyzeStatement (boundNames, accumulatedFreeNames, accumulatedHints) (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ valueExpr ->
+          analyzeValue (Set.insert bindingName boundNames) valueExpr
+        SExpr _ valueExpr ->
+          analyzeValue boundNames valueExpr
+        SSignature {} -> unchanged
+        SData {} -> unchanged
+        SClass {} -> unchanged
+        SImpl {} -> unchanged
+        SModule {} -> unchanged
+        SImport {} -> unchanged
+      where
+        unchanged = (boundNames, accumulatedFreeNames, accumulatedHints)
+        analyzeValue nextBoundNames valueExpr =
+          let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
+           in ( nextBoundNames,
+                Set.union accumulatedFreeNames (Set.difference valueFreeNames boundNames),
+                insertLambdaChildHintMap statementIndex valueHints accumulatedHints
+              )
+
+insertLambdaChildHint :: Int -> LambdaCaptureHints -> LambdaCaptureHints -> LambdaCaptureHints
+insertLambdaChildHint childIndex childHints hints =
+  hints
+    { lambdaCaptureChildHints =
+        insertLambdaChildHintMap childIndex childHints (lambdaCaptureChildHints hints)
+    }
+
+insertLambdaChildHintMap :: Int -> LambdaCaptureHints -> IntMap LambdaCaptureHints -> IntMap LambdaCaptureHints
+insertLambdaChildHintMap childIndex childHints hints
+  | lambdaCaptureHintsAreEmpty childHints = hints
+  | otherwise = IntMap.insert childIndex childHints hints
+
+lambdaCaptureHintsAreEmpty :: LambdaCaptureHints -> Bool
+lambdaCaptureHintsAreEmpty (LambdaCaptureHints Nothing childHints) = IntMap.null childHints
+lambdaCaptureHintsAreEmpty _ = False
+
+lookupLambdaCapturedNames :: LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
+lookupLambdaCapturedNames hints =
+  case lambdaCaptureHintAtRoot hints of
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (capturedNames, nestedHints)
+    Nothing -> Nothing
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
