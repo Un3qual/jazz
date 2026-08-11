@@ -12,7 +12,7 @@ target_paths:
   - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test jazz-recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal test recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
   - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-facts --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
