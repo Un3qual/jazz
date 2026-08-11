@@ -624,6 +624,7 @@ data EvaluationContinuation =
 data EvaluationMachine = EvaluationMachine
   { evaluationControl :: EvaluationControl,
     evaluationContinuations :: [EvaluationContinuation],
+    evaluationContinuationDepth :: !Word64,
     evaluationReturnPolicy :: RuntimeReturnPolicy
   }
 
@@ -1753,53 +1754,60 @@ runEvaluationControl host builtinMode bindingTypeHints initialControl =
         advance machine = do
           let continuationDepth =
                 continuationBaseDepth
-                  + fromIntegral (length (evaluationContinuations machine))
-          lift
-            ( modify'
-                ( \evaluationState ->
-                    evaluationState
-                      { runtimeHostEvaluationContinuationDepth = continuationDepth,
-                        runtimeHostEvaluationObservation =
-                          if observeTransitions
-                            then
+                  + evaluationContinuationDepth machine
+          if observeTransitions
+            then
+              lift
+                ( modify'
+                    ( \evaluationState ->
+                        evaluationState
+                          { runtimeHostEvaluationContinuationDepth = continuationDepth,
+                            runtimeHostEvaluationObservation =
                               recordRuntimeTransition
                                 continuationDepth
                                 (runtimeHostEvaluationObservation evaluationState)
-                            else runtimeHostEvaluationObservation evaluationState
-                      }
+                          }
+                    )
                 )
-            )
+            else pure ()
           progress <- stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingTypeHints machine
           case progress of
             EvaluationFinished value -> pure value
             EvaluationContinues nextMachine -> advance nextMachine
-    put
-      initialState
-        { runtimeHostEvaluationActiveMachineCount = activeMachineCount + 1
-        }
+    if observeTransitions
+      then
+        put
+          initialState
+            { runtimeHostEvaluationActiveMachineCount = activeMachineCount + 1
+            }
+      else pure ()
     result <-
       runExceptT
         ( advance
             EvaluationMachine
               { evaluationControl = initialControl,
                 evaluationContinuations = [],
+                evaluationContinuationDepth = 0,
                 evaluationReturnPolicy = RuntimeReturnPolicy []
               }
         )
-    modify'
-      ( \evaluationState ->
-          evaluationState
-            { runtimeHostEvaluationActiveMachineCount = activeMachineCount,
-              runtimeHostEvaluationContinuationDepth = parentContinuationDepth,
-              runtimeHostEvaluationObservation =
-                if observeTransitions && activeMachineCount > 0
-                  then
-                    restoreRuntimeContinuationDepth
-                      parentContinuationDepth
-                      (runtimeHostEvaluationObservation evaluationState)
-                  else runtimeHostEvaluationObservation evaluationState
-            }
-      )
+    if observeTransitions
+      then
+        modify'
+          ( \evaluationState ->
+              evaluationState
+                { runtimeHostEvaluationActiveMachineCount = activeMachineCount,
+                  runtimeHostEvaluationContinuationDepth = parentContinuationDepth,
+                  runtimeHostEvaluationObservation =
+                    if activeMachineCount > 0
+                      then
+                        restoreRuntimeContinuationDepth
+                          parentContinuationDepth
+                          (runtimeHostEvaluationObservation evaluationState)
+                      else runtimeHostEvaluationObservation evaluationState
+                }
+          )
+      else pure ()
     pure result
 
 stepEvaluationMachine ::
@@ -1838,6 +1846,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               bindingTypeHints
               machine
                 { evaluationContinuations = rest,
+                  evaluationContinuationDepth = evaluationContinuationDepth machine - 1,
                   evaluationReturnPolicy = parentPolicy
                 }
               frame
@@ -2542,6 +2551,7 @@ suspendEvaluation machine frame nestedControl =
             evaluationContinuations =
               EvaluationContinuation (evaluationReturnPolicy machine) frame
                 : evaluationContinuations machine,
+            evaluationContinuationDepth = evaluationContinuationDepth machine + 1,
             evaluationReturnPolicy = RuntimeReturnPolicy []
           }
     )

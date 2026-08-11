@@ -5,8 +5,11 @@ module Jazz.Compiler.Runtime.Observation.StatisticsTests
   )
 where
 
+import Control.Monad.Trans.State.Strict (get)
 import qualified Data.ByteString.Lazy.Char8 as LazyByteString
+import Data.Functor.Identity (runIdentity)
 import Data.List (isInfixOf)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -20,7 +23,8 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
+  ( BuiltinResolutionMode (ResolveKernelOnly),
+    BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
@@ -41,15 +45,23 @@ import Jazz.Compiler.Name
     operatorBindingName,
   )
 import Jazz.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( ModuleEvaluationMode (EvaluateEntryModule),
+    RuntimeValue (..),
+    ScopeResult (..),
+    evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateRuntimeExprObserved,
+    runRuntimeHostEvaluation,
     untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Observation
-  ( RuntimeObservationReport (..),
+  ( RuntimeCallableIdentity (..),
+    RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
     RuntimeOutcome (..),
+    RuntimeProfileEvent (..),
+    RuntimeProfileFrame (..),
+    RuntimeSemanticProfile (..),
     RuntimeStatistics (..),
     RuntimeTermination (..),
     emptyRuntimeStatistics,
@@ -59,7 +71,14 @@ import Jazz.Compiler.Runtime.Observation.Render
     encodeRuntimeObservationJson,
     renderRuntimeObservationHuman,
   )
-import Jazz.Compiler.RuntimeHost (disabledRuntimeHost)
+import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
+import Jazz.Compiler.Runtime.Types
+  ( RuntimeHostEvaluationState (runtimeHostEvaluationContinuationDepth),
+  )
+import Jazz.Compiler.RuntimeHost
+  ( RuntimeHost (runtimeHostArguments),
+    disabledRuntimeHost,
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -75,6 +94,8 @@ tests =
     ("observed driver transports a report", testDriverTransport),
     ("observed module runtime shares one report", testModuleRuntimeTransport),
     ("literal evaluation has an exact minimal transition count", testLiteralTransitions),
+    ("nested applications preserve exact transition depth and profile accounting", testNestedApplicationAccounting),
+    ("disabled observation skips continuation-depth state traffic", testDisabledObservationSkipsContinuationDepthState),
     ("closure application records forcing and continuation depth", testClosureApplication),
     ("nested evaluator machines preserve outer continuation depth", testNestedContinuationDepth),
     ("builtin application is classified independently", testBuiltinApplication),
@@ -152,6 +173,83 @@ testLiteralTransitions = do
   assertEqual "literal forced values" 0 (runtimeForcedValues statistics)
   assertEqual "literal applications" 0 (runtimeApplications statistics)
   assertEqual "literal continuation depth" 0 (runtimeMaximumContinuationDepth statistics)
+
+testNestedApplicationAccounting :: IO ()
+testNestedApplicationAccounting = do
+  let expression = nestedIdentityApplication 64
+      observed = evaluateRuntimeExprObserved RuntimeObservationStatisticsAndProfile expression
+  assertEqual
+    "nested application result"
+    (RuntimeOutcomeCompleted (Just (VInt 7 untypedIntMetadata)))
+    (runtimeObservationOutcome observed)
+  report <- requireObservedReport observed
+  let statistics = runtimeObservationStatistics report
+  assertEqual "nested application transitions" 450 (runtimeEvaluatorTransitions statistics)
+  assertEqual "nested application count" 64 (runtimeApplications statistics)
+  assertEqual "nested closure application count" 64 (runtimeClosureApplications statistics)
+  assertEqual "nested final continuation depth" 0 (runtimeCurrentContinuationDepth statistics)
+  assertEqual "nested maximum continuation depth" 64 (runtimeMaximumContinuationDepth statistics)
+  profile <- requireObservedProfile report
+  assertEqual
+    "nested profile frames"
+    [ RuntimeProfileFrame RootCallable,
+      RuntimeProfileFrame (ClosureCallable "<entry>" 1 "value")
+    ]
+    (runtimeSemanticProfileFrames profile)
+  let profileEvents = runtimeSemanticProfileEvents profile
+  assertEqual "nested profile event count" 130 (length profileEvents)
+  case profileEvents of
+    RuntimeProfileOpen 0 0
+      : RuntimeProfileOpen 1 195
+      : RuntimeProfileClose 1 198
+      : _ -> pure ()
+    events -> failTest ("unexpected nested profile prefix: " <> Text.pack (show (take 3 events)))
+  case reverse profileEvents of
+    RuntimeProfileClose 0 450
+      : RuntimeProfileClose 1 450
+      : RuntimeProfileOpen 1 447
+      : _ -> pure ()
+    events -> failTest ("unexpected nested profile suffix: " <> Text.pack (show (take 3 events)))
+  profileOnlyReport <-
+    requireObservedSuccess
+      (evaluateRuntimeExprObserved RuntimeObservationProfile expression)
+  profileOnly <- requireObservedProfile profileOnlyReport
+  assertEqual
+    "nested profile bytes are independent of statistics collection"
+    (encodeRuntimeSemanticProfile profile)
+    (encodeRuntimeSemanticProfile profileOnly)
+
+testDisabledObservationSkipsContinuationDepthState :: IO ()
+testDisabledObservationSkipsContinuationDepthState = do
+  let inspectingHost =
+        disabledRuntimeHost
+          { runtimeHostArguments = do
+              evaluationState <- get
+              pure
+                [ Text.pack
+                    (show (runtimeHostEvaluationContinuationDepth evaluationState))
+                ]
+          }
+      expression =
+        EApply
+          (ELambda "value" (EVar "value"))
+          (EApply (kernelBuiltin BuiltinArguments) (ETuple []))
+      result =
+        runIdentity
+          ( runRuntimeHostEvaluation disabledRuntimeHost $ \_ ->
+              evaluateModuleScopeWithRequiredEvaluationHost
+                inspectingHost
+                Nothing
+                EvaluateEntryModule
+                ResolveKernelOnly
+                Map.empty
+                Map.empty
+                [SExpr (SourceSpan 1 1) expression]
+          )
+  case result of
+    Right ScopeResult {scopeResultValue = Just (VList [VText observedDepth] _)} ->
+      assertEqual "disabled continuation-depth state" "0" observedDepth
+    _ -> failTest "expected one observed continuation-depth value"
 
 testClosureApplication :: IO ()
 testClosureApplication = do
@@ -459,6 +557,12 @@ requireObservedSuccess observed = do
       failTest ("expected runtime success, got exit status " <> Text.pack (show status))
   requireObservedReport observed
 
+requireObservedProfile :: RuntimeObservationReport -> IO RuntimeSemanticProfile
+requireObservedProfile report =
+  case runtimeObservationProfile report of
+    Nothing -> failTest "expected a semantic runtime profile"
+    Just profile -> pure profile
+
 assertPositive :: (Ord number, Num number, Show number) => Text -> number -> IO ()
 assertPositive label value =
   if value > 0
@@ -472,6 +576,15 @@ statisticsFor expression = do
 
 kernelBuiltin :: BuiltinSymbol -> Expr
 kernelBuiltin = EVar . BuiltinName . mkIdentifier . builtinSymbolKernelName
+
+nestedIdentityApplication :: Int -> Expr
+nestedIdentityApplication depth =
+  foldr
+    (\_ argument -> EApply identity argument)
+    (ELit (LInt 7))
+    [1 .. depth]
+  where
+    identity = ELambda "value" (EVar "value")
 
 zeroReport :: RuntimeObservationReport
 zeroReport =
