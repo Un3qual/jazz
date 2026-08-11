@@ -11,6 +11,7 @@ module Jazz.Compiler.Analyzer
     AnalysisResult (..),
     analyzeProgramWithBuiltinsAndHiddenStatements,
     analyzeProgramWithInputs,
+    analyzeProgramWithInputsAndScopeFacts,
     analyzeProgramWithBuiltins,
     analyzeProgram,
     analyzeRebindingWarningsWithBuiltins,
@@ -72,7 +73,9 @@ import Jazz.Compiler.Pattern
   ( patternBinderNames
   )
 import Jazz.Compiler.RecursiveBindings
-  ( inferRecursiveGroupsOrdered
+  ( RecursiveScopeFacts,
+    inferRecursiveGroupsOrdered,
+    recursiveScopeGroups
   )
 import Jazz.Compiler.Purity
   ( Purity (..)
@@ -163,12 +166,20 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
     expr
 
 analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
-analyzeProgramWithInputs inputs hiddenStatementIndices expr =
+analyzeProgramWithInputs inputs hiddenStatementIndices =
+  analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices Nothing
+
+analyzeProgramWithInputsAndScopeFacts :: AnalysisInputs -> Set Int -> RecursiveScopeFacts -> Expr -> IO AnalysisResult
+analyzeProgramWithInputsAndScopeFacts inputs hiddenStatementIndices recursiveScopeFactsValue =
+  analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices (Just recursiveScopeFactsValue)
+
+analyzeProgramWithInputsAndMaybeScopeFacts :: AnalysisInputs -> Set Int -> Maybe RecursiveScopeFacts -> Expr -> IO AnalysisResult
+analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices suppliedRecursiveScopeFacts expr =
   {-# SCC "jazz-stage:static-analysis" #-}
   let (warnings, errors) =
         case expr of
           EBlock statements ->
-            collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
+            collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
           _ ->
             collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
    in
@@ -368,6 +379,20 @@ collectScopeDiagnostics ::
   [Statement] ->
   ([Diagnostic], [Diagnostic])
 collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
+  collectScopeDiagnosticsWithFacts Nothing builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements
+
+collectScopeDiagnosticsWithFacts ::
+  Maybe RecursiveScopeFacts ->
+  BuiltinResolutionMode ->
+  Set Int ->
+  WarningSettings ->
+  Map Name VisibleBinding ->
+  Map Int (Name, VisibleBinding) ->
+  Set Text ->
+  AnalysisContext ->
+  [Statement] ->
+  ([Diagnostic], [Diagnostic])
+collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -377,12 +402,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope f
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
     recursiveGroupsByStatement =
-      Map.map
-        Set.fromList
-        ( inferRecursiveGroupsOrdered
+      Map.map Set.fromList rawRecursiveGroupsByStatement
+    rawRecursiveGroupsByStatement =
+      case suppliedRecursiveScopeFacts of
+        Just recursiveScopeFactsValue -> recursiveScopeGroups recursiveScopeFactsValue
+        Nothing ->
+          inferRecursiveGroupsOrdered
             (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
             indexedStatements
-        )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
     unusedBindingWarningsByStatement =
       collectUnusedBindingWarnings

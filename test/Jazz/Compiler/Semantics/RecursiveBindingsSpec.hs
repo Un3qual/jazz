@@ -25,10 +25,13 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.RecursiveBindings
   ( collectBindingNames,
+    buildRecursiveScopeFacts,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
-    inferSelfRecursiveBindings
+    inferSelfRecursiveBindings,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -42,6 +45,7 @@ main = runTestSuite "RecursiveBindings" tests
 tests :: [NamedTest]
 tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
+    ("recursive scope facts own binding names and ordered groups together", testRecursiveScopeFacts),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
     ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
@@ -88,6 +92,25 @@ testCollectBindingNames =
         (1, SSignature (ident "x") span0 (SignatureType TypeInt)),
         (2, SLet (ident "y") span0 (EVar (ident "x")))
       ]
+
+testRecursiveScopeFacts :: IO ()
+testRecursiveScopeFacts = do
+  assertEqual
+    "scope fact binding names"
+    (Map.fromList [(0, "left"), (2, "right")])
+    (recursiveScopeBindingNames facts)
+  assertEqual
+    "scope fact recursive groups"
+    (Map.fromList [(0, [0, 2]), (2, [0, 2])])
+    (recursiveScopeGroups facts)
+  where
+    facts =
+      buildRecursiveScopeFacts
+        Set.empty
+        [ (0, SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right")))),
+          (1, SExpr span0 (ELit (LInt 0))),
+          (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))) )
+        ]
 
 testFreeVarsLambdaParameterBound :: IO ()
 testFreeVarsLambdaParameterBound =

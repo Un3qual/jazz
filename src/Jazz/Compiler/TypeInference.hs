@@ -41,10 +41,12 @@ import Jazz.Compiler.Analyzer
     AnalysisInputs (..),
     AnalysisResult (..),
     analyzeProgramWithInputs,
+    analyzeProgramWithInputsAndScopeFacts,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol,
+    builtinNamesInMode,
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
@@ -80,6 +82,9 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
+  )
+import Jazz.Compiler.RecursiveBindings
+  ( buildRecursiveScopeFacts,
   )
 import Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
@@ -118,7 +123,7 @@ import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplicationWithResult,
     inferNestedScopeTypeWithMode,
     inferScopeTypeWithMode,
-    inferScopeTypeWithModeAndForwardBindings,
+    inferScopeTypeWithModeAndForwardBindingsUsingFacts,
     instantiateNonBuiltinTypeBinding,
   )
 import Jazz.Compiler.TypeInference.Solver
@@ -251,11 +256,19 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
   {-# SCC "jazz-stage:type-inference" #-}
   do
   let initialState = initialStateForInference inputs
-      (inferredResult, finalState, forwardBindings) =
+      (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
         case expr of
           EBlock statements ->
-            let (blockResult, blockState, bindings) =
-                  inferScopeTypeWithModeAndForwardBindings
+            let recursiveScopeFactsValue =
+                  buildRecursiveScopeFacts
+                    ( Set.union
+                        (Map.keysSet (inferenceImportedTypes inputs))
+                        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (inferenceBuiltinMode inputs)))
+                    )
+                    (zip [0 ..] statements)
+                (blockResult, blockState, bindings) =
+                  inferScopeTypeWithModeAndForwardBindingsUsingFacts
+                    recursiveScopeFactsValue
                     preludeStatementIndices
                     ( \childMode childBuiltin childEnv childState childExpr ->
                         inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
@@ -265,7 +278,7 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
                     (inferenceImportedTypes inputs)
                     initialState
                     statements
-             in (blockResult, blockState, bindings)
+             in (blockResult, blockState, bindings, Just recursiveScopeFactsValue)
           _ ->
             let (result, resultState) =
                   inferExprTypeWithMode
@@ -276,14 +289,22 @@ inferExpressionWithInputsAndSourceUnitStatementsAndStateInMode mode inputs hidde
                     (inferenceImportedTypes inputs)
                     initialState
                     expr
-             in (result, resultState, Map.empty)
+             in (result, resultState, Map.empty, Nothing)
       typeErrors = reverse (inferErrorsRev finalState)
       runtimeTypeHints = inferRuntimeTypeHints finalState
   AnalysisResult _ analyzerDiagnostics <-
-    analyzeProgramWithInputs
-      (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
-      hiddenStatementIndices
-      expr
+    case topLevelRecursiveScopeFacts of
+      Just recursiveScopeFactsValue ->
+        analyzeProgramWithInputsAndScopeFacts
+          (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
+          hiddenStatementIndices
+          recursiveScopeFactsValue
+          expr
+      Nothing ->
+        analyzeProgramWithInputs
+          (analysisInputsForInference inputs (forwardAnalysisValues mode forwardBindings))
+          hiddenStatementIndices
+          expr
   inferredExpressionType inferredResult `seq`
     pure
       ( InferenceResult

@@ -4,6 +4,8 @@
 -- type inference, and runtime.
 module Jazz.Compiler.RecursiveBindings
   ( LambdaCaptureHints,
+    RecursiveScopeFacts,
+    buildRecursiveScopeFacts,
     closureCaptureCandidatesWithBound,
     collectBindingNames,
     collectLambdaCaptureHints,
@@ -12,7 +14,9 @@ module Jazz.Compiler.RecursiveBindings
     exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
-    lookupLambdaCapturedNames
+    lookupLambdaCapturedNames,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups
   ) where
 
 import Data.Graph
@@ -53,6 +57,21 @@ collectBindingNames =
         SLet bindingName _ _ ->
           Map.insert statementIndex bindingName bindingNames
         _ -> bindingNames
+
+-- | Immutable local recursion facts for one exact statement scope and outer
+-- visibility projection. The product deliberately retains names and integer
+-- indices only; callers continue to own the statement AST.
+data RecursiveScopeFacts = RecursiveScopeFacts
+  { recursiveScopeBindingNames :: Map Int Name,
+    recursiveScopeGroups :: Map Int [Int]
+  }
+
+buildRecursiveScopeFacts :: Set Name -> [(Int, Statement)] -> RecursiveScopeFacts
+buildRecursiveScopeFacts outerBindingNames indexedStatements =
+  RecursiveScopeFacts
+    { recursiveScopeBindingNames = collectBindingNames indexedStatements,
+      recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
+    }
 
 -- | Free-variable facts arranged in the same nesting shape as the lambda AST.
 -- Closures retain only their body's nested hints, avoiding both repeated AST
@@ -280,7 +299,11 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
             )
 
 inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
-inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
+inferRecursiveGroupsOrdered outerBindingNames =
+  recursiveScopeGroups . buildRecursiveScopeFacts outerBindingNames
+
+inferRecursiveGroupsOrderedInternal :: Set Name -> [(Int, Statement)] -> Map Int [Int]
+inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
   Map.fromList
     [ (statementIndex, componentStatements)
       | component <- stronglyConnComp graphNodes,
