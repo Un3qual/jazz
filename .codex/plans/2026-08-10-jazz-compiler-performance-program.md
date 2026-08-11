@@ -1,22 +1,26 @@
 ---
-id: JN-COMPILER-PERFORMANCE-RECURSIVE-FACTS-008
+id: JN-COMPILER-PERFORMANCE-SCOPE-FACTS-009
 status: ready
 priority: P1
-size: M
+size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 4a: Build recursive dependency facts in one pass"
+plan_section: "Task 4b: Transport immutable recursive scope facts"
 target_paths:
   - src/Jazz/Compiler/RecursiveBindings.hs
+  - src/Jazz/Compiler/ModuleResolver.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
+  - src/Jazz/Compiler/Analyzer.hs
+  - src/Jazz/Compiler/Runtime/ScopePlan.hs
   - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal test recursive-bindings-spec binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
   - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-facts --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Build same-name declaration order and visible-before dependency facts with append-efficient, source-order folds, preserving nested visibility, rebinding resolution, SCC membership, and declaration order."
+deliverable: "Build one immutable recursive scope-fact product per owned scope and reuse it only across consumers with equivalent outer-visibility semantics, while standalone APIs retain a checked fallback."
 last_verified: 2026-08-10
 ---
 
@@ -762,7 +766,7 @@ win. Stable-stage, eventlog, hotspot, and heap artifacts are under
 
 ## Task 4: Reuse recursive scope and lambda capture facts
 
-- [ ] Build declaration visibility, same-name indices, dependencies, and SCCs
+- [x] Build declaration visibility, same-name indices, dependencies, and SCCs
       in one pass with append-efficient builders.
 - [ ] Transport reusable immutable scope facts to resolution, inference,
       analyzer, free-variable, and runtime-scope consumers only where their
@@ -782,18 +786,84 @@ inference, analyzer, nested free-variable, and runtime-scope analysis path.
 `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Preserve the existing generated interleaved-recursive curve as the full
+- [x] Preserve the existing generated interleaved-recursive curve as the full
       compiler baseline and add a direct deterministic fact-builder probe only
       if the existing corpus does not isolate same-name/visibility growth.
-- [ ] Build ascending same-name declaration indices with prepend-and-finalize
+- [x] Build ascending same-name declaration indices with prepend-and-finalize
       or another append-efficient representation.
-- [ ] Thread the visible-before set through the source-order dependency fold so
+- [x] Thread the visible-before set through the source-order dependency fold so
       each declaration extends it once instead of rescanning all declarations.
-- [ ] Preserve nearest-prior, outer-shadowing, same-name self-cell, first-future,
+- [x] Preserve nearest-prior, outer-shadowing, same-name self-cell, first-future,
       nested-scope, SCC, and source-order contracts exactly.
-- [ ] Run the recursive-binding and generated-stage suites, capture compatible
+- [x] Run the recursive-binding and generated-stage suites, capture compatible
       before/after optimized plus stable-stage/hotspot/heap evidence, commit the
       batch, and then promote immutable fact transport.
+
+#### Recursive dependency builder receipt
+
+The focused generated same-name fixture landed in `be27c6f5`, and the 13-line
+source-order fact-builder change landed in `e130feb5`. Same-name indices now
+prepend in constant time and reverse once; the dependency fold carries the
+visible-before name set forward once per declaration. The complete recursive
+binding and generated-stage suites pass, preserving exact rebinding output,
+outer shadowing, self-cell ownership, nested scope behavior, SCC membership,
+and declaration order.
+
+The compatible same-name receipts are
+`benchmark-results/compiler-recursive-rebindings-before/compiler-recursive-rebindings-before/20260811T052510169170000000Z/`
+and
+`benchmark-results/compiler-recursive-rebindings-after/compiler-recursive-rebindings-after/20260811T052956208547000000Z/`.
+After excluding run identity, revision, timestamp, and the intentional label,
+their environment metadata is identical and both source trees were clean.
+
+| Bindings | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before copied | After copied |
+| -------: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ------------: | -----------: |
+|      128 |     1.160 |    0.970 |            1.2x |         5,312,580 |        4,420,694 |                   1.2x |       414,975 |      296,245 |
+|      256 |     4.190 |    3.625 |            1.2x |        17,485,257 |       13,866,473 |                   1.3x |     2,475,124 |    2,090,238 |
+|      512 |    12.632 |   10.974 |            1.2x |        62,409,024 |       47,831,117 |                   1.3x |     6,594,014 |    5,872,015 |
+|    1,024 |    37.804 |   33.687 |            1.1x |       238,720,243 |      175,790,702 |                   1.4x |    11,604,551 |   11,126,921 |
+
+At 1,024 bindings, the optimized high-water fell from 21 MB to 20 MB. In the
+standalone stable-stage profile, elapsed time fell from 74.1 ms to 59.0 ms,
+process allocation from 15,277,971,656 to 10,685,195,952 bytes, maximum
+residency from 5,828,104 to 5,733,448 bytes, and the independent heap census
+from 4,055,232 to 4,029,360 bytes. The pre-change hotspot attributed
+1,910,204,336 bytes to list append; that cost centre disappears from the
+post-change leaders. Artifacts are under
+`profile-results/compiler-recursive-facts-{before,after}/`.
+
+The compatible interleaved-group curve is intentionally reported as neutral:
+at 128 groups it changed from 19.699 ms / 55,495,528 bytes to 19.762 ms /
+55,577,449 bytes. This confirms that the win belongs to repeated same-name and
+visible-prefix construction rather than the already-optimized preview path.
+
+### Task 4b: Transport immutable recursive scope facts
+
+Module resolution, type inference, the analyzer, nested free-variable walks,
+and runtime scope planning still rebuild the same declaration names,
+dependencies, and SCC projection independently. Outer visibility affects
+forward-edge suppression, so facts may be shared only when the consumer's
+projected outer-name set is equivalent; a global AST-keyed memo would retain
+trees and is not acceptable.
+
+**Files:** `src/Jazz/Compiler/RecursiveBindings.hs`,
+`src/Jazz/Compiler/ModuleResolver.hs`,
+`src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/Analyzer.hs`,
+`src/Jazz/Compiler/Runtime/ScopePlan.hs`, and focused semantic/benchmark tests.
+
+- [ ] Instrument a deterministic pipeline probe that counts recursive fact
+      construction per owned scope without asserting elapsed time.
+- [ ] Separate outer-independent declaration/free-name indices from the small
+      outer-visibility projection that resolves local dependency edges.
+- [ ] Define an opaque immutable scope-fact product with exact statement-order
+      ownership and no retained parent AST beyond the statements already owned
+      by the active artifact.
+- [ ] Thread facts only through resolver/inference/analyzer/runtime boundaries
+      whose projected outer visibility matches; preserve existing standalone
+      entry points by building and validating facts locally.
+- [ ] Preserve diagnostics, rebinding selection, nested scope behavior, binder
+      identity, runtime scope plans, and exact artifacts; capture before/after
+      curves and residency before promoting lambda capture plans.
 
 ## Task 5: Index interfaces and compact compiled lifetime
 
