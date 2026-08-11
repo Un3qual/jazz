@@ -86,6 +86,7 @@ recursionTests =
     , ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError)
     , ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer)
     , ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility)
+    , ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility)
     , ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion)
     , ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError)
     , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
@@ -470,6 +471,42 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
                   ( EPatternCase
                       (ELit (LBool True))
                       [CaseArm (PVariable "apparent") Nothing (EVar "apparent")]
+                  )
+              ]
+          ),
+        SExpr (SourceSpan 1 1) (EVar "f")
+      ]
+
+testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
+testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
+  let plan =
+        buildRuntimeScopePlan
+          Set.empty
+          Nothing
+          ResolveKernelOnly
+          Set.empty
+          witnessStatements
+  assertEqual "definition-site witness is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
+  assertEqual "definition-site witness gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
+  result <- runSource defaultWarningSettings executableWitnessSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+  where
+    executableWitnessSource =
+      "f = { target = \\(x) -> if x == 0 then 0 else f (x - 1). alias = target. case True { | target -> alias }. }. f 1."
+    witnessStatements =
+      [ SLet
+          "f"
+          (SourceSpan 1 1)
+          ( EBlock
+              [ SLet "target" (SourceSpan 1 1) (ELambda "x" (EVar "f")),
+                SLet "alias" (SourceSpan 1 1) (EVar "target"),
+                SExpr
+                  (SourceSpan 1 1)
+                  ( EPatternCase
+                      (ELit (LBool True))
+                      [CaseArm (PVariable "target") Nothing (EVar "alias")]
                   )
               ]
           ),

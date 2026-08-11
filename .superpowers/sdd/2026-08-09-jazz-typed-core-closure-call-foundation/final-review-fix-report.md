@@ -121,3 +121,65 @@ An optional whole-file Ormolu check performed during Finding 1 reported pre-exis
 ## Concerns
 
 None within the required scope. The intentionally excluded broad gates remain unrun, and the optional out-of-scope whole-file formatting differences remain untouched.
+
+## Round 1 re-review: definition-site bound-name ownership
+
+### Finding
+
+The first pattern-binder fix correctly stopped an arm-bound name from resolving through an earlier same-named callable, but `exprContainsFunctionBranch` then carried that arm's `boundNames` backward when following any scope alias. An alias initializer defined before the case arm therefore lost its own lexical environment.
+
+The concrete witness is:
+
+```jazz
+f = {
+  target = \(x) -> f.
+  alias = target.
+  case True { | target -> alias }.
+}.
+f.
+```
+
+Here the arm pattern binds only the arm body's `target`. The `target` reference in the earlier `alias = target` initializer must resolve to the earlier lambda.
+
+### TDD RED
+
+The canonical regression encodes the witness directly and expects the legitimate singleton recursive group `(0,[0])`. Before the production fix, the serialized focused run failed only the new assertion:
+
+```text
+pattern-bound use site does not hide an alias initializer's prior callable:
+expected fromList [(0,[0])], got fromList []
+```
+
+The runtime regression builds a scope plan from the same witness, requires both recursive-group and self-recursive-function visibility, and runs a finite source analogue that forces the recursive closure. Before the production fix, the serialized runtime run failed only the new plan assertion:
+
+```text
+definition-site witness is a runtime recursive group: expected True, got False
+```
+
+Commands:
+
+```text
+nix --extra-experimental-features 'nix-command flakes' develop --command cabal test recursive-bindings-spec --test-show-details=failures --jobs=1
+nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec --test-show-details=failures --jobs=1
+```
+
+### Implementation
+
+Each `ScopeBindingExpr` now retains the bound-name set from its initializer's definition site. `scopeStatementContexts` captures that environment when it records a scope binding. Every binding-follow path restores the recorded environment instead of inheriting the alias use site's environment:
+
+- canonical `exprContainsFunctionBranch` callable recognition;
+- recursive-cell alias ownership analysis;
+- non-alias reference ownership analysis.
+
+The case-arm body still receives its extended pattern-bound environment, preserving the original false-positive fix. Only traversal into an earlier binding initializer switches back to the initializer's recorded environment.
+
+### GREEN and mutation evidence
+
+After the implementation, both focused suites passed. The executable runtime source completed without compile/runtime diagnostics and returned `0`, proving that the resulting closure received legitimate recursive visibility.
+
+A compile-valid mutation then changed only canonical scope-alias traversal back to the alias use-site `boundNames` environment. Under that mutation:
+
+- `recursive-bindings-spec` compiled and again failed with `expected fromList [(0,[0])], got fromList []`;
+- `runtime-semantics-spec` compiled and again failed with `expected True, got False` for recursive runtime-group visibility.
+
+The definition-site traversal was restored, and both focused suites passed again. No broad/full Cabal build or suite, main functional gate, or Nix flake gate was run.

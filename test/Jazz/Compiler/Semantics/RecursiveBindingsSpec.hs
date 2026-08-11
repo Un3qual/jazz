@@ -54,6 +54,7 @@ tests =
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
     ("recursive groups keep pattern binders from resolving through prior callables", testRecursiveGroupsRespectPatternBinderFunctionShadowing),
+    ("recursive groups resolve aliases in their definition-site pattern scope", testRecursiveGroupsRespectAliasDefinitionPatternScope),
     ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
@@ -272,6 +273,28 @@ testRecursiveGroupsRespectPatternBinderFunctionShadowing =
             ( EPatternCase
                 (ELit (LBool True))
                 [CaseArm (PVariable apparentName) Nothing (EVar apparentName)]
+            )
+        ]
+
+testRecursiveGroupsRespectAliasDefinitionPatternScope :: IO ()
+testRecursiveGroupsRespectAliasDefinitionPatternScope =
+  assertEqual
+    "pattern-bound use site does not hide an alias initializer's prior callable"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
+  where
+    functionName = ident "f"
+    targetName = ident "target"
+    aliasName = ident "alias"
+    functionBody =
+      EBlock
+        [ SLet targetName span0 (ELambda (ident "x") (EVar functionName)),
+          SLet aliasName span0 (EVar targetName),
+          SExpr
+            span0
+            ( EPatternCase
+                (ELit (LBool True))
+                [CaseArm (PVariable targetName) Nothing (EVar aliasName)]
             )
         ]
 

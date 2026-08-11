@@ -415,13 +415,14 @@ data ScopeBindingExpr =
     Name
     Expr
     [ScopeBindingExpr]
+    (Set Name)
     [Int]
 
 data ScopeStatementContext =
   ScopeStatementContext Statement [ScopeBindingExpr] [Int]
 
-scopeStatementContexts :: [Int] -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
-scopeStatementContexts scopePath = go 0
+scopeStatementContexts :: [Int] -> Set Name -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
+scopeStatementContexts scopePath bindingBoundNames = go 0
   where
     go _ _ [] = []
     go statementIndex visibleBindings (statement : rest) =
@@ -434,6 +435,7 @@ scopeStatementContexts scopePath = go 0
                   bindingName
                   valueExpr
                   visibleBindings
+                  bindingBoundNames
                   statementPath
                   : visibleBindings
               _ -> visibleBindings
@@ -446,7 +448,7 @@ lookupScopeBinding requestedName =
   go
   where
     go [] = Nothing
-    go (binding@(ScopeBindingExpr _ bindingName _ _ _) : rest)
+    go (binding@(ScopeBindingExpr _ bindingName _ _ _ _) : rest)
       | bindingName == requestedName = Just binding
       | otherwise = go rest
 
@@ -462,11 +464,11 @@ exprContainsFunctionBranch =
           | Set.member bindingName boundNames -> False
           | otherwise ->
               case lookupScopeBinding bindingName scopeBindings of
-                Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
+                Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
                   | Set.notMember identity visitedBindings ->
                       go
                         bindingPath
-                        boundNames
+                        bindingBoundNames
                         priorBindings
                         (Set.insert identity visitedBindings)
                         bindingExpr
@@ -489,7 +491,7 @@ exprContainsFunctionBranch =
             )
             (zip [0 ..] caseArms)
         EBlock statements ->
-          case reverse (scopeStatementContexts expressionPath scopeBindings statements) of
+          case reverse (scopeStatementContexts expressionPath boundNames scopeBindings statements) of
             ScopeStatementContext (SExpr _ terminalExpr) terminalBindings terminalPath : _ ->
               go terminalPath boundNames terminalBindings visitedBindings terminalExpr
             _ -> False
@@ -530,11 +532,11 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
               then noSummary
               else
                 case lookupScopeBinding name scopeBindings of
-                  Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
+                  Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
                     | Set.notMember identity visitedBindings ->
                         aliasSummary
                           bindingPath
-                          boundNames
+                          bindingBoundNames
                           priorBindings
                           (Set.insert identity visitedBindings)
                           bindingExpr
@@ -584,7 +586,7 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                 let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBlock blockStatements ->
-          let contexts = scopeStatementContexts expressionPath scopeBindings blockStatements
+          let contexts = scopeStatementContexts expressionPath boundNames scopeBindings blockStatements
               (eagerStatements, terminalSummary) =
                 case reverse contexts of
                   ScopeStatementContext (SExpr _ terminalExpr) terminalBindings terminalPath : reversedLeadingStatements ->
@@ -692,7 +694,7 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
             noSummary
             [ summary
               | ScopeStatementContext statement statementBindings statementPath <-
-                  scopeStatementContexts expressionPath scopeBindings blockStatements,
+                  scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
                 summary <-
                   case statement of
                     SLet _ _ valueExpr ->
@@ -715,11 +717,11 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
       | Set.member name boundNames = noSummary
       | otherwise =
           case lookupScopeBinding name scopeBindings of
-            Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingPath)
+            Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
               | Set.notMember identity visitedBindings ->
                   nonAliasSummary
                     bindingPath
-                    boundNames
+                    bindingBoundNames
                     priorBindings
                     (Set.insert identity visitedBindings)
                     bindingExpr
