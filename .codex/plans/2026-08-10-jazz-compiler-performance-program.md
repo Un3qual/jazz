@@ -1,27 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-CONSTRAINT-BUFFERS-006
+id: JN-COMPILER-PERFORMANCE-RECURSIVE-PREVIEWS-007
 status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3d: Make constraint storage and deduplication append-efficient"
+plan_section: "Task 3e: Reuse recursive-group previews"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/State.hs
-  - src/Jazz/Compiler/TypeInference/Capabilities.hs
   - src/Jazz/Compiler/TypeInference/Scope.hs
-  - src/Jazz/Compiler/TypeInference/TypeOps.hs
-  - src/Jazz/Compiler/TypeInference.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs
   - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
   - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-constraints --time-mode=cpu --jazz-scale-case=constrained-signatures-0032 --jazz-scale-case=constrained-signatures-0064 --jazz-scale-case=constrained-signatures-0128 --jazz-scale-case=constrained-signatures-0256 +RTS -T -RTS' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-previews --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Use append-efficient deferred-constraint storage, explicit inferred/deferred cursors, and stable ordered-set deduplication while preserving exact constraint and diagnostic order."
+deliverable: "Reuse recursive-group preview inference across semantically equivalent intervening statements so each future body is inferred once per necessary environment state, preserving transactional output, diagnostics, and type-variable identity."
 last_verified: 2026-08-10
 ---
 
@@ -621,25 +617,98 @@ linear `elem` inside a fold while preserving last-occurrence order.
 `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Characterize exact deferred/inferred insertion order, statement rollback,
+- [x] Characterize exact deferred/inferred insertion order, statement rollback,
       captured-constraint pruning, duplicate last-occurrence order, and error
       ordering before changing representation.
-- [ ] Store deferred constraints in an append-efficient sequence and carry
+- [x] Store deferred constraints in an append-efficient sequence and carry
       explicit deferred/inferred counts in `InferenceOutput`. Use stored counts
       for statement deltas and rollback cursors instead of rescanning list
       spines.
-- [ ] Replace ordered quadratic scheme-constraint deduplication with an
+- [x] Replace ordered quadratic scheme-constraint deduplication with an
       `Ord`-backed seen set while retaining the current last-occurrence order.
-- [ ] Keep chronological public accessors and newest-first inferred storage
+- [x] Keep chronological public accessors and newest-first inferred storage
       unchanged; preserve preview transactions, failed-application rollback,
       captured pruning, scheme constraints, and diagnostics exactly.
-- [ ] Run the focused semantic suites, commit the implementation, and record a
+- [x] Run the focused semantic suites, commit the implementation, and record a
       compatible constrained-signature curve plus stable-stage, hotspot, and
       live-heap evidence for 256 declarations.
 
+### Constraint-buffer receipt
+
+The representation change landed in `2c5e6b92`. Deferred constraints now use
+an append-efficient `Seq`; `InferenceOutput` carries explicit deferred and
+inferred counts for statement cursors and rollback; and stable-last scheme
+constraint deduplication uses an `Ord`-backed seen set. Chronological deferred
+accessors, newest-first inferred storage, preview rollback, failed-application
+rollback, captured pruning, and diagnostic order remain unchanged. A direct
+inference-output test fixes the two public orders and both cursor values. The
+complete binding-signature and generated-stage suites pass.
+
+The original constrained-signature declaration curve is intentionally reported
+as neutral: at 256 declarations it changed from 4.910 ms / 14,918,935 bytes to
+5.154 ms / 14,966,566 bytes. The CPU distributions overlap and allocation grew
+by 0.3%, because that source finalizes one constraint at a time and does not
+exercise a growing deferred buffer. Stable-stage allocation remained 23 MB per
+operation. Maximum residency changed from 3,218,672 to 3,201,248 bytes, and the
+separate sampled heap peak changed from 2,140,320 to 2,167,408 bytes. The
+compatible artifacts are under `benchmark-results/compiler-constraints/` and
+`profile-results/compiler-constraints-{before,after}/`.
+
+The focused deferred-use burst added in `912734f9` instantiates one constrained
+scheme repeatedly inside a single expression, so restoring `old ++ new` makes
+the curve quadratic. The clean compatible receipts are
+`benchmark-results/compiler-constraint-burst-before-clean/20260811T045148544001000000Z/`
+and
+`benchmark-results/compiler-constraint-burst-after/20260811T045224214240000000Z/`.
+After excluding run identity, revision, and the intentionally distinct label,
+their environment metadata is identical and both trees are clean.
+
+| Uses | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before copied | After copied |
+| ---: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ------------: | -----------: |
+|  128 |     0.406 |    0.352 |            1.2x |         1,768,345 |        1,341,274 |                   1.3x |        60,258 |       35,002 |
+|  256 |     0.912 |    0.602 |            1.5x |         4,007,321 |        2,237,210 |                   1.8x |       391,522 |      110,878 |
+|  512 |     4.803 |    1.187 |            4.0x |        11,246,039 |        4,036,842 |                   2.8x |     4,945,818 |      394,267 |
+| 1024 |    18.532 |    3.487 |            5.3x |        37,627,755 |        7,751,943 |                   4.9x |    24,152,763 |    2,460,237 |
+
+From 128 to 1,024 uses, CPU/allocation growth fell from 45.7x / 21.3x to
+9.9x / 5.8x. Peak memory at 1,024 uses fell from 47 MB to 14 MB. This is the
+earned signal for the representation change; the neutral declaration curve is
+retained to show that the optimization did not manufacture a gain outside its
+target workload.
+
+## Task 3e: Reuse recursive-group previews
+
+At an intervening let, `exposeVisibleRecursiveGroupSchemes` transactionally
+infers every later member of each spanning recursive group, discards its output,
+and later repeats the same future bodies at subsequent intervening lets and in
+the real source-order traversal. The interval index removed unrelated-group
+scans, but it deliberately did not remove this duplicate body inference.
+
+**Files:** `src/Jazz/Compiler/TypeInference/Scope.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Characterize the exact environment facts, solver watermark, output
+      rollback, diagnostics, signatures, rebindings, and dependency guards that
+      make two recursive previews reusable or distinct.
+- [ ] Add a focused probe that counts future recursive-body inference across
+      multiple safe intervening lets and demonstrates the old repeated-work
+      growth without asserting wall-clock time.
+- [ ] Cache an immutable preview product at the narrowest semantically valid
+      scope. Reuse it only when referenced bindings, capability facts, pending
+      signatures, and solver identities are equivalent; keep the existing path
+      for genuinely distinct environments.
+- [ ] Preserve the allocation watermark and discard all speculative diagnostics,
+      runtime hints, deferred constraints, inferred constraints, and production
+      artifacts exactly as today.
+- [ ] Run the complete binding-signature and generated-stage suites, then record
+      a compatible interleaved-recursive-group curve plus stable-stage, hotspot,
+      and live-heap evidence for the largest case.
+
 ## Task 3: Remove type-checker asymptotic work
 
-- [ ] Replace append/length delta tracking with append-efficient buffers and
+- [x] Replace append/length delta tracking with append-efficient buffers and
       explicit cursors while preserving constraint order.
 - [ ] Infer each recursive body once per necessary environment state and cache
       reusable group results.
@@ -648,7 +717,7 @@ linear `elem` inside a fold while preserving last-occurrence order.
 - [x] Replace repeated substitution-chain resolution with an `IntMap`-backed
       zonk/compression boundary and avoid re-resolving child subtrees during
       recursive unification.
-- [ ] Replace ordered linear constraint membership with stable-identity sets
+- [x] Replace ordered linear constraint membership with stable-identity sets
       while emitting constraints in original order.
 
 ## Task 4: Reuse recursive scope and lambda capture facts
