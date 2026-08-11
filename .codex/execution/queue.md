@@ -12,16 +12,14 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-COMPILER-PERFORMANCE-FOLLOW-UP-001` | Remove remaining measured compiler/runtime scaling costs | `P1` | `L` | `impl` | `yes` | `-` | [Follow-up plan](../plans/2026-08-11-jazz-performance-follow-up.md) | `Task 1` | `src/Jazz/Compiler/Force.hs`, `benchmark/Jazz/Benchmark/StageInputs.hs`, `test/Jazz/Compiler/ProfilingSpec.hs`, `test/Jazz/Benchmark/StageSpec.hs` | Correct benchmark ownership, remove evidence-backed asymptotic/allocation paths, and publish comparable receipts without semantic changes. | `JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-08-11` |
 
-Current executor status (`2026-08-11`): the compiler performance and memory
-program is complete on `codex/compiler-performance-program`. `ae69e77a` forces
-the complete main phase inside release verification, and `a546bac6` removes the
-remaining same-name recursive dependency-history scan. At 1,024 rebindings the
-compatible curve cut allocation from 93.9 MB to 14.4 MB and CPU from 20.675 ms
-to 8.674 ms while preserving focused semantics. The mandatory
-`0.1.0-alpha.2` release passed at clean revision `c1a45073`, and independent
-re-review found no remaining blocker. The next executable item must be promoted
-from the bootstrap scalar-binding curation target below.
+Current executor status (`2026-08-11`): the follow-up compiler performance
+program is active on `codex/compiler-performance-program`. It starts by fixing
+the analysis benchmark ownership boundary, then proceeds through generated,
+semantics-locked runtime, validation, lexer, Typed Core, constructor, and
+capability batches. Heavy commands remain serialized and the branch requires
+one fresh full closeout after its final source change.
 
 ## Next Curation Target
 
