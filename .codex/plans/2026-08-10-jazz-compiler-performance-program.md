@@ -1,23 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-INTERFACE-REBASE-012
+id: JN-COMPILER-PERFORMANCE-INFERENCE-LIFETIME-014
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 5b: Cache imported interfaces"
+plan_section: "Task 5d: Finalize ordinary inference before analysis"
 target_paths:
-  - src/Jazz/Compiler/ModuleCompiler.hs
-  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test module-pipeline-contract-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-interface-rebase --time-mode=cpu --jazz-scale-case=wide-module-fanout-0008x0016 --jazz-scale-case=wide-module-fanout-0016x0016 --jazz-scale-case=wide-module-fanout-0032x0016 --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
+  - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-inference-lifetime --time-mode=cpu --jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512 --pattern=module-preparation +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Cache the ambient-prelude import and canonical whole dependency imports during program compilation so unchanged schemes, types, data declarations, and capability facts are rebased once while preserving selective/aliased imports, diagnostics, ordering, binder identity, and artifacts."
-last_verified: 2026-08-10
+deliverable: "Compact ordinary inference outputs before the separate analyzer walk so the full InferState is not live across analysis, while keeping the Typed Core producer's stateful path and all diagnostics, ordering, interfaces, and artifacts exact."
+last_verified: 2026-08-11
 ---
 
 # Jazz Compiler Performance and Memory Program
@@ -1000,22 +1000,71 @@ the independent heap census moved slightly upward from 10,128,048 to
 
 ### Task 5b: Cache imported interfaces
 
-- [ ] Record a clean indexed `wide-module-fanout` width-16 curve plus
+- [x] Record a clean indexed `wide-module-fanout` width-16 curve plus
       stable-stage/hotspot/heap evidence before changing interface ownership.
-- [ ] Canonicalize interface names and cache ambient prelude/dependency rebases
+- [x] Canonicalize interface names and cache ambient prelude/dependency rebases
       so module compilation does not deep-copy unchanged schemes/declarations.
-- [ ] Preserve selective and aliased imports, export inventories, diagnostics,
+- [x] Preserve selective and aliased imports, export inventories, diagnostics,
       source order, binder identity, hosted parity, and exact artifacts.
-- [ ] Run focused module-pipeline and generated-stage suites, capture compatible
+- [x] Run focused module-pipeline and generated-stage suites, capture compatible
       after evidence, and promote compiled-artifact lifetime reduction.
+
+The shared-interface fixture landed in `f1686154`, and the cache implementation
+landed in `6f68bc85`. Program compilation now creates the ambient-prelude import
+once and stores a lazy canonical whole-import view beside each transient
+dependency-index entry. Unqualified whole imports share that view; selective or
+aliased imports retain the existing filtered rebase path. The cache is discarded
+with compilation and does not change `CompiledModule` or serialized artifacts.
+
+At 128 dependents importing the same 16-export interface, CPU fell from
+13.90 ms to 9.51 ms (31.6%), allocation from 46,013,414 to 40,741,222 bytes
+(11.5%), copied bytes from 8,096,367 to 3,992,719 (50.7%), and peak from 16 MB
+to 10 MB (37.5%). On the original 64 x 16 graph, CPU fell from 19.03 ms to
+17.44 ms, allocation from 65,862,020 to 63,681,229 bytes, copied bytes from
+10,986,302 to 9,538,352, and peak from 17 MB to 16 MB. The stable profile's
+exact maximum residency fell from 4,557,200 to 4,442,784 bytes, and the
+independent heap census fell from 3,423,768 to 3,225,344 bytes. Artifacts are
+under `benchmark-results/compiler-{interface-rebase,shared-interface}-{before,after}/`
+and `profile-results/compiler-interface-rebase-{before,after}/`.
 
 ### Task 5c: Compact compiled lifetime
 
-- [ ] Split runtime/debug metadata from full resolved/compiled AST retention and
+- [x] Split runtime/debug metadata from full resolved/compiled AST retention and
       remove the aggregate diagnostic spine where per-module order can be consumed
       directly.
-- [ ] Finalize ordinary inference into the compact interface/solver result
-      before analyzer work; retain the full state only for Typed Core production.
+
+The compact record landed in `52491d8a`. `CompiledModule` now retains only its
+path, import descriptors, public export inventory, inferred interface,
+diagnostics, and executable inferred expression. It no longer retains the
+source path, declared header metadata, or the complete pre-inference Core AST
+through `ResolvedModule`. `CompiledProgram` computes the canonical prelude-then-
+module diagnostic stream on demand instead of owning a second list spine. The
+analysis benchmark resolves its entry module separately during untimed setup,
+so production ownership is not distorted for benchmarking convenience.
+
+The width-16 curve remained physically flat, as expected: peak compilation
+still includes the resolved tree while producing the compact result. At 64
+modules, allocation changed from 63,681,229 to 63,681,742 bytes and peak stayed
+at 16 MB. Stable exact maximum residency moved from 4,442,784 to 4,434,216
+bytes, and the independent heap census from 3,225,344 to 3,219,688 bytes.
+The receipt therefore claims a durable post-compilation ownership reduction,
+not a compile-time CPU or peak-memory win. Artifacts are under
+`benchmark-results/compiler-artifact-lifetime-after/` and
+`profile-results/compiler-artifact-lifetime-after/`; the compatible before
+receipt is the interface-cache after artifact above.
+
+### Task 5d: Finalize ordinary inference before analysis
+
+- [ ] Capture a fresh sequential-polymorphic module-preparation curve plus
+      stable-stage/hotspot/heap evidence showing final inference state live
+      across the analyzer boundary.
+- [ ] Compact and container-force only the diagnostics, runtime hints, and
+      module interface required by ordinary inference before invoking analysis.
+- [ ] Keep the stateful Typed Core producer path unchanged and preserve exact
+      analyzer-first diagnostic ordering, inferred interfaces, runtime hints,
+      and artifacts.
+- [ ] Run binding-signature, generated-stage, typed-core, and profiling-focused
+      suites, capture compatible after evidence, and promote parser pass work.
 
 ## Task 6: Reduce parser/resolver passes and checked-boundary cleanup
 
