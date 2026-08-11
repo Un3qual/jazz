@@ -6,8 +6,10 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
@@ -51,6 +53,7 @@ tests =
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
+    ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
     ("recursive groups let a scalar block rebinding hide a prior callable", testRecursiveGroupsPreferLatestScalarBlockRebinding),
@@ -247,6 +250,31 @@ testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
       EBlock
         [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
           SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
+        ]
+
+testRecursiveGroupsKeepCallablePatternGuardSelfReference :: IO ()
+testRecursiveGroupsKeepCallablePatternGuardSelfReference =
+  assertEqual
+    "callable pattern-case guard owns its self-reference"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 patternCaseExpr)])
+  where
+    functionName = ident "f"
+    identityLambda = ELambda (ident "x") (EVar (ident "x"))
+    patternCaseExpr =
+      EPatternCase
+        (ELit (LInt 1))
+        [ CaseArm
+            (PLiteral (LInt 1))
+            ( Just
+                ( EBinary
+                    "=="
+                    (EApply (EVar functionName) (ELit (LInt 0)))
+                    (ELit (LInt 0))
+                )
+            )
+            identityLambda,
+          CaseArm PWildcard Nothing identityLambda
         ]
 
 testRecursiveGroupsFollowPriorBlockCallableRebinding :: IO ()

@@ -495,18 +495,27 @@ selfReferenceOwnsRecursiveCell =
 
 selfReferenceOwnsRecursiveCellWith :: (Expr -> Bool) -> Name -> Expr -> Bool
 selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateExpr =
-  not hasEagerPath
-    && (hasAliasPath || containsFunctionBranch candidateExpr)
+  (hasAliasPath && not hasEagerPath)
+    || (containsFunctionBranch candidateExpr && not hasCallableDisqualifyingEagerPath)
   where
-    (hasAliasPath, hasEagerPath) =
+    (hasAliasPath, hasEagerPath, hasCallableDisqualifyingEagerPath) =
       aliasSummary [] Set.empty [] Set.empty candidateExpr
 
-    noSummary = (False, False)
+    noSummary = (False, False, False)
 
-    combineSummaries (leftAliasPath, leftNonAliasPath) (rightAliasPath, rightNonAliasPath) =
+    combineSummaries
+      (leftAliasPath, leftNonAliasPath, leftCallableDisqualifyingPath)
+      (rightAliasPath, rightNonAliasPath, rightCallableDisqualifyingPath) =
       ( leftAliasPath || rightAliasPath,
-        leftNonAliasPath || rightNonAliasPath
+        leftNonAliasPath || rightNonAliasPath,
+        leftCallableDisqualifyingPath || rightCallableDisqualifyingPath
       )
+
+    -- A guard selects which callable case-arm body owns the binding. Keep it
+    -- eager for alias-only classification, but do not confuse that selection
+    -- with an unrelated eager statement before a callable result.
+    allowCallablePatternGuard (guardAliasPath, guardEagerPath, _) =
+      (guardAliasPath, guardEagerPath, False)
 
     aliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
@@ -526,12 +535,12 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                   Just _ -> noSummary
                   Nothing ->
                     if name == bindingName
-                      then (True, False)
+                      then (True, False, False)
                       else noSummary
         EOperatorValue operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol),
             operatorBindingName operatorSymbol == bindingName ->
-              (True, False)
+              (True, False, False)
         EOperatorValue {} -> noSummary
         ETypeApplication functionExpr _ _ ->
           aliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
@@ -549,7 +558,13 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
             [ combineSummaries
                 ( maybe
                     noSummary
-                    (nonAliasSummary (expressionPath <> [1, armIndex, 0]) armBoundNames scopeBindings visitedBindings)
+                    ( allowCallablePatternGuard
+                        . nonAliasSummary
+                          (expressionPath <> [1, armIndex, 0])
+                          armBoundNames
+                          scopeBindings
+                          visitedBindings
+                    )
                     guardExpr
                 )
                 ( aliasSummary
@@ -704,5 +719,5 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                     bindingExpr
             Just _ -> noSummary
             Nothing
-              | name == bindingName -> (False, True)
+              | name == bindingName -> (False, True, True)
               | otherwise -> noSummary
