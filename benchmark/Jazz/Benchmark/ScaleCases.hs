@@ -31,6 +31,7 @@ import System.FilePath (joinPath, (<.>), (</>))
 data CompilerScaleScenario
   = SequentialPolymorphicBindings
   | WideModuleFanout
+  | SharedInterfaceFanout
   | InterleavedRecursiveGroups
   | RecursiveRebindings
   | ConstrainedSignatures
@@ -77,6 +78,7 @@ compilerScaleCases =
   map sequentialPolymorphicCase [64, 128, 256, 512]
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
+    <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
@@ -229,6 +231,76 @@ valueName moduleIndex valueIndex =
     <> paddedDecimal 4 moduleIndex
     <> "Value"
     <> paddedDecimal 4 valueIndex
+
+sharedInterfaceFanoutCase :: Int -> Int -> CompilerScaleCase
+sharedInterfaceFanoutCase dependentCount interfaceWidth =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "shared-interface-fanout-"
+          <> paddedDecimal 4 dependentCount
+          <> "x"
+          <> paddedDecimal 4 interfaceWidth,
+      compilerScaleCaseScenario = SharedInterfaceFanout,
+      compilerScaleCaseSize = dependentCount,
+      compilerScaleCaseInterfaceWidth = Just interfaceWidth,
+      compilerScaleCaseBenchmarks = [ModulePreparationBenchmark, WholeProgramBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = sharedInterfaceSources dependentCount interfaceWidth,
+      compilerScaleCaseExpectedOutput = "0"
+    }
+
+sharedInterfaceSources :: Int -> Int -> Map FilePath Text
+sharedInterfaceSources dependentCount interfaceWidth =
+  Map.fromList
+    ( [ (scaleModuleRoot </> "Shared.jz", sharedInterfaceSource interfaceWidth),
+        (scaleModuleRoot </> "Main.jz", sharedInterfaceMainSource dependentCount)
+      ]
+        <> [ ( scaleModuleRoot </> "Dependent" </> Text.unpack (moduleName dependentIndex) <.> "jz",
+               sharedInterfaceDependentSource dependentIndex
+             )
+           | dependentIndex <- [0 .. dependentCount - 1]
+           ]
+    )
+
+sharedInterfaceSource :: Int -> Text
+sharedInterfaceSource interfaceWidth =
+  Text.unlines
+    ( ["module Shared {"]
+        <> [ "  "
+               <> sharedValueName valueIndex
+               <> " = "
+               <> Text.pack (show valueIndex)
+               <> "."
+           | valueIndex <- [0 .. interfaceWidth - 1]
+           ]
+        <> ["}"]
+    )
+
+sharedInterfaceDependentSource :: Int -> Text
+sharedInterfaceDependentSource dependentIndex =
+  Text.unlines
+    [ "module Dependent::" <> moduleName dependentIndex <> " {",
+      "  import Shared.",
+      "  " <> dependentValueName dependentIndex <> " = " <> sharedValueName 0 <> ".",
+      "}"
+    ]
+
+sharedInterfaceMainSource :: Int -> Text
+sharedInterfaceMainSource dependentCount =
+  Text.unlines
+    ( ["module Main {"]
+        <> [ "  import Dependent::" <> moduleName dependentIndex <> "."
+           | dependentIndex <- [0 .. dependentCount - 1]
+           ]
+        <> ["  " <> dependentValueName 0 <> ".", "}"]
+    )
+
+sharedValueName :: Int -> Text
+sharedValueName valueIndex = "sharedValue" <> paddedDecimal 4 valueIndex
+
+dependentValueName :: Int -> Text
+dependentValueName dependentIndex = "dependentValue" <> paddedDecimal 4 dependentIndex
 
 interleavedRecursiveGroupsCase :: Int -> CompilerScaleCase
 interleavedRecursiveGroupsCase groupCount =
