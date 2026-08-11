@@ -150,14 +150,18 @@ parseProgramStatements parseStatement context = do
 
 parseStatementsUntilBrace :: StatementParser -> StatementBlockParser
 parseStatementsUntilBrace parseStatement context = do
-  tokens <- MP.lookAhead MP.getInput
-  let scopeContext =
-        context
-          { parserKnownAliases =
-              Set.union
-                (parserKnownAliases context)
-                (collectImportAliasesUntilBrace tokens)
-          }
+  scopeContext <-
+    case parserStatementContext context of
+      NestedBlockContext -> pure context
+      _ -> do
+        tokens <- MP.lookAhead MP.getInput
+        pure
+          context
+            { parserKnownAliases =
+                Set.union
+                  (parserKnownAliases context)
+                  (collectImportAliasesUntilBrace tokens)
+            }
   go [] scopeContext
   where
     go reversedStatements currentContext = do
