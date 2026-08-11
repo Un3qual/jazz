@@ -199,6 +199,7 @@ typeSchemeDefiningFactsFromState state schemeConstraints =
         ]
 
 typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+typeSchemeReferencedCapabilityFacts [] _ = emptyScopeCapabilityFacts
 typeSchemeReferencedCapabilityFacts schemeConstraints facts =
   facts
     { scopeClassFacts =

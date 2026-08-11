@@ -33,6 +33,9 @@ import Jazz.Compiler.TypeInference.Signature
     expressionTypeToRuntimeTemplate,
     signaturePayloadToSignatureType
   )
+import Jazz.Compiler.TypeInference.Capabilities
+  ( typeSchemeReferencedCapabilityFacts
+  )
 import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
     hasOperatorRule
@@ -119,6 +122,7 @@ inferenceOwnershipTests =
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
     ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
+    ("empty scheme constraints do not traverse capability facts", testEmptySchemeConstraintsSkipCapabilityFacts),
     ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
     ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
     ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
@@ -288,6 +292,13 @@ testSchemeConstraintDeduplicationOrder =
   where
     repeatedConstraint = TypeSchemeConstraint "Eq" (TVarType 0)
     middleConstraint = TypeSchemeInferredConstraint "Ord" (TVarType 1)
+
+testEmptySchemeConstraintsSkipCapabilityFacts :: IO ()
+testEmptySchemeConstraintsSkipCapabilityFacts =
+  assertEqual
+    "empty constraints own no capability facts"
+    emptyScopeCapabilityFacts
+    (typeSchemeReferencedCapabilityFacts [] (error "empty constraints forced capability facts"))
 
 testTypeOpsCollectRecursiveFreeVariables :: IO ()
 testTypeOpsCollectRecursiveFreeVariables =
