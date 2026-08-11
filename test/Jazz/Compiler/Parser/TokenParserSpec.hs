@@ -68,6 +68,8 @@ tests =
     ("decodes Char and Text escapes", testDecodesCharAndTextEscapes),
     ("preserves derived and zero-padded lexemes", testPreservesDerivedAndZeroPaddedLexemes),
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
+    ("preserves first-character lexer dispatch contracts", testFirstCharacterLexerDispatch),
+    ("preserves lexer dispatch failure diagnostics", testLexerDispatchFailureDiagnostics),
     ("rejects malformed Char and Text literals", testRejectsMalformedCharAndTextLiterals),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
     ("renders expected Char and Text tokens in diagnostics", testLiteralTokenParserDiagnostics),
@@ -223,6 +225,91 @@ testPreservesQuotedLiteralLexemesAndSpans = do
     "literal lexemes and spans"
     [("'\\u{41}'", SourceSpan 1 1), ("\"a\\n\"", SourceSpan 1 10)]
     [(tokenLexeme token, tokenSpan token) | token <- tokens]
+
+testFirstCharacterLexerDispatch :: IO ()
+testFirstCharacterLexerDispatch = do
+  let source =
+        Text.unlines
+          [ "# leading comment",
+            "  'a'",
+            "\"text\"",
+            "007",
+            "alpha_2 _private # trailing comment",
+            ":: : @ = \\ . { } ( ) [ ] ,",
+            "== => != !~ <= << >= >> +++ -> -- ** // || %% && ?? ^^ ~~ $",
+            "# final comment"
+          ]
+  tokens <- lexSource source
+  assertEqual
+    "ordered lexer dispatch tokens"
+    [ (TChar 'a', "'a'", SourceSpan 2 3),
+      (TText "text", "\"text\"", SourceSpan 3 1),
+      (TInt 7, "007", SourceSpan 4 1),
+      (TIdentifier "alpha_2", "alpha_2", SourceSpan 5 1),
+      (TIdentifier "_private", "_private", SourceSpan 5 9),
+      (TColonColon, "::", SourceSpan 6 1),
+      (TColon, ":", SourceSpan 6 4),
+      (TAt, "@", SourceSpan 6 6),
+      (TEquals, "=", SourceSpan 6 8),
+      (TLambda, "\\", SourceSpan 6 10),
+      (TDot, ".", SourceSpan 6 12),
+      (TLBrace, "{", SourceSpan 6 14),
+      (TRBrace, "}", SourceSpan 6 16),
+      (TLParen, "(", SourceSpan 6 18),
+      (TRParen, ")", SourceSpan 6 20),
+      (TLBracket, "[", SourceSpan 6 22),
+      (TRBracket, "]", SourceSpan 6 24),
+      (TComma, ",", SourceSpan 6 26),
+      (TOperator "==", "==", SourceSpan 7 1),
+      (TOperator "=>", "=>", SourceSpan 7 4),
+      (TOperator "!=", "!=", SourceSpan 7 7),
+      (TOperator "!~", "!~", SourceSpan 7 10),
+      (TOperator "<=", "<=", SourceSpan 7 13),
+      (TOperator "<<", "<<", SourceSpan 7 16),
+      (TOperator ">=", ">=", SourceSpan 7 19),
+      (TOperator ">>", ">>", SourceSpan 7 22),
+      (TOperator "+++", "+++", SourceSpan 7 25),
+      (TArrow, "->", SourceSpan 7 29),
+      (TOperator "--", "--", SourceSpan 7 32),
+      (TOperator "**", "**", SourceSpan 7 35),
+      (TOperator "//", "//", SourceSpan 7 38),
+      (TOperator "||", "||", SourceSpan 7 41),
+      (TOperator "%%", "%%", SourceSpan 7 44),
+      (TOperator "&&", "&&", SourceSpan 7 47),
+      (TOperator "??", "??", SourceSpan 7 50),
+      (TOperator "^^", "^^", SourceSpan 7 53),
+      (TOperator "~~", "~~", SourceSpan 7 56),
+      (TOperator "$", "$", SourceSpan 7 59)
+    ]
+    [(tokenKind token, tokenLexeme token, tokenSpan token) | token <- tokens]
+
+testLexerDispatchFailureDiagnostics :: IO ()
+testLexerDispatchFailureDiagnostics =
+  mapM_
+    ( \(label, source, expectedSpan, expectedSummary) ->
+        case tokenize source of
+          Left diagnostic -> do
+            assertEqual (label <> " span") (Just expectedSpan) (diagnosticPrimarySpan diagnostic)
+            assertEqual (label <> " summary") expectedSummary (diagnosticSummary diagnostic)
+          Right tokens ->
+            failTest (label <> ": expected failure, got " <> Text.pack (show tokens))
+    )
+    [ ( "malformed character literal",
+        "'ab'",
+        SourceSpan 1 1,
+        "character literal must contain exactly one Unicode scalar"
+      ),
+      ( "unterminated text literal",
+        "  \"text",
+        SourceSpan 1 3,
+        "unterminated text literal"
+      ),
+      ( "unexpected character after ignored input",
+        "# ignored\n  `",
+        SourceSpan 2 3,
+        "unexpected character '`'"
+      )
+    ]
 
 testRejectsMalformedCharAndTextLiterals :: IO ()
 testRejectsMalformedCharAndTextLiterals = do
