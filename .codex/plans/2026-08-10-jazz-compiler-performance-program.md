@@ -1,24 +1,26 @@
 ---
 id: JN-COMPILER-PERFORMANCE-PROGRAM-001
-status: ready
+status: complete
 priority: P1
-size: S
+size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Independent review follow-up"
+plan_section: "Full closeout"
 target_paths:
-  - src/Jazz/Compiler/RecursiveBindings.hs
-  - scripts/ci/release-candidate.sh
-  - scripts/check-ci-policy.py
-  - scripts/test-check-ci-policy.py
+  - src/
+  - jazz/
+  - app/
+  - test/
+  - benchmark/
+  - scripts/ci/
   - PERFORMANCE.md
 verification:
-  - cabal test recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
   - JAZZ_RELEASE_VERSION=0.1.0-alpha.2 bash scripts/ci/release-candidate.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Force the complete main release gate, remove the remaining same-name recursive dependency scan, retain compatible physical evidence, and finish independent re-review."
+  - git diff --check
+deliverable: "Measured and removed the prioritized Jazz compiler CPU, allocation, and residency problems while preserving public semantics and exact artifacts."
 last_verified: 2026-08-11
 ---
 
@@ -1297,7 +1299,7 @@ It also found drift in the benchmark inventory in `PERFORMANCE.md`.
       generated smoke-fixture documentation.
 - [x] Run one fresh mandatory release candidate without a caller-controlled
       main phase and update the final receipts.
-- [ ] Obtain independent re-review of the follow-up range, close the queue row,
+- [x] Obtain independent re-review of the follow-up range, close the queue row,
       and mark this plan complete.
 
 The release-policy correction landed in `ae69e77a`, with all 111 behavior tests
@@ -1329,6 +1331,11 @@ hosted-parser scale families, two exact corpus passes, deterministic statistics
 and profiles, both GHC profiling builds, all 78 release benchmarks, benchmark
 metadata, source distribution, bounded Nix package build, and release evidence
 validation passed in one serialized invocation.
+
+Independent re-review confirmed the release-policy and same-name dependency
+findings resolved with no remaining blocker. A final review correction aligned
+the named allocation and copied-byte fields with the raw benchmark CSV; it did
+not change source code or invalidate the authoritative release receipt.
 
 ## Full closeout
 

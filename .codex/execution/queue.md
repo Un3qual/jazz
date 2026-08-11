@@ -10,18 +10,18 @@ public behavior.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id                                    | title                                         | priority | size | kind   | autonomous_ready | depends_on | plan                                                                                     | plan_section                   | target_paths                                                                                                                                                   | deliverable                                                                                                                                                            | verification                                                                                                                                                                                                                                      | last_verified |
-| ------------------------------------- | --------------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `JN-COMPILER-PERFORMANCE-PROGRAM-001` | Close independent performance review findings | `P1`     | `S`  | `impl` | `yes`            | `-`        | [Compiler performance program](../plans/2026-08-10-jazz-compiler-performance-program.md) | `Independent review follow-up` | `src/Jazz/Compiler/RecursiveBindings.hs`, `scripts/ci/release-candidate.sh`, `scripts/check-ci-policy.py`, `scripts/test-check-ci-policy.py`, `PERFORMANCE.md` | Force the complete main release gate, remove the remaining same-name recursive dependency scan, retain compatible physical evidence, and finish independent re-review. | `cabal test recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1`; `JAZZ_RELEASE_VERSION=0.1.0-alpha.2 bash scripts/ci/release-candidate.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh` | `2026-08-11`  |
+| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-08-11`): independent review reopened the compiler
-performance and memory program on `codex/compiler-performance-program`.
-`ae69e77a` forces the complete main phase inside release verification, and
-`a546bac6` removes the remaining same-name recursive dependency-history scan.
-At 1,024 rebindings the compatible curve cut allocation from 93.9 MB to 14.4 MB
-and CPU from 20.675 ms to 8.674 ms while preserving focused semantics. The
-fresh mandatory `0.1.0-alpha.2` release passed at clean revision `c1a45073`;
-independent re-review is the only remaining closure step.
+Current executor status (`2026-08-11`): the compiler performance and memory
+program is complete on `codex/compiler-performance-program`. `ae69e77a` forces
+the complete main phase inside release verification, and `a546bac6` removes the
+remaining same-name recursive dependency-history scan. At 1,024 rebindings the
+compatible curve cut allocation from 93.9 MB to 14.4 MB and CPU from 20.675 ms
+to 8.674 ms while preserving focused semantics. The mandatory
+`0.1.0-alpha.2` release passed at clean revision `c1a45073`, and independent
+re-review found no remaining blocker. The next executable item must be promoted
+from the bootstrap scalar-binding curation target below.
 
 ## Next Curation Target
 
