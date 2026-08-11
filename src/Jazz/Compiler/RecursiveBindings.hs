@@ -294,28 +294,33 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
     declarationStatementsByName =
-      foldl' collectDeclaration Map.empty declarationInfo
+      Map.map reverse (foldl' collectDeclaration Map.empty declarationInfo)
     baseDependencies =
       Map.fromList
         [ (statementIndex, Set.empty)
           | (statementIndex, _, _) <- declarationInfo
         ]
     dependenciesByStatement =
-      foldl' addBindingDependencies baseDependencies declarationInfo
+      snd
+        ( foldl'
+            addBindingDependencies
+            (outerBindingNames, baseDependencies)
+            declarationInfo
+        )
     graphNodes =
       [ (statementIndex, statementIndex, Set.toList dependencies)
         | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
 
     collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
-      Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
+      Map.insertWith (++) bindingNameText [statementIndex] declarationsByName
 
-    addBindingDependencies dependencies (statementIndex, bindingNameText, valueExpr) =
+    addBindingDependencies (visibleBindingNames, dependencies) (statementIndex, bindingNameText, valueExpr) =
       let localDependencyNames =
             Set.filter
               (`Map.member` declarationStatementsByName)
               ( freeVarsExprWithVisibleBindings
-                  (visibleBindingNamesBefore statementIndex)
+                  visibleBindingNames
                   Set.empty
                   valueExpr
               )
@@ -326,18 +331,9 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
                   Just dependencyStatementIndex <-
                     [resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName]
               ]
-       in
-        Map.insert statementIndex resolvedDependencies dependencies
-
-    visibleBindingNamesBefore statementIndex =
-      Set.union
-        outerBindingNames
-        ( Set.fromList
-            [ bindingName
-              | (candidateIndex, bindingName, _) <- declarationInfo,
-                candidateIndex < statementIndex
-            ]
-        )
+       in ( Set.insert bindingNameText visibleBindingNames,
+            Map.insert statementIndex resolvedDependencies dependencies
+          )
 
     resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
