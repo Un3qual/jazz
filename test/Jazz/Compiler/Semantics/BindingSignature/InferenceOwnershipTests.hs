@@ -131,6 +131,7 @@ inferenceOwnershipTests =
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
     ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
+    ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
@@ -536,6 +537,57 @@ testRecursivePreviewSolverStateIsTransactional =
         _ -> (Just TBoolType, state)
 
     previewSentinel = 1000000
+
+testRecursivePreviewRefreshesAfterSolverChange :: IO ()
+testRecursivePreviewRefreshesAfterSolverChange =
+  assertEqual
+    "intervening binding observes the refreshed recursive scheme"
+    0
+    (inferErrorCount finalState)
+  where
+    (_, finalState) =
+      inferScopeType
+        Set.empty
+        syntheticPreviewInfer
+        ResolveKernelOnly
+        (Map.singleton "shared" (PlainTypeBinding (TVarType sharedTypeVar)))
+        initialInferState
+        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
+          SLet "advance" (SourceSpan 2 1) (EVar "advanceSolver"),
+          SLet "probe" (SourceSpan 3 1) (EVar "probeLeft"),
+          SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "shared"))
+        ]
+
+    syntheticPreviewInfer :: InferExprFn
+    syntheticPreviewInfer _ env state expression =
+      case expression of
+        EVar "right" ->
+          (bindingType =<< Map.lookup "right" env, state)
+        EApply (EVar "left") (EVar "shared") ->
+          (resolveType state <$> (bindingType =<< Map.lookup "shared" env), state)
+        EVar "advanceSolver" ->
+          ( Just TBoolType,
+            case bindTypeVar sharedTypeVar TBoolType state of
+              Just nextState -> nextState
+              Nothing -> state
+          )
+        EVar "probeLeft" ->
+          ( Just TBoolType,
+            case Map.lookup "left" env of
+              Just (PlainTypeBinding TBoolType) -> state
+              _ ->
+                modifyInferenceOutput
+                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                  state
+          )
+        _ -> (Just TBoolType, state)
+
+    bindingType binding =
+      case binding of
+        PlainTypeBinding expressionType -> Just expressionType
+        _ -> Nothing
+
+    sharedTypeVar = 1000000
 
 testRecursivePreviewReuseAtSameFrontier :: IO ()
 testRecursivePreviewReuseAtSameFrontier =

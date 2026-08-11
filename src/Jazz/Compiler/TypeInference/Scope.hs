@@ -118,6 +118,7 @@ import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
     freeTypeVariablesInTypeSchemeConstraints,
+    freeTypeVariablesInTypeSchemePrimitiveConstraints,
     instantiateTypeSchemeConstraint,
     instantiateTypeSchemePrimitiveConstraint,
     replaceTypeVariables,
@@ -1180,7 +1181,8 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
               | otherwise ->
                   let previewKey = (firstMember, processedLastMember)
                    in case Map.lookup previewKey cacheAcc of
-                        Just cachedPreview ->
+                        Just cachedPreview
+                          | recursiveGroupPreviewIsCurrent stateAcc cachedPreview ->
                           let (nextEnv, nextFreeVariables) =
                                 applyRecursiveGroupPreview statementIndex envAcc freeVariablesAcc cachedPreview
                            in ( nextEnv,
@@ -1188,7 +1190,7 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                                 reserveRecursiveGroupPreviewState stateAcc cachedPreview,
                                 cacheAcc
                               )
-                        Nothing ->
+                        _ ->
                           case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
                             Nothing ->
                               (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
@@ -1213,17 +1215,20 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                                       (exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables previewState)
                                       (envAcc, freeVariablesAcc)
                                       processedMembers
+                                  previewBindings =
+                                    Map.fromList
+                                      [ (memberIndex, binding)
+                                        | memberIndex <- processedMembers,
+                                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
+                                          latestBindingIndexBefore statementIndex bindingName == Just memberIndex,
+                                          Just binding <- [Map.lookup bindingName nextEnv]
+                                      ]
                                   cachedPreview =
                                     RecursiveGroupPreview
-                                      { recursiveGroupPreviewBindings =
-                                          Map.fromList
-                                            [ (memberIndex, binding)
-                                              | memberIndex <- processedMembers,
-                                                Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
-                                                latestBindingIndexBefore statementIndex bindingName == Just memberIndex,
-                                                Just binding <- [Map.lookup bindingName nextEnv]
-                                            ],
-                                        recursiveGroupPreviewNextTypeVar = solverNextTypeVar (inferSolver previewState)
+                                      { recursiveGroupPreviewBindings = previewBindings,
+                                        recursiveGroupPreviewNextTypeVar = solverNextTypeVar (inferSolver previewState),
+                                        recursiveGroupPreviewDependencies =
+                                          recursiveGroupPreviewDependencyTypes stateAcc previewBindings
                                       }
                                   nextState = rollbackPreviewState stateAcc previewState
                                in (nextEnv, nextFreeVariables, nextState, Map.insert previewKey cachedPreview cacheAcc)
@@ -1257,6 +1262,34 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                         (recursiveGroupPreviewNextTypeVar cachedPreview)
                   }
             }
+
+        recursiveGroupPreviewIsCurrent stateAcc cachedPreview =
+          Map.foldlWithKey'
+            (\isCurrent typeVar expectedType -> isCurrent && resolveType stateAcc (TVarType typeVar) == expectedType)
+            True
+            (recursiveGroupPreviewDependencies cachedPreview)
+
+        recursiveGroupPreviewDependencyTypes stateAcc bindings =
+          Map.fromSet
+            (resolveType stateAcc . TVarType)
+            (Set.unions (map recursiveGroupPreviewBindingFreeVariables (Map.elems bindings)))
+
+        recursiveGroupPreviewBindingFreeVariables binding =
+          case binding of
+            PlainTypeBinding expressionType -> freeTypeVariables expressionType
+            SchemeTypeBinding typeScheme -> recursiveGroupPreviewSchemeFreeVariables typeScheme
+            OperatorAliasSchemeTypeBinding _ typeScheme -> recursiveGroupPreviewSchemeFreeVariables typeScheme
+            _ -> Set.empty
+
+        recursiveGroupPreviewSchemeFreeVariables typeScheme =
+          Set.difference
+            ( Set.unions
+                [ freeTypeVariables (schemeResultType typeScheme),
+                  freeTypeVariablesInTypeSchemeConstraints (schemeClassConstraints typeScheme),
+                  freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
+                ]
+            )
+            (schemeQuantifiedVariables typeScheme)
 
     interleavedBindingFeedsLaterGroup :: Int -> [Int] -> Bool
     interleavedBindingFeedsLaterGroup statementIndex groupMembers =
@@ -1442,7 +1475,8 @@ data ForwardFunctionBinding = ForwardFunctionBinding
 
 data RecursiveGroupPreview = RecursiveGroupPreview
   { recursiveGroupPreviewBindings :: Map Int TypeBinding,
-    recursiveGroupPreviewNextTypeVar :: Int
+    recursiveGroupPreviewNextTypeVar :: Int,
+    recursiveGroupPreviewDependencies :: Map Int ExpressionType
   }
 
 type RecursiveGroupPreviewCache = Map (Int, Int) RecursiveGroupPreview
