@@ -10,15 +10,16 @@ public behavior.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| id                                            | title                                  | priority | size | kind   | autonomous_ready | depends_on | plan                                                                                     | plan_section                                     | target_paths                                                                                                                                        | deliverable                                                                                                                                                                                    | verification                                                                                                                                                                                                                                                                                    | last_verified |
+| --------------------------------------------- | -------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `JN-COMPILER-PERFORMANCE-SCALE-BASELINES-001` | Add generated compiler scale baselines | `P1`     | `L`  | `impl` | `yes`            | `-`        | [Compiler performance program](../plans/2026-08-10-jazz-compiler-performance-program.md) | `Task 2: Add generated compiler scale scenarios` | `benchmark/Jazz/Benchmark/Stages.hs`, `benchmark/Jazz/Benchmark/StageInputs.hs`, `test/Jazz/Benchmark/StageSpec.hs`, `jazz.cabal`, `PERFORMANCE.md` | Add opt-in generated sequential-polymorphism and wide-module-fanout scale benchmarks with exact semantic tests, then record controlled pre-optimization CPU, allocation, and residency curves. | `cabal test benchmark-stage-spec --test-show-details=failures --jobs=1`; `cabal bench jazz-bench --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests' --jobs=1`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-08-10`  |
 
 Current executor status (`2026-08-10`): bounded heavyweight verification landed
-in `c2bbded9`, so `Ready Now` is empty. Generated compiler scale fixtures and
-controlled growth baselines are the next performance-program promotion
-candidate. The opt-in typed-core and lowering path remains unchanged: closed
-named functions as values, recursively represented unary closure
-parameters/results, explicit empty environments, and unary higher-order
+in `c2bbded9`. The first compiler-scale baseline child is ready: it owns the
+opt-in generated sequential-polymorphism and wide-module-fanout fixtures plus
+controlled physical evidence. The opt-in typed-core and lowering path remains
+unchanged: closed named functions as values, recursively represented unary
+closure parameters/results, explicit empty environments, and unary higher-order
 closure calls retain the scalar/direct-call regression baseline. Normal
 compile/run remains canonical-core/interpreter based. Scalar binding is still
 the next bootstrap curation target and is not promoted by the performance

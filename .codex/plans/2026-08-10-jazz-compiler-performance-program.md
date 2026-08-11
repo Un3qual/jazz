@@ -1,23 +1,25 @@
 ---
-id: JN-COMPILER-PERFORMANCE-PROGRAM-001
-status: active
+id: JN-COMPILER-PERFORMANCE-SCALE-BASELINES-001
+status: ready
 priority: P1
-size: XL
-kind: coordination
-autonomous_ready: no
-depends_on:
-  - JN-COMPILER-PERFORMANCE-VERIFICATION-FLOW-001
+size: L
+kind: impl
+autonomous_ready: yes
+depends_on: []
 plan_section: "Task 2: Add generated compiler scale scenarios"
 target_paths:
   - benchmark/Jazz/Benchmark/Stages.hs
   - benchmark/Jazz/Benchmark/StageInputs.hs
-  - test/Jazz/Compiler/
+  - test/Jazz/Benchmark/StageSpec.hs
   - jazz.cabal
+  - PERFORMANCE.md
 verification:
   - cabal test benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests' --jobs=1
   - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add generated compiler scale fixtures and record controlled pre-optimization growth, allocation, and residency baselines."
+deliverable: "Add opt-in generated sequential-polymorphism and wide-module-fanout scale benchmarks with exact semantic tests, then record controlled pre-optimization CPU, allocation, and residency curves."
 last_verified: 2026-08-10
 ---
 
@@ -165,20 +167,53 @@ controlled compiler baseline above and did not require a misleading physical
 
 ## Task 2: Add generated compiler scale scenarios
 
-**Files:** create focused generator/fixture owners under `test/Jazz/Compiler/`
-and `benchmark/Jazz/Benchmark/`; modify `benchmark/Jazz/Benchmark/Stages.hs`,
-`benchmark/Jazz/Benchmark/StageInputs.hs`, `jazz.cabal`, and focused benchmark
-tests.
+The first reviewable slice owns only sequential polymorphic bindings and wide
+module fanout. The remaining six matrix scenarios stay in Task 2 follow-up
+instead of inflating this child.
 
-- [ ] Add the eight scenarios from the matrix with exact small semantic
-      results, stable identifiers, selected size metadata, and no physical
-      thresholds.
-- [ ] Keep production-shaped corpus cases unchanged; generated cases are an
-      explicit compiler-scale benchmark family rather than fake corpus entries.
-- [ ] Add CLI selection that can run one scenario and one size, plus list-tests
-      coverage so profiling commands name exact leaves.
-- [ ] Record all pre-optimization curves one process at a time and prioritize B
-      and D using total allocation, maximum residency, and growth shape.
+**Files:** create `benchmark/Jazz/Benchmark/ScaleCases.hs`; modify
+`benchmark/Jazz/Benchmark/Stages.hs`, `benchmark/Jazz/Benchmark/StageInputs.hs`,
+`test/Jazz/Benchmark/StageSpec.hs`, `jazz.cabal`, and `PERFORMANCE.md`.
+
+- [ ] In `StageSpec.hs`, add a failing registry test for the literal identifiers
+      `sequential-polymorphic-bindings-{0064,0128,0256,0512}` and
+      `wide-module-fanout-{0008,0016,0032,0064}x0016`, including scenario and
+      size metadata. This catches missing sizes, unstable identities, or a
+      generator silently changing the interface width.
+- [ ] Add failing real-pipeline tests that compile and run the smallest generated
+      program from each scenario. Sequential polymorphism must produce
+      `(42, True)`; wide fanout must produce `0` with nine virtual sources at the
+      `8 x 16` size. Do not assert physical timing.
+- [ ] Implement `ScaleCases.hs` as a pure owner of `CompilerScaleCase`, scenario
+      metadata, deterministic source maps, module resolution configuration, and
+      source lookup. Generate virtual module paths in memory; do not create
+      corpus entries, checked-in fixtures, or temporary files.
+- [ ] Extend `StageInputs.hs` with prepared analysis, module-preparation, and
+      whole-program boundaries for compiler scale cases. Reuse the ordinary
+      compiler driver, forcing helpers, diagnostic rendering, compiled-module
+      lookup, and exact runtime-output checks; do not add production forcing.
+- [ ] Add failing command/selection tests for repeatable
+      `--jazz-scale-case=IDENTIFIER`, missing/duplicate/unknown values, and
+      rejection when mixed with `--jazz-case` or `--jazz-smoke`.
+- [ ] Extend `Stages.hs` with an opt-in `compiler-scale` benchmark tree. With no
+      scale selector, preserve the existing corpus tree, smoke selection, and
+      extended-gate workload exactly. Stable leaves must be addressable as
+      `All.compiler-scale.<group>.<identifier>` and recorded metadata must keep
+      the existing schema while listing the selected scale identifiers.
+- [ ] Add `ScaleCases.hs` to the benchmark and benchmark-stage test components;
+      add `Stages.hs` and `Metadata.hs` to the focused test component only if the
+      command parser tests require them. Document selector and exact leaf usage
+      in `PERFORMANCE.md`.
+- [ ] Run the focused test, exact `--list-tests` selector, CI/queue/docs checks,
+      and diff review serially; commit the implementation before physical runs.
+- [ ] Record CPU time, cumulative allocation, copied bytes, and peak memory for
+      all eight generated cases using one optimized benchmark process. Capture
+      RTS `-s`, stable stage, hotspot, and heap evidence for the largest case in
+      each scenario one process at a time. Record compatible environment and
+      command metadata without adding a timing threshold.
+- [ ] Update this receipt and leave the remaining six generated scenarios as the
+      next performance-program promotion candidate. Use the measured growth
+      curves to choose the first optimization batch rather than assuming B or D.
 
 ## Task 3: Remove type-checker asymptotic work
 
