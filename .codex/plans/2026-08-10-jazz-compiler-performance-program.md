@@ -1,26 +1,24 @@
 ---
-id: JN-COMPILER-PERFORMANCE-PROGRAM-001
-status: blocked
+id: JN-COMPILER-PERFORMANCE-SCALE-MATRIX-002
+status: ready
 priority: P1
-size: XL
+size: L
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
-plan_section: "Task 2: Add generated compiler scale scenarios follow-up"
+plan_section: "Task 2 follow-up: Complete the generated scale matrix"
 target_paths:
   - benchmark/Jazz/Benchmark/ScaleCases.hs
-  - benchmark/Jazz/Benchmark/Stages.hs
   - benchmark/Jazz/Benchmark/StageInputs.hs
   - test/Jazz/Benchmark/StageSpec.hs
-  - jazz.cabal
   - PERFORMANCE.md
 verification:
   - cabal test benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=long-token-stream-01024 --list-tests' --jobs=1
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Complete the remaining six generated compiler scale scenarios before promoting the first evidence-backed optimization child."
+deliverable: "Add the six remaining opt-in compiler scale families with exact semantic or parse-artifact tests, then record controlled CPU, allocation, and residency curves."
 last_verified: 2026-08-10
 ---
 
@@ -268,6 +266,57 @@ fanout grows module-preparation CPU 4.1x and allocation 3.1x; parser work and
 type inference dominate that profile, while `importSelectedInterface` is a
 smaller 19-tick / 105,475,608-byte signal. These are prioritization facts, not
 portable thresholds.
+
+## Task 2 follow-up: Complete the generated scale matrix
+
+This child adds the six missing families without changing the selector,
+metadata schema, default corpus tree, smoke workload, or public language
+behavior. It reuses the in-memory `CompilerScaleCase` registry and ordinary
+compiler/parser boundaries from the first slice.
+
+**Files:** `benchmark/Jazz/Benchmark/ScaleCases.hs`,
+`benchmark/Jazz/Benchmark/StageInputs.hs`,
+`test/Jazz/Benchmark/StageSpec.hs`, and `PERFORMANCE.md`.
+
+- [ ] Register `interleaved-recursive-groups-{0016,0032,0064,0128}`. Each
+      independent group must place a polymorphic use between mutually recursive
+      members, participate in analysis and module-preparation, and preserve the
+      exact runtime result `(1, True)` at the smallest size.
+- [ ] Register `constrained-signatures-{0032,0064,0128,0256}`. Generate one
+      visible unary class, concrete `Int` and `Bool` impl facts, and that many
+      explicitly constrained polymorphic identities. Participate in analysis
+      and preserve `(1, True)` at the smallest size.
+- [ ] Register `deep-nested-lambdas-{0016,0032,0064,0128}`. Generate an explicit
+      unary lambda chain whose result captures both the first and final
+      parameters. Participate in analysis and module-preparation; the smallest
+      case must return `(1, 16)`.
+- [ ] Register `large-operator-tables-{0016,0032,0064,0128}`. Generate unique,
+      valid non-built-in operator symbols, declare every symbol, and parse one
+      use per declaration. Participate only in parse/lower so runtime operator
+      implementation is not conflated with lookup cost.
+- [ ] Register `nested-blocks-{0016,0032,0064,0128}`. Generate nested expression
+      blocks with one local binding per level and participate only in
+      parse/lower. The smallest case must parse and lower successfully.
+- [ ] Register exact `long-token-stream-{01024,04096,16384,65536}` cases. Each
+      source contains only four-token binding statements, so the identifier's
+      size equals `length (tokenize source)` exactly. Participate only in
+      parse/lower; the smallest test must assert exactly 1,024 tokens.
+- [ ] Add prepared parse/lower support for generated cases by forcing the owned
+      entry source during setup and reusing the existing lex/parse/lower
+      boundary. Keep compiler-only groups unchanged and reject unsupported
+      combinations.
+- [ ] Write registry and smallest-case tests before implementation. Every test
+      must exercise the real compiler or parser and assert literal outputs,
+      source counts, or token counts rather than physical time.
+- [ ] Run the focused suite, exact list-tree command, queue/docs checks, and
+      diff review serially; commit before physical measurement.
+- [ ] Record all 24 new cases in one optimized `+RTS -T` process. Profile the
+      largest member of each family with serial RTS/stage/hotspot/heap commands,
+      reducing a size rather than widening limits if the controlled machine
+      cannot finish safely.
+- [ ] Record the matrix, compare growth factors and dominant profiles, then
+      promote the smallest evidence-backed optimization child. Do not use
+      single-machine thresholds.
 
 ## Task 3: Remove type-checker asymptotic work
 
