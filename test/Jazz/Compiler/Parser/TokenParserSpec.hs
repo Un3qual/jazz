@@ -66,6 +66,7 @@ tests =
     ("tokenizes value as a reserved keyword", testTokenizesValueKeyword),
     ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
     ("decodes Char and Text escapes", testDecodesCharAndTextEscapes),
+    ("preserves derived and zero-padded lexemes", testPreservesDerivedAndZeroPaddedLexemes),
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
     ("rejects malformed Char and Text literals", testRejectsMalformedCharAndTextLiterals),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
@@ -206,6 +207,14 @@ testDecodesCharAndTextEscapes = do
     "decoded escapes"
     [TChar '\n', TText "quote: \"; scalar: 🎷", TDot]
     (map tokenKind tokens)
+
+testPreservesDerivedAndZeroPaddedLexemes :: IO ()
+testPreservesDerivedAndZeroPaddedLexemes = do
+  tokens <- lexSource "value 00042 -> =="
+  assertEqual
+    "derived and zero-padded lexemes"
+    ["value", "00042", "->", "=="]
+    (map tokenLexeme tokens)
 
 testPreservesQuotedLiteralLexemesAndSpans :: IO ()
 testPreservesQuotedLiteralLexemesAndSpans = do
