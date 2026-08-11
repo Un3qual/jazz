@@ -24,7 +24,8 @@ import Jazz.Compiler.Name
     sourceName
   )
 import Jazz.Compiler.RecursiveBindings
-  ( collectBindingNames,
+  ( PreparedRecursiveScope,
+    collectBindingNames,
     buildRecursiveScopeFacts,
     collectLambdaCaptureHints,
     freeVarsExprWithBound,
@@ -33,6 +34,10 @@ import Jazz.Compiler.RecursiveBindings
     inferSelfRecursiveBindings,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
+    prepareRecursiveScope,
+    preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups
   )
@@ -49,6 +54,7 @@ tests :: [NamedTest]
 tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
     ("recursive scope facts own binding names and ordered groups together", testRecursiveScopeFacts),
+    ("prepared recursive scopes own exact statements and derived maps", testPreparedRecursiveScope),
     ("lambda capture plans address nested lambdas without AST keys", testLambdaCapturePlans),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
@@ -118,6 +124,29 @@ testRecursiveScopeFacts = do
           (1, SExpr span0 (ELit (LInt 0))),
           (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))) )
         ]
+
+testPreparedRecursiveScope :: IO ()
+testPreparedRecursiveScope = do
+  assertEqual
+    "prepared statements"
+    statements
+    (preparedRecursiveScopeStatements preparedScope)
+  assertEqual
+    "prepared binding names"
+    (Map.fromList [(0, "left"), (2, "right")])
+    (preparedRecursiveScopeBindingNames preparedScope)
+  assertEqual
+    "prepared recursive groups"
+    (Map.fromList [(0, [0, 2]), (2, [0, 2])])
+    (preparedRecursiveScopeGroups preparedScope)
+  where
+    preparedScope :: PreparedRecursiveScope
+    preparedScope = prepareRecursiveScope Set.empty statements
+    statements =
+      [ SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right"))),
+        SExpr span0 (ELit (LInt 0)),
+        SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left")))
+      ]
 
 testLambdaCapturePlans :: IO ()
 testLambdaCapturePlans = do

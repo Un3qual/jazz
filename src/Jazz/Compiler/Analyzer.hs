@@ -11,7 +11,7 @@ module Jazz.Compiler.Analyzer
     AnalysisResult (..),
     analyzeProgramWithBuiltinsAndHiddenStatements,
     analyzeProgramWithInputs,
-    analyzeProgramWithInputsAndScopeFacts,
+    analyzeProgramWithInputsAndPreparedScope,
     analyzeProgramWithBuiltins,
     analyzeProgram,
     analyzeRebindingWarningsWithBuiltins,
@@ -73,9 +73,10 @@ import Jazz.Compiler.Pattern
   ( patternBinderNames
   )
 import Jazz.Compiler.RecursiveBindings
-  ( RecursiveScopeFacts,
-    buildRecursiveScopeFacts,
-    recursiveScopeGroups
+  ( PreparedRecursiveScope,
+    prepareRecursiveScope,
+    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.Purity
   ( Purity (..)
@@ -166,30 +167,54 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
     expr
 
 analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
-analyzeProgramWithInputs inputs hiddenStatementIndices =
-  analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices Nothing
+analyzeProgramWithInputs inputs hiddenStatementIndices expr =
+  analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices (AnalyzeExpression expr)
 
-analyzeProgramWithInputsAndScopeFacts :: AnalysisInputs -> Set Int -> RecursiveScopeFacts -> Expr -> IO AnalysisResult
-analyzeProgramWithInputsAndScopeFacts inputs hiddenStatementIndices recursiveScopeFactsValue =
-  analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices (Just recursiveScopeFactsValue)
+analyzeProgramWithInputsAndPreparedScope :: AnalysisInputs -> Set Int -> PreparedRecursiveScope -> IO AnalysisResult
+analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices preparedScope =
+  let analysisScope = preparedAnalysisScope preparedScope
+   in analysisScope `seq`
+        analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices (AnalyzePreparedScope analysisScope)
 
-analyzeProgramWithInputsAndMaybeScopeFacts :: AnalysisInputs -> Set Int -> Maybe RecursiveScopeFacts -> Expr -> IO AnalysisResult
-analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices suppliedRecursiveScopeFacts expr =
+data PreparedAnalysisScope = PreparedAnalysisScope ![Statement] !(Map Int [Int])
+
+preparedAnalysisScope :: PreparedRecursiveScope -> PreparedAnalysisScope
+preparedAnalysisScope preparedScope =
+  PreparedAnalysisScope
+    (preparedRecursiveScopeStatements preparedScope)
+    (preparedRecursiveScopeGroups preparedScope)
+
+data AnalysisTarget
+  = AnalyzeExpression Expr
+  | AnalyzePreparedScope PreparedAnalysisScope
+
+analyzeProgramWithInputsAndTarget :: AnalysisInputs -> Set Int -> AnalysisTarget -> IO AnalysisResult
+analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices target =
   {-# SCC "jazz-stage:static-analysis" #-}
-  let collectedDiagnostics =
-        case expr of
-          EBlock statements ->
-            collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
-          _ ->
-            collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
+  let (expr, collectedDiagnostics) =
+        case target of
+          AnalyzePreparedScope analysisScope ->
+            ( preparedScopeExpr analysisScope,
+              collectScopeDiagnosticsWithPreparedScope analysisScope builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext
+            )
+          AnalyzeExpression expression@(EBlock statements) ->
+            ( expression,
+              collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
+            )
+          AnalyzeExpression expression ->
+            ( expression,
+              collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expression
+            )
       (warnings, errors) = materializeDiagnostics collectedDiagnostics
+      diagnostics =
+        map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
    in
-    pure
-      AnalysisResult
-        { analyzedExpr = expr,
-          analysisDiagnostics =
-            map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
-        }
+    expr `seq`
+      pure
+        AnalysisResult
+          { analyzedExpr = expr,
+            analysisDiagnostics = diagnostics
+          }
   where
     builtinMode = analysisBuiltinMode inputs
     settings = analysisWarningSettings inputs
@@ -199,6 +224,9 @@ analyzeProgramWithInputsAndMaybeScopeFacts inputs hiddenStatementIndices supplie
         (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
         (analysisForwardFunctions inputs)
     importedClasses = Set.map identifierText (analysisImportedClasses inputs)
+
+preparedScopeExpr :: PreparedAnalysisScope -> Expr
+preparedScopeExpr (PreparedAnalysisScope statements _) = EBlock statements
 
 analysisBindingToVisibleBinding :: AnalysisBinding -> VisibleBinding
 analysisBindingToVisibleBinding binding =
@@ -388,10 +416,23 @@ collectScopeDiagnostics ::
   [Statement] ->
   CollectedDiagnostics
 collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
-  collectScopeDiagnosticsWithFacts Nothing builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements
+  collectScopeDiagnosticsWithPreparedScope
+    ( preparedAnalysisScope
+        ( prepareRecursiveScope
+            (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
+            statements
+        )
+    )
+    builtinMode
+    hiddenStatementIndices
+    settings
+    outerScope
+    forwardBindings
+    outerClassNames
+    context
 
-collectScopeDiagnosticsWithFacts ::
-  Maybe RecursiveScopeFacts ->
+collectScopeDiagnosticsWithPreparedScope ::
+  PreparedAnalysisScope ->
   BuiltinResolutionMode ->
   Set Int ->
   WarningSettings ->
@@ -399,9 +440,8 @@ collectScopeDiagnosticsWithFacts ::
   Map Int (Name, VisibleBinding) ->
   Set Text ->
   AnalysisContext ->
-  [Statement] ->
   CollectedDiagnostics
-collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
+collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
   flushPendingSignature finalPendingSignature finalDiagnostics
   where
     indexedStatements = zip [0 ..] statements
@@ -412,15 +452,6 @@ collectScopeDiagnosticsWithFacts suppliedRecursiveScopeFacts builtinMode hiddenS
     -- bindings can reference each other independent of declaration order.
     recursiveGroupsByStatement =
       Map.map Set.fromList rawRecursiveGroupsByStatement
-    rawRecursiveGroupsByStatement =
-      case suppliedRecursiveScopeFacts of
-        Just recursiveScopeFactsValue -> recursiveScopeGroups recursiveScopeFactsValue
-        Nothing ->
-          recursiveScopeGroups
-            ( buildRecursiveScopeFacts
-                (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
-                indexedStatements
-            )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
     unusedBindingWarningsByStatement =
       collectUnusedBindingWarnings

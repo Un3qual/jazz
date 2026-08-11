@@ -108,23 +108,23 @@
 - Produces: opaque `PreparedRecursiveScope`, built from outer visibility plus one statement list, with read-only access to its statements and facts.
 - Consumes: analyzer and type-inference supplied-facts paths accept the prepared value and do not accept a second independent statement list/expression.
 
-- [ ] **Step 1: Add failing ownership and mismatched-scope regression tests**
+- [x] **Step 1: Add failing ownership and mismatched-scope regression tests**
 
   Characterize that prepared facts expose their original statement scope and that no analyzer/inference entry point permits pairing facts from one scope with another. The semantic regression must retain the forward-unbound diagnostic for `x = y; y = 1` even when a recursive scope was prepared elsewhere.
 
-- [ ] **Step 2: Run focused tests and verify failure against the independently pairable API**
+- [x] **Step 2: Run focused tests and verify failure against the independently pairable API**
 
   Run: `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test recursive-bindings-spec binding-signature-coherence-spec --test-show-details=direct --jobs=1`
 
-- [ ] **Step 3: Implement the opaque prepared-scope boundary**
+- [x] **Step 3: Implement the opaque prepared-scope boundary**
 
   Keep `RecursiveScopeFacts` lightweight for runtime/resolver consumers. Add an opaque wrapper containing the exact statement list and its facts; make supplied-facts analyzer and inference APIs consume that wrapper without a second AST parameter. Do not retain prepared scopes beyond ordinary inference/analyzer lifetime.
 
-- [ ] **Step 4: Run focused recursive/analyzer/type-inference tests and diff checks**
+- [x] **Step 4: Run focused recursive/analyzer/type-inference tests and diff checks**
 
   Run the Step 2 command again, followed by `git diff --check`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `fix: bind recursive facts to their scope`
 

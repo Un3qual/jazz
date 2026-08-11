@@ -4,6 +4,7 @@
 -- type inference, and runtime.
 module Jazz.Compiler.RecursiveBindings
   ( LambdaCaptureHints,
+    PreparedRecursiveScope,
     RecursiveScopeFacts,
     buildRecursiveScopeFacts,
     closureCaptureCandidatesWithBound,
@@ -17,6 +18,10 @@ module Jazz.Compiler.RecursiveBindings
     inferSelfRecursiveBindings,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
+    prepareRecursiveScope,
+    preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups
   ) where
@@ -73,6 +78,28 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
     { recursiveScopeBindingNames = collectBindingNames indexedStatements,
       recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
     }
+
+-- | One statement scope paired with the recursive facts derived from that
+-- exact scope. The constructor stays private so supplied-facts consumers
+-- cannot combine the facts with a second, independently chosen AST.
+data PreparedRecursiveScope = PreparedRecursiveScope ![Statement] !RecursiveScopeFacts
+
+prepareRecursiveScope :: Set Name -> [Statement] -> PreparedRecursiveScope
+prepareRecursiveScope outerBindingNames statements =
+  PreparedRecursiveScope
+    statements
+    (buildRecursiveScopeFacts outerBindingNames (zip [0 ..] statements))
+
+preparedRecursiveScopeStatements :: PreparedRecursiveScope -> [Statement]
+preparedRecursiveScopeStatements (PreparedRecursiveScope statements _) = statements
+
+preparedRecursiveScopeBindingNames :: PreparedRecursiveScope -> Map Int Name
+preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ recursiveScopeFactsValue) =
+  recursiveScopeBindingNames recursiveScopeFactsValue
+
+preparedRecursiveScopeGroups :: PreparedRecursiveScope -> Map Int [Int]
+preparedRecursiveScopeGroups (PreparedRecursiveScope _ recursiveScopeFactsValue) =
+  recursiveScopeGroups recursiveScopeFactsValue
 
 -- | Free-variable facts arranged in the same child-index shape as the lambda
 -- AST. The plan deliberately retains neither lambda bodies nor parameters, so

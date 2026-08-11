@@ -10,7 +10,7 @@ module Jazz.Compiler.TypeInference.Scope
     inferScopeType,
     inferScopeTypeWithMode,
     inferScopeTypeWithModeAndForwardBindings,
-    inferScopeTypeWithModeAndForwardBindingsUsingFacts,
+    inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope,
     instantiateNonBuiltinTypeBinding,
   )
 where
@@ -18,7 +18,7 @@ where
 import Data.List (uncons, unsnoc)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -61,13 +61,14 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.RecursiveBindings
-  ( RecursiveScopeFacts,
-    buildRecursiveScopeFacts,
+  ( PreparedRecursiveScope,
     exprContainsFunctionBranch,
     freeVarsExprWithBound,
     inferSelfRecursiveBindings,
-    recursiveScopeBindingNames,
-    recursiveScopeGroups,
+    prepareRecursiveScope,
+    preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKeyInModule,
@@ -353,25 +354,42 @@ inferScopeTypeWithModeAndForwardBindings ::
   [Statement] ->
   (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
-  inferScopeTypeInternal True Nothing preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+  inferScopeTypeInternal
+    True
+    preludeStatementIndices
+    inferExpression
+    mode
+    builtinMode
+    initialEnv
+    initialState
+    (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
 
-inferScopeTypeWithModeAndForwardBindingsUsingFacts ::
-  RecursiveScopeFacts ->
+inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
+  PreparedRecursiveScope ->
   Set Int ->
   InferExprWithModeFn ->
   TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
-  [Statement] ->
   (InferredExpr, InferState, Map Int (Name, SourceSpan))
-inferScopeTypeWithModeAndForwardBindingsUsingFacts recursiveScopeFactsValue preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
-  inferScopeTypeInternal True (Just recursiveScopeFactsValue) preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope preludeStatementIndices inferExpression mode builtinMode initialEnv initialState =
+  let inferenceScope = preparedInferenceScope preparedScope
+   in inferenceScope `seq`
+        inferScopeTypeInternal True preludeStatementIndices inferExpression mode builtinMode initialEnv initialState inferenceScope
 
 inferNestedScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
-        inferScopeTypeInternal False Nothing preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements
+        inferScopeTypeInternal
+          False
+          preludeStatementIndices
+          inferExpression
+          mode
+          builtinMode
+          initialEnv
+          initialState
+          (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
    in (inferredResult, finalState)
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
@@ -379,7 +397,6 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
           False
-          Nothing
           preludeStatementIndices
           ( \_mode builtin env state expr ->
               let (expressionType, nextState) = inferExpression builtin env state expr
@@ -389,11 +406,28 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
           builtinMode
           initialEnv
           initialState
-          statements
+          (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
    in (inferredExpressionType inferredResult, finalState)
 
-inferScopeTypeInternal :: Bool -> Maybe RecursiveScopeFacts -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
-inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+prepareInferenceRecursiveScope :: BuiltinResolutionMode -> TypeEnv -> [Statement] -> PreparedRecursiveScope
+prepareInferenceRecursiveScope builtinMode initialEnv =
+  prepareRecursiveScope
+    ( Set.union
+        (Map.keysSet initialEnv)
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
+    )
+
+data PreparedInferenceScope = PreparedInferenceScope ![Statement] !(Map Int Name) !(Map Int [Int])
+
+preparedInferenceScope :: PreparedRecursiveScope -> PreparedInferenceScope
+preparedInferenceScope preparedScope =
+  PreparedInferenceScope
+    (preparedRecursiveScopeStatements preparedScope)
+    (preparedRecursiveScopeBindingNames preparedScope)
+    (preparedRecursiveScopeGroups preparedScope)
+
+inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> PreparedInferenceScope -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
+inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState (PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement) =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
         go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
@@ -411,15 +445,6 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
        in (inferredExpressionType result, nextState)
 
     indexedStatements = zip [0 ..] statements
-    recursionOuterBindingNames =
-      Set.union
-        (Map.keysSet initialEnv)
-        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-    recursiveScopeFactsValue =
-      fromMaybe
-        (buildRecursiveScopeFacts recursionOuterBindingNames indexedStatements)
-        suppliedRecursiveScopeFacts
-    recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
     recursiveGroups =
       Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
     recursiveGroupsByInterveningLet =
@@ -446,7 +471,6 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                 [groupMembers]
                 groupsByStatement
             _ -> groupsByStatement
-    bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
     bindingIndicesByName =
       Map.foldlWithKey'
         (\indicesByName statementIndex bindingName ->
@@ -472,7 +496,13 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
             Just (SLet _ _ valueExpr) <- [Map.lookup statementIndex statementsByIndex]
         ]
     selfRecursiveFunctionStatements =
-      inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements
+      inferSelfRecursiveBindings
+        ( Set.union
+            (Map.keysSet initialEnv)
+            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
+        )
+        exprContainsFunctionBranch
+        indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
     predeclaredDataTypes =
