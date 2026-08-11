@@ -37,7 +37,10 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.ModuleResolver (resolveProgram)
-import Jazz.Compiler.ModuleCompiler (compileResolvedProgram)
+import Jazz.Compiler.ModuleCompiler
+  ( compileResolvedModule,
+    compileResolvedProgram
+  )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (..),
     RuntimeModule (runtimeModuleExports, runtimeModulePath),
@@ -85,7 +88,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (TTextType),
+    ExpressionType (TIntType, TTextType),
     TypeBinding (PlainTypeBinding)
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -118,6 +121,7 @@ tests =
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
     ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
     ("duplicate compiled module paths preserve first-match imports and lookup", testDuplicateCompiledModulePathsPreserveFirstMatch),
+    ("module compilation preserves first-match dependency lookup", testCompileResolvedModulePreservesFirstDependency),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract),
@@ -211,6 +215,53 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
           compiledProgramEntryPath = ["App", "Main"],
           compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
           compiledProgramDiagnostics = []
+        }
+
+testCompileResolvedModulePreservesFirstDependency :: IO ()
+testCompileResolvedModulePreservesFirstDependency = do
+  compiled <-
+    compileResolvedModule
+      (emptyCompileInputs defaultWarningSettings)
+      [firstDependency, secondDependency]
+      targetModule
+  assertEqual
+    "first dependency interface wins"
+    (Just (PlainTypeBinding TTextType))
+    (Map.lookup targetExport (interfaceValueTypes (compiledModuleInterface compiled)))
+  where
+    dependencyPath = ["Lib", "Duplicate"]
+    dependencyExport = ModuleExport ValueNamespace "value"
+    dependencyInventory = exportInventory [dependencyExport]
+    firstDependency =
+      compiledModule
+        dependencyPath
+        []
+        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LText "first"))]
+        dependencyInventory
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TTextType)})
+    secondDependency =
+      compiledModule
+        dependencyPath
+        []
+        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LInt 2))]
+        dependencyInventory
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TIntType)})
+    targetExport = ModuleExport ValueNamespace "copied"
+    targetImport = chainImport dependencyPath
+    targetExpr =
+      EBlock
+        [ SLet
+            (resolvedLocalName ValueNamespace (mkIdentifier "copied"))
+            (SourceSpan 1 1)
+            (EVar (resolvedImportedName dependencyPath ValueNamespace (mkIdentifier "value")))
+        ]
+    targetModule =
+      ResolvedModule
+        { resolvedModulePath = ["App", "Main"],
+          resolvedSourcePath = "<module-index-test>",
+          resolvedModuleImports = [targetImport],
+          resolvedModuleExportInventory = exportInventory [targetExport],
+          resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetImport] targetExpr
         }
 
 compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule

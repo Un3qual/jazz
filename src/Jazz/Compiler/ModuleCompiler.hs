@@ -97,7 +97,7 @@ compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
 compileResolvedProgram inputs resolvedProgram =
   {-# SCC "jazz-stage:runtime-preparation" #-}
   do
-  compiledModules <- reverse <$> foldModules [] (resolvedProgramModules resolvedProgram)
+  compiledModules <- reverse . fst <$> foldModules [] Map.empty (resolvedProgramModules resolvedProgram)
   let compiledPrelude = compileInputPrelude inputs
       moduleDiagnostics = concatMap compiledModuleDiagnostics compiledModules
   pure
@@ -108,22 +108,29 @@ compileResolvedProgram inputs resolvedProgram =
         compiledProgramDiagnostics = compiledPreludeDiagnostics compiledPrelude <> moduleDiagnostics
       }
   where
-    foldModules compiledReversed remaining =
+    foldModules compiledReversed compiledByPath remaining =
       case remaining of
-        [] -> pure compiledReversed
+        [] -> pure (compiledReversed, compiledByPath)
         resolvedModule : rest -> do
-          compiledModule <- compileResolvedModule inputs compiledReversed resolvedModule
-          foldModules (compiledModule : compiledReversed) rest
+          compiledModule <- compileResolvedModuleWithIndex inputs compiledByPath resolvedModule
+          foldModules
+            (compiledModule : compiledReversed)
+            (Map.insert (resolvedModulePath resolvedModule) compiledModule compiledByPath)
+            rest
 
 compileResolvedModule :: CompileInputs -> [CompiledModule] -> ResolvedModule -> IO CompiledModule
-compileResolvedModule inputs compiledDependencies resolvedModule = do
+compileResolvedModule inputs compiledDependencies =
+  compileResolvedModuleWithIndex inputs (buildCompiledModulePathIndex compiledDependencies)
+
+compileResolvedModuleWithIndex :: CompileInputs -> Map [Text] CompiledModule -> ResolvedModule -> IO CompiledModule
+compileResolvedModuleWithIndex inputs compiledDependenciesByPath resolvedModule = do
   let importedInterface =
         foldl'
           mergeModuleInterfaces
           (ambientPreludeInterface (compileInputPrelude inputs))
           [ dependencyImportInterface importDecl dependency
             | importDecl <- resolvedModuleImports resolvedModule,
-              Just dependency <- [lookupDependency (resolvedImportPath importDecl) compiledDependencies]
+              Just dependency <- [Map.lookup (resolvedImportPath importDecl) compiledDependenciesByPath]
           ]
       modulePath = resolvedModulePath resolvedModule
       moduleExpr = coreModuleExpr (resolvedModuleCore resolvedModule)
@@ -147,16 +154,11 @@ compileResolvedModule inputs compiledDependencies resolvedModule = do
         compiledModuleExpr = inferredExpr inference
       }
 
-lookupDependency :: [Text] -> [CompiledModule] -> Maybe CompiledModule
-lookupDependency modulePath =
-  go
-  where
-    go modules =
-      case modules of
-        [] -> Nothing
-        compiledModule : rest
-          | resolvedModulePath (compiledResolvedModule compiledModule) == modulePath -> Just compiledModule
-          | otherwise -> go rest
+buildCompiledModulePathIndex :: [CompiledModule] -> Map [Text] CompiledModule
+buildCompiledModulePathIndex =
+  Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
+    . map
+      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
 
 ambientPreludeInterface :: CompiledPrelude -> ImportedInterface
 ambientPreludeInterface compiledPrelude =
