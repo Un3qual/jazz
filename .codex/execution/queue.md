@@ -12,17 +12,17 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-COMPILER-PERFORMANCE-VERIFICATION-FLOW-001` | Bound and phase heavyweight verification | `P1` | `M` | `impl` | `yes` | `-` | [Compiler performance program](../plans/2026-08-10-jazz-compiler-performance-program.md) | `Task 1: Bound and phase heavyweight verification` | `scripts/ci/main-functional.sh`, `scripts/ci/extended.sh`, `scripts/ci/release-candidate.sh`, `scripts/check-ci-policy.py`, `scripts/test-check-ci-policy.py`, `PERFORMANCE.md` | Add one-process bounded verification phases, an explicit low-memory local mode, and preserved full main, extended, and release coverage. | `python3 scripts/test-check-ci-policy.py`; `python3 scripts/check-ci-policy.py`; `bash scripts/check-execution-queue.sh`; `git diff --check` | `2026-08-10` |
 
-Current executor status (`2026-08-10`): the first RFC 0009 child is complete.
-The opt-in typed-core and lowering path now supports closed named functions as
-values, recursively represented unary closure parameters and results, explicit
-empty environments, and unary higher-order closure calls while retaining the
-scalar/direct-call regression baseline. Normal compile/run remains
-canonical-core/interpreter based. `Ready Now` is empty because scalar binding
-has no matching validated ready-plan. Scalar binding is solely the next
-curation target; anonymous or nested closures, lexical capture, currying and
-partial application, oversaturation, recursion, control flow, multi-module
-integration, LLVM, object/link, and native-runtime work remain unpromoted.
+Current executor status (`2026-08-10`): the first RFC 0009 child is complete,
+and a separate semantics-preserving compiler performance program has a bounded
+verification-flow child ready. The opt-in typed-core and lowering path remains
+unchanged: closed named functions as values, recursively represented unary
+closure parameters/results, explicit empty environments, and unary
+higher-order closure calls retain the scalar/direct-call regression baseline.
+Normal compile/run remains canonical-core/interpreter based. Scalar binding is
+still the next bootstrap curation target and is not promoted by the performance
+program.
 
 ## Next Curation Target
 
