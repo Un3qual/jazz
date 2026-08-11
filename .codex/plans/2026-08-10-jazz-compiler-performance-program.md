@@ -1,29 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-INDEXED-TOKENS-018
+id: JN-COMPILER-PERFORMANCE-RESOLVER-FACTS-019
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 6b: Remove parser and resolver repeat passes"
+plan_section: "Task 6c: Fuse module resolver facts"
 target_paths:
-  - src/Jazz/Compiler/Parser/Lexer.hs
-  - src/Jazz/Compiler/Parser.hs
-  - src/Jazz/Compiler/Parser/Declaration.hs
-  - src/Jazz/Compiler/Parser/Expression.hs
-  - src/Jazz/Compiler/Parser/Pattern.hs
-  - src/Jazz/Compiler/Parser/TokenParser.hs
-  - test/Jazz/Compiler/Parser/DeclarationParserSpec.hs
-  - test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs
-  - test/Jazz/Compiler/Parser/TokenParserSpec.hs
+  - src/Jazz/Compiler/ModuleResolver.hs
+  - src/Jazz/Compiler/Parser/Lower.hs
+  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test token-parser-spec expression-parser-spec declaration-parser-spec module-import-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-indexed-tokens --time-mode=cpu --jazz-scale-case=long-token-stream-01024 --jazz-scale-case=long-token-stream-04096 --jazz-scale-case=long-token-stream-16384 --jazz-scale-case=long-token-stream-65536 --pattern=parse-lower +RTS -T -RTS' --jobs=1
+  - cabal test module-resolution-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-resolver-facts --time-mode=cpu --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Move parser input to indexed token storage with source-backed spans and a state-correct cursor, then eliminate the owned-prefix adapter's second consumed-prefix walk without retaining prior input; preserve token payloads required by semantics, exact diagnostics/spans, ASTs, and hosted parity."
+deliverable: "Compute imports, export inventory, constructor ownership, unqualified references, qualified value references, and qualified type references in one owned SurfaceModuleFacts traversal shared with module lowering where semantics permit; preserve exact diagnostics, source order, export schemas, and name resolution."
 last_verified: 2026-08-11
 ---
 
@@ -774,7 +768,7 @@ win. Stable-stage, eventlog, hotspot, and heap artifacts are under
 - [x] Transport reusable immutable scope facts to resolution, inference,
       analyzer, free-variable, and runtime-scope consumers only where their
       semantics agree.
-- [ ] Assign stable lambda IDs during owned lowering, compute capture plans
+- [x] Assign stable lambda IDs during owned lowering, compute capture plans
       once, and stop retaining/searching lambda `Expr` bodies as keys.
 
 ### Task 4a: Build recursive dependency facts in one pass
@@ -1127,10 +1121,10 @@ rather than hidden. Artifacts are under
 - [x] Collect legal import aliases in
       the main module parse rather than rescanning nested token tails.
 - [x] Reuse one compact-signature parse for discrimination and output.
-- [ ] Replace the owned-prefix/list adapter with one state-correct cursor as
+- [x] Replace the owned-prefix/list adapter with one state-correct cursor as
       part of indexed token storage; do not retain earlier input in Megaparsec
       position state.
-- [ ] Move tokens to indexed storage with source offsets/spans and own `Text`
+- [x] Move tokens to indexed storage with source offsets/spans and own `Text`
       only where later semantics require it.
 - [ ] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
       traversal or an equivalent returned lowering product.
@@ -1174,6 +1168,32 @@ earlier input live: stable maximum residency rose from 31,834,880 to 37,068,168
 bytes (16.4%) and the heap census rose about 18%. The ignored exploratory
 artifacts remain under `compiler-owned-prefix-cursor-*`. The cursor removal is
 therefore coupled to indexed token storage rather than masking the regression.
+
+Indexed token storage and the state-correct cursor landed in `4d96dc34`.
+Megaparsec now consumes immutable `Vector` slices, expression and declaration
+lookahead share that cursor, and owned-prefix advancement uses the exact
+consumed count instead of scanning for an equal remainder token. Public
+list-based parser entry points, exact diagnostics/spans, ASTs, and hosted lexer
+parity are unchanged. At 65,536 tokens, CPU fell from 93.569 ms to 72.323 ms
+(22.7%), allocation from 429,004,571 to 411,967,177 bytes (4.0%), copied bytes
+from 82,407,792 to 69,094,502 (16.1%), and the benchmark peak from 60 to 49 MiB
+(18.3%). The compatible stage profile reduced allocation from 10,358,525,472
+to 9,965,354,432 bytes, copied bytes from 2,191,106,408 to 1,836,701,880, exact
+maximum residency from 31,834,880 to 30,478,256 bytes (4.3%), and total memory
+from 96 to 90 MiB. The independent heap census moved from 20,334,360 to
+20,848,440 bytes; the shared vector is now attributed under `runParsecT`, so no
+heap-census win is claimed. Artifacts are under
+`benchmark-results/compiler-{owned-prefix-cursor-before,indexed-tokens-after}/`
+and `profile-results/compiler-{owned-prefix-cursor-before,indexed-tokens-after}/`.
+
+The remaining lexeme-ownership half of the static token candidate was measured
+and rejected after `dc70d1a4` pinned derived, zero-padded, and quoted lexemes.
+Identifier lexeme fields already point at the same `Text` payload as
+`TIdentifier`; fixed lexemes are shared constants. Replacing integer text with
+a boxed width increased 65,536-token allocation from 411,966,061 to
+414,456,397 bytes and copied bytes from 67,493,665 to 74,373,730, despite a
+noisy 61-to-58 MiB peak movement. The experiment was fully reverted; ignored
+receipts remain under `compiler-token-payloads-{before,after}`.
 
 ## Full closeout
 
