@@ -1,23 +1,27 @@
 ---
-id: JN-COMPILER-PERFORMANCE-SUBSTITUTION-005
+id: JN-COMPILER-PERFORMANCE-CONSTRAINT-BUFFERS-006
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3c: Compress type substitutions during unification"
+plan_section: "Task 3d: Make constraint storage and deduplication append-efficient"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/Solver.hs
   - src/Jazz/Compiler/TypeInference/State.hs
+  - src/Jazz/Compiler/TypeInference/Capabilities.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
+  - src/Jazz/Compiler/TypeInference/TypeOps.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs
   - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
   - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-substitution --time-mode=cpu --jazz-scale-case=deep-nested-lambdas-0016 --jazz-scale-case=deep-nested-lambdas-0032 --jazz-scale-case=deep-nested-lambdas-0064 --jazz-scale-case=deep-nested-lambdas-0128 +RTS -T -RTS' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-constraints --time-mode=cpu --jazz-scale-case=constrained-signatures-0032 --jazz-scale-case=constrained-signatures-0064 --jazz-scale-case=constrained-signatures-0128 --jazz-scale-case=constrained-signatures-0256 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Use an IntMap substitution store and path-compress variable chains while unification descends each compound type once, preserving exact unification, diagnostics, and inferred types."
+deliverable: "Use append-efficient deferred-constraint storage, explicit inferred/deferred cursors, and stable ordered-set deduplication while preserving exact constraint and diagnostic order."
 last_verified: 2026-08-10
 ---
 
@@ -547,20 +551,91 @@ resolves them again.
 `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Add direct solver characterization for long substitution chains,
+- [x] Add direct solver characterization for long substitution chains,
       compound substitutions, occurs checks, rigid variables, numeric
       constraints, and exact final substitution behavior before implementation.
-- [ ] Move the integer-keyed substitution store to `IntMap` without changing
+- [x] Move the integer-keyed substitution store to `IntMap` without changing
       solver rollback, equality, or debugging behavior.
-- [ ] Add an internal head-dereference operation that path-compresses traversed
+- [x] Add an internal head-dereference operation that path-compresses traversed
       variable chains in the returned `InferState`. Make recursive unification
       descend compound operands once, re-resolving only after an earlier sibling
       can have added a substitution.
-- [ ] Keep the public pure `resolveType`/`applySubstitution` boundary fully
+- [x] Keep the public pure `resolveType`/`applySubstitution` boundary fully
       zonking results for diagnostics, schemes, and exported inference data.
-- [ ] Run the focused semantic suites, commit the implementation, and record a
+- [x] Run the focused semantic suites, commit the implementation, and record a
       metadata-compatible deep-lambda curve plus stable-stage, hotspot, and
       live-heap evidence for 128 lambdas.
+
+### Substitution compression receipt
+
+The implementation landed in `e929073c`. Substitutions now use `IntMap`; an
+internal state-returning dereference operation compresses variable chains, and
+recursive unification inspects one outer constructor at a time instead of
+fully rebuilding both compound operands before descending into their children.
+The pure `resolveType` boundary still fully zonks diagnostics, schemes, and
+exported types. Direct tests cover long chains, compound replacements, occurs
+checks, rigid variables, numeric constraints, compression, and final resolved
+types; the complete binding-signature and generated-stage suites pass.
+
+The compatible before and after runs are
+`benchmark-results/compiler-substitution/20260811T042040386734000000Z/` and
+`benchmark-results/compiler-substitution/20260811T042553213129000000Z/`.
+After excluding run ID, Git revision, and timestamp, their environment metadata
+is identical and both receipts report a clean tree.
+
+| Boundary           | Lambdas | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement |
+| ------------------ | ------: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: |
+| Analysis           |      16 |     0.159 |    0.153 |            1.0x |           640,996 |          616,792 |                   1.0x |
+| Analysis           |      32 |     0.237 |    0.214 |            1.1x |           929,348 |          855,501 |                   1.1x |
+| Analysis           |      64 |     0.493 |    0.394 |            1.3x |         1,745,163 |        1,500,769 |                   1.2x |
+| Analysis           |     128 |     1.468 |    1.004 |            1.5x |         4,297,942 |        3,434,859 |                   1.3x |
+| Module preparation |      16 |     3.326 |    3.284 |            1.0x |        15,879,571 |       15,769,589 |                   1.0x |
+| Module preparation |     128 |     6.075 |    5.256 |            1.2x |        23,843,602 |       22,889,275 |                   1.0x |
+
+Analysis growth from 16 to 128 lambdas fell from 9.3x CPU / 6.7x allocation to
+6.6x / 5.6x. The standalone stable-stage operation fell from 6.3 MB to 5.1 MB.
+Maximum process residency changed from 1,215,992 to 1,350,656 bytes, while the
+separate heap sampled peak fell from 1,148,408 to 1,085,912 bytes. Process
+allocation is iteration-dependent and is not used as a per-operation claim.
+
+`applySubstitution` remains the largest late-cost-centre entry, but its share of
+profile allocation fell from about 51% to 43%. A measured follow-up that only
+replaced one application inspection with a head resolver changed the largest
+case by one allocated byte, so it was reverted in `12401167` rather than kept as
+unearned API surface. Residual final-zonking work remains an end-of-program
+recheck after higher-signal constraint, scope, parser, and lifetime batches.
+
+## Task 3d: Make constraint storage and deduplication append-efficient
+
+Deferred constraints are stored oldest-first and extended with `old ++ new`.
+Both deferred and newest-first inferred constraint deltas repeatedly recover
+cursors with `length`, `take`, and `drop`. `dedupeTypeSchemeConstraints` uses
+linear `elem` inside a fold while preserving last-occurrence order.
+
+**Files:** `src/Jazz/Compiler/TypeInference/State.hs`,
+`src/Jazz/Compiler/TypeInference/Capabilities.hs`,
+`src/Jazz/Compiler/TypeInference/Scope.hs`,
+`src/Jazz/Compiler/TypeInference/TypeOps.hs`,
+`src/Jazz/Compiler/TypeInference.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Characterize exact deferred/inferred insertion order, statement rollback,
+      captured-constraint pruning, duplicate last-occurrence order, and error
+      ordering before changing representation.
+- [ ] Store deferred constraints in an append-efficient sequence and carry
+      explicit deferred/inferred counts in `InferenceOutput`. Use stored counts
+      for statement deltas and rollback cursors instead of rescanning list
+      spines.
+- [ ] Replace ordered quadratic scheme-constraint deduplication with an
+      `Ord`-backed seen set while retaining the current last-occurrence order.
+- [ ] Keep chronological public accessors and newest-first inferred storage
+      unchanged; preserve preview transactions, failed-application rollback,
+      captured pruning, scheme constraints, and diagnostics exactly.
+- [ ] Run the focused semantic suites, commit the implementation, and record a
+      compatible constrained-signature curve plus stable-stage, hotspot, and
+      live-heap evidence for 256 declarations.
 
 ## Task 3: Remove type-checker asymptotic work
 
@@ -570,7 +645,7 @@ resolves them again.
       reusable group results.
 - [x] Maintain environment free-variable summaries or levels instead of
       rescanning the complete visible environment per generalization.
-- [ ] Replace repeated substitution-chain resolution with an `IntMap`-backed
+- [x] Replace repeated substitution-chain resolution with an `IntMap`-backed
       zonk/compression boundary and avoid re-resolving child subtrees during
       recursive unification.
 - [ ] Replace ordered linear constraint membership with stable-identity sets

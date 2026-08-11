@@ -57,33 +57,40 @@ Each blocked item should answer these questions:
 - Completed child: environment free-variable maintenance landed in `13553527`.
   It removes `freeTypeVariablesInEnv` from the leading sequential/constrained
   hotspots while preserving sampled live heap.
+- Completed child: substitution compression landed in `e929073c`. It changes
+  the substitution store to `IntMap`, compresses variable chains during
+  unification, and improves 128-lambda analysis by 1.5x CPU / 1.3x allocation.
 - Accepted decision: [RFC 0008: Parser scale and performance tiers](../../rfcs/accepted/0008-parser-scale-and-performance-tiers.md)
   separates deterministic semantic gates from machine-dependent physical
   evidence and forbids single-machine timing thresholds.
-- Measured priority: deep nested lambdas isolate repeated compound substitution
-  rebuilding. Their hotspot profile is led by `applySubstitution`, while the
-  128-lambda optimized analysis case still allocates about 4.1 MB after the
-  environment-summary batch.
-- Smallest unblocker: replace the integer-keyed substitution `Map` with
-  `IntMap`, path-compress variable chains during unification, and stop fully
-  zonking compound operands before recursively visiting the same children.
+- Measured priority: constrained signatures still grow 8.9x in CPU and 7.1x in
+  allocation for an 8x input after environment-summary maintenance. Static
+  ownership confirms deferred `old ++ new`, repeated `length`-derived cursors,
+  and quadratic stable scheme-constraint deduplication.
+- Smallest unblocker: use append-efficient deferred storage, explicit
+  inferred/deferred counts, and an ordered-set dedupe that preserves the exact
+  current last-occurrence order.
 - Decision needed: none; this is an internal representation change with no
   public language, artifact, diagnostic-order, or binder-identity delta.
-- Recommended default: preserve the pure fully-zonking `resolveType` boundary
-  for diagnostics and exported types, while using a state-returning
-  head-dereference operation only inside unification.
-- Candidate child: `JN-COMPILER-PERFORMANCE-SUBSTITUTION-005`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Solver.hs`;
-  `src/Jazz/Compiler/TypeInference/State.hs`;
+- Recommended default: keep deferred constraints chronological at the accessor
+  boundary and inferred constraints newest-first; use stored counts for deltas
+  and preserve every rollback/preview/pruning order exactly.
+- Candidate child: `JN-COMPILER-PERFORMANCE-CONSTRAINT-BUFFERS-006`.
+- Target paths: `src/Jazz/Compiler/TypeInference/State.hs`;
+  `src/Jazz/Compiler/TypeInference/Capabilities.hs`;
+  `src/Jazz/Compiler/TypeInference/Scope.hs`;
+  `src/Jazz/Compiler/TypeInference/TypeOps.hs`;
+  `src/Jazz/Compiler/TypeInference.hs`;
+  `test/Jazz/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`;
   `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`;
   `test/Jazz/Benchmark/StageSpec.hs`.
 - Verification: `cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1`;
-  the compatible four-size deep-lambda benchmark and serial 128-lambda stage,
+  the compatible four-size constrained-signature benchmark and serial 256 case stage,
   hotspot, and heap profiles; `bash scripts/check-execution-queue.sh`;
   `git diff --check`.
 - Not in scope: changing public semantics, diagnostics or their order, binder
-  identity, artifact schemas, hosted parity, production strictness, constraint
-  storage, or any parser/module/runtime representation.
+  identity, artifact schemas, hosted parity, production strictness, solver
+  substitution, or any parser/module/runtime representation.
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
