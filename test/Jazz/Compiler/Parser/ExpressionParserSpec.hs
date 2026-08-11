@@ -48,6 +48,7 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    operatorTableFromDeclarations,
   )
 import Jazz.Compiler.Parser.TestSupport
   ( lexSource,
@@ -306,7 +307,7 @@ parseExpressionTokens knownAliases declaredOperators =
     initialContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser
@@ -324,7 +325,7 @@ parseExpressionTokensDetailed knownAliases declaredOperators =
     initialContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser

@@ -85,9 +85,13 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    OperatorTable,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
+    emptyOperatorTable,
+    insertDeclaredOperator,
     isBuiltinOperatorSymbol,
+    isDeclaredOperator,
     isReservedOperatorSymbol,
     isValidUserOperatorSymbol,
   )
@@ -209,7 +213,7 @@ parseStatementParser parseExpression parseBlock context = do
       moduleBodyContext =
         ParserContext
           { parserKnownAliases = Set.empty,
-            parserDeclaredOperators = [],
+            parserDeclaredOperators = emptyOperatorTable,
             parserStatementContext = ModuleBodyContext
           }
       parseModuleBody =
@@ -225,7 +229,7 @@ parseStatementParser parseExpression parseBlock context = do
             ( [],
               context
                 { parserDeclaredOperators =
-                    operatorInfo : declaredOperators
+                    insertDeclaredOperator operatorInfo declaredOperators
                 }
             )
     _ -> do
@@ -252,7 +256,7 @@ liftOwnedResult result =
     Left failure -> failParserFailure failure
     Right value -> pure value
 
-parseOperatorDeclaration :: StatementContext -> [OperatorInfo] -> Token -> [Token] -> Either ParserFailure (OperatorInfo, [Token])
+parseOperatorDeclaration :: StatementContext -> OperatorTable -> Token -> [Token] -> Either ParserFailure (OperatorInfo, [Token])
 parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyword =
   case context of
     NestedBlockContext ->
@@ -297,7 +301,7 @@ parseOperatorDeclarationSymbol tokens =
       Left
         (parserFailure (ExpectedSyntax "operator symbol after 'operator'" ParserEndOfInput))
 
-validateDeclaredOperatorSymbol :: [OperatorInfo] -> Token -> Text -> Either ParserFailure ()
+validateDeclaredOperatorSymbol :: OperatorTable -> Token -> Text -> Either ParserFailure ()
 validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
   | isBuiltinOperatorSymbol declaredSymbol =
       Left
@@ -311,7 +315,7 @@ validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
             (tokenSpan operatorToken)
             (DeclarationFailure (ReservedOperatorSymbol declaredSymbol))
         )
-  | any ((== declaredSymbol) . operatorSymbol) declaredOperators =
+  | isDeclaredOperator declaredSymbol declaredOperators =
       Left
         ( parserFailureAt
             (tokenSpan operatorToken)
@@ -538,7 +542,7 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
 parseOperatorBinding ::
   ImplExpressionParser ParserFailure ->
   StatementContext ->
-  [OperatorInfo] ->
+  OperatorTable ->
   Token ->
   [Token] ->
   Either ParserFailure (SurfaceStatement, [Token])
@@ -580,12 +584,11 @@ parseOperatorBinding parseExpression context declaredOperators operatorToken tok
                 (InternalParserFailure (ExpectedOperatorToken OperatorUseInBinding))
             )
 
-    operatorDeclared bindingSymbol =
-      any ((== bindingSymbol) . operatorSymbol) declaredOperators
+    operatorDeclared bindingSymbol = isDeclaredOperator bindingSymbol declaredOperators
 
 parseOperatorSignature ::
   StatementContext ->
-  [OperatorInfo] ->
+  OperatorTable ->
   Token ->
   [Token] ->
   Either ParserFailure (SurfaceStatement, [Token])
@@ -622,8 +625,7 @@ parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
                 (InternalParserFailure (ExpectedOperatorToken OperatorUseInSignature))
             )
 
-    operatorDeclared signatureSymbol =
-      any ((== signatureSymbol) . operatorSymbol) declaredOperators
+    operatorDeclared signatureSymbol = isDeclaredOperator signatureSymbol declaredOperators
 
 parseSignature :: Identifier -> Token -> [Token] -> Either ParserFailure (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =

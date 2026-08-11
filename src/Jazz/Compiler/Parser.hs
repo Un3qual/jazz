@@ -47,7 +47,10 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize,
   )
-import Jazz.Compiler.Parser.Operator (OperatorInfo)
+import Jazz.Compiler.Parser.Operator
+  ( OperatorInfo,
+    operatorTableFromDeclarations
+  )
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
@@ -99,7 +102,7 @@ parseSurfaceExpressionTokens knownAliases declaredOperators =
     expressionContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
 

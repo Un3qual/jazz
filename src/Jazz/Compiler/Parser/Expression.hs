@@ -55,6 +55,7 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    OperatorTable,
     lookupOperatorInfoIn,
   )
 import qualified Jazz.Compiler.Parser.Pattern as Pattern
@@ -235,7 +236,7 @@ rejectNonAssociativeContinuation context operatorInfo operatorToken = do
       | otherwise = operatorSymbol nextInfo
 
 samePrecedenceNonAssociativeRhsStop ::
-  [OperatorInfo] ->
+  OperatorTable ->
   OperatorInfo ->
   Stop ->
   Stop
