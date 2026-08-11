@@ -38,6 +38,7 @@ esac
 require_positive_integer JAZZ_CABAL_JOBS "$JAZZ_CABAL_JOBS"
 require_positive_integer JAZZ_NIX_JOBS "$JAZZ_NIX_JOBS"
 require_positive_integer JAZZ_NIX_CORES "$JAZZ_NIX_CORES"
+export JAZZ_CABAL_JOBS
 
 run_compiler_phase() {
   cabal build all --jobs="$JAZZ_CABAL_JOBS"

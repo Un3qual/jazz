@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import re
+import shlex
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -60,6 +62,7 @@ MAIN_FORBIDDEN = (
 )
 
 POLICY_PATHS = (
+    "scripts/check-examples.sh",
     "scripts/ci/determinism.sh",
     "scripts/ci/extended.sh",
     "scripts/ci/fast-compiler.sh",
@@ -115,6 +118,17 @@ TIMING_THRESHOLD_PATTERN = re.compile(
     r"|(?:threshold|regression[_ -]?percent).*(?:timing|benchmark)",
     re.IGNORECASE,
 )
+SHELL_ASSIGNMENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.DOTALL)
+
+
+@dataclass
+class ShellInvocation:
+    start: int
+    program: str
+    arguments: tuple[str, ...]
+    assignments: dict[str, str]
+    unset_variables: set[str]
+    environment_cleared: bool
 
 
 def active_text(contents: str) -> str:
@@ -332,6 +346,254 @@ def require_nix_features_before(
         )
 
 
+def shell_function_ranges(contents: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    function_start = re.compile(
+        r"(?m)^\s*(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\)\s*\{\s*$"
+    )
+    function_end = re.compile(r"(?m)^\s*}\s*$")
+    for start in function_start.finditer(contents):
+        end = function_end.search(contents, start.end())
+        if end is not None:
+            ranges.append((start.start(), end.end()))
+    return ranges
+
+
+def is_in_shell_function(position: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in ranges)
+
+
+def top_level_matches(
+    contents: str, pattern: str, flags: int = 0
+) -> list[re.Match[str]]:
+    function_ranges = shell_function_ranges(contents)
+    return [
+        match
+        for match in re.finditer(pattern, contents, flags)
+        if not is_in_shell_function(match.start(), function_ranges)
+    ]
+
+
+def shell_invocations(contents: str) -> list[ShellInvocation]:
+    invocations: list[ShellInvocation] = []
+    for line in re.finditer(r"(?m)^(?P<body>[^\n]+)$", contents):
+        try:
+            tokens = shlex.split(line["body"], comments=True, posix=True)
+        except ValueError:
+            continue
+        if not tokens:
+            continue
+
+        assignments: dict[str, str] = {}
+        unset_variables: set[str] = set()
+        environment_cleared = False
+        index = 0
+
+        while index < len(tokens):
+            assignment = SHELL_ASSIGNMENT_RE.fullmatch(tokens[index])
+            if assignment is not None:
+                name, value = assignment.groups()
+                assignments[name] = value
+                unset_variables.discard(name)
+                index += 1
+                continue
+
+            if tokens[index] == "command":
+                index += 1
+                query_only = False
+                while index < len(tokens) and tokens[index].startswith("-"):
+                    option = tokens[index]
+                    index += 1
+                    if option == "--":
+                        break
+                    if "v" in option or "V" in option:
+                        query_only = True
+                if query_only:
+                    index = len(tokens)
+                    break
+                continue
+
+            if tokens[index] == "env":
+                index += 1
+                while index < len(tokens) and tokens[index].startswith("-"):
+                    option = tokens[index]
+                    index += 1
+                    if option == "--":
+                        break
+                    if option in ("-i", "--ignore-environment"):
+                        assignments.clear()
+                        unset_variables.clear()
+                        environment_cleared = True
+                    elif option in ("-u", "--unset") and index < len(tokens):
+                        unset_name = tokens[index]
+                        index += 1
+                        assignments.pop(unset_name, None)
+                        unset_variables.add(unset_name)
+                    elif option.startswith("--unset="):
+                        unset_name = option.split("=", 1)[1]
+                        assignments.pop(unset_name, None)
+                        unset_variables.add(unset_name)
+                    elif option in ("-C", "--chdir"):
+                        index = min(index + 1, len(tokens))
+                    elif option in ("-S", "--split-string") and index < len(tokens):
+                        split_tokens = shlex.split(tokens[index], comments=True, posix=True)
+                        tokens[index : index + 1] = split_tokens
+                    elif option.startswith("--split-string="):
+                        split_tokens = shlex.split(
+                            option.split("=", 1)[1], comments=True, posix=True
+                        )
+                        tokens[index:index] = split_tokens
+                continue
+
+            break
+
+        if index >= len(tokens):
+            continue
+        invocations.append(
+            ShellInvocation(
+                start=line.start(),
+                program=tokens[index],
+                arguments=tuple(tokens[index + 1 :]),
+                assignments=assignments,
+                unset_variables=unset_variables,
+                environment_cleared=environment_cleared,
+            )
+        )
+    return invocations
+
+
+def cabal_build_test_commands(contents: str) -> list[ShellInvocation]:
+    return [
+        invocation
+        for invocation in shell_invocations(contents)
+        if invocation.program == "cabal"
+        and any(argument in ("build", "test") for argument in invocation.arguments)
+    ]
+
+
+def has_valid_cabal_job_argument(invocation: ShellInvocation) -> bool:
+    if "--jobs=$JAZZ_CABAL_JOBS" in invocation.arguments:
+        return True
+    return any(
+        argument == "--jobs"
+        and index + 1 < len(invocation.arguments)
+        and invocation.arguments[index + 1] == "$JAZZ_CABAL_JOBS"
+        for index, argument in enumerate(invocation.arguments)
+    )
+
+
+def positive_cabal_validation(contents: str) -> re.Match[str] | None:
+    direct = top_level_matches(
+        contents,
+        r'case\s+"\$JAZZ_CABAL_JOBS"\s+in(?P<body>.*?)\besac\b',
+        re.DOTALL,
+    )
+    for match in direct:
+        if re.search(
+            r'""\s*\|\s*0\s*\|\s*\*\[!0-9\]\*\)', match["body"]
+        ) and re.search(r"\bexit\s+2\b", match["body"]):
+            return match
+
+    helper_body = re.search(
+        r'case\s+"\$value"\s+in(?P<body>.*?)\besac\b',
+        contents,
+        re.DOTALL,
+    )
+    helper_calls = top_level_matches(
+        contents,
+        r'(?m)^\s*require_positive_integer\s+JAZZ_CABAL_JOBS\s+"\$JAZZ_CABAL_JOBS"\s*$',
+    )
+    if helper_body is not None and helper_calls and (
+        re.search(
+            r'""\s*\|\s*0\s*\|\s*\*\[!0-9\]\*\)', helper_body["body"]
+        )
+        and re.search(r"\bexit\s+2\b", helper_body["body"])
+    ):
+        return helper_calls[0]
+    return None
+
+
+def require_cabal_job_policy(
+    contents: str,
+    tier: str,
+    violations: list[str],
+) -> None:
+    executable = joined_text(contents)
+    defaults = top_level_matches(
+        executable,
+        r'(?m)^\s*JAZZ_CABAL_JOBS="\$\{JAZZ_CABAL_JOBS-1}"\s*$',
+    )
+    if not defaults:
+        violations.append(f"{tier} must default JAZZ_CABAL_JOBS to 1")
+
+    validation = positive_cabal_validation(executable)
+    if validation is None:
+        violations.append(
+            f"{tier} must validate JAZZ_CABAL_JOBS as a positive integer"
+        )
+
+    commands = cabal_build_test_commands(executable)
+    if any(not has_valid_cabal_job_argument(command) for command in commands):
+        violations.append(
+            f"{tier} must bound every Cabal build and test command"
+        )
+
+    if defaults and validation is not None:
+        initialized = any(default.end() <= validation.start() for default in defaults)
+        if not initialized or any(
+            command.start <= validation.end() for command in commands
+        ):
+            violations.append(
+                f"{tier} must initialize and validate JAZZ_CABAL_JOBS "
+                "before every Cabal build/test command"
+            )
+
+
+def require_cabal_jobs_for_child(
+    contents: str,
+    tier: str,
+    child_path: str,
+    violations: list[str],
+) -> None:
+    executable = joined_text(contents)
+    children = [
+        invocation
+        for invocation in shell_invocations(executable)
+        if invocation.program == "bash"
+        and invocation.arguments
+        and invocation.arguments[0] == child_path
+    ]
+    if not children:
+        return
+
+    validation = positive_cabal_validation(executable)
+    exports = top_level_matches(
+        executable,
+        r"(?m)^\s*export\s+[^\n]*\bJAZZ_CABAL_JOBS\b",
+    )
+    for child in children:
+        job_assignment = child.assignments.get("JAZZ_CABAL_JOBS")
+        forwarded = job_assignment == "$JAZZ_CABAL_JOBS"
+        inherited_environment = not (
+            child.environment_cleared
+            or "JAZZ_CABAL_JOBS" in child.unset_variables
+        )
+        exported = inherited_environment and any(
+            export.end() <= child.start for export in exports
+        )
+        validation_precedes_child = (
+            validation is not None and validation.end() <= child.start
+        )
+        if validation_precedes_child and (
+            forwarded or (job_assignment is None and exported)
+        ):
+            continue
+        violations.append(
+            f"{tier} must propagate JAZZ_CABAL_JOBS to {child_path}"
+        )
+        return
+
+
 def load_policy_files(root: Path, violations: list[str]) -> dict[str, str]:
     policies: dict[str, str] = {}
     for relative_path in POLICY_PATHS:
@@ -382,6 +644,17 @@ def check_fast(contents: str, violations: list[str]) -> None:
     for component in FAST_COMPONENTS:
         if not re.search(rf"(?<![a-z0-9-]){re.escape(component)}(?![a-z0-9-])", components):
             violations.append(f"{tier} is missing required token: {component}")
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/check-examples.sh",
+        violations,
+    )
     reject_tokens(violations, "fast compiler tier", contents, FAST_FORBIDDEN)
 
 
@@ -426,16 +699,7 @@ def check_main(contents: str, violations: list[str]) -> None:
         violations.append(
             "main functional tier must expose all, compiler, repository, nix, and low-memory phases"
         )
-    if 'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"' not in contents:
-        violations.append("main functional tier must default JAZZ_CABAL_JOBS to 1")
-    if not all(
-        has_command(contents, pattern)
-        for pattern in (
-            r'cabal\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
-            r'cabal\s+test\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
-        )
-    ):
-        violations.append("main functional tier must bound Cabal build and test jobs")
+    require_cabal_job_policy(contents, tier, violations)
     if not has_command(
         contents,
         r'nix\s+flake\s+check[^\n]*--max-jobs\s+"\$JAZZ_NIX_JOBS"[^\n]*--cores\s+"\$JAZZ_NIX_CORES"',
@@ -445,6 +709,12 @@ def check_main(contents: str, violations: list[str]) -> None:
         violations.append(
             "main functional tier must disclose the omitted Nix gate in low-memory mode"
         )
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/check-examples.sh",
+        violations,
+    )
     require_nix_features_before(
         contents,
         "scripts/ci/main-functional.sh",
@@ -455,9 +725,10 @@ def check_main(contents: str, violations: list[str]) -> None:
 
 
 def check_determinism(contents: str, violations: list[str]) -> None:
+    tier = "determinism tier"
     require_tokens(
         violations,
-        "determinism tier",
+        tier,
         contents,
         (
             'JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/determinism}"',
@@ -465,6 +736,18 @@ def check_determinism(contents: str, violations: list[str]) -> None:
             "--runtime-stats=json",
             "--runtime-profile=",
         ),
+    )
+    require_command(
+        violations,
+        tier,
+        contents,
+        "cabal build jazz",
+        r"cabal\s+build\s+jazz",
+    )
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
     )
     command_lines = [
         match.group(0)
@@ -589,9 +872,12 @@ def check_extended(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
-    if 'JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"' not in contents:
-        violations.append("extended tier must default JAZZ_CABAL_JOBS to 1")
-    bounded_commands = (
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
+    bounded_heavyweight_commands = (
         r'cabal\s+test\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
         r'cabal\s+test\s+program-corpus-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
         r'cabal\s+--project-file=cabal\.project\.profile-stages\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
@@ -599,8 +885,16 @@ def check_extended(contents: str, violations: list[str]) -> None:
         r'cabal\s+bench\s+jazz-bench[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
         r'cabal\s+test\s+benchmark-metadata-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
     )
-    if not all(has_command(contents, pattern) for pattern in bounded_commands):
+    if not all(
+        has_command(contents, pattern) for pattern in bounded_heavyweight_commands
+    ):
         violations.append("extended tier must bound every heavyweight Cabal command")
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/ci/determinism.sh",
+        violations,
+    )
     require_tokens(
         violations,
         tier,
@@ -633,6 +927,22 @@ def check_extended(contents: str, violations: list[str]) -> None:
 
     if TIMING_THRESHOLD_PATTERN.search(contents):
         violations.append("extended tier must not fail on a timing regression threshold")
+
+
+def check_examples(contents: str, violations: list[str]) -> None:
+    tier = "example checker"
+    require_command(
+        violations,
+        tier,
+        contents,
+        "cabal build jazz",
+        r"cabal\s+build\s+jazz",
+    )
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
 
 
 def check_release(contents: str, violations: list[str]) -> None:
@@ -1605,11 +1915,29 @@ def check_generated_release_ignores(root: Path, violations: list[str]) -> None:
             )
 
 
+def check_blocker_contracts(root: Path, violations: list[str]) -> None:
+    path = root / ".codex/execution/blocker-contracts.md"
+    if not path.is_file():
+        return
+    contents = path.read_text(encoding="utf-8")
+    current_blockers = re.search(
+        r"(?ms)^## Current Blockers\s*$\n(?P<body>.*?)(?=^##\s|\Z)",
+        contents,
+    )
+    completed_child = "JN-COMPILER-PERFORMANCE-CONSTRAINT-BUFFERS-006"
+    if current_blockers is not None and completed_child in current_blockers["body"]:
+        violations.append(
+            "blocker contracts must not keep completed child "
+            f"{completed_child} under Current Blockers"
+        )
+
+
 def check_repository(root: Path) -> list[str]:
     violations: list[str] = []
     policies = load_policy_files(root, violations)
 
     checks = (
+        ("scripts/check-examples.sh", check_examples),
         ("scripts/ci/fast-compiler.sh", check_fast),
         ("scripts/ci/main-functional.sh", check_main),
         ("scripts/ci/determinism.sh", check_determinism),
@@ -1628,6 +1956,7 @@ def check_repository(root: Path) -> list[str]:
     check_workflow_supply_chain(root, violations)
     check_pull_request_workflows(root, violations)
     check_generated_release_ignores(root, violations)
+    check_blocker_contracts(root, violations)
     return sorted(set(violations))
 
 

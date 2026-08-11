@@ -12,6 +12,7 @@ case "$JAZZ_CABAL_JOBS" in
     exit 2
     ;;
 esac
+export JAZZ_CABAL_JOBS
 
 JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/extended}"
 : "${JAZZ_BENCHMARK_LABEL:?JAZZ_BENCHMARK_LABEL is required}"

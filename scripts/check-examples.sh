@@ -4,6 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+case "$JAZZ_CABAL_JOBS" in
+  "" | 0 | *[!0-9]*)
+    printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
+    exit 2
+    ;;
+esac
+
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'FAIL: python3 is required to run checked Jazz examples\n' >&2
   exit 1
@@ -16,7 +24,7 @@ if [[ "$#" -eq 0 ]]; then
   fi
   (
     cd "$ROOT"
-    cabal build jazz
+    cabal build jazz --jobs="$JAZZ_CABAL_JOBS"
   )
   jazz_bin="$(
     cd "$ROOT"
