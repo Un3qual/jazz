@@ -26,6 +26,7 @@ module Jazz.Compiler.TypeInference.Capabilities
     instantiateQualifiedMethodType,
     instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
+    deleteTypeEnvFreeVariables,
     insertTypeEnvFreeVariables,
     mergeCapabilityFacts,
     newInferredClassConstraints,
@@ -826,6 +827,25 @@ insertTypeEnvFreeVariables name binding summary =
     countsWithoutPriorBinding =
       Set.foldl' decrementReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
     incrementReference counts typeVar = IntMap.insertWith (+) typeVar 1 counts
+    decrementReference counts typeVar = IntMap.update decrement typeVar counts
+    decrement count
+      | count <= 1 = Nothing
+      | otherwise = Just (count - 1)
+
+deleteTypeEnvFreeVariables :: Name -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+deleteTypeEnvFreeVariables name summary =
+  TypeEnvFreeVariables
+    { typeEnvBindingFreeVariables =
+        Map.delete name (typeEnvBindingFreeVariables summary),
+      typeEnvFreeVariableReferenceCounts =
+        Set.foldl'
+          decrementReference
+          (typeEnvFreeVariableReferenceCounts summary)
+          priorVariables
+    }
+  where
+    priorVariables =
+      Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
     decrementReference counts typeVar = IntMap.update decrement typeVar counts
     decrement count
       | count <= 1 = Nothing

@@ -451,6 +451,30 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
+    bindingIndicesByName =
+      Map.foldlWithKey'
+        (\indicesByName statementIndex bindingName ->
+           Map.insertWith
+             Set.union
+             bindingName
+             (Set.singleton statementIndex)
+             indicesByName
+        )
+        Map.empty
+        bindingNamesByStatement
+    previewGroupMemberIndices =
+      Set.fromList
+        [ memberIndex
+          | groups <- Map.elems recursiveGroupsByInterveningLet,
+            groupMembers <- groups,
+            memberIndex <- groupMembers
+        ]
+    previewGroupFreeNamesByStatement =
+      Map.fromList
+        [ (statementIndex, freeVarsExprWithBound Set.empty valueExpr)
+          | statementIndex <- Set.toList previewGroupMemberIndices,
+            Just (SLet _ _ valueExpr) <- [Map.lookup statementIndex statementsByIndex]
+        ]
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
     predeclaredDataTypes =
@@ -584,7 +608,7 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement, recursiveGroupPreviewCacheForStatement) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource recursiveGroupPreviewCache
+                    exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
                   recursiveGroupStartStatesForStatement =
                     rememberRecursiveGroupStart statementIndex stateForStatement recursiveGroupStartStates
                   matchingPendingSignature =
@@ -863,7 +887,7 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement, _) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource recursiveGroupPreviewCache
+                    exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
                   (exprResult, rawStateAfterExpr) = inferExpression mode builtinMode envForStatement stateForStatement expr
                   expressionProductionFailures =
                     nestedBlockProductionFailures expr exprResult
@@ -1134,38 +1158,43 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
             previewCache
         Nothing -> previewCache
 
-    exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> RecursiveGroupPreviewCache -> (TypeEnv, InferState, RecursiveGroupPreviewCache)
-    exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state previewCache =
-      foldl'
-        exposeGroup
-        (currentEnv, state, previewCache)
-        (Map.findWithDefault [] statementIndex recursiveGroupsByInterveningLet)
+    exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> TypeEnvFreeVariables -> InferState -> RecursiveGroupPreviewCache -> (TypeEnv, InferState, RecursiveGroupPreviewCache)
+    exposeVisibleRecursiveGroupSchemes statementIndex currentEnv currentEnvFreeVariables state previewCache =
+      let (nextEnv, _, nextState, nextCache) =
+            foldl'
+              exposeGroup
+              (currentEnv, currentEnvFreeVariables, state, previewCache)
+              (Map.findWithDefault [] statementIndex recursiveGroupsByInterveningLet)
+       in (nextEnv, nextState, nextCache)
       where
-        exposeGroup (envAcc, stateAcc, cacheAcc) groupMembers =
+        exposeGroup (envAcc, freeVariablesAcc, stateAcc, cacheAcc) groupMembers =
           case (uncons groupMembers, unsnoc groupMembers, unsnoc processedMembers) of
             (Just (firstMember, _), Just (_, lastMember), Just (_, processedLastMember))
               | statementIndex `elem` groupMembers ->
-                  (envAcc, stateAcc, cacheAcc)
+                  (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
               | statementIndex > lastMember ->
-                  (envAcc, stateAcc, cacheAcc)
+                  (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
               | any (`Set.member` signedBindingStatements) groupMembers ->
-                  (envAcc, stateAcc, cacheAcc)
+                  (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
               | interleavedBindingFeedsLaterGroup statementIndex groupMembers ->
-                  (envAcc, stateAcc, cacheAcc)
+                  (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
               | laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers ->
-                  (envAcc, stateAcc, cacheAcc)
+                  (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
               | otherwise ->
                   let previewKey = (firstMember, processedLastMember)
                    in case Map.lookup previewKey cacheAcc of
                         Just cachedPreview ->
-                          ( applyRecursiveGroupPreview statementIndex envAcc cachedPreview,
-                            reserveRecursiveGroupPreviewState stateAcc cachedPreview,
-                            cacheAcc
-                          )
+                          let (nextEnv, nextFreeVariables) =
+                                applyRecursiveGroupPreview statementIndex envAcc freeVariablesAcc cachedPreview
+                           in ( nextEnv,
+                                nextFreeVariables,
+                                reserveRecursiveGroupPreviewState stateAcc cachedPreview,
+                                cacheAcc
+                              )
                         Nothing ->
                           case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
                             Nothing ->
-                              (envAcc, stateAcc, cacheAcc)
+                              (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
                             Just previewState ->
                               let groupBindingNames =
                                     Set.fromList
@@ -1175,10 +1204,17 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                                       ]
                                   envOutsideGroup =
                                     foldl' (flip Map.delete) envAcc groupBindingNames
-                                  nextEnv =
+                                  freeVariablesOutsideGroup =
+                                    Set.foldl'
+                                      (flip deleteTypeEnvFreeVariables)
+                                      freeVariablesAcc
+                                      groupBindingNames
+                                  environmentVariables =
+                                    resolveTypeEnvFreeVariables previewState freeVariablesOutsideGroup
+                                  (nextEnv, nextFreeVariables) =
                                     foldl'
-                                      (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
-                                      envAcc
+                                      (exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables previewState)
+                                      (envAcc, freeVariablesAcc)
                                       processedMembers
                                   cachedPreview =
                                     RecursiveGroupPreview
@@ -1193,24 +1229,26 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
                                         recursiveGroupPreviewNextTypeVar = solverNextTypeVar (inferSolver previewState)
                                       }
                                   nextState = rollbackPreviewState stateAcc previewState
-                               in (nextEnv, nextState, Map.insert previewKey cachedPreview cacheAcc)
+                               in (nextEnv, nextFreeVariables, nextState, Map.insert previewKey cachedPreview cacheAcc)
             _ ->
-              (envAcc, stateAcc, cacheAcc)
+              (envAcc, freeVariablesAcc, stateAcc, cacheAcc)
           where
             processedMembers = filter (< statementIndex) groupMembers
 
-        applyRecursiveGroupPreview currentStatementIndex envAcc cachedPreview =
+        applyRecursiveGroupPreview currentStatementIndex envAcc freeVariablesAcc cachedPreview =
           foldl'
             applyBinding
-            envAcc
+            (envAcc, freeVariablesAcc)
             (Map.toAscList (recursiveGroupPreviewBindings cachedPreview))
           where
-            applyBinding bindingEnv (memberIndex, binding) =
+            applyBinding (bindingEnv, freeVariables) (memberIndex, binding) =
               case Map.lookup memberIndex bindingNamesByStatement of
                 Just bindingName
                   | latestBindingIndexBefore currentStatementIndex bindingName == Just memberIndex ->
-                      Map.insert bindingName binding bindingEnv
-                _ -> bindingEnv
+                      ( Map.insert bindingName binding bindingEnv,
+                        insertTypeEnvFreeVariables bindingName binding freeVariables
+                      )
+                _ -> (bindingEnv, freeVariables)
 
         reserveRecursiveGroupPreviewState stateAcc cachedPreview =
           stateAcc
@@ -1234,10 +1272,10 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
 
     laterGroupMemberReferences :: Name -> Int -> Bool
     laterGroupMemberReferences bindingName memberIndex =
-      case Map.lookup memberIndex statementsByIndex of
-        Just (SLet _ _ valueExpr) ->
-          Set.member bindingName (freeVarsExprWithBound Set.empty valueExpr)
-        _ -> False
+      maybe
+        False
+        (Set.member bindingName)
+        (Map.lookup memberIndex previewGroupFreeNamesByStatement)
 
     laterGroupMemberDependsOnInterveningBinding :: Int -> [Int] -> Bool
     laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
@@ -1246,19 +1284,24 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
         groupMemberSet = Set.fromList groupMembers
 
         memberDependsOnInterveningBinding memberIndex =
-          case Map.lookup memberIndex statementsByIndex of
-            Just (SLet _ _ valueExpr) ->
-              let referencedNames = freeVarsExprWithBound Set.empty valueExpr
-               in any
-                    (interveningBindingIsReferenced referencedNames memberIndex)
-                    (Map.toList bindingNamesByStatement)
-            _ -> False
+          maybe
+            False
+            (any (interveningBindingIsReferenced memberIndex) . Set.toList)
+            (Map.lookup memberIndex previewGroupFreeNamesByStatement)
 
-        interveningBindingIsReferenced referencedNames memberIndex (bindingIndex, bindingName) =
-          bindingIndex > statementIndex
-            && bindingIndex < memberIndex
-            && Set.notMember bindingIndex groupMemberSet
-            && Set.member bindingName referencedNames
+        interveningBindingIsReferenced memberIndex bindingName =
+          case Map.lookup bindingName bindingIndicesByName of
+            Nothing -> False
+            Just bindingIndices ->
+              hasInterveningBindingAfter statementIndex bindingIndices
+          where
+            hasInterveningBindingAfter lowerBound bindingIndices =
+              case Set.lookupGT lowerBound bindingIndices of
+                Just bindingIndex
+                  | bindingIndex < memberIndex ->
+                      Set.notMember bindingIndex groupMemberSet
+                        || hasInterveningBindingAfter bindingIndex bindingIndices
+                _ -> False
 
     previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState
     previewRecursiveGroupState currentEnv state statementIndex groupMembers =
@@ -1339,31 +1382,45 @@ inferScopeTypeInternal allowForwardSignedFunctions suppliedRecursiveScopeFacts p
       Set.member statementIndex selfRecursiveFunctionStatements
         && Map.notMember bindingName visibleEnv
 
-    exposeRecursiveGroupMember :: Int -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
-    exposeRecursiveGroupMember statementIndex envOutsideGroup state currentEnv memberIndex =
+    exposePreviewRecursiveGroupMember :: Int -> TypeEnv -> Set Int -> InferState -> (TypeEnv, TypeEnvFreeVariables) -> Int -> (TypeEnv, TypeEnvFreeVariables)
+    exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables state (currentEnv, currentFreeVariables) memberIndex =
       case Map.lookup memberIndex bindingNamesByStatement of
         Just bindingName
           | latestBindingIndexBefore statementIndex bindingName == Just memberIndex ->
-              generalizeRecursiveGroupMember Map.empty envOutsideGroup state currentEnv memberIndex
-        _ -> currentEnv
+              let nextEnv =
+                    generalizeRecursiveGroupMemberWithVariables
+                      Map.empty
+                      envOutsideGroup
+                      environmentVariables
+                      state
+                      currentEnv
+                      memberIndex
+               in case Map.lookup bindingName nextEnv of
+                    Just binding ->
+                      ( nextEnv,
+                        insertTypeEnvFreeVariables bindingName binding currentFreeVariables
+                      )
+                    Nothing -> (nextEnv, currentFreeVariables)
+        _ -> (currentEnv, currentFreeVariables)
 
     latestBindingIndexBefore :: Int -> Name -> Maybe Int
     latestBindingIndexBefore statementIndex bindingName =
-      foldl' latest Nothing (Map.toList bindingNamesByStatement)
-      where
-        latest currentLatest (memberIndex, memberName)
-          | memberIndex < statementIndex,
-            memberName == bindingName =
-              case currentLatest of
-                Just previousIndex
-                  | previousIndex > memberIndex -> currentLatest
-                _ -> Just memberIndex
-          | otherwise = currentLatest
+      Map.lookup bindingName bindingIndicesByName
+        >>= Set.lookupLT statementIndex
 
     generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
-      let environmentVariables = freeTypeVariablesInEnv state envOutsideGroup
-       in case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+      generalizeRecursiveGroupMemberWithVariables
+        pendingSignatures
+        envOutsideGroup
+        (freeTypeVariablesInEnv state envOutsideGroup)
+        state
+        currentEnv
+        memberIndex
+
+    generalizeRecursiveGroupMemberWithVariables :: Map Int PendingSignatureType -> TypeEnv -> Set Int -> InferState -> TypeEnv -> Int -> TypeEnv
+    generalizeRecursiveGroupMemberWithVariables pendingSignatures envOutsideGroup environmentVariables state currentEnv memberIndex =
+      case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
         (Just (SLet _ _ _), Just bindingName)
           | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
             shouldGeneralizeExplicitSignatureBinding pendingSignature ->
