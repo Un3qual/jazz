@@ -4883,6 +4883,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         [ (name, scheme)
         | TypedLetStatement _ name _ scheme _ <- statements
         ]
+    exportSet = Set.fromList exports
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
@@ -4917,7 +4918,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           | preludeModule <- maybeToList (Map.lookup ["Prelude"] moduleTable)
           ]
     validateValueInterface (TypedValueInterface name scheme)
-      | Map.lookup name activeDeclaredValues == Just scheme && moduleExportsName TypedValueNamespace name exports =
+      | Map.lookup name activeDeclaredValues == Just scheme && interfaceExportsName TypedValueNamespace name =
           validateValueInterfaceDependencies scheme
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateDataInterface (TypedDataInterface declaration@(TypedDataDeclaration _ name _ constructors))
@@ -5026,21 +5027,26 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     localClassInterfaceMatches exportedName (TypedClassInterface declaration) =
       declaration `elem` declaredClasses
         && classDeclarationMatches exportedName declaration
-    valueExportProviderCount exportedName =
-      length
-        ( nub
-            ( [ owner
-              | TypedValueInterface name (TypedScheme owner _ _ _ _ _ _) <- values,
-                coreNameIdentifier name == Just exportedName
-              ]
-                <> [ owner
-                   | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
-                     declaration `elem` declaredClasses,
-                     TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _ _) <- methods,
-                     coreNameIdentifier name == Just exportedName
-                   ]
-            )
+    interfaceExportsName namespace name =
+      case coreNameIdentifier name of
+        Nothing -> False
+        Just identifier -> Set.member (TypedModuleExport namespace identifier) exportSet
+    valueExportProviders =
+      Map.fromListWith
+        Set.union
+        ( [ (identifier, Set.singleton owner)
+          | TypedValueInterface name (TypedScheme owner _ _ _ _ _ _) <- values,
+            identifier <- maybeToList (coreNameIdentifier name)
+          ]
+            <> [ (identifier, Set.singleton owner)
+               | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
+                 declaration `elem` declaredClasses,
+                 TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _ _) <- methods,
+                 identifier <- maybeToList (coreNameIdentifier name)
+               ]
         )
+    valueExportProviderCount exportedName =
+      maybe 0 Set.size (Map.lookup exportedName valueExportProviders)
 
 schemeLocalDataDependencies :: [Text] -> TypedScheme -> [TypedCoreName]
 schemeLocalDataDependencies modulePath (TypedScheme _ _ evidence primitive resultType _ _) =
