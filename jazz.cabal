@@ -226,6 +226,7 @@ benchmark jazz-bench
   other-modules:
       Jazz.Benchmark.Force
       Jazz.Benchmark.Metadata
+      Jazz.Benchmark.ScaleCases
       Jazz.Benchmark.StageInputs
       Jazz.Benchmark.Stages
       Paths_jazz
@@ -271,9 +272,20 @@ test-suite benchmark-stage-spec
   main-is: Jazz/Benchmark/StageSpec.hs
   other-modules:
       Jazz.Benchmark.Force
+      Jazz.Benchmark.Metadata
+      Jazz.Benchmark.ScaleCases
       Jazz.Benchmark.StageInputs
+      Jazz.Benchmark.Stages
+      Paths_jazz
+  autogen-modules: Paths_jazz
   build-depends:
-      deepseq >= 1.5 && < 1.6
+      aeson >= 2.2 && < 2.3,
+      bytestring >= 0.12 && < 0.13,
+      deepseq >= 1.5 && < 1.6,
+      process >= 1.6 && < 1.7,
+      tasty >= 1.5 && < 1.6,
+      tasty-bench >= 0.4.1 && < 0.6,
+      time >= 1.15 && < 1.16
 
 test-suite runtime-observation-spec
   import: test-common

@@ -147,6 +147,41 @@ Analysis setup compiles the program once to materialize validated dependency
 interfaces; the timed action then re-analyzes the entry module against those
 interfaces.
 
+### Generated compiler scale cases
+
+Compiler-scale cases are generated in memory and are opt-in, so the ordinary
+corpus tree, smoke run, and extended benchmark workload remain unchanged. The
+first two scenario families isolate these growth curves:
+
+| Scenario                          | Stable case sizes      | Timed groups                       | Exact result |
+| --------------------------------- | ---------------------- | ---------------------------------- | ------------ |
+| Sequential polymorphic bindings   | 64, 128, 256, 512      | `analysis`, `module-preparation`   | `(42, True)` |
+| Wide module fanout, width 16      | 8, 16, 32, 64 modules | `module-preparation`, `whole-program` | `0`       |
+
+Case identifiers encode the controlling size, for example
+`sequential-polymorphic-bindings-0064` and
+`wide-module-fanout-0008x0016`. List one generated case with:
+
+```bash
+cabal bench jazz-bench --jobs=1 \
+  --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests'
+```
+
+The leaves are stable, such as
+`All.compiler-scale.analysis.sequential-polymorphic-bindings-0064`. Repeat
+`--jazz-scale-case=ID` to select a comparable curve, and add an environment
+label to record the ordinary `results.csv` and `environment.json` pair:
+
+```bash
+cabal bench jazz-bench --jobs=1 \
+  --benchmark-options='--environment-label=compiler-scale-local --time-mode=cpu --jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512'
+```
+
+Generated selectors cannot be combined with `--jazz-case` or `--jazz-smoke`.
+The semantic tests compile and evaluate the smallest case in each family and
+assert exact output; physical time, cumulative allocation, and maximum
+residency remain recorded evidence rather than deterministic thresholds.
+
 List the registered tree or select cases and a Tasty pattern:
 
 ```bash

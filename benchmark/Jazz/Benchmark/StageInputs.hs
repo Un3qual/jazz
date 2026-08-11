@@ -2,8 +2,12 @@
 
 module Jazz.Benchmark.StageInputs
   ( PreparedBenchmark,
+    PreparedCompilerScaleBenchmark,
     prepareBenchmark,
+    prepareCompilerScaleBenchmark,
+    runCompilerScaleCase,
     runPreparedBenchmark,
+    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
 where
@@ -23,17 +27,27 @@ import Jazz.Benchmark.Force
     forceSurfaceExpr,
     forceTokens,
   )
+import Jazz.Benchmark.ScaleCases
+  ( CompilerScaleCase,
+    compilerScaleCaseEntryModulePath,
+    compilerScaleCaseExpectedOutput,
+    compilerScaleCaseIdentifier,
+    compilerScaleCaseResolutionConfig,
+    compilerScaleCaseSource,
+  )
+import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
+import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
 import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
 import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
 import Jazz.Compiler.ModuleInterface
   ( CompileInputs,
     CompiledModule (..),
     CompiledProgram (..),
+    compileInputs,
     compiledModuleErrors,
     compiledProgramErrors,
-    compileInputs,
     lookupCompiledModule,
   )
 import Jazz.Compiler.ModuleRuntime
@@ -68,6 +82,11 @@ data PreparedBenchmark
   | PreparedRuntime ProgramCase CompiledProgram
   | PreparedWholeProgram ProgramCase
 
+data PreparedCompilerScaleBenchmark
+  = PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
+  | PreparedCompilerScaleModulePreparation CompilerScaleCase
+  | PreparedCompilerScaleWholeProgram CompilerScaleCase
+
 instance NFData PreparedBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
@@ -84,6 +103,19 @@ instance NFData PreparedBenchmark where
       PreparedRuntime programCase compiledProgram ->
         programCaseIdentifier programCase `seq` forceCompiledProgram compiledProgram
       PreparedWholeProgram programCase -> programCaseIdentifier programCase `seq` ()
+
+instance NFData PreparedCompilerScaleBenchmark where
+  rnf preparedBenchmark =
+    case preparedBenchmark of
+      PreparedCompilerScaleAnalysis programCase compiledProgram inputs dependencies resolvedModule ->
+        rnf programCase `seq`
+          forceCompiledProgram compiledProgram `seq`
+            inputs `seq`
+              forceCompiledModules dependencies `seq`
+                resolvedModule `seq`
+                  ()
+      PreparedCompilerScaleModulePreparation programCase -> rnf programCase
+      PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
 prepareBenchmark benchmarkGroup programCase =
@@ -122,6 +154,31 @@ prepareBenchmark benchmarkGroup programCase =
     RuntimeBenchmark -> PreparedRuntime programCase <$> prepareValidProgram programCase
     WholeProgramBenchmark -> pure (PreparedWholeProgram programCase)
 
+prepareCompilerScaleBenchmark :: BenchmarkGroup -> CompilerScaleCase -> IO PreparedCompilerScaleBenchmark
+prepareCompilerScaleBenchmark benchmarkGroup programCase =
+  case benchmarkGroup of
+    AnalysisBenchmark -> do
+      compiledProgram <- prepareValidCompilerScaleProgram programCase
+      entryModule <- requireCompilerScaleEntryModule programCase compiledProgram
+      let entryPath = compiledProgramEntryPath compiledProgram
+          dependencies =
+            filter
+              ((/= entryPath) . resolvedModulePath . compiledResolvedModule)
+              (compiledProgramModules compiledProgram)
+          inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
+      pure
+        ( PreparedCompilerScaleAnalysis
+            programCase
+            compiledProgram
+            inputs
+            dependencies
+            (compiledResolvedModule entryModule)
+        )
+    ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
+    WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
+    ParseLowerBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
+    RuntimeBenchmark -> unsupportedCompilerScaleGroup benchmarkGroup programCase
+
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
 runPreparedBenchmark preparedBenchmark =
   case preparedBenchmark of
@@ -152,6 +209,36 @@ runPreparedBenchmark preparedBenchmark =
       evaluate (forceProgramCaseResult result)
       requireExpectedProgramResult programCase result
 
+runPreparedCompilerScaleBenchmark :: PreparedCompilerScaleBenchmark -> IO ()
+runPreparedCompilerScaleBenchmark preparedBenchmark =
+  case preparedBenchmark of
+    PreparedCompilerScaleAnalysis _ _ inputs dependencies resolvedModule -> do
+      compiledModule <-
+        withCompilerStage TypeInferenceStage $ do
+          value <- compileResolvedModule inputs dependencies resolvedModule
+          evaluate (forceCompiledModule value)
+          pure value
+      case compiledModuleErrors compiledModule of
+        [] -> pure ()
+        diagnostic : _ -> failBenchmarkDiagnostic diagnostic
+    PreparedCompilerScaleModulePreparation programCase -> do
+      compiledResult <- buildCompilerScaleProgram programCase
+      evaluate (forceCompiledProgramResult compiledResult)
+      case compiledResult of
+        Left diagnostic -> failBenchmarkDiagnostic diagnostic
+        Right compiledProgram -> requireNoCompileErrors compiledProgram
+    PreparedCompilerScaleWholeProgram programCase -> do
+      actualOutput <- runCompilerScaleCase programCase
+      if actualOutput == compilerScaleCaseExpectedOutput programCase
+        then pure ()
+        else
+          ioError
+            ( userError
+                ( "compiler scale benchmark did not preserve expected output: "
+                    <> Text.unpack (compilerScaleCaseIdentifier programCase)
+                )
+            )
+
 runParseLower :: Text -> IO ()
 runParseLower source = do
   tokens <-
@@ -177,6 +264,57 @@ prepareValidProgram programCase = do
   case compiledResult of
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
     Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
+
+buildCompilerScaleProgram :: CompilerScaleCase -> IO (Either Diagnostic CompiledProgram)
+buildCompilerScaleProgram programCase =
+  buildCompiledProgram
+    defaultWarningSettings
+    (PreludeBundled bundledPreludeSource)
+    (compilerScaleCaseResolutionConfig programCase)
+    (compilerScaleCaseEntryModulePath programCase)
+    (pure . compilerScaleCaseSource programCase)
+
+prepareValidCompilerScaleProgram :: CompilerScaleCase -> IO CompiledProgram
+prepareValidCompilerScaleProgram programCase = do
+  compiledResult <- buildCompilerScaleProgram programCase
+  evaluate (forceCompiledProgramResult compiledResult)
+  case compiledResult of
+    Left diagnostic -> failBenchmarkDiagnostic diagnostic
+    Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
+
+requireCompilerScaleEntryModule :: CompilerScaleCase -> CompiledProgram -> IO CompiledModule
+requireCompilerScaleEntryModule programCase compiledProgram =
+  case lookupCompiledModule (compiledProgramEntryPath compiledProgram) compiledProgram of
+    Nothing ->
+      ioError
+        ( userError
+            ( "compiled scale program is missing its entry module: "
+                <> Text.unpack (compilerScaleCaseIdentifier programCase)
+            )
+        )
+    Just value -> pure value
+
+runCompilerScaleCase :: CompilerScaleCase -> IO Text
+runCompilerScaleCase programCase = do
+  compiledProgram <- prepareValidCompilerScaleProgram programCase
+  withCompilerStage EvaluationStage $ do
+    let runtimeResult = evaluateCompiledProgram compiledProgram
+    evaluate (forceRuntimeProgramOutputResult runtimeResult)
+    case runtimeResult of
+      Left diagnostic -> failBenchmarkDiagnostic diagnostic
+      Right runtimeProgram ->
+        pure (maybe "" renderRuntimeValue (runtimeProgramOutput runtimeProgram))
+
+unsupportedCompilerScaleGroup :: BenchmarkGroup -> CompilerScaleCase -> IO value
+unsupportedCompilerScaleGroup benchmarkGroup programCase =
+  ioError
+    ( userError
+        ( "unsupported compiler scale benchmark group for "
+            <> Text.unpack (compilerScaleCaseIdentifier programCase)
+            <> ": "
+            <> show benchmarkGroup
+        )
+    )
 
 requireNoCompileErrors :: CompiledProgram -> IO ()
 requireNoCompileErrors compiledProgram =
