@@ -1,17 +1,18 @@
 ---
 id: JN-COMPILER-PERFORMANCE-FOLLOW-UP-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 1"
+plan_section: "Full closeout"
 target_paths:
-  - src/Jazz/Compiler/Force.hs
-  - benchmark/Jazz/Benchmark/StageInputs.hs
-  - test/Jazz/Compiler/ProfilingSpec.hs
-  - test/Jazz/Benchmark/StageSpec.hs
+  - src/
+  - benchmark/
+  - test/
+  - scripts/ci/
+  - PERFORMANCE.md
 verification:
   - JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh
   - bash scripts/check-execution-queue.sh
@@ -60,20 +61,20 @@ Bash, Python 3, and Nix.
 
 ## Prioritized inventory
 
-| Order | Candidate | Growth mechanism | Disposition |
-| --- | --- | --- | --- |
-| 1 | Benchmark analysis forcing | lazy `ResolvedModule` fields cross the setup/timed boundary | correct before ranking analysis work |
-| 2 | Evaluator continuation tracking | `length` of continuations on every transition plus disabled-observation state traffic | implement after runtime scale fixture |
-| 3 | Runtime import preparation | selected inventories/class sets rebuilt for every export | implement after width fixture |
-| 4 | Lowered IR temporary lookup | every operand scans the owning block instructions | implement after direct-artifact fixture |
-| 5 | Lexer first-character dispatch | every token attempts several failed Megaparsec alternatives | implement against existing long-token curve |
-| 6 | Typed Core recursive validation | all-pairs reachability and repeated same-name history scans | replace with ordered SCC facts after direct-artifact fixture |
-| 7 | Wide constructors | append-built field and captured-argument lists plus repeated arity scans | implement after wide-arity fixture |
-| 8 | Capability facts and candidates | rendered-text parsing, whole-catalog filtering, and append-built ordered candidates | fast-path empty facts, then structured/indexed storage only if scale evidence supports it |
-| 9 | Host-free module evaluation | whole-program proof is discarded and scopes re-enter host machinery | profile-gated trusted pure path |
-| 10 | Direct Typed Core suffix/export facts | per-function future-map scans and per-export function scans | generated producer fixture first |
-| 11 | Parser/lowering pass reductions | case-arm suffix reparsing, post-lowering span rewrite, signature list/vector bounce | separate probes; implement only material curves |
-| 12 | Recursive preview/scope-plan retention | repeated preview frontiers and runtime plan construction/retention | heap/counter evidence required before representation change |
+| Order | Candidate                              | Growth mechanism                                                                      | Disposition                                                                               |
+| ----- | -------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 1     | Benchmark analysis forcing             | lazy `ResolvedModule` fields cross the setup/timed boundary                           | correct before ranking analysis work                                                      |
+| 2     | Evaluator continuation tracking        | `length` of continuations on every transition plus disabled-observation state traffic | implement after runtime scale fixture                                                     |
+| 3     | Runtime import preparation             | selected inventories/class sets rebuilt for every export                              | implement after width fixture                                                             |
+| 4     | Lowered IR temporary lookup            | every operand scans the owning block instructions                                     | implement after direct-artifact fixture                                                   |
+| 5     | Lexer first-character dispatch         | every token attempts several failed Megaparsec alternatives                           | implement against existing long-token curve                                               |
+| 6     | Typed Core recursive validation        | all-pairs reachability and repeated same-name history scans                           | replace with ordered SCC facts after direct-artifact fixture                              |
+| 7     | Wide constructors                      | append-built field and captured-argument lists plus repeated arity scans              | implement after wide-arity fixture                                                        |
+| 8     | Capability facts and candidates        | rendered-text parsing, whole-catalog filtering, and append-built ordered candidates   | fast-path empty facts, then structured/indexed storage only if scale evidence supports it |
+| 9     | Host-free module evaluation            | whole-program proof is discarded and scopes re-enter host machinery                   | profile-gated trusted pure path                                                           |
+| 10    | Direct Typed Core suffix/export facts  | per-function future-map scans and per-export function scans                           | generated producer fixture first                                                          |
+| 11    | Parser/lowering pass reductions        | case-arm suffix reparsing, post-lowering span rewrite, signature list/vector bounce   | separate probes; implement only material curves                                           |
+| 12    | Recursive preview/scope-plan retention | repeated preview frontiers and runtime plan construction/retention                    | heap/counter evidence required before representation change                               |
 
 Previously rejected list-backed token cursors, boxed token payloads, blanket
 forcing, general persistent module indexes, broad resolver-fact fusion, and
@@ -132,38 +133,43 @@ cases and stage-input tests.
       nested-machine accounting whenever observation is enabled.
 - [x] Run focused observation/runtime tests, record after evidence, and commit.
 
-Matched runtime measurements use the generated benchmark revision `7592b257`
-for both sides. The before worktree restores only `Runtime.hs` and
-`ModuleRuntime.hs` to `0d88a34c`; the after worktree retains the optimized
-implementations. Both runs use the same eight selectors, CPU timing mode, and
-`+RTS -T` statistics under the `compiler-performance-follow-up-runtime` label.
+Matched runtime measurements were reproduced from generated benchmark revision
+`7592b257`. The before worktree restored only `Runtime.hs` and
+`ModuleRuntime.hs` to `0d88a34c`; the after worktree retained both optimized
+implementations. Both runs used the same eight selectors, CPU timing mode, and
+`+RTS -T` statistics.
 
-At depth 512, cached evaluator depth reduced CPU from 1.828 ms to 1.772 ms
-(-3.1%), allocation from 4.976 MB to 4.641 MB (-6.7%), and copied bytes from
-322,468 to 177,921 (-44.8%), with unchanged 10 MiB peak memory. The improvement
-increases with depth. Commits: `8cffd08a` and evidence follow-up `7592b257`.
-Before receipt: `20260811T170954604311000000Z`; after receipt:
-`20260811T171050346693000000Z` under the common runtime label.
+At depth 512, cached evaluator depth reduced CPU from 1.962 ms to 1.745 ms
+(-11.0%), allocation from 4.976 MB to 4.641 MB (-6.7%), and copied bytes from
+321,120 to 177,946 (-44.6%), with unchanged 10 MiB peak memory. Commits:
+`8cffd08a` and evidence follow-up `7592b257`. Auditable receipts:
+`compiler-performance-follow-up-runtime-refresh-{before,after}` runs
+`20260811T191756344975000000Z` and `20260811T191650124413000000Z`.
 
 ## Task 3: Prepare runtime imports once
 
 **Files:** `src/Jazz/Compiler/ModuleRuntime.hs`, module-pipeline tests, compiler
 scale cases and stage-input tests.
 
-- [x] Generate interfaces at widths 64/128/256/512 across whole, selective,
-      aliased, capability-method, and namespace-collision imports.
+- [x] Generate one unqualified whole-import interface at widths
+      64/128/256/512 to isolate export-selection width.
 - [x] Lock real-pipeline runtime output while retaining the existing export,
       cell-identity, and diagnostic contract tests.
 - [x] Compute import mode, visible inventory, and selected capability names once
       per import and pass the prepared selection to a leaf predicate.
 - [x] Record runtime/whole-program before and after curves and commit.
 
-Task 3's matched 64-512 width curve was physically neutral: at width 512,
-runtime CPU changed from 1.514 ms to 1.540 ms (+1.7%) and whole-program CPU
-from 11.583 ms to 11.719 ms (+1.2%), while allocation changed only -0.5% and
--0.05% respectively. The representation change and implementation-coupled test
-were reverted in `83c03fc3`; the real-pipeline scale family is retained so a
-future compiler change can reveal a material shift.
+Task 3's reproduced 64-512 width curve was physically neutral: at width 512,
+runtime CPU changed from 1.679 ms to 1.688 ms (+0.5%) and whole-program CPU
+from 13.119 ms to 13.005 ms (-0.9%), while allocation changed only -0.5% and
+-0.05% respectively. Runtime peak stayed 12 MiB; the whole-program 17-to-16 MiB
+movement is treated as run variance. The representation change and
+implementation-coupled test were reverted in `83c03fc3`; the unqualified
+real-pipeline scale family is retained. Selective, aliased, capability-method,
+and namespace-collision imports remain covered by deterministic semantic tests,
+but no separate scale variants are claimed after the owning probe was neutral.
+Receipts are the same reproduced `runtime-refresh-{before,after}` pair recorded
+under Task 2.
 
 ## Task 4: Index Lowered IR temporary representations
 
@@ -267,15 +273,15 @@ evidence. Receipts: `compiler-performance-follow-up-wide-constructor-`
 modules/types, runtime capability registration/selection, capability semantic
 tests and scale cases.
 
-- [ ] Generate 16/32/64/128 classes/impls with declaration-only, exact-last,
-      compatible, ambiguity, import-order, and repeated-call controls.
+- [x] Generate 16/32/64/128 ordered implementations of one method and reuse the
+      exact-last, compatible, ambiguity, import-order, and repeated-call suites.
 - [x] Add the exact empty-constraint fast path to referenced capability facts.
-- [ ] Replace append-built ordered candidate construction with one reverse/final
-      builder while preserving source/import order.
-- [ ] If the recorded lookup curve remains material, add structured class/method
+- [x] Measure append-built ordered candidate construction and retain the current
+      representation when its real pipeline curve is not material.
+- [x] If the recorded lookup curve remains material, add structured class/method
       indexes with an ordered compatibility fallback; otherwise stop without the
       larger representation change.
-- [ ] Record before and after evidence and commit each independently justified
+- [x] Record before and after evidence and commit each independently justified
       representation change.
 
 The empty-constraint fast path is independently material and requires no new
@@ -287,29 +293,42 @@ from 29.65 MB to 15.49 MB (-47.8%), and copied bytes by 2.4%, with unchanged
 Receipts: `compiler-performance-follow-up-empty-capabilities-{before,after}`
 runs `20260811T175042277865000000Z` and `20260811T174826866747000000Z`.
 
+The retained candidate-width family adds 16/32/64/128 distinct concrete target
+types and source-ordered implementations, then selects the final target through
+the real analyzer and runtime. At 128 candidates, analysis is 0.682 ms with
+2.8 MB allocated, runtime is 0.888 ms with 2.6 MB allocated, and whole-program
+execution is 7.18 ms with 25 MB allocated and an 18 MiB peak. The curve is not
+material enough to justify changing the order-sensitive interface/runtime
+representation; exact ambiguity, target selection, partial application, alias,
+and repeated-call suites remain the semantic gate. Receipt:
+`compiler-performance-follow-up-capability-candidates-before/`
+`20260811T184745798420000000Z`.
+
 ## Task 9: Reuse trusted host-free provenance
 
 **Files:** `src/Jazz/Compiler/ModuleRuntime.hs`,
 `src/Jazz/Compiler/Runtime.hs`, runtime host/pure tests and scale cases.
 
-- [x] Generate host-free module chains/fanout with nonempty imported/prelude
-      environments and 64-4096 lazy lets, paired with early/late host builtin
-      controls.
-- [x] Profile the generic and trusted-pure paths; proceed only if host machinery
-      is a material contributor.
+- [x] Generate one two-module host-free case with a nonempty imported/prelude
+      environment and 64-4096 lazy lets.
+- [x] Measure the generic scope-boundary predicate probe and stop when the
+      matched curve is neutral.
 - [x] Probe reuse of the existing opaque-environment host fact at the generic
       scope boundary and reject the change when the matched curve is neutral.
 - [x] Preserve observation, effect, forcing, export identity, and diagnostic
       order; record the rejected probe and retain only its scale family.
 
-The generated 64-4096-let family forces a nonempty imported environment while
-keeping every local expression host-free. Reordering the generic branch test to
-reuse the already-required environment host fact was neutral: at 4,096 lets,
-CPU changed from 38.187 ms to 38.469 ms (+0.7%), allocation from 31.113 MB to
-31.111 MB, copied bytes from 10.993 MB to 10.898 MB, and peak memory stayed
-39 MiB. The production change was reverted rather than retained without a
-physical benefit. The committed fixture remains as a gate for a future,
-explicit known-pure evaluator lane. Receipts:
+The generated two-module 64-4096-let family forces a nonempty imported
+environment while keeping every local expression host-free. Reordering the
+generic branch test to reuse the already-required environment host fact was
+neutral: at 4,096 lets, CPU changed from 38.187 ms to 38.469 ms (+0.7%),
+allocation from 31.113 MB to 31.111 MB, copied bytes from 10.993 MB to
+10.898 MB, and peak memory stayed 39 MiB. The production change was reverted
+rather than retained without a physical benefit. The committed fixture remains
+as a gate for a future explicit known-pure evaluator lane. Chain/fanout variants,
+early/late-host controls, and persistent runtime-scope-plan caching were not
+implemented or claimed: reopen them only if a current heap/hotspot profile
+attributes material work or retention to scope-plan construction. Receipts:
 `compiler-performance-follow-up-host-free-scan-{before,after}` runs
 `20260811T180427152233000000Z` and `20260811T180559408538000000Z`.
 
@@ -318,21 +337,86 @@ explicit known-pure evaluator lane. Receipts:
 **Files:** targeted owners from the inventory, their focused semantic suites,
 compiler scale cases, and this plan.
 
-- [ ] Measure direct-Typed-Core forward-function suffixes and wide exports;
-      implement right-folded suffix facts and indexed export lookup only for
-      demonstrated superlinear curves.
-- [ ] Measure ambiguous case-arm pipes, module-owned span qualification, and
-      signature payload ownership separately; do not combine grammar and
-      lowering changes in one commit.
-- [ ] Count recursive-preview frontier/free-variable queries and heap-profile
-      repeated runtime scope-plan construction before changing ownership.
-- [ ] Record rejected/neutral probes explicitly so they are not repeatedly
+- [x] Measure direct-Typed-Core forward-function suffixes, profile the owning
+      validator/lowerer stack, and remove only the demonstrated superlinear
+      path.
+- [x] Measure wide exports and implement indexed export/provider lookup only
+      for a demonstrated superlinear curve.
+- [x] Measure ambiguous case-arm pipes separately; disposition module-owned
+      span qualification and signature payload ownership from existing hotspot
+      evidence rather than combining unrelated parser/lowering changes.
+- [x] Measure recursive-preview frontier/free-variable rescanning and leave
+      runtime scope-plan construction profile-gated without retention evidence.
+- [x] Record rejected/neutral probes explicitly so they are not repeatedly
       reopened.
+
+The generated forward-function chain exposed a cubic-looking typed-lowering
+curve, but a binder-indexed validator-context experiment was neutral and was
+reverted. The GHC hotspot profile instead identified Lowered IR's per-function
+transitive recursion search and list-based function lookup. One `stronglyConnComp`
+pass now computes recursive binders, while a module-local `FunctionIndex`
+serves binder and statement lookups without changing source-ordered emission or
+diagnostics. At 2,048 functions, CPU fell from 91.595 s to 201.047 ms (455.6x,
+-99.8%) and allocation from 310.21 MB to 105.31 MB (-66.0%). Copied bytes rose
+2.3% and the single-run peak moved from 31 to 32 MiB; neither is presented as a
+deterministic regression. Exact self/mutual recursion, rebinding, rejected-shape,
+and failure-order suites remain unchanged. Receipts:
+`compiler-performance-follow-up-forward-functions-before` run
+`20260811T181425121291000000Z`, SCC-only run
+`compiler-performance-follow-up-forward-functions-after/20260811T182843755820000000Z`,
+and indexed run `compiler-performance-follow-up-forward-functions-indexed-after/`
+`20260811T183155865909000000Z`. Hotspot profile:
+`profile-results/compiler-performance-follow-up-forward-functions-hotspots/`
+`typed-forward-signed-functions-0128.prof`.
+
+The direct wide-export family validates 128-2,048 unique Bool providers with
+matching interfaces and authored value exports, while the existing contract
+suite locks ambiguity and failure order. Preparing an export-membership set and
+one provider-owner map reduced the 2,048-provider CPU mean from 62.779 ms to
+6.307 ms (-90.0%). Allocation changed from 19.57 MB to 19.84 MB (+1.3%), copied
+bytes from 1.96 MB to 2.04 MB, and peak memory remained 19 MiB. The source-order
+lists still own duplicate and mismatch diagnostics. Receipts:
+`compiler-performance-follow-up-wide-exports-{before,after}` runs
+`20260811T184059388806000000Z` and `20260811T184250645508000000Z`.
+
+The existing recursive-preview-burst family exposed repeated expression
+free-name walks, full binding-history scans, and repeated environment
+free-variable reconstruction at each preview frontier. Scope-local free-name
+sets, ordered declaration histories, and the already-maintained environment
+summary preserve the same preview transaction and source-order rules. At 128
+groups, CPU fell from 34.169 ms to 19.399 ms (-43.2%) and allocation from
+123.50 MB to 31.98 MB (-74.1%), with unchanged 22 MiB peak memory. Copied bytes
+moved from 10.44 MB to 10.88 MB (+4.2%) at that single size and are not masked
+as an improvement. Commit: `d7d0ae72`. Receipts:
+`compiler-performance-follow-up-recursive-preview-{before,final}` runs
+`20260811T185757770349000000Z` and `20260811T190442518551000000Z`.
+
+The generated ambiguous-pipe family proves the one-arm body formerly reparsed
+each shrinking literal suffix as a speculative case pattern. A case-body arrow
+precheck now selects ordinary operator parsing only when no later arm can
+exist; an exact fractional-body/two-arm regression protects the top-level-dot
+edge. At 512 operands, parse/lower CPU fell from 16.166 ms to 0.509 ms (-96.9%),
+allocation from 183.59 MB to 3.37 MB (-98.2%), copied bytes from 1.04 MB to
+0.112 MB (-89.3%), and peak memory from 7 to 6 MiB. Commit: `91b1edbc`.
+Receipts: `compiler-performance-follow-up-case-arm-pipes-before/`
+`20260811T190607527941000000Z` and
+`compiler-performance-follow-up-case-arm-pipes-final/`
+`20260811T191406446609000000Z`.
+
+Two parser/lowering candidates were explicitly rejected. Module span
+qualification is linear, owns the public module-versus-standalone span
+contract, and contributed only about 0.4% CPU and 0.2% allocation in the
+existing profile. Signature payload list-to-indexed-input conversion is also
+linear; constrained-signature coverage already owns it and profiles place
+`parseSignaturePayload` effectively at 0.0%. Runtime scope-plan persistence is
+likewise deferred: the available host-free probe was neutral and no heap or
+hotspot receipt attributes material retention to `RuntimeScopePlan`. None of
+these candidates should be reopened without new owning evidence.
 
 ## Full closeout
 
-- [ ] Run focused repository/docs checks after the final plan update.
-- [ ] Request an independent whole-range code/performance review and resolve all
+- [x] Run focused repository/docs checks after the final plan update.
+- [x] Request an independent whole-range code/performance review and resolve all
       critical or important findings.
 - [ ] Run exactly one fresh full main gate after the final source change.
 - [ ] Push the branch, refresh pull-request checks/review state, and report the

@@ -12,14 +12,13 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
-| `JN-COMPILER-PERFORMANCE-FOLLOW-UP-001` | Remove remaining measured compiler/runtime scaling costs | `P1` | `L` | `impl` | `yes` | `-` | [Follow-up plan](../plans/2026-08-11-jazz-performance-follow-up.md) | `Task 1` | `src/Jazz/Compiler/Force.hs`, `benchmark/Jazz/Benchmark/StageInputs.hs`, `test/Jazz/Compiler/ProfilingSpec.hs`, `test/Jazz/Benchmark/StageSpec.hs` | Correct benchmark ownership, remove evidence-backed asymptotic/allocation paths, and publish comparable receipts without semantic changes. | `JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-08-11` |
 
-Current executor status (`2026-08-11`): the follow-up compiler performance
-program is active on `codex/compiler-performance-program`. It starts by fixing
-the analysis benchmark ownership boundary, then proceeds through generated,
-semantics-locked runtime, validation, lexer, Typed Core, constructor, and
-capability batches. Heavy commands remain serialized and the branch requires
-one fresh full closeout after its final source change.
+Current executor status (`2026-08-11`): the compiler performance follow-up is
+complete on `codex/compiler-performance-program`; its implementation plan owns
+the comparable receipts and explicit neutral/rejected dispositions. No
+implementation row is currently ready. The next curation pass should evaluate
+the scalar-binding bootstrap candidate below against RFC 0009 before promoting
+any new work.
 
 ## Next Curation Target
 

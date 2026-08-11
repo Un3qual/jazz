@@ -174,6 +174,7 @@ growth curves:
 | Deep nested lambdas               | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`, `whole-program` | `(1, depth)`             |
 | Large declared operator tables    | 16, 32, 64, 128 symbols | `parse-lower`                                     | parses and lowers        |
 | Nested expression blocks          | 16, 32, 64, 128 levels  | `parse-lower`                                     | parses and lowers        |
+| Ambiguous case-arm pipe bodies    | 64, 128, 256, 512 terms | `parse-lower`                                     | one left-associated body |
 | Exact long token streams          | 1,024 to 65,536 tokens  | `parse-lower`                                     | exact token count        |
 
 Case identifiers encode the controlling size, for example
