@@ -400,6 +400,32 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
             (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
         )
         indexedStatements
+    recursiveGroups =
+      Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
+    recursiveGroupsByInterveningLet =
+      foldl' indexRecursiveGroup Map.empty recursiveGroups
+    indexRecursiveGroup groupsByStatement groupMembers =
+      case (uncons groupMembers, unsnoc groupMembers) of
+        (Just (firstMember, _), Just (_, lastMember)) ->
+          let groupMemberSet = Set.fromList groupMembers
+           in foldl'
+                (indexInterveningLet groupMembers groupMemberSet)
+                groupsByStatement
+                [firstMember + 1 .. lastMember - 1]
+        _ -> groupsByStatement
+    indexInterveningLet groupMembers groupMemberSet groupsByStatement statementIndex
+      | Set.member statementIndex groupMemberSet = groupsByStatement
+      | otherwise =
+          case Map.lookup statementIndex statementsByIndex of
+            Just SLet {} ->
+              -- Map.insertWith receives the new list first. Flipping append
+              -- retains the canonical Set order used by the former scan.
+              Map.insertWith
+                (flip (<>))
+                statementIndex
+                [groupMembers]
+                groupsByStatement
+            _ -> groupsByStatement
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
@@ -1045,11 +1071,11 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
 
     exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> (TypeEnv, InferState)
     exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state =
-      foldl' exposeGroup (currentEnv, state) recursiveGroups
+      foldl'
+        exposeGroup
+        (currentEnv, state)
+        (Map.findWithDefault [] statementIndex recursiveGroupsByInterveningLet)
       where
-        recursiveGroups =
-          Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
-
         exposeGroup (envAcc, stateAcc) groupMembers =
           case unsnoc groupMembers of
             Nothing ->
