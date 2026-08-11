@@ -9,6 +9,7 @@ import qualified Data.Text as Text
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
     CompilerScaleScenario (..),
+    compilerScaleCaseBenchmarks,
     compilerScaleCaseEntrySource,
     compilerScaleCaseIdentifier,
     compilerScaleCaseInterfaceWidth,
@@ -246,10 +247,16 @@ testDeferredConstraintBurstSemantics = do
 testDeepNestedLambdaSemantics :: IO ()
 testDeepNestedLambdaSemantics = do
   programCase <- loadCompilerScaleCase "deep-nested-lambdas-0016"
+  assertEqual
+    "deep nested lambda benchmark boundaries"
+    [AnalysisBenchmark, ModulePreparationBenchmark, WholeProgramBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "deep nested lambda output" "(1, 16)" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
+  preparedWholeProgram <- prepareCompilerScaleBenchmark WholeProgramBenchmark programCase
+  runPreparedCompilerScaleBenchmark preparedWholeProgram
 
 testLargeOperatorTableParseLower :: IO ()
 testLargeOperatorTableParseLower = do
