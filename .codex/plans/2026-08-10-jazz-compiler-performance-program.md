@@ -1,26 +1,27 @@
 ---
-id: JN-COMPILER-PERFORMANCE-SCOPE-FACTS-009
+id: JN-COMPILER-PERFORMANCE-LAMBDA-CAPTURES-010
 status: ready
 priority: P1
 size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 4b: Transport immutable recursive scope facts"
+plan_section: "Task 4c: Replace Expr-keyed lambda capture hints"
 target_paths:
+  - src/Jazz/Compiler/AST.hs
+  - src/Jazz/Compiler/Parser/Lower.hs
   - src/Jazz/Compiler/RecursiveBindings.hs
-  - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - src/Jazz/Compiler/Analyzer.hs
-  - src/Jazz/Compiler/Runtime/ScopePlan.hs
+  - src/Jazz/Compiler/Runtime.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
   - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
+  - test/Jazz/Compiler/Semantics/LambdaSemanticsSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test recursive-bindings-spec binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-recursive-facts --time-mode=cpu --jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 +RTS -T -RTS' --jobs=1
+  - cabal test lambda-semantics-spec recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-lambda-captures --time-mode=cpu --jazz-scale-case=deep-nested-lambdas-0016 --jazz-scale-case=deep-nested-lambdas-0032 --jazz-scale-case=deep-nested-lambdas-0064 --jazz-scale-case=deep-nested-lambdas-0128 --pattern=whole-program +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Build one immutable recursive scope-fact product per owned scope and reuse it only across consumers with equivalent outer-visibility semantics, while standalone APIs retain a checked fallback."
+deliverable: "Assign stable internal lambda identities during owned lowering, compute capture plans once, and make runtime lookup retain neither lambda bodies nor structural Expr equality while preserving all closure semantics and artifacts."
 last_verified: 2026-08-10
 ---
 
@@ -768,7 +769,7 @@ win. Stable-stage, eventlog, hotspot, and heap artifacts are under
 
 - [x] Build declaration visibility, same-name indices, dependencies, and SCCs
       in one pass with append-efficient builders.
-- [ ] Transport reusable immutable scope facts to resolution, inference,
+- [x] Transport reusable immutable scope facts to resolution, inference,
       analyzer, free-variable, and runtime-scope consumers only where their
       semantics agree.
 - [ ] Assign stable lambda IDs during owned lowering, compute capture plans
@@ -851,19 +852,91 @@ trees and is not acceptable.
 `src/Jazz/Compiler/TypeInference/Scope.hs`, `src/Jazz/Compiler/Analyzer.hs`,
 `src/Jazz/Compiler/Runtime/ScopePlan.hs`, and focused semantic/benchmark tests.
 
-- [ ] Instrument a deterministic pipeline probe that counts recursive fact
+- [x] Instrument a deterministic pipeline probe that counts recursive fact
       construction per owned scope without asserting elapsed time.
-- [ ] Separate outer-independent declaration/free-name indices from the small
+- [x] Separate outer-independent declaration/free-name indices from the small
       outer-visibility projection that resolves local dependency edges.
-- [ ] Define an opaque immutable scope-fact product with exact statement-order
+- [x] Define an opaque immutable scope-fact product with exact statement-order
       ownership and no retained parent AST beyond the statements already owned
       by the active artifact.
-- [ ] Thread facts only through resolver/inference/analyzer/runtime boundaries
+- [x] Thread facts only through resolver/inference/analyzer/runtime boundaries
       whose projected outer visibility matches; preserve existing standalone
       entry points by building and validating facts locally.
-- [ ] Preserve diagnostics, rebinding selection, nested scope behavior, binder
+- [x] Preserve diagnostics, rebinding selection, nested scope behavior, binder
       identity, runtime scope plans, and exact artifacts; capture before/after
       curves and residency before promoting lambda capture plans.
+
+#### Recursive scope-fact transport receipt
+
+The opaque fact product and top-level inference/analyzer reuse landed in
+`33b45c3a`; resolver, nested free-variable, analyzer fallback, and runtime scope
+planning were routed through the same product in `51f78abf`. The product owns
+only binding names and integer group indices, not an AST key. Type inference and
+the analyzer share one exact product because their imported-value and builtin
+outer projections are identical. Resolver and runtime projections can differ,
+so their standalone boundaries deliberately construct local products instead
+of reusing an unsafe global cache.
+
+The deterministic product test fixes binding-name and ordered-SCC ownership in
+one value; the existing complete recursive-binding, binding-signature, and
+generated-stage suites fix rebinding selection, nested scopes, diagnostics,
+binder identity, runtime output, and standalone fallbacks. The compatible
+optimized receipts are
+`benchmark-results/compiler-recursive-rebindings-after/compiler-recursive-rebindings-after/20260811T052956208547000000Z/`
+and
+`benchmark-results/compiler-scope-facts-after/compiler-scope-facts-after/20260811T054234433661000000Z/`.
+After excluding run identity, revision, timestamp, and the intentional label,
+their environment metadata is identical and both source trees were clean.
+
+| Bindings | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before copied | After copied |
+| -------: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ------------: | -----------: |
+|      128 |     0.970 |    0.699 |            1.4x |         4,420,694 |        2,933,113 |                   1.5x |       296,245 |      156,018 |
+|      256 |     3.625 |    2.748 |            1.3x |        13,866,473 |        8,389,785 |                   1.7x |     2,090,238 |    1,539,850 |
+|      512 |    10.974 |    7.300 |            1.5x |        47,831,117 |       26,860,014 |                   1.8x |     5,872,015 |    3,889,136 |
+|    1,024 |    33.687 |   21.867 |            1.5x |       175,790,702 |       93,955,245 |                   1.9x |    11,126,921 |    9,243,520 |
+
+At 1,024 bindings, the optimized high-water fell from 20 MB to 18 MB. In the
+standalone stable-stage profile, per-operation allocation fell from 310 MB to
+171 MB and elapsed time from 59.0 ms to 40.1 ms. Exact maximum residency fell
+from 5,733,448 to 5,273,056 bytes, and the independent heap census fell from
+4,029,360 to 3,764,408 bytes. The total stable-profile process allocation is not
+compared because the faster after run completed far more adaptive benchmark
+iterations; the per-operation allocation counters are the compatible measure.
+Artifacts are under `profile-results/compiler-recursive-facts-after/` and
+`profile-results/compiler-scope-facts-after/`.
+
+### Task 4c: Replace Expr-keyed lambda capture hints
+
+`LambdaCaptureHints` currently stores each lambda's full body, recursively walks
+nested bodies to build capture sets, linearly searches sibling hints, and uses
+structural `Expr` equality to locate a runtime lambda. This retains duplicated
+AST subtrees in closures and makes deep nesting increasingly expensive.
+
+This is an internal representation change, not a public language or artifact
+contract. The implementation must keep stable identity out of rendered/public
+artifacts and preserve the existing `Expr` constructors where an ID can instead
+live in owned lowering/runtime metadata. If exact lookup cannot be achieved
+without changing a durable AST schema, stop implementation and write the
+required design/RFC before changing that schema.
+
+**Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Parser/Lower.hs`,
+`src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/Runtime.hs`,
+`src/Jazz/Compiler/Runtime/Types.hs`, and focused lambda/benchmark tests.
+
+- [ ] Add whole-program deep-lambda scale ownership and record a clean runtime
+      before curve plus stable-stage, hotspot, and heap evidence.
+- [ ] Characterize every AST construction path, runtime evaluation re-entry,
+      closure serialization/rendering boundary, and exact-artifact test that
+      constrains lambda identity.
+- [ ] Introduce stable internal lambda IDs or an equivalent owned traversal key
+      without changing public syntax, diagnostics, binder identity, or rendered
+      artifact schemas.
+- [ ] Precompute each capture set once, store plans without `Expr` bodies, and
+      use indexed lookup rather than sibling scans/structural equality.
+- [ ] Preserve nested/curry capture boundaries, rebinding snapshots, recursion,
+      host-cell reachability, hosted parity, and closure observation metrics.
+- [ ] Run focused lambda/runtime and generated-stage suites, capture comparable
+      after evidence, and then promote module indexing/lifetime work.
 
 ## Task 5: Index interfaces and compact compiled lifetime
 
