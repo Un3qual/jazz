@@ -3356,11 +3356,11 @@ expressionChildren expression =
     armExpressions (TypedCaseArm _ guard result) = maybeToList guard <> [result]
 
 validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
-validateApplication path (TypedNodeInfo resultType _ _ resultSelections) function argument =
+validateApplication path (TypedNodeInfo resultType resultRecipe _ resultSelections) function argument =
   typeFailures <> candidateProgressionFailures
   where
     typeFailures =
-      case typedNodeType (typedExpressionInfo function) of
+      case functionType of
         TypedFunctionType expectedArgument expectedResult ->
           argumentFailures expectedArgument <> resultFailures expectedResult
         actualFunctionType ->
@@ -3374,10 +3374,19 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
       | applicationTypesCompatible expected actualArgument = []
       | otherwise = [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expected actualArgument)]
     resultFailures expected
-      | applicationTypesCompatible expected resultType = []
-      | otherwise = [failure path TypedApplicationResultMismatch (TypedTypeDetail expected resultType)]
+      | not (applicationTypesCompatible expected resultType) =
+          [failure path TypedApplicationResultMismatch (TypedTypeDetail expected resultType)]
+      | callableRecipeCompatible functionType functionRecipe,
+        typeRecipeCompatible resultType resultRecipe,
+        Just expectedResultRecipe <- applicationResultRecipe functionRecipe,
+        expectedResultRecipe /= resultRecipe =
+          [failure path TypedApplicationResultMismatch (TypedRecipeDetail expectedResultRecipe resultRecipe)]
+      | otherwise = []
+    functionInfo = typedExpressionInfo function
+    functionType = typedNodeType functionInfo
+    functionRecipe = typedNodeRecipe functionInfo
     functionSelections =
-      case typedExpressionInfo function of
+      case functionInfo of
         TypedNodeInfo _ _ _ selections -> selections
     candidateProgressionFailures =
       missingCandidateProgressionFailures
@@ -3417,6 +3426,19 @@ validateApplication path (TypedNodeInfo resultType _ _ resultSelections) functio
         not (null matchingCandidateSets),
         any (selectedCandidate `notElem`) matchingCandidateSets
       ]
+
+applicationResultRecipe :: TypedRepresentationRecipe -> Maybe TypedRepresentationRecipe
+applicationResultRecipe recipe =
+  case recipe of
+    TypedClosureRecipe (_ : remainingArguments) resultRecipe ->
+      Just (stageRemainingArguments remainingArguments resultRecipe)
+    _ -> Nothing
+  where
+    stageRemainingArguments remainingArguments resultRecipe =
+      case remainingArguments of
+        [] -> resultRecipe
+        argumentRecipe : rest ->
+          TypedClosureRecipe [argumentRecipe] (stageRemainingArguments rest resultRecipe)
 
 applicationTypesCompatible :: TypedType -> TypedType -> Bool
 applicationTypesCompatible expected actual =

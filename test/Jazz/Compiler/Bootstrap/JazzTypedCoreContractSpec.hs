@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 38 (length invalidFixtures)
+  assertEqual "invalid fixture count" 39 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 55 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 56 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -13109,6 +13109,7 @@ expectedInvalidFixtureNames =
     "application-function-shape",
     "application-argument-type",
     "application-result-type",
+    "application-result-recipe-staging",
     "oversaturation-after-non-callable-result",
     "if-condition-type",
     "if-branch-type",
@@ -13151,6 +13152,7 @@ invalidFixtures =
     applicationFunctionShapeFixture,
     applicationArgumentTypeFixture,
     applicationResultTypeFixture,
+    applicationResultRecipeStagingFixture,
     oversaturationAfterNonCallableResultFixture,
     ifConditionTypeFixture,
     ifBranchTypeFixture,
@@ -13541,6 +13543,42 @@ applicationResultTypeFixture =
     functionName = resolved TypedCurrentModule TypedValueNamespace "argument"
     functionExpr = TypedLambdaExpr boolToBoolInfo (binder (fixtureModulePath fixture) [0, 0] functionName) functionName trueExpr
     expression = TypedApplyExpr textInfo functionExpr trueExpr
+
+applicationResultRecipeStagingFixture :: InvalidFixture
+applicationResultRecipeStagingFixture =
+  expressionFixture
+    fixture
+    expression
+    [expressionFailure fixture TypedApplicationResultMismatch (TypedRecipeDetail expectedResultRecipe actualResultRecipe)]
+  where
+    fixture = "application-result-recipe-staging"
+    modulePath = fixtureModulePath fixture
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0, 0] outerName
+    middleName = fixtureValueName "middle"
+    middleBinder = binder modulePath [0, 0, 0] middleName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0, 0, 0] innerName
+    resultType = TypedFunctionType TypedBoolType boolToBoolType
+    expectedResultRecipe = TypedClosureRecipe [TypedBoolRecipe] boolToBoolRecipe
+    actualResultRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
+    functionInfo =
+      info
+        (TypedFunctionType TypedBoolType resultType)
+        (TypedClosureRecipe [TypedBoolRecipe] expectedResultRecipe)
+    resultInfo = info resultType expectedResultRecipe
+    functionExpr =
+      TypedLambdaExpr
+        functionInfo
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            resultInfo
+            middleBinder
+            middleName
+            (TypedLambdaExpr boolToBoolInfo innerBinder innerName trueExpr)
+        )
+    expression = TypedApplyExpr (info resultType actualResultRecipe) functionExpr trueExpr
 
 oversaturationAfterNonCallableResultFixture :: InvalidFixture
 oversaturationAfterNonCallableResultFixture =

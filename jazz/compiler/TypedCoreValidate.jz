@@ -3088,12 +3088,30 @@ module TypedCoreValidate (
     | [first | rest] -> validateApplicationCandidateProgressionFrom path rest functionSelections
   }.
 
+  stageApplicationResultRecipe :: [TypedRepresentationRecipe] -> TypedRepresentationRecipe -> TypedRepresentationRecipe.
+  stageApplicationResultRecipe = \(remainingArguments, resultRecipe) -> case remainingArguments {
+    | [] -> resultRecipe
+    | [argumentRecipe | rest] -> TypedClosureRecipe [argumentRecipe] (stageApplicationResultRecipe rest resultRecipe)
+  }.
+
+  applicationResultRecipe :: TypedRepresentationRecipe -> Maybe(TypedRepresentationRecipe).
+  applicationResultRecipe = \(recipe) -> case recipe {
+    | TypedClosureRecipe [firstArgument | remainingArguments] resultRecipe ->
+      Just (stageApplicationResultRecipe remainingArguments resultRecipe)
+    | other -> Nothing
+  }.
+
   validateApplication :: TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
   validateApplication = \(path, resultInfo, function, argument) -> {
+    resultType = nodeType resultInfo.
+    resultRecipe = nodeRecipe resultInfo.
+    functionInfo = expressionInfo function.
+    functionType = nodeType functionInfo.
+    functionRecipe = nodeRecipe functionInfo.
     resultSelections = nodeEvidenceSelections resultInfo.
-    functionSelections = nodeEvidenceSelections (expressionInfo function).
+    functionSelections = nodeEvidenceSelections functionInfo.
     listConcat
-      [ case nodeType (expressionInfo function) {
+      [ case functionType {
           | TypedFunctionType expectedArgument expectedResult -> {
             actualArgument = nodeType (expressionInfo argument).
             argumentFailures =
@@ -3101,12 +3119,19 @@ module TypedCoreValidate (
               then []
               else [failure path TypedApplicationArgumentMismatch (TypedTypeDetail expectedArgument actualArgument)].
             resultFailures =
-              if applicationTypesCompatible expectedResult (nodeType resultInfo)
-              then []
-              else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult (nodeType resultInfo))].
+              if applicationTypesCompatible expectedResult resultType then
+                if callableRecipeCompatible functionType functionRecipe then
+                  if typeRecipeCompatible resultType resultRecipe then case applicationResultRecipe functionRecipe {
+                    | Just expectedResultRecipe ->
+                      if recipeEqual expectedResultRecipe resultRecipe then [] else
+                        [failure path TypedApplicationResultMismatch (TypedRecipeDetail expectedResultRecipe resultRecipe)]
+                    | Nothing -> []
+                  } else []
+                else []
+              else [failure path TypedApplicationResultMismatch (TypedTypeDetail expectedResult resultType)].
             listAppend argumentFailures resultFailures.
           }
-          | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) (nodeType resultInfo)) actualFunctionType)]
+          | actualFunctionType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo argument)) resultType) actualFunctionType)]
         },
         missingApplicationEvidenceObligations path resultSelections functionSelections,
         missingSelectedApplicationEvidence path resultSelections functionSelections,
