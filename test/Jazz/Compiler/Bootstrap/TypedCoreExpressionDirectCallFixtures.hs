@@ -2129,6 +2129,16 @@ producerEdgeFixtures =
             ]
         )
     ),
+    ( "rejected-block-nearest-prior-callable-rebinding-recursion",
+      sourceFixtureNoExports
+        "rejected-block-nearest-prior-callable-rebinding-recursion"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = { inner :: Bool -> Bool. inner = \\(x) -> f x. inner = inner. inner. }.",
+              "True."
+            ]
+        )
+    ),
     ( "rejected-conditional-self-recursion",
       sourceFixtureNoExports
         "rejected-conditional-self-recursion"

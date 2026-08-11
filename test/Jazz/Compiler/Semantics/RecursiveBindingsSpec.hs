@@ -51,6 +51,9 @@ tests =
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups ignore eager self use before an unrelated callable result", testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult),
+    ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
+    ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
+    ("recursive groups let a scalar block rebinding hide a prior callable", testRecursiveGroupsPreferLatestScalarBlockRebinding),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("nested local self recursion stays local to the block", testFreeVarsScopeKeepsNestedSelfRecursionLocal),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
@@ -243,6 +246,58 @@ testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
         [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
           SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
         ]
+
+testRecursiveGroupsFollowPriorBlockCallableRebinding :: IO ()
+testRecursiveGroupsFollowPriorBlockCallableRebinding =
+  assertEqual
+    "same-name block alias follows the nearest prior callable declaration"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
+  where
+    leadingStatements =
+      [ SLet (ident "inner") span0 innerCallable,
+        SLet (ident "inner") span0 (EVar (ident "inner"))
+      ]
+
+testRecursiveGroupsUseLatestBlockCallableRebinding :: IO ()
+testRecursiveGroupsUseLatestBlockCallableRebinding =
+  assertEqual
+    "terminal block name uses the latest callable declaration"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
+  where
+    leadingStatements =
+      [ SLet (ident "inner") span0 (ELit (LBool True)),
+        SLet (ident "inner") span0 innerCallable
+      ]
+
+testRecursiveGroupsPreferLatestScalarBlockRebinding :: IO ()
+testRecursiveGroupsPreferLatestScalarBlockRebinding =
+  assertEqual
+    "terminal block name does not reach through the latest scalar declaration"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
+  where
+    leadingStatements =
+      [ SLet (ident "inner") span0 innerCallable,
+        SLet (ident "inner") span0 (ELit (LBool True))
+      ]
+
+outerBlockStatements :: [Statement] -> [(Int, Statement)]
+outerBlockStatements leadingStatements =
+  [ ( 0,
+      SLet
+        (ident "f")
+        span0
+        (EBlock (leadingStatements <> [SExpr span0 (EVar (ident "inner"))]))
+    )
+  ]
+
+innerCallable :: Expr
+innerCallable =
+  ELambda
+    (ident "x")
+    (EApply (EVar (ident "f")) (EVar (ident "x")))
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =
