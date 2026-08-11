@@ -128,6 +128,7 @@ import Jazz.Compiler.TypeInference.Solver
     freshTypeVariable,
     integerLiteralRangeFitsNumericType,
     resolveType,
+    resolveTypeHead,
     unifyTypes,
   )
 import Jazz.Compiler.TypeInference.State
@@ -821,7 +822,7 @@ inferExprTypeDetailed builtinMode env state expr =
           specializedArgumentResult =
             case (expressionType, inferredExpressionType functionResult) of
               (Just _, Just functionType) ->
-                case resolveType finalState functionType of
+                case resolveTypeHead finalState functionType of
                   TFunctionType parameterType _ ->
                     specializeInferredExpression finalState parameterType argumentResult
                   _ -> argumentResult
