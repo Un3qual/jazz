@@ -1,22 +1,25 @@
 ---
-id: JN-COMPILER-PERFORMANCE-IMPORT-ALIAS-SCAN-016
+id: JN-COMPILER-PERFORMANCE-OWNED-PREFIX-CURSOR-017
 status: ready
 priority: P1
-size: S
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
 plan_section: "Task 6b: Remove parser and resolver repeat passes"
 target_paths:
-  - src/Jazz/Compiler/Parser.hs
+  - src/Jazz/Compiler/Parser/Declaration.hs
+  - src/Jazz/Compiler/Parser/TokenParser.hs
   - test/Jazz/Compiler/Parser/DeclarationParserSpec.hs
+  - test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs
+  - test/Jazz/Compiler/Parser/TokenParserSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test declaration-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-import-alias-scan --time-mode=cpu --jazz-scale-case=nested-blocks-0016 --jazz-scale-case=nested-blocks-0032 --jazz-scale-case=nested-blocks-0064 --jazz-scale-case=nested-blocks-0128 --pattern=parse-lower +RTS -T -RTS' --jobs=1
+  - cabal test token-parser-spec declaration-parser-spec module-import-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-owned-prefix-cursor --time-mode=cpu --jazz-scale-case=long-token-stream-01024 --jazz-scale-case=long-token-stream-04096 --jazz-scale-case=long-token-stream-16384 --jazz-scale-case=long-token-stream-65536 --pattern=parse-lower +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Stop rescanning nested token tails for import aliases in scopes where imports are invalid, while preserving legal top-level and module-body forward-alias visibility, nested-import diagnostics, exact ASTs, and hosted parity."
+deliverable: "Advance Megaparsec directly to the remainder returned by owned declaration parsers and reuse one compact-signature parse for discrimination and output, while preserving token remainders, exact diagnostics and spans, ASTs, and hosted parity."
 last_verified: 2026-08-11
 ---
 
@@ -1117,7 +1120,7 @@ rather than hidden. Artifacts are under
 
 ### Task 6b: Remove parser and resolver repeat passes
 
-- [ ] Collect legal import aliases in
+- [x] Collect legal import aliases in
       the main module parse rather than rescanning nested token tails.
 - [ ] Replace the owned-prefix/list adapter with one cursor-based parse and
       reuse compact-signature discrimination.
@@ -1129,6 +1132,23 @@ rather than hidden. Artifacts are under
       producer-to-lowerer transport validates once, while external artifacts remain
       checked.
 - [ ] Finish reverse-builder/ordered-set cleanup for analyzer diagnostics.
+
+The invalid-scope scan removal landed in `6b3dbfac`. Top-level programs and
+module bodies retain one complete legal-scope prepass because lowercase aliases
+remain visible before their import declaration. Nested blocks inherit that
+alias set but no longer walk their remaining token tails: imports are rejected
+there. A new exact-AST regression pins a nested qualified reference whose alias
+is imported later in the enclosing legal scope; declaration, module-import, and
+generated-stage suites pass.
+
+At 128 nested blocks, CPU fell from 2.735 ms to 2.666 ms (2.5%), allocation from
+13,154,137 to 13,142,836 bytes, and copied bytes from 625,859 to 618,755; the
+7 MiB benchmark peak was unchanged. The stable profiled process allocated
+5,922,502,272 versus 5,917,625,784 bytes, maximum residency fell from 761,896
+to 751,968 bytes (1.3%), and the independent heap census fell from 570,120 to
+563,800 bytes (1.1%). Artifacts are under
+`benchmark-results/compiler-import-alias-scan-{before,after}/` and
+`profile-results/compiler-import-alias-scan-{before,after}/`.
 
 ## Full closeout
 
