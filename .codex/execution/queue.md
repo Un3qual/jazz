@@ -18,7 +18,7 @@ Current executor status (`2026-08-11`): independent review reopened the compiler
 performance and memory program on `codex/compiler-performance-program`.
 `ae69e77a` forces the complete main phase inside release verification, and
 `a546bac6` removes the remaining same-name recursive dependency-history scan.
-At 1,024 rebindings the compatible curve cut allocation from 1.31 GB to 14.4 MB
+At 1,024 rebindings the compatible curve cut allocation from 93.9 MB to 14.4 MB
 and CPU from 20.675 ms to 8.674 ms while preserving focused semantics. The
 fresh mandatory `0.1.0-alpha.2` release passed at clean revision `c1a45073`;
 independent re-review is the only remaining closure step.
