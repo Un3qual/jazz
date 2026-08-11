@@ -377,7 +377,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
-        go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+        go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
       provisionalExpr =
         case mode of
@@ -447,16 +447,16 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     stateAfterBindingSeeds = preparedScopeState scopePreparation
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
+    go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, publishVisibleTypes env state, [], [])
         (statementIndex, statement) : rest ->
           let stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
            in case statement of
             SModule _ modulePath ->
-              go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass classSpan capabilityName parameters methods ->
               let validationState =
                     seedStatementCapabilityFact
@@ -471,7 +471,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -507,7 +507,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -526,7 +526,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
               let (nextEnv, nextState) =
                     registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                    go nextEnv (typeEnvFreeVariables nextEnv) lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -551,7 +551,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                         )
                   signatureState = state
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go env lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
+                    go env envFreeVariables lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
                   provisional =
                     case (mode, nextPendingSignature) of
                       (ProduceTypedCoreExpressionDirectCall, Just pendingSignature)
@@ -703,14 +703,19 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   generalizationEnv =
                     generalizationEnvForStatement statementIndex envForStatement
+                  generalizationEnvVariables =
+                    if Map.notMember statementIndex recursiveGroupsByStatement
+                      && Map.notMember statementIndex recursiveGroupsByInterveningLet
+                      then resolveTypeEnvFreeVariables stateAfterSignatureContractCheck envFreeVariables
+                      else freeTypeVariablesInEnv stateAfterSignatureContractCheck generalizationEnv
                   droppedInferredSchemeVariables =
                     case (matchingPendingSignature, nextBindingType) of
                       (Just pendingSignature, Just _)
                         | shouldGeneralizeExplicitSignatureBinding pendingSignature ->
-                            explicitBindingSchemeVariables generalizationEnv stateAfterSignatureContractCheck pendingSignature
+                            explicitBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck pendingSignature
                       (_, Just inferredType)
                         | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
-                            ordinaryBindingSchemeVariables generalizationEnv stateAfterSignatureContractCheck inferredType
+                            ordinaryBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck inferredType
                       _ -> Set.empty
                   stateAfterDroppedInferredMethodCheck =
                     case nextBindingType of
@@ -727,6 +732,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                     nextBindingForValue
                       statementIndex
                       envForStatement
+                      generalizationEnvVariables
                       valueExpr
                       nextBindingType
                       matchingPendingSignature
@@ -763,6 +769,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                     case maybeNextBinding of
                       Just binding -> Map.insert name binding env
                       Nothing -> env
+                  nextEnvFreeVariablesBeforeRecursiveGroupGeneralization =
+                    case maybeNextBinding of
+                      Just binding -> insertTypeEnvFreeVariables name binding envFreeVariables
+                      Nothing -> envFreeVariables
                   (nextEnv, stateAfterRecursiveGroupPrune) =
                     generalizeCompletedRecursiveGroup
                       nextPendingSignaturesByStatement
@@ -770,8 +780,13 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       nextEnvBeforeRecursiveGroupGeneralization
                       recursiveGroupStartStatesForStatement
                       stateAfterCapturedConstraintPrune
+                  nextEnvFreeVariables =
+                    refreshCompletedRecursiveGroupFreeVariables
+                      statementIndex
+                      nextEnv
+                      nextEnvFreeVariablesBeforeRecursiveGroupGeneralization
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
+                    go nextEnv nextEnvFreeVariables lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
                   canonicalRecursiveGroupMembers =
                     Map.lookup statementIndex recursiveGroupsByStatement
                   callableDeclaration =
@@ -848,7 +863,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                           Set.empty
                       Nothing -> stateAfterExplicitConstraintCheck
                   (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                    go env exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
+                    go env envFreeVariables exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
                   provisional =
                     case (mode, expressionProductionFailures, inferredProvisionalExpr exprResult) of
                       (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), Just ProvisionalScopeStatements {}) ->
@@ -918,16 +933,17 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     nextBindingForValue ::
       Int ->
       TypeEnv ->
+      Set Int ->
       Expr ->
       Maybe ExpressionType ->
       Maybe PendingSignatureType ->
       InferState ->
       Maybe TypeBinding
-    nextBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
+    nextBindingForValue statementIndex currentEnv environmentVariables valueExpr maybeInferredType maybePendingSignature state =
       let monomorphicBinding =
             if Set.member statementIndex (Map.keysSet recursiveGroupsByStatement)
               then PlainTypeBinding <$> maybeInferredType
-              else ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state
+              else ordinaryBindingForValue statementIndex currentEnv environmentVariables valueExpr maybeInferredType maybePendingSignature state
        in case valueExpr of
             EOperatorValue operatorSymbol
               | isNothing maybePendingSignature,
@@ -969,20 +985,21 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     ordinaryBindingForValue ::
       Int ->
       TypeEnv ->
+      Set Int ->
       Expr ->
       Maybe ExpressionType ->
       Maybe PendingSignatureType ->
       InferState ->
       Maybe TypeBinding
-    ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
+    ordinaryBindingForValue statementIndex currentEnv environmentVariables valueExpr maybeInferredType maybePendingSignature state =
       case maybeInferredType of
         Just _
           | Just pendingSignature <- maybePendingSignature,
             shouldGeneralizeExplicitSignatureBinding pendingSignature ->
-              Just (generalizedExplicitSignatureBinding currentEnv state pendingSignature)
+              Just (generalizedExplicitSignatureBinding environmentVariables state pendingSignature)
         Just inferredType
           | shouldGeneralizeOrdinaryBinding statementIndex currentEnv valueExpr maybePendingSignature ->
-              Just (generalizedOrdinaryBinding currentEnv state inferredType)
+              Just (generalizedOrdinaryBinding environmentVariables state inferredType)
         _ -> PlainTypeBinding <$> maybeInferredType
 
     shouldGeneralizeExplicitSignatureBinding :: PendingSignatureType -> Bool
@@ -1068,6 +1085,22 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   pruneCapturedInferredClassConstraintsForBindings groupStartState groupBindings state
                 )
         _ -> (currentEnv, state)
+
+    refreshCompletedRecursiveGroupFreeVariables statementIndex currentEnv currentSummary =
+      case Map.lookup statementIndex recursiveGroupsByStatement of
+        Just groupMembers
+          | Just (_, lastMember) <- unsnoc groupMembers,
+            statementIndex == lastMember ->
+              foldl' refreshMember currentSummary groupMembers
+        _ -> currentSummary
+      where
+        refreshMember summary memberIndex =
+          case Map.lookup memberIndex bindingNamesByStatement of
+            Just bindingName ->
+              case Map.lookup bindingName currentEnv of
+                Just binding -> insertTypeEnvFreeVariables bindingName binding summary
+                Nothing -> summary
+            Nothing -> summary
 
     exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> (TypeEnv, InferState)
     exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state =
@@ -1253,13 +1286,14 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
 
     generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
-      case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+      let environmentVariables = freeTypeVariablesInEnv state envOutsideGroup
+       in case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
         (Just (SLet _ _ _), Just bindingName)
           | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
             shouldGeneralizeExplicitSignatureBinding pendingSignature ->
               Map.insert
                 bindingName
-                (generalizedExplicitSignatureBinding envOutsideGroup state pendingSignature)
+                (generalizedExplicitSignatureBinding environmentVariables state pendingSignature)
                 currentEnv
         (Just (SLet _ _ valueExpr), Just bindingName)
           | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
@@ -1267,7 +1301,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                 Just bindingSeed ->
                   Map.insert
                     bindingName
-                    (generalizedOrdinaryBinding envOutsideGroup state bindingSeed)
+                    (generalizedOrdinaryBinding environmentVariables state bindingSeed)
                     currentEnv
                 _ -> currentEnv
         _ -> currentEnv
@@ -1533,10 +1567,10 @@ isDirectConstructorAlias env expr =
         _ -> False
     _ -> False
 
-generalizedOrdinaryBinding :: TypeEnv -> InferState -> ExpressionType -> TypeBinding
-generalizedOrdinaryBinding env state expressionType =
+generalizedOrdinaryBinding :: Set Int -> InferState -> ExpressionType -> TypeBinding
+generalizedOrdinaryBinding environmentVariables state expressionType =
   let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
-      schemeVariables = ordinaryBindingSchemeVariables env state expressionType
+      schemeVariables = ordinaryBindingSchemeVariables environmentVariables state expressionType
       schemeVariableOrder = orderedSchemeVariables (expressionTypeVariableOrder resolvedType) schemeVariables
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
@@ -1555,26 +1589,25 @@ generalizedOrdinaryBinding env state expressionType =
               schemeResultType = resolvedType
             }
 
-ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
-ordinaryBindingSchemeVariables env state expressionType =
+ordinaryBindingSchemeVariables :: Set Int -> InferState -> ExpressionType -> Set Int
+ordinaryBindingSchemeVariables environmentVariables state expressionType =
   let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
       freeVariables = freeTypeVariables resolvedType
-      environmentVariables = freeTypeVariablesInEnv state env
       quantifiedVariables = Set.difference freeVariables environmentVariables
    in Set.difference
         quantifiedVariables
         (numericConstrainedTypeVariables state)
 
 generalizedExplicitSignatureBinding ::
-  TypeEnv ->
+  Set Int ->
   InferState ->
   PendingSignatureType ->
   TypeBinding
-generalizedExplicitSignatureBinding env state pendingSignature =
+generalizedExplicitSignatureBinding environmentVariables state pendingSignature =
   let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
       resolvedConstraints =
         map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
-      schemeVariables = explicitBindingSchemeVariables env state pendingSignature
+      schemeVariables = explicitBindingSchemeVariables environmentVariables state pendingSignature
       inferredClassConstraints =
         typeSchemeInferredClassConstraints state schemeVariables
       schemeConstraints =
@@ -1715,8 +1748,8 @@ typeSchemeConstraintIsInferred constraint =
     TypeSchemeMethodConstraint {} -> True
     TypeSchemeConstraint {} -> False
 
-explicitBindingSchemeVariables :: TypeEnv -> InferState -> PendingSignatureType -> Set Int
-explicitBindingSchemeVariables env state pendingSignature =
+explicitBindingSchemeVariables :: Set Int -> InferState -> PendingSignatureType -> Set Int
+explicitBindingSchemeVariables environmentVariables state pendingSignature =
   let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
       resolvedConstraints =
         map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
@@ -1724,7 +1757,6 @@ explicitBindingSchemeVariables env state pendingSignature =
         Set.union
           (freeTypeVariables resolvedType)
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
-      environmentVariables = freeTypeVariablesInEnv state env
    in Set.difference freeVariables environmentVariables
 
 orderedSchemeVariables :: [Int] -> Set Int -> [Int]
