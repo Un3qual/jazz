@@ -1,24 +1,24 @@
 ---
-id: JN-COMPILER-PERFORMANCE-VALIDATED-HANDOFF-020
+id: JN-COMPILER-PERFORMANCE-DIAGNOSTIC-BUILDERS-021
 status: ready
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 6d: Reuse Typed Core validation"
+plan_section: "Task 6e: Finish diagnostic accumulation cleanup"
 target_paths:
-  - src/Jazz/Compiler/TypedCore/Validate.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration.hs
-  - src/Jazz/Compiler/LoweredIR/Lower.hs
-  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
-  - test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
+  - src/Jazz/Compiler/Analyzer.hs
+  - benchmark/Jazz/Benchmark/ScaleCases.hs
+  - benchmark/Jazz/Benchmark/StageInputs.hs
+  - test/Jazz/Compiler/Semantics/RebindingWarningSpec.hs
+  - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec --test-show-details=failures --jobs=1
-  - cabal test jazz-typed-core-expression-direct-call-spec --test-options='+RTS -sprofile-results/compiler-validated-handoff/typed-lowering.stats -RTS' --jobs=1
+  - cabal test rebinding-warning-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --jobs=1 --benchmark-options='--environment-label=compiler-diagnostic-builders-after --time-mode=cpu --pattern=analysis --jazz-scale-case=analyzer-diagnostic-chain-0064 --jazz-scale-case=analyzer-diagnostic-chain-0128 --jazz-scale-case=analyzer-diagnostic-chain-0256 --jazz-scale-case=analyzer-diagnostic-chain-0512 +RTS -T -RTS'
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Add an opaque ValidatedTypedProgram boundary so trusted producer output enters Lowered IR without repeating full validation; keep the raw TypedProgram entry point checked and preserve validation/lowering failure order and exact artifacts."
+deliverable: "Replace append-heavy recursive analyzer diagnostic assembly with ordered append-efficient builders; preserve exact warning/error order, spans, subjects, policy, and rendered artifacts."
 last_verified: 2026-08-11
 ---
 
@@ -982,8 +982,7 @@ are under
 
 The path-index implementation landed in `5ccd7564`; `a0ef3fe4` added a second
 fanout family with one export per dependency to isolate lookup growth from
-interface rebasing. `compileResolvedProgram` now carries a strict `Map [Text]
-CompiledModule` beside the reversed source-order list. The public single-module
+interface rebasing. `compileResolvedProgram` now carries a strict `Map [Text] CompiledModule` beside the reversed source-order list. The public single-module
 entry point constructs a first-wins index, preserving the historical contract
 when a caller supplies duplicate paths. The focused module-pipeline and
 generated-stage suites pass with `--jobs=1`.
@@ -1220,15 +1219,36 @@ The broad 64-by-16 fanout CPU sample moved from 13.97 to 13.78 ms with the same
 
 ### Task 6d: Reuse Typed Core validation
 
-- [ ] Capture a focused serial RTS allocation/residency baseline for Typed Core
+- [x] Capture a focused serial RTS allocation/residency baseline for Typed Core
       production followed by Lowered IR lowering.
-- [ ] Add an opaque `ValidatedTypedProgram` boundary owned by the validator.
-- [ ] Return that boundary from successful trusted production and add a trusted
+- [x] Add an opaque `ValidatedTypedProgram` boundary owned by the validator.
+- [x] Return that boundary from successful trusted production and add a trusted
       lowering entry point that does not repeat validation.
-- [ ] Keep raw externally constructed `TypedProgram` lowering checked and
+- [x] Keep raw externally constructed `TypedProgram` lowering checked and
       preserve exact validation, lowering, and invariant-failure ordering.
-- [ ] Run the Typed Core contract/direct-call suites, capture compatible after
+- [x] Run the Typed Core contract/direct-call suites, capture compatible after
       evidence, and promote analyzer accumulation cleanup.
+
+The generated handoff fixture landed in `b2c82f95`; the proof-carrying handoff
+landed in `feccfce6`. `ValidatedTypedProgram` has a private constructor, so raw
+or externally constructed artifacts still cross the complete validator. The
+trusted producer retains the same raw `TypedProgram` in its stable status while
+also transporting the opaque proof to the trusted Lowered IR entry point. All
+accepted producer fixtures prove checked and trusted lowering are identical;
+blocked production retains no proof, and the existing invalid-artifact tests
+continue to pin validation and failure precedence.
+
+The compatible optimized curve isolates one producer validation followed by
+lowering. At 512 nodes, allocation fell from 9,515,532 to 7,066,140 bytes
+(25.7%), copied bytes fell from 219,907 to 186,971 (15.0%), and the 6 MiB peak
+was unchanged. CPU samples improved at every size, from 2.311 to 2.046 ms at
+512 nodes, but remain observational. The profiling build likewise reported a
+per-operation change from about 13 to 10 MB allocated with the same 7 MiB
+peak. Its independent heap census was flat at 510,120 versus 512,488 bytes, so
+no residency reduction is claimed. Whole-process RTS totals are not normalized
+because `tasty-bench` selected different iteration counts. Artifacts are under
+`benchmark-results/compiler-validated-handoff-{before,after}/` and
+`profile-results/compiler-validated-handoff-{before,after}/`.
 
 ### Task 6e: Finish diagnostic accumulation cleanup
 
