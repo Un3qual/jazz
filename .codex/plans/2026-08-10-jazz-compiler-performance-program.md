@@ -1,27 +1,22 @@
 ---
-id: JN-COMPILER-PERFORMANCE-LAMBDA-CAPTURES-010
+id: JN-COMPILER-PERFORMANCE-MODULE-INDEX-011
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 4c: Replace Expr-keyed lambda capture hints"
+plan_section: "Task 5a: Index module dependencies"
 target_paths:
-  - src/Jazz/Compiler/AST.hs
-  - src/Jazz/Compiler/Parser/Lower.hs
-  - src/Jazz/Compiler/RecursiveBindings.hs
-  - src/Jazz/Compiler/Runtime.hs
-  - src/Jazz/Compiler/Runtime/Types.hs
-  - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
-  - test/Jazz/Compiler/Semantics/LambdaSemanticsSpec.hs
+  - src/Jazz/Compiler/ModuleCompiler.hs
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test lambda-semantics-spec recursive-bindings-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-lambda-captures --time-mode=cpu --jazz-scale-case=deep-nested-lambdas-0016 --jazz-scale-case=deep-nested-lambdas-0032 --jazz-scale-case=deep-nested-lambdas-0064 --jazz-scale-case=deep-nested-lambdas-0128 --pattern=whole-program +RTS -T -RTS' --jobs=1
+  - cabal test module-pipeline-contract-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-module-index --time-mode=cpu --jazz-scale-case=wide-module-fanout-0008x0016 --jazz-scale-case=wide-module-fanout-0016x0016 --jazz-scale-case=wide-module-fanout-0032x0016 --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Assign stable internal lambda identities during owned lowering, compute capture plans once, and make runtime lookup retain neither lambda bodies nor structural Expr equality while preserving all closure semantics and artifacts."
+deliverable: "Build and thread a compiled-module path index so every import dependency lookup is logarithmic while preserving dependency order, duplicate-path first-match behavior, diagnostics, and artifacts."
 last_verified: 2026-08-10
 ---
 
@@ -907,7 +902,7 @@ Artifacts are under `profile-results/compiler-recursive-facts-after/` and
 
 ### Task 4c: Replace Expr-keyed lambda capture hints
 
-`LambdaCaptureHints` currently stores each lambda's full body, recursively walks
+Before `a94e825f`, `LambdaCaptureHints` stored each lambda's full body, recursively walked
 nested bodies to build capture sets, linearly searches sibling hints, and uses
 structural `Expr` equality to locate a runtime lambda. This retains duplicated
 AST subtrees in closures and makes deep nesting increasingly expensive.
@@ -919,26 +914,69 @@ live in owned lowering/runtime metadata. If exact lookup cannot be achieved
 without changing a durable AST schema, stop implementation and write the
 required design/RFC before changing that schema.
 
-**Files:** `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Parser/Lower.hs`,
-`src/Jazz/Compiler/RecursiveBindings.hs`, `src/Jazz/Compiler/Runtime.hs`,
-`src/Jazz/Compiler/Runtime/Types.hs`, and focused lambda/benchmark tests.
+**Files:** `src/Jazz/Compiler/RecursiveBindings.hs`,
+`src/Jazz/Compiler/Runtime.hs`, and focused lambda/runtime/benchmark tests. The
+equivalent owned traversal key kept `Expr`, parser lowering, runtime value
+rendering, and serialized artifacts unchanged.
 
-- [ ] Add whole-program deep-lambda scale ownership and record a clean runtime
+- [x] Add whole-program deep-lambda scale ownership and record a clean runtime
       before curve plus stable-stage, hotspot, and heap evidence.
-- [ ] Characterize every AST construction path, runtime evaluation re-entry,
+- [x] Characterize every AST construction path, runtime evaluation re-entry,
       closure serialization/rendering boundary, and exact-artifact test that
       constrains lambda identity.
-- [ ] Introduce stable internal lambda IDs or an equivalent owned traversal key
+- [x] Introduce stable internal lambda IDs or an equivalent owned traversal key
       without changing public syntax, diagnostics, binder identity, or rendered
       artifact schemas.
-- [ ] Precompute each capture set once, store plans without `Expr` bodies, and
+- [x] Precompute each capture set once, store plans without `Expr` bodies, and
       use indexed lookup rather than sibling scans/structural equality.
-- [ ] Preserve nested/curry capture boundaries, rebinding snapshots, recursion,
+- [x] Preserve nested/curry capture boundaries, rebinding snapshots, recursion,
       host-cell reachability, hosted parity, and closure observation metrics.
-- [ ] Run focused lambda/runtime and generated-stage suites, capture comparable
+- [x] Run focused lambda/runtime and generated-stage suites, capture comparable
       after evidence, and then promote module indexing/lifetime work.
 
+The generated whole-program fixture landed in `427394c4`. The implementation
+in `a94e825f` replaces body-retaining list hints with a sparse `IntMap` tree
+whose keys are evaluator child positions. Capture sets and nested plans are
+computed together in one bottom-up pass. Evaluator continuation frames carry
+the exact child plan, and closures retain only the plan for their body. No AST
+constructor, lowering result, binder identity, diagnostic, runtime rendering,
+or serialized artifact changed. The focused lambda, recursive-binding, runtime,
+and generated-stage suites all pass with `--jobs=1`.
+
+The clean optimized curves are compatible after excluding run identity,
+revision, timestamp, and the intentional environment label:
+
+| Lambdas | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement | Before peak | After peak |
+| ------: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: | ----------: | ---------: |
+|      16 |     4.048 |    3.962 |            1.0x |        17,170,901 |       17,146,754 |                   1.0x |        7 MB |       7 MB |
+|      32 |     4.237 |    4.126 |            1.0x |        18,166,041 |       18,040,897 |                   1.0x |        8 MB |       8 MB |
+|      64 |     5.013 |    4.623 |            1.1x |        20,613,340 |       20,002,765 |                   1.0x |        8 MB |       8 MB |
+|     128 |     7.567 |    5.785 |            1.3x |        27,571,679 |       24,675,789 |                   1.1x |        9 MB |       8 MB |
+
+At 128 lambdas, elapsed CPU fell 23.5%, allocation fell 10.5%, copied bytes
+fell 13.7%, and high-water fell 1 MB. The stable profiled stage fell from
+16.1 ms / 41 MB allocated / 10 MB peak to 13.9 ms / 37 MB / 9 MB. Its exact
+RTS maximum residency fell from 1,543,520 to 1,023,544 bytes; the independent
+cost-centre heap census moved slightly upward from 1,148,880 to 1,203,968
+bytes, so the receipt does not claim a universal live-heap reduction. Artifacts
+are under
+`benchmark-results/compiler-lambda-captures-{before,after}/` and
+`profile-results/compiler-lambda-captures-{before,after}/`.
+
 ## Task 5: Index interfaces and compact compiled lifetime
+
+### Task 5a: Index module dependencies
+
+- [ ] Record the clean `wide-module-fanout` module-preparation curve and
+      stable-stage/hotspot/heap evidence before changing lookup representation.
+- [ ] Add a focused exact-order/duplicate-path regression for the dependency
+      index boundary.
+- [ ] Carry an incrementally maintained `Map [Text] CompiledModule` beside the
+      source-order module list and route every import lookup through it.
+- [ ] Preserve compiled module order, first-match behavior, diagnostics,
+      interfaces, runtime parity, and all exact artifacts.
+- [ ] Run the module pipeline and generated-stage suites, capture compatible
+      after evidence, and promote interface rebasing/caching.
 
 - [ ] Thread a first-match-preserving module-path index through module
       compilation and keep the duplicate-path contract exact.
