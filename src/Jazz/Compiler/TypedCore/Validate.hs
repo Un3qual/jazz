@@ -4345,54 +4345,53 @@ validateCallableShape path owner typeValue recipe callableShape =
     mismatch = [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
 
 typeRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool
-typeRecipeCompatible typeValue recipe =
-  case typeValue of
-    TypedFunctionType {} -> callableRecipeCompatible typeValue recipe
-    _ -> expectedRecipe typeValue == Just recipe
+typeRecipeCompatible = recipeCompatibleWithCallableStaging False
 
 callableRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool
-callableRecipeCompatible typeValue recipe =
-  case (flattenFunctionType typeValue, flattenClosureRecipe recipe) of
-    ((argumentTypes, resultType), Just (argumentRecipes, resultRecipe)) ->
-      length argumentTypes == length argumentRecipes
-        && and (zipWith typeRecipeCompatible argumentTypes argumentRecipes)
-        && typeRecipeCompatible resultType resultRecipe
-    _ -> False
+callableRecipeCompatible typeValue =
+  case typeValue of
+    TypedFunctionType {} -> recipeCompatibleWithCallableStaging False typeValue
+    _ -> const False
 
 stagedClosureRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool
-stagedClosureRecipeCompatible typeValue recipe =
-  case (typeValue, recipe) of
-    (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe) ->
-      typeRecipeCompatible argumentType argumentRecipe
-        && case resultType of
-          TypedFunctionType {} -> stagedClosureRecipeCompatible resultType resultRecipe
-          _ -> typeRecipeCompatible resultType resultRecipe
-    _ -> False
+stagedClosureRecipeCompatible typeValue =
+  case typeValue of
+    TypedFunctionType {} -> recipeCompatibleWithCallableStaging True typeValue
+    _ -> const False
+
+recipeCompatibleWithCallableStaging :: Bool -> TypedType -> TypedRepresentationRecipe -> Bool
+recipeCompatibleWithCallableStaging requireStagedCallable typeValue recipe =
+  case typeValue of
+    TypedFunctionType argumentType resultType ->
+      case recipe of
+        TypedClosureRecipe (argumentRecipe : remainingArguments) resultRecipe ->
+          recipeCompatibleWithCallableStaging True argumentType argumentRecipe
+            && if requireStagedCallable
+              then
+                null remainingArguments
+                  && recipeCompatibleWithCallableStaging True resultType resultRecipe
+              else
+                recipeCompatibleWithCallableStaging
+                  False
+                  resultType
+                  ( case remainingArguments of
+                      [] -> resultRecipe
+                      _ -> TypedClosureRecipe remainingArguments resultRecipe
+                  )
+        _ -> False
+    _ -> expectedRecipe typeValue == Just recipe
 
 stagedClosureRecipe :: TypedType -> Maybe TypedRepresentationRecipe
 stagedClosureRecipe typeValue =
   case typeValue of
-    TypedFunctionType argumentType resultType -> do
-      argumentRecipe <- expectedRecipe argumentType
-      resultRecipe <-
-        case resultType of
-          TypedFunctionType {} -> stagedClosureRecipe resultType
-          _ -> expectedRecipe resultType
-      pure (TypedClosureRecipe [argumentRecipe] resultRecipe)
-    _ -> Nothing
-
-flattenClosureRecipe :: TypedRepresentationRecipe -> Maybe ([TypedRepresentationRecipe], TypedRepresentationRecipe)
-flattenClosureRecipe recipe =
-  case recipe of
-    TypedClosureRecipe [] _ -> Nothing
-    TypedClosureRecipe arguments result ->
-      case flattenClosureRecipe result of
-        Just (remainingArguments, finalResult) -> Just (arguments <> remainingArguments, finalResult)
-        Nothing -> Just (arguments, result)
+    TypedFunctionType {} -> expectedRecipeWithCallableStaging True typeValue
     _ -> Nothing
 
 expectedRecipe :: TypedType -> Maybe TypedRepresentationRecipe
-expectedRecipe typeValue =
+expectedRecipe = expectedRecipeWithCallableStaging False
+
+expectedRecipeWithCallableStaging :: Bool -> TypedType -> Maybe TypedRepresentationRecipe
+expectedRecipeWithCallableStaging stageCallable typeValue =
   case typeValue of
     TypedIntType -> Just (TypedSignedIntegerRecipe 64)
     TypedFloatType -> Just (TypedFloatRecipe 64)
@@ -4400,15 +4399,21 @@ expectedRecipe typeValue =
     TypedBoolType -> Just TypedBoolRecipe
     TypedCharType -> Just TypedCharRecipe
     TypedTextType -> Just TypedManagedTextRecipe
-    TypedListType elementType -> TypedManagedListRecipe <$> expectedRecipe elementType
+    TypedListType elementType -> TypedManagedListRecipe <$> expectedRecipeWithCallableStaging True elementType
     TypedTupleType [] -> Just TypedUnitRecipe
-    TypedTupleType elementTypes -> TypedManagedProductRecipe <$> traverse expectedRecipe elementTypes
+    TypedTupleType elementTypes -> TypedManagedProductRecipe <$> traverse (expectedRecipeWithCallableStaging True) elementTypes
     TypedDataType name arguments -> Just (TypedManagedVariantRecipe name arguments)
-    TypedFunctionType {} -> do
-      let (parameters, result) = flattenFunctionType typeValue
-      parameterRecipes <- traverse expectedRecipe parameters
-      resultRecipe <- expectedRecipe result
-      pure (TypedClosureRecipe parameterRecipes resultRecipe)
+    TypedFunctionType argumentType resultType -> do
+      argumentRecipe <- expectedRecipeWithCallableStaging True argumentType
+      resultRecipe <- expectedRecipeWithCallableStaging stageCallable resultType
+      pure
+        ( if stageCallable
+            then TypedClosureRecipe [argumentRecipe] resultRecipe
+            else case resultRecipe of
+              TypedClosureRecipe remainingArguments finalResult ->
+                TypedClosureRecipe (argumentRecipe : remainingArguments) finalResult
+              _ -> TypedClosureRecipe [argumentRecipe] resultRecipe
+        )
     TypedTypeParameterType parameterId -> Just (TypedRepresentationParameterRecipe parameterId)
 
 numericRecipe :: TypedNumericType -> TypedRepresentationRecipe
@@ -4425,14 +4430,6 @@ numericRecipe numericType =
     TypedFloat16Type -> TypedFloatRecipe 16
     TypedFloat32Type -> TypedFloatRecipe 32
     TypedFloat64Type -> TypedFloatRecipe 64
-
-flattenFunctionType :: TypedType -> ([TypedType], TypedType)
-flattenFunctionType typeValue =
-  case typeValue of
-    TypedFunctionType argument result ->
-      let (arguments, finalResult) = flattenFunctionType result
-       in (argument : arguments, finalResult)
-    _ -> ([], typeValue)
 
 isFunctionType :: TypedType -> Bool
 isFunctionType TypedFunctionType {} = True

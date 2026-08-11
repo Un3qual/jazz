@@ -81,7 +81,7 @@ coreTests =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 17 (length validFixtures)
+  assertEqual "valid fixture count" 18 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 39 (length invalidFixtures)
+  assertEqual "invalid fixture count" 41 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 56 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 59 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -11905,6 +11905,7 @@ expectedValidFixtureNames =
     "builtin-generated-names",
     "list-tuple-data-recipes",
     "callable-recipes",
+    "staged-callable-parameter",
     "monomorphic-binding",
     "generalized-binding",
     "implicit-instantiation",
@@ -11933,6 +11934,7 @@ validProgram fixtureName =
     "builtin-generated-names" -> builtinGeneratedNamesProgram
     "list-tuple-data-recipes" -> listTupleDataRecipesProgram
     "callable-recipes" -> callableRecipesProgram
+    "staged-callable-parameter" -> stagedCallableParameterProgram
     "monomorphic-binding" -> monomorphicBindingProgram
     "generalized-binding" -> generalizedBindingProgram
     "implicit-instantiation" -> implicitInstantiationProgram
@@ -12157,6 +12159,33 @@ callableRecipesProgram =
         argumentBinder
         argumentName
         (TypedLambdaExpr innerInfo innerArgumentBinder innerArgumentName (TypedLiteralExpr textInfo (TypedTextLiteral "ok")))
+
+stagedCallableParameterProgram :: TypedProgram
+stagedCallableParameterProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [ TypedLetStatement functionBinder functionName span1 functionScheme functionExpression,
+      expressionStatement 2 (TypedVariableExpr functionInfo functionName (Just functionBinder))
+    ]
+    emptyInterface
+    functionInfo
+    modulePath
+  where
+    fixture = "staged-callable-parameter"
+    modulePath = fixtureModulePath fixture
+    functionName = fixtureValueName "apply"
+    functionBinder = binder modulePath [0] functionName
+    parameterName = fixtureValueName "callable"
+    parameterBinder = binder modulePath [0, 0] parameterName
+    parameterType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    parameterRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    functionType = TypedFunctionType parameterType TypedBoolType
+    functionRecipe = TypedClosureRecipe [parameterRecipe] TypedBoolRecipe
+    functionInfo = info functionType functionRecipe
+    functionScheme = TypedScheme functionBinder [] [] [] functionType functionRecipe (Just TypedClosureCallableShape)
+    functionExpression = TypedLambdaExpr functionInfo parameterBinder parameterName trueExpr
 
 callableShapesBinderReferencesProgram :: TypedProgram
 callableShapesBinderReferencesProgram =
@@ -13098,6 +13127,8 @@ expectedInvalidFixtureNames =
     "data-recipe-declaration",
     "callable-recipe-signature",
     "callable-zero-argument-stage",
+    "flattened-callable-parameter-scheme",
+    "flattened-callable-parameter-lambda",
     "flattened-anonymous-lambda-recipe",
     "flattened-nested-lambda-recipe",
     "callable-missing-shape",
@@ -13141,6 +13172,8 @@ invalidFixtures =
     dataRecipeDeclarationFixture,
     callableRecipeSignatureFixture,
     callableZeroArgumentStageFixture,
+    flattenedCallableParameterSchemeFixture,
+    flattenedCallableParameterLambdaFixture,
     flattenedAnonymousLambdaRecipeFixture,
     flattenedNestedLambdaRecipeFixture,
     callableMissingShapeFixture,
@@ -13327,6 +13360,44 @@ callableZeroArgumentStageFixture =
     actualRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [] TypedBoolRecipe)
     scheme = TypedScheme valueBinder [] [] [] boolToBoolType actualRecipe (Just TypedDirectCallableShape)
     program = signatureProgram fixture valueBinder valueName scheme
+
+flattenedCallableParameterSchemeFixture :: InvalidFixture
+flattenedCallableParameterSchemeFixture =
+  InvalidFixture
+    fixture
+    program
+    [statementFailure fixture 0 TypedCallableRecipeMismatch (TypedRecipeDetail expectedRecipe actualRecipe)]
+  where
+    fixture = "flattened-callable-parameter-scheme"
+    valueName = fixtureValueName "apply"
+    valueBinder = fixtureBinder fixture 0 valueName
+    parameterType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    parameterRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    flattenedParameterRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    functionType = TypedFunctionType parameterType TypedBoolType
+    expectedRecipe = TypedClosureRecipe [parameterRecipe] TypedBoolRecipe
+    actualRecipe = TypedClosureRecipe [flattenedParameterRecipe] TypedBoolRecipe
+    scheme = TypedScheme valueBinder [] [] [] functionType actualRecipe (Just TypedClosureCallableShape)
+    program = signatureProgram fixture valueBinder valueName scheme
+
+flattenedCallableParameterLambdaFixture :: InvalidFixture
+flattenedCallableParameterLambdaFixture =
+  expressionFixture
+    fixture
+    expression
+    [expressionFailure fixture TypedCallableRecipeMismatch (TypedRecipeDetail expectedRecipe actualRecipe)]
+  where
+    fixture = "flattened-callable-parameter-lambda"
+    modulePath = fixtureModulePath fixture
+    parameterName = fixtureValueName "callable"
+    parameterBinder = binder modulePath [0] parameterName
+    parameterType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    parameterRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    flattenedParameterRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    functionType = TypedFunctionType parameterType TypedBoolType
+    expectedRecipe = TypedClosureRecipe [parameterRecipe] TypedBoolRecipe
+    actualRecipe = TypedClosureRecipe [flattenedParameterRecipe] TypedBoolRecipe
+    expression = TypedLambdaExpr (info functionType actualRecipe) parameterBinder parameterName trueExpr
 
 flattenedAnonymousLambdaRecipeFixture :: InvalidFixture
 flattenedAnonymousLambdaRecipeFixture =

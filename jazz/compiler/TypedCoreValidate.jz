@@ -816,53 +816,59 @@ module TypedCoreValidate (
     | TypedFloat64Type -> TypedFloatRecipe 64
   }.
 
-  flattenFunctionParameters :: TypedType -> [TypedType].
-  flattenFunctionParameters = \(typeValue) -> case typeValue {
-    | TypedFunctionType argument result -> listPrepend argument (flattenFunctionParameters result)
-    | other -> []
-  }.
-
-  flattenFunctionResult :: TypedType -> TypedType.
-  flattenFunctionResult = \(typeValue) -> case typeValue {
-    | TypedFunctionType argument result -> flattenFunctionResult result
-    | other -> other
-  }.
-
-  expectedRecipes :: [TypedType] -> Maybe([TypedRepresentationRecipe]).
-  expectedRecipes = \(types) -> case types {
+  expectedValueRecipes :: [TypedType] -> Maybe([TypedRepresentationRecipe]).
+  expectedValueRecipes = \(types) -> case types {
     | [] -> Just []
-    | [first | rest] -> case (expectedRecipe first, expectedRecipes rest) {
-      | (Just firstRecipe, Just restRecipes) -> Just (listPrepend firstRecipe restRecipes)
-      | other -> Nothing
+    | [first | rest] -> case expectedRecipeWithCallableStaging True first {
+      | Nothing -> Nothing
+      | Just firstRecipe -> case expectedValueRecipes rest {
+        | Nothing -> Nothing
+        | Just restRecipes -> Just (listPrepend firstRecipe restRecipes)
+      }
     }
   }.
 
-  expectedRecipe :: TypedType -> Maybe(TypedRepresentationRecipe).
-  expectedRecipe = \(typeValue) -> case typeValue {
+  expectedRecipeWithCallableStaging :: Bool -> TypedType -> Maybe(TypedRepresentationRecipe).
+  expectedRecipeWithCallableStaging = \(stageCallable, typeValue) -> case typeValue {
     | TypedIntType -> Just (TypedSignedIntegerRecipe 64)
     | TypedFloatType -> Just (TypedFloatRecipe 64)
     | TypedNumericType numericType -> Just (numericRecipe numericType)
     | TypedBoolType -> Just TypedBoolRecipe
     | TypedCharType -> Just TypedCharRecipe
     | TypedTextType -> Just TypedManagedTextRecipe
-    | TypedListType elementType -> case expectedRecipe elementType {
+    | TypedListType elementType -> case expectedRecipeWithCallableStaging True elementType {
       | Nothing -> Nothing
       | Just elementRecipe -> Just (TypedManagedListRecipe elementRecipe)
     }
     | TypedTupleType elementTypes -> case elementTypes {
       | [] -> Just TypedUnitRecipe
-      | other -> case expectedRecipes elementTypes {
+      | other -> case expectedValueRecipes elementTypes {
         | Nothing -> Nothing
         | Just elementRecipes -> Just (TypedManagedProductRecipe elementRecipes)
       }
     }
     | TypedDataType name arguments -> Just (TypedManagedVariantRecipe name arguments)
-    | TypedFunctionType argument result -> case (expectedRecipes (flattenFunctionParameters typeValue), expectedRecipe (flattenFunctionResult typeValue)) {
-      | (Just parameterRecipes, Just resultRecipe) -> Just (TypedClosureRecipe parameterRecipes resultRecipe)
-      | other -> Nothing
+    | TypedFunctionType argumentType resultType ->
+      case expectedRecipeWithCallableStaging True argumentType {
+      | Nothing -> Nothing
+      | Just argumentRecipe -> case expectedRecipeWithCallableStaging stageCallable resultType {
+        | Nothing -> Nothing
+        | Just resultRecipe -> if stageCallable then
+          Just (TypedClosureRecipe [argumentRecipe] resultRecipe)
+        else case resultRecipe {
+          | TypedClosureRecipe remainingArguments finalResult -> Just
+            (TypedClosureRecipe
+              (listPrepend argumentRecipe remainingArguments)
+              finalResult)
+          | other -> Just (TypedClosureRecipe [argumentRecipe] resultRecipe)
+        }
+      }
     }
     | TypedTypeParameterType parameterId -> Just (TypedRepresentationParameterRecipe parameterId)
   }.
+
+  expectedRecipe :: TypedType -> Maybe(TypedRepresentationRecipe).
+  expectedRecipe = \(typeValue) -> expectedRecipeWithCallableStaging False typeValue.
 
   isFunctionType :: TypedType -> Bool.
   isFunctionType = \(typeValue) -> case typeValue {
@@ -975,14 +981,23 @@ module TypedCoreValidate (
     | [first | rest] -> listAppend (validateRecipe path scope first) (validateRecipes path scope rest)
   }.
 
-  typeRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
-  typeRecipeCompatible = \(typeValue, recipe) -> case typeValue {
+  recipeCompatibleWithCallableStaging :: Bool -> TypedType -> TypedRepresentationRecipe -> Bool.
+  recipeCompatibleWithCallableStaging =
+    \(requireStagedCallable, typeValue, recipe) -> case typeValue {
     | TypedFunctionType argumentType resultType -> case recipe {
       | TypedClosureRecipe [argumentRecipe | restRecipes] resultRecipe ->
-        if typeRecipeCompatible argumentType argumentRecipe then case restRecipes {
-          | [] -> typeRecipeCompatible resultType resultRecipe
-          | other -> typeRecipeCompatible resultType (TypedClosureRecipe restRecipes resultRecipe)
-        } else False
+        if recipeCompatibleWithCallableStaging True argumentType argumentRecipe then
+          if requireStagedCallable then case restRecipes {
+            | [] -> recipeCompatibleWithCallableStaging True resultType resultRecipe
+            | other -> False
+          } else case restRecipes {
+            | [] -> recipeCompatibleWithCallableStaging False resultType resultRecipe
+            | other -> recipeCompatibleWithCallableStaging
+              False
+              resultType
+              (TypedClosureRecipe restRecipes resultRecipe)
+          }
+        else False
       | other -> False
     }
     | other -> case expectedRecipe typeValue {
@@ -990,6 +1005,10 @@ module TypedCoreValidate (
       | Nothing -> False
     }
   }.
+
+  typeRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
+  typeRecipeCompatible =
+    \(typeValue, recipe) -> recipeCompatibleWithCallableStaging False typeValue recipe.
 
   validateTypeRecipe :: TypedCoreValidationPath -> [TypedTypeParameterId] -> TypedType -> TypedRepresentationRecipe -> [TypedCoreValidationFailure].
   validateTypeRecipe = \(path, scope, typeValue, recipe) -> if recipeWidthValid recipe then
@@ -1002,33 +1021,21 @@ module TypedCoreValidate (
   else [].
 
   callableRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
-  callableRecipeCompatible = \(typeValue, recipe) -> typeRecipeCompatible typeValue recipe.
+  callableRecipeCompatible = \(typeValue, recipe) -> case typeValue {
+    | TypedFunctionType argument result ->
+      recipeCompatibleWithCallableStaging False typeValue recipe
+    | other -> False
+  }.
 
   stagedClosureRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool.
-  stagedClosureRecipeCompatible = \(typeValue, recipe) -> case (typeValue, recipe) {
-    | (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe) ->
-      if typeRecipeCompatible argumentType argumentRecipe then case resultType {
-        | TypedFunctionType nextArgument nextResult -> stagedClosureRecipeCompatible resultType resultRecipe
-        | other -> typeRecipeCompatible resultType resultRecipe
-      } else False
+  stagedClosureRecipeCompatible = \(typeValue, recipe) -> case typeValue {
+    | TypedFunctionType argument result -> recipeCompatibleWithCallableStaging True typeValue recipe
     | other -> False
   }.
 
   stagedClosureRecipe :: TypedType -> Maybe(TypedRepresentationRecipe).
   stagedClosureRecipe = \(typeValue) -> case typeValue {
-    | TypedFunctionType argumentType resultType -> case expectedRecipe argumentType {
-      | Nothing -> Nothing
-      | Just argumentRecipe -> case resultType {
-        | TypedFunctionType nextArgument nextResult -> case stagedClosureRecipe resultType {
-          | Nothing -> Nothing
-          | Just resultRecipe -> Just (TypedClosureRecipe [argumentRecipe] resultRecipe)
-        }
-        | other -> case expectedRecipe resultType {
-          | Nothing -> Nothing
-          | Just resultRecipe -> Just (TypedClosureRecipe [argumentRecipe] resultRecipe)
-        }
-      }
-    }
+    | TypedFunctionType argument result -> expectedRecipeWithCallableStaging True typeValue
     | other -> Nothing
   }.
 
