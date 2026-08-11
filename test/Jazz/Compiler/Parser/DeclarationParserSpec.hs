@@ -60,6 +60,7 @@ tests =
   [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
     ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
     ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
+    ("preserves failure spans after an owned declaration", testFailureSpanAfterOwnedDeclaration),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
     ("rejects crossed bracket then parenthesis constructor payload", testRejectsCrossedBracketParenPayload),
@@ -100,6 +101,14 @@ testRejectsImportSymbolListWithAlias = do
     "import symbol list with alias"
     "cannot combine import alias and symbol list"
     (parseImportStatementTokens tokens)
+
+testFailureSpanAfterOwnedDeclaration :: IO ()
+testFailureSpanAfterOwnedDeclaration =
+  case parseSurfaceProgram "import Lib::Math.\nentry = )." of
+    Left diagnostic -> do
+      assertEqual "post-import failure span" (Just (SourceSpan 2 9)) (diagnosticPrimarySpan diagnostic)
+      assertEqual "post-import failure summary" "unexpected token ')'; expected expression" (diagnosticSummary diagnostic)
+    Right _ -> failTest "expected the malformed statement after the import to fail"
 
 testParsesDataConstructors :: IO ()
 testParsesDataConstructors = do

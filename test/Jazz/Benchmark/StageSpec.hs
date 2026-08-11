@@ -248,8 +248,14 @@ testRecursiveRebindingBurstSemantics = do
 testConstrainedSignatureSemantics :: IO ()
 testConstrainedSignatureSemantics = do
   programCase <- loadCompilerScaleCase "constrained-signatures-0032"
+  assertEqual
+    "constrained signature benchmark boundaries"
+    [ParseLowerBenchmark, AnalysisBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "constrained signature output" "(1, True)" actualOutput
+  preparedParseLower <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
+  runPreparedCompilerScaleBenchmark preparedParseLower
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
