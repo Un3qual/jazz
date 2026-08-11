@@ -80,7 +80,7 @@ tests =
     ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
     ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
     ("typed forward signed function scale cases have exact metadata", testTypedForwardSignedFunctionsRegistry),
-    ("smallest typed forward signed function case executes prepared validation", testTypedForwardSignedFunctionsSmallestCase),
+    ("smallest typed forward signed function case executes prepared lowering", testTypedForwardSignedFunctionsSmallestCase),
     ("typed wide export provider scale cases have exact metadata", testTypedWideExportProvidersRegistry),
     ("smallest typed wide export provider case executes prepared validation", testTypedWideExportProvidersSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
@@ -390,6 +390,10 @@ testResolverFactRichSemantics = do
 testTypedValidationHandoffSemantics :: IO ()
 testTypedValidationHandoffSemantics = do
   programCase <- loadCompilerScaleCase "typed-validation-handoff-0064"
+  assertEqual
+    "typed validation handoff benchmark boundary"
+    [TypedLoweringBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
   prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
@@ -398,16 +402,16 @@ testLoweredTemporaryValidationRegistry =
   assertScenarioRegistry
     "lowered temporary validation registry"
     LoweredTemporaryValidation
-    [ ("lowered-temporary-validation-0064", 64, [TypedLoweringBenchmark]),
-      ("lowered-temporary-validation-0256", 256, [TypedLoweringBenchmark]),
-      ("lowered-temporary-validation-1024", 1024, [TypedLoweringBenchmark]),
-      ("lowered-temporary-validation-4096", 4096, [TypedLoweringBenchmark])
+    [ ("lowered-temporary-validation-0064", 64, [LoweredValidationBenchmark]),
+      ("lowered-temporary-validation-0256", 256, [LoweredValidationBenchmark]),
+      ("lowered-temporary-validation-1024", 1024, [LoweredValidationBenchmark]),
+      ("lowered-temporary-validation-4096", 4096, [LoweredValidationBenchmark])
     ]
 
 testLoweredTemporaryValidationSmallestCase :: IO ()
 testLoweredTemporaryValidationSmallestCase = do
   programCase <- loadCompilerScaleCase "lowered-temporary-validation-0064"
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  prepared <- prepareCompilerScaleBenchmark LoweredValidationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testTypedForwardSignedFunctionsRegistry :: IO ()
@@ -432,16 +436,16 @@ testTypedWideExportProvidersRegistry =
   assertScenarioRegistry
     "typed wide export provider registry"
     TypedWideExportProviders
-    [ ("typed-wide-export-providers-0128", 128, [TypedLoweringBenchmark]),
-      ("typed-wide-export-providers-0512", 512, [TypedLoweringBenchmark]),
-      ("typed-wide-export-providers-1024", 1024, [TypedLoweringBenchmark]),
-      ("typed-wide-export-providers-2048", 2048, [TypedLoweringBenchmark])
+    [ ("typed-wide-export-providers-0128", 128, [TypedValidationBenchmark]),
+      ("typed-wide-export-providers-0512", 512, [TypedValidationBenchmark]),
+      ("typed-wide-export-providers-1024", 1024, [TypedValidationBenchmark]),
+      ("typed-wide-export-providers-2048", 2048, [TypedValidationBenchmark])
     ]
 
 testTypedWideExportProvidersSmallestCase :: IO ()
 testTypedWideExportProvidersSmallestCase = do
   programCase <- loadCompilerScaleCase "typed-wide-export-providers-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testTypedRecursiveStatementGraphRegistry :: IO ()
@@ -449,10 +453,10 @@ testTypedRecursiveStatementGraphRegistry =
   assertScenarioRegistry
     "typed recursive statement graph registry"
     TypedRecursiveStatementGraph
-    [ ("typed-recursive-statement-graph-0128", 128, [TypedLoweringBenchmark]),
-      ("typed-recursive-statement-graph-0512", 512, [TypedLoweringBenchmark]),
-      ("typed-recursive-statement-graph-1024", 1024, [TypedLoweringBenchmark]),
-      ("typed-recursive-statement-graph-2048", 2048, [TypedLoweringBenchmark])
+    [ ("typed-recursive-statement-graph-0128", 128, [TypedValidationBenchmark]),
+      ("typed-recursive-statement-graph-0512", 512, [TypedValidationBenchmark]),
+      ("typed-recursive-statement-graph-1024", 1024, [TypedValidationBenchmark]),
+      ("typed-recursive-statement-graph-2048", 2048, [TypedValidationBenchmark])
     ]
 
 assertScenarioRegistry :: Text -> CompilerScaleScenario -> [(Text, Int, [BenchmarkGroup])] -> IO ()
@@ -471,7 +475,7 @@ assertScenarioRegistry label scenario expected =
 testTypedRecursiveStatementGraphSmallestCase :: IO ()
 testTypedRecursiveStatementGraphSmallestCase = do
   programCase <- loadCompilerScaleCase "typed-recursive-statement-graph-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testWideConstructorApplicationSemantics :: IO ()

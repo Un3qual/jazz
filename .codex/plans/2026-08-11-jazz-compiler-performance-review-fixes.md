@@ -74,23 +74,23 @@
 - Consumes: generated Typed Core and Lowered IR scale fixtures.
 - Produces: distinct `typed-validation`, `lowered-validation`, and `typed-lowering` benchmark groups; a structural `forceLoweredProgram` helper used before timed lowering samples return.
 
-- [ ] **Step 1: Add failing metadata and strictness tests**
+- [x] **Step 1: Add failing metadata and strictness tests**
 
   Pin the exact group names/stage mappings, assign validator-only scenarios to their corresponding validation groups, keep genuine handoff/forward-function cases in `typed-lowering`, and add a poison-field characterization proving structural Lowered IR forcing reaches payloads that validation alone need not inspect.
 
-- [ ] **Step 2: Run the focused tests and verify the expected metadata/strictness failures**
+- [x] **Step 2: Run the focused tests and verify the expected metadata/strictness failures**
 
-  Run: `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test benchmark-stage-spec compiler-profiling-spec --test-show-details=direct --jobs=1`
+  Run: `nix --extra-experimental-features 'nix-command flakes' develop -c cabal test benchmark-stage-spec profiling-spec --test-show-details=direct --jobs=1`
 
-- [ ] **Step 3: Implement the group split and structural force**
+- [x] **Step 3: Implement the group split and structural force**
 
   Add group constructors and stable names without changing compiler stages or language artifacts. Dispatch preparation and timed work by the selected group, not scenario exceptions. Implement `forceLoweredProgram` by structurally traversing Lowered IR without allocating rendered output; force successful lowering output inside the timed action.
 
-- [ ] **Step 4: Run focused benchmark/profiling tests and diff checks**
+- [x] **Step 4: Run focused benchmark/profiling tests and diff checks**
 
   Run the Step 2 command again, followed by `git diff --check`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `fix: separate benchmark validation boundaries`
 

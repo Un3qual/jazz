@@ -9,6 +9,7 @@ module Jazz.Compiler.Force
     forceExpr,
     forceInferenceResult,
     forceListWith,
+    forceLoweredProgram,
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
@@ -50,6 +51,33 @@ import Jazz.Compiler.Diagnostics
     diagnosticWarningCategory,
     labelMessage,
     labelSpan,
+  )
+import Jazz.Compiler.LoweredIR
+  ( LoweredBlock (..),
+    LoweredBlockId (..),
+    LoweredCallSignature (..),
+    LoweredFunction (..),
+    LoweredFunctionId (..),
+    LoweredImmediate (..),
+    LoweredInstruction (..),
+    LoweredIRVersion (..),
+    LoweredLayout (..),
+    LoweredLayoutId (..),
+    LoweredLayoutShape (..),
+    LoweredOperand (..),
+    LoweredOperation (..),
+    LoweredParameter (..),
+    LoweredParameterId (..),
+    LoweredPrimitive (..),
+    LoweredProgram (..),
+    LoweredRepresentation (..),
+    LoweredRuntimeService (..),
+    LoweredRuntimeServiceId (..),
+    LoweredSwitchCase (..),
+    LoweredSwitchDefault (..),
+    LoweredTemporaryId (..),
+    LoweredTerminator (..),
+    LoweredVariantLayout (..),
   )
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -348,6 +376,188 @@ forceRuntimeProgramOutputResult result =
 
 forceRenderedRuntimeValue :: RuntimeValue -> ()
 forceRenderedRuntimeValue runtimeValue = Text.length (renderRuntimeValue runtimeValue) `seq` ()
+
+forceLoweredProgram :: LoweredProgram -> ()
+forceLoweredProgram (LoweredProgram version layouts runtimeServices functions entryFunction) =
+  forceLoweredIRVersion version `seq`
+    forceListWith forceLoweredLayout layouts `seq`
+      forceListWith forceLoweredRuntimeService runtimeServices `seq`
+        forceListWith forceLoweredFunction functions `seq`
+          forceLoweredFunctionId entryFunction
+
+forceLoweredIRVersion :: LoweredIRVersion -> ()
+forceLoweredIRVersion (LoweredIRVersion version) = version `seq` ()
+
+forceLoweredFunctionId :: LoweredFunctionId -> ()
+forceLoweredFunctionId (LoweredFunctionId functionId) = functionId `seq` ()
+
+forceLoweredBlockId :: LoweredBlockId -> ()
+forceLoweredBlockId (LoweredBlockId blockId) = blockId `seq` ()
+
+forceLoweredTemporaryId :: LoweredTemporaryId -> ()
+forceLoweredTemporaryId (LoweredTemporaryId temporaryId) = temporaryId `seq` ()
+
+forceLoweredLayoutId :: LoweredLayoutId -> ()
+forceLoweredLayoutId (LoweredLayoutId layoutId) = layoutId `seq` ()
+
+forceLoweredRuntimeServiceId :: LoweredRuntimeServiceId -> ()
+forceLoweredRuntimeServiceId (LoweredRuntimeServiceId runtimeServiceId) = runtimeServiceId `seq` ()
+
+forceLoweredParameterId :: LoweredParameterId -> ()
+forceLoweredParameterId (LoweredParameterId parameterId) = parameterId `seq` ()
+
+forceLoweredRepresentation :: LoweredRepresentation -> ()
+forceLoweredRepresentation representation =
+  case representation of
+    LoweredUnitRepresentation -> ()
+    LoweredBoolRepresentation -> ()
+    LoweredSignedIntegerRepresentation width -> width `seq` ()
+    LoweredUnsignedIntegerRepresentation width -> width `seq` ()
+    LoweredFloatRepresentation width -> width `seq` ()
+    LoweredCharRepresentation -> ()
+    LoweredManagedReferenceRepresentation layoutId -> forceLoweredLayoutId layoutId
+    LoweredClosureRepresentation signature -> forceLoweredCallSignature signature
+
+forceLoweredCallSignature :: LoweredCallSignature -> ()
+forceLoweredCallSignature (LoweredCallSignature parameters resultRepresentation) =
+  forceListWith forceLoweredRepresentation parameters `seq`
+    forceLoweredRepresentation resultRepresentation
+
+forceLoweredVariantLayout :: LoweredVariantLayout -> ()
+forceLoweredVariantLayout (LoweredVariantLayout tag fields) =
+  tag `seq` forceListWith forceLoweredRepresentation fields
+
+forceLoweredLayoutShape :: LoweredLayoutShape -> ()
+forceLoweredLayoutShape shape =
+  case shape of
+    LoweredProductLayout fields -> forceListWith forceLoweredRepresentation fields
+    LoweredVariantLayouts variants -> forceListWith forceLoweredVariantLayout variants
+    LoweredClosureEnvironmentLayout fields -> forceListWith forceLoweredRepresentation fields
+    LoweredTextLayout -> ()
+    LoweredListLayout elementRepresentation -> forceLoweredRepresentation elementRepresentation
+
+forceLoweredLayout :: LoweredLayout -> ()
+forceLoweredLayout (LoweredLayout layoutId shape) =
+  forceLoweredLayoutId layoutId `seq` forceLoweredLayoutShape shape
+
+forceLoweredRuntimeService :: LoweredRuntimeService -> ()
+forceLoweredRuntimeService (LoweredRuntimeService runtimeServiceId signature) =
+  forceLoweredRuntimeServiceId runtimeServiceId `seq` forceLoweredCallSignature signature
+
+forceLoweredParameter :: LoweredParameter -> ()
+forceLoweredParameter (LoweredParameter parameterId representation) =
+  forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+
+forceLoweredImmediate :: LoweredImmediate -> ()
+forceLoweredImmediate immediate =
+  case immediate of
+    LoweredUnitImmediate -> ()
+    LoweredBoolImmediate value -> value `seq` ()
+    LoweredSignedIntegerImmediate width value -> width `seq` value `seq` ()
+    LoweredUnsignedIntegerImmediate width value -> width `seq` value `seq` ()
+    LoweredFloatImmediate width value -> width `seq` value `seq` ()
+    LoweredCharImmediate value -> value `seq` ()
+
+forceLoweredOperand :: LoweredOperand -> ()
+forceLoweredOperand operand =
+  case operand of
+    LoweredFunctionParameterOperand parameterId representation ->
+      forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+    LoweredBlockParameterOperand parameterId representation ->
+      forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+    LoweredTemporaryOperand temporaryId representation ->
+      forceLoweredTemporaryId temporaryId `seq` forceLoweredRepresentation representation
+    LoweredImmediateOperand immediate -> forceLoweredImmediate immediate
+
+forceLoweredPrimitive :: LoweredPrimitive -> ()
+forceLoweredPrimitive primitive =
+  case primitive of
+    LoweredArithmeticPrimitive operation -> operation `seq` ()
+    LoweredComparisonPrimitive operation -> operation `seq` ()
+    LoweredBooleanPrimitive operation -> operation `seq` ()
+
+forceLoweredOperation :: LoweredOperation -> ()
+forceLoweredOperation operation =
+  case operation of
+    LoweredPrimitiveOperation primitive operands ->
+      forceLoweredPrimitive primitive `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructProduct layoutId operands ->
+      forceLoweredLayoutId layoutId `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructVariant layoutId tag operands ->
+      forceLoweredLayoutId layoutId `seq` tag `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructList layoutId operands ->
+      forceLoweredLayoutId layoutId `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructText layoutId value -> forceLoweredLayoutId layoutId `seq` value `seq` ()
+    LoweredConstructClosure functionId environment ->
+      forceLoweredFunctionId functionId `seq` forceLoweredOperand environment
+    LoweredProjectField layoutId fieldIndex operand ->
+      forceLoweredLayoutId layoutId `seq` fieldIndex `seq` forceLoweredOperand operand
+    LoweredProjectVariantTag layoutId operand ->
+      forceLoweredLayoutId layoutId `seq` forceLoweredOperand operand
+    LoweredProjectVariantField layoutId tag fieldIndex operand ->
+      forceLoweredLayoutId layoutId `seq`
+        tag `seq`
+          fieldIndex `seq`
+            forceLoweredOperand operand
+    LoweredDirectCall functionId operands ->
+      forceLoweredFunctionId functionId `seq` forceListWith forceLoweredOperand operands
+    LoweredClosureCall functionOperand operands ->
+      forceLoweredOperand functionOperand `seq` forceListWith forceLoweredOperand operands
+    LoweredRuntimeCall runtimeServiceId operands ->
+      forceLoweredRuntimeServiceId runtimeServiceId `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredInstruction :: LoweredInstruction -> ()
+forceLoweredInstruction (LoweredInstruction temporaryId representation operation) =
+  forceLoweredTemporaryId temporaryId `seq`
+    forceLoweredRepresentation representation `seq`
+      forceLoweredOperation operation
+
+forceLoweredSwitchCase :: LoweredSwitchCase -> ()
+forceLoweredSwitchCase (LoweredSwitchCase tag blockId operands) =
+  tag `seq`
+    forceLoweredBlockId blockId `seq`
+      forceListWith forceLoweredOperand operands
+
+forceLoweredSwitchDefault :: LoweredSwitchDefault -> ()
+forceLoweredSwitchDefault (LoweredSwitchDefault blockId operands) =
+  forceLoweredBlockId blockId `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredTerminator :: LoweredTerminator -> ()
+forceLoweredTerminator terminator =
+  case terminator of
+    LoweredReturn operand -> forceLoweredOperand operand
+    LoweredJump blockId operands ->
+      forceLoweredBlockId blockId `seq` forceListWith forceLoweredOperand operands
+    LoweredBranch condition thenBlock thenOperands elseBlock elseOperands ->
+      forceLoweredOperand condition `seq`
+        forceLoweredBlockId thenBlock `seq`
+          forceListWith forceLoweredOperand thenOperands `seq`
+            forceLoweredBlockId elseBlock `seq`
+              forceListWith forceLoweredOperand elseOperands
+    LoweredSwitch operand cases maybeDefault ->
+      forceLoweredOperand operand `seq`
+        forceListWith forceLoweredSwitchCase cases `seq`
+          forceMaybeWith forceLoweredSwitchDefault maybeDefault
+    LoweredDirectTailCall functionId operands ->
+      forceLoweredFunctionId functionId `seq` forceListWith forceLoweredOperand operands
+    LoweredClosureTailCall functionOperand operands ->
+      forceLoweredOperand functionOperand `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredBlock :: LoweredBlock -> ()
+forceLoweredBlock (LoweredBlock blockId parameters instructions maybeTerminator) =
+  forceLoweredBlockId blockId `seq`
+    forceListWith forceLoweredParameter parameters `seq`
+      forceListWith forceLoweredInstruction instructions `seq`
+        forceMaybeWith forceLoweredTerminator maybeTerminator
+
+forceLoweredFunction :: LoweredFunction -> ()
+forceLoweredFunction (LoweredFunction functionId maybeEnvironment parameters resultRepresentation blocks entryBlock) =
+  forceLoweredFunctionId functionId `seq`
+    forceMaybeWith forceLoweredParameter maybeEnvironment `seq`
+      forceListWith forceLoweredParameter parameters `seq`
+        forceLoweredRepresentation resultRepresentation `seq`
+          forceListWith forceLoweredBlock blocks `seq`
+            forceLoweredBlockId entryBlock
 
 forceLiteral :: Literal -> ()
 forceLiteral literal =

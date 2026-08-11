@@ -24,6 +24,7 @@ import Jazz.Benchmark.Force
     forceDiagnostic,
     forceExpr,
     forceListWith,
+    forceLoweredProgram,
     forceProgramCaseResult,
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
@@ -124,6 +125,7 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleRuntime CompilerScaleCase CompiledProgram
   | PreparedCompilerScaleLoweredValidation CompilerScaleCase LoweredProgram
+  | PreparedCompilerScaleTypedValidation CompilerScaleCase TypedProgram
   | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
   | PreparedCompilerScaleDiagnosticAnalysis CompilerScaleCase Expr Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
@@ -161,7 +163,9 @@ instance NFData PreparedCompilerScaleBenchmark where
       PreparedCompilerScaleRuntime programCase compiledProgram ->
         rnf programCase `seq` forceCompiledProgram compiledProgram
       PreparedCompilerScaleLoweredValidation programCase loweredProgram ->
-        rnf programCase `seq` forceLoweredProgramArtifact loweredProgram
+        rnf programCase `seq` forceLoweredProgram loweredProgram
+      PreparedCompilerScaleTypedValidation programCase typedProgram ->
+        rnf programCase `seq` forceTypedProgramArtifact typedProgram
       PreparedCompilerScaleTypedLowering programCase typedProgram ->
         rnf programCase `seq` forceTypedProgramArtifact typedProgram
       PreparedCompilerScaleDiagnosticAnalysis programCase expression expectedDiagnosticCount ->
@@ -204,6 +208,8 @@ prepareBenchmark benchmarkGroup programCase =
             entryModule
         )
     ModulePreparationBenchmark -> pure (PreparedModulePreparation programCase)
+    TypedValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
+    LoweredValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> PreparedRuntime programCase <$> prepareValidProgram programCase
     WholeProgramBenchmark -> pure (PreparedWholeProgram programCase)
@@ -257,35 +263,37 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                 entryModule
             )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
-    TypedLoweringBenchmark ->
-      case compilerScaleCaseScenario programCase of
-        LoweredTemporaryValidation -> do
-          let loweredProgram = loweredTemporaryValidationProgram (compilerScaleCaseSize programCase)
-          evaluate (forceLoweredProgramArtifact loweredProgram)
-          case validateLoweredProgram loweredProgram of
-            [] -> pure (PreparedCompilerScaleLoweredValidation programCase loweredProgram)
-            failures ->
-              ioError (userError ("lowered validation scale fixture is invalid: " <> show failures))
-        scenario -> do
-          let typedProgram =
-                case scenario of
-                  TypedRecursiveStatementGraph ->
-                    typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
-                  TypedForwardSignedFunctions ->
-                    typedForwardSignedFunctionsProgram (compilerScaleCaseSize programCase)
-                  TypedWideExportProviders ->
-                    typedWideExportProvidersProgram (compilerScaleCaseSize programCase)
-                  _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
-          evaluate (forceTypedProgramArtifact typedProgram)
-          case validateTypedProgram typedProgram of
-            [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
-            failures ->
-              ioError
-                ( userError
-                    ( "typed-lowering scale fixture is invalid: "
-                        <> show failures
-                    )
-                )
+    TypedValidationBenchmark -> do
+      let typedProgram =
+            case compilerScaleCaseScenario programCase of
+              TypedRecursiveStatementGraph ->
+                typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
+              TypedWideExportProviders ->
+                typedWideExportProvidersProgram (compilerScaleCaseSize programCase)
+              _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
+      evaluate (forceTypedProgramArtifact typedProgram)
+      case validateTypedProgram typedProgram of
+        [] -> pure (PreparedCompilerScaleTypedValidation programCase typedProgram)
+        failures ->
+          ioError (userError ("typed validation scale fixture is invalid: " <> show failures))
+    LoweredValidationBenchmark -> do
+      let loweredProgram = loweredTemporaryValidationProgram (compilerScaleCaseSize programCase)
+      evaluate (forceLoweredProgram loweredProgram)
+      case validateLoweredProgram loweredProgram of
+        [] -> pure (PreparedCompilerScaleLoweredValidation programCase loweredProgram)
+        failures ->
+          ioError (userError ("lowered validation scale fixture is invalid: " <> show failures))
+    TypedLoweringBenchmark -> do
+      let typedProgram =
+            case compilerScaleCaseScenario programCase of
+              TypedForwardSignedFunctions ->
+                typedForwardSignedFunctionsProgram (compilerScaleCaseSize programCase)
+              _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
+      evaluate (forceTypedProgramArtifact typedProgram)
+      case validateTypedProgram typedProgram of
+        [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
+        failures ->
+          ioError (userError ("typed-lowering scale fixture is invalid: " <> show failures))
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
       compiledProgram <- prepareValidCompilerScaleProgram programCase
@@ -351,26 +359,22 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
           [] -> pure ()
           failures ->
             ioError (userError ("lowered validation benchmark failed: " <> show failures))
-    PreparedCompilerScaleTypedLowering programCase typedProgram ->
-      case compilerScaleCaseScenario programCase of
-        scenario
-          | scenario == TypedRecursiveStatementGraph
-              || scenario == TypedWideExportProviders ->
-              withCompilerStage TypeInferenceStage $
-                case validateTypedProgram typedProgram of
-                  [] -> pure ()
-                  failures ->
-                    ioError (userError ("typed validation benchmark failed: " <> show failures))
-        _ ->
-          withCompilerStage LoweringStage $ do
-            case validateTypedProgramOnce typedProgram of
-              Left failures ->
-                ioError (userError ("trusted typed program failed producer validation: " <> show failures))
-              Right validatedProgram ->
-                case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
-                  LoweredIRSucceeded _ -> pure ()
-                  loweringResult ->
-                    ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
+    PreparedCompilerScaleTypedValidation _ typedProgram ->
+      withCompilerStage TypeInferenceStage $
+        case validateTypedProgram typedProgram of
+          [] -> pure ()
+          failures ->
+            ioError (userError ("typed validation benchmark failed: " <> show failures))
+    PreparedCompilerScaleTypedLowering _ typedProgram ->
+      withCompilerStage LoweringStage $ do
+        case validateTypedProgramOnce typedProgram of
+          Left failures ->
+            ioError (userError ("trusted typed program failed producer validation: " <> show failures))
+          Right validatedProgram ->
+            case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
+              LoweredIRSucceeded loweredProgram -> evaluate (forceLoweredProgram loweredProgram)
+              loweringResult ->
+                ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
     PreparedCompilerScaleDiagnosticAnalysis _ expression expectedDiagnosticCount ->
       withCompilerStage StaticAnalysisStage $ do
         analysisResult <- analyzeProgram defaultWarningSettings expression
@@ -800,9 +804,6 @@ typedForwardSignedFunctionsProgram functionCount
 
 forceTypedProgramArtifact :: TypedProgram -> ()
 forceTypedProgramArtifact typedProgram = rnf (show typedProgram)
-
-forceLoweredProgramArtifact :: LoweredProgram -> ()
-forceLoweredProgramArtifact loweredProgram = rnf (show loweredProgram)
 
 unsupportedCorpusGroup :: BenchmarkGroup -> ProgramCase -> IO value
 unsupportedCorpusGroup benchmarkGroup programCase =

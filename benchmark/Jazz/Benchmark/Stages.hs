@@ -216,13 +216,24 @@ runSmoke :: [ProgramCase] -> IO ()
 runSmoke programCases =
   forM_ ([minBound .. maxBound] :: [BenchmarkGroup]) $ \benchmarkGroup ->
     case find (isFastParticipant benchmarkGroup) programCases of
-      Nothing
-        | benchmarkGroup == TypedLoweringBenchmark ->
-            case find
-              ((== "typed-validation-handoff-0064") . compilerScaleCaseIdentifier)
-              compilerScaleCases of
+      Nothing ->
+        case compilerScaleSmokeCaseIdentifier benchmarkGroup of
+          Nothing ->
+            ioError
+              ( userError
+                  ( "no fast corpus case participates in benchmark group: "
+                      <> Text.unpack (benchmarkGroupName benchmarkGroup)
+                  )
+              )
+          Just identifier ->
+            case find ((== identifier) . compilerScaleCaseIdentifier) compilerScaleCases of
               Nothing ->
-                ioError (userError "no generated case participates in typed-lowering smoke")
+                ioError
+                  ( userError
+                      ( "no generated case participates in benchmark smoke group: "
+                          <> Text.unpack (benchmarkGroupName benchmarkGroup)
+                      )
+                  )
               Just programCase -> do
                 TextIO.putStrLn
                   ( "SMOKE "
@@ -232,13 +243,6 @@ runSmoke programCases =
                   )
                 prepareCompilerScaleBenchmark benchmarkGroup programCase
                   >>= runPreparedCompilerScaleBenchmark
-      Nothing ->
-        ioError
-          ( userError
-              ( "no fast corpus case participates in benchmark group: "
-                  <> Text.unpack (benchmarkGroupName benchmarkGroup)
-              )
-          )
       Just programCase -> do
         TextIO.putStrLn
           ( "SMOKE "
@@ -247,6 +251,14 @@ runSmoke programCases =
               <> programCaseIdentifier programCase
           )
         prepareBenchmark benchmarkGroup programCase >>= runPreparedBenchmark
+
+compilerScaleSmokeCaseIdentifier :: BenchmarkGroup -> Maybe Text
+compilerScaleSmokeCaseIdentifier benchmarkGroup =
+  case benchmarkGroup of
+    TypedValidationBenchmark -> Just "typed-recursive-statement-graph-0128"
+    LoweredValidationBenchmark -> Just "lowered-temporary-validation-0064"
+    TypedLoweringBenchmark -> Just "typed-validation-handoff-0064"
+    _ -> Nothing
 
 isFastParticipant :: BenchmarkGroup -> ProgramCase -> Bool
 isFastParticipant benchmarkGroup programCase =

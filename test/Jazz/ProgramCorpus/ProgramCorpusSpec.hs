@@ -417,11 +417,13 @@ testAlgorithmicWorkloads = do
         False
         (GenericAdtsFeature `elem` programCaseFeatures programCase)
 
--- Typed lowering is exercised by generated compiler-scale cases; the checked-in
--- corpus is not expected to cover 'TypedLoweringBenchmark'.
+-- Typed and lowered validation plus typed lowering are exercised by generated
+-- compiler-scale cases; the checked-in corpus is not expected to cover them.
 corpusBenchmarkGroups :: [BenchmarkGroup]
 corpusBenchmarkGroups =
-  filter (/= TypedLoweringBenchmark) [minBound .. maxBound]
+  filter
+    (`notElem` [TypedValidationBenchmark, LoweredValidationBenchmark, TypedLoweringBenchmark])
+    [minBound .. maxBound]
 
 algorithmicCaseIdentifiers :: [Text]
 algorithmicCaseIdentifiers =

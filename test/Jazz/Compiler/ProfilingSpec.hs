@@ -23,9 +23,28 @@ import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Compiler.Force
   ( forceCompiledModule,
     forceInferenceResult,
+    forceLoweredProgram,
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
   )
+import Jazz.Compiler.LoweredIR
+  ( LoweredBlock (LoweredBlock),
+    LoweredBlockId (LoweredBlockId),
+    LoweredFunction (LoweredFunction),
+    LoweredFunctionId (LoweredFunctionId),
+    LoweredInstruction (LoweredInstruction),
+    LoweredLayout (LoweredLayout),
+    LoweredLayoutId (LoweredLayoutId),
+    LoweredLayoutShape (LoweredTextLayout),
+    LoweredOperand (LoweredTemporaryOperand),
+    LoweredOperation (LoweredConstructText),
+    LoweredProgram (LoweredProgram),
+    LoweredRepresentation (LoweredManagedReferenceRepresentation),
+    LoweredTemporaryId (LoweredTemporaryId),
+    LoweredTerminator (LoweredReturn),
+    supportedLoweredIRVersion,
+  )
+import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     exportInventory,
@@ -46,8 +65,11 @@ import Jazz.Compiler.ModuleRuntime
   )
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
 import Jazz.Compiler.Profiling
-  ( CompilerStage (..),
+  ( BenchmarkGroup (..),
+    CompilerStage (..),
     CompilerStageBoundary (..),
+    benchmarkGroupName,
+    benchmarkGroupStages,
     compilerStageMarkerName,
     compilerStageName,
     withCompilerStageMarkers,
@@ -75,7 +97,8 @@ main = runTestSuite "ProfilingSpec" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("compiler stage names are stable, non-empty, and unique", testCompilerStageNames),
+  [ ("benchmark group names and stage mappings are exact", testBenchmarkGroupMetadata),
+    ("compiler stage names are stable, non-empty, and unique", testCompilerStageNames),
     ("compiler stage markers pair around successful actions", testSuccessfulStageMarkers),
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
@@ -83,9 +106,38 @@ tests =
     ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
     ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
     ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
+    ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
+
+testBenchmarkGroupMetadata :: IO ()
+testBenchmarkGroupMetadata = do
+  let groups = [minBound .. maxBound] :: [BenchmarkGroup]
+  assertEqual
+    "benchmark group names"
+    [ "parse-lower",
+      "analysis",
+      "module-preparation",
+      "typed-validation",
+      "lowered-validation",
+      "typed-lowering",
+      "runtime",
+      "whole-program"
+    ]
+    (map benchmarkGroupName groups)
+  assertEqual
+    "benchmark group stage mappings"
+    [ (ParseLowerBenchmark, [LexingStage, ParsingStage, LoweringStage]),
+      (AnalysisBenchmark, [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]),
+      (ModulePreparationBenchmark, [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]),
+      (TypedValidationBenchmark, [TypeInferenceStage]),
+      (LoweredValidationBenchmark, [LoweringStage]),
+      (TypedLoweringBenchmark, [TypeInferenceStage, LoweringStage]),
+      (RuntimeBenchmark, [EvaluationStage, HostOperationStage]),
+      (WholeProgramBenchmark, [minBound .. maxBound])
+    ]
+    [(group, benchmarkGroupStages group) | group <- groups]
 
 testCompilerStageNames :: IO ()
 testCompilerStageNames = do
@@ -281,6 +333,48 @@ testDeepResolvedModuleForcing =
       case result of
         Left _ -> pure ()
         Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+
+testDeepLoweredProgramForcing :: IO ()
+testDeepLoweredProgramForcing = do
+  let marker = "lowered text payload was forced"
+      textLayoutId = LoweredLayoutId "text"
+      textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+      functionId = LoweredFunctionId "main"
+      blockId = LoweredBlockId "entry"
+      temporaryId = LoweredTemporaryId "text-value"
+      loweredProgram =
+        LoweredProgram
+          supportedLoweredIRVersion
+          [LoweredLayout textLayoutId LoweredTextLayout]
+          []
+          [ LoweredFunction
+              functionId
+              Nothing
+              []
+              textRepresentation
+              [ LoweredBlock
+                  blockId
+                  []
+                  [ LoweredInstruction
+                      temporaryId
+                      textRepresentation
+                      (LoweredConstructText textLayoutId (throw (userError marker)))
+                  ]
+                  (Just (LoweredReturn (LoweredTemporaryOperand temporaryId textRepresentation)))
+              ]
+              blockId
+          ]
+          functionId
+  assertEqual
+    "poisoned lowered program remains structurally valid"
+    []
+    (validateLoweredProgram loweredProgram)
+  result <- try (evaluate (forceLoweredProgram loweredProgram)) :: IO (Either IOException ())
+  case result of
+    Left exception
+      | Text.pack marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
+      | otherwise -> throw exception
+    Right () -> ioError (userError "forceLoweredProgram left a lowered text payload unevaluated")
 
 baseResolvedModule :: ResolvedModule
 baseResolvedModule =
