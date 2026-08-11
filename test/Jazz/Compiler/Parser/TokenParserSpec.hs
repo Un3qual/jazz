@@ -35,6 +35,11 @@ import Jazz.Compiler.Parser.TokenParser
     runTokenParser,
     runTokenParserDetailed,
     runTokenParserPrefix,
+    runTokenStreamParserPrefix,
+  )
+import Jazz.Compiler.Parser.TokenStream
+  ( tokenStreamFromList,
+    tokenStreamToList,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -51,6 +56,7 @@ tests :: [NamedTest]
 tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
+    ("indexed prefix parser returns an exact shared remainder", testIndexedPrefixParserReturnsRemainder),
     ("detailed token failures preserve expected and found syntax", testDetailedTokenFailure),
     ("detailed end-of-input failures have no token span", testDetailedEndOfInputFailure),
     ("detailed trailing-token failures preserve the offending token", testDetailedTrailingTokenFailure),
@@ -86,6 +92,21 @@ testRunTokenParserPrefixReturnsRemainder = do
     "prefix result"
     (Right ("entry", [TDot]))
     (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
+
+testIndexedPrefixParserReturnsRemainder :: IO ()
+testIndexedPrefixParserReturnsRemainder = do
+  tokens <- lexSource "entry. trailing."
+  assertEqual
+    "indexed prefix result"
+    (Right ("entry", [TDot, TIdentifier "trailing", TDot]))
+    ( fmap
+        (fmap (map tokenKind . tokenStreamToList))
+        ( runTokenStreamParserPrefix
+            "indexed identifier prefix"
+            parseIdentifier
+            (tokenStreamFromList tokens)
+        )
+    )
 
 testDetailedTokenFailure :: IO ()
 testDetailedTokenFailure = do

@@ -126,6 +126,7 @@ library jazz-internal
       Jazz.Compiler.Parser.Pattern
       Jazz.Compiler.Parser.Signature
       Jazz.Compiler.Parser.TokenParser
+      Jazz.Compiler.Parser.TokenStream
       Jazz.Compiler.Pattern
       Jazz.Compiler.PreludeContract
       Jazz.Compiler.Prelude
@@ -166,7 +167,8 @@ library jazz-internal
       filepath >= 1.5 && < 1.6,
       megaparsec >= 9 && < 10,
       text >= 2.1 && < 2.2,
-      transformers >= 0.6 && < 0.7
+      transformers >= 0.6 && < 0.7,
+      vector >= 0.13 && < 0.14
   if flag(profiling-workflow)
     cpp-options: -DJAZZ_GHC_PROFILING
 

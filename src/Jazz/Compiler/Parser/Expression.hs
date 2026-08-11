@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Direct Megaparsec grammar for surface expressions.
 module Jazz.Compiler.Parser.Expression
@@ -69,9 +71,14 @@ import Jazz.Compiler.Parser.TokenParser
     peekToken,
     runTokenParserPrefix,
   )
+import Jazz.Compiler.Parser.TokenStream
+  ( TokenStream,
+    data EmptyTokens,
+    data (:<),
+  )
 import qualified Text.Megaparsec as MP
 
-type Stop = [Token] -> Bool
+type Stop = TokenStream -> Bool
 
 parseExpressionTokens ::
   StatementBlockParser ->
@@ -120,7 +127,7 @@ parseApplicationTailUntil parseBlock context stop functionExpr = do
   if stop tokens
     then pure functionExpr
     else case tokens of
-      typeApplicationToken@Token {tokenKind = TAt} : _ -> do
+      typeApplicationToken@Token {tokenKind = TAt} :< _ -> do
         void parseAnyToken
         typeArgument <- parseTypeApplicationArgument typeApplicationToken
         parseApplicationTailUntil
@@ -128,7 +135,7 @@ parseApplicationTailUntil parseBlock context stop functionExpr = do
           context
           stop
           (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument)
-      firstToken : _
+      firstToken :< _
         | startsPrimaryExpr firstToken -> do
             argumentExpr <- parsePrimaryExpr parseBlock context stop
             parseApplicationTailUntil parseBlock context stop (SEApply functionExpr argumentExpr)
@@ -151,7 +158,7 @@ thenStarts :: Stop -> Stop
 thenStarts stop tokens =
   stop tokens
     || case tokens of
-      Token {tokenKind = TThen} : _ -> True
+      Token {tokenKind = TThen} :< _ -> True
       _ -> False
 
 startsPrimaryExpr :: Token -> Bool
@@ -181,7 +188,7 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
   if stop tokens
     then pure leftExpr
     else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
         | startsRightParen tokensAfterOperator ->
             pure leftExpr
         | otherwise ->
@@ -243,7 +250,7 @@ samePrecedenceNonAssociativeRhsStop ::
 samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop tokens =
   stop tokens
     || case tokens of
-      Token {tokenKind = TOperator nextSymbol} : _ ->
+      Token {tokenKind = TOperator nextSymbol} :< _ ->
         case lookupOperatorInfoIn declaredOperators nextSymbol of
           Just nextInfo ->
             operatorPrecedence nextInfo == operatorPrecedence operatorInfo
@@ -307,17 +314,17 @@ parseIdentifierExpr :: Token -> Text -> Parser SurfaceExpr
 parseIdentifierExpr identifierToken name = do
   tokens <- MP.getInput
   case tokens of
-    colonToken@Token {tokenKind = TColonColon} : memberToken@Token {tokenKind = TIdentifier memberName} : _
+    colonToken@Token {tokenKind = TColonColon} :< memberToken@Token {tokenKind = TIdentifier memberName} :< _
       | isImmediatelyAfter identifierToken colonToken,
         isImmediatelyAfter colonToken memberToken -> do
           void parseAnyToken
           void parseAnyToken
           pure (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
-    [colonToken@Token {tokenKind = TColonColon}]
+    colonToken@Token {tokenKind = TColonColon} :< EmptyTokens
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParser
             (ExpectedSyntax "member name" (ParserEndOfInputAfter "'::'"))
-    colonToken@Token {tokenKind = TColonColon} : memberToken : _
+    colonToken@Token {tokenKind = TColonColon} :< memberToken :< _
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParserAt
             (tokenSpan memberToken)
@@ -335,7 +342,7 @@ parseNumericSurfaceLiteral :: Token -> Integer -> Parser SurfaceLiteral
 parseNumericSurfaceLiteral wholeToken wholeValue = do
   tokens <- MP.getInput
   case tokens of
-    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt fractionalValue} : _
+    dotToken@Token {tokenKind = TDot} :< fractionalToken@Token {tokenKind = TInt fractionalValue} :< _
       | isImmediatelyAfter wholeToken dotToken,
         isImmediatelyAfter dotToken fractionalToken -> do
           void parseAnyToken
@@ -425,14 +432,14 @@ parseParenExpr :: StatementBlockParser -> ParserContext -> Parser SurfaceExpr
 parseParenExpr parseBlock context = do
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TRParen} : _ -> do
+    Token {tokenKind = TRParen} :< _ -> do
       void parseAnyToken
       pure (SETuple [])
-    operatorToken@Token {tokenKind = TOperator symbol} : rest -> do
+    operatorToken@Token {tokenKind = TOperator symbol} :< rest -> do
       void parseAnyToken
       requireOperatorVisible context operatorToken
       case rest of
-        Token {tokenKind = TRParen} : _ -> do
+        Token {tokenKind = TRParen} :< _ -> do
           void parseAnyToken
           pure (SEOperatorValue symbol)
         _ -> do
@@ -443,12 +450,12 @@ parseParenExpr parseBlock context = do
       innerExpr <- parseExpressionParser parseBlock context
       afterInner <- MP.getInput
       case afterInner of
-        Token {tokenKind = TComma} : _ -> do
+        Token {tokenKind = TComma} :< _ -> do
           void parseAnyToken
           tupleElements <- parseTupleElements parseBlock context [innerExpr]
           void (parseToken TRParen)
           pure (SETuple tupleElements)
-        operatorToken@Token {tokenKind = TOperator symbol} : Token {tokenKind = TRParen} : _ -> do
+        operatorToken@Token {tokenKind = TOperator symbol} :< Token {tokenKind = TRParen} :< _ -> do
           void parseAnyToken
           void parseAnyToken
           requireOperatorVisible context operatorToken
@@ -538,15 +545,15 @@ parseCaseExpr parseBlock context caseToken = do
     parseExprWithMinPrecedenceUntil parseBlock context caseBodyStarts 1
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TLBrace} : _ -> do
+    Token {tokenKind = TLBrace} :< _ -> do
       void parseAnyToken
       caseArms <- parseCaseArms parseBlock context
       pure (SECase scrutineeExpr caseArms)
-    [] ->
+    EmptyTokens ->
       failTokenParserAt
         (tokenSpan caseToken)
         (ExpectedSyntax "'{'" (ParserEndOfInputAfter "'case'"))
-    token : _ ->
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'{'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
@@ -554,10 +561,10 @@ parseCaseExpr parseBlock context caseToken = do
 caseBodyStarts :: Stop
 caseBodyStarts tokens =
   case tokens of
-    Token {tokenKind = TLBrace} : rest ->
+    Token {tokenKind = TLBrace} :< rest ->
       case rest of
-        Token {tokenKind = TOperator "|"} : _ -> True
-        Token {tokenKind = TRBrace} : _ -> True
+        Token {tokenKind = TOperator "|"} :< _ -> True
+        Token {tokenKind = TRBrace} :< _ -> True
         _ -> hasTopLevelArrowBeforeTerminator rest
     _ -> False
 
@@ -587,9 +594,9 @@ parseCaseArm :: StatementBlockParser -> ParserContext -> Parser SurfaceCaseArm
 parseCaseArm parseBlock context = do
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TOperator "|"} : _ -> void parseAnyToken
-    [] -> failTokenParser (ExpectedSyntax "'|'" (ParserEndOfInputIn "case expression"))
-    token : _ ->
+    Token {tokenKind = TOperator "|"} :< _ -> void parseAnyToken
+    EmptyTokens -> failTokenParser (ExpectedSyntax "'|'" (ParserEndOfInputIn "case expression"))
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'|' to start case arm" (ParserAtToken (tokenKind token) (tokenLexeme token)))
@@ -620,12 +627,12 @@ parseCaseArmGuard ::
 parseCaseArmGuard parseBlock context rhsStop parentOperator minPrecedence = do
   tokens <- MP.getInput
   case tokens of
-    [] -> failTokenParser (ExpectedSyntax "guard expression" (ParserEndOfInputAfter "'if'"))
-    Token {tokenKind = TArrow} : _ ->
+    EmptyTokens -> failTokenParser (ExpectedSyntax "guard expression" (ParserEndOfInputAfter "'if'"))
+    Token {tokenKind = TArrow} :< _ ->
       failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeToken TArrow "->" Nothing))
-    Token {tokenKind = TRBrace} : _ ->
+    Token {tokenKind = TRBrace} :< _ ->
       failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeToken TRBrace "}" Nothing))
-    Token {tokenKind = TOperator "|"} : _ ->
+    Token {tokenKind = TOperator "|"} :< _ ->
       failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeBoundary "next case arm"))
     _ -> do
       leftExpr <-
@@ -663,7 +670,7 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
   if stopsBeforeCaseArmTerminator tokens || rhsStop tokens
     then pure leftExpr
     else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
         | startsRightParen tokensAfterOperator -> pure leftExpr
         | symbol == "|",
           caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
@@ -710,7 +717,7 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
   if stopsBeforeCaseGuardTerminator tokens || rhsStop tokens
     then pure leftExpr
     else case tokens of
-      operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
+      operatorToken@Token {tokenKind = TOperator symbol} :< tokensAfterOperator
         | startsRightParen tokensAfterOperator -> pure leftExpr
         | symbol == "|",
           caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
@@ -747,14 +754,14 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
 stopsBeforeCaseArmTerminator :: Stop
 stopsBeforeCaseArmTerminator tokens =
   case tokens of
-    Token {tokenKind = TRBrace} : _ -> True
+    Token {tokenKind = TRBrace} :< _ -> True
     _ -> False
 
 stopsBeforeCaseGuardTerminator :: Stop
 stopsBeforeCaseGuardTerminator tokens =
   case tokens of
-    Token {tokenKind = TArrow} : _ -> True
-    Token {tokenKind = TRBrace} : _ -> True
+    Token {tokenKind = TArrow} :< _ -> True
+    Token {tokenKind = TRBrace} :< _ -> True
     _ -> False
 
 stopsBeforeCaseGuardTerminatorOr :: Stop -> Stop
@@ -768,8 +775,8 @@ stopsBeforeCaseArmBoundaryOr rhsStop tokens =
 stopsBeforeCaseArmBoundary :: Stop
 stopsBeforeCaseArmBoundary tokens =
   case tokens of
-    Token {tokenKind = TOperator "|"} : rest -> startsDefiniteCaseArm rest
-    Token {tokenKind = TRBrace} : _ -> True
+    Token {tokenKind = TOperator "|"} :< rest -> startsDefiniteCaseArm rest
+    Token {tokenKind = TRBrace} :< _ -> True
     _ -> False
 
 caseArmPipeStartsBoundary ::
@@ -777,13 +784,13 @@ caseArmPipeStartsBoundary ::
   Maybe Text ->
   Int ->
   SurfaceExpr ->
-  [Token] ->
+  TokenStream ->
   Bool
 caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterPipe =
-  case Pattern.parseCasePatternTokens tokensAfterPipe of
-    Right (_, Token {tokenKind = TArrow} : _) -> True
-    Right (_, Token {tokenKind = TIf} : afterGuard) -> guardTokensEndAtArrow context afterGuard
-    Right (_, Token {tokenKind = TOperator "|"} : _) ->
+  case Pattern.parseCasePatternTokenStream tokensAfterPipe of
+    Right (_, Token {tokenKind = TArrow} :< _) -> True
+    Right (_, Token {tokenKind = TIf} :< afterGuard) -> guardTokensEndAtArrow context afterGuard
+    Right (_, Token {tokenKind = TOperator "|"} :< _) ->
       startsDefiniteOrPatternCaseArm context tokensAfterPipe
         && not
           ( startsAllLiteralOrPatternCaseArm context tokensAfterPipe
@@ -799,7 +806,7 @@ caseGuardPipeStartsBoundary ::
   Maybe Text ->
   Int ->
   SurfaceExpr ->
-  [Token] ->
+  TokenStream ->
   Bool
 caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterPipe =
   startsDefiniteGuardedCaseArmAfterGuardBoundary context tokensAfterPipe
@@ -837,17 +844,17 @@ casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
             (lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol')
         Nothing -> False
 
-startsDefiniteCaseArm :: [Token] -> Bool
+startsDefiniteCaseArm :: TokenStream -> Bool
 startsDefiniteCaseArm remainingTokens =
-  case Pattern.parseCasePatternTokens remainingTokens of
-    Right (_, Token {tokenKind = TArrow} : _) -> True
-    Right (_, Token {tokenKind = TIf} : afterGuard) ->
+  case Pattern.parseCasePatternTokenStream remainingTokens of
+    Right (_, Token {tokenKind = TArrow} :< _) -> True
+    Right (_, Token {tokenKind = TIf} :< afterGuard) ->
       hasTopLevelGuardArrow afterGuard
-    Right (_, Token {tokenKind = TOperator "|"} : _) ->
-      case Pattern.parseCaseArmPatternTokens remainingTokens of
-        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+    Right (_, Token {tokenKind = TOperator "|"} :< _) ->
+      case Pattern.parseCaseArmPatternTokenStream remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} :< _) ->
           orPatternStartsDefiniteArmBoundary casePattern
-        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+        Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
           orPatternStartsDefiniteArmBoundary casePattern && hasTopLevelGuardArrow afterGuard
         _ -> False
     Left _
@@ -855,21 +862,21 @@ startsDefiniteCaseArm remainingTokens =
           hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
     _ -> False
 
-startsDefiniteUnguardedCaseArmAfterGuardBoundary :: [Token] -> Bool
+startsDefiniteUnguardedCaseArmAfterGuardBoundary :: TokenStream -> Bool
 startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
-  case Pattern.parseCaseArmPatternTokens remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} : _) ->
+  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
+    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
       guardBoundaryPatternIsDefinite casePattern
     _ -> False
 
-startsDefiniteGuardedCaseArmAfterGuardBoundary :: ParserContext -> [Token] -> Bool
+startsDefiniteGuardedCaseArmAfterGuardBoundary :: ParserContext -> TokenStream -> Bool
 startsDefiniteGuardedCaseArmAfterGuardBoundary context remainingTokens =
-  case Pattern.parseCaseArmPatternTokens remainingTokens of
-    Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
+    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
       guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow context afterGuard
     _ -> False
 
-guardTokensEndAtArrow :: ParserContext -> [Token] -> Bool
+guardTokensEndAtArrow :: ParserContext -> TokenStream -> Bool
 guardTokensEndAtArrow _ tokens =
   hasTopLevelGuardArrow tokens
     && not (hasTopLevelElseBeforeArrow tokens)
@@ -877,7 +884,7 @@ guardTokensEndAtArrow _ tokens =
 -- A top-level `else` before the arrow means the preceding `if` belongs to the
 -- expression on the left of the pipe. Treating the constructor-shaped prefix
 -- as a guarded arm would split that valid expression too early.
-hasTopLevelElseBeforeArrow :: [Token] -> Bool
+hasTopLevelElseBeforeArrow :: TokenStream -> Bool
 hasTopLevelElseBeforeArrow =
   hasTopLevelTokenBefore isElse isArrow
   where
@@ -890,21 +897,21 @@ guardBoundaryPatternIsDefinite casePattern =
     SPVariable {} -> False
     _ -> True
 
-startsDefiniteOrPatternCaseArm :: ParserContext -> [Token] -> Bool
+startsDefiniteOrPatternCaseArm :: ParserContext -> TokenStream -> Bool
 startsDefiniteOrPatternCaseArm context remainingTokens =
-  case Pattern.parseCaseArmPatternTokens remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} : _) ->
+  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
+    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
       orPatternStartsDefiniteArmBoundary casePattern
-    Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
       orPatternStartsDefiniteArmBoundary casePattern && guardTokensEndAtArrow context afterGuard
     _ -> False
 
-startsAllLiteralOrPatternCaseArm :: ParserContext -> [Token] -> Bool
+startsAllLiteralOrPatternCaseArm :: ParserContext -> TokenStream -> Bool
 startsAllLiteralOrPatternCaseArm context remainingTokens =
-  case Pattern.parseCaseArmPatternTokens remainingTokens of
-    Right (casePattern, Token {tokenKind = TArrow} : _) ->
+  case Pattern.parseCaseArmPatternTokenStream remainingTokens of
+    Right (casePattern, Token {tokenKind = TArrow} :< _) ->
       orPatternIsAllLiteral casePattern
-    Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+    Right (casePattern, Token {tokenKind = TIf} :< afterGuard) ->
       orPatternIsAllLiteral casePattern && guardTokensEndAtArrow context afterGuard
     _ -> False
 
@@ -983,13 +990,13 @@ commonPatternBinderNames alternatives =
         (patternBinderNames firstAlternative)
         (map patternBinderNames rest)
 
-startsCasePatternTokens :: [Token] -> Bool
+startsCasePatternTokens :: TokenStream -> Bool
 startsCasePatternTokens tokens =
   case tokens of
-    Token {tokenKind = TInt _} : _ -> True
-    Token {tokenKind = TIdentifier _} : _ -> True
-    Token {tokenKind = TLBracket} : _ -> True
-    Token {tokenKind = TLParen} : _ -> True
+    Token {tokenKind = TInt _} :< _ -> True
+    Token {tokenKind = TIdentifier _} :< _ -> True
+    Token {tokenKind = TLBracket} :< _ -> True
+    Token {tokenKind = TLParen} :< _ -> True
     _ -> False
 
 parseLambdaExpr ::
@@ -1001,30 +1008,30 @@ parseLambdaExpr ::
 parseLambdaExpr parseBlock context stop lambdaToken = do
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TOperator "|"} : _ ->
+    Token {tokenKind = TOperator "|"} :< _ ->
       parsePatternLambdaExpr parseBlock context stop lambdaToken
-    Token {tokenKind = TLParen} : _ -> do
+    Token {tokenKind = TLParen} :< _ -> do
       void parseAnyToken
       parameters <- parseLambdaParameters
       tokensAfterParameters <- MP.getInput
       case tokensAfterParameters of
-        Token {tokenKind = TArrow} : _ -> do
+        Token {tokenKind = TArrow} :< _ -> do
           void parseAnyToken
           bodyExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
           pure (SELambda parameters bodyExpr)
-        [] ->
+        EmptyTokens ->
           failTokenParserAt
             (tokenSpan lambdaToken)
             (ExpectedSyntax "'->'" (ParserEndOfInputAfter "lambda parameters"))
-        token : _ ->
+        token :< _ ->
           failTokenParserAt
             (tokenSpan token)
             (ExpectedSyntax "'->'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
-    [] ->
+    EmptyTokens ->
       failTokenParserAt
         (tokenSpan lambdaToken)
         (ExpectedSyntax "'('" (ParserEndOfInputAfter "lambda introducer"))
-    token : _ ->
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'(' after lambda introducer" (ParserAtToken (tokenKind token) (tokenLexeme token)))
@@ -1066,12 +1073,12 @@ parsePatternLambdaClause parseBlock context stop lambdaToken = do
   clauseToken <- parsePatternLambdaClausePipe lambdaToken
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TLParen} : _ -> void parseAnyToken
-    [] ->
+    Token {tokenKind = TLParen} :< _ -> void parseAnyToken
+    EmptyTokens ->
       failTokenParserAt
         (tokenSpan clauseToken)
         (ExpectedSyntax "'('" (ParserEndOfInputAfter "pattern-lambda clause introducer"))
-    token : _ ->
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'('" (ParserAtToken (tokenKind token) (tokenLexeme token)))
@@ -1094,14 +1101,14 @@ parsePatternLambdaClausePipe :: Token -> Parser Token
 parsePatternLambdaClausePipe lambdaToken = do
   tokens <- MP.getInput
   case tokens of
-    token@Token {tokenKind = TOperator "|"} : _ -> do
+    token@Token {tokenKind = TOperator "|"} :< _ -> do
       void parseAnyToken
       pure token
-    [] ->
+    EmptyTokens ->
       failTokenParserAt
         (tokenSpan lambdaToken)
         (ExpectedSyntax "'|'" (ParserEndOfInputAfter "pattern-lambda introducer"))
-    token : _ ->
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'|'" (ParserAtToken (tokenKind token) (tokenLexeme token)))
@@ -1119,25 +1126,25 @@ patternLambdaClauseBoundaryOr stop tokens =
 patternLambdaClauseStarts :: Stop
 patternLambdaClauseStarts tokens =
   case tokens of
-    Token {tokenKind = TOperator "|"} : rest ->
+    Token {tokenKind = TOperator "|"} :< rest ->
       parenthesizedHeadEndsAtArrow rest
     _ -> False
 
-parenthesizedHeadEndsAtArrow :: [Token] -> Bool
+parenthesizedHeadEndsAtArrow :: TokenStream -> Bool
 parenthesizedHeadEndsAtArrow tokens =
   case tokens of
-    Token {tokenKind = TLParen} : rest -> go 1 rest
+    Token {tokenKind = TLParen} :< rest -> go 1 rest
     _ -> False
   where
-    go :: Int -> [Token] -> Bool
-    go _ [] = False
-    go depth (token : rest) =
+    go :: Int -> TokenStream -> Bool
+    go _ EmptyTokens = False
+    go depth (token :< rest) =
       case tokenKind token of
         TLParen -> go (depth + 1) rest
         TRParen
           | depth == 1 ->
               case rest of
-                Token {tokenKind = TArrow} : _ -> True
+                Token {tokenKind = TArrow} :< _ -> True
                 _ -> False
           | otherwise -> go (depth - 1) rest
         _ -> go depth rest
@@ -1156,16 +1163,16 @@ parseLambdaParameters = do
     collect firstParameter reversedRemaining = do
       tokens <- MP.getInput
       case tokens of
-        Token {tokenKind = TComma} : _ -> do
+        Token {tokenKind = TComma} :< _ -> do
           void parseAnyToken
           nextParameter <- Pattern.parseLambdaParameterParser
           collect firstParameter (nextParameter : reversedRemaining)
-        Token {tokenKind = TRParen} : _ -> do
+        Token {tokenKind = TRParen} :< _ -> do
           void parseAnyToken
           pure (firstParameter :| reverse reversedRemaining)
-        [] ->
+        EmptyTokens ->
           failTokenParser (ExpectedSyntax "')'" (ParserEndOfInputIn "lambda parameter list"))
-        token : _ ->
+        token :< _ ->
           failTokenParserAt
             (tokenSpan token)
             (ExpectedSyntax "',' or ')'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
@@ -1174,20 +1181,20 @@ consumeArrow :: ParserEncountered -> Parser ()
 consumeArrow endOfInputEncountered = do
   tokens <- MP.getInput
   case tokens of
-    Token {tokenKind = TArrow} : _ -> void parseAnyToken
-    [] -> failTokenParser (ExpectedSyntax "'->'" endOfInputEncountered)
-    token : _ ->
+    Token {tokenKind = TArrow} :< _ -> void parseAnyToken
+    EmptyTokens -> failTokenParser (ExpectedSyntax "'->'" endOfInputEncountered)
+    token :< _ ->
       failTokenParserAt
         (tokenSpan token)
         (ExpectedSyntax "'->'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
-startsRightParen :: [Token] -> Bool
+startsRightParen :: TokenStream -> Bool
 startsRightParen tokens =
   case tokens of
-    Token {tokenKind = TRParen} : _ -> True
+    Token {tokenKind = TRParen} :< _ -> True
     _ -> False
 
-hasTopLevelArrowBeforeTerminator :: [Token] -> Bool
+hasTopLevelArrowBeforeTerminator :: TokenStream -> Bool
 hasTopLevelArrowBeforeTerminator =
   hasTopLevelTokenBefore isArrow isTerminator
   where
@@ -1198,10 +1205,10 @@ hasTopLevelArrowBeforeTerminator =
         TRBrace -> True
         _ -> False
 
-hasTopLevelGuardArrow :: [Token] -> Bool
+hasTopLevelGuardArrow :: TokenStream -> Bool
 hasTopLevelGuardArrow = hasTopLevelArrowBeforeTerminator
 
-hasTopLevelArrowBeforeCaseArmBoundary :: [Token] -> Bool
+hasTopLevelArrowBeforeCaseArmBoundary :: TokenStream -> Bool
 hasTopLevelArrowBeforeCaseArmBoundary =
   hasTopLevelTokenBefore isArrow isCaseArmBoundary
   where
@@ -1212,14 +1219,14 @@ hasTopLevelArrowBeforeCaseArmBoundary =
         TRBrace -> True
         _ -> False
 
-hasTopLevelTokenBefore :: (TokenKind -> Bool) -> (TokenKind -> Bool) -> [Token] -> Bool
+hasTopLevelTokenBefore :: (TokenKind -> Bool) -> (TokenKind -> Bool) -> TokenStream -> Bool
 hasTopLevelTokenBefore isTarget isTerminator = go 0 0 0
   where
-    go :: Int -> Int -> Int -> [Token] -> Bool
+    go :: Int -> Int -> Int -> TokenStream -> Bool
     go parenDepth braceDepth bracketDepth tokens =
       case tokens of
-        [] -> False
-        Token {tokenKind = tokenKind'} : rest
+        EmptyTokens -> False
+        Token {tokenKind = tokenKind'} :< rest
           | atTopLevel && isTarget tokenKind' -> True
           | atTopLevel && isTerminator tokenKind' -> False
           | otherwise ->
