@@ -1,24 +1,27 @@
 ---
-id: JN-COMPILER-PERFORMANCE-DIAGNOSTIC-BUILDERS-021
-status: ready
+id: JN-COMPILER-PERFORMANCE-PROGRAM-001
+status: complete
 priority: P1
-size: S
+size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 6e: Finish diagnostic accumulation cleanup"
+plan_section: "Full closeout"
 target_paths:
-  - src/Jazz/Compiler/Analyzer.hs
-  - benchmark/Jazz/Benchmark/ScaleCases.hs
-  - benchmark/Jazz/Benchmark/StageInputs.hs
-  - test/Jazz/Compiler/Semantics/RebindingWarningSpec.hs
-  - test/Jazz/Benchmark/StageSpec.hs
+  - src/
+  - jazz/
+  - app/
+  - test/
+  - benchmark/
+  - scripts/ci/
+  - PERFORMANCE.md
 verification:
-  - cabal test rebinding-warning-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --jobs=1 --benchmark-options='--environment-label=compiler-diagnostic-builders-after --time-mode=cpu --pattern=analysis --jazz-scale-case=analyzer-diagnostic-chain-0064 --jazz-scale-case=analyzer-diagnostic-chain-0128 --jazz-scale-case=analyzer-diagnostic-chain-0256 --jazz-scale-case=analyzer-diagnostic-chain-0512 +RTS -T -RTS'
+  - JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
+  - JAZZ_RELEASE_VERSION=0.1.0-alpha.1 JAZZ_MAIN_PHASE=repository bash scripts/ci/release-candidate.sh
   - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Replace append-heavy recursive analyzer diagnostic assembly with ordered append-efficient builders; preserve exact warning/error order, spans, subjects, policy, and rendered artifacts."
+deliverable: "Measured and removed the prioritized Jazz compiler CPU, allocation, and residency problems while preserving public semantics and exact artifacts."
 last_verified: 2026-08-11
 ---
 
@@ -1128,10 +1131,10 @@ rather than hidden. Artifacts are under
       only where later semantics require it.
 - [x] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
       traversal or an equivalent returned lowering product.
-- [ ] Introduce an opaque validated Typed Program handoff so trusted
+- [x] Introduce an opaque validated Typed Program handoff so trusted
       producer-to-lowerer transport validates once, while external artifacts remain
       checked.
-- [ ] Finish reverse-builder/ordered-set cleanup for analyzer diagnostics.
+- [x] Finish reverse-builder/ordered-set cleanup for analyzer diagnostics.
 
 The invalid-scope scan removal landed in `6b3dbfac`. Top-level programs and
 module bodies retain one complete legal-scope prepass because lowercase aliases
@@ -1252,10 +1255,27 @@ because `tasty-bench` selected different iteration counts. Artifacts are under
 
 ### Task 6e: Finish diagnostic accumulation cleanup
 
-- [ ] Replace remaining append-heavy analyzer diagnostic paths with ordered
+- [x] Replace remaining append-heavy analyzer diagnostic paths with ordered
       reverse builders or equivalent append-efficient accumulators.
-- [ ] Preserve exact diagnostic order, warning policy, spans, subjects, and
+- [x] Preserve exact diagnostic order, warning policy, spans, subjects, and
       artifact rendering; capture a focused allocation receipt before closeout.
+
+The generated diagnostic-chain fixture landed in `2b868fc3`; the ordered
+difference-list accumulator landed in `bf110205`. Analyzer recursion and scope
+assembly now compose warning and error builders in source order and materialize
+each list once at the public boundary. The exact left-to-right subjects, spans,
+warning policy, promoted-error behavior, and rendered diagnostics remain fixed
+by the focused rebinding suite.
+
+At 512 diagnostics, the compatible optimized curve fell from 1.32 ms to
+0.516 ms, allocation from 8,300,000 to 1,200,000 bytes, and copied bytes from
+333,000 to 26,000; benchmark high-water fell from 7 to 6 MiB. The standalone
+RTS process fell from 6,888,866,256 to 3,846,012,936 cumulative allocated bytes,
+313,944,608 to 111,104,184 copied bytes, and 618,104 to 443,320 bytes maximum
+residency. The independent heap census was effectively flat at 483,696 versus
+480,688 bytes. Artifacts are under
+`benchmark-results/compiler-diagnostic-builders-{before,after}/` and
+`profile-results/compiler-diagnostic-builders-{before,after}/`.
 
 ## Full closeout
 
@@ -1265,3 +1285,46 @@ jobs. Compare all eight generated scenarios to their compatible baselines,
 retain semantic and exact-artifact results, summarize timing/allocation/maximum
 residency without universal thresholds, and update `PERFORMANCE.md` only for
 durable workflow changes.
+
+The program closed on `38355358`. The authoritative main gate completed through
+its documented resumable phases: the complete serial compiler phase passed,
+the repository phase passed after the formatting-only queue correction, and
+`nix flake check --max-jobs 1 --cores 1` passed. The release closeout then ran
+`release-candidate.sh` once with `JAZZ_MAIN_PHASE=repository`, reusing the
+same-commit compiler/Nix receipt rather than repeating it. Website checks, the
+full extended/parser-scale suite, two identical corpus passes, deterministic
+statistics and profiles, stage/hotspot builds, all 78 release benchmarks,
+benchmark metadata validation, source distribution, bounded Nix package build,
+and release artifact validation all passed for `0.1.0-alpha.1`.
+
+The extended manifest owns 14 SHA-256-verified artifacts under
+`artifacts/release-candidate/0.1.0-alpha.1/extended/manifest.json`. Its recorded
+benchmark is under
+`artifacts/release-candidate/0.1.0-alpha.1/extended/benchmarks/release-candidate/20260811T104059982499000000Z/`.
+The final eight-family sample is under
+`benchmark-results/compiler-scale-final/20260811T104538581553000000Z/`. Because
+that sample deliberately combines families, its 10/57 MiB high-water values are
+process history rather than per-family residency comparisons. The table uses
+the largest original case and primary boundary for a broad baseline-to-final
+observation; the batch sections above remain the compatibility-owned physical
+receipts.
+
+| Original family / largest case | Primary boundary   | Baseline ms | Final ms | Baseline allocation | Final allocation | CPU / allocation change | Compatible maximum-residency evidence                   |
+| ------------------------------ | ------------------ | ----------: | -------: | ------------------: | ---------------: | ----------------------- | ------------------------------------------------------- |
+| Sequential bindings / 512      | analysis           |      20.265 |   11.073 |          66,626,398 |       29,468,101 | 45.4% / 55.8% lower     | ordinary inference: 4,786,368 to 3,952,096 bytes        |
+| Wide fanout / 64 x 16          | module preparation |      18.337 |   13.681 |          66,000,121 |       63,350,459 | 25.4% / 4.0% lower      | interface cache: 4,557,200 to 4,442,784 bytes           |
+| Interleaved groups / 128       | analysis           |     574.666 |   18.019 |       3,055,875,427 |       53,978,947 | 96.9% / 98.2% lower     | exposure profile remained effectively flat near 3.1 MiB |
+| Constrained signatures / 256   | analysis           |       8.375 |    4.833 |          27,095,142 |       14,684,752 | 42.3% / 45.8% lower     | environment summary: 3,218,504 to 3,201,680 bytes       |
+| Nested lambdas / 128           | analysis           |       1.481 |    0.972 |           4,273,202 |        3,353,189 | 34.4% / 21.5% lower     | capture plan: 1,543,520 to 1,023,544 bytes              |
+| Operator table / 128           | parse/lower        |       1.639 |    1.170 |           9,432,882 |        8,668,504 | 28.6% / 8.1% lower      | operator index: 982,344 to 970,928 bytes                |
+| Nested blocks / 128            | parse/lower        |       2.706 |    0.630 |          13,154,168 |        5,723,722 | 76.7% / 56.5% lower     | alias-scan batch: 761,896 to 751,968 bytes              |
+| Token stream / 65,536          | parse/lower        |      88.379 |   72.850 |         429,003,568 |      411,966,217 | 17.6% / 4.0% lower      | indexed cursor: 31,834,880 to 30,478,256 bytes          |
+
+Copied-byte reductions in the same broad final sample were 20.8%, 35.9%,
+33.7%, 35.6%, 39.7%, 23.3%, 71.3%, and 17.2% respectively. The program also
+closed measured candidates that were neutral or harmful: no compile-time win
+is claimed for compact compiled artifacts, resolver-fact fusion stayed
+whole-pipeline flat, and boxed token payload ownership was rejected and
+reverted. No wall-clock or memory observation became a deterministic CI
+threshold, and no public language, diagnostic-order, binder-identity, hosted
+parity, or artifact-schema contract changed.
