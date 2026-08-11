@@ -48,6 +48,7 @@ tests =
     ("rejects ambiguous generated scale case selectors", testCompilerScaleCommandRejection),
     ("sequential polymorphism preserves exact compiler semantics", testSequentialPolymorphismSemantics),
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
+    ("resolver fact-rich modules preserve exact compiler semantics", testResolverFactRichSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
     ("same-name rebinding bursts preserve exact compiler semantics", testRecursiveRebindingBurstSemantics),
@@ -84,6 +85,10 @@ testCompilerScaleRegistry =
       ("shared-interface-fanout-0032x0016", SharedInterfaceFanout, 32, Just 16),
       ("shared-interface-fanout-0064x0016", SharedInterfaceFanout, 64, Just 16),
       ("shared-interface-fanout-0128x0016", SharedInterfaceFanout, 128, Just 16),
+      ("resolver-fact-rich-0016", ResolverFactRich, 16, Nothing),
+      ("resolver-fact-rich-0032", ResolverFactRich, 32, Nothing),
+      ("resolver-fact-rich-0064", ResolverFactRich, 64, Nothing),
+      ("resolver-fact-rich-0128", ResolverFactRich, 128, Nothing),
       ("interleaved-recursive-groups-0016", InterleavedRecursiveGroups, 16, Nothing),
       ("interleaved-recursive-groups-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("interleaved-recursive-groups-0064", InterleavedRecursiveGroups, 64, Nothing),
@@ -220,6 +225,15 @@ testWideModuleFanoutSemantics = do
   assertEqual "shared-interface fanout output" "0" sharedOutput
   sharedPrepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark sharedCase
   runPreparedCompilerScaleBenchmark sharedPrepared
+
+testResolverFactRichSemantics :: IO ()
+testResolverFactRichSemantics = do
+  programCase <- loadCompilerScaleCase "resolver-fact-rich-0016"
+  assertEqual "resolver fact-rich virtual source count" 3 (compilerScaleCaseSourceCount programCase)
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "resolver fact-rich output" "Token" actualOutput
+  prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
 
 testInterleavedRecursiveGroupSemantics :: IO ()
 testInterleavedRecursiveGroupSemantics = do

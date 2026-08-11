@@ -32,6 +32,7 @@ data CompilerScaleScenario
   = SequentialPolymorphicBindings
   | WideModuleFanout
   | SharedInterfaceFanout
+  | ResolverFactRich
   | InterleavedRecursiveGroups
   | RecursiveRebindings
   | ConstrainedSignatures
@@ -79,6 +80,7 @@ compilerScaleCases =
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
     <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
     <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
+    <> map resolverFactRichCase [16, 32, 64, 128]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
@@ -221,6 +223,55 @@ wideInterfaceSource moduleIndex interfaceWidth =
            ]
         <> ["}"]
     )
+
+resolverFactRichCase :: Int -> CompilerScaleCase
+resolverFactRichCase declarationCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = "resolver-fact-rich-" <> paddedDecimal 4 declarationCount,
+      compilerScaleCaseScenario = ResolverFactRich,
+      compilerScaleCaseSize = declarationCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [ModulePreparationBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.fromList
+          [ (scaleModuleRoot </> "Main.jz", resolverFactRichSource declarationCount),
+            (scaleModuleRoot </> "Support" </> "Types.jz", resolverFactRichTypesSource),
+            (scaleModuleRoot </> "Support" </> "Values.jz", resolverFactRichValuesSource)
+          ],
+      compilerScaleCaseExpectedOutput = "Token"
+    }
+
+resolverFactRichSource :: Int -> Text
+resolverFactRichSource declarationCount =
+  Text.unlines
+    ( [ "module Main {",
+        "  import Support::Types as T.",
+        "  import Support::Values as V.",
+        "  import Support::Values (seed)."
+      ]
+        <> concatMap renderDeclaration [0 .. declarationCount - 1]
+        <> ["  " <> itemName (declarationCount - 1) <> ".", "}"]
+    )
+  where
+    renderDeclaration index =
+      [ "  data " <> localTypeName index <> " = " <> localTypeName index <> " T::Token.",
+        "  " <> itemName index <> " :: T::Token.",
+        "  " <> itemName index <> " = V::identity @T::Token T::Token.",
+        "  " <> copyName index <> " = seed."
+      ]
+    itemName index = "resolvedItem" <> paddedDecimal 4 index
+    copyName index = "unqualifiedCopy" <> paddedDecimal 4 index
+    localTypeName index = "Local" <> paddedDecimal 4 index
+
+resolverFactRichTypesSource :: Text
+resolverFactRichTypesSource =
+  "module Support::Types (type Token(..)) { data Token = Token. }"
+
+resolverFactRichValuesSource :: Text
+resolverFactRichValuesSource =
+  "module Support::Values (identity, seed) { identity = \\(item) -> item. seed = 1. }"
 
 moduleName :: Int -> Text
 moduleName index = "Module" <> paddedDecimal 4 index

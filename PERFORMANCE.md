@@ -159,6 +159,7 @@ scenario families isolate these growth curves:
 | Wide module fanout, width 16     | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program` | `0`                      |
 | Wide module fanout, width 1      | 64, 128, 256, 512       | `module-preparation`, `whole-program` | `0`                      |
 | Shared-interface fanout, width 16 | 16, 32, 64, 128 modules | `module-preparation`, `whole-program` | `0`                      |
+| Resolver fact-rich declarations   | 16, 32, 64, 128 groups  | `module-preparation`                  | `Token`                  |
 | Interleaved recursive groups     | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
 | Constrained signatures           | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
 | Deep nested lambdas              | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
