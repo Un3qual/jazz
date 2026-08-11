@@ -1,22 +1,25 @@
 ---
-id: JN-COMPILER-PERFORMANCE-INFERENCE-LIFETIME-014
+id: JN-COMPILER-PERFORMANCE-OPERATOR-TABLE-015
 status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 5d: Finalize ordinary inference before analysis"
+plan_section: "Task 6a: Preindex operator scope"
 target_paths:
-  - src/Jazz/Compiler/TypeInference.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
+  - src/Jazz/Compiler/Parser/Context.hs
+  - src/Jazz/Compiler/Parser/Operator.hs
+  - src/Jazz/Compiler/Parser/Declaration.hs
+  - src/Jazz/Compiler/Parser/Expression.hs
+  - test/Jazz/Compiler/Parser/ExpressionParserSpec.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
-  - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-inference-lifetime --time-mode=cpu --jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512 --pattern=module-preparation +RTS -T -RTS' --jobs=1
+  - cabal test expression-parser-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-operator-table --time-mode=cpu --jazz-scale-case=large-operator-tables-0016 --jazz-scale-case=large-operator-tables-0032 --jazz-scale-case=large-operator-tables-0064 --jazz-scale-case=large-operator-tables-0128 --pattern=parse-lower +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Compact ordinary inference outputs before the separate analyzer walk so the full InferState is not live across analysis, while keeping the Typed Core producer's stateful path and all diagnostics, ordering, interfaces, and artifacts exact."
+deliverable: "Build and incrementally update one scope-aware operator index so expression parsing no longer allocates declared-plus-builtin lists or linearly scans fixity metadata for every operator, while preserving declaration visibility, duplicate rules, fixity, associativity, diagnostics, and hosted parity."
 last_verified: 2026-08-11
 ---
 
@@ -1055,20 +1058,51 @@ receipt is the interface-cache after artifact above.
 
 ### Task 5d: Finalize ordinary inference before analysis
 
-- [ ] Capture a fresh sequential-polymorphic module-preparation curve plus
+- [x] Capture a fresh sequential-polymorphic module-preparation curve plus
       stable-stage/hotspot/heap evidence showing final inference state live
       across the analyzer boundary.
-- [ ] Compact and container-force only the diagnostics, runtime hints, and
+- [x] Compact and container-force only the diagnostics, runtime hints, and
       module interface required by ordinary inference before invoking analysis.
-- [ ] Keep the stateful Typed Core producer path unchanged and preserve exact
+- [x] Keep the stateful Typed Core producer path unchanged and preserve exact
       analyzer-first diagnostic ordering, inferred interfaces, runtime hints,
       and artifacts.
-- [ ] Run binding-signature, generated-stage, typed-core, and profiling-focused
+- [x] Run binding-signature, generated-stage, typed-core, and profiling-focused
       suites, capture compatible after evidence, and promote parser pass work.
+
+The ordinary/stateful split landed in `2cd263e6`. Ordinary inference now
+materializes only the type-diagnostic spine and module-interface/runtime-hint
+container entries before tail-calling the analyzer helper, so the rest of
+`InferState` can die before the analyzer walks the same AST. Values remain lazy;
+this is not a blanket phase force. Typed Core production uses the same inference
+work but deliberately retains the complete state through its existing
+finalizer. Binding-signature, generated-stage, and exact Typed Core suites pass.
+
+At 512 sequential bindings, CPU fell from 23.13 ms to 22.23 ms (3.9%), copied
+bytes from 12,874,801 to 12,302,236 (4.4%), and allocation stayed flat at about
+81.02 MB; benchmark peak stayed 14 MB. The stable profiled run's exact maximum
+residency fell from 4,786,368 to 3,952,096 bytes (17.4%), and the independent
+heap census fell from 3,652,424 to 2,845,344 bytes (22.1%). Stable per-operation
+peak also fell from 17 MB to 16 MB. Artifacts are under
+`benchmark-results/compiler-inference-lifetime-{before,after}/` and
+`profile-results/compiler-inference-lifetime-{before,after}/`.
 
 ## Task 6: Reduce parser/resolver passes and checked-boundary cleanup
 
-- [ ] Preindex scope-aware operator metadata and collect legal import aliases in
+### Task 6a: Preindex operator scope
+
+- [ ] Record the large-operator-table parse/lower curve and
+      stable-stage/hotspot/heap evidence before changing parser context.
+- [ ] Replace repeated `declaredOperators <> builtinOperatorInfos` allocation
+      and scans with one incrementally updated, scope-local symbol index.
+- [ ] Preserve declaration-before-use visibility, duplicate/reserved checks,
+      custom precedence and associativity, diagnostics, exact surface/Core ASTs,
+      module isolation, and hosted parity.
+- [ ] Run expression/operator parser and generated-stage suites, capture
+      comparable after evidence, and promote import-alias scan removal.
+
+### Task 6b: Remove parser and resolver repeat passes
+
+- [ ] Collect legal import aliases in
       the main module parse rather than rescanning nested token tails.
 - [ ] Replace the owned-prefix/list adapter with one cursor-based parse and
       reuse compact-signature discrimination.
