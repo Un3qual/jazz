@@ -27,9 +27,6 @@ import Data.Graph
   )
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import Data.List
-  ( unsnoc
-  )
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -399,32 +396,30 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
       [ (statementIndex, bindingName, valueExpr)
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
-    declarationStatementsByName =
-      Map.map reverse (foldl' collectDeclaration Map.empty declarationInfo)
+    firstDeclarationStatementByName =
+      foldl' collectFirstDeclaration Map.empty declarationInfo
     baseDependencies =
       Map.fromList
         [ (statementIndex, Set.empty)
           | (statementIndex, _, _) <- declarationInfo
         ]
-    dependenciesByStatement =
-      snd
-        ( foldl'
-            addBindingDependencies
-            (outerBindingNames, baseDependencies)
-            declarationInfo
-        )
+    (_, _, dependenciesByStatement) =
+      foldl'
+        addBindingDependencies
+        (outerBindingNames, Map.empty, baseDependencies)
+        declarationInfo
     graphNodes =
       [ (statementIndex, statementIndex, Set.toList dependencies)
         | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
 
-    collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
-      Map.insertWith (++) bindingNameText [statementIndex] declarationsByName
+    collectFirstDeclaration firstDeclarations (statementIndex, bindingNameText, _) =
+      Map.insertWith (\_ firstDeclaration -> firstDeclaration) bindingNameText statementIndex firstDeclarations
 
-    addBindingDependencies (visibleBindingNames, dependencies) (statementIndex, bindingNameText, valueExpr) =
+    addBindingDependencies (visibleBindingNames, latestDeclarationByName, dependencies) (statementIndex, bindingNameText, valueExpr) =
       let localDependencyNames =
             Set.filter
-              (`Map.member` declarationStatementsByName)
+              (`Map.member` firstDeclarationStatementByName)
               ( freeVarsExprWithVisibleBindings
                   visibleBindingNames
                   Set.empty
@@ -435,42 +430,30 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
               [ dependencyStatementIndex
                 | dependencyName <- Set.toList localDependencyNames,
                   Just dependencyStatementIndex <-
-                    [resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName]
+                    [resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName]
               ]
        in ( Set.insert bindingNameText visibleBindingNames,
+            Map.insert bindingNameText statementIndex latestDeclarationByName,
             Map.insert statementIndex resolvedDependencies dependencies
           )
 
-    resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
-      case Map.lookup dependencyName declarationStatementsByName of
-        Nothing -> Nothing
-        Just declarationStatements ->
-          -- Rebindings snapshot the nearest earlier declaration. If there is no
-          -- prior local binding, fall back to an outer binding before creating
-          -- a forward edge to the first later local declaration. Same-name
-          -- references become self-edges for alias-shaped wrappers and
-          -- callable-producing initializers, matching the cells owned during
-          -- evaluation. Eager scalar self-use stays on the existing
-          -- non-recursive path instead of forcing itself into an SCC.
-          case closestPriorDeclaration declarationStatements of
-            Just prior -> Just prior
-            Nothing
-              | Set.member dependencyName outerBindingNames -> Nothing
-              | dependencyName == bindingNameText ->
-                  if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
-                    then Just statementIndex
-                    else Nothing
-              | otherwise -> closestFutureDeclaration declarationStatements
-      where
-        closestPriorDeclaration declarations =
-          case unsnoc (filter (< statementIndex) declarations) of
-            Nothing -> Nothing
-            Just (_, priorDeclaration) -> Just priorDeclaration
-
-        closestFutureDeclaration declarations =
-          case filter (> statementIndex) declarations of
-            [] -> Nothing
-            firstFuture : _ -> Just firstFuture
+    resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName =
+      -- Rebindings snapshot the nearest earlier declaration, which the
+      -- source-order fold keeps directly. If there is no prior local binding,
+      -- fall back to an outer binding before creating a forward edge to the
+      -- first local declaration. Same-name references become self-edges for
+      -- alias-shaped wrappers and callable-producing initializers, matching
+      -- the cells owned during evaluation. Eager scalar self-use stays on the
+      -- existing non-recursive path instead of forcing itself into an SCC.
+      case Map.lookup dependencyName latestDeclarationByName of
+        Just priorDeclaration -> Just priorDeclaration
+        Nothing
+          | Set.member dependencyName outerBindingNames -> Nothing
+          | dependencyName == bindingNameText ->
+              if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
+                then Just statementIndex
+                else Nothing
+          | otherwise -> Map.lookup dependencyName firstDeclarationStatementByName
 
     componentStatementIndices component =
       let memberIndices =
