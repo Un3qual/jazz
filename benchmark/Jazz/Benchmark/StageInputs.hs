@@ -43,7 +43,7 @@ import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
 import Jazz.Compiler.LoweredIR.Lower
   ( LoweredIRLoweringResult (..),
-    lowerTypedCoreExpressionDirectCall,
+    lowerValidatedTypedCoreExpressionDirectCall,
   )
 import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
 import Jazz.Compiler.ModuleGraph
@@ -80,7 +80,10 @@ import Jazz.Compiler.Profiling
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validateTypedProgramOnce,
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
@@ -286,11 +289,11 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
         Right compiledProgram -> requireNoCompileErrors compiledProgram
     PreparedCompilerScaleTypedLowering _ typedProgram ->
       withCompilerStage LoweringStage $ do
-        case validateTypedProgram typedProgram of
-          failures@(_ : _) ->
+        case validateTypedProgramOnce typedProgram of
+          Left failures ->
             ioError (userError ("trusted typed program failed producer validation: " <> show failures))
-          [] ->
-            case lowerTypedCoreExpressionDirectCall typedProgram of
+          Right validatedProgram ->
+            case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
               LoweredIRSucceeded _ -> pure ()
               loweringResult ->
                 ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))

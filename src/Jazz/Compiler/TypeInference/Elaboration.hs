@@ -19,6 +19,7 @@ module Jazz.Compiler.TypeInference.Elaboration
     expressionDependencyNames,
     specializeInferredExpression,
     finalizeTypedCoreExpressionDirectCall,
+    finalizeValidatedTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
   )
 where
@@ -57,7 +58,11 @@ import Jazz.Compiler.TypeInference.Solver
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( ValidatedTypedProgram,
+    validateTypedProgramOnce,
+    validatedTypedProgram,
+  )
 
 data TypedCoreProductionStatus
   = TypedCoreProductionBlockedByDiagnostics
@@ -265,6 +270,18 @@ finalizeTypedCoreExpressionDirectCall ::
   ProvisionalTypedExpr ->
   TypedCoreProductionStatus
 finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
+  fst (finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope)
+
+-- | Finalize once while retaining the opaque validation proof for a trusted
+-- downstream lowering handoff. The public status keeps exposing the exact raw
+-- Typed Program artifact for compatibility.
+finalizeValidatedTypedCoreExpressionDirectCall ::
+  TypedSourcePath ->
+  ResolvedModule ->
+  InferState ->
+  ProvisionalTypedExpr ->
+  (TypedCoreProductionStatus, Maybe ValidatedTypedProgram)
+finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
       let functions = functionTable provisionalStatements
@@ -281,7 +298,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           moduleFailures = missingResultFailures <> fst exportResult
           productionFailures = moduleFailures <> concatMap fst finalizedStatements
        in case productionFailures of
-            _ : _ -> TypedCoreProductionUnsupported productionFailures
+            _ : _ -> (TypedCoreProductionUnsupported productionFailures, Nothing)
             [] ->
               case traverse snd finalizedStatements of
                 Just typedStatements ->
@@ -292,14 +309,20 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                               (snd exportResult)
                               typedStatements
                               (typedExpressionInfo terminalExpression)
-                       in case validateTypedProgram programValue of
-                            [] -> TypedCoreProductionSucceeded programValue
-                            failures -> TypedCoreProductionInvariantFailures failures
-                    _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
-                Nothing -> TypedCoreProductionUnsupported [missingModuleResultFailure]
+                       in case validateTypedProgramOnce programValue of
+                            Right validatedProgram ->
+                              ( TypedCoreProductionSucceeded (validatedTypedProgram validatedProgram),
+                                Just validatedProgram
+                              )
+                            Left failures -> (TypedCoreProductionInvariantFailures failures, Nothing)
+                    _ -> (TypedCoreProductionUnsupported [missingModuleResultFailure], Nothing)
+                Nothing -> (TypedCoreProductionUnsupported [missingModuleResultFailure], Nothing)
     ProvisionalUnsupportedExpression kind detail ->
-      TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
-    _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+      (TypedCoreProductionUnsupported [failureAt 0 [] kind detail], Nothing)
+    _ ->
+      ( TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail],
+        Nothing
+      )
   where
     modulePath = resolvedModulePath resolvedModule
 

@@ -103,7 +103,7 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionPath (..),
     TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
-    finalizeTypedCoreExpressionDirectCall,
+    finalizeValidatedTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
     specializeInferredExpression,
   )
@@ -161,6 +161,7 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.TypedCore (TypedSourcePath, validTypedSourcePath)
+import Jazz.Compiler.TypedCore.Validate (ValidatedTypedProgram)
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
@@ -189,7 +190,10 @@ data InferenceInputs = InferenceInputs
 
 data TypedCoreProductionResult = TypedCoreProductionResult
   { typedCoreProductionInferenceResult :: InferenceResult,
-    typedCoreProductionStatus :: TypedCoreProductionStatus
+    typedCoreProductionStatus :: TypedCoreProductionStatus,
+    -- | Opaque proof retained only for trusted producer-to-lowerer transport.
+    -- The status above remains the stable, raw Typed Program artifact.
+    typedCoreProductionValidatedProgram :: Maybe ValidatedTypedProgram
   }
   deriving (Eq, Show)
 
@@ -368,52 +372,56 @@ inferResolvedModuleTypedCoreExpressionDirectCall ::
 inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule =
   {-# SCC "jazz-stage:type-inference" #-}
   do
-  let expression = ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)
-      (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
-        inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty expression
-      finalizedInference = finalizeInferenceState inputs expression finalState
-  inferenceResult <-
-    finishInference
-      ProduceTypedCoreExpressionDirectCall
-      inputs
-      Set.empty
-      expression
-      inferredResult
-      forwardBindings
-      topLevelRecursiveScopeFacts
-      finalizedInference
-  pure
-    TypedCoreProductionResult
-      { typedCoreProductionInferenceResult = inferenceResult,
-        typedCoreProductionStatus = productionStatus inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-      }
+    let expression = ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)
+        (inferredResult, finalState, forwardBindings, topLevelRecursiveScopeFacts) =
+          inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty expression
+        finalizedInference = finalizeInferenceState inputs expression finalState
+    inferenceResult <-
+      finishInference
+        ProduceTypedCoreExpressionDirectCall
+        inputs
+        Set.empty
+        expression
+        inferredResult
+        forwardBindings
+        topLevelRecursiveScopeFacts
+        finalizedInference
+    let outcome = productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
+    pure
+      TypedCoreProductionResult
+        { typedCoreProductionInferenceResult = inferenceResult,
+          typedCoreProductionStatus = fst outcome,
+          typedCoreProductionValidatedProgram = snd outcome
+        }
 
-productionStatus :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionStatus
-productionStatus inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = TypedCoreProductionBlockedByDiagnostics
-  | not (null profileFailures) = TypedCoreProductionUnsupported profileFailures
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> (TypedCoreProductionStatus, Maybe ValidatedTypedProgram)
+productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
+  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = (TypedCoreProductionBlockedByDiagnostics, Nothing)
+  | not (null profileFailures) = (TypedCoreProductionUnsupported profileFailures, Nothing)
   | otherwise =
       case inferredProvisionalExpr inferredResult of
-        Just provisionalExpr -> finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
+        Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
         Nothing ->
-          TypedCoreProductionUnsupported
-            [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+          ( TypedCoreProductionUnsupported
+              [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail],
+            Nothing
+          )
   where
     profileFailures = inputFailures <> moduleFailures
     inputFailures =
       concat
-        [ [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
+        [ [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
           | inferenceCurrentModulePath inputs /= Just (ModuleGraph.resolvedModulePath resolvedModule)
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
+          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
           | not (validTypedSourcePath sourcePath)
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail
+          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail
           | not (Map.null (inferenceImportedTypes inputs))
               || not (Map.null (inferenceImportedDataTypes inputs))
               || inferenceImportedCapabilities inputs /= emptyScopeCapabilityFacts
           ],
-          [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail
+          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail
           | not (Set.null (inferenceImportedClassNames inputs))
           ]
         ]
@@ -459,8 +467,8 @@ forwardAnalysisValues :: TypedCoreProductionMode -> Map Int (Name, SourceSpan) -
 forwardAnalysisValues mode forwardBindings
   | mode /= ProduceTypedCoreExpressionDirectCall = Map.empty
   | otherwise =
-          Map.map
-            (\(name, bindingSpan) -> (name, AnalysisBinding (Just bindingSpan) False))
+      Map.map
+        (\(name, bindingSpan) -> (name, AnalysisBinding (Just bindingSpan) False))
         forwardBindings
 
 initialStateForInference :: InferenceInputs -> InferState
@@ -485,8 +493,8 @@ moduleInterfaceFromState inputs expr state =
     { interfaceValueTypes =
         Map.fromList
           [ (moduleExportForBinding (renderName name) binding, binding)
-            | name <- Set.toList declaredValues,
-              Just binding <- [Map.lookup name (inferVisibleTypes state)]
+          | name <- Set.toList declaredValues,
+            Just binding <- [Map.lookup name (inferVisibleTypes state)]
           ],
       interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
       interfaceClassFacts = scopeClassFacts localCapabilities,
@@ -565,13 +573,12 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
               failures =
                 InferredProductionFailure [] failureKind failureDetail
                   : inferredProductionFailures blockResult
-           in
-            ( InferredExpr
-                (inferredExpressionType blockResult)
-                (Just (ProvisionalRetainedFailures failures))
-                failures,
-              finalState
-            )
+           in ( InferredExpr
+                  (inferredExpressionType blockResult)
+                  (Just (ProvisionalRetainedFailures failures))
+                  failures,
+                finalState
+              )
     EBlock statements ->
       inferBlock mode statements
     _ -> inferExprTypeDetailed builtinMode env state expr
@@ -579,8 +586,8 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
     inferBlock blockMode statements =
       (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
         preludeStatementIndices
-        (\childMode childBuiltin childEnv childState childExpr ->
-           inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
+        ( \childMode childBuiltin childEnv childState childExpr ->
+            inferExprTypeWithMode False childMode Set.empty childBuiltin childEnv childState childExpr
         )
         blockMode
         builtinMode
@@ -1070,11 +1077,11 @@ inferExprTypeDetailed builtinMode env state expr =
             InferredProductionFailure [] failureKind failureDetail
               : childProductionFailures
        in ( InferredExpr
-            expressionType
-            (Just (ProvisionalRetainedFailures failures))
-            failures,
-          finalState
-        )
+              expressionType
+              (Just (ProvisionalRetainedFailures failures))
+              failures,
+            finalState
+          )
 
     -- Keep this match exhaustive. Unsupported leaves intentionally retain only
     -- their root failure; every composite constructor owns an explicit
@@ -1097,20 +1104,20 @@ inferExprTypeDetailed builtinMode env state expr =
           let (expressionType, finalState, elementResults) =
                 inferListWithProduction state elements
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (concat (zipWith childFailures [0 ..] elementResults))
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (concat (zipWith childFailures [0 ..] elementResults))
         ETuple elements ->
           let (expressionType, finalState, elementResults) =
                 inferTupleWithProduction state elements
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (concat (zipWith childFailures [0 ..] elementResults))
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (concat (zipWith childFailures [0 ..] elementResults))
         EApply functionExpr argumentExpr ->
           let (functionResult, stateAfterFunction) =
                 inferExprTypeDetailed builtinMode env state functionExpr
@@ -1126,11 +1133,11 @@ inferExprTypeDetailed builtinMode env state expr =
                   argumentResult
                   stateAfterArgument
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (childFailures 0 functionResult <> childFailures 1 argumentResult)
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (childFailures 0 functionResult <> childFailures 1 argumentResult)
         ETypeApplication functionExpr typeArgumentSpan typeArgument ->
           let (expressionType, finalState, maybeFunctionResult) =
                 inferExplicitTypeApplicationWithResult
@@ -1154,14 +1161,14 @@ inferExprTypeDetailed builtinMode env state expr =
               (expressionType, checkedState) =
                 inferIfFromResults conditionResult thenResult elseResult finalState
            in retainedUnsupported
-              expressionType
-              checkedState
-              failureKind
-              failureDetail
-              ( childFailures 0 conditionResult
-                  <> childFailures 1 thenResult
-                  <> childFailures 2 elseResult
-              )
+                expressionType
+                checkedState
+                failureKind
+                failureDetail
+                ( childFailures 0 conditionResult
+                    <> childFailures 1 thenResult
+                    <> childFailures 2 elseResult
+                )
         EPatternCase scrutineeExpr caseArms ->
           let (scrutineeResult, stateAfterScrutinee) =
                 inferExprTypeDetailed builtinMode env state scrutineeExpr
@@ -1180,40 +1187,40 @@ inferExprTypeDetailed builtinMode env state expr =
                   stateWithScrutineeType
                   caseArms
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              ( childFailures 0 scrutineeResult
-                  <> concat (zipWith childFailures [1 ..] armResults)
-              )
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                ( childFailures 0 scrutineeResult
+                    <> concat (zipWith childFailures [1 ..] armResults)
+                )
         EBinary operatorSymbol leftExpr rightExpr ->
           let (expressionType, finalState, leftResult, rightResult) =
                 inferUnsupportedBinaryWithProduction operatorSymbol leftExpr rightExpr
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (childFailures 0 leftResult <> childFailures 1 rightResult)
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (childFailures 0 leftResult <> childFailures 1 rightResult)
         ESectionLeft leftExpr operatorSymbol ->
           let (expressionType, finalState, leftResult) =
                 inferUnsupportedLeftSectionWithProduction operatorSymbol leftExpr
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (childFailures 0 leftResult)
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (childFailures 0 leftResult)
         ESectionRight operatorSymbol rightExpr ->
           let (expressionType, finalState, rightResult) =
                 inferUnsupportedRightSectionWithProduction operatorSymbol rightExpr
            in retainedUnsupported
-              expressionType
-              finalState
-              failureKind
-              failureDetail
-              (childFailures 0 rightResult)
+                expressionType
+                finalState
+                failureKind
+                failureDetail
+                (childFailures 0 rightResult)
         EBlock statements ->
           let (blockResult, finalState) =
                 inferNestedScopeTypeWithMode
@@ -1234,11 +1241,11 @@ inferExprTypeDetailed builtinMode env state expr =
                   state
                   statements
            in retainedUnsupported
-              (inferredExpressionType blockResult)
-              finalState
-              failureKind
-              failureDetail
-              (inferredProductionFailures blockResult)
+                (inferredExpressionType blockResult)
+                finalState
+                failureKind
+                failureDetail
+                (inferredProductionFailures blockResult)
 
     inferListWithProduction initialState elements =
       case elements of
@@ -1552,19 +1559,19 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       let (sourceType, stateAfterSource) = freshTypeVar state
           (targetType, stateAfterTarget) = freshTypeVar stateAfterSource
        in Just
-          ( TFunctionType
-              (TFunctionType sourceType targetType)
-              (TFunctionType (TListType sourceType) (TListType targetType)),
-            stateAfterTarget
-          )
+            ( TFunctionType
+                (TFunctionType sourceType targetType)
+                (TFunctionType (TListType sourceType) (TListType targetType)),
+              stateAfterTarget
+            )
     "filter" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just
-          ( TFunctionType
-              (TFunctionType elementType TBoolType)
-              (TFunctionType (TListType elementType) (TListType elementType)),
-            stateAfterElement
-          )
+            ( TFunctionType
+                (TFunctionType elementType TBoolType)
+                (TFunctionType (TListType elementType) (TListType elementType)),
+              stateAfterElement
+            )
     "print!" ->
       -- Stub-v1 runtime keeps `print!` as an impure primitive that returns the
       -- evaluated argument value unchanged so compile/runtime paths stay simple.
@@ -1573,11 +1580,11 @@ instantiateBuiltinSymbolTypeByName builtinName state =
     "listPrependRaw" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just
-          ( TFunctionType
-              elementType
-              (TFunctionType (TListType elementType) (TListType elementType)),
-            stateAfterElement
-          )
+            ( TFunctionType
+                elementType
+                (TFunctionType (TListType elementType) (TListType elementType)),
+              stateAfterElement
+            )
     "listReverseRaw" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)

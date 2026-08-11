@@ -5,7 +5,10 @@
 -- lowering: it accepts an already-constructed contract value and reports all
 -- invariant failures in stable structural order.
 module Jazz.Compiler.TypedCore.Validate
-  ( validateTypedProgram,
+  ( ValidatedTypedProgram,
+    validateTypedProgram,
+    validateTypedProgramOnce,
+    validatedTypedProgram,
   )
 where
 
@@ -88,6 +91,21 @@ data InstantiationContract
       [TypedTypeParameterId]
       [TypedEvidenceParameter]
       [TypedPrimitiveConstraint]
+
+-- | Proof-carrying transport for internal producer-to-consumer paths. The
+-- constructor stays private so externally built contract values must cross
+-- 'validateTypedProgramOnce' before using a trusted consumer.
+newtype ValidatedTypedProgram = ValidatedTypedProgram TypedProgram
+  deriving (Eq, Show)
+
+validatedTypedProgram :: ValidatedTypedProgram -> TypedProgram
+validatedTypedProgram (ValidatedTypedProgram typedProgram) = typedProgram
+
+validateTypedProgramOnce :: TypedProgram -> Either [TypedCoreValidationFailure] ValidatedTypedProgram
+validateTypedProgramOnce typedProgram =
+  case validateTypedProgram typedProgram of
+    [] -> Right (ValidatedTypedProgram typedProgram)
+    failures -> Left failures
 
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
