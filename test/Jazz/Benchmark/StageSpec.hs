@@ -76,6 +76,10 @@ testCompilerScaleRegistry =
       ("wide-module-fanout-0016x0016", WideModuleFanout, 16, Just 16),
       ("wide-module-fanout-0032x0016", WideModuleFanout, 32, Just 16),
       ("wide-module-fanout-0064x0016", WideModuleFanout, 64, Just 16),
+      ("wide-module-fanout-0064x0001", WideModuleFanout, 64, Just 1),
+      ("wide-module-fanout-0128x0001", WideModuleFanout, 128, Just 1),
+      ("wide-module-fanout-0256x0001", WideModuleFanout, 256, Just 1),
+      ("wide-module-fanout-0512x0001", WideModuleFanout, 512, Just 1),
       ("interleaved-recursive-groups-0016", InterleavedRecursiveGroups, 16, Nothing),
       ("interleaved-recursive-groups-0032", InterleavedRecursiveGroups, 32, Nothing),
       ("interleaved-recursive-groups-0064", InterleavedRecursiveGroups, 64, Nothing),
@@ -200,6 +204,12 @@ testWideModuleFanoutSemantics = do
   assertEqual "wide fanout output" "0" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
+  lookupCase <- loadCompilerScaleCase "wide-module-fanout-0064x0001"
+  assertEqual "lookup fanout virtual source count" 65 (compilerScaleCaseSourceCount lookupCase)
+  lookupOutput <- runCompilerScaleCase lookupCase
+  assertEqual "lookup fanout output" "0" lookupOutput
+  lookupPrepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark lookupCase
+  runPreparedCompilerScaleBenchmark lookupPrepared
 
 testInterleavedRecursiveGroupSemantics :: IO ()
 testInterleavedRecursiveGroupSemantics = do

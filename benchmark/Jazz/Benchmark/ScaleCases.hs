@@ -76,6 +76,7 @@ compilerScaleCases :: [CompilerScaleCase]
 compilerScaleCases =
   map sequentialPolymorphicCase [64, 128, 256, 512]
     <> map (`wideModuleFanoutCase` 16) [8, 16, 32, 64]
+    <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
     <> map recursiveRebindingBurstCase [128, 256, 512, 1024]
