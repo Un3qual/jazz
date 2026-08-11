@@ -73,6 +73,8 @@ tests =
     ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
     ("typed forward signed function scale cases have exact metadata", testTypedForwardSignedFunctionsRegistry),
     ("smallest typed forward signed function case executes prepared validation", testTypedForwardSignedFunctionsSmallestCase),
+    ("typed wide export provider scale cases have exact metadata", testTypedWideExportProvidersRegistry),
+    ("smallest typed wide export provider case executes prepared validation", testTypedWideExportProvidersSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
     ("host-free opaque environments preserve exact runtime output", testHostFreeOpaqueEnvironmentSemantics),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
@@ -188,6 +190,10 @@ testCompilerScaleRegistry =
       ("typed-forward-signed-functions-0512", TypedForwardSignedFunctions, 512, Nothing),
       ("typed-forward-signed-functions-1024", TypedForwardSignedFunctions, 1024, Nothing),
       ("typed-forward-signed-functions-2048", TypedForwardSignedFunctions, 2048, Nothing),
+      ("typed-wide-export-providers-0128", TypedWideExportProviders, 128, Nothing),
+      ("typed-wide-export-providers-0512", TypedWideExportProviders, 512, Nothing),
+      ("typed-wide-export-providers-1024", TypedWideExportProviders, 1024, Nothing),
+      ("typed-wide-export-providers-2048", TypedWideExportProviders, 2048, Nothing),
       ("wide-constructor-application-0032", WideConstructorApplication, 32, Nothing),
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
@@ -411,6 +417,29 @@ testTypedForwardSignedFunctionsRegistry =
 testTypedForwardSignedFunctionsSmallestCase :: IO ()
 testTypedForwardSignedFunctionsSmallestCase = do
   programCase <- loadCompilerScaleCase "typed-forward-signed-functions-0128"
+  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+testTypedWideExportProvidersRegistry :: IO ()
+testTypedWideExportProvidersRegistry =
+  assertEqual
+    "typed wide export provider registry"
+    [ ("typed-wide-export-providers-0128", 128, [TypedLoweringBenchmark]),
+      ("typed-wide-export-providers-0512", 512, [TypedLoweringBenchmark]),
+      ("typed-wide-export-providers-1024", 1024, [TypedLoweringBenchmark]),
+      ("typed-wide-export-providers-2048", 2048, [TypedLoweringBenchmark])
+    ]
+    [ ( compilerScaleCaseIdentifier programCase,
+        compilerScaleCaseSize programCase,
+        compilerScaleCaseBenchmarks programCase
+      )
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == TypedWideExportProviders
+    ]
+
+testTypedWideExportProvidersSmallestCase :: IO ()
+testTypedWideExportProvidersSmallestCase = do
+  programCase <- loadCompilerScaleCase "typed-wide-export-providers-0128"
   prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 

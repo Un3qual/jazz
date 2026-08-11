@@ -39,6 +39,7 @@ data CompilerScaleScenario
   | LoweredTemporaryValidation
   | TypedRecursiveStatementGraph
   | TypedForwardSignedFunctions
+  | TypedWideExportProviders
   | WideConstructorApplication
   | HostFreeOpaqueEnvironment
   | AnalyzerDiagnosticChain
@@ -100,6 +101,7 @@ baseCompilerScaleCases =
     <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
     <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
     <> map typedForwardSignedFunctionsCase [128, 512, 1024, 2048]
+    <> map typedWideExportProvidersCase [128, 512, 1024, 2048]
     <> map wideConstructorApplicationCase [32, 64, 128, 256]
     <> map hostFreeOpaqueEnvironmentCase [64, 256, 1024, 4096]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
@@ -336,6 +338,21 @@ typedRecursiveStatementGraphCase statementCount =
       compilerScaleCaseInterfaceWidth = Nothing,
       compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
       compilerScaleCaseEntryModulePath = ["TypedRecursiveStatementGraph"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources = Map.empty,
+      compilerScaleCaseExpectedOutput = ""
+    }
+
+typedWideExportProvidersCase :: Int -> CompilerScaleCase
+typedWideExportProvidersCase providerCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "typed-wide-export-providers-" <> paddedDecimal 4 providerCount,
+      compilerScaleCaseScenario = TypedWideExportProviders,
+      compilerScaleCaseSize = providerCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
+      compilerScaleCaseEntryModulePath = ["TypedWideExportProviders"],
       compilerScaleCaseResolutionConfig = scaleResolutionConfig,
       compilerScaleCaseSources = Map.empty,
       compilerScaleCaseExpectedOutput = ""

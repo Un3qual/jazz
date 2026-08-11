@@ -273,6 +273,8 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                     typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
                   TypedForwardSignedFunctions ->
                     typedForwardSignedFunctionsProgram (compilerScaleCaseSize programCase)
+                  TypedWideExportProviders ->
+                    typedWideExportProvidersProgram (compilerScaleCaseSize programCase)
                   _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
           evaluate (forceTypedProgramArtifact typedProgram)
           case validateTypedProgram typedProgram of
@@ -352,6 +354,12 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
     PreparedCompilerScaleTypedLowering programCase typedProgram ->
       case compilerScaleCaseScenario programCase of
         TypedRecursiveStatementGraph ->
+          withCompilerStage TypeInferenceStage $
+            case validateTypedProgram typedProgram of
+              [] -> pure ()
+              failures ->
+                ioError (userError ("typed validation benchmark failed: " <> show failures))
+        TypedWideExportProviders ->
           withCompilerStage TypeInferenceStage $
             case validateTypedProgram typedProgram of
               [] -> pure ()
@@ -642,6 +650,60 @@ typedRecursiveStatementGraphProgram statementCount
 -- Typed Core deliberately keeps malformed states constructible and therefore
 -- has no blanket NFData instance. Derived Show still traverses every artifact
 -- field, so forcing its result keeps all generation outside the timed region.
+typedWideExportProvidersProgram :: Int -> TypedProgram
+typedWideExportProvidersProgram providerCount
+  | providerCount <= 0 = error "typed wide export provider count must be positive"
+  | otherwise =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            modulePath
+            (TypedSourcePath "compiler-scale/TypedWideExportProviders.jz")
+            []
+            exports
+            (TypedModuleInterface interfaces [] [] [])
+            (bindings <> [TypedExpressionStatement spanValue trueExpression])
+            boolInfo
+        ]
+        modulePath
+  where
+    modulePath = ["TypedWideExportProviders"]
+    spanValue = TypedSpan 1 1
+    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+    trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
+
+    providerIdentifier index =
+      "provided" <> Text.justifyRight 4 '0' (Text.pack (show index))
+    providerName index =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedValueNamespace
+        (providerIdentifier index)
+    providerOwner index = TypedBinderId (modulePath, [index], providerName index)
+    providerScheme index =
+      TypedScheme
+        (providerOwner index)
+        []
+        []
+        []
+        TypedBoolType
+        TypedBoolRecipe
+        Nothing
+
+    bindings =
+      [ TypedLetStatement
+          (providerOwner index)
+          (providerName index)
+          spanValue
+          (providerScheme index)
+          trueExpression
+      | index <- [0 .. providerCount - 1]
+      ]
+    interfaces =
+      [TypedValueInterface (providerName index) (providerScheme index) | index <- [0 .. providerCount - 1]]
+    exports =
+      [TypedModuleExport TypedValueNamespace (providerIdentifier index) | index <- [0 .. providerCount - 1]]
+
 typedForwardSignedFunctionsProgram :: Int -> TypedProgram
 typedForwardSignedFunctionsProgram functionCount
   | functionCount <= 0 = error "typed forward signed function count must be positive"
