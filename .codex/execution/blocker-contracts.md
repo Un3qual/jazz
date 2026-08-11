@@ -48,38 +48,42 @@ Each blocked item should answer these questions:
   `b7161746`. It adds opt-in sequential-polymorphism and wide-module-fanout
   curves with exact real-pipeline semantics plus optimized, RTS, stable-stage,
   hotspot, and live-heap receipts.
+- Completed child: `JN-COMPILER-PERFORMANCE-SCALE-MATRIX-002` landed in
+  `49073c43`. It completes the eight-family generated scale matrix and records
+  serial optimized, RTS, stable-stage, hotspot, and live-heap baselines.
+- Completed child: recursive-group exposure indexing landed in `cb7b3426` and
+  improves 128-group analysis by 31.1x CPU and 51.5x allocation against the
+  compatible matrix baseline.
+- Completed child: environment free-variable maintenance landed in `13553527`.
+  It removes `freeTypeVariablesInEnv` from the leading sequential/constrained
+  hotspots while preserving sampled live heap.
 - Accepted decision: [RFC 0008: Parser scale and performance tiers](../../rfcs/accepted/0008-parser-scale-and-performance-tiers.md)
   separates deterministic semantic gates from machine-dependent physical
   evidence and forbids single-machine timing thresholds.
-- Measured priority: sequential analysis grew 16.6x in CPU and 14.0x in
-  allocation over an 8x binding increase. Its hotspot profile attributes 131
-  ticks and 447,907,840 allocated bytes to `freeTypeVariablesInEnv`, making
-  incremental environment free-variable maintenance the leading optimization
-  candidate after matrix completion.
-- Smallest unblocker: write and validate a matching ready-plan for the six
-  remaining generated scenario families: interleaved recursive groups,
-  constrained signatures, deep nested lambdas, large operator tables, nested
-  blocks, and long token streams.
-- Decision needed: fix the exact stable case identifiers, valid deterministic
-  generators, smallest-case semantic/artifact results, participating benchmark
-  groups, and largest-case serial RTS/profile commands before promotion.
-- Recommended default: keep all generated cases opt-in; use the matrix sizes
-  already recorded in the performance program; compile through the ordinary
-  driver or parse through the ordinary parser; assert exact results only at
-  small sizes; record physical curves without thresholds; and stop or reduce a
-  largest size rather than widening machine limits.
-- Candidate child: `JN-COMPILER-PERFORMANCE-SCALE-MATRIX-002`.
-- Target paths: `benchmark/Jazz/Benchmark/ScaleCases.hs`;
-  `benchmark/Jazz/Benchmark/StageInputs.hs`;
-  `test/Jazz/Benchmark/StageSpec.hs`; `PERFORMANCE.md`.
-- Verification: `cabal test benchmark-stage-spec --test-show-details=failures --jobs=1`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
+- Measured priority: deep nested lambdas isolate repeated compound substitution
+  rebuilding. Their hotspot profile is led by `applySubstitution`, while the
+  128-lambda optimized analysis case still allocates about 4.1 MB after the
+  environment-summary batch.
+- Smallest unblocker: replace the integer-keyed substitution `Map` with
+  `IntMap`, path-compress variable chains during unification, and stop fully
+  zonking compound operands before recursively visiting the same children.
+- Decision needed: none; this is an internal representation change with no
+  public language, artifact, diagnostic-order, or binder-identity delta.
+- Recommended default: preserve the pure fully-zonking `resolveType` boundary
+  for diagnostics and exported types, while using a state-returning
+  head-dereference operation only inside unification.
+- Candidate child: `JN-COMPILER-PERFORMANCE-SUBSTITUTION-005`.
+- Target paths: `src/Jazz/Compiler/TypeInference/Solver.hs`;
+  `src/Jazz/Compiler/TypeInference/State.hs`;
+  `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`;
+  `test/Jazz/Benchmark/StageSpec.hs`.
+- Verification: `cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1`;
+  the compatible four-size deep-lambda benchmark and serial 128-lambda stage,
+  hotspot, and heap profiles; `bash scripts/check-execution-queue.sh`;
   `git diff --check`.
-- Not in scope: changing type-inference, module, parser, token, AST, or runtime
-  representation; adding production strictness; changing public language
-  semantics, diagnostics or their order, binder identity, artifact schemas, or
-  hosted parity; adding wall-clock thresholds; or starting more than one
-  heavyweight process at a time.
+- Not in scope: changing public semantics, diagnostics or their order, binder
+  identity, artifact schemas, hosted parity, production strictness, constraint
+  storage, or any parser/module/runtime representation.
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 

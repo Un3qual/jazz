@@ -1,23 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-ENV-FV-004
+id: JN-COMPILER-PERFORMANCE-SUBSTITUTION-005
 status: ready
 priority: P1
 size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3b: Maintain environment free-variable summaries"
+plan_section: "Task 3c: Compress type substitutions during unification"
 target_paths:
-  - src/Jazz/Compiler/TypeInference/Capabilities.hs
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/GeneralizationTests.hs
+  - src/Jazz/Compiler/TypeInference/Solver.hs
+  - src/Jazz/Compiler/TypeInference/State.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
   - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512 --jazz-scale-case=constrained-signatures-0032 --jazz-scale-case=constrained-signatures-0064 --jazz-scale-case=constrained-signatures-0128 --jazz-scale-case=constrained-signatures-0256 --pattern=analysis +RTS -T -RTS' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-substitution --time-mode=cpu --jazz-scale-case=deep-nested-lambdas-0016 --jazz-scale-case=deep-nested-lambdas-0032 --jazz-scale-case=deep-nested-lambdas-0064 --jazz-scale-case=deep-nested-lambdas-0128 +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Carry an incrementally updated raw free-variable summary with the scope environment so binding generalization resolves only variables that can actually be free, preserving exact schemes and constraint visibility."
+deliverable: "Use an IntMap substitution store and path-compress variable chains while unification descends each compound type once, preserving exact unification, diagnostics, and inferred types."
 last_verified: 2026-08-10
 ---
 
@@ -464,26 +464,103 @@ through the current solver.
 `test/Jazz/Compiler/Semantics/BindingSignature/GeneralizationTests.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Add semantic coverage before implementation for shadowing, shared
+- [x] Add semantic coverage before implementation for shadowing, shared
       monomorphic variables, recursive-group deletion, constrained schemes, and
       constructor bindings. Preserve exact generalized variables, constraint
       order, diagnostics, and runtime outputs.
-- [ ] Introduce an internal environment free-variable summary with per-binding
+- [x] Introduce an internal environment free-variable summary with per-binding
       raw variable sets and per-variable reference counts. Derive raw variables
       once from every `TypeBinding`; resolve the distinct live identities only
       when the solver state is required.
-- [ ] Thread the summary through the source-order scope traversal. Update it on
-      binding insertion/rebinding, data-constructor registration, temporary
-      recursive scheme exposure, group deletion, and final recursive-group
-      generalization; do not change expression-level environment semantics.
-- [ ] Reuse the same resolved summary for ordinary and explicit-signature
+- [x] Thread the summary through the stable source-order scope environment.
+      Update it on binding insertion/rebinding, data-constructor registration,
+      and final recursive-group generalization. Retain the exact full-environment
+      fallback while temporary recursive schemes are exposed; do not change
+      expression-level environment semantics.
+- [x] Reuse the same resolved summary for ordinary and explicit-signature
       generalization at a statement. Keep arbitrary capability checks on the
       existing environment path unless the summary is already in scope and
       semantic ownership is clear.
-- [ ] Run the focused semantic suites, commit the implementation, and record
+- [x] Run the focused semantic suites, commit the implementation, and record
       compatible optimized curves for sequential polymorphism and constrained
       signatures. Capture stable-stage, hotspot, and heap evidence for the
       largest case of each family before closing the child.
+
+### Environment free-variable receipt
+
+The implementation landed in `13553527`. `TypeEnvFreeVariables` stores the raw
+unquantified variables owned by each binding plus an `IntMap` reference count,
+so rebinding removes an identity only after its last owner disappears. Ordinary
+source-order generalization resolves each distinct live identity once. Scope
+segments with temporary recursive scheme exposure deliberately retain the
+former full-environment calculation. The complete binding-signature and
+generated-stage suites passed, including new shared-variable, shadowing, and
+constructor characterization cases.
+
+The optimized sequential after run is
+`benchmark-results/compiler-scale-baseline/20260811T040658274927000000Z/`; its
+before run is `20260811T025843036178000000Z`. The constrained-signature after
+run is
+`benchmark-results/compiler-scale-matrix-baseline/20260811T040817811856000000Z/`;
+its before run is `20260811T035003834196000000Z`. After excluding run ID, Git
+revision, and timestamp, all environment metadata agrees within each pair and
+all four receipts report a clean tree.
+
+| Case / boundary                | Size | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement |
+| ------------------------------ | ---: | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: |
+| Sequential analysis            |   64 |     1.223 |    1.226 |            1.0x |         4,767,015 |        3,965,058 |                   1.2x |
+| Sequential analysis            |  128 |     3.159 |    2.594 |            1.2x |        10,393,534 |        7,747,812 |                   1.3x |
+| Sequential analysis            |  256 |     7.796 |    6.514 |            1.2x |        24,937,278 |       15,558,535 |                   1.6x |
+| Sequential analysis            |  512 |    20.265 |   14.039 |            1.4x |        66,626,398 |       31,624,618 |                   2.1x |
+| Sequential module preparation  |  512 |    31.122 |   24.847 |            1.3x |       118,413,538 |       83,386,649 |                   1.4x |
+| Constrained-signature analysis |   32 |     0.586 |    0.529 |            1.1x |         2,415,325 |        2,122,134 |                   1.1x |
+| Constrained-signature analysis |   64 |     1.177 |    0.991 |            1.2x |         4,877,631 |        3,985,070 |                   1.2x |
+| Constrained-signature analysis |  128 |     3.159 |    2.034 |            1.6x |        10,857,620 |        7,584,186 |                   1.4x |
+| Constrained-signature analysis |  256 |     8.402 |    4.698 |            1.8x |        27,043,758 |       15,103,504 |                   1.8x |
+
+Sequential analysis growth from 64 to 512 bindings fell from 16.6x CPU / 14.0x
+allocation to 11.4x / 8.0x. Constrained-signature growth from 32 to 256 fell
+from 14.3x / 11.2x to 8.9x / 7.1x. The standalone artifacts are under
+`profile-results/compiler-env-fv-after/`. Maximum process residency changed
+from 3,762,104 to 4,986,320 bytes for sequential module preparation and from
+3,218,504 to 3,201,680 bytes for constrained analysis. Separate heap sampled
+peaks were flat at 3,819,600 before / 3,819,856 after and 2,196,680 before /
+2,182,280 after. Whole-process allocation is iteration-dependent and is not a
+per-operation claim.
+
+The old hotspot's `freeTypeVariablesInEnv` entry (447,907,840 allocated bytes
+for sequential and 1,111,228,416 for constrained signatures) no longer appears
+among the leading after cost centres. The existing deep-lambda curve remains
+the cleanest next type-checker signal: `applySubstitution` dominates its prior
+hotspot profile, while 128-lambda analysis still allocates about 4.1 MB.
+
+## Task 3c: Compress type substitutions during unification
+
+`Solver.hs` currently stores substitutions in `Map Int ExpressionType` and
+fully resolves both compound operands at every recursive unification call.
+Variable chains are followed repeatedly without compression, and already
+resolved child subtrees are reconstructed before the recursive child call
+resolves them again.
+
+**Files:** `src/Jazz/Compiler/TypeInference/Solver.hs`,
+`src/Jazz/Compiler/TypeInference/State.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Add direct solver characterization for long substitution chains,
+      compound substitutions, occurs checks, rigid variables, numeric
+      constraints, and exact final substitution behavior before implementation.
+- [ ] Move the integer-keyed substitution store to `IntMap` without changing
+      solver rollback, equality, or debugging behavior.
+- [ ] Add an internal head-dereference operation that path-compresses traversed
+      variable chains in the returned `InferState`. Make recursive unification
+      descend compound operands once, re-resolving only after an earlier sibling
+      can have added a substitution.
+- [ ] Keep the public pure `resolveType`/`applySubstitution` boundary fully
+      zonking results for diagnostics, schemes, and exported inference data.
+- [ ] Run the focused semantic suites, commit the implementation, and record a
+      metadata-compatible deep-lambda curve plus stable-stage, hotspot, and
+      live-heap evidence for 128 lambdas.
 
 ## Task 3: Remove type-checker asymptotic work
 
@@ -491,7 +568,7 @@ through the current solver.
       explicit cursors while preserving constraint order.
 - [ ] Infer each recursive body once per necessary environment state and cache
       reusable group results.
-- [ ] Maintain environment free-variable summaries or levels instead of
+- [x] Maintain environment free-variable summaries or levels instead of
       rescanning the complete visible environment per generalization.
 - [ ] Replace repeated substitution-chain resolution with an `IntMap`-backed
       zonk/compression boundary and avoid re-resolving child subtrees during
