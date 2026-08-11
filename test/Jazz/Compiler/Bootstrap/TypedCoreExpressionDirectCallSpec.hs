@@ -43,6 +43,7 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("preserves flattened recipes through a named direct leading-lambda chain", testThreeArgumentDirectLeadingLambdaRecipe),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
     ("lowers nested scalar operands from left to right", testNestedScalarLowering),
@@ -143,6 +144,7 @@ testFixtureManifest = do
           "scalar-parameter-return",
           "single-argument-direct-call",
           "curried-multi-argument-direct-call",
+          "three-argument-direct-call",
           "forward-direct-call-dag",
           "nested-direct-calls",
           "dollar-direct-call",
@@ -181,9 +183,9 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 23 (length acceptedFixtureNames)
+    >> assertEqual "accepted fixture count" 24 (length acceptedFixtureNames)
     >> assertEqual "rejected fixture count" 21 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 44 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
     >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
@@ -344,6 +346,16 @@ testAcceptedManifestPipeline =
                 Nothing -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testThreeArgumentDirectLeadingLambdaRecipe :: IO ()
+testThreeArgumentDirectLeadingLambdaRecipe =
+  case lookup "three-argument-direct-call" directCallExpectedPrograms of
+    Just programValue ->
+      assertEqual
+        "three-argument direct leading-lambda validation"
+        []
+        (validateTypedProgram programValue)
+    Nothing -> failTest "three-argument direct-call typed program is missing"
 
 testRfcClosureEnvironmentIdentity :: IO ()
 testRfcClosureEnvironmentIdentity = do
@@ -676,7 +688,14 @@ testInvalidLowererTypedCoreBoundary =
     expectedResults =
       [ ( "closure-shape-flattened-recipe",
           [ callableShapeFailure 0,
-            callableShapeFailure 1
+            callableShapeFailure 1,
+            TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [1] [0])
+              TypedCallableRecipeMismatch
+              ( TypedRecipeDetail
+                  (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+                  (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
+              )
           ]
         ),
         ( "direct-shape-staged-recipe",

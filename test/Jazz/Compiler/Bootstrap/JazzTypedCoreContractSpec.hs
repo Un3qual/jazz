@@ -12088,6 +12088,8 @@ callableShapesBinderReferencesProgram =
     directOuterBinder = binder modulePath [0, 0] directOuterName
     directInnerName = fixtureValueName "directInner"
     directInnerBinder = binder modulePath [0, 0, 0] directInnerName
+    directTerminalName = fixtureValueName "directTerminal"
+    directTerminalBinder = binder modulePath [0, 0, 0, 0] directTerminalName
     closureName = fixtureValueName "closure"
     closureOwner = binder modulePath [1] closureName
     closureOuterName = fixtureValueName "closureOuter"
@@ -12096,13 +12098,14 @@ callableShapesBinderReferencesProgram =
     closureInnerBinder = binder modulePath [1, 0, 0] closureInnerName
     scalarName = fixtureValueName "scalar"
     scalarOwner = binder modulePath [2] scalarName
-    functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
-    directRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
+    directType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
+    directRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
+    directInfo = info directType directRecipe
+    closureType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
     closureRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
-    directInfo = info functionType directRecipe
-    closureInfo = info functionType closureRecipe
-    directScheme = TypedScheme directOwner [] [] [] functionType directRecipe (Just TypedDirectCallableShape)
-    closureScheme = TypedScheme closureOwner [] [] [] functionType closureRecipe (Just TypedClosureCallableShape)
+    closureInfo = info closureType closureRecipe
+    directScheme = TypedScheme directOwner [] [] [] directType directRecipe (Just TypedDirectCallableShape)
+    closureScheme = TypedScheme closureOwner [] [] [] closureType closureRecipe (Just TypedClosureCallableShape)
     scalarScheme = TypedScheme scalarOwner [] [] [] TypedBoolType TypedBoolRecipe Nothing
     directExpression =
       TypedLambdaExpr
@@ -12110,10 +12113,15 @@ callableShapesBinderReferencesProgram =
         directOuterBinder
         directOuterName
         ( TypedLambdaExpr
-            boolToBoolInfo
+            (info (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)) (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe))
             directInnerBinder
             directInnerName
-            (TypedVariableExpr boolInfo directInnerName (Just directInnerBinder))
+            ( TypedLambdaExpr
+                boolToBoolInfo
+                directTerminalBinder
+                directTerminalName
+                (TypedVariableExpr boolInfo directTerminalName (Just directTerminalBinder))
+            )
         )
     closureExpression =
       TypedLambdaExpr

@@ -130,6 +130,7 @@ acceptedFixtures =
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
+    sourceFixture "three-argument-direct-call" threeArgumentDirectCallSource,
     sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
     sourceFixture "nested-direct-calls" nestedDirectCallsSource,
     sourceFixture "dollar-direct-call" dollarDirectCallSource,
@@ -429,6 +430,12 @@ directCallExpectedPrograms =
         [combineFunction]
         (directCall "combine" [intInfo, intInfo] intInfo [intExpr 20, intExpr 22])
     ),
+    ( "three-argument-direct-call",
+      expectedFunctionProgram
+        ["sumThree"]
+        [sumThreeFunction]
+        (directCall "sumThree" [intInfo, intInfo, intInfo] intInfo [intExpr 10, intExpr 20, intExpr 12])
+    ),
     ( "forward-direct-call-dag",
       expectedFunctionProgram
         ["first", "second"]
@@ -588,6 +595,32 @@ directCallExpectedLoweredPrograms =
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "combine" [loweredInt64 20, loweredInt64 22]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "three-argument-direct-call",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "sumThree"
+            [ LoweredParameter (LoweredParameterId "arg1") int64Representation,
+              LoweredParameter (LoweredParameterId "arg2") int64Representation,
+              LoweredParameter (LoweredParameterId "arg3") int64Representation
+            ]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredParameter 2 int64Representation],
+              expectedPrimitiveInstruction
+                2
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredTemporary 1 int64Representation, loweredParameter 3 int64Representation]
+            ]
+            (loweredTemporary 2 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "sumThree" [loweredInt64 10, loweredInt64 20, loweredInt64 12]]
         (loweredTemporary 1 int64Representation)
     ),
     ( "forward-direct-call-dag",
@@ -2900,6 +2933,14 @@ curriedMultiArgumentDirectCallSource =
       "combine 20 22."
     ]
 
+threeArgumentDirectCallSource :: Text
+threeArgumentDirectCallSource =
+  Text.unlines
+    [ "sumThree :: Int -> Int -> Int -> Int.",
+      "sumThree = \\(first, second, third) -> first + second + third.",
+      "sumThree 10 20 12."
+    ]
+
 forwardDirectCallDagSource :: Text
 forwardDirectCallDagSource =
   Text.unlines
@@ -3419,6 +3460,20 @@ combineFunction =
     TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "left" intInfo) (variableExpr "right" intInfo))
 
+sumThreeFunction :: ExpectedFunction
+sumThreeFunction =
+  ExpectedFunction
+    "sumThree"
+    [("first", intInfo), ("second", intInfo), ("third", intInfo)]
+    intInfo
+    TypedDirectCallableShape
+    ( binaryExpr
+        intInfo
+        "+"
+        (binaryExpr intInfo "+" (variableExpr "first" intInfo) (variableExpr "second" intInfo))
+        (variableExpr "third" intInfo)
+    )
+
 firstFunction :: ExpectedFunction
 firstFunction =
   ExpectedFunction
@@ -3569,6 +3624,18 @@ functionInfo parameters resultInfo =
           TypedClosureRecipe (typedExpressionRecipe parameterInfo : arguments) finalResult
         _ -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe
 
+stagedFunctionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
+stagedFunctionInfo parameters resultInfo =
+  TypedNodeInfo
+    (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
+    ( foldr
+        (\(_, parameterInfo) resultRecipe -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe)
+        (typedExpressionRecipe resultInfo)
+        parameters
+    )
+    []
+    []
+
 directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 directCall functionName parameterInfos resultInfo arguments =
   go
@@ -3582,7 +3649,7 @@ directCall functionName parameterInfos resultInfo arguments =
           let applicationInfo =
                 case parameterRest of
                   [] -> resultInfo
-                  _ -> functionInfo (zip (repeat "") parameterRest) resultInfo
+                  _ -> stagedFunctionInfo (zip (repeat "") parameterRest) resultInfo
            in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
         ([], []) -> functionExpression
         _ -> error "expected direct call must be fully saturated"
