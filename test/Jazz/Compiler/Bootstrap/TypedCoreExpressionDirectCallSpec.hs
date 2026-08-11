@@ -240,7 +240,6 @@ testIndependentLowererManifest = do
           "shape-rejected-self-recursion",
           "shape-rejected-mutual-recursion",
           "shape-rejected-binder-shadow-control",
-          "partial-direct-call",
           "imported-direct-call",
           "managed-scalar-entry",
           "conditional-entry"
@@ -252,7 +251,8 @@ testIndependentLowererManifest = do
           "variable-binder-reference-mismatch",
           "direct-flattened-representation",
           "direct-shaped-closure-value-self-recursion",
-          "bare-function-value"
+          "bare-function-value",
+          "partial-direct-call"
         ]
   assertEqual "valid independent typed-core fixture names" expectedValidNames validNames
   assertEqual "invalid independent typed-core fixture names" expectedInvalidNames invalidNames
@@ -598,14 +598,6 @@ testLowererCallableBoundary =
               LoweredIRNoFailureDetail
           ]
         ),
-        ( "partial-direct-call",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallArityUnsupported
-              (LoweredIRArityFailureDetail 2 1)
-          ]
-        ),
         ( "imported-direct-call",
           [ LoweredIRLoweringFailure
               TypedProgramPath
@@ -664,9 +656,7 @@ testInvalidLowererTypedCoreBoundary =
           ]
         ),
         ( "direct-shape-staged-recipe",
-          [ callableShapeFailure 0,
-            callableShapeFailure 1
-          ]
+          [callableShapeFailure 1]
         ),
         ( "callable-shape-body-disagreement",
           [ TypedCoreValidationFailure
@@ -708,6 +698,13 @@ testInvalidLowererTypedCoreBoundary =
               (TypedExpressionPath ["App", "Main"] [2] [0])
               TypedCallableShapeMismatch
               (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "identity")))
+          ]
+        ),
+        ( "partial-direct-call",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [2] [0, 0])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
           ]
         )
       ]

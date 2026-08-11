@@ -471,7 +471,7 @@ validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [
 validateModuleResult compareMetadata modulePath statements moduleInfo =
   case reverse statements of
     TypedExpressionStatement _ terminal : _
-      | nodeInfoHasValidIntrinsicContract moduleInfo && nodeInfoHasValidIntrinsicContract (typedExpressionInfo terminal) ->
+      | nodeInfoHasCompatibleIntrinsicContract moduleInfo && nodeInfoHasCompatibleIntrinsicContract (typedExpressionInfo terminal) ->
           case nodeContractFailures
             (TypedModulePath modulePath)
             TypedModuleResultMismatch
@@ -508,10 +508,6 @@ validateModuleInfo context path statements moduleInfo =
     TypedExpressionStatement _ terminal : _
       | typedExpressionInfo terminal == moduleInfo -> []
     _ -> validateNodeInfo context path Set.empty False Nothing Nothing moduleInfo
-
-nodeInfoHasValidIntrinsicContract :: TypedNodeInfo -> Bool
-nodeInfoHasValidIntrinsicContract (TypedNodeInfo typeValue recipe _ _) =
-  validRecipeWidth recipe && expectedRecipe typeValue == Just recipe
 
 validateSourcePath :: [Text] -> TypedSourcePath -> [TypedCoreValidationFailure]
 validateSourcePath modulePath sourcePath@(TypedSourcePath sourcePathText)
@@ -1834,6 +1830,7 @@ validateStatement context statementLocation statement =
         <> validateBinderDefinition context statementPath binderId name
         <> validateInferredScheme context statementPath binderId scheme
         <> validateBindingValue statementPath scheme (typedExpressionInfo expression)
+        <> validateCallableBindingShape statementPath scheme expression
         <> validateNamedExpression
           (withSchemeScope scheme context)
           statementLocation
@@ -1916,6 +1913,20 @@ validateBindingValue path (TypedScheme _ _ _ _ resultType resultRecipe _) info =
       | typedNodeRecipe info /= expectedRecipeValue =
           [failure path TypedBindingValueMismatch (TypedRecipeDetail expectedRecipeValue (typedNodeRecipe info))]
       | otherwise = []
+
+validateCallableBindingShape :: TypedCoreValidationPath -> TypedScheme -> TypedExpr -> [TypedCoreValidationFailure]
+validateCallableBindingShape path (TypedScheme owner _ _ _ _ recipe callableShape) expression
+  | callableShape == Just TypedDirectCallableShape,
+    leadingLambdaCount expression > 0,
+    directCallableRecipeArity recipe /= Just (leadingLambdaCount expression) =
+      [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+  | otherwise = []
+
+leadingLambdaCount :: TypedExpr -> Int
+leadingLambdaCount expression =
+  case expression of
+    TypedLambdaExpr _ _ _ body -> 1 + leadingLambdaCount body
+    _ -> 0
 
 validateScheme :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
 validateScheme context path owner = validateSchemeWithOuterScope context path owner (moduleContextTypeScope context)
@@ -2507,14 +2518,14 @@ lookupImplMethodScheme context (TypedImplId _ capability _) methodKey =
 
 validateExpression :: ModuleContext -> [Int] -> [Int] -> TypedExpr -> [TypedCoreValidationFailure]
 validateExpression context statementLocation expressionPath =
-  validateExpressionWithParentSpan context statementLocation expressionPath True False Nothing
+  validateExpressionWithParentSpan context statementLocation expressionPath True 0 Nothing
 
 validateNamedExpression :: ModuleContext -> [Int] -> [Int] -> Bool -> TypedExpr -> [TypedCoreValidationFailure]
 validateNamedExpression context statementLocation expressionPath requireStagedLeadingLambdaRecipe =
-  validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLeadingLambdaRecipe False Nothing
+  validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLeadingLambdaRecipe 0 Nothing
 
-validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Bool -> Bool -> Maybe TypedSpan -> TypedExpr -> [TypedCoreValidationFailure]
-validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLambdaRecipe directCalleePosition parentExplicitSpan expression =
+validateExpressionWithParentSpan :: ModuleContext -> [Int] -> [Int] -> Bool -> Int -> Maybe TypedSpan -> TypedExpr -> [TypedCoreValidationFailure]
+validateExpressionWithParentSpan context statementLocation expressionPath requireStagedLambdaRecipe directCalleeArgumentCount parentExplicitSpan expression =
   validateNodeInfo
     context
     path
@@ -2533,7 +2544,7 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
         statementLocation
         (expressionPath <> [childIndex])
         (childRequiresStagedLambdaRecipe childIndex)
-        (childDirectCalleePosition childIndex)
+        (childDirectCalleeArgumentCount childIndex)
         (childExplicitSpan childIndex)
         child
     childRequiresStagedLambdaRecipe childIndex =
@@ -2541,13 +2552,13 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
         TypedLambdaExpr {}
           | childIndex == 0 -> requireStagedLambdaRecipe
         _ -> True
-    childDirectCalleePosition childIndex =
+    childDirectCalleeArgumentCount childIndex =
       case expression of
         TypedApplyExpr {}
-          | childIndex == 0 -> True
+          | childIndex == 0 -> directCalleeArgumentCount + 1
         TypedTypeApplicationExpr {}
-          | childIndex == 0 -> directCalleePosition
-        _ -> False
+          | childIndex == 0 -> directCalleeArgumentCount
+        _ -> 0
     childExplicitSpan childIndex =
       case expression of
         TypedTypeApplicationExpr _ _ explicitSpan _
@@ -2559,9 +2570,9 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
       validateExpressionInstantiationOwners parentExplicitSpan context path expression
         <> case expression of
           TypedLiteralExpr info literal -> validateLiteral path info literal
-          TypedVariableExpr info name binderReference -> validateVariableExpression context path directCalleePosition info name binderReference
+          TypedVariableExpr info name binderReference -> validateVariableExpression context path directCalleeArgumentCount info name binderReference
           TypedLambdaExpr info binderId name body -> validateLocalDefinitionName context [TypedValueNamespace] path name <> validateBinderDefinition context path binderId name <> validateLambda path requireStagedLambdaRecipe info body
-          TypedOperatorValueExpr info operator -> validateOperatorValue context path directCalleePosition info operator
+          TypedOperatorValueExpr info operator -> validateOperatorValue context path directCalleeArgumentCount info operator
           TypedListExpr info expressions -> validateListShape path info expressions
           TypedTupleExpr info expressions -> validateTupleShape path info expressions
           TypedApplyExpr info function argument -> validateApplication path info function argument
@@ -2591,7 +2602,7 @@ validateBlockResult :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedStateme
 validateBlockResult path blockInfo statements =
   case reverse statements of
     TypedExpressionStatement _ terminal : _
-      | nodeInfoHasValidIntrinsicContract blockInfo && nodeInfoHasValidIntrinsicContract (typedExpressionInfo terminal) ->
+      | nodeInfoHasCompatibleIntrinsicContract blockInfo && nodeInfoHasCompatibleIntrinsicContract (typedExpressionInfo terminal) ->
           nodeContractFailures path TypedBlockResultMismatch blockInfo (typedExpressionInfo terminal)
       | otherwise -> []
     _ -> [failure path TypedBlockResultMismatch TypedNoValidationDetail]
@@ -2742,24 +2753,10 @@ validateListShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> 
 validateListShape path info expressions =
   case (typedNodeType info, typedNodeRecipe info) of
     (TypedListType elementType, TypedManagedListRecipe elementRecipe) ->
-      concatMap (collectionElementFailures elementType elementRecipe) expressions
+      concatMap (collectionElementFailures path elementType elementRecipe) expressions
     (TypedListType elementType, _) ->
-      concatMap (collectionElementTypeFailures elementType) expressions
+      concatMap (collectionElementTypeFailures path elementType) expressions
     (actual, _) -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedListType actual) actual)]
-  where
-    collectionElementFailures expectedType expectedRecipeValue expression
-      | typedNodeType expressionInfo /= expectedType =
-          collectionElementTypeFailures expectedType expression
-      | otherwise =
-          recipeContractFailures path TypedCollectionShapeMismatch expectedRecipeValue expressionInfo
-      where
-        expressionInfo = typedExpressionInfo expression
-    collectionElementTypeFailures expectedType expression
-      | typedNodeType expressionInfo == expectedType = []
-      | otherwise =
-          [failure path TypedCollectionShapeMismatch (TypedTypeDetail expectedType (typedNodeType expressionInfo))]
-      where
-        expressionInfo = typedExpressionInfo expression
 
 validateTupleShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> [TypedCoreValidationFailure]
 validateTupleShape path info expressions =
@@ -2772,25 +2769,28 @@ validateTupleShape path info expressions =
             TypedManagedProductRecipe expectedRecipes
               | length expectedRecipes == length expressions ->
                   concat
-                    [ collectionElementFailures expectedType expectedRecipeValue expression
+                    [ collectionElementFailures path expectedType expectedRecipeValue expression
                     | (expectedType, expectedRecipeValue, expression) <- zip3 expectedTypes expectedRecipes expressions
                     ]
-            _ -> concat [collectionElementTypeFailures expectedType expression | (expectedType, expression) <- zip expectedTypes expressions]
+            _ -> concat [collectionElementTypeFailures path expectedType expression | (expectedType, expression) <- zip expectedTypes expressions]
     actual -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedTupleType []) actual)]
+
+collectionElementFailures :: TypedCoreValidationPath -> TypedType -> TypedRepresentationRecipe -> TypedExpr -> [TypedCoreValidationFailure]
+collectionElementFailures path expectedType expectedRecipeValue expression
+  | typedNodeType expressionInfo /= expectedType =
+      collectionElementTypeFailures path expectedType expression
+  | otherwise =
+      recipeContractFailures path TypedCollectionShapeMismatch expectedRecipeValue expressionInfo
   where
-    collectionElementFailures expectedType expectedRecipeValue expression
-      | typedNodeType expressionInfo /= expectedType =
-          collectionElementTypeFailures expectedType expression
-      | otherwise =
-          recipeContractFailures path TypedCollectionShapeMismatch expectedRecipeValue expressionInfo
-      where
-        expressionInfo = typedExpressionInfo expression
-    collectionElementTypeFailures expectedType expression
-      | typedNodeType expressionInfo == expectedType = []
-      | otherwise =
-          [failure path TypedCollectionShapeMismatch (TypedTypeDetail expectedType (typedNodeType expressionInfo))]
-      where
-        expressionInfo = typedExpressionInfo expression
+    expressionInfo = typedExpressionInfo expression
+
+collectionElementTypeFailures :: TypedCoreValidationPath -> TypedType -> TypedExpr -> [TypedCoreValidationFailure]
+collectionElementTypeFailures path expectedType expression
+  | typedNodeType expressionInfo == expectedType = []
+  | otherwise =
+      [failure path TypedCollectionShapeMismatch (TypedTypeDetail expectedType (typedNodeType expressionInfo))]
+  where
+    expressionInfo = typedExpressionInfo expression
 
 validateExplicitTypeApplication :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedSpan -> TypedType -> [TypedCoreValidationFailure]
 validateExplicitTypeApplication context path info function explicitSpan typeArgument =
@@ -3016,8 +3016,8 @@ qualifiedMethodConstraintContract context methodKey constraint =
         methodKeyMatches capability contractMethod methodKey
       ]
 
-validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> Bool -> TypedNodeInfo -> TypedCoreName -> Maybe TypedBinderId -> [TypedCoreValidationFailure]
-validateVariableExpression context path directCalleePosition info name binderReference =
+validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> TypedCoreName -> Maybe TypedBinderId -> [TypedCoreValidationFailure]
+validateVariableExpression context path directCalleeArgumentCount info name binderReference =
   visibilityFailures
     <> case name of
       TypedBuiltinName identifier
@@ -3038,7 +3038,7 @@ validateVariableExpression context path directCalleePosition info name binderRef
             case name of
               TypedResolvedName _ TypedValueNamespace _ ->
                 case lookupSchemeByName context name of
-                  Just scheme -> validateVariableSchemeContract context path directCalleePosition info binderReference scheme
+                  Just scheme -> validateVariableSchemeContract context path directCalleeArgumentCount info binderReference scheme
                   Nothing -> validateAbsentBinderReference path binderReference
               TypedResolvedName _ TypedConstructorNamespace _ ->
                 case lookupConstructorContract context name of
@@ -3084,11 +3084,11 @@ validateConstructorBinderReference path binderReference (ConstructorContract exp
   where
     mismatch binderId = [failure path TypedBinderReferenceMismatch (TypedBinderDetail binderId)]
 
-validateVariableSchemeContract :: ModuleContext -> TypedCoreValidationPath -> Bool -> TypedNodeInfo -> Maybe TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
-validateVariableSchemeContract context path directCalleePosition info binderReference scheme@(TypedScheme owner parameters evidenceParameters _ _ _ _) =
+validateVariableSchemeContract :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> Maybe TypedBinderId -> TypedScheme -> [TypedCoreValidationFailure]
+validateVariableSchemeContract context path directCalleeArgumentCount info binderReference scheme@(TypedScheme owner parameters evidenceParameters _ _ _ _) =
   instantiationFailures
     <> missingEvidenceWithoutInstantiation
-    <> validateDirectCallableSchemeUse path directCalleePosition scheme
+    <> validateDirectCallableSchemeUse path directCalleeArgumentCount scheme
     <> validateSchemeBinderReference
     <> case schemeValueContract context info scheme of
       Just contract
@@ -3118,12 +3118,18 @@ validateVariableSchemeContract context path directCalleePosition info binderRefe
           ]
       | otherwise = []
 
-validateDirectCallableSchemeUse :: TypedCoreValidationPath -> Bool -> TypedScheme -> [TypedCoreValidationFailure]
-validateDirectCallableSchemeUse path directCalleePosition (TypedScheme owner _ _ _ _ _ callableShape)
+validateDirectCallableSchemeUse :: TypedCoreValidationPath -> Int -> TypedScheme -> [TypedCoreValidationFailure]
+validateDirectCallableSchemeUse path directCalleeArgumentCount (TypedScheme owner _ _ _ _ recipe callableShape)
   | callableShape == Just TypedDirectCallableShape,
-    not directCalleePosition =
+    directCallableRecipeArity recipe /= Just directCalleeArgumentCount =
       [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
   | otherwise = []
+
+directCallableRecipeArity :: TypedRepresentationRecipe -> Maybe Int
+directCallableRecipeArity recipe =
+  case recipe of
+    TypedClosureRecipe arguments _ -> Just (length arguments)
+    _ -> Nothing
 
 validateReferencedValueContract :: TypedCoreValidationPath -> TypedBinderId -> TypedNodeInfo -> ValueContract -> [TypedCoreValidationFailure]
 validateReferencedValueContract path owner info (ValueContract expectedType expectedRecipeValue)
@@ -3774,7 +3780,7 @@ substituteRepresentationParameters substitutions recipe =
         (map (substituteRepresentationParameters substitutions) parameters)
         (substituteRepresentationParameters substitutions result)
     TypedRepresentationParameterRecipe parameterId ->
-      case Map.lookup parameterId substitutions >>= expectedRecipe of
+      case Map.lookup parameterId substitutions >>= expectedValueRecipe of
         Just substituted -> substituted
         Nothing -> recipe
     _ -> recipe
@@ -4451,7 +4457,7 @@ validateCallableShape path owner typeValue recipe callableShape =
     (TypedFunctionType {}, Nothing) -> mismatch
     (TypedFunctionType {}, Just TypedDirectCallableShape)
       | callableRecipeCompatible typeValue recipe,
-        expectedRecipe typeValue /= Just recipe ->
+        maybe True (<= 0) (directCallableRecipeArity recipe) ->
           mismatch
       | otherwise -> []
     (TypedFunctionType {}, Just TypedClosureCallableShape)
@@ -4752,8 +4758,8 @@ resolvedOperatorMatchesSymbol name symbol =
         bindingName == operatorBindingIdentifierText symbol
       _ -> False
 
-validateOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Bool -> TypedNodeInfo -> TypedOperatorRef -> [TypedCoreValidationFailure]
-validateOperatorValue context path directCalleePosition info operator =
+validateOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> TypedOperatorRef -> [TypedCoreValidationFailure]
+validateOperatorValue context path directCalleeArgumentCount info operator =
   case operator of
     TypedBuiltinOperator symbol ->
       validateOperatorRef context path operator
@@ -4771,7 +4777,7 @@ validateOperatorValue context path directCalleePosition info operator =
     resolvedOperatorCallableShapeFailures =
       case operator of
         TypedResolvedOperator name _ ->
-          maybe [] (validateDirectCallableSchemeUse path directCalleePosition) (lookupSchemeByName context name)
+          maybe [] (validateDirectCallableSchemeUse path directCalleeArgumentCount) (lookupSchemeByName context name)
         _ -> []
 
 validateBinaryOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]

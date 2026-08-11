@@ -323,7 +323,7 @@ reviewRegressionGroups =
   [ (("accepts semantic scalar aliases at application boundaries", testApplicationScalarAliasCompatibility), [applicationScalarAliasProgram]),
     (("rejects malformed nested block contracts at unique statement paths", testNestedBlockValidationRegressions), [nestedPathProgram, nestedDeclarationProgram, nestedDuplicateBinderProgram, guardedCasePathProgram]),
     (("enforces typed-core scope and visibility contracts", testScopeAndVisibilityRegressions), [generalizedLetScopeProgram, importedInstantiationProgram, invisibleSiblingImplProgram, selectedEvidenceTargetProgram, invisibleVariableProgram, selectedMethodContractProgram, enclosingImplMethodProgram]),
-    (("enforces typed-core value-shape contracts", testValueShapeRegressions), [bindingValueProgram, lambdaResultProgram, literalTypeProgram, collectionShapeProgram, dataTypeArityProgram, tuplePatternShapeProgram, moduleResultProgram, schemeDataTypeProgram, driveAbsoluteProgram]),
+    (("enforces typed-core value-shape contracts", testValueShapeRegressions), [bindingValueProgram, lambdaResultProgram, literalTypeProgram, collectionShapeProgram, dataTypeArityProgram, tuplePatternShapeProgram, moduleResultProgram, stagedModuleResultProgram, stagedBlockResultProgram, schemeDataTypeProgram, driveAbsoluteProgram]),
     (("enforces follow-up typed-core boundary contracts", testReviewFollowupRegressions), [instantiationDataTypeProgram, literalPatternProgram, invisibleOperatorProgram, expressionDuplicateBinderProgram, privateInterfaceLeakProgram, constructorPatternContractProgram, nonListPatternProgram, explicitTypeApplicationContractProgram, variableSchemeContractProgram, missingImportProgram, candidateConstraintProgram, invalidVariableNamespaceProgram]),
     (("enforces latest typed-core review contracts", testLatestReviewRegressions), [binderNameContractProgram, blockLocalGeneralizedSchemeProgram, blockLocalMonomorphicSchemeProgram, implMethodNameProgram, blockResultProgram, nestedCasePatternPathProgram, operatorSchemeProgram, selectiveImportProgram, classParameterScopeProgram, evidenceParameterContractProgram, implCapabilityNamespaceProgram]),
     (("enforces newest typed-core review contracts", testNewestReviewRegressions), [missingInstantiatedEvidenceProgram, constructorExpressionContractProgram, unrelatedTypeApplicationProgram, lexicalBinderContractProgram, generalizedVariableContractProgram, enclosingInstantiationScopeProgram, implMethodContractProgram, dataDeclarationNamespaceProgram, duplicateDeclarationProgram, importedImplQualificationProgram, implTargetArityProgram, localDeclarationOriginProgram]),
@@ -388,6 +388,7 @@ reviewRegressionGroups =
     (("requires the ambient prelude slot to identify Prelude", testAmbientPreludePath), [wrongPreludeSlotProgram]),
     (("checks adjacent signatures against their bindings", testSignatureBindingContract), [signatureBindingMismatchProgram, signatureBindingShapeMismatchProgram]),
     (("derives callable parameter contracts from lambda recipes", testLambdaCallableParameterRecipeContract), [lambdaCallableParameterRecipeProgram]),
+    (("stages callable representation substitutions", testCallableRepresentationSubstitution), [callableRepresentationSubstitutionProgram]),
     (("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication), [qualifiedMethodTypeApplicationProgram]),
     (("enforces final typed-core review contracts", testFinalReviewRegressions), [aliasShapedSelfRecursionProgram, qualifiedMethodValueContractProgram, eagerSelfReferenceProgram]),
     (("enforces post-final typed-core review contracts", testPostFinalReviewRegressions), [importNameCollisionProgram, localClassMethodVisibilityProgram, syntheticBinderShadowingProgram, implFreeClassParameterProgram, duplicateQualifiedMethodCandidateProgram, metadataOnlySourceTypeProgram]),
@@ -469,6 +470,55 @@ testLambdaCallableParameterRecipeContract =
     "staged callable lambda parameter recipe"
     []
     (validateTypedProgram lambdaCallableParameterRecipeProgram)
+
+testCallableRepresentationSubstitution :: IO ()
+testCallableRepresentationSubstitution =
+  assertEqual
+    "callable type arguments use staged value recipes"
+    []
+    (validateTypedProgram callableRepresentationSubstitutionProgram)
+
+callableRepresentationSubstitutionProgram :: TypedProgram
+callableRepresentationSubstitutionProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [ TypedLetStatement owner name span1 scheme (polymorphicIdentityExpression modulePath [0] parameter),
+      expressionStatement 2 expression
+    ]
+    emptyInterface
+    instantiatedInfo
+    modulePath
+  where
+    fixture = "review-callable-representation-substitution"
+    modulePath = fixtureModulePath fixture
+    name = fixtureValueName "identity"
+    owner = binder modulePath [0] name
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    parameterRecipe = TypedRepresentationParameterRecipe parameter
+    scheme =
+      fixtureClosureScheme
+        owner
+        [parameter]
+        []
+        []
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    callableType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    callableRecipe =
+      TypedClosureRecipe
+        [TypedBoolRecipe]
+        (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameter callableType] Nothing
+    instantiatedInfo =
+      TypedNodeInfo
+        (TypedFunctionType callableType callableType)
+        (TypedClosureRecipe [callableRecipe] callableRecipe)
+        [instantiation]
+        []
+    expression = fixtureBoundVariableExpr owner instantiatedInfo name
 
 lambdaCallableParameterRecipeProgram :: TypedProgram
 lambdaCallableParameterRecipeProgram =
@@ -2672,6 +2722,22 @@ testValueShapeRegressions = do
     [moduleFailure "review-module-result" TypedModuleResultMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
     (validateTypedProgram moduleResultProgram)
   assertEqual
+    "block result compares staged callable recipes"
+    [ expressionFailure
+        "review-staged-block-result"
+        TypedBlockResultMismatch
+        (TypedRecipeDetail flattenedCallableResultRecipe stagedCallableResultRecipe)
+    ]
+    (validateTypedProgram stagedBlockResultProgram)
+  assertEqual
+    "module result compares staged callable recipes"
+    [ moduleFailure
+        "review-staged-module-result"
+        TypedModuleResultMismatch
+        (TypedRecipeDetail flattenedCallableResultRecipe stagedCallableResultRecipe)
+    ]
+    (validateTypedProgram stagedModuleResultProgram)
+  assertEqual
     "scheme data types require visible declarations"
     [statementFailure "review-scheme-data-type" 0 TypedDataTypeMismatch (TypedNameDetail missingSchemeDataName)]
     (validateTypedProgram schemeDataTypeProgram)
@@ -2747,6 +2813,65 @@ moduleResultProgram =
   where
     fixture = "review-module-result"
     terminal = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "result")
+
+stagedModuleResultProgram :: TypedProgram
+stagedModuleResultProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [expressionStatement 1 terminal]
+    emptyInterface
+    flattenedInfo
+    modulePath
+  where
+    fixture = "review-staged-module-result"
+    modulePath = fixtureModulePath fixture
+    flattenedInfo = info callableResultType flattenedCallableResultRecipe
+    terminal = stagedCallableResultExpression modulePath [0]
+
+stagedBlockResultProgram :: TypedProgram
+stagedBlockResultProgram =
+  expressionFixtureProgram
+    fixture
+    ( TypedBlockExpr
+        (info callableResultType flattenedCallableResultRecipe)
+        [expressionStatement 2 (stagedCallableResultExpression modulePath [0, 0, 0])]
+    )
+  where
+    fixture = "review-staged-block-result"
+    modulePath = fixtureModulePath fixture
+
+callableResultType :: TypedType
+callableResultType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+
+flattenedCallableResultRecipe :: TypedRepresentationRecipe
+flattenedCallableResultRecipe =
+  TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+
+stagedCallableResultRecipe :: TypedRepresentationRecipe
+stagedCallableResultRecipe =
+  TypedClosureRecipe
+    [TypedBoolRecipe]
+    (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+
+stagedCallableResultExpression :: [Text] -> [Int] -> TypedExpr
+stagedCallableResultExpression modulePath lexicalPath =
+  TypedLambdaExpr
+    (info callableResultType stagedCallableResultRecipe)
+    outerBinder
+    outerName
+    ( TypedLambdaExpr
+        (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+        innerBinder
+        innerName
+        (TypedLiteralExpr textInfo (TypedTextLiteral "result"))
+    )
+  where
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath lexicalPath outerName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath (lexicalPath <> [0]) innerName
 
 missingSchemeDataName :: TypedCoreName
 missingSchemeDataName = resolved TypedCurrentModule TypedTypeNamespace "Missing"
@@ -13888,6 +14013,10 @@ directCallableValueUseFixture =
     failures =
       [ TypedCoreValidationFailure
           (TypedExpressionPath modulePath [1] [0])
+          TypedCallableShapeMismatch
+          (TypedBinderDetail directBinder),
+        TypedCoreValidationFailure
+          (TypedExpressionPath modulePath [2] [0, 0])
           TypedCallableShapeMismatch
           (TypedBinderDetail directBinder)
       ]
