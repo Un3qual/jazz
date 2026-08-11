@@ -387,6 +387,7 @@ reviewRegressionGroups =
     (("rejects structurally empty module paths", testEmptyModulePath), [emptyModulePathProgram]),
     (("requires the ambient prelude slot to identify Prelude", testAmbientPreludePath), [wrongPreludeSlotProgram]),
     (("checks adjacent signatures against their bindings", testSignatureBindingContract), [signatureBindingMismatchProgram, signatureBindingShapeMismatchProgram]),
+    (("derives callable parameter contracts from lambda recipes", testLambdaCallableParameterRecipeContract), [lambdaCallableParameterRecipeProgram]),
     (("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication), [qualifiedMethodTypeApplicationProgram]),
     (("enforces final typed-core review contracts", testFinalReviewRegressions), [aliasShapedSelfRecursionProgram, qualifiedMethodValueContractProgram, eagerSelfReferenceProgram]),
     (("enforces post-final typed-core review contracts", testPostFinalReviewRegressions), [importNameCollisionProgram, localClassMethodVisibilityProgram, syntheticBinderShadowingProgram, implFreeClassParameterProgram, duplicateQualifiedMethodCandidateProgram, metadataOnlySourceTypeProgram]),
@@ -461,6 +462,48 @@ testApplicationScalarAliasCompatibility =
     "Int/Int64 and Float/Float64 remain compatible application types"
     []
     (validateTypedProgram applicationScalarAliasProgram)
+
+testLambdaCallableParameterRecipeContract :: IO ()
+testLambdaCallableParameterRecipeContract =
+  assertEqual
+    "staged callable lambda parameter recipe"
+    []
+    (validateTypedProgram lambdaCallableParameterRecipeProgram)
+
+lambdaCallableParameterRecipeProgram :: TypedProgram
+lambdaCallableParameterRecipeProgram =
+  singleModuleProgram
+    fixture
+    relativeSource
+    []
+    [expressionStatement 1 lambda]
+    emptyInterface
+    lambdaInfo
+    modulePath
+  where
+    fixture = "review-lambda-callable-parameter-recipe"
+    modulePath = fixtureModulePath fixture
+    parameterName = fixtureValueName "function"
+    parameterBinder = binder modulePath [0] parameterName
+    parameterType =
+      TypedFunctionType
+        TypedBoolType
+        (TypedFunctionType TypedCharType TypedTextType)
+    parameterRecipe =
+      TypedClosureRecipe
+        [TypedBoolRecipe]
+        (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    parameterInfo = info parameterType parameterRecipe
+    lambdaInfo =
+      info
+        (TypedFunctionType parameterType parameterType)
+        (TypedClosureRecipe [parameterRecipe] parameterRecipe)
+    lambda =
+      TypedLambdaExpr
+        lambdaInfo
+        parameterBinder
+        parameterName
+        (fixtureBoundVariableExpr parameterBinder parameterInfo parameterName)
 
 applicationScalarAliasProgram :: TypedProgram
 applicationScalarAliasProgram =

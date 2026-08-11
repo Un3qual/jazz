@@ -3326,8 +3326,14 @@ expressionChildrenWithContexts context expression =
 lambdaArgumentContract :: TypedNodeInfo -> TypedBinderId -> TypedCoreName -> Maybe BinderContract
 lambdaArgumentContract info binderId name =
   case typedNodeType info of
-    TypedFunctionType argumentType _ -> BinderContract binderId name argumentType <$> expectedRecipe argumentType
+    TypedFunctionType argumentType _ -> BinderContract binderId name argumentType <$> lambdaArgumentRecipe info argumentType
     _ -> Nothing
+
+lambdaArgumentRecipe :: TypedNodeInfo -> TypedType -> Maybe TypedRepresentationRecipe
+lambdaArgumentRecipe info argumentType =
+  case typedNodeRecipe info of
+    TypedClosureRecipe (argumentRecipe : _) _ -> Just argumentRecipe
+    _ -> expectedRecipe argumentType
 
 expressionChildren :: TypedExpr -> [TypedExpr]
 expressionChildren expression =

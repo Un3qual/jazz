@@ -4175,9 +4175,15 @@ module TypedCoreValidate (
     | other -> context
   }.
 
+  lambdaArgumentRecipe :: TypedNodeInfo -> TypedType -> Maybe(TypedRepresentationRecipe).
+  lambdaArgumentRecipe = \(info, argumentType) -> case nodeRecipe info {
+    | TypedClosureRecipe [argumentRecipe | restRecipes] resultRecipe -> Just argumentRecipe
+    | other -> expectedRecipe argumentType
+  }.
+
   withLambdaContract :: TypedNodeInfo -> TypedBinderId -> TypedCoreName -> ModuleContext -> ModuleContext.
   withLambdaContract = \(info, binder, name, context) -> case nodeType info {
-    | TypedFunctionType argument result -> case expectedRecipe argument {
+    | TypedFunctionType argument result -> case lambdaArgumentRecipe info argument {
       | Nothing -> withVisibleName name context
       | Just argumentRecipe -> withLexicalContract binder name argument argumentRecipe context
     }
