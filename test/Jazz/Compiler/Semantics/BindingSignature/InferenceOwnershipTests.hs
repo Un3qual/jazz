@@ -4,6 +4,7 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   ( inferenceOwnershipTests
   ) where
 
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
@@ -47,6 +48,13 @@ import Jazz.Compiler.TypeInference.Elaboration
 import Jazz.Compiler.TypeInference.Scope
   ( inferScopeType,
     inferScopeTypeWithMode
+  )
+import Jazz.Compiler.TypeInference.Solver
+  ( addNumericTypeVarConstraint,
+    applySubstitution,
+    bindTypeVar,
+    resolveType,
+    unifyTypes
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -96,6 +104,9 @@ inferenceOwnershipTests =
     ("runtime template child failures propagate through lists and functions", testRuntimeTemplateChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
+    ("solver resolves long substitution chains and compound types", testSolverResolvesLongSubstitutionChains),
+    ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
+    ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
     ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
     ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
     ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
@@ -225,6 +236,77 @@ testTypeOpsCollectRecursiveFreeVariables =
     ( freeTypeVariables
         (TFunctionType (TListType (TVarType 1)) (TTupleType [TVarType 2, TListType (TVarType 3)]))
     )
+
+testSolverResolvesLongSubstitutionChains :: IO ()
+testSolverResolvesLongSubstitutionChains =
+  assertEqual
+    "resolved compound substitution"
+    (TTupleType [TListType TIntType, TFunctionType TIntType TBoolType])
+    ( applySubstitution
+        substitution
+        (TTupleType [TListType (TVarType 0), TFunctionType (TVarType 0) TBoolType])
+    )
+  where
+    substitution =
+      IntMap.fromList
+        ([(typeVar, TVarType (typeVar + 1)) | typeVar <- [0 .. 62]] ++ [(63, TIntType)])
+
+testUnificationPathCompressesSubstitutionChains :: IO ()
+testUnificationPathCompressesSubstitutionChains =
+  case unifyTypes (TVarType 0) TIntType chainState of
+    Nothing -> failTest "expected chained variable to unify with Int"
+    Just nextState -> do
+      assertEqual
+        "compressed root substitution"
+        (Just TIntType)
+        (IntMap.lookup 0 (solverSubstitution (inferSolver nextState)))
+      assertEqual
+        "compressed middle substitution"
+        (Just TIntType)
+        (IntMap.lookup 1 (solverSubstitution (inferSolver nextState)))
+      assertEqual "resolved root type" TIntType (resolveType nextState (TVarType 0))
+  where
+    chainState =
+      initialInferState
+        { inferSolver =
+            (inferSolver initialInferState)
+              { solverSubstitution =
+                  IntMap.fromList
+                    [ (0, TVarType 1),
+                      (1, TVarType 2),
+                      (2, TIntType)
+                    ]
+              }
+        }
+
+testSolverPreservesBindingConstraints :: IO ()
+testSolverPreservesBindingConstraints = do
+  case bindTypeVar 0 (TListType (TVarType 0)) initialInferState of
+    Nothing -> pure ()
+    Just _ -> failTest "expected occurs check to reject a recursive type"
+  case unifyTypes (TVarType 0) TIntType rigidState of
+    Nothing -> pure ()
+    Just _ -> failTest "expected rigid type variable unification to fail"
+  case unifyTypes (TVarType 0) (TVarType 1) numericState of
+    Nothing -> failTest "expected constrained variables to unify"
+    Just linkedState -> do
+      case unifyTypes (TVarType 1) TFloatType linkedState of
+        Nothing -> pure ()
+        Just _ -> failTest "expected integral constraint to reject Float"
+      case unifyTypes (TVarType 1) TIntType linkedState of
+        Nothing -> failTest "expected integral constraint to accept Int"
+        Just resolvedState ->
+          assertEqual "resolved constrained root" TIntType (resolveType resolvedState (TVarType 0))
+  where
+    rigidState =
+      initialInferState
+        { inferSolver =
+            (inferSolver initialInferState)
+              { solverRigidTypeVars = Set.singleton 0
+              }
+        }
+    numericState =
+      addNumericTypeVarConstraint 0 IntegralNumericConstraint initialInferState
 
 testTypeOpsCollectConstraintFreeVariables :: IO ()
 testTypeOpsCollectConstraintFreeVariables = do
@@ -369,12 +451,12 @@ testRecursivePreviewSolverStateIsTransactional =
               { inferSolver =
                   (inferSolver state)
                     { solverSubstitution =
-                        Map.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
+                        IntMap.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
                     }
               }
           )
         EVar "probe"
-          | Map.member previewSentinel (solverSubstitution (inferSolver state)) ->
+          | IntMap.member previewSentinel (solverSubstitution (inferSolver state)) ->
               ( Just TBoolType,
                 modifyInferenceOutput
                   (\output -> output {outputErrorCount = outputErrorCount output + 1})

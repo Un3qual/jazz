@@ -20,7 +20,8 @@ module Jazz.Compiler.TypeInference.Solver
     unifyTypes
   ) where
 
-import Data.Map.Strict (Map)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -71,7 +72,7 @@ freshTypeVariable state =
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
 
-applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
+applySubstitution :: IntMap ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution substitution expressionType =
   case expressionType of
     TIntType -> TIntType
@@ -90,7 +91,7 @@ applySubstitution substitution expressionType =
         (applySubstitution substitution inputType)
         (applySubstitution substitution outputType)
     TVarType typeVar ->
-      case Map.lookup typeVar substitution of
+      case IntMap.lookup typeVar substitution of
         Just replacementType -> applySubstitution substitution replacementType
         Nothing -> TVarType typeVar
 
@@ -101,60 +102,86 @@ unifyTypes leftType rightType state =
 
 unifyTypesWithoutCostCentre :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypesWithoutCostCentre leftType rightType state =
-  let resolvedLeft = resolveType state leftType
-      resolvedRight = resolveType state rightType
+  let (resolvedLeft, stateAfterLeft) = dereferenceType state leftType
+      (resolvedRight, stateAfterDereference) = dereferenceType stateAfterLeft rightType
    in case (resolvedLeft, resolvedRight) of
-        (TIntType, TIntType) -> Just state
-        (TIntegerLiteralType {}, TIntegerLiteralType {}) -> Just state
-        (TIntegerLiteralType {}, TIntType) -> Just state
-        (TIntType, TIntegerLiteralType {}) -> Just state
+        (TIntType, TIntType) -> Just stateAfterDereference
+        (TIntegerLiteralType {}, TIntegerLiteralType {}) -> Just stateAfterDereference
+        (TIntegerLiteralType {}, TIntType) -> Just stateAfterDereference
+        (TIntType, TIntegerLiteralType {}) -> Just stateAfterDereference
         (TIntegerLiteralType literalRange, TNumericType rightNumericType)
-          | integerLiteralRangeFitsNumericType literalRange rightNumericType -> Just state
+          | integerLiteralRangeFitsNumericType literalRange rightNumericType -> Just stateAfterDereference
         (TNumericType leftNumericType, TIntegerLiteralType literalRange)
-          | integerLiteralRangeFitsNumericType literalRange leftNumericType -> Just state
-        (TFloatType, TFloatType) -> Just state
-        (TFloatType, TNumericType NumericFloat64) -> Just state
-        (TNumericType NumericFloat64, TFloatType) -> Just state
-        (TIntType, TNumericType NumericInt64) -> Just state
-        (TNumericType NumericInt64, TIntType) -> Just state
+          | integerLiteralRangeFitsNumericType literalRange leftNumericType -> Just stateAfterDereference
+        (TFloatType, TFloatType) -> Just stateAfterDereference
+        (TFloatType, TNumericType NumericFloat64) -> Just stateAfterDereference
+        (TNumericType NumericFloat64, TFloatType) -> Just stateAfterDereference
+        (TIntType, TNumericType NumericInt64) -> Just stateAfterDereference
+        (TNumericType NumericInt64, TIntType) -> Just stateAfterDereference
         (TNumericType leftNumericType, TNumericType rightNumericType)
-          | leftNumericType == rightNumericType -> Just state
-        (TBoolType, TBoolType) -> Just state
-        (TCharType, TCharType) -> Just state
-        (TTextType, TTextType) -> Just state
+          | leftNumericType == rightNumericType -> Just stateAfterDereference
+        (TBoolType, TBoolType) -> Just stateAfterDereference
+        (TCharType, TCharType) -> Just stateAfterDereference
+        (TTextType, TTextType) -> Just stateAfterDereference
         (TDataType leftName leftArguments, TDataType rightName rightArguments)
           | leftName == rightName,
             length leftArguments == length rightArguments ->
-              unifyTypeListsWithoutCostCentre leftArguments rightArguments state
+              unifyTypeListsWithoutCostCentre leftArguments rightArguments stateAfterDereference
         (TListType leftElementType, TListType rightElementType) ->
-          unifyTypesWithoutCostCentre leftElementType rightElementType state
+          unifyTypesWithoutCostCentre leftElementType rightElementType stateAfterDereference
         (TTupleType leftElementTypes, TTupleType rightElementTypes)
           | length leftElementTypes == length rightElementTypes ->
-              unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes state
+              unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
         ( TFunctionType leftInputType leftOutputType,
           TFunctionType rightInputType rightOutputType
           ) -> do
-          stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType state
+          stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType stateAfterDereference
           unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
         (TVarType leftVar, TVarType rightVar)
           | leftVar == rightVar ->
-              Just state
+              Just stateAfterDereference
           | Set.member leftVar rigidVariables,
             Set.member rightVar rigidVariables ->
               Nothing
           | Set.member leftVar rigidVariables ->
-              bindTypeVar rightVar resolvedLeft state
+              bindTypeVar rightVar resolvedLeft stateAfterDereference
           | Set.member rightVar rigidVariables ->
-              bindTypeVar leftVar resolvedRight state
+              bindTypeVar leftVar resolvedRight stateAfterDereference
         (TVarType leftVar, _)
           | Set.member leftVar rigidVariables -> Nothing
-          | otherwise -> bindTypeVar leftVar resolvedRight state
+          | otherwise -> bindTypeVar leftVar resolvedRight stateAfterDereference
         (_, TVarType rightVar)
           | Set.member rightVar rigidVariables -> Nothing
-          | otherwise -> bindTypeVar rightVar resolvedLeft state
+          | otherwise -> bindTypeVar rightVar resolvedLeft stateAfterDereference
         _ -> Nothing
   where
     rigidVariables = inferRigidTypeVars state
+
+-- Unification needs only the outer constructor at each recursive step. Follow
+-- variable chains here and retain their shorter equivalent in the solver;
+-- compound children are visited exactly where their pair is unified.
+dereferenceType :: InferState -> ExpressionType -> (ExpressionType, InferState)
+dereferenceType state expressionType =
+  case expressionType of
+    TVarType typeVar ->
+      case IntMap.lookup typeVar (inferSubst state) of
+        Nothing -> (expressionType, state)
+        Just replacementType ->
+          let (resolvedType, resolvedState) = dereferenceType state replacementType
+              compressedState =
+                if replacementType == resolvedType
+                  then resolvedState
+                  else
+                    modifySolverState
+                      ( \solver ->
+                          solver
+                            { solverSubstitution =
+                                IntMap.insert typeVar resolvedType (solverSubstitution solver)
+                            }
+                      )
+                      resolvedState
+           in (resolvedType, compressedState)
+    _ -> (expressionType, state)
 
 unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
 unifyTypeLists leftTypes rightTypes state =
@@ -171,10 +198,10 @@ unifyTypeListsWithoutCostCentre leftTypes rightTypes state
 
 bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
-  | replacementType == TVarType typeVar = Just state
-  | occursInType typeVar replacementType = Nothing
+  | resolvedReplacementType == TVarType typeVar = Just state
+  | occursInType typeVar resolvedReplacementType = Nothing
   | typeVarIsStrictEqualityConstrained
-      && not (supportsDeferredEqualityOperandType state replacementType) = Nothing
+      && not (supportsDeferredEqualityOperandType state resolvedReplacementType) = Nothing
   | otherwise = do
       nextReplacementType <- constrainedReplacementType
       pure
@@ -182,7 +209,7 @@ bindTypeVar typeVar replacementType state
             ( \solver ->
                 solver
                   { solverSubstitution =
-                      Map.insert typeVar nextReplacementType (inferSubst state),
+                      IntMap.insert typeVar nextReplacementType (inferSubst state),
                     solverStrictEqualityVars =
                       nextStrictEqualityVars nextReplacementType
                   }
@@ -190,14 +217,15 @@ bindTypeVar typeVar replacementType state
             (stateAfterNumericConstraint nextReplacementType)
         )
   where
+    resolvedReplacementType = resolveType state replacementType
     typeVarIsStrictEqualityConstrained =
       Set.member typeVar (inferStrictEqualityVars state)
     typeVarNumericConstraint = Map.lookup typeVar (inferNumericVars state)
     constrainedReplacementType =
       case typeVarNumericConstraint of
         Just numericConstraint ->
-          applyNumericConstraintToReplacement numericConstraint replacementType
-        Nothing -> Just replacementType
+          applyNumericConstraintToReplacement numericConstraint resolvedReplacementType
+        Nothing -> Just resolvedReplacementType
     strictEqualityVarsWithoutTypeVar =
       Set.delete typeVar (inferStrictEqualityVars state)
     nextStrictEqualityVars nextReplacementType =

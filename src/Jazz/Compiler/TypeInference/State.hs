@@ -33,6 +33,8 @@ module Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState
   ) where
 
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -55,7 +57,7 @@ import Jazz.Compiler.TypeInference.Types
 
 data SolverState = SolverState
   { solverNextTypeVar :: Int,
-    solverSubstitution :: Map Int ExpressionType,
+    solverSubstitution :: IntMap ExpressionType,
     solverStrictEqualityVars :: Set Int,
     solverNumericVars :: Map Int NumericConstraint,
     solverRigidTypeVars :: Set Int
@@ -127,7 +129,7 @@ initialInferState =
     { inferSolver =
         SolverState
           { solverNextTypeVar = 0,
-            solverSubstitution = Map.empty,
+            solverSubstitution = IntMap.empty,
             solverStrictEqualityVars = Set.empty,
             solverNumericVars = Map.empty,
             solverRigidTypeVars = Set.empty
@@ -162,7 +164,7 @@ initialInferState =
 inferNextTypeVar :: InferState -> Int
 inferNextTypeVar = solverNextTypeVar . inferSolver
 
-inferSubst :: InferState -> Map Int ExpressionType
+inferSubst :: InferState -> IntMap ExpressionType
 inferSubst = solverSubstitution . inferSolver
 
 inferStrictEqualityVars :: InferState -> Set Int
