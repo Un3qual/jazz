@@ -1,23 +1,24 @@
 ---
-id: JN-COMPILER-PERFORMANCE-RESOLVER-FACTS-019
+id: JN-COMPILER-PERFORMANCE-VALIDATED-HANDOFF-020
 status: ready
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 6c: Fuse module resolver facts"
+plan_section: "Task 6d: Reuse Typed Core validation"
 target_paths:
-  - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/Parser/Lower.hs
-  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
-  - test/Jazz/Benchmark/StageSpec.hs
+  - src/Jazz/Compiler/TypedCore/Validate.hs
+  - src/Jazz/Compiler/TypeInference/Elaboration.hs
+  - src/Jazz/Compiler/LoweredIR/Lower.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
 verification:
-  - cabal test module-resolution-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--environment-label=compiler-resolver-facts --time-mode=cpu --jazz-scale-case=wide-module-fanout-0064x0016 --pattern=module-preparation +RTS -T -RTS' --jobs=1
+  - cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec --test-show-details=failures --jobs=1
+  - cabal test jazz-typed-core-expression-direct-call-spec --test-options='+RTS -sprofile-results/compiler-validated-handoff/typed-lowering.stats -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Compute imports, export inventory, constructor ownership, unqualified references, qualified value references, and qualified type references in one owned SurfaceModuleFacts traversal shared with module lowering where semantics permit; preserve exact diagnostics, source order, export schemas, and name resolution."
+deliverable: "Add an opaque ValidatedTypedProgram boundary so trusted producer output enters Lowered IR without repeating full validation; keep the raw TypedProgram entry point checked and preserve validation/lowering failure order and exact artifacts."
 last_verified: 2026-08-11
 ---
 
@@ -1126,7 +1127,7 @@ rather than hidden. Artifacts are under
       position state.
 - [x] Move tokens to indexed storage with source offsets/spans and own `Text`
       only where later semantics require it.
-- [ ] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
+- [x] Fuse lowering and module-fact collection into one `SurfaceModuleFacts`
       traversal or an equivalent returned lowering product.
 - [ ] Introduce an opaque validated Typed Program handoff so trusted
       producer-to-lowerer transport validates once, while external artifacts remain
@@ -1194,6 +1195,47 @@ a boxed width increased 65,536-token allocation from 411,966,061 to
 414,456,397 bytes and copied bytes from 67,493,665 to 74,373,730, despite a
 noisy 61-to-58 MiB peak movement. The experiment was fully reverted; ignored
 receipts remain under `compiler-token-payloads-{before,after}`.
+
+### Task 6c: Fuse module resolver facts
+
+Resolver fact fusion landed in `fff2abe7`, with the generated fact-rich family
+in `8c864d87`. `parseModuleDetails` now derives imports, local exports,
+constructor ownership, unqualified references, qualified values, and qualified
+types through one strict accumulator traversal. Lowering remains a separate
+pass because it validates module declarations and constructs a different Core
+tree; coupling those owners would add a cross-layer product without eliminating
+the Core construction walk. The mixed-facts resolver regression, complete
+module resolver suite, loader visibility suite, and generated-stage suite pass.
+
+The optimized 16-to-128 fact-rich curve is whole-pipeline flat because type
+inference dominates it. At 128 groups, allocation moved from 52,790,665 to
+52,787,368 bytes and the 11 MiB peak was unchanged. The stable resolver SCC
+fell from 61,197,208 to 60,781,408 allocated bytes (0.7%) and from 22 to 16
+sampled ticks; total profiled maximum residency was flat at about 2.72 MB. The
+independent heap census was likewise flat at 1,921,432 versus 1,921,760 bytes.
+The broad 64-by-16 fanout CPU sample moved from 13.97 to 13.78 ms with the same
+10 MiB peak. Artifacts are under
+`benchmark-results/compiler-resolver-{facts,fact-rich}-{before,after*}/` and
+`profile-results/compiler-resolver-fact-rich-{before,after}/`.
+
+### Task 6d: Reuse Typed Core validation
+
+- [ ] Capture a focused serial RTS allocation/residency baseline for Typed Core
+      production followed by Lowered IR lowering.
+- [ ] Add an opaque `ValidatedTypedProgram` boundary owned by the validator.
+- [ ] Return that boundary from successful trusted production and add a trusted
+      lowering entry point that does not repeat validation.
+- [ ] Keep raw externally constructed `TypedProgram` lowering checked and
+      preserve exact validation, lowering, and invariant-failure ordering.
+- [ ] Run the Typed Core contract/direct-call suites, capture compatible after
+      evidence, and promote analyzer accumulation cleanup.
+
+### Task 6e: Finish diagnostic accumulation cleanup
+
+- [ ] Replace remaining append-heavy analyzer diagnostic paths with ordered
+      reverse builders or equivalent append-efficient accumulators.
+- [ ] Preserve exact diagnostic order, warning policy, spans, subjects, and
+      artifact rendering; capture a focused allocation receipt before closeout.
 
 ## Full closeout
 

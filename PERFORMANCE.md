@@ -153,19 +153,19 @@ Compiler-scale cases are generated in memory and are opt-in, so the ordinary
 corpus tree, smoke run, and extended benchmark workload remain unchanged. The
 scenario families isolate these growth curves:
 
-| Scenario                         | Stable case sizes       | Timed groups                          | Exact result or artifact |
-| -------------------------------- | ----------------------- | ------------------------------------- | ------------------------ |
-| Sequential polymorphic bindings  | 64, 128, 256, 512       | `analysis`, `module-preparation`      | `(42, True)`             |
-| Wide module fanout, width 16     | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program` | `0`                      |
-| Wide module fanout, width 1      | 64, 128, 256, 512       | `module-preparation`, `whole-program` | `0`                      |
+| Scenario                          | Stable case sizes       | Timed groups                          | Exact result or artifact |
+| --------------------------------- | ----------------------- | ------------------------------------- | ------------------------ |
+| Sequential polymorphic bindings   | 64, 128, 256, 512       | `analysis`, `module-preparation`      | `(42, True)`             |
+| Wide module fanout, width 16      | 8, 16, 32, 64 modules   | `module-preparation`, `whole-program` | `0`                      |
+| Wide module fanout, width 1       | 64, 128, 256, 512       | `module-preparation`, `whole-program` | `0`                      |
 | Shared-interface fanout, width 16 | 16, 32, 64, 128 modules | `module-preparation`, `whole-program` | `0`                      |
 | Resolver fact-rich declarations   | 16, 32, 64, 128 groups  | `module-preparation`                  | `Token`                  |
-| Interleaved recursive groups     | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
-| Constrained signatures           | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
-| Deep nested lambdas              | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
-| Large declared operator tables   | 16, 32, 64, 128 symbols | `parse-lower`                         | parses and lowers        |
-| Nested expression blocks         | 16, 32, 64, 128 levels  | `parse-lower`                         | parses and lowers        |
-| Exact long token streams         | 1,024 to 65,536 tokens  | `parse-lower`                         | exact token count        |
+| Interleaved recursive groups      | 16, 32, 64, 128 groups  | `analysis`, `module-preparation`      | `(1, True)`              |
+| Constrained signatures            | 32, 64, 128, 256        | `analysis`                            | `(1, True)`              |
+| Deep nested lambdas               | 16, 32, 64, 128 levels  | `analysis`, `module-preparation`      | `(1, depth)`             |
+| Large declared operator tables    | 16, 32, 64, 128 symbols | `parse-lower`                         | parses and lowers        |
+| Nested expression blocks          | 16, 32, 64, 128 levels  | `parse-lower`                         | parses and lowers        |
+| Exact long token streams          | 1,024 to 65,536 tokens  | `parse-lower`                         | exact token count        |
 
 Case identifiers encode the controlling size, for example
 `sequential-polymorphic-bindings-0064` and
