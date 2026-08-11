@@ -174,7 +174,7 @@ pnpm --dir website run clear
 pnpm --dir website run build
 bash scripts/check-website.sh
 
-bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
 bash scripts/ci/extended.sh
 
 cabal sdist all --output-directory="$JAZZ_RELEASE_SDIST_ROOT"

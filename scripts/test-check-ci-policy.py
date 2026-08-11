@@ -209,7 +209,7 @@ VALID_RELEASE = script(
     pnpm --dir website install --frozen-lockfile
     pnpm --dir website run build
     bash scripts/check-website.sh
-    bash scripts/ci/main-functional.sh
+    JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
     bash scripts/ci/extended.sh
     cabal sdist all
     nix build .#jazz --max-jobs "$JAZZ_NIX_JOBS" --cores "$JAZZ_NIX_CORES"
@@ -1161,6 +1161,18 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.write("scripts/ci/release-candidate.sh", VALID_RELEASE.replace(required, ""))
                 self.assert_violation(f"release candidate tier is missing required token: {required}")
+
+    def test_release_tier_cannot_inherit_a_partial_main_phase(self) -> None:
+        self.write(
+            "scripts/ci/release-candidate.sh",
+            VALID_RELEASE.replace(
+                "JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh",
+                "bash scripts/ci/main-functional.sh",
+            ),
+        )
+        self.assert_violation(
+            "release candidate tier must force complete main verification"
+        )
 
     def test_release_tier_propagates_bounded_workers_to_nested_gates(self) -> None:
         mutations = (

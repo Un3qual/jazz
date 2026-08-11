@@ -639,7 +639,10 @@ def check_release(contents: str, violations: list[str]) -> None:
     tier = "release candidate tier"
     require_tokens(violations, tier, contents, ("JAZZ_RELEASE_VERSION",))
     commands = (
-        ("scripts/ci/main-functional.sh", r"bash\s+scripts/ci/main-functional\.sh"),
+        (
+            "scripts/ci/main-functional.sh",
+            r"JAZZ_MAIN_PHASE=all\s+bash\s+scripts/ci/main-functional\.sh",
+        ),
         ("scripts/ci/extended.sh", r"bash\s+scripts/ci/extended\.sh"),
         ("scripts/check-docs.sh", r"bash\s+scripts/check-docs\.sh"),
         (
@@ -660,6 +663,10 @@ def check_release(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    if "JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh" not in contents:
+        violations.append(
+            "release candidate tier must force complete main verification"
+        )
     if "export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES" not in contents:
         violations.append(
             "release candidate tier must export bounded Cabal and Nix workers"
