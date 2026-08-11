@@ -57,7 +57,6 @@ Remove completed items after their verified commit is recorded. This table stays
 | id  | closure evidence | completed_on |
 | --- | ---------------- | ------------ |
 
-
 ## Entry Template
 
 ```md
