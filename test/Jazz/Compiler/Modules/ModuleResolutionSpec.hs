@@ -56,6 +56,7 @@ tests =
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("resolved module audit ignores generic type variables", testResolvedModuleAuditIgnoresGenericTypeVariables),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
+    ("resolves mixed module facts without changing inventories", testResolvesMixedModuleFacts),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
     ("namespace-aware exports reject same-name wrong namespace", testNamespaceAwareExportsRejectWrongNamespace),
@@ -211,6 +212,57 @@ testResolvedModuleCarriesExplicitPublicInventory = do
           answer = helper.
           }
           """)
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testResolvesMixedModuleFacts :: IO ()
+testResolvesMixedModuleFacts = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved mixed module facts" result $ \program -> do
+    assertEqual
+      "dependency order"
+      [["Lib", "Types"], ["Lib", "Values"], ["App", "Main"]]
+      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
+    case
+        [ resolvedModule
+          | resolvedModule <- ModuleGraph.resolvedProgramModules program,
+            ModuleGraph.resolvedModulePath resolvedModule == ["App", "Main"]
+        ] of
+      [resolvedModule] ->
+        assertEqual
+          "mixed public inventory"
+          ( Set.fromList
+              [ ModuleExport TypeNamespace "Local",
+                ModuleExport ConstructorNamespace "Local",
+                ModuleExport ValueNamespace "main"
+              ]
+          )
+          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+      modules -> failTest ("expected one resolved App::Main module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main (type Local(..), value main) {
+            import Lib::Types as T.
+            import Lib::Values (seed).
+            import Lib::Values as V.
+            data Local = Local T::Box.
+            main :: T::Box.
+            main = V::box seed.
+            }
+            """
+          ),
+          ("src/Lib/Types.jz", "module Lib::Types (type Box(..)) { data Box = Box. }"),
+          ("src/Lib/Values.jz", "module Lib::Values (seed, box) { seed = 1. box = 2. }")
         ]
     lookupSource path = pure (Map.lookup path sources)
 
