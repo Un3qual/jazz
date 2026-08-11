@@ -1,25 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-VERIFICATION-FLOW-001
-status: ready
+id: JN-COMPILER-PERFORMANCE-PROGRAM-001
+status: active
 priority: P1
-size: M
-kind: impl
-autonomous_ready: yes
-depends_on: []
-plan_section: "Task 1: Bound and phase heavyweight verification"
+size: XL
+kind: coordination
+autonomous_ready: no
+depends_on:
+  - JN-COMPILER-PERFORMANCE-VERIFICATION-FLOW-001
+plan_section: "Task 2: Add generated compiler scale scenarios"
 target_paths:
-  - scripts/ci/main-functional.sh
-  - scripts/ci/extended.sh
-  - scripts/ci/release-candidate.sh
-  - scripts/check-ci-policy.py
-  - scripts/test-check-ci-policy.py
-  - PERFORMANCE.md
+  - benchmark/Jazz/Benchmark/Stages.hs
+  - benchmark/Jazz/Benchmark/StageInputs.hs
+  - test/Jazz/Compiler/
+  - jazz.cabal
 verification:
-  - python3 scripts/test-check-ci-policy.py
-  - python3 scripts/check-ci-policy.py
+  - cabal test benchmark-stage-spec --test-show-details=failures --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Add one-process bounded verification phases, an explicit low-memory local mode, and preserved full main, extended, and release coverage."
+deliverable: "Add generated compiler scale fixtures and record controlled pre-optimization growth, allocation, and residency baselines."
 last_verified: 2026-08-10
 ---
 
@@ -141,23 +139,29 @@ physical comparison artifacts.
 `scripts/ci/release-candidate.sh`, `scripts/check-ci-policy.py`,
 `scripts/test-check-ci-policy.py`, `PERFORMANCE.md`.
 
-- [ ] Add behavior tests proving main verification has explicit
+- [x] Add behavior tests proving main verification has explicit
       `all|compiler|repository|nix|low-memory` phases, defaults to authoritative
       `all`, rejects invalid phases/job values before executing work, and skips Nix
       only in the documented low-memory phase.
-- [ ] Add policy mutations requiring `--jobs="$JAZZ_CABAL_JOBS"` on every
+- [x] Add policy mutations requiring `--jobs="$JAZZ_CABAL_JOBS"` on every
       heavyweight Cabal build/test/bench command and bounded `--max-jobs`/`--cores`
       on internal Nix builds/checks.
-- [ ] Implement phase functions in `main-functional.sh`. Default Cabal jobs,
+- [x] Implement phase functions in `main-functional.sh`. Default Cabal jobs,
       Nix max jobs, and Nix cores to `1`; keep no-argument CI behavior authoritative.
-- [ ] Propagate the same bounded variables through extended and release
+- [x] Propagate the same bounded variables through extended and release
       verification. Preserve required experimental features and all current
       extended/release evidence.
-- [ ] Document low-memory local use and state that release publication still
+- [x] Document low-memory local use and state that release publication still
       requires the full main, extended, Nix, packaging, and artifact gates.
-- [ ] Run the four frontmatter verification commands, commit this child, remove
+- [x] Run the four frontmatter verification commands, commit this child, remove
       its completed queue row, and leave Task 2 as the next performance-program
       promotion candidate.
+
+Task 1 landed in `c2bbded9` with 110 CI-policy behavior tests passing. The live
+policy checker, execution-queue checker, shell syntax check, and diff check also
+passed. This batch changed verification orchestration only, so it preserved the
+controlled compiler baseline above and did not require a misleading physical
+"after" profile. Task 2 is the next performance-program promotion candidate.
 
 ## Task 2: Add generated compiler scale scenarios
 
