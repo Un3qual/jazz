@@ -41,7 +41,10 @@ import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
 import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
-import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
+import Jazz.Compiler.ModuleGraph
+  ( ResolvedModule (..),
+    ResolvedProgram (..),
+  )
 import Jazz.Compiler.ModuleInterface
   ( CompileInputs,
     CompiledModule (..),
@@ -49,15 +52,22 @@ import Jazz.Compiler.ModuleInterface
     compileInputs,
     compiledModuleErrors,
     compiledProgramErrors,
-    lookupCompiledModule,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateCompiledProgram,
   )
+import Jazz.Compiler.ModuleResolver
+  ( ModuleResolutionConfig,
+    resolveProgramWithAmbientExports,
+  )
 import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
 import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
+import Jazz.Compiler.Prelude
+  ( PreparedPrelude (..),
+    preparePrelude,
+  )
 import Jazz.Compiler.Profiling
   ( BenchmarkGroup (..),
     CompilerStage (..),
@@ -69,6 +79,8 @@ import Jazz.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
     loadProgramCaseEntrySource,
     prepareProgramCase,
+    programCaseResolutionConfig,
+    readProgramCaseSource,
     runProgramCase,
   )
 import Jazz.ProgramCorpus.Types
@@ -136,14 +148,16 @@ prepareBenchmark benchmarkGroup programCase =
       pure (PreparedParseLower programCase source)
     AnalysisBenchmark -> do
       compiledProgram <- prepareValidProgram programCase
-      entryModule <-
-        case lookupCompiledModule (compiledProgramEntryPath compiledProgram) compiledProgram of
-          Nothing -> ioError (userError "compiled corpus program is missing its entry module")
-          Just value -> pure value
+      resolvedProgram <-
+        resolveBenchmarkProgram
+          (programCaseResolutionConfig programCase)
+          (programCaseEntryModulePath programCase)
+          readProgramCaseSource
+      entryModule <- requireResolvedEntryModule (programCaseEntryModulePath programCase) resolvedProgram
       let entryPath = compiledProgramEntryPath compiledProgram
           dependencies =
             filter
-              ((/= entryPath) . resolvedModulePath . compiledResolvedModule)
+              ((/= entryPath) . compiledModulePath)
               (compiledProgramModules compiledProgram)
           inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
       pure
@@ -152,7 +166,7 @@ prepareBenchmark benchmarkGroup programCase =
             compiledProgram
             inputs
             dependencies
-            (compiledResolvedModule entryModule)
+            entryModule
         )
     ModulePreparationBenchmark -> pure (PreparedModulePreparation programCase)
     RuntimeBenchmark -> PreparedRuntime programCase <$> prepareValidProgram programCase
@@ -175,11 +189,16 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
       pure (PreparedCompilerScaleParseLower programCase source)
     AnalysisBenchmark -> do
       compiledProgram <- prepareValidCompilerScaleProgram programCase
-      entryModule <- requireCompilerScaleEntryModule programCase compiledProgram
+      resolvedProgram <-
+        resolveBenchmarkProgram
+          (compilerScaleCaseResolutionConfig programCase)
+          (compilerScaleCaseEntryModulePath programCase)
+          (pure . compilerScaleCaseSource programCase)
+      entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
       let entryPath = compiledProgramEntryPath compiledProgram
           dependencies =
             filter
-              ((/= entryPath) . resolvedModulePath . compiledResolvedModule)
+              ((/= entryPath) . compiledModulePath)
               (compiledProgramModules compiledProgram)
           inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
       pure
@@ -188,7 +207,7 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
             compiledProgram
             inputs
             dependencies
-            (compiledResolvedModule entryModule)
+            entryModule
         )
     ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
     WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
@@ -298,17 +317,33 @@ prepareValidCompilerScaleProgram programCase = do
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
     Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
 
-requireCompilerScaleEntryModule :: CompilerScaleCase -> CompiledProgram -> IO CompiledModule
-requireCompilerScaleEntryModule programCase compiledProgram =
-  case lookupCompiledModule (compiledProgramEntryPath compiledProgram) compiledProgram of
-    Nothing ->
+resolveBenchmarkProgram :: ModuleResolutionConfig -> [Text] -> (FilePath -> IO (Maybe Text)) -> IO ResolvedProgram
+resolveBenchmarkProgram resolutionConfig entryModulePath sourceLookup =
+  case preparePrelude (PreludeBundled bundledPreludeSource) of
+    Left diagnostic -> failBenchmarkDiagnostic diagnostic
+    Right preparedPrelude -> do
+      resolvedResult <-
+        resolveProgramWithAmbientExports
+          resolutionConfig
+          (preparedPreludeBuiltinMode preparedPrelude)
+          (preparedPreludeVisibleExports preparedPrelude)
+          sourceLookup
+          entryModulePath
+      case resolvedResult of
+        Left diagnostic -> failBenchmarkDiagnostic diagnostic
+        Right resolvedProgram -> pure resolvedProgram
+
+requireResolvedEntryModule :: [Text] -> ResolvedProgram -> IO ResolvedModule
+requireResolvedEntryModule entryModulePath resolvedProgram =
+  case filter ((== entryModulePath) . resolvedModulePath) (resolvedProgramModules resolvedProgram) of
+    value : _ -> pure value
+    [] ->
       ioError
         ( userError
-            ( "compiled scale program is missing its entry module: "
-                <> Text.unpack (compilerScaleCaseIdentifier programCase)
+            ( "resolved benchmark program is missing its entry module: "
+                <> Text.unpack (Text.intercalate "::" entryModulePath)
             )
         )
-    Just value -> pure value
 
 runCompilerScaleCase :: CompilerScaleCase -> IO Text
 runCompilerScaleCase programCase = do

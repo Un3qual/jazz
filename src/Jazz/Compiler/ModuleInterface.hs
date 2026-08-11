@@ -10,6 +10,7 @@ module Jazz.Compiler.ModuleInterface
     compiledModuleWarnings,
     compiledPreludeErrors,
     compiledPreludeWarnings,
+    compiledProgramDiagnostics,
     compiledProgramErrors,
     compiledProgramWarnings,
     ModuleExport (..),
@@ -35,7 +36,7 @@ import Jazz.Compiler.Diagnostics
     isErrorDiagnostic,
     isWarningDiagnostic
   )
-import Jazz.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
+import Jazz.Compiler.ModuleGraph (ResolvedImport)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -118,7 +119,9 @@ emptyCompiledPrelude =
     }
 
 data CompiledModule = CompiledModule
-  { compiledResolvedModule :: ResolvedModule,
+  { compiledModulePath :: [Text],
+    compiledModuleImports :: [ResolvedImport],
+    compiledModuleExportInventory :: ModuleExportInventory,
     compiledModuleInterface :: ModuleInterface,
     compiledModuleDiagnostics :: [Diagnostic],
     compiledModuleExpr :: Expr
@@ -128,10 +131,14 @@ data CompiledModule = CompiledModule
 data CompiledProgram = CompiledProgram
   { compiledProgramPrelude :: CompiledPrelude,
     compiledProgramEntryPath :: [Text],
-    compiledProgramModules :: [CompiledModule],
-    compiledProgramDiagnostics :: [Diagnostic]
+    compiledProgramModules :: [CompiledModule]
   }
   deriving (Eq, Show)
+
+compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
+compiledProgramDiagnostics compiledProgram =
+  compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)
+    <> concatMap compiledModuleDiagnostics (compiledProgramModules compiledProgram)
 
 compiledPreludeWarnings :: CompiledPrelude -> [Diagnostic]
 compiledPreludeWarnings = filter isWarningDiagnostic . compiledPreludeDiagnostics
@@ -181,5 +188,5 @@ lookupCompiledModule modulePath =
       case modules of
         [] -> Nothing
         compiledModule : rest
-          | resolvedModulePath (compiledResolvedModule compiledModule) == modulePath -> Just compiledModule
+          | compiledModulePath compiledModule == modulePath -> Just compiledModule
           | otherwise -> go rest

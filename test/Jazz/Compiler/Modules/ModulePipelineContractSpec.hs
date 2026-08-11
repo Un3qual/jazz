@@ -70,7 +70,6 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries
   )
-import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
     ResolvedImport (..),
@@ -213,8 +212,7 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
       CompiledProgram
         { compiledProgramPrelude = emptyCompiledPrelude,
           compiledProgramEntryPath = ["App", "Main"],
-          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
-          compiledProgramDiagnostics = []
+          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule]
         }
 
 testCompileResolvedModulePreservesFirstDependency :: IO ()
@@ -335,8 +333,7 @@ compiledChainProgram moduleCount requiresHost =
   CompiledProgram
     { compiledProgramPrelude = emptyCompiledPrelude,
       compiledProgramEntryPath = ["App", "Main"],
-      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount],
-      compiledProgramDiagnostics = []
+      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount]
     }
 
 chainDependency :: Int -> CompiledModule
@@ -380,14 +377,9 @@ chainEntry requiresHost moduleCount =
 compiledModule :: [Text] -> [ResolvedImport] -> [Statement] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
 compiledModule path imports statements inventory moduleInterface =
   CompiledModule
-    { compiledResolvedModule =
-        ResolvedModule
-          { resolvedModulePath = path,
-            resolvedSourcePath = "<runtime-chain>",
-            resolvedModuleImports = imports,
-            resolvedModuleExportInventory = inventory,
-            resolvedModuleCore = CoreModule (Just path) Nothing imports (EBlock statements)
-          },
+    { compiledModulePath = path,
+      compiledModuleImports = imports,
+      compiledModuleExportInventory = inventory,
       compiledModuleInterface = moduleInterface,
       compiledModuleDiagnostics = [],
       compiledModuleExpr = EBlock statements
@@ -467,7 +459,7 @@ testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
         "public compiled inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
         ( exportInventoryEntries
-            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule valueModule))
+            (compiledModuleExportInventory valueModule)
         )
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
@@ -653,7 +645,7 @@ testGroupedExportsPublishSelectedConstructor = do
               ]
           )
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule choiceModule))
+              (compiledModuleExportInventory choiceModule)
           )
   case evaluateCompiledProgram compiled of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))

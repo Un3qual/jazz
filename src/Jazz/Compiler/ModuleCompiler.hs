@@ -99,13 +99,11 @@ compileResolvedProgram inputs resolvedProgram =
   do
   compiledModules <- reverse . fst <$> foldModules [] Map.empty (resolvedProgramModules resolvedProgram)
   let compiledPrelude = compileInputPrelude inputs
-      moduleDiagnostics = concatMap compiledModuleDiagnostics compiledModules
   pure
     CompiledProgram
       { compiledProgramPrelude = compiledPrelude,
         compiledProgramEntryPath = resolvedProgramEntryPath resolvedProgram,
-        compiledProgramModules = compiledModules,
-        compiledProgramDiagnostics = compiledPreludeDiagnostics compiledPrelude <> moduleDiagnostics
+        compiledProgramModules = compiledModules
       }
   where
     ambientInterface = ambientPreludeInterface (compileInputPrelude inputs)
@@ -152,7 +150,9 @@ compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPat
       moduleExpr
   pure
     CompiledModule
-      { compiledResolvedModule = resolvedModule,
+      { compiledModulePath = modulePath,
+        compiledModuleImports = resolvedModuleImports resolvedModule,
+        compiledModuleExportInventory = resolvedModuleExportInventory resolvedModule,
         compiledModuleInterface = inferredModuleInterface inference,
         compiledModuleDiagnostics = inferredDiagnostics inference,
         compiledModuleExpr = inferredExpr inference
@@ -174,7 +174,7 @@ buildCompiledDependencyPathIndex :: [CompiledModule] -> Map [Text] CompiledDepen
 buildCompiledDependencyPathIndex =
   Map.fromListWith (\_ firstDependency -> firstDependency)
     . map
-      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledDependency compiledModule))
+      (\compiledModule -> (compiledModulePath compiledModule, compiledDependency compiledModule))
 
 ambientPreludeInterface :: CompiledPrelude -> ImportedInterface
 ambientPreludeInterface compiledPrelude =
@@ -189,11 +189,10 @@ dependencyImportInterface importDecl dependency =
         (ImportedModule (resolvedImportPath importDecl))
         maybeAlias
         maybeSymbols
-        (resolvedModuleExportInventory resolvedModule)
+        (compiledModuleExportInventory compiledModule)
         (compiledModuleInterface compiledModule)
   where
     compiledModule = dependencyCompiledModule dependency
-    resolvedModule = compiledResolvedModule compiledModule
 
 importWholeCompiledModuleInterface :: CompiledModule -> ImportedInterface
 importWholeCompiledModuleInterface compiledModule =
@@ -201,11 +200,10 @@ importWholeCompiledModuleInterface compiledModule =
     (ImportedModule modulePath)
     Nothing
     Nothing
-    (resolvedModuleExportInventory resolvedModule)
+    (compiledModuleExportInventory compiledModule)
     (compiledModuleInterface compiledModule)
   where
-    resolvedModule = compiledResolvedModule compiledModule
-    modulePath = resolvedModulePath resolvedModule
+    modulePath = compiledModulePath compiledModule
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,

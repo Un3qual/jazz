@@ -29,10 +29,6 @@ import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     exportInventory,
   )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (CoreModule),
-    ResolvedModule (..),
-  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     ModuleInterface (..),
@@ -79,7 +75,7 @@ tests =
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
-    ("compiled-module forcing evaluates resolved runtime metadata", testDeepResolvedModuleForcing),
+    ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
@@ -197,38 +193,32 @@ testDeepModuleInterfaceForcing =
         Left _ -> pure ()
         Right () -> ioError (userError (Text.unpack (label <> " payload stayed lazy")))
 
-testDeepResolvedModuleForcing :: IO ()
-testDeepResolvedModuleForcing =
+testDeepCompiledModuleForcing :: IO ()
+testDeepCompiledModuleForcing =
   mapM_
-    assertResolvedMetadataForced
+    assertCompiledMetadataForced
     [ ( "imports",
-        baseResolvedModule
-          { resolvedModuleImports = throw (userError "resolved imports were forced")
+        baseCompiledModule
+          { compiledModuleImports = throw (userError "compiled imports were forced")
           }
       ),
       ( "export inventory",
-        baseResolvedModule
-          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
+        baseCompiledModule
+          { compiledModuleExportInventory = throw (userError "compiled export inventory was forced")
           }
       )
     ]
   where
-    baseResolvedModule =
-      ResolvedModule
-        { resolvedModulePath = ["App", "Main"],
-          resolvedSourcePath = "src/App/Main.jz",
-          resolvedModuleImports = [],
-          resolvedModuleExportInventory = exportInventory [],
-          resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+    baseCompiledModule =
+      CompiledModule
+        { compiledModulePath = ["App", "Main"],
+          compiledModuleImports = [],
+          compiledModuleExportInventory = exportInventory [],
+          compiledModuleInterface = emptyModuleInterface,
+          compiledModuleDiagnostics = [],
+          compiledModuleExpr = ELit (LInt 0)
         }
-    assertResolvedMetadataForced (label, resolvedModule) = do
-      let compiledModule =
-            CompiledModule
-              { compiledResolvedModule = resolvedModule,
-                compiledModuleInterface = emptyModuleInterface,
-                compiledModuleDiagnostics = [],
-                compiledModuleExpr = ELit (LInt 0)
-              }
+    assertCompiledMetadataForced (label, compiledModule) = do
       result <- try (evaluate (forceCompiledModule compiledModule)) :: IO (Either IOException ())
       case result of
         Left _ -> pure ()

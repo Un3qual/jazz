@@ -34,10 +34,7 @@ import Jazz.Compiler.Diagnostics
     DiagnosticOrigin (..),
     mkErrorDiagnostic
   )
-import Jazz.Compiler.ModuleGraph
-  ( ResolvedImport (..),
-    ResolvedModule (resolvedModuleExportInventory, resolvedModuleImports, resolvedModulePath)
-  )
+import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -152,8 +149,7 @@ evaluateCompiledProgramPure compiledProgram =
           Right
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let resolvedModule = compiledResolvedModule compiledModule
-              modulePath = resolvedModulePath resolvedModule
+          let modulePath = compiledModulePath compiledModule
               evaluationMode =
                 if modulePath == entryPath
                   then EvaluateEntryModule
@@ -162,7 +158,7 @@ evaluateCompiledProgramPure compiledProgram =
                 foldr
                   (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
-                  (resolvedModuleImports resolvedModule)
+                  (compiledModuleImports compiledModule)
           scopeResult <-
             evaluateModuleScope
               (Just modulePath)
@@ -177,7 +173,7 @@ evaluateCompiledProgramPure compiledProgram =
                     runtimeModuleExports =
                       publishExports
                         CurrentModule
-                        (resolvedModuleExportInventory resolvedModule)
+                        (compiledModuleExportInventory compiledModule)
                         (compiledModuleInterface compiledModule)
                         (scopeResultEnvironment scopeResult)
                   }
@@ -273,8 +269,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
           pure
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let resolvedModule = compiledResolvedModule compiledModule
-              modulePath = resolvedModulePath resolvedModule
+          let modulePath = compiledModulePath compiledModule
               evaluationMode =
                 if modulePath == entryPath
                   then EvaluateEntryModule
@@ -283,7 +278,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
                 foldr
                   (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
-                  (resolvedModuleImports resolvedModule)
+                  (compiledModuleImports compiledModule)
           scopeResult <-
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
@@ -301,7 +296,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
                     runtimeModuleExports =
                       publishExports
                         CurrentModule
-                        (resolvedModuleExportInventory resolvedModule)
+                        (compiledModuleExportInventory compiledModule)
                         (compiledModuleInterface compiledModule)
                         (scopeResultEnvironment scopeResult)
                   }
@@ -380,7 +375,7 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
   case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
     (Just compiledDependency, Just runtimeDependency) ->
       let publicInventory =
-            resolvedModuleExportInventory (compiledResolvedModule compiledDependency)
+            compiledModuleExportInventory compiledDependency
           selectedExports =
             [ (runtimeExport, cell)
               | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
@@ -425,7 +420,7 @@ buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
 buildCompiledModulePathIndex =
   Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
     . map
-      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
+      (\compiledModule -> (compiledModulePath compiledModule, compiledModule))
     . compiledProgramModules
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv

@@ -35,9 +35,6 @@ import Jazz.Compiler.Driver
     runModuleGraphObserved,
     runRuntimeErrors,
   )
-import Jazz.Compiler.ModuleGraph
-  ( ResolvedModule (resolvedModulePath),
-  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -193,7 +190,7 @@ evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram =
   where
     evaluateModules _ targetScope [] = Right targetScope
     evaluateModules availableEnvironment targetScope (compiledModule : rest) = do
-      let modulePath = resolvedModulePath (compiledResolvedModule compiledModule)
+      let modulePath = compiledModulePath compiledModule
           evaluationMode = if modulePath == targetModulePath then EvaluateEntryModule else EvaluateDependencyModule
       scopeResult <-
         evaluateModuleScope
