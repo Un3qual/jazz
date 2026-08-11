@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 36 (length invalidFixtures)
+  assertEqual "invalid fixture count" 38 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 53 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 55 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -12055,7 +12055,9 @@ callableRecipesProgram =
     innerArgumentBinder = binder (fixtureModulePath "callable-recipes") [0, 0] innerArgumentName
     functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
     callableInfo =
-      info functionType (TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe)
+      info
+        functionType
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
     innerInfo =
       info
         (TypedFunctionType TypedCharType TypedTextType)
@@ -12999,6 +13001,8 @@ expectedInvalidFixtureNames =
     "data-recipe-declaration",
     "callable-recipe-signature",
     "callable-zero-argument-stage",
+    "flattened-anonymous-lambda-recipe",
+    "flattened-nested-lambda-recipe",
     "callable-missing-shape",
     "combined-callable-failure-order",
     "scalar-carrying-shape",
@@ -13039,6 +13043,8 @@ invalidFixtures =
     dataRecipeDeclarationFixture,
     callableRecipeSignatureFixture,
     callableZeroArgumentStageFixture,
+    flattenedAnonymousLambdaRecipeFixture,
+    flattenedNestedLambdaRecipeFixture,
     callableMissingShapeFixture,
     combinedCallableFailureOrderFixture,
     scalarCarryingShapeFixture,
@@ -13222,6 +13228,74 @@ callableZeroArgumentStageFixture =
     actualRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [] TypedBoolRecipe)
     scheme = TypedScheme valueBinder [] [] [] boolToBoolType actualRecipe (Just TypedDirectCallableShape)
     program = signatureProgram fixture valueBinder valueName scheme
+
+flattenedAnonymousLambdaRecipeFixture :: InvalidFixture
+flattenedAnonymousLambdaRecipeFixture =
+  expressionFixture
+    fixture
+    expression
+    [expressionFailure fixture TypedCallableRecipeMismatch (TypedRecipeDetail expectedRecipe actualRecipe)]
+  where
+    fixture = "flattened-anonymous-lambda-recipe"
+    modulePath = fixtureModulePath fixture
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0] outerName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0] innerName
+    functionType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    expectedRecipe = TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    actualRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    expression =
+      TypedLambdaExpr
+        (info functionType actualRecipe)
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            innerBinder
+            innerName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "ok"))
+        )
+
+flattenedNestedLambdaRecipeFixture :: InvalidFixture
+flattenedNestedLambdaRecipeFixture =
+  InvalidFixture fixture (expressionFixtureProgram fixture expression) failures
+  where
+    fixture = "flattened-nested-lambda-recipe"
+    modulePath = fixtureModulePath fixture
+    outerName = fixtureValueName "outer"
+    outerBinder = binder modulePath [0] outerName
+    innerName = fixtureValueName "inner"
+    innerBinder = binder modulePath [0, 0] innerName
+    terminalName = fixtureValueName "terminal"
+    terminalBinder = binder modulePath [0, 0, 0] terminalName
+    innerType = TypedFunctionType TypedCharType (TypedFunctionType TypedBoolType TypedTextType)
+    expectedInnerRecipe = TypedClosureRecipe [TypedCharRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+    actualInnerRecipe = TypedClosureRecipe [TypedCharRecipe, TypedBoolRecipe] TypedManagedTextRecipe
+    outerType = TypedFunctionType TypedBoolType innerType
+    outerRecipe = TypedClosureRecipe [TypedBoolRecipe] expectedInnerRecipe
+    expression =
+      TypedLambdaExpr
+        (info outerType outerRecipe)
+        outerBinder
+        outerName
+        ( TypedLambdaExpr
+            (info innerType actualInnerRecipe)
+            innerBinder
+            innerName
+            ( TypedLambdaExpr
+                (info (TypedFunctionType TypedBoolType TypedTextType) (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe))
+                terminalBinder
+                terminalName
+                (TypedLiteralExpr textInfo (TypedTextLiteral "ok"))
+            )
+        )
+    failures =
+      [ TypedCoreValidationFailure
+          (TypedExpressionPath modulePath [0] [0, 0])
+          TypedCallableRecipeMismatch
+          (TypedRecipeDetail expectedInnerRecipe actualInnerRecipe)
+      ]
 
 callableMissingShapeFixture :: InvalidFixture
 callableMissingShapeFixture =
