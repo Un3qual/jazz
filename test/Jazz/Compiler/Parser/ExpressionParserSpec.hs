@@ -77,6 +77,7 @@ tests =
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
     ("rejects whitespace after a qualified-name separator", testRejectsWhitespaceAfterQualifiedSeparator),
     ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
+    ("keeps fractional case bodies before later arms", testFractionalCaseBodyBeforeLaterArm),
     ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
     ("parses fractional literal suffix", testFractionalLiteralSuffix),
@@ -218,6 +219,23 @@ testKnownAliasesDisambiguateBlockStatements = do
     (SEBlock [SSExpr (SourceSpan 1 3) (SEQualifiedVar "Make" "make")])
     [TDot]
     (parseExpressionTokens Set.empty [] qualifiedMethodTokens)
+
+testFractionalCaseBodyBeforeLaterArm :: IO ()
+testFractionalCaseBodyBeforeLaterArm = do
+  tokens <- lexSource "case 0 { | _ -> 1.2 | _ -> 3 }."
+  assertExpression
+    "fractional case body before later arm"
+    ( SECase
+        (SELit (SLInt 0))
+        [ SurfaceCaseArm
+            SPWildcard
+            Nothing
+            (SELit (SLFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing)),
+          SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 3))
+        ]
+    )
+    [TDot]
+    (parseExpressionTokens Set.empty [] tokens)
 
 testOperatorValuesAndSections :: IO ()
 testOperatorValuesAndSections = do

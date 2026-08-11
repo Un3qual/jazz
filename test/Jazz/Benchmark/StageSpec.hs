@@ -43,10 +43,18 @@ import Jazz.Compiler.ModuleGraph
     ResolvedImport (..),
     ResolvedModule (..),
   )
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
     parseBenchmarkCommand,
+  )
+import Jazz.Compiler.Name (NameNamespace (ValueNamespace), identifierText)
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.AST
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
+    SurfaceLiteral (..),
+    SurfacePattern (..),
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Profiling (BenchmarkGroup (..))
@@ -90,6 +98,7 @@ tests =
     ("deep nested lambdas preserve exact compiler semantics", testDeepNestedLambdaSemantics),
     ("large operator tables exercise parse and lower", testLargeOperatorTableParseLower),
     ("nested blocks exercise parse and lower", testNestedBlocksParseLower),
+    ("ambiguous case-arm pipes preserve one left-associated body", testAmbiguousCaseArmPipesParseLower),
     ("long token streams have exact token counts", testLongTokenStreamExactSize),
     ("identifier and literal token controls have exact token counts", testTokenStreamControlsExactSize),
     ("selects requested cases before stage preparation", testCaseSelection),
@@ -244,6 +253,10 @@ testCompilerScaleRegistry =
       ("nested-blocks-0032", NestedBlocks, 32, Nothing),
       ("nested-blocks-0064", NestedBlocks, 64, Nothing),
       ("nested-blocks-0128", NestedBlocks, 128, Nothing),
+      ("ambiguous-case-arm-pipes-0064", AmbiguousCaseArmPipes, 64, Nothing),
+      ("ambiguous-case-arm-pipes-0128", AmbiguousCaseArmPipes, 128, Nothing),
+      ("ambiguous-case-arm-pipes-0256", AmbiguousCaseArmPipes, 256, Nothing),
+      ("ambiguous-case-arm-pipes-0512", AmbiguousCaseArmPipes, 512, Nothing),
       ("long-token-stream-01024", LongTokenStream, 1024, Nothing),
       ("long-token-stream-04096", LongTokenStream, 4096, Nothing),
       ("long-token-stream-16384", LongTokenStream, 16384, Nothing),
@@ -611,6 +624,57 @@ testNestedBlocksParseLower = do
   programCase <- loadCompilerScaleCase "nested-blocks-0016"
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
+
+testAmbiguousCaseArmPipesParseLower :: IO ()
+testAmbiguousCaseArmPipesParseLower = do
+  programCase <- loadCompilerScaleCase "ambiguous-case-arm-pipes-0064"
+  assertEqual
+    "ambiguous case-arm pipe benchmark boundary"
+    [ParseLowerBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
+  assertEqual
+    "ambiguous case-arm pipe source count"
+    1
+    (compilerScaleCaseSourceCount programCase)
+  source <-
+    case compilerScaleCaseEntrySource programCase of
+      Nothing -> failTest "ambiguous case-arm pipe scale case is missing its entry source"
+      Just value -> pure value
+  surfaceProgram <-
+    case parseSurfaceProgram source of
+      Left diagnostic -> failTest ("ambiguous case-arm pipe source did not parse: " <> Text.pack (show diagnostic))
+      Right value -> pure value
+  case surfaceProgram of
+    SEBlock
+      [ SSLet bindingName bindingSpan
+          ( SECase
+              (SELit (SLInt scrutinee))
+              [SurfaceCaseArm SPWildcard Nothing body]
+            )
+        ] -> do
+          assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
+          assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
+          assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
+          case leftAssociatedPipeOperands body of
+            Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))
+            Just operands -> assertEqual "ambiguous case-arm pipe operands" [0 .. 63] operands
+    other ->
+      failTest
+        ( "ambiguous case-arm pipe source did not preserve exactly one wildcard arm: "
+            <> Text.pack (show other)
+        )
+  prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
+
+leftAssociatedPipeOperands :: SurfaceExpr -> Maybe [Integer]
+leftAssociatedPipeOperands = go []
+  where
+    go trailingOperands expression =
+      case expression of
+        SEBinary "|" left (SELit (SLInt rightOperand)) ->
+          go (rightOperand : trailingOperands) left
+        SELit (SLInt firstOperand) -> Just (firstOperand : trailingOperands)
+        _ -> Nothing
 
 testLongTokenStreamExactSize :: IO ()
 testLongTokenStreamExactSize = do

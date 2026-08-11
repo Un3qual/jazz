@@ -602,7 +602,19 @@ parseCaseArm parseBlock context = do
         (ExpectedSyntax "'|' to start case arm" (ParserAtToken (tokenKind token) (tokenLexeme token)))
   casePattern <- Pattern.parseCaseArmPatternParser
   guardExpr <- parseOptionalCaseArmGuard
-  bodyExpr <- parseCaseArmBodyExpr parseBlock context neverStop Nothing 1
+  bodyTokens <- MP.getInput
+  bodyExpr <-
+    -- Without another top-level arrow, no later arm can begin. The ordinary
+    -- operator parser can consume pipe chains without reparsing each suffix as
+    -- a speculative case pattern.
+    if hasTopLevelArrowBeforeCaseBodyEnd bodyTokens
+      then parseCaseArmBodyExpr parseBlock context neverStop Nothing 1
+      else
+        parseExprWithMinPrecedenceUntil
+          parseBlock
+          context
+          stopsBeforeCaseArmTerminator
+          1
   pure (SurfaceCaseArm casePattern guardExpr bodyExpr)
   where
     parseOptionalCaseArmGuard = do
@@ -1207,6 +1219,13 @@ hasTopLevelArrowBeforeTerminator =
 
 hasTopLevelGuardArrow :: TokenStream -> Bool
 hasTopLevelGuardArrow = hasTopLevelArrowBeforeTerminator
+
+hasTopLevelArrowBeforeCaseBodyEnd :: TokenStream -> Bool
+hasTopLevelArrowBeforeCaseBodyEnd =
+  hasTopLevelTokenBefore isArrow isRightBrace
+  where
+    isArrow tokenKind' = tokenKind' == TArrow
+    isRightBrace tokenKind' = tokenKind' == TRBrace
 
 hasTopLevelArrowBeforeCaseArmBoundary :: TokenStream -> Bool
 hasTopLevelArrowBeforeCaseArmBoundary =

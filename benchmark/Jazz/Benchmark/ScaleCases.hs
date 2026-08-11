@@ -50,6 +50,7 @@ data CompilerScaleScenario
   | DeepNestedLambdas
   | LargeOperatorTables
   | NestedBlocks
+  | AmbiguousCaseArmPipes
   | LongTokenStream
   | IdentifierTokenStream
   | LiteralTokenStream
@@ -115,6 +116,7 @@ baseCompilerScaleCases =
     <> map deepNestedLambdasCase [16, 32, 64, 128]
     <> map largeOperatorTablesCase [16, 32, 64, 128]
     <> map nestedBlocksCase [16, 32, 64, 128]
+    <> map ambiguousCaseArmPipesCase [64, 128, 256, 512]
     <> map longTokenStreamCase [1024, 4096, 16384, 65536]
     <> map identifierTokenStreamCase [1024, 4096, 16384, 65536]
     <> map literalTokenStreamCase [1024, 4096, 16384, 65536]
@@ -1017,6 +1019,29 @@ nestedBlocksSource depth =
             <> ". "
             <> renderNestedBlock (index + 1)
             <> ". }"
+
+ambiguousCaseArmPipesCase :: Int -> CompilerScaleCase
+ambiguousCaseArmPipesCase operandCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier = "ambiguous-case-arm-pipes-" <> paddedDecimal 4 operandCount,
+      compilerScaleCaseScenario = AmbiguousCaseArmPipes,
+      compilerScaleCaseSize = operandCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [ParseLowerBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.singleton
+          (scaleModuleRoot </> "Main.jz")
+          (ambiguousCaseArmPipesSource operandCount),
+      compilerScaleCaseExpectedOutput = ""
+    }
+
+ambiguousCaseArmPipesSource :: Int -> Text
+ambiguousCaseArmPipesSource operandCount =
+  "ambiguousPipe = case 0 { | _ -> "
+    <> Text.intercalate " | " (map (Text.pack . show) [0 .. operandCount - 1])
+    <> " }.\n"
 
 longTokenStreamCase :: Int -> CompilerScaleCase
 longTokenStreamCase tokenCount =
