@@ -9,9 +9,7 @@ module Jazz.Compiler.ModuleRuntime
     evaluateCompiledProgramObserved,
     evaluateCompiledProgramWithHost,
     evaluateCompiledProgramWithHostObserved,
-    lookupRuntimeModule,
-    prepareRuntimeImportSelection,
-    runtimeExportSelectedBy
+    lookupRuntimeModule
   ) where
 
 import Control.Monad.Trans.Except
@@ -97,12 +95,6 @@ data RuntimeExport
         runtimeExportMethodName :: Text
       }
   deriving (Eq, Ord, Show)
-
-data RuntimeImportSelection = RuntimeImportSelection
-  { runtimeImportSelectedInventory :: !ModuleExportInventory,
-    runtimeImportSelectedCapabilityNames :: !(Set.Set Text),
-    runtimeImportAllowsCapabilityMethods :: !Bool
-  }
 
 data RuntimeModule = RuntimeModule
   { runtimeModulePath :: [Text],
@@ -384,12 +376,10 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
     (Just compiledDependency, Just runtimeDependency) ->
       let publicInventory =
             compiledModuleExportInventory compiledDependency
-          preparedSelection =
-            prepareRuntimeImportSelection importDecl publicInventory
           selectedExports =
             [ (runtimeExport, cell)
               | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                runtimeExportSelectedBy preparedSelection runtimeExport
+                runtimeExportSelected importDecl publicInventory runtimeExport
             ]
           insertExport (runtimeExport, cell) =
             Map.insert
@@ -465,15 +455,14 @@ interfaceExports publicInventory moduleInterface =
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-prepareRuntimeImportSelection :: ResolvedImport -> ModuleExportInventory -> RuntimeImportSelection
-prepareRuntimeImportSelection importDecl publicInventory =
-  RuntimeImportSelection
-    { runtimeImportSelectedInventory = selectedInventory,
-      runtimeImportSelectedCapabilityNames =
-        exportNamesInNamespace CapabilityNamespace selectedInventory,
-      runtimeImportAllowsCapabilityMethods =
-        resolvedImportAlias importDecl == Nothing
-    }
+runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> RuntimeExport -> Bool
+runtimeExportSelected importDecl publicInventory runtimeExport =
+  case runtimeExport of
+    RuntimeCapabilityMethodExport className _ ->
+      resolvedImportAlias importDecl == Nothing
+        && Set.member className selectedClassNames
+    RuntimeBindingExport moduleExport ->
+      inventoryHasExport moduleExport selectedInventory
   where
     importMode =
       case resolvedImportAlias importDecl of
@@ -484,19 +473,8 @@ prepareRuntimeImportSelection importDecl publicInventory =
         importMode
         (resolvedImportSymbols importDecl)
         publicInventory
-
-runtimeExportSelectedBy :: RuntimeImportSelection -> RuntimeExport -> Bool
-runtimeExportSelectedBy preparedSelection runtimeExport =
-  case runtimeExport of
-    RuntimeCapabilityMethodExport className _ ->
-      runtimeImportAllowsCapabilityMethods preparedSelection
-        && Set.member
-          className
-          (runtimeImportSelectedCapabilityNames preparedSelection)
-    RuntimeBindingExport moduleExport ->
-      inventoryHasExport
-        moduleExport
-        (runtimeImportSelectedInventory preparedSelection)
+    selectedClassNames =
+      exportNamesInNamespace CapabilityNamespace selectedInventory
 
 runtimeExportName :: RuntimeExport -> Text
 runtimeExportName runtimeExport =
