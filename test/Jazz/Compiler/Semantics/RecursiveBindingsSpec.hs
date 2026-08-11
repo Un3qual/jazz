@@ -75,7 +75,8 @@ tests =
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
-    ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized)
+    ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized),
+    ("self-recursive binding detection respects outer names", testInferSelfRecursiveBindingsRespectsOuterNames)
   ]
 
 testCollectBindingNames :: IO ()
@@ -681,11 +682,11 @@ testInferSelfRecursiveBindingsIsParameterized = do
   assertEqual
     "wrapped lambda policy marks self recursion"
     (Set.singleton 0)
-    (inferSelfRecursiveBindings hasWrappedLambdaBranch indexedStatements)
+    (inferSelfRecursiveBindings Set.empty hasWrappedLambdaBranch indexedStatements)
   assertEqual
     "bare lambda policy does not mark wrapped self recursion"
     Set.empty
-    (inferSelfRecursiveBindings isBareLambda indexedStatements)
+    (inferSelfRecursiveBindings Set.empty isBareLambda indexedStatements)
   where
     indexedStatements =
       [ (0, SLet (ident "f") span0 wrappedSelfRecursiveExpr)
@@ -703,6 +704,27 @@ testInferSelfRecursiveBindingsIsParameterized = do
         _ -> False
 
     isBareLambda expr =
+      case expr of
+        ELambda {} -> True
+        _ -> False
+
+testInferSelfRecursiveBindingsRespectsOuterNames :: IO ()
+testInferSelfRecursiveBindingsRespectsOuterNames =
+  assertEqual
+    "an outer builtin-like name suppresses a self-recursive function cell"
+    Set.empty
+    (inferSelfRecursiveBindings (Set.singleton (ident "map")) isLambda indexedStatements)
+  where
+    indexedStatements =
+      [ ( 0,
+          SLet
+            (ident "map")
+            span0
+            (ELambda (ident "items") (EApply (EVar (ident "map")) (EVar (ident "items"))))
+        )
+      ]
+
+    isLambda expr =
       case expr of
         ELambda {} -> True
         _ -> False

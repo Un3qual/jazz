@@ -4959,7 +4959,7 @@ module TypedCoreValidate (
       else if recipeEqual signatureRecipe bindingRecipe == False then
         [failure path TypedBindingValueMismatch (TypedRecipeDetail signatureRecipe bindingRecipe)]
       else if maybeCallableShapeEqual signatureShape bindingShape == False then
-        [failure path TypedBindingValueMismatch TypedNoValidationDetail]
+        [failure path TypedCallableShapeMismatch (TypedBinderDetail bindingOwner)]
       else
         []
   }.

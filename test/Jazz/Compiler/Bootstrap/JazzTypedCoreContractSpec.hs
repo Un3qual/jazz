@@ -386,7 +386,7 @@ reviewRegressionGroups =
     (("limits single evidence candidates to method deferral", testSingleEvidenceCandidate), [singleEvidenceCandidateProgram]),
     (("rejects structurally empty module paths", testEmptyModulePath), [emptyModulePathProgram]),
     (("requires the ambient prelude slot to identify Prelude", testAmbientPreludePath), [wrongPreludeSlotProgram]),
-    (("checks adjacent signatures against their bindings", testSignatureBindingContract), [signatureBindingMismatchProgram]),
+    (("checks adjacent signatures against their bindings", testSignatureBindingContract), [signatureBindingMismatchProgram, signatureBindingShapeMismatchProgram]),
     (("accepts explicit type application on qualified methods", testQualifiedMethodTypeApplication), [qualifiedMethodTypeApplicationProgram]),
     (("enforces final typed-core review contracts", testFinalReviewRegressions), [aliasShapedSelfRecursionProgram, qualifiedMethodValueContractProgram, eagerSelfReferenceProgram]),
     (("enforces post-final typed-core review contracts", testPostFinalReviewRegressions), [importNameCollisionProgram, localClassMethodVisibilityProgram, syntheticBinderShadowingProgram, implFreeClassParameterProgram, duplicateQualifiedMethodCandidateProgram, metadataOnlySourceTypeProgram]),
@@ -4232,7 +4232,7 @@ testAmbientPreludePath =
     (validateTypedProgram wrongPreludeSlotProgram)
 
 testSignatureBindingContract :: IO ()
-testSignatureBindingContract =
+testSignatureBindingContract = do
   assertEqual
     "an attached signature and binding publish one scheme contract"
     [ statementFailure
@@ -4242,6 +4242,15 @@ testSignatureBindingContract =
         (TypedTypeDetail TypedBoolType TypedTextType)
     ]
     (validateTypedProgram signatureBindingMismatchProgram)
+  assertEqual
+    "an attached signature preserves callable-shape mismatch diagnostics"
+    [ statementFailure
+        "review-signature-binding-shape-mismatch"
+        0
+        TypedCallableShapeMismatch
+        (TypedBinderDetail shapeBindingOwner)
+    ]
+    (validateTypedProgram signatureBindingShapeMismatchProgram)
 
 testQualifiedMethodTypeApplication :: IO ()
 testQualifiedMethodTypeApplication =
@@ -6609,6 +6618,43 @@ signatureBindingMismatchProgram =
           bindingScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "value"))
       ]
+
+signatureBindingShapeMismatchProgram :: TypedProgram
+signatureBindingShapeMismatchProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
+  where
+    fixture = "review-signature-binding-shape-mismatch"
+    modulePath = fixtureModulePath fixture
+    valueName = resolved TypedCurrentModule TypedValueNamespace "annotated"
+    argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
+    signatureOwner = binder modulePath [0] valueName
+    bindingOwner = shapeBindingOwner
+    argumentOwner = binder modulePath [1, 0] argumentName
+    signatureScheme =
+      TypedScheme signatureOwner [] [] [] boolToBoolType boolToBoolRecipe (Just TypedDirectCallableShape)
+    bindingScheme =
+      TypedScheme bindingOwner [] [] [] boolToBoolType boolToBoolRecipe (Just TypedClosureCallableShape)
+    statements =
+      [ TypedSignatureStatement signatureOwner valueName span1 signatureScheme,
+        TypedLetStatement
+          bindingOwner
+          valueName
+          span1
+          bindingScheme
+          ( TypedLambdaExpr
+              boolToBoolInfo
+              argumentOwner
+              argumentName
+              (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+          )
+      ]
+
+shapeBindingOwner :: TypedBinderId
+shapeBindingOwner =
+  binder
+    (fixtureModulePath "review-signature-binding-shape-mismatch")
+    [1]
+    (resolved TypedCurrentModule TypedValueNamespace "annotated")
 
 qualifiedMethodTypeApplicationProgram :: TypedProgram
 qualifiedMethodTypeApplicationProgram =

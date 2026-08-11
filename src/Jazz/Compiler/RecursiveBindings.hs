@@ -391,8 +391,8 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
             statementIndex
             (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
 
-inferSelfRecursiveBindings :: (Expr -> Bool) -> [(Int, Statement)] -> Set Int
-inferSelfRecursiveBindings predicate =
+inferSelfRecursiveBindings :: Set Name -> (Expr -> Bool) -> [(Int, Statement)] -> Set Int
+inferSelfRecursiveBindings outerBindingNames predicate =
   foldl' step Set.empty
   where
     step recursiveStatements (statementIndex, statement) =
@@ -402,7 +402,7 @@ inferSelfRecursiveBindings predicate =
             selfReferenceOwnsRecursiveCellWith predicate bindingName valueExpr,
             Set.member
               bindingName
-              (freeVarsExprWithBound Set.empty valueExpr) ->
+              (freeVarsExprWithBound outerBindingNames valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
 

@@ -26,7 +26,7 @@ import Jazz.Compiler.AST
     Statement (..)
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly)
+  ( BuiltinResolutionMode (ResolveCompatibility, ResolveKernelOnly)
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -49,9 +49,14 @@ import Jazz.Compiler.Runtime
     runtimeValueExactlyMatchesConstraint
   )
 import Jazz.Compiler.Runtime.ScopePlan
-  ( buildRuntimeScopePlan,
+  ( RuntimeScopePlan,
+    buildRuntimeScopePlan,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction
+  )
+import Jazz.Compiler.SourceProgram
+  ( parseAndLowerStandaloneSource,
+    scopeStatements
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
@@ -87,6 +92,7 @@ recursionTests =
     , ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer)
     , ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility)
     , ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility)
+    , ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility)
     , ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion)
     , ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError)
     , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
@@ -479,13 +485,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
-  let plan =
-        buildRuntimeScopePlan
-          Set.empty
-          Nothing
-          ResolveKernelOnly
-          Set.empty
-          witnessStatements
+  plan <- scopePlanForSource ResolveKernelOnly executableWitnessSource
   assertEqual "definition-site witness is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
   assertEqual "definition-site witness gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings executableWitnessSource
@@ -495,23 +495,34 @@ testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
   where
     executableWitnessSource =
       "f = { target = \\(x) -> if x == 0 then 0 else f (x - 1). alias = target. case True { | target -> alias }. }. f 1."
-    witnessStatements =
-      [ SLet
-          "f"
-          (SourceSpan 1 1)
-          ( EBlock
-              [ SLet "target" (SourceSpan 1 1) (ELambda "x" (EVar "f")),
-                SLet "alias" (SourceSpan 1 1) (EVar "target"),
-                SExpr
-                  (SourceSpan 1 1)
-                  ( EPatternCase
-                      (ELit (LBool True))
-                      [CaseArm (PVariable "target") Nothing (EVar "alias")]
-                  )
-              ]
-          ),
-        SExpr (SourceSpan 1 1) (EVar "f")
-      ]
+
+testBuiltinNameDoesNotGainSelfRecursiveVisibility :: IO ()
+testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
+  plan <- scopePlanForSource ResolveCompatibility witnessSource
+  assertEqual "builtin-named witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
+  assertEqual "builtin-named witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
+  result <- runSource defaultWarningSettings witnessSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1]") (runOutput result)
+  where
+    witnessSource =
+      "map = \\(items) -> map (\\(item) -> item) items. map [1]."
+
+scopePlanForSource :: BuiltinResolutionMode -> Text -> IO RuntimeScopePlan
+scopePlanForSource builtinMode source =
+  case parseAndLowerStandaloneSource source of
+    Left diagnostic ->
+      failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
+    Right expression ->
+      pure
+        ( buildRuntimeScopePlan
+            Set.empty
+            Nothing
+            builtinMode
+            Set.empty
+            (scopeStatements expression)
+        )
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do

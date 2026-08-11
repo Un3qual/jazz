@@ -88,17 +88,16 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = IntMap.fromDistinctAscList indexedStatements
+    recursionOuterBindingNames =
+      Set.union
+        outerBindingNames
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
     recursiveGroupsMap =
-      inferRecursiveGroupsOrdered
-        ( Set.union
-            outerBindingNames
-            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-        )
-        indexedStatements
+      inferRecursiveGroupsOrdered recursionOuterBindingNames indexedStatements
     recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList recursiveGroupsMap)
     selfRecursiveFunctions =
       IntSet.fromList
-        (Set.toList (inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements))
+        (Set.toList (inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements))
     bindingNames =
       IntMap.fromDistinctAscList
         (Map.toAscList (collectBindingNames indexedStatements))

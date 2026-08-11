@@ -1880,20 +1880,23 @@ validateSignatureBindingScheme :: TypedCoreValidationPath -> TypedScheme -> Type
 validateSignatureBindingScheme path signatureScheme bindingScheme =
   case signatureBindingSchemeMismatch signatureScheme bindingScheme of
     Nothing -> []
-    Just detail -> [failure path TypedBindingValueMismatch detail]
+    Just (kind, detail) -> [failure path kind detail]
 
-signatureBindingSchemeMismatch :: TypedScheme -> TypedScheme -> Maybe TypedCoreValidationDetail
+signatureBindingSchemeMismatch :: TypedScheme -> TypedScheme -> Maybe (TypedCoreValidationKind, TypedCoreValidationDetail)
 signatureBindingSchemeMismatch
   (TypedScheme _ signatureParameters signatureEvidence signaturePrimitive signatureType signatureRecipe signatureShape)
-  (TypedScheme _ bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape)
+  (TypedScheme bindingOwner bindingParameters bindingEvidence bindingPrimitive bindingType bindingRecipe bindingShape)
     | signatureParameters /= bindingParameters =
-        Just (TypedArityDetail (length signatureParameters) (length bindingParameters))
-    | signatureEvidence /= bindingEvidence = Just TypedNoValidationDetail
-    | signaturePrimitive /= bindingPrimitive = Just TypedNoValidationDetail
-    | signatureType /= bindingType = Just (TypedTypeDetail signatureType bindingType)
-    | signatureRecipe /= bindingRecipe = Just (TypedRecipeDetail signatureRecipe bindingRecipe)
-    | signatureShape /= bindingShape = Just TypedNoValidationDetail
+        bindingMismatch (TypedArityDetail (length signatureParameters) (length bindingParameters))
+    | signatureEvidence /= bindingEvidence = bindingMismatch TypedNoValidationDetail
+    | signaturePrimitive /= bindingPrimitive = bindingMismatch TypedNoValidationDetail
+    | signatureType /= bindingType = bindingMismatch (TypedTypeDetail signatureType bindingType)
+    | signatureRecipe /= bindingRecipe = bindingMismatch (TypedRecipeDetail signatureRecipe bindingRecipe)
+    | signatureShape /= bindingShape =
+        Just (TypedCallableShapeMismatch, TypedBinderDetail bindingOwner)
     | otherwise = Nothing
+    where
+      bindingMismatch detail = Just (TypedBindingValueMismatch, detail)
 
 validateBinderDefinition :: ModuleContext -> TypedCoreValidationPath -> TypedBinderId -> TypedCoreName -> [TypedCoreValidationFailure]
 validateBinderDefinition context path binderId@(TypedBinderId (modulePath, lexicalPath, embeddedName)) publishedName

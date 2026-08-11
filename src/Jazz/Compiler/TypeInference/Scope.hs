@@ -393,15 +393,14 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
        in (inferredExpressionType result, nextState)
 
     indexedStatements = zip [0 ..] statements
+    recursionOuterBindingNames =
+      Set.union
+        (Map.keysSet initialEnv)
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
     recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered
-        ( Set.union
-            (Map.keysSet initialEnv)
-            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-        )
-        indexedStatements
+      inferRecursiveGroupsOrdered recursionOuterBindingNames indexedStatements
     selfRecursiveFunctionStatements =
-      inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
+      inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     signedBindingStatements = collectSignedBindingStatements indexedStatements
     statementsByIndex = Map.fromList indexedStatements
