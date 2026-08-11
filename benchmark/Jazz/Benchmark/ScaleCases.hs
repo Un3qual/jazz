@@ -39,6 +39,7 @@ data CompilerScaleScenario
   | LoweredTemporaryValidation
   | TypedRecursiveStatementGraph
   | WideConstructorApplication
+  | HostFreeOpaqueEnvironment
   | AnalyzerDiagnosticChain
   | InterleavedRecursiveGroups
   | RecursiveRebindings
@@ -98,6 +99,7 @@ baseCompilerScaleCases =
     <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
     <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
     <> map wideConstructorApplicationCase [32, 64, 128, 256]
+    <> map hostFreeOpaqueEnvironmentCase [64, 256, 1024, 4096]
     <> map analyzerDiagnosticChainCase [64, 128, 256, 512]
     <> map interleavedRecursiveGroupsCase [16, 32, 64, 128]
     <> map recursivePreviewBurstCase [16, 32, 64, 128]
@@ -379,6 +381,35 @@ wideConstructorApplicationSource fieldCount =
     partialCount = fieldCount `div` 2
     renderValue = Text.pack . show
     fieldName fieldIndex = "field" <> paddedDecimal 4 fieldIndex
+
+hostFreeOpaqueEnvironmentCase :: Int -> CompilerScaleCase
+hostFreeOpaqueEnvironmentCase bindingCount =
+  CompilerScaleCase
+    { compilerScaleCaseIdentifier =
+        "host-free-opaque-environment-" <> paddedDecimal 4 bindingCount,
+      compilerScaleCaseScenario = HostFreeOpaqueEnvironment,
+      compilerScaleCaseSize = bindingCount,
+      compilerScaleCaseInterfaceWidth = Nothing,
+      compilerScaleCaseBenchmarks = [RuntimeBenchmark, WholeProgramBenchmark],
+      compilerScaleCaseEntryModulePath = ["Main"],
+      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
+      compilerScaleCaseSources =
+        Map.fromList
+          [ (scaleModuleRoot </> "Shared.jz", "module Shared { seed = 1. }"),
+            (scaleModuleRoot </> "Main.jz", hostFreeOpaqueEnvironmentSource bindingCount)
+          ],
+      compilerScaleCaseExpectedOutput = "1"
+    }
+
+hostFreeOpaqueEnvironmentSource :: Int -> Text
+hostFreeOpaqueEnvironmentSource bindingCount =
+  Text.unlines
+    ( ["module Main {", "  import Shared."]
+        <> [ "  lazy" <> paddedDecimal 4 bindingIndex <> " = " <> Text.pack (show bindingIndex) <> "."
+           | bindingIndex <- [0 .. bindingCount - 1]
+           ]
+        <> ["  seed.", "}"]
+    )
 
 analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
 analyzerDiagnosticChainCase expressionCount =

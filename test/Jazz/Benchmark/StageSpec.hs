@@ -72,6 +72,7 @@ tests =
     ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
     ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
+    ("host-free opaque environments preserve exact runtime output", testHostFreeOpaqueEnvironmentSemantics),
     ("analyzer diagnostic chains preserve exact error counts", testAnalyzerDiagnosticChainSemantics),
     ("interleaved recursive groups preserve exact compiler semantics", testInterleavedRecursiveGroupSemantics),
     ("recursive preview bursts preserve exact compiler semantics", testRecursivePreviewBurstSemantics),
@@ -185,6 +186,10 @@ testCompilerScaleRegistry =
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
       ("wide-constructor-application-0256", WideConstructorApplication, 256, Nothing),
+      ("host-free-opaque-environment-0064", HostFreeOpaqueEnvironment, 64, Nothing),
+      ("host-free-opaque-environment-0256", HostFreeOpaqueEnvironment, 256, Nothing),
+      ("host-free-opaque-environment-1024", HostFreeOpaqueEnvironment, 1024, Nothing),
+      ("host-free-opaque-environment-4096", HostFreeOpaqueEnvironment, 4096, Nothing),
       ("analyzer-diagnostic-chain-0064", AnalyzerDiagnosticChain, 64, Nothing),
       ("analyzer-diagnostic-chain-0128", AnalyzerDiagnosticChain, 128, Nothing),
       ("analyzer-diagnostic-chain-0256", AnalyzerDiagnosticChain, 256, Nothing),
@@ -412,6 +417,18 @@ testWideConstructorApplicationSemantics = do
     (compilerScaleCaseBenchmarks programCase)
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "wide constructor output" "(<function>, (0, 16, 31))" actualOutput
+  runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
+  runPreparedCompilerScaleBenchmark runtimePrepared
+
+testHostFreeOpaqueEnvironmentSemantics :: IO ()
+testHostFreeOpaqueEnvironmentSemantics = do
+  programCase <- loadCompilerScaleCase "host-free-opaque-environment-0064"
+  assertEqual
+    "host-free opaque environment benchmark groups"
+    [RuntimeBenchmark, WholeProgramBenchmark]
+    (compilerScaleCaseBenchmarks programCase)
+  actualOutput <- runCompilerScaleCase programCase
+  assertEqual "host-free opaque environment output" "1" actualOutput
   runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
   runPreparedCompilerScaleBenchmark runtimePrepared
 
