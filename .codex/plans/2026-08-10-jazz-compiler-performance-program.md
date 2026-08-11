@@ -1,22 +1,23 @@
 ---
-id: JN-COMPILER-PERFORMANCE-RECURSIVE-GROUP-003
+id: JN-COMPILER-PERFORMANCE-ENV-FV-004
 status: ready
 priority: P1
-size: M
+size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3a: Index recursive-group scheme exposure"
+plan_section: "Task 3b: Maintain environment free-variable summaries"
 target_paths:
+  - src/Jazz/Compiler/TypeInference/Capabilities.hs
   - src/Jazz/Compiler/TypeInference/Scope.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/GeneralizationTests.hs
   - test/Jazz/Benchmark/StageSpec.hs
 verification:
   - cabal test binding-signature-coherence-spec benchmark-stage-spec --test-show-details=failures --jobs=1
-  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=interleaved-recursive-groups-0016 --jazz-scale-case=interleaved-recursive-groups-0032 --jazz-scale-case=interleaved-recursive-groups-0064 --jazz-scale-case=interleaved-recursive-groups-0128 --pattern=analysis +RTS -T -RTS' --jobs=1
+  - cabal bench jazz-bench --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512 --jazz-scale-case=constrained-signatures-0032 --jazz-scale-case=constrained-signatures-0064 --jazz-scale-case=constrained-signatures-0128 --jazz-scale-case=constrained-signatures-0256 --pattern=analysis +RTS -T -RTS' --jobs=1
   - bash scripts/check-execution-queue.sh
   - git diff --check
-deliverable: "Index only the recursive groups spanning each intervening let so scheme exposure no longer scans every recursive group, while preserving preview inference and diagnostics exactly."
+deliverable: "Carry an incrementally updated raw free-variable summary with the scope environment so binding generalization resolves only variables that can actually be free, preserving exact schemes and constraint visibility."
 last_verified: 2026-08-10
 ---
 
@@ -395,23 +396,94 @@ from considering recursive groups that cannot possibly be visible there.
 `test/Jazz/Compiler/Semantics/BindingSignature/RecursionTests.hs`, and
 `test/Jazz/Benchmark/StageSpec.hs`.
 
-- [ ] Keep the existing smallest generated recursive case and binding-signature
+- [x] Keep the existing smallest generated recursive case and binding-signature
       recursion suite as semantic red/green ownership. They already cover exact
       output, interleaved polymorphic use, intervening dependencies, preview
       diagnostics, deferred constraints, and inferred-constraint uniqueness.
-- [ ] Precompute the canonical recursive groups once, preserving their current
+- [x] Precompute the canonical recursive groups once, preserving their current
       `Set` order, and index each non-member statement strictly between a
       group's first and last declarations to only the groups spanning it.
-- [ ] Make `exposeVisibleRecursiveGroupSchemes` consume that index instead of
+- [x] Make `exposeVisibleRecursiveGroupSchemes` consume that index instead of
       scanning every recursive group for every let. Keep every existing signed,
       dependency, feed-forward, diagnostic, rollback, and latest-binding guard.
-- [ ] Run the two focused semantic suites serially, then record the four-case
+- [x] Run the two focused semantic suites serially, then record the four-case
       optimized analysis curve with `+RTS -T` from a clean implementation
       commit. Capture standalone stable-stage, hotspot, and heap after evidence
       for the 128-group case.
-- [ ] Stop and diagnose any semantic or physical regression; do not widen
+- [x] Stop and diagnose any semantic or physical regression; do not widen
       limits. Record before/after CPU, allocation, copied bytes, and residency,
       close the child, and promote environment free-variable maintenance next.
+
+### Recursive-group exposure receipt
+
+The 30-line source change landed in `cb7b3426`. It builds a declaration-interval
+index once, preserves the former canonical group order, and routes each
+intervening let only to groups spanning that declaration. The complete
+binding-signature and generated-stage semantic suites passed before and after
+the change.
+
+The compatible optimized after run is
+`benchmark-results/compiler-scale-matrix-baseline/20260811T035003834196000000Z/`.
+After removing run ID, Git revision, and timestamp, every environment metadata
+field matches the before receipt at
+`20260811T033036335127000000Z`. Git dirtiness is false in both runs.
+
+| Groups | Boundary           | Before ms | After ms | CPU improvement | Before allocation | After allocation | Allocation improvement |
+| -----: | ------------------ | --------: | -------: | --------------: | ----------------: | ---------------: | ---------------------: |
+|     16 | analysis           |     2.894 |    1.055 |            2.7x |        10,305,680 |        3,888,174 |                   2.7x |
+|     32 | analysis           |    12.812 |    2.697 |            4.8x |        57,403,636 |        8,592,402 |                   6.7x |
+|     64 | analysis           |    77.296 |    7.128 |           10.8x |       401,231,121 |       21,271,350 |                  18.9x |
+|    128 | analysis           |   574.666 |   18.466 |           31.1x |     3,055,875,427 |       59,346,191 |                  51.5x |
+|     16 | module preparation |     7.445 |    5.959 |            1.2x |        29,355,218 |       22,909,742 |                   1.3x |
+|     32 | module preparation |    18.263 |    9.191 |            2.0x |        80,855,598 |       32,015,061 |                   2.5x |
+|     64 | module preparation |    85.532 |   16.641 |            5.1x |       433,536,163 |       53,573,944 |                   8.1x |
+|    128 | module preparation |   599.103 |   32.492 |           18.4x |     3,106,018,222 |      109,525,953 |                  28.4x |
+
+Analysis growth from 16 to 128 groups fell from 198.6x CPU / 296.5x allocation
+to 17.5x / 15.3x. Module-preparation growth fell from 80.5x / 105.8x to 5.5x /
+4.8x. The standalone stable-stage profile reports about 80 MB per operation,
+down from 3.4 GB. Whole-process allocation is iteration-dependent and therefore
+is not used as a per-operation improvement claim. Maximum residency was
+3,052,648 bytes before and 3,416,288 after; the separate heap sampled peaks were
+3,064,480 and 3,066,696 bytes, so this CPU/allocation change did not materially
+alter live residency. The after hotspot now leads with
+`freeTypeVariablesInEnv` at 232 ticks / 691,732,480 allocated bytes, which
+promotes the next child without relying on a wall-clock threshold.
+
+## Task 3b: Maintain environment free-variable summaries
+
+Repeated generalization currently walks every visible binding, traverses each
+type or scheme, and resolves its free variables again. Carry a summary of raw
+unquantified variable identities beside the main scope environment, with
+reference counts so rebinding and recursive-group deletion remain exact. At a
+generalization point, resolve only the summary's distinct variable identities
+through the current solver.
+
+**Files:** `src/Jazz/Compiler/TypeInference/Capabilities.hs`,
+`src/Jazz/Compiler/TypeInference/Scope.hs`,
+`test/Jazz/Compiler/Semantics/BindingSignature/GeneralizationTests.hs`, and
+`test/Jazz/Benchmark/StageSpec.hs`.
+
+- [ ] Add semantic coverage before implementation for shadowing, shared
+      monomorphic variables, recursive-group deletion, constrained schemes, and
+      constructor bindings. Preserve exact generalized variables, constraint
+      order, diagnostics, and runtime outputs.
+- [ ] Introduce an internal environment free-variable summary with per-binding
+      raw variable sets and per-variable reference counts. Derive raw variables
+      once from every `TypeBinding`; resolve the distinct live identities only
+      when the solver state is required.
+- [ ] Thread the summary through the source-order scope traversal. Update it on
+      binding insertion/rebinding, data-constructor registration, temporary
+      recursive scheme exposure, group deletion, and final recursive-group
+      generalization; do not change expression-level environment semantics.
+- [ ] Reuse the same resolved summary for ordinary and explicit-signature
+      generalization at a statement. Keep arbitrary capability checks on the
+      existing environment path unless the summary is already in scope and
+      semantic ownership is clear.
+- [ ] Run the focused semantic suites, commit the implementation, and record
+      compatible optimized curves for sequential polymorphism and constrained
+      signatures. Capture stable-stage, hotspot, and heap evidence for the
+      largest case of each family before closing the child.
 
 ## Task 3: Remove type-checker asymptotic work
 
