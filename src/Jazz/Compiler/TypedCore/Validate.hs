@@ -4873,7 +4873,9 @@ validateBinaryOperator context path info operator left right =
 
 validateLeftSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedOperatorRef -> [TypedCoreValidationFailure]
 validateLeftSectionOperator context path info left operator =
-  operatorFailures <> validateStagedCallableValueRecipe path info
+  operatorFailures
+    <> resolvedOperatorCallableShapeFailures context path 1 operator
+    <> validateStagedCallableValueRecipe path info
   where
     operatorFailures =
       case operator of
@@ -4908,7 +4910,9 @@ validateLeftSectionOperator context path info left operator =
 
 validateRightSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> [TypedCoreValidationFailure]
 validateRightSectionOperator context path info operator right =
-  operatorFailures <> validateStagedCallableValueRecipe path info
+  operatorFailures
+    <> resolvedOperatorCallableShapeFailures context path 1 operator
+    <> validateStagedCallableValueRecipe path info
   where
     operatorFailures =
       case operator of

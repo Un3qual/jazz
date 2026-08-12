@@ -114,7 +114,7 @@ testValidPrograms =
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 55 (length invalidFixtures)
+  assertEqual "invalid fixture count" 56 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -129,7 +129,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 74 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 75 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -11927,10 +11927,17 @@ operatorSchemeFailures =
     operatorFailure 1 TypedApplicationResultMismatch (TypedTypeDetail TypedBoolType TypedTextType),
     operatorFailure 2 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
     operatorFailure 2 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType)),
+    operatorFailure 2 TypedCallableShapeMismatch (TypedBinderDetail owner),
     operatorFailure 3 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 3 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType))
+    operatorFailure 3 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType)),
+    operatorFailure 3 TypedCallableShapeMismatch (TypedBinderDetail owner)
   ]
   where
+    owner =
+      binder
+        (fixtureModulePath "review-operator-scheme")
+        [0]
+        (TypedGeneratedName (TypedOperatorBinding "$operator:%7E"))
     operatorFailure statementIndex =
       TypedCoreValidationFailure (TypedExpressionPath (fixtureModulePath "review-operator-scheme") [statementIndex] [0])
 
@@ -13779,6 +13786,7 @@ expectedInvalidFixtureNames =
     "direct-binding-without-leading-lambda",
     "binary-operator-result-recipe-staging",
     "underapplied-direct-binary-operator",
+    "underapplied-direct-operator-sections",
     "builtin-application-operator-result-recipe-staging",
     "pattern-arm-recipe-join",
     "if-branch-recipe-join",
@@ -13838,6 +13846,7 @@ invalidFixtures =
     directBindingWithoutLeadingLambdaFixture,
     binaryOperatorResultRecipeStagingFixture,
     underappliedDirectBinaryOperatorFixture,
+    underappliedDirectOperatorSectionsFixture,
     builtinApplicationOperatorResultRecipeStagingFixture,
     patternArmRecipeJoinFixture,
     ifBranchRecipeJoinFixture,
@@ -14559,7 +14568,9 @@ flattenedOperatorSectionRecipeFixture =
       ]
     program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
     failures =
-      [ expressionFailureAt fixture 1 TypedCallableRecipeMismatch (TypedRecipeDetail expectedLeftRecipe leftRecipe),
+      [ expressionFailureAt fixture 1 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder),
+        expressionFailureAt fixture 1 TypedCallableRecipeMismatch (TypedRecipeDetail expectedLeftRecipe leftRecipe),
+        expressionFailureAt fixture 2 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder),
         expressionFailureAt fixture 2 TypedCallableRecipeMismatch (TypedRecipeDetail expectedRightRecipe rightRecipe),
         TypedCoreValidationFailure
           (TypedExpressionPath modulePath [3] [0])
@@ -14645,11 +14656,13 @@ resolvedOperatorSectionOperandRecipeFixture =
     program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
     failures =
       [ expressionFailureAt fixture 1 TypedApplicationArgumentMismatch (TypedRecipeDetail stagedLeftRecipe flattenedLeftRecipe),
+        expressionFailureAt fixture 1 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder),
         TypedCoreValidationFailure
           (TypedExpressionPath modulePath [1] [0, 0])
           TypedCallableRecipeMismatch
           (TypedRecipeDetail stagedLeftRecipe flattenedLeftRecipe),
         expressionFailureAt fixture 2 TypedApplicationArgumentMismatch (TypedRecipeDetail stagedRightRecipe flattenedRightRecipe),
+        expressionFailureAt fixture 2 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder),
         TypedCoreValidationFailure
           (TypedExpressionPath modulePath [2] [0, 0])
           TypedCallableRecipeMismatch
@@ -14842,6 +14855,69 @@ underappliedDirectBinaryOperatorFixture =
         expressionStatement 2 expression
       ]
     program = singleModuleProgram fixture relativeSource [] statements emptyInterface (typedExpressionInfo expression) modulePath
+
+underappliedDirectOperatorSectionsFixture :: InvalidFixture
+underappliedDirectOperatorSectionsFixture =
+  InvalidFixture
+    fixture
+    program
+    [ expressionFailureAt fixture 1 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder),
+      expressionFailureAt fixture 2 TypedCallableShapeMismatch (TypedBinderDetail operatorBinder)
+    ]
+  where
+    fixture = "underapplied-direct-operator-sections"
+    modulePath = fixtureModulePath fixture
+    operatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
+    operatorBinder = binder modulePath [0] operatorName
+    leftName = fixtureValueName "left"
+    leftBinder = binder modulePath [0, 0] leftName
+    rightName = fixtureValueName "right"
+    rightBinder = binder modulePath [0, 0, 0] rightName
+    operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    operatorRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedCharRecipe] TypedManagedTextRecipe
+    operatorInfo = info operatorType operatorRecipe
+    operatorScheme =
+      TypedScheme
+        operatorBinder
+        []
+        []
+        []
+        operatorType
+        operatorRecipe
+        (Just TypedDirectCallableShape)
+    operatorExpression =
+      TypedLambdaExpr
+        operatorInfo
+        leftBinder
+        leftName
+        ( TypedLambdaExpr
+            (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+            rightBinder
+            rightName
+            (TypedLiteralExpr textInfo (TypedTextLiteral "section"))
+        )
+    operator = TypedResolvedOperator operatorName "~"
+    leftSectionInfo =
+      info
+        (TypedFunctionType TypedCharType TypedTextType)
+        (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe)
+    rightSectionInfo =
+      info
+        (TypedFunctionType TypedBoolType TypedTextType)
+        (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
+    statements =
+      [ TypedLetStatement operatorBinder operatorName span1 operatorScheme operatorExpression,
+        expressionStatement 2 (TypedLeftSectionExpr leftSectionInfo trueExpr operator),
+        expressionStatement
+          3
+          ( TypedRightSectionExpr
+              rightSectionInfo
+              operator
+              (literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x'))
+          ),
+        expressionStatement 4 trueExpr
+      ]
+    program = singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
 
 applicationArgumentRecipeStagingFixture :: InvalidFixture
 applicationArgumentRecipeStagingFixture =

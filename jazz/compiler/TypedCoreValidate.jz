@@ -3634,9 +3634,11 @@ module TypedCoreValidate (
   }.
 
   validateLeftSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedOperatorRef -> [TypedCoreValidationFailure].
-  validateLeftSectionOperator = \(context, path, info, left, operator) -> listAppend
-    (validateLeftSectionOperatorContract context path info left operator)
-    (validateStagedCallableValueRecipe path info).
+  validateLeftSectionOperator = \(context, path, info, left, operator) -> listConcat
+    [ validateLeftSectionOperatorContract context path info left operator,
+      resolvedOperatorCallableShapeFailures context path 1 operator,
+      validateStagedCallableValueRecipe path info
+    ].
 
   rightSectionOperandRecipeFailures :: TypedCoreValidationPath -> TypedType -> TypedRepresentationRecipe -> TypedType -> TypedNodeInfo -> [TypedCoreValidationFailure].
   rightSectionOperandRecipeFailures = \(path, operatorType, operatorRecipe, expectedType, actualInfo) ->
@@ -3675,9 +3677,11 @@ module TypedCoreValidate (
   }.
 
   validateRightSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> [TypedCoreValidationFailure].
-  validateRightSectionOperator = \(context, path, info, operator, right) -> listAppend
-    (validateRightSectionOperatorContract context path info operator right)
-    (validateStagedCallableValueRecipe path info).
+  validateRightSectionOperator = \(context, path, info, operator, right) -> listConcat
+    [ validateRightSectionOperatorContract context path info operator right,
+      resolvedOperatorCallableShapeFailures context path 1 operator,
+      validateStagedCallableValueRecipe path info
+    ].
 
   terminalExpressionInfo :: [TypedStatement] -> Maybe(TypedNodeInfo).
   terminalExpressionInfo = \(statements) -> case listReverse statements {
