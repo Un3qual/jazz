@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,6 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 CHECKER = REPOSITORY_ROOT / "scripts/check-docs-pages-workflow.py"
 WORKFLOW = Path(".github/workflows/docs-pages.yml")
-PNPM_ACTION = "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
 
 
 class DocsPagesWorkflowTests(unittest.TestCase):
@@ -41,6 +41,13 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assertIn(old, source)
         self.workflow.write_text(source.replace(old, new, 1), encoding="utf-8")
 
+    def replace_action(self, name: str, reference: str) -> None:
+        source = self.workflow.read_text(encoding="utf-8")
+        pattern = re.compile(rf"(?m)^(\s*uses:\s+){re.escape(name)}@[^\s#]+")
+        self.assertRegex(source, pattern)
+        updated = pattern.sub(rf"\g<1>{name}@{reference}", source, count=1)
+        self.workflow.write_text(updated, encoding="utf-8")
+
     def assert_violation(self, message: str) -> None:
         result = self.run_checker()
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
@@ -60,8 +67,13 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assert_violation("required workflow setting is missing")
 
     def test_actions_must_use_immutable_commits(self) -> None:
-        self.replace(PNPM_ACTION, "pnpm/action-setup@v6")
+        self.replace_action("pnpm/action-setup", "v4")
         self.assert_violation("action must use an immutable commit")
+
+    def test_approved_actions_accept_updated_immutable_commits(self) -> None:
+        self.replace_action("pnpm/action-setup", "0" * 40)
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_checkout_must_not_persist_credentials(self) -> None:
         self.replace("persist-credentials: false", "persist-credentials: true")
@@ -127,15 +139,11 @@ class DocsPagesWorkflowTests(unittest.TestCase):
             "      - name: Check generated publication boundary\n"
             "        run: python3 scripts/check-website-boundary.py --build-directory website/build\n\n"
         )
-        upload = (
-            "      - name: Upload GitHub Pages artifact\n"
-            "        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0\n"
-            "        with:\n"
-            "          path: website/build\n"
-        )
         source = self.workflow.read_text(encoding="utf-8")
         self.assertIn(boundary, source)
-        self.assertIn(upload, source)
+        upload_start = source.index("      - name: Upload GitHub Pages artifact\n")
+        upload_end = source.index("\n\n  deploy:", upload_start)
+        upload = source[upload_start:upload_end]
         source = source.replace(boundary, "", 1).replace(upload, upload + "\n" + boundary, 1)
         self.workflow.write_text(source, encoding="utf-8")
         self.assert_violation("workflow steps are out of publication order")

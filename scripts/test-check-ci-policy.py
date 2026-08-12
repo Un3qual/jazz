@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -998,6 +999,21 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "      - uses: actions/cache@v6.1.0\n",
         )
         self.assert_violation("workflow action must use an immutable commit")
+
+    def test_approved_action_accepts_an_updated_immutable_revision(self) -> None:
+        path = self.root / ".github/workflows/ci-pr.yml"
+        contents, replacements = re.subn(
+            r"(actions/cache@)[0-9a-f]{40}",
+            r"\g<1>1111111111111111111111111111111111111111",
+            path.read_text(encoding="utf-8"),
+            count=1,
+        )
+        self.assertEqual(1, replacements)
+        path.write_text(contents, encoding="utf-8")
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_every_checkout_disables_persisted_credentials(self) -> None:
         self.write(
@@ -2116,7 +2132,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
         requirements = (
             ("timeout-minutes: 480", "release job must have a 480-minute timeout"),
             ("cachix/install-nix-action@v31", "release job must install Nix"),
-            ("pnpm/action-setup@v6.0.10", "release job must use pnpm/action-setup@v6.0.10"),
+            ("pnpm/action-setup@v6.0.10", "release job must use pnpm/action-setup"),
             ("version: 11.18.0", "release job must use pnpm 11.18.0"),
             ("actions/setup-node@v7.0.0", "release job must set up Node.js"),
             ("node-version: 22", "release job must use Node 22"),
@@ -2129,7 +2145,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "nix develop --command bash scripts/release/build-alpha.sh",
                 "release job must invoke scripts/release/build-alpha.sh",
             ),
-            ("actions/upload-artifact@v7.0.1", "release workflow must upload verified artifacts with actions/upload-artifact@v7.0.1"),
+            ("actions/upload-artifact@v7.0.1", "release workflow must upload verified artifacts with actions/upload-artifact"),
             ("if-no-files-found: error", "release artifact upload must fail when files are missing"),
             ("retention-days: 30", "release artifact upload must retain artifacts for 30 days"),
         )
@@ -2285,9 +2301,9 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ),
             (
                 "cachix/install-nix-action@v31",
-                "extended job must use cachix/install-nix-action@v31",
+                "extended job must use cachix/install-nix-action",
             ),
-            ("actions/cache@v6.1.0", "extended job must use actions/cache@v6.1.0"),
+            ("actions/cache@v6.1.0", "extended job must use actions/cache"),
             ("~/.cabal/store", "extended cache must include ~/.cabal/store"),
             ("dist-newstyle", "extended cache must include dist-newstyle"),
             (
@@ -2368,7 +2384,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ),
             (
                 "actions/upload-artifact@v7.0.1",
-                "extended evidence upload must use actions/upload-artifact@v7.0.1",
+                "extended evidence upload must use actions/upload-artifact",
             ),
             (
                 "extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -2592,8 +2608,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_main_job_requires_timeout_nix_safe_caches_and_owned_script(self) -> None:
         for old, expected in (
             ("timeout-minutes: 60", "main ordinary job must have a 60-minute timeout"),
-            ("cachix/install-nix-action@v31", "main ordinary job must use cachix/install-nix-action@v31"),
-            ("actions/cache@v6.1.0", "main ordinary job must use actions/cache@v6.1.0"),
+            ("cachix/install-nix-action@v31", "main ordinary job must use cachix/install-nix-action"),
+            ("actions/cache@v6.1.0", "main ordinary job must use actions/cache"),
             ("~/.cabal/store", "main ordinary cache must include ~/.cabal/store"),
             ("dist-newstyle", "main ordinary cache must include dist-newstyle"),
             ("runner.os", "main ordinary cache key must include runner.os"),
@@ -2650,7 +2666,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             (
                 "uses: actions/upload-artifact@v7.0.1",
                 "uses: actions/upload-artifact@v3",
-                "main workflow must use actions/upload-artifact@v7.0.1 for ordinary logs",
+                "main workflow must use actions/upload-artifact for ordinary logs",
             ),
             (
                 "path: artifacts/ordinary-test-logs",
@@ -2837,7 +2853,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
 
     def test_changes_job_requires_paths_filter_and_compiler_output(self) -> None:
         for old, expected in (
-            ("dorny/paths-filter@v4.0.3", "changes job must use dorny/paths-filter@v4.0.3"),
+            ("dorny/paths-filter@v4.0.3", "changes job must use dorny/paths-filter"),
             ("predicate-quantifier: every", "changes job must apply every docs-only exclusion"),
             (
                 "compiler: ${{ steps.filter.outputs.compiler }}",
@@ -2882,7 +2898,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_docs_job_requires_pinned_tools_node_cache_install_and_all_checks(self) -> None:
         for old, expected in (
             ("cachix/install-nix-action@v31", "docs-and-site job must install the pinned Nix documentation toolchain"),
-            ("pnpm/action-setup@v6.0.10", "docs-and-site job must use pnpm/action-setup@v6.0.10"),
+            ("pnpm/action-setup@v6.0.10", "docs-and-site job must use pnpm/action-setup"),
             ("version: 11.18.0", "docs-and-site job must use pnpm 11.18.0"),
             ("node-version: 22", "docs-and-site job must use Node 22"),
             ("cache: pnpm", "docs-and-site job must use the pnpm cache"),
@@ -2934,8 +2950,8 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for old, expected in (
             ("if: needs.changes.outputs.compiler == 'true'", "compiler-fast job must run only for compiler-relevant changes"),
             ("timeout-minutes: 30", "compiler-fast job must have a 30-minute timeout"),
-            ("cachix/install-nix-action@v31", "compiler-fast job must use cachix/install-nix-action@v31"),
-            ("actions/cache@v6.1.0", "compiler-fast job must use actions/cache@v6.1.0"),
+            ("cachix/install-nix-action@v31", "compiler-fast job must use cachix/install-nix-action"),
+            ("actions/cache@v6.1.0", "compiler-fast job must use actions/cache"),
             ("~/.cabal/store", "compiler-fast cache must include ~/.cabal/store"),
             ("dist-newstyle", "compiler-fast cache must include dist-newstyle"),
             ("runner.os", "compiler-fast cache key must include runner.os"),

@@ -12,6 +12,164 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const websiteDirectory = path.resolve(scriptDirectory, '..');
 const imageDirectory = path.join(websiteDirectory, 'static/img');
 const rendererPath = path.join(scriptDirectory, 'render-social-card.mjs');
+const bellhookCenterline = 'M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295';
+const wordmarkPaths = [
+  'M535 92H615V300C615 362 577 396 519 396C499 396 481 392 466 386L480 326C491 330 502 332 513 332C528 332 535 321 535 300Z',
+  'M635 390L710 92H780L857 390H783L771 337H702L690 390ZM715 278H758L737 183Z',
+  'M865 92H1008V154L939 327H1011V390H857V329L929 157H865Z',
+  'M1018 92H1161V154L1092 327H1164V390H1010V329L1082 157H1018Z',
+];
+const vectorSurfaceColors = new Map([
+  ['jazz-mark.svg', '#24182C'],
+  ['jazz-mark-dark.svg', '#F3EDDF'],
+  ['jazz-wordmark.svg', '#24182C'],
+  ['jazz-wordmark-dark.svg', '#F3EDDF'],
+  ['favicon.svg', '#F3EDDF'],
+  ['social-card.svg', '#F3EDDF'],
+]);
+const wordmarkContracts = new Map([
+  ['jazz-wordmark.svg', {
+    surfaceColor: '#24182C',
+    width: 1200,
+    height: 480,
+    wrapperTransform: null,
+  }],
+  ['jazz-wordmark-dark.svg', {
+    surfaceColor: '#F3EDDF',
+    width: 1200,
+    height: 480,
+    wrapperTransform: null,
+  }],
+  ['social-card.svg', {
+    surfaceColor: '#F3EDDF',
+    width: 1200,
+    height: 630,
+    wrapperTransform: 'translate(108 90) scale(.82)',
+  }],
+]);
+
+function wordmarkGroupParts(source, assetName) {
+  const groupMatches = [
+    ...source.matchAll(/<g\b([^>]*\bdata-role="wordmark"[^>]*)>([\s\S]*?)<\/g>/g),
+  ];
+  assert.equal(
+    groupMatches.length,
+    1,
+    `${assetName} must expose exactly one rendered wordmark group`,
+  );
+  const [, attributes, contents] = groupMatches[0];
+  return {attributes, contents};
+}
+
+function assertWordmarkGroupAttributes(attributes, assetName, surfaceColor) {
+  assert.match(
+    attributes,
+    new RegExp(`\\bfill="${surfaceColor}"`),
+    `${assetName} uses the wrong wordmark surface color`,
+  );
+  assert.match(
+    attributes,
+    /\btransform="translate\(-39 0\)"/,
+    `${assetName} must keep the approved wordmark placement`,
+  );
+  assert.doesNotMatch(
+    attributes,
+    /\b(?:display|visibility|opacity|style|filter|mask|clip-path)=/,
+    `${assetName} must not hide or restyle its wordmark group`,
+  );
+}
+
+function wordmarkPathAttributes(contents, assetName) {
+  const pathElements = [...contents.matchAll(/<path\b([^>]*)\/>/g)];
+  assert.equal(
+    contents.replace(/<path\b[^>]*\/>/g, '').trim(),
+    '',
+    `${assetName} wordmark group must contain only approved letter paths`,
+  );
+  assert.equal(
+    pathElements.length,
+    wordmarkPaths.length,
+    `${assetName} must render exactly four wordmark letters`,
+  );
+  return pathElements.map(([, attributes]) => attributes);
+}
+
+function assertApprovedWordmarkPath(source, assetName, pathAttributes, wordmarkPath) {
+  assert.equal(
+    source.split(wordmarkPath).length - 1,
+    1,
+    `${assetName} must contain each approved letter path exactly once`,
+  );
+  const matchingPaths = pathAttributes.filter((attributes) =>
+    attributes.includes(`d="${wordmarkPath}"`),
+  );
+  assert.equal(
+    matchingPaths.length,
+    1,
+    `${assetName} must render each approved letter path exactly once`,
+  );
+  assert.doesNotMatch(
+    matchingPaths[0],
+    /\b(?:fill|stroke|transform|display|visibility|opacity|style|filter|mask|clip-path)=/,
+    `${assetName} letter paths must inherit the visible wordmark treatment`,
+  );
+}
+
+function assertApprovedWordmarkGroup(source, assetName, surfaceColor) {
+  const {attributes, contents} = wordmarkGroupParts(source, assetName);
+  assertWordmarkGroupAttributes(attributes, assetName, surfaceColor);
+  const pathAttributes = wordmarkPathAttributes(contents, assetName);
+  for (const wordmarkPath of wordmarkPaths) {
+    assertApprovedWordmarkPath(source, assetName, pathAttributes, wordmarkPath);
+  }
+}
+
+async function assertRenderedWordmark(source, assetName, contract) {
+  const pathSource = wordmarkPaths
+    .map((wordmarkPath, index) =>
+      `<path d="${wordmarkPath}"${index === 1 ? ' fill-rule="evenodd"' : ''}/>`)
+    .join('');
+  const wordmarkGroup =
+    `<g transform="translate(-39 0)" fill="${contract.surfaceColor}">${pathSource}</g>`;
+  const referenceContents = contract.wrapperTransform === null
+    ? wordmarkGroup
+    : `<g transform="${contract.wrapperTransform}">${wordmarkGroup}</g>`;
+  const referenceSvg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${contract.width}" height="${contract.height}" viewBox="0 0 ${contract.width} ${contract.height}">${referenceContents}</svg>`,
+  );
+  const [reference, rendered] = await Promise.all([
+    sharp(referenceSvg).ensureAlpha().raw().toBuffer({resolveWithObject: true}),
+    sharp(Buffer.from(source)).ensureAlpha().raw().toBuffer({resolveWithObject: true}),
+  ]);
+  assert.equal(rendered.info.width, contract.width);
+  assert.equal(rendered.info.height, contract.height);
+
+  const expectedColor = [
+    Number.parseInt(contract.surfaceColor.slice(1, 3), 16),
+    Number.parseInt(contract.surfaceColor.slice(3, 5), 16),
+    Number.parseInt(contract.surfaceColor.slice(5, 7), 16),
+  ];
+  let opaqueReferencePixels = 0;
+  let mismatchedPixels = 0;
+  for (let offset = 0; offset < reference.data.length; offset += reference.info.channels) {
+    if (reference.data[offset + 3] !== 255) continue;
+    opaqueReferencePixels += 1;
+    if (
+      rendered.data[offset] !== expectedColor[0]
+      || rendered.data[offset + 1] !== expectedColor[1]
+      || rendered.data[offset + 2] !== expectedColor[2]
+      || rendered.data[offset + 3] !== 255
+    ) {
+      mismatchedPixels += 1;
+    }
+  }
+  assert.ok(opaqueReferencePixels > 80000, `${assetName} reference wordmark is incomplete`);
+  assert.equal(
+    mismatchedPixels,
+    0,
+    `${assetName} does not visibly render the approved wordmark geometry and color`,
+  );
+}
 
 async function copySynchronizedSocialCard(renderer, directory) {
   const committedPath = path.join(imageDirectory, 'social-card.svg');
@@ -46,6 +204,55 @@ async function transparentBounds(assetName) {
   }
   return {minX, minY, maxX, maxY, width: info.width, height: info.height};
 }
+
+test('every vector logo uses the approved balanced wide-bold Bellhook geometry', async () => {
+  for (const [assetName, surfaceColor] of vectorSurfaceColors) {
+    const source = await readFile(path.join(imageDirectory, assetName), 'utf8');
+    assert.equal(
+      source.split(bellhookCenterline).length - 1,
+      2,
+      `${assetName} must contain the approved centerline exactly twice`,
+    );
+    assert.match(source, /stroke-width="120"/);
+    assert.match(source, /stroke-width="72"/);
+    assert.match(source, /stop-color="#FFE66A"/);
+    assert.match(source, /stop-color="#FFC43D"/);
+    assert.match(source, /stop-color="#F47A32"/);
+    assert.ok(
+      source.includes(
+        `d="${bellhookCenterline}" fill="none" stroke="${surfaceColor}" stroke-width="120"`,
+      ),
+      `${assetName} uses the wrong surface-specific Bellhook edge`,
+    );
+    assert.doesNotMatch(source, /stroke-width="38"|#D49A35/);
+    assert.doesNotMatch(
+      source,
+      /<(?:filter|mask|image|script|style|symbol|text|use)\b|href=|\b(?:display|visibility|opacity|style|filter|mask|clip-path)=/,
+    );
+  }
+});
+
+test('wordmark surfaces render the approved matched Jazz lettering', async () => {
+  for (const [assetName, contract] of wordmarkContracts) {
+    const source = await readFile(path.join(imageDirectory, assetName), 'utf8');
+    assertApprovedWordmarkGroup(source, assetName, contract.surfaceColor);
+    await assertRenderedWordmark(source, assetName, contract);
+  }
+});
+
+test('wordmark validation rejects extra children outside the approved letters', async () => {
+  const source = await readFile(path.join(imageDirectory, 'jazz-wordmark.svg'), 'utf8');
+  const firstLetter = `<path d="${wordmarkPaths[0]}"/>`;
+  const malformedSource = source.replace(
+    firstLetter,
+    `<circle cx="1180" cy="460" r="8"/>${firstLetter}`,
+  );
+  assert.notEqual(malformedSource, source, 'wordmark mutation did not apply');
+  assert.throws(
+    () => assertApprovedWordmarkGroup(malformedSource, 'malformed-wordmark.svg', '#24182C'),
+    /must contain only approved letter paths/,
+  );
+});
 
 test('standalone marks and wordmarks retain transparent canvas padding', async () => {
   for (const assetName of [
