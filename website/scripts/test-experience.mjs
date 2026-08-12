@@ -136,6 +136,28 @@ test('homepage styling encodes the motion, focus, target, and full-bleed contrac
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
+test('homepage brand mark preserves its intrinsic aspect ratio at every breakpoint', () => {
+  const pageCss = read('website/src/pages/index.module.css');
+  const brandMarkDeclarations = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) =>
+      selectors
+        .split(',')
+        .some((selector) => selector.trim() === '.brandMark'),
+    )
+    .map(([, , declarations]) => declarations);
+
+  assert.ok(brandMarkDeclarations.length > 0, 'brandMark styling is missing');
+  assert.ok(
+    brandMarkDeclarations.some((declarations) => /\bwidth\s*:/.test(declarations)),
+    'brandMark needs a responsive width',
+  );
+  for (const declarations of brandMarkDeclarations) {
+    for (const [, height] of declarations.matchAll(/\bheight\s*:\s*([^;]+);/g)) {
+      assert.equal(height.trim(), 'auto', 'brandMark height must follow its intrinsic ratio');
+    }
+  }
+});
+
 test('documentation layout reserves width only for a rendered desktop TOC', () => {
   const layout = read('website/src/theme/DocItem/Layout/index.tsx');
   const layoutCss = read('website/src/theme/DocItem/Layout/styles.module.css');
