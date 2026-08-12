@@ -14,8 +14,7 @@ module Jazz.Compiler.ModuleRuntime
 
 import Control.Monad.Trans.Except
   ( ExceptT (..),
-    runExceptT,
-    throwE
+    runExceptT
   )
 import Data.Functor.Identity (runIdentity)
 import Data.Map.Strict (Map)
@@ -49,7 +48,7 @@ import Jazz.Compiler.ModuleInterface
     CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
-    compiledProgramErrors,
+    firstCompiledProgramError,
     moduleInterfaceExportInventory
   )
 import Jazz.Compiler.Name
@@ -132,13 +131,10 @@ evaluateCompiledProgramObserved observationRequest compiledProgram =
   runIdentity
     (evaluateCompiledProgramWithHostObserved observationRequest disabledRuntimeHost compiledProgram)
 
-evaluateCompiledProgramPure :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgramPure compiledProgram =
-  case compiledProgramErrors compiledProgram of
-    firstError : _ -> Left firstError
-    [] -> do
-      ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
-      evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+evaluateCompiledProgramPureUnchecked :: CompiledProgram -> Either Diagnostic RuntimeProgram
+evaluateCompiledProgramPureUnchecked compiledProgram = do
+  ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
+  evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
     compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
@@ -221,9 +217,9 @@ evaluateCompiledProgramWithHostObserved ::
   m (RuntimeObservationResult RuntimeProgram)
 evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
   {-# SCC "jazz-stage:evaluation" #-}
-  case compiledProgramErrors compiledProgram of
-    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
-    [] ->
+  case firstCompiledProgramError compiledProgram of
+    Just firstError -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
+    Nothing ->
       case observationRequest of
         RuntimeObservationDisabled -> do
           outcome <- evaluateCompiledProgramWithHostUnobserved host compiledProgram
@@ -231,7 +227,7 @@ evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram 
         _ -> do
           (outcome, observationState) <-
             runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-              evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
+              evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram
           pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateCompiledProgramWithHostUnobserved ::
@@ -244,21 +240,18 @@ evaluateCompiledProgramWithHostUnobserved host compiledProgram =
     then
       runtimeControlOutcome
         <$> runRuntimeHostEvaluation host (\evaluationHost ->
-          evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram)
-    else pure (diagnosticResultOutcome (evaluateCompiledProgramPure compiledProgram))
+          evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram)
+    else pure (diagnosticResultOutcome (evaluateCompiledProgramPureUnchecked compiledProgram))
 
-evaluateCompiledProgramWithEvaluationHost ::
+evaluateCompiledProgramWithEvaluationHostUnchecked ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledProgram ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
-evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
-  runExceptT $
-    case compiledProgramErrors compiledProgram of
-      firstError : _ -> throwE (RuntimeDiagnostic firstError)
-      [] -> do
-        ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-        evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram =
+  runExceptT $ do
+    ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
+    evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
     compiledModulesByPath = buildCompiledModulePathIndex compiledProgram

@@ -13,6 +13,7 @@ module Jazz.Compiler.ModuleInterface
     compiledProgramDiagnostics,
     compiledProgramErrors,
     compiledProgramWarnings,
+    firstCompiledProgramError,
     ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
@@ -157,6 +158,26 @@ compiledProgramWarnings = filter isWarningDiagnostic . compiledProgramDiagnostic
 
 compiledProgramErrors :: CompiledProgram -> [Diagnostic]
 compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
+
+firstCompiledProgramError :: CompiledProgram -> Maybe Diagnostic
+firstCompiledProgramError compiledProgram =
+  case firstError (compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)) of
+    Just diagnostic -> Just diagnostic
+    Nothing -> firstModuleError (compiledProgramModules compiledProgram)
+  where
+    firstError diagnostics =
+      case diagnostics of
+        [] -> Nothing
+        diagnostic : rest
+          | isErrorDiagnostic diagnostic -> Just diagnostic
+          | otherwise -> firstError rest
+    firstModuleError compiledModules =
+      case compiledModules of
+        [] -> Nothing
+        compiledModule : rest ->
+          case firstError (compiledModuleDiagnostics compiledModule) of
+            Just diagnostic -> Just diagnostic
+            Nothing -> firstModuleError rest
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,

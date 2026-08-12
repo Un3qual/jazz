@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.StageInputs
-  ( PreparedBenchmark (PreparedAnalysis),
-    PreparedCompilerScaleBenchmark (PreparedCompilerScaleAnalysis),
+  ( PreparedBenchmark,
+    PreparedCompilerScaleBenchmark,
     prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
@@ -14,6 +14,7 @@ where
 
 import Control.DeepSeq (NFData (rnf))
 import Control.Exception (evaluate)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Benchmark.Force
@@ -29,6 +30,7 @@ import Jazz.Benchmark.Force
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
+    forceTypedProgram,
     forceTokens,
   )
 import Jazz.Benchmark.ScaleCases
@@ -108,68 +110,62 @@ import Jazz.ProgramCorpus.Runner
     runProgramCase,
   )
 import Jazz.ProgramCorpus.Types
-  ( ProgramCase (..),
+  ( ProgramBudgets (..),
+    ProgramCase (..),
     ProgramTermination (..),
   )
 
 data PreparedBenchmark
-  = PreparedParseLower ProgramCase Text
-  | PreparedAnalysis ProgramCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
+  = PreparedParseLower Text
+  | PreparedAnalysis CompileInputs [CompiledModule] ResolvedModule
   | PreparedModulePreparation ProgramCase
-  | PreparedRuntime ProgramCase CompiledProgram
+  | PreparedRuntime ExpectedProgramBehavior CompiledProgram
   | PreparedWholeProgram ProgramCase
 
 data PreparedCompilerScaleBenchmark
-  = PreparedCompilerScaleParseLower CompilerScaleCase Text
-  | PreparedCompilerScaleAnalysis CompilerScaleCase CompiledProgram CompileInputs [CompiledModule] ResolvedModule
+  = PreparedCompilerScaleParseLower Text
+  | PreparedCompilerScaleAnalysis CompileInputs [CompiledModule] ResolvedModule
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
-  | PreparedCompilerScaleRuntime CompilerScaleCase CompiledProgram
-  | PreparedCompilerScaleLoweredValidation CompilerScaleCase LoweredProgram
-  | PreparedCompilerScaleTypedValidation CompilerScaleCase TypedProgram
-  | PreparedCompilerScaleTypedLowering CompilerScaleCase TypedProgram
-  | PreparedCompilerScaleDiagnosticAnalysis CompilerScaleCase Expr Int
+  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput CompiledProgram
+  | PreparedCompilerScaleLoweredValidation LoweredProgram
+  | PreparedCompilerScaleTypedValidation TypedProgram
+  | PreparedCompilerScaleTypedLowering TypedProgram
+  | PreparedCompilerScaleDiagnosticAnalysis Expr Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
+
+data ExpectedProgramBehavior = ExpectedProgramBehavior Text ProgramTermination Text
+
+data ExpectedCompilerScaleOutput = ExpectedCompilerScaleOutput Text Text
 
 instance NFData PreparedBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
-      PreparedParseLower programCase source ->
-        programCaseIdentifier programCase `seq` Text.length source `seq` ()
-      PreparedAnalysis programCase compiledProgram inputs dependencies resolvedModule ->
-        programCaseIdentifier programCase `seq`
-          forceCompiledProgram compiledProgram `seq`
-            inputs `seq`
-              forceCompiledModules dependencies `seq`
-                forceResolvedModule resolvedModule `seq`
-                  ()
-      PreparedModulePreparation programCase -> programCaseIdentifier programCase `seq` ()
-      PreparedRuntime programCase compiledProgram ->
-        programCaseIdentifier programCase `seq` forceCompiledProgram compiledProgram
-      PreparedWholeProgram programCase -> programCaseIdentifier programCase `seq` ()
+      PreparedParseLower source -> Text.length source `seq` ()
+      PreparedAnalysis inputs dependencies resolvedModule ->
+        inputs `seq`
+          forceCompiledModules dependencies `seq`
+            forceResolvedModule resolvedModule
+      PreparedModulePreparation programCase -> forceProgramCase programCase
+      PreparedRuntime expectedBehavior compiledProgram ->
+        forceExpectedProgramBehavior expectedBehavior `seq` forceCompiledProgram compiledProgram
+      PreparedWholeProgram programCase -> forceProgramCase programCase
 
 instance NFData PreparedCompilerScaleBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
-      PreparedCompilerScaleParseLower programCase source ->
-        rnf programCase `seq` Text.length source `seq` ()
-      PreparedCompilerScaleAnalysis programCase compiledProgram inputs dependencies resolvedModule ->
-        rnf programCase `seq`
-          forceCompiledProgram compiledProgram `seq`
-            inputs `seq`
-              forceCompiledModules dependencies `seq`
-                forceResolvedModule resolvedModule `seq`
-                  ()
+      PreparedCompilerScaleParseLower source -> Text.length source `seq` ()
+      PreparedCompilerScaleAnalysis inputs dependencies resolvedModule ->
+        inputs `seq`
+          forceCompiledModules dependencies `seq`
+            forceResolvedModule resolvedModule
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
-      PreparedCompilerScaleRuntime programCase compiledProgram ->
-        rnf programCase `seq` forceCompiledProgram compiledProgram
-      PreparedCompilerScaleLoweredValidation programCase loweredProgram ->
-        rnf programCase `seq` forceLoweredProgram loweredProgram
-      PreparedCompilerScaleTypedValidation programCase typedProgram ->
-        rnf programCase `seq` forceTypedProgramArtifact typedProgram
-      PreparedCompilerScaleTypedLowering programCase typedProgram ->
-        rnf programCase `seq` forceTypedProgramArtifact typedProgram
-      PreparedCompilerScaleDiagnosticAnalysis programCase expression expectedDiagnosticCount ->
-        rnf programCase `seq` forceExpr expression `seq` rnf expectedDiagnosticCount
+      PreparedCompilerScaleRuntime expectedOutput compiledProgram ->
+        forceExpectedCompilerScaleOutput expectedOutput `seq` forceCompiledProgram compiledProgram
+      PreparedCompilerScaleLoweredValidation loweredProgram -> forceLoweredProgram loweredProgram
+      PreparedCompilerScaleTypedValidation typedProgram -> forceTypedProgram typedProgram
+      PreparedCompilerScaleTypedLowering typedProgram -> forceTypedProgram typedProgram
+      PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
+        forceExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
@@ -184,7 +180,7 @@ prepareBenchmark benchmarkGroup programCase =
             Right loadedSource -> do
               _ <- evaluate (Text.length loadedSource)
               pure loadedSource
-      pure (PreparedParseLower programCase source)
+      prepareFully (PreparedParseLower source)
     AnalysisBenchmark -> do
       compiledProgram <- prepareValidProgram programCase
       resolvedProgram <-
@@ -199,20 +195,25 @@ prepareBenchmark benchmarkGroup programCase =
               ((/= entryPath) . compiledModulePath)
               (compiledProgramModules compiledProgram)
           inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
-      pure
+      prepareFully
         ( PreparedAnalysis
-            programCase
-            compiledProgram
             inputs
             dependencies
             entryModule
         )
-    ModulePreparationBenchmark -> pure (PreparedModulePreparation programCase)
+    ModulePreparationBenchmark -> prepareFully (PreparedModulePreparation programCase)
+    DiagnosticAnalysisBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     TypedValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     LoweredValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
-    RuntimeBenchmark -> PreparedRuntime programCase <$> prepareValidProgram programCase
-    WholeProgramBenchmark -> pure (PreparedWholeProgram programCase)
+    RuntimeBenchmark -> do
+      compiledProgram <- prepareValidProgram programCase
+      prepareFully
+        ( PreparedRuntime
+            (expectedProgramBehavior programCase)
+            compiledProgram
+        )
+    WholeProgramBenchmark -> prepareFully (PreparedWholeProgram programCase)
 
 prepareCompilerScaleBenchmark :: BenchmarkGroup -> CompilerScaleCase -> IO PreparedCompilerScaleBenchmark
 prepareCompilerScaleBenchmark benchmarkGroup programCase =
@@ -228,82 +229,81 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                   )
               )
           Just value -> evaluate (Text.length value) >> pure value
-      pure (PreparedCompilerScaleParseLower programCase source)
-    AnalysisBenchmark ->
-      case compilerScaleCaseScenario programCase of
-        AnalyzerDiagnosticChain -> do
-          let expression = analyzerDiagnosticChainExpression (compilerScaleCaseSize programCase)
-          evaluate (forceExpr expression)
-          pure
-            ( PreparedCompilerScaleDiagnosticAnalysis
-                programCase
-                expression
-                (compilerScaleCaseSize programCase)
-            )
-        _ -> do
-          compiledProgram <- prepareValidCompilerScaleProgram programCase
-          resolvedProgram <-
-            resolveBenchmarkProgram
-              (compilerScaleCaseResolutionConfig programCase)
-              (compilerScaleCaseEntryModulePath programCase)
-              (pure . compilerScaleCaseSource programCase)
-          entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
-          let entryPath = compiledProgramEntryPath compiledProgram
-              dependencies =
-                filter
-                  ((/= entryPath) . compiledModulePath)
-                  (compiledProgramModules compiledProgram)
-              inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
-          pure
-            ( PreparedCompilerScaleAnalysis
-                programCase
-                compiledProgram
-                inputs
-                dependencies
-                entryModule
-            )
-    ModulePreparationBenchmark -> pure (PreparedCompilerScaleModulePreparation programCase)
+      prepareFully (PreparedCompilerScaleParseLower source)
+    AnalysisBenchmark -> do
+      compiledProgram <- prepareValidCompilerScaleProgram programCase
+      resolvedProgram <-
+        resolveBenchmarkProgram
+          (compilerScaleCaseResolutionConfig programCase)
+          (compilerScaleCaseEntryModulePath programCase)
+          (pure . compilerScaleCaseSource programCase)
+      entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
+      let entryPath = compiledProgramEntryPath compiledProgram
+          dependencies =
+            filter
+              ((/= entryPath) . compiledModulePath)
+              (compiledProgramModules compiledProgram)
+          inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
+      prepareFully
+        ( PreparedCompilerScaleAnalysis
+            inputs
+            dependencies
+            entryModule
+        )
+    DiagnosticAnalysisBenchmark ->
+      case diagnosticAnalysisInput (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase) of
+        Left message -> unsupportedCompilerScaleGroup benchmarkGroup programCase message
+        Right (expression, expectedDiagnosticCount) ->
+          prepareFully
+            (PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount)
+    ModulePreparationBenchmark -> prepareFully (PreparedCompilerScaleModulePreparation programCase)
     TypedValidationBenchmark -> do
-      let typedProgram =
-            case compilerScaleCaseScenario programCase of
-              TypedRecursiveStatementGraph ->
-                typedRecursiveStatementGraphProgram (compilerScaleCaseSize programCase)
-              TypedWideExportProviders ->
-                typedWideExportProvidersProgram (compilerScaleCaseSize programCase)
-              _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
-      evaluate (forceTypedProgramArtifact typedProgram)
+      typedProgram <-
+        fromDirectArtifact
+          benchmarkGroup
+          programCase
+          (typedValidationProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
+      evaluate (forceTypedProgram typedProgram)
       case validateTypedProgram typedProgram of
-        [] -> pure (PreparedCompilerScaleTypedValidation programCase typedProgram)
+        [] -> prepareFully (PreparedCompilerScaleTypedValidation typedProgram)
         failures ->
           ioError (userError ("typed validation scale fixture is invalid: " <> show failures))
     LoweredValidationBenchmark -> do
-      let loweredProgram = loweredTemporaryValidationProgram (compilerScaleCaseSize programCase)
+      loweredProgram <-
+        fromDirectArtifact
+          benchmarkGroup
+          programCase
+          (loweredValidationProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
       evaluate (forceLoweredProgram loweredProgram)
       case validateLoweredProgram loweredProgram of
-        [] -> pure (PreparedCompilerScaleLoweredValidation programCase loweredProgram)
+        [] -> prepareFully (PreparedCompilerScaleLoweredValidation loweredProgram)
         failures ->
           ioError (userError ("lowered validation scale fixture is invalid: " <> show failures))
     TypedLoweringBenchmark -> do
-      let typedProgram =
-            case compilerScaleCaseScenario programCase of
-              TypedForwardSignedFunctions ->
-                typedForwardSignedFunctionsProgram (compilerScaleCaseSize programCase)
-              _ -> typedValidationBenchmarkProgram (compilerScaleCaseSize programCase)
-      evaluate (forceTypedProgramArtifact typedProgram)
+      typedProgram <-
+        fromDirectArtifact
+          benchmarkGroup
+          programCase
+          (typedLoweringProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
+      evaluate (forceTypedProgram typedProgram)
       case validateTypedProgram typedProgram of
-        [] -> pure (PreparedCompilerScaleTypedLowering programCase typedProgram)
+        [] -> prepareFully (PreparedCompilerScaleTypedLowering typedProgram)
         failures ->
           ioError (userError ("typed-lowering scale fixture is invalid: " <> show failures))
-    WholeProgramBenchmark -> pure (PreparedCompilerScaleWholeProgram programCase)
+    WholeProgramBenchmark -> prepareFully (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
       compiledProgram <- prepareValidCompilerScaleProgram programCase
-      pure (PreparedCompilerScaleRuntime programCase compiledProgram)
+      prepareFully
+        ( PreparedCompilerScaleRuntime
+            (expectedCompilerScaleOutput programCase)
+            compiledProgram
+        )
 
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
 runPreparedBenchmark preparedBenchmark =
   case preparedBenchmark of
-    PreparedParseLower _ source -> runParseLower source
-    PreparedAnalysis _ _ inputs dependencies resolvedModule -> do
+    PreparedParseLower source -> runParseLower source
+    PreparedAnalysis inputs dependencies resolvedModule -> do
       compiledModule <-
         withCompilerStage TypeInferenceStage $ do
           value <- compileResolvedModule inputs dependencies resolvedModule
@@ -319,11 +319,11 @@ runPreparedBenchmark preparedBenchmark =
       case compiledResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right compiledProgram -> requireNoCompileErrors compiledProgram
-    PreparedRuntime programCase compiledProgram ->
+    PreparedRuntime expectedBehavior compiledProgram ->
       withCompilerStage EvaluationStage $ do
         let runtimeResult = evaluateCompiledProgram compiledProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
-        requireExpectedRuntimeResult programCase runtimeResult
+        requireExpectedRuntimeResult expectedBehavior runtimeResult
     PreparedWholeProgram programCase -> do
       result <- runProgramCase programCase
       evaluate (forceProgramCaseResult result)
@@ -332,8 +332,8 @@ runPreparedBenchmark preparedBenchmark =
 runPreparedCompilerScaleBenchmark :: PreparedCompilerScaleBenchmark -> IO ()
 runPreparedCompilerScaleBenchmark preparedBenchmark =
   case preparedBenchmark of
-    PreparedCompilerScaleParseLower _ source -> runParseLower source
-    PreparedCompilerScaleAnalysis _ _ inputs dependencies resolvedModule -> do
+    PreparedCompilerScaleParseLower source -> runParseLower source
+    PreparedCompilerScaleAnalysis inputs dependencies resolvedModule -> do
       compiledModule <-
         withCompilerStage TypeInferenceStage $ do
           value <- compileResolvedModule inputs dependencies resolvedModule
@@ -348,34 +348,36 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
       case compiledResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right compiledProgram -> requireNoCompileErrors compiledProgram
-    PreparedCompilerScaleRuntime programCase compiledProgram ->
+    PreparedCompilerScaleRuntime expectedOutput compiledProgram ->
       withCompilerStage EvaluationStage $ do
         let runtimeResult = evaluateCompiledProgram compiledProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
-        requireExpectedCompilerScaleRuntimeResult programCase runtimeResult
-    PreparedCompilerScaleLoweredValidation _ loweredProgram ->
-      withCompilerStage LoweringStage $
+        requireExpectedCompilerScaleRuntimeResult expectedOutput runtimeResult
+    PreparedCompilerScaleLoweredValidation loweredProgram ->
+      withCompilerStage LoweredIRValidationStage $
         case validateLoweredProgram loweredProgram of
           [] -> pure ()
           failures ->
             ioError (userError ("lowered validation benchmark failed: " <> show failures))
-    PreparedCompilerScaleTypedValidation _ typedProgram ->
-      withCompilerStage TypeInferenceStage $
+    PreparedCompilerScaleTypedValidation typedProgram ->
+      withCompilerStage TypedCoreValidationStage $
         case validateTypedProgram typedProgram of
           [] -> pure ()
           failures ->
             ioError (userError ("typed validation benchmark failed: " <> show failures))
-    PreparedCompilerScaleTypedLowering _ typedProgram ->
-      withCompilerStage LoweringStage $ do
-        case validateTypedProgramOnce typedProgram of
-          Left failures ->
-            ioError (userError ("trusted typed program failed producer validation: " <> show failures))
-          Right validatedProgram ->
-            case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
-              LoweredIRSucceeded loweredProgram -> evaluate (forceLoweredProgram loweredProgram)
-              loweringResult ->
-                ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
-    PreparedCompilerScaleDiagnosticAnalysis _ expression expectedDiagnosticCount ->
+    PreparedCompilerScaleTypedLowering typedProgram -> do
+      validatedProgram <-
+        withCompilerStage TypedCoreValidationStage $
+          case validateTypedProgramOnce typedProgram of
+            Left failures ->
+              ioError (userError ("trusted typed program failed producer validation: " <> show failures))
+            Right value -> pure value
+      withCompilerStage LoweringStage $
+        case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
+          LoweredIRSucceeded loweredProgram -> evaluate (forceLoweredProgram loweredProgram)
+          loweringResult ->
+            ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
+    PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
       withCompilerStage StaticAnalysisStage $ do
         analysisResult <- analyzeProgram defaultWarningSettings expression
         evaluate (forceListWith forceDiagnostic (analysisDiagnostics analysisResult))
@@ -427,6 +429,138 @@ analyzerDiagnosticChainExpression expressionCount =
     [ EVar (sourceName (mkIdentifier ("missing" <> Text.pack (show index))))
     | index <- [0 .. expressionCount - 1]
     ]
+
+diagnosticAnalysisInput :: CompilerScaleScenario -> Int -> Either Text (Expr, Int)
+diagnosticAnalysisInput scenario size =
+  case scenario of
+    AnalyzerDiagnosticChain -> Right (analyzerDiagnosticChainExpression size, size)
+    SequentialPolymorphicBindings -> unsupported
+    WideModuleFanout -> unsupported
+    SharedInterfaceFanout -> unsupported
+    NestedRuntimeApplications -> unsupported
+    RuntimeImportWidth -> unsupported
+    ResolverFactRich -> unsupported
+    TypedValidationHandoff -> unsupported
+    LoweredTemporaryValidation -> unsupported
+    TypedRecursiveStatementGraph -> unsupported
+    TypedForwardSignedFunctions -> unsupported
+    TypedWideExportProviders -> unsupported
+    WideConstructorApplication -> unsupported
+    CapabilityCandidateWidth -> unsupported
+    HostFreeOpaqueEnvironment -> unsupported
+    InterleavedRecursiveGroups -> unsupported
+    RecursivePreviewBursts -> unsupported
+    RecursiveRebindings -> unsupported
+    ConstrainedSignatures -> unsupported
+    DeferredConstraintBursts -> unsupported
+    DeepNestedLambdas -> unsupported
+    LargeOperatorTables -> unsupported
+    NestedBlocks -> unsupported
+    AmbiguousCaseArmPipes -> unsupported
+    LongTokenStream -> unsupported
+    IdentifierTokenStream -> unsupported
+    LiteralTokenStream -> unsupported
+  where
+    unsupported = Left "scenario has no direct analyzer-diagnostic artifact"
+
+typedValidationProgramForScenario :: CompilerScaleScenario -> Int -> Either Text TypedProgram
+typedValidationProgramForScenario scenario size =
+  case scenario of
+    TypedRecursiveStatementGraph -> Right (typedRecursiveStatementGraphProgram size)
+    TypedWideExportProviders -> Right (typedWideExportProvidersProgram size)
+    SequentialPolymorphicBindings -> unsupported
+    WideModuleFanout -> unsupported
+    SharedInterfaceFanout -> unsupported
+    NestedRuntimeApplications -> unsupported
+    RuntimeImportWidth -> unsupported
+    ResolverFactRich -> unsupported
+    TypedValidationHandoff -> unsupported
+    LoweredTemporaryValidation -> unsupported
+    TypedForwardSignedFunctions -> unsupported
+    WideConstructorApplication -> unsupported
+    CapabilityCandidateWidth -> unsupported
+    HostFreeOpaqueEnvironment -> unsupported
+    AnalyzerDiagnosticChain -> unsupported
+    InterleavedRecursiveGroups -> unsupported
+    RecursivePreviewBursts -> unsupported
+    RecursiveRebindings -> unsupported
+    ConstrainedSignatures -> unsupported
+    DeferredConstraintBursts -> unsupported
+    DeepNestedLambdas -> unsupported
+    LargeOperatorTables -> unsupported
+    NestedBlocks -> unsupported
+    AmbiguousCaseArmPipes -> unsupported
+    LongTokenStream -> unsupported
+    IdentifierTokenStream -> unsupported
+    LiteralTokenStream -> unsupported
+  where
+    unsupported = Left "scenario has no direct Typed Core validation artifact"
+
+loweredValidationProgramForScenario :: CompilerScaleScenario -> Int -> Either Text LoweredProgram
+loweredValidationProgramForScenario scenario size =
+  case scenario of
+    LoweredTemporaryValidation -> Right (loweredTemporaryValidationProgram size)
+    SequentialPolymorphicBindings -> unsupported
+    WideModuleFanout -> unsupported
+    SharedInterfaceFanout -> unsupported
+    NestedRuntimeApplications -> unsupported
+    RuntimeImportWidth -> unsupported
+    ResolverFactRich -> unsupported
+    TypedValidationHandoff -> unsupported
+    TypedRecursiveStatementGraph -> unsupported
+    TypedForwardSignedFunctions -> unsupported
+    TypedWideExportProviders -> unsupported
+    WideConstructorApplication -> unsupported
+    CapabilityCandidateWidth -> unsupported
+    HostFreeOpaqueEnvironment -> unsupported
+    AnalyzerDiagnosticChain -> unsupported
+    InterleavedRecursiveGroups -> unsupported
+    RecursivePreviewBursts -> unsupported
+    RecursiveRebindings -> unsupported
+    ConstrainedSignatures -> unsupported
+    DeferredConstraintBursts -> unsupported
+    DeepNestedLambdas -> unsupported
+    LargeOperatorTables -> unsupported
+    NestedBlocks -> unsupported
+    AmbiguousCaseArmPipes -> unsupported
+    LongTokenStream -> unsupported
+    IdentifierTokenStream -> unsupported
+    LiteralTokenStream -> unsupported
+  where
+    unsupported = Left "scenario has no direct Lowered IR validation artifact"
+
+typedLoweringProgramForScenario :: CompilerScaleScenario -> Int -> Either Text TypedProgram
+typedLoweringProgramForScenario scenario size =
+  case scenario of
+    TypedValidationHandoff -> Right (typedValidationBenchmarkProgram size)
+    TypedForwardSignedFunctions -> Right (typedForwardSignedFunctionsProgram size)
+    SequentialPolymorphicBindings -> unsupported
+    WideModuleFanout -> unsupported
+    SharedInterfaceFanout -> unsupported
+    NestedRuntimeApplications -> unsupported
+    RuntimeImportWidth -> unsupported
+    ResolverFactRich -> unsupported
+    LoweredTemporaryValidation -> unsupported
+    TypedRecursiveStatementGraph -> unsupported
+    TypedWideExportProviders -> unsupported
+    WideConstructorApplication -> unsupported
+    CapabilityCandidateWidth -> unsupported
+    HostFreeOpaqueEnvironment -> unsupported
+    AnalyzerDiagnosticChain -> unsupported
+    InterleavedRecursiveGroups -> unsupported
+    RecursivePreviewBursts -> unsupported
+    RecursiveRebindings -> unsupported
+    ConstrainedSignatures -> unsupported
+    DeferredConstraintBursts -> unsupported
+    DeepNestedLambdas -> unsupported
+    LargeOperatorTables -> unsupported
+    NestedBlocks -> unsupported
+    AmbiguousCaseArmPipes -> unsupported
+    LongTokenStream -> unsupported
+    IdentifierTokenStream -> unsupported
+    LiteralTokenStream -> unsupported
+  where
+    unsupported = Left "scenario has no direct Typed Core lowering artifact"
 
 prepareValidProgram :: ProgramCase -> IO CompiledProgram
 prepareValidProgram programCase = do
@@ -647,9 +781,6 @@ typedRecursiveStatementGraphProgram statementCount
     terminalOwner = graphOwner (statementCount - 1) terminalName
     terminalExpression = boundVariable terminalOwner terminalName
 
--- Typed Core deliberately keeps malformed states constructible and therefore
--- has no blanket NFData instance. Derived Show still traverses every artifact
--- field, so forcing its result keeps all generation outside the timed region.
 typedWideExportProvidersProgram :: Int -> TypedProgram
 typedWideExportProvidersProgram providerCount
   | providerCount <= 0 = error "typed wide export provider count must be positive"
@@ -802,9 +933,6 @@ typedForwardSignedFunctionsProgram functionCount
             (TypedLiteralExpr boolInfo (TypedBooleanLiteral True))
         )
 
-forceTypedProgramArtifact :: TypedProgram -> ()
-forceTypedProgramArtifact typedProgram = rnf (show typedProgram)
-
 unsupportedCorpusGroup :: BenchmarkGroup -> ProgramCase -> IO value
 unsupportedCorpusGroup benchmarkGroup programCase =
   ioError
@@ -816,14 +944,86 @@ unsupportedCorpusGroup benchmarkGroup programCase =
         )
     )
 
+unsupportedCompilerScaleGroup :: BenchmarkGroup -> CompilerScaleCase -> Text -> IO value
+unsupportedCompilerScaleGroup benchmarkGroup programCase reason =
+  ioError
+    ( userError
+        ( "unsupported compiler scale benchmark group for "
+            <> Text.unpack (compilerScaleCaseIdentifier programCase)
+            <> ": "
+            <> show benchmarkGroup
+            <> " ("
+            <> Text.unpack reason
+            <> ")"
+        )
+    )
+
+fromDirectArtifact :: BenchmarkGroup -> CompilerScaleCase -> Either Text value -> IO value
+fromDirectArtifact benchmarkGroup programCase result =
+  case result of
+    Left reason -> unsupportedCompilerScaleGroup benchmarkGroup programCase reason
+    Right value -> pure value
+
+prepareFully :: NFData prepared => prepared -> IO prepared
+prepareFully prepared = evaluate (rnf prepared) >> pure prepared
+
+expectedProgramBehavior :: ProgramCase -> ExpectedProgramBehavior
+expectedProgramBehavior programCase =
+  ExpectedProgramBehavior
+    (programCaseIdentifier programCase)
+    (programCaseExpectedTermination programCase)
+    (programCaseExpectedStdout programCase)
+
+forceExpectedProgramBehavior :: ExpectedProgramBehavior -> ()
+forceExpectedProgramBehavior (ExpectedProgramBehavior identifier termination stdout) =
+  identifier `seq` termination `seq` stdout `seq` ()
+
+expectedCompilerScaleOutput :: CompilerScaleCase -> ExpectedCompilerScaleOutput
+expectedCompilerScaleOutput programCase =
+  ExpectedCompilerScaleOutput
+    (compilerScaleCaseIdentifier programCase)
+    (compilerScaleCaseExpectedOutput programCase)
+
+forceExpectedCompilerScaleOutput :: ExpectedCompilerScaleOutput -> ()
+forceExpectedCompilerScaleOutput (ExpectedCompilerScaleOutput identifier output) =
+  identifier `seq` output `seq` ()
+
+forceProgramCase :: ProgramCase -> ()
+forceProgramCase programCase =
+  programCaseIdentifier programCase `seq`
+    forceString (programCasePackageRoot programCase) `seq`
+      forceString (programCaseDirectory programCase) `seq`
+        forceString (programCaseEntrySource programCase) `seq`
+          forceString (programCaseModuleRoot programCase) `seq`
+            forceListWith (`seq` ()) (programCaseEntryModulePath programCase) `seq`
+              programCaseExpectedTermination programCase `seq`
+                forceString (programCaseExpectedStdoutPath programCase) `seq`
+                  programCaseExpectedStdout programCase `seq`
+                    programCaseWorkload programCase `seq`
+                      forceListWith (`seq` ()) (programCaseFeatures programCase) `seq`
+                        forceListWith (`seq` ()) (programCaseBenchmarks programCase) `seq`
+                          forceProgramBudgets (programCaseBudgets programCase)
+
+forceProgramBudgets :: ProgramBudgets -> ()
+forceProgramBudgets budgets =
+  programBudgetSteps budgets `seq`
+    programBudgetApplications budgets `seq`
+      programBudgetMaxContinuationDepth budgets `seq`
+        forceListWith forceBudgetLimit (Map.toList (programBudgetOptionalLimits budgets))
+  where
+    forceBudgetLimit (metric, limit) = metric `seq` limit `seq` ()
+
+forceString :: String -> ()
+forceString = forceListWith (`seq` ())
+
 requireNoCompileErrors :: CompiledProgram -> IO ()
 requireNoCompileErrors compiledProgram =
   case compiledProgramErrors compiledProgram of
     [] -> pure ()
     diagnostic : _ -> failBenchmarkDiagnostic diagnostic
 
-requireExpectedRuntimeResult :: ProgramCase -> Either Diagnostic RuntimeProgram -> IO ()
-requireExpectedRuntimeResult programCase runtimeResult =
+requireExpectedRuntimeResult :: ExpectedProgramBehavior -> Either Diagnostic RuntimeProgram -> IO ()
+requireExpectedRuntimeResult (ExpectedProgramBehavior identifier expectedTermination expectedStdout) runtimeResult =
   let actualTermination =
         case runtimeResult of
           Left _ -> RuntimeFailedProgram
@@ -832,41 +1032,43 @@ requireExpectedRuntimeResult programCase runtimeResult =
         case runtimeResult of
           Left _ -> ""
           Right runtimeProgram -> maybe "" ((<> "\n") . renderRuntimeValue) (runtimeProgramOutput runtimeProgram)
-   in requireExpectedBehavior programCase actualTermination actualStdout
+   in requireExpectedBehavior identifier expectedTermination expectedStdout actualTermination actualStdout
 
-requireExpectedCompilerScaleRuntimeResult :: CompilerScaleCase -> Either Diagnostic RuntimeProgram -> IO ()
-requireExpectedCompilerScaleRuntimeResult programCase runtimeResult =
+requireExpectedCompilerScaleRuntimeResult :: ExpectedCompilerScaleOutput -> Either Diagnostic RuntimeProgram -> IO ()
+requireExpectedCompilerScaleRuntimeResult (ExpectedCompilerScaleOutput identifier expectedOutput) runtimeResult =
   case runtimeResult of
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
     Right runtimeProgram ->
       let actualOutput = maybe "" renderRuntimeValue (runtimeProgramOutput runtimeProgram)
-       in if actualOutput == compilerScaleCaseExpectedOutput programCase
+       in if actualOutput == expectedOutput
             then pure ()
             else
               ioError
                 ( userError
                     ( "compiler scale runtime benchmark did not preserve expected output: "
-                        <> Text.unpack (compilerScaleCaseIdentifier programCase)
+                        <> Text.unpack identifier
                     )
                 )
 
 requireExpectedProgramResult :: ProgramCase -> ProgramCaseResult -> IO ()
 requireExpectedProgramResult programCase result =
   requireExpectedBehavior
-    programCase
+    (programCaseIdentifier programCase)
+    (programCaseExpectedTermination programCase)
+    (programCaseExpectedStdout programCase)
     (programCaseResultTermination result)
     (programCaseResultStdout result)
 
-requireExpectedBehavior :: ProgramCase -> ProgramTermination -> Text -> IO ()
-requireExpectedBehavior programCase actualTermination actualStdout
-  | actualTermination == programCaseExpectedTermination programCase,
-    actualStdout == programCaseExpectedStdout programCase =
+requireExpectedBehavior :: Text -> ProgramTermination -> Text -> ProgramTermination -> Text -> IO ()
+requireExpectedBehavior identifier expectedTermination expectedStdout actualTermination actualStdout
+  | actualTermination == expectedTermination,
+    actualStdout == expectedStdout =
       pure ()
   | otherwise =
       ioError
         ( userError
             ( "benchmark case did not preserve expected behavior: "
-                <> Text.unpack (programCaseIdentifier programCase)
+                <> Text.unpack identifier
             )
         )
 

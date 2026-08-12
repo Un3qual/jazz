@@ -2,6 +2,7 @@
 
 module Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
+    benchmarkIngredientsWithFinalizer,
     parseBenchmarkCommand,
     runBenchmarkMain,
     runBenchmarkMainWithEnvironmentCapture,
@@ -9,7 +10,7 @@ module Jazz.Benchmark.Stages
   )
 where
 
-import Control.Monad (forM_, void, (<=<))
+import Control.Monad (forM_, void, when, (<=<))
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -68,10 +69,7 @@ import Test.Tasty.Bench
     env,
     nfIO,
   )
-import Test.Tasty.Ingredients
-  ( Ingredient (..),
-    composeReporters,
-  )
+import Test.Tasty.Ingredients (Ingredient (..))
 
 data BenchmarkCommand = BenchmarkCommand
   { benchmarkCommandSmoke :: Bool,
@@ -255,6 +253,7 @@ runSmoke programCases =
 compilerScaleSmokeCaseIdentifier :: BenchmarkGroup -> Maybe Text
 compilerScaleSmokeCaseIdentifier benchmarkGroup =
   case benchmarkGroup of
+    DiagnosticAnalysisBenchmark -> Just "analyzer-diagnostic-chain-0064"
     TypedValidationBenchmark -> Just "typed-recursive-statement-graph-0128"
     LoweredValidationBenchmark -> Just "lowered-temporary-validation-0064"
     TypedLoweringBenchmark -> Just "typed-validation-handoff-0064"
@@ -328,15 +327,19 @@ finalizeRecordedBenchmarks artifactPaths environment = do
 benchmarkIngredientsWithFinalizer :: IO () -> [Ingredient]
 benchmarkIngredientsWithFinalizer finalize = map addFinalizer benchIngredients
   where
-    finalizer =
-      TestReporter [] $ \_ _ ->
-        Just $ \_ ->
-          pure $ \_ -> do
-            finalize
-            pure True
     addFinalizer ingredient =
       case ingredient of
-        TestReporter _ _ -> composeReporters ingredient finalizer
+        TestReporter options reporter ->
+          TestReporter options $ \optionSet testTree ->
+            case reporter optionSet testTree of
+              Nothing -> Nothing
+              Just reportStatusMap ->
+                Just $ \statusMap -> do
+                  reportTime <- reportStatusMap statusMap
+                  pure $ \time -> do
+                    successful <- reportTime time
+                    when successful finalize
+                    pure successful
         TestManager _ _ -> ingredient
 
 parseBenchmarkCommand :: [String] -> Either Text BenchmarkCommand

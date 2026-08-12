@@ -169,17 +169,42 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
 
 analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
 analyzeProgramWithInputs inputs hiddenStatementIndices expr =
-  analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices (AnalyzeExpression expr)
+  {-# SCC "jazz-stage:static-analysis" #-}
+    analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
+  where
+    collectedDiagnostics =
+      case expr of
+        EBlock statements ->
+          collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
+        _ ->
+          collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
+    builtinMode = analysisBuiltinMode inputs
+    settings = analysisWarningSettings inputs
+    importedBindings = analysisVisibleBindings inputs
+    forwardBindings = analysisVisibleForwardBindings inputs
+    importedClasses = Set.map identifierText (analysisImportedClasses inputs)
 
 analyzeProgramWithInputsAndPreparedScope :: AnalysisInputs -> Set Int -> PreparedRecursiveScope -> IO AnalysisResult
 analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices preparedScope =
-  let expectedOuterBindingNames =
-        Set.union
-          (Map.keysSet (analysisImportedValues inputs))
-          (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
-      analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
-   in analysisScope `seq`
-        analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices (AnalyzePreparedScope analysisScope)
+  {-# SCC "jazz-stage:static-analysis" #-}
+    let expectedOuterBindingNames =
+          Set.union
+            (Map.keysSet (analysisImportedValues inputs))
+            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
+        analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
+        expr = preparedScopeExpr analysisScope
+        collectedDiagnostics =
+          collectScopeDiagnosticsWithPreparedScope
+            analysisScope
+            (analysisBuiltinMode inputs)
+            hiddenStatementIndices
+            (analysisWarningSettings inputs)
+            (analysisVisibleBindings inputs)
+            (analysisVisibleForwardBindings inputs)
+            (Set.map identifierText (analysisImportedClasses inputs))
+            topLevelContext
+     in analysisScope `seq` expr `seq`
+          analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
 
 data PreparedAnalysisScope = PreparedAnalysisScope ![Statement] !(Map Int [Int])
 
@@ -192,28 +217,9 @@ preparedAnalysisScope expectedOuterBindingNames preparedScope =
     recursiveScopeFactsValue =
       preparedRecursiveScopeFactsForOuterBindings expectedOuterBindingNames preparedScope
 
-data AnalysisTarget
-  = AnalyzeExpression Expr
-  | AnalyzePreparedScope PreparedAnalysisScope
-
-analyzeProgramWithInputsAndTarget :: AnalysisInputs -> Set Int -> AnalysisTarget -> IO AnalysisResult
-analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices target =
-  {-# SCC "jazz-stage:static-analysis" #-}
-  let (expr, collectedDiagnostics) =
-        case target of
-          AnalyzePreparedScope analysisScope ->
-            ( preparedScopeExpr analysisScope,
-              collectScopeDiagnosticsWithPreparedScope analysisScope builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext
-            )
-          AnalyzeExpression expression@(EBlock statements) ->
-            ( expression,
-              collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
-            )
-          AnalyzeExpression expression ->
-            ( expression,
-              collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expression
-            )
-      (warnings, errors) = materializeDiagnostics collectedDiagnostics
+analyzeProgramWithInputsAndDiagnostics :: AnalysisInputs -> Expr -> CollectedDiagnostics -> IO AnalysisResult
+analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics =
+  let (warnings, errors) = materializeDiagnostics collectedDiagnostics
       diagnostics =
         map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
       result =
@@ -221,18 +227,17 @@ analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices target =
           { analyzedExpr = expr,
             analysisDiagnostics = diagnostics
           }
-   in case target of
-        AnalyzePreparedScope _ -> expr `seq` pure result
-        AnalyzeExpression _ -> pure result
+   in pure result
   where
-    builtinMode = analysisBuiltinMode inputs
     settings = analysisWarningSettings inputs
-    importedBindings = Map.map analysisBindingToVisibleBinding (analysisImportedValues inputs)
-    forwardBindings =
-      Map.map
-        (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
-        (analysisForwardFunctions inputs)
-    importedClasses = Set.map identifierText (analysisImportedClasses inputs)
+
+analysisVisibleBindings :: AnalysisInputs -> Map Name VisibleBinding
+analysisVisibleBindings = Map.map analysisBindingToVisibleBinding . analysisImportedValues
+
+analysisVisibleForwardBindings :: AnalysisInputs -> Map Int (Name, VisibleBinding)
+analysisVisibleForwardBindings inputs =
+  Map.map (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
+    (analysisForwardFunctions inputs)
 
 preparedScopeExpr :: PreparedAnalysisScope -> Expr
 preparedScopeExpr (PreparedAnalysisScope statements _) = EBlock statements

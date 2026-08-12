@@ -27,6 +27,7 @@ import Debug.Trace (traceMarkerIO)
 data BenchmarkGroup
   = ParseLowerBenchmark
   | AnalysisBenchmark
+  | DiagnosticAnalysisBenchmark
   | ModulePreparationBenchmark
   | TypedValidationBenchmark
   | LoweredValidationBenchmark
@@ -46,6 +47,8 @@ data CompilerStage
   | TypeInferenceStage
   | ConstraintSolvingStage
   | CapabilitySolvingStage
+  | TypedCoreValidationStage
+  | LoweredIRValidationStage
   | RuntimePreparationStage
   | EvaluationStage
   | HostOperationStage
@@ -69,6 +72,7 @@ benchmarkGroupName group =
   case group of
     ParseLowerBenchmark -> "parse-lower"
     AnalysisBenchmark -> "analysis"
+    DiagnosticAnalysisBenchmark -> "diagnostic-analysis"
     ModulePreparationBenchmark -> "module-preparation"
     TypedValidationBenchmark -> "typed-validation"
     LoweredValidationBenchmark -> "lowered-validation"
@@ -81,12 +85,27 @@ benchmarkGroupStages group =
   case group of
     ParseLowerBenchmark -> [LexingStage, ParsingStage, LoweringStage]
     AnalysisBenchmark -> [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]
+    DiagnosticAnalysisBenchmark -> [StaticAnalysisStage]
     ModulePreparationBenchmark -> [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]
-    TypedValidationBenchmark -> [TypeInferenceStage]
-    LoweredValidationBenchmark -> [LoweringStage]
-    TypedLoweringBenchmark -> [TypeInferenceStage, LoweringStage]
+    TypedValidationBenchmark -> [TypedCoreValidationStage]
+    LoweredValidationBenchmark -> [LoweredIRValidationStage]
+    TypedLoweringBenchmark -> [TypedCoreValidationStage, LoweringStage]
     RuntimeBenchmark -> [EvaluationStage, HostOperationStage]
-    WholeProgramBenchmark -> [minBound .. maxBound]
+    WholeProgramBenchmark ->
+      [ SourceLoadingStage,
+        ModuleDiscoveryStage,
+        LexingStage,
+        ParsingStage,
+        LoweringStage,
+        ModuleResolutionStage,
+        StaticAnalysisStage,
+        TypeInferenceStage,
+        ConstraintSolvingStage,
+        CapabilitySolvingStage,
+        RuntimePreparationStage,
+        EvaluationStage,
+        HostOperationStage
+      ]
 
 compilerStageName :: CompilerStage -> Text
 compilerStageName compilerStage =
@@ -101,6 +120,8 @@ compilerStageName compilerStage =
     TypeInferenceStage -> "type-inference"
     ConstraintSolvingStage -> "constraint-solving"
     CapabilitySolvingStage -> "capability-solving"
+    TypedCoreValidationStage -> "typed-core-validation"
+    LoweredIRValidationStage -> "lowered-ir-validation"
     RuntimePreparationStage -> "runtime-preparation"
     EvaluationStage -> "evaluation"
     HostOperationStage -> "host-operation"

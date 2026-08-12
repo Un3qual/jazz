@@ -13,6 +13,7 @@ module Jazz.Compiler.Force
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
+    forceTypedProgram,
     forceTokens,
   )
 where
@@ -98,7 +99,6 @@ import Jazz.Compiler.ModuleInterface
     CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
-    compiledProgramDiagnostics,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (..),
@@ -140,6 +140,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
   )
+import qualified Jazz.Compiler.TypedCore as Typed
 
 forceExpr :: Expr -> ()
 forceExpr expression =
@@ -161,6 +162,278 @@ forceExpr expression =
 
 forceTokens :: [Token] -> ()
 forceTokens = forceListWith forceToken
+
+forceTypedProgram :: Typed.TypedProgram -> ()
+forceTypedProgram (Typed.TypedProgram prelude modules entryPath) =
+  forceMaybeWith forceTypedModule prelude `seq`
+    forceListWith forceTypedModule modules `seq`
+      forceListWhnf entryPath
+
+forceTypedModule :: Typed.TypedModule -> ()
+forceTypedModule (Typed.TypedModule path sourcePath imports exports interface statements resultInfo) =
+  forceListWhnf path `seq`
+    forceTypedSourcePath sourcePath `seq`
+      forceListWith forceTypedImport imports `seq`
+        forceListWith forceTypedExport exports `seq`
+          forceTypedModuleInterface interface `seq`
+            forceListWith forceTypedStatement statements `seq`
+              forceTypedNodeInfo resultInfo
+
+forceTypedSourcePath :: Typed.TypedSourcePath -> ()
+forceTypedSourcePath (Typed.TypedSourcePath path) = path `seq` ()
+
+forceTypedImport :: Typed.TypedResolvedImport -> ()
+forceTypedImport (Typed.TypedResolvedImport spanValue path alias symbols) =
+  forceTypedSpan spanValue `seq`
+    forceListWhnf path `seq`
+      forceMaybeWith (`seq` ()) alias `seq`
+        forceMaybeWith forceListWhnf symbols
+
+forceTypedExport :: Typed.TypedModuleExport -> ()
+forceTypedExport (Typed.TypedModuleExport namespace name) = namespace `seq` name `seq` ()
+
+forceTypedModuleInterface :: Typed.TypedModuleInterface -> ()
+forceTypedModuleInterface (Typed.TypedModuleInterface values dataValues classes impls) =
+  forceListWith forceTypedValueInterface values `seq`
+    forceListWith forceTypedDataInterface dataValues `seq`
+      forceListWith forceTypedClassInterface classes `seq`
+        forceListWith forceTypedImplInterface impls
+
+forceTypedValueInterface :: Typed.TypedValueInterface -> ()
+forceTypedValueInterface (Typed.TypedValueInterface name scheme) =
+  forceTypedCoreName name `seq` forceTypedScheme scheme
+
+forceTypedDataInterface :: Typed.TypedDataInterface -> ()
+forceTypedDataInterface (Typed.TypedDataInterface declaration) = forceTypedDataDeclaration declaration
+
+forceTypedClassInterface :: Typed.TypedClassInterface -> ()
+forceTypedClassInterface (Typed.TypedClassInterface declaration) = forceTypedClassDeclaration declaration
+
+forceTypedImplInterface :: Typed.TypedImplInterface -> ()
+forceTypedImplInterface (Typed.TypedImplInterface implId) = forceTypedImplId implId
+
+forceTypedStatement :: Typed.TypedStatement -> ()
+forceTypedStatement statement =
+  case statement of
+    Typed.TypedLetStatement binder name spanValue scheme expression ->
+      forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme `seq` forceTypedExpr expression
+    Typed.TypedSignatureStatement binder name spanValue scheme ->
+      forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme
+    Typed.TypedDataStatement declaration -> forceTypedDataDeclaration declaration
+    Typed.TypedClassStatement declaration -> forceTypedClassDeclaration declaration
+    Typed.TypedImplStatement declaration -> forceTypedImplDeclaration declaration
+    Typed.TypedExpressionStatement spanValue expression -> forceTypedSpan spanValue `seq` forceTypedExpr expression
+
+forceTypedExpr :: Typed.TypedExpr -> ()
+forceTypedExpr expression =
+  case expression of
+    Typed.TypedLiteralExpr info literal -> forceTypedNodeInfo info `seq` forceTypedLiteral literal
+    Typed.TypedVariableExpr info name binder -> forceTypedNodeInfo info `seq` forceTypedCoreName name `seq` forceMaybeWith forceTypedBinderId binder
+    Typed.TypedLambdaExpr info binder name body -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedExpr body
+    Typed.TypedOperatorValueExpr info operator -> forceTypedNodeInfo info `seq` forceTypedOperator operator
+    Typed.TypedListExpr info values -> forceTypedNodeInfo info `seq` forceListWith forceTypedExpr values
+    Typed.TypedTupleExpr info values -> forceTypedNodeInfo info `seq` forceListWith forceTypedExpr values
+    Typed.TypedApplyExpr info callable argument -> forceTypedNodeInfo info `seq` forceTypedExpr callable `seq` forceTypedExpr argument
+    Typed.TypedTypeApplicationExpr info value spanValue typeValue -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceTypedSpan spanValue `seq` forceTypedType typeValue
+    Typed.TypedIfExpr info condition whenTrue whenFalse -> forceTypedNodeInfo info `seq` forceTypedExpr condition `seq` forceTypedExpr whenTrue `seq` forceTypedExpr whenFalse
+    Typed.TypedPatternCaseExpr info value arms -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceListWith forceTypedCaseArm arms
+    Typed.TypedBinaryExpr info operator left right -> forceTypedNodeInfo info `seq` forceTypedOperator operator `seq` forceTypedExpr left `seq` forceTypedExpr right
+    Typed.TypedLeftSectionExpr info value operator -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceTypedOperator operator
+    Typed.TypedRightSectionExpr info operator value -> forceTypedNodeInfo info `seq` forceTypedOperator operator `seq` forceTypedExpr value
+    Typed.TypedBlockExpr info statements -> forceTypedNodeInfo info `seq` forceListWith forceTypedStatement statements
+
+forceTypedCaseArm :: Typed.TypedCaseArm -> ()
+forceTypedCaseArm (Typed.TypedCaseArm patternValue guard body) =
+  forceTypedPattern patternValue `seq` forceMaybeWith forceTypedExpr guard `seq` forceTypedExpr body
+
+forceTypedPattern :: Typed.TypedPattern -> ()
+forceTypedPattern patternValue =
+  case patternValue of
+    Typed.TypedWildcardPattern info -> forceTypedNodeInfo info
+    Typed.TypedVariablePattern info binder name -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name
+    Typed.TypedLiteralPattern info literal -> forceTypedNodeInfo info `seq` forceTypedLiteral literal
+    Typed.TypedConstructorPattern info name patterns -> forceTypedNodeInfo info `seq` forceTypedCoreName name `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedListPattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedConsListPattern info headPattern tailPattern -> forceTypedNodeInfo info `seq` forceTypedPattern headPattern `seq` forceTypedPattern tailPattern
+    Typed.TypedTuplePattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedAsPattern info binder name patternInner -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedPattern patternInner
+    Typed.TypedOrPattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+
+forceTypedNodeInfo :: Typed.TypedNodeInfo -> ()
+forceTypedNodeInfo (Typed.TypedNodeInfo typeValue recipe instantiations evidence) =
+  forceTypedType typeValue `seq`
+    forceTypedRecipe recipe `seq`
+      forceListWith forceTypedInstantiation instantiations `seq`
+        forceListWith forceTypedEvidenceSelection evidence
+
+forceTypedLiteral :: Typed.TypedLiteral -> ()
+forceTypedLiteral literal =
+  case literal of
+    Typed.TypedIntegerLiteral value -> value `seq` ()
+    Typed.TypedFractionalLiteral whole fractional numericType -> whole `seq` fractional `seq` forceMaybeWith (`seq` ()) numericType
+    Typed.TypedBooleanLiteral value -> value `seq` ()
+    Typed.TypedCharacterLiteral value -> value `seq` ()
+    Typed.TypedTextLiteral value -> value `seq` ()
+
+forceTypedDataDeclaration :: Typed.TypedDataDeclaration -> ()
+forceTypedDataDeclaration (Typed.TypedDataDeclaration spanValue name parameters constructors) =
+  forceTypedSpan spanValue `seq` forceTypedCoreName name `seq` forceListWith forceTypedTypeParameterId parameters `seq` forceListWith forceTypedConstructorDeclaration constructors
+
+forceTypedConstructorDeclaration :: Typed.TypedConstructorDeclaration -> ()
+forceTypedConstructorDeclaration (Typed.TypedConstructorDeclaration binder name arguments recipes) =
+  forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceListWith forceTypedType arguments `seq` forceListWith forceTypedRecipe recipes
+
+forceTypedClassDeclaration :: Typed.TypedClassDeclaration -> ()
+forceTypedClassDeclaration (Typed.TypedClassDeclaration spanValue name parameters methods) =
+  forceTypedSpan spanValue `seq` forceTypedCoreName name `seq` forceListWith forceTypedTypeParameterId parameters `seq` forceListWith forceTypedMethodSignature methods
+
+forceTypedMethodSignature :: Typed.TypedMethodSignature -> ()
+forceTypedMethodSignature (Typed.TypedMethodSignature name spanValue scheme) =
+  forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme
+
+forceTypedImplDeclaration :: Typed.TypedImplDeclaration -> ()
+forceTypedImplDeclaration (Typed.TypedImplDeclaration spanValue implId methods) =
+  forceTypedSpan spanValue `seq` forceTypedImplId implId `seq` forceListWith forceTypedMethodDefinition methods
+
+forceTypedMethodDefinition :: Typed.TypedMethodDefinition -> ()
+forceTypedMethodDefinition (Typed.TypedMethodDefinition methodId binder name spanValue body) =
+  forceTypedMethodId methodId `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedExpr body
+
+forceTypedScheme :: Typed.TypedScheme -> ()
+forceTypedScheme (Typed.TypedScheme binder parameters evidence primitiveConstraints typeValue recipe callableShape) =
+  forceTypedBinderId binder `seq`
+    forceListWith forceTypedTypeParameterId parameters `seq`
+      forceListWith forceTypedEvidenceParameter evidence `seq`
+        forceListWith forceTypedPrimitiveConstraint primitiveConstraints `seq`
+          forceTypedType typeValue `seq`
+            forceTypedRecipe recipe `seq`
+              forceMaybeWith (`seq` ()) callableShape
+
+forceTypedType :: Typed.TypedType -> ()
+forceTypedType typeValue =
+  case typeValue of
+    Typed.TypedIntType -> ()
+    Typed.TypedFloatType -> ()
+    Typed.TypedNumericType numericType -> numericType `seq` ()
+    Typed.TypedBoolType -> ()
+    Typed.TypedCharType -> ()
+    Typed.TypedTextType -> ()
+    Typed.TypedListType item -> forceTypedType item
+    Typed.TypedTupleType items -> forceListWith forceTypedType items
+    Typed.TypedDataType name arguments -> forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+    Typed.TypedFunctionType argument result -> forceTypedType argument `seq` forceTypedType result
+    Typed.TypedTypeParameterType parameter -> forceTypedTypeParameterId parameter
+
+forceTypedRecipe :: Typed.TypedRepresentationRecipe -> ()
+forceTypedRecipe recipe =
+  case recipe of
+    Typed.TypedUnitRecipe -> ()
+    Typed.TypedBoolRecipe -> ()
+    Typed.TypedSignedIntegerRecipe width -> width `seq` ()
+    Typed.TypedUnsignedIntegerRecipe width -> width `seq` ()
+    Typed.TypedFloatRecipe width -> width `seq` ()
+    Typed.TypedCharRecipe -> ()
+    Typed.TypedManagedTextRecipe -> ()
+    Typed.TypedManagedListRecipe item -> forceTypedRecipe item
+    Typed.TypedManagedProductRecipe items -> forceListWith forceTypedRecipe items
+    Typed.TypedManagedVariantRecipe name arguments -> forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+    Typed.TypedClosureRecipe arguments result -> forceListWith forceTypedRecipe arguments `seq` forceTypedRecipe result
+    Typed.TypedRepresentationParameterRecipe parameter -> forceTypedTypeParameterId parameter
+
+forceTypedPrimitiveConstraint :: Typed.TypedPrimitiveConstraint -> ()
+forceTypedPrimitiveConstraint constraint =
+  case constraint of
+    Typed.TypedNumericPrimitiveConstraint numeric typeValue -> forceTypedNumericConstraint numeric `seq` forceTypedType typeValue
+    Typed.TypedStrictEqualityPrimitiveConstraint typeValue -> forceTypedType typeValue
+
+forceTypedNumericConstraint :: Typed.TypedNumericConstraint -> ()
+forceTypedNumericConstraint constraint =
+  case constraint of
+    Typed.TypedAnyNumericConstraint -> ()
+    Typed.TypedRuntimeArithmeticNumericConstraint -> ()
+    Typed.TypedRuntimeComparisonNumericConstraint -> ()
+    Typed.TypedIntegralNumericConstraint -> ()
+    Typed.TypedIntegralLiteralNumericConstraint lower upper -> lower `seq` upper `seq` ()
+
+forceTypedEvidenceParameter :: Typed.TypedEvidenceParameter -> ()
+forceTypedEvidenceParameter (Typed.TypedEvidenceParameter parameter constraint) =
+  forceTypedEvidenceParameterId parameter `seq` forceTypedCapabilityConstraint constraint
+
+forceTypedCapabilityConstraint :: Typed.TypedCapabilityConstraint -> ()
+forceTypedCapabilityConstraint (Typed.TypedCapabilityConstraint name method typeValue) =
+  forceTypedCoreName name `seq` forceMaybeWith (`seq` ()) method `seq` forceTypedType typeValue
+
+forceTypedInstantiation :: Typed.TypedInstantiation -> ()
+forceTypedInstantiation (Typed.TypedInstantiation binder arguments spanValue) =
+  forceTypedBinderId binder `seq` forceListWith forceTypedTypeArgument arguments `seq` forceMaybeWith forceTypedSpan spanValue
+
+forceTypedTypeArgument :: Typed.TypedTypeArgument -> ()
+forceTypedTypeArgument (Typed.TypedTypeArgument parameter typeValue) = forceTypedTypeParameterId parameter `seq` forceTypedType typeValue
+
+forceTypedEvidenceSelection :: Typed.TypedEvidenceSelection -> ()
+forceTypedEvidenceSelection selection =
+  case selection of
+    Typed.TypedSelectedEvidence evidence -> forceTypedEvidenceUse evidence
+    Typed.TypedEvidenceCandidates constraint candidates -> forceTypedCapabilityConstraint constraint `seq` forceListWith forceTypedEvidenceCandidate candidates
+
+forceTypedEvidenceUse :: Typed.TypedEvidenceUse -> ()
+forceTypedEvidenceUse (Typed.TypedEvidenceUse parameter constraint implId methodId) =
+  forceMaybeWith forceTypedEvidenceParameterRef parameter `seq` forceTypedCapabilityConstraint constraint `seq` forceTypedImplId implId `seq` forceMaybeWith forceTypedMethodId methodId
+
+forceTypedEvidenceCandidate :: Typed.TypedEvidenceCandidate -> ()
+forceTypedEvidenceCandidate (Typed.TypedEvidenceCandidate implId methodId) = forceTypedImplId implId `seq` forceMaybeWith forceTypedMethodId methodId
+
+forceTypedEvidenceParameterRef :: Typed.TypedEvidenceParameterRef -> ()
+forceTypedEvidenceParameterRef (Typed.TypedEvidenceParameterRef binder parameter) = forceTypedBinderId binder `seq` forceTypedEvidenceParameterId parameter
+
+forceTypedOperator :: Typed.TypedOperatorRef -> ()
+forceTypedOperator operator =
+  case operator of
+    Typed.TypedBuiltinOperator symbol -> symbol `seq` ()
+    Typed.TypedResolvedOperator name symbol -> forceTypedCoreName name `seq` symbol `seq` ()
+
+forceTypedImplId :: Typed.TypedImplId -> ()
+forceTypedImplId (Typed.TypedImplId path name arguments) = forceListWhnf path `seq` forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+
+forceTypedMethodId :: Typed.TypedMethodId -> ()
+forceTypedMethodId (Typed.TypedMethodId implId name) = forceTypedImplId implId `seq` name `seq` ()
+
+forceTypedBinderId :: Typed.TypedBinderId -> ()
+forceTypedBinderId (Typed.TypedBinderId (path, indices, name)) = forceListWhnf path `seq` forceListWhnf indices `seq` forceTypedCoreName name
+
+forceTypedCoreName :: Typed.TypedCoreName -> ()
+forceTypedCoreName name =
+  case name of
+    Typed.TypedUnresolvedSourceName value -> value `seq` ()
+    Typed.TypedUnresolvedQualifiedName qualifier member -> qualifier `seq` member `seq` ()
+    Typed.TypedResolvedName origin namespace value -> forceTypedNameOrigin origin `seq` namespace `seq` value `seq` ()
+    Typed.TypedBuiltinName value -> value `seq` ()
+    Typed.TypedGeneratedName kind -> forceTypedGeneratedNameKind kind
+
+forceTypedNameOrigin :: Typed.TypedNameOrigin -> ()
+forceTypedNameOrigin origin =
+  case origin of
+    Typed.TypedCurrentModule -> ()
+    Typed.TypedImportedModule path -> forceListWhnf path
+    Typed.TypedAmbientPrelude -> ()
+
+forceTypedGeneratedNameKind :: Typed.TypedGeneratedNameKind -> ()
+forceTypedGeneratedNameKind kind =
+  case kind of
+    Typed.TypedLambdaPatternArgument index -> index `seq` ()
+    Typed.TypedOperatorBinding symbol -> symbol `seq` ()
+    Typed.TypedOperatorSectionFunction -> ()
+    Typed.TypedOperatorSectionLeft -> ()
+    Typed.TypedOperatorSectionRight -> ()
+
+forceTypedSpan :: Typed.TypedSpan -> ()
+forceTypedSpan (Typed.TypedSpan start end) = start `seq` end `seq` ()
+
+forceTypedTypeParameterId :: Typed.TypedTypeParameterId -> ()
+forceTypedTypeParameterId (Typed.TypedTypeParameterId value) = value `seq` ()
+
+forceTypedEvidenceParameterId :: Typed.TypedEvidenceParameterId -> ()
+forceTypedEvidenceParameterId (Typed.TypedEvidenceParameterId value) = value `seq` ()
 
 forceToken :: Token -> ()
 forceToken token =
@@ -364,8 +637,7 @@ forceCompiledProgram :: CompiledProgram -> ()
 forceCompiledProgram compiledProgram =
   forceCompiledPrelude (compiledProgramPrelude compiledProgram) `seq`
     forceListWhnf (compiledProgramEntryPath compiledProgram) `seq`
-      forceListWith forceCompiledModule (compiledProgramModules compiledProgram) `seq`
-        forceListWith forceDiagnostic (compiledProgramDiagnostics compiledProgram)
+      forceListWith forceCompiledModule (compiledProgramModules compiledProgram)
 
 forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
 forceRuntimeProgramOutputResult result =

@@ -126,18 +126,19 @@ artifacts.
 
 ## Benchmarks
 
-The benchmark tree has eight boundaries:
+The benchmark tree has nine boundaries:
 
-| Group                | Timed work                                                     |
-| -------------------- | -------------------------------------------------------------- |
-| `parse-lower`        | Tokenize, parse the surface program, and lower to the core AST |
-| `analysis`           | Re-analyze the lowered entry module with imported interfaces   |
-| `module-preparation` | Discover, resolve, analyze, and prepare a module program       |
-| `typed-validation`   | Validate an already generated Typed Core program               |
-| `lowered-validation` | Validate an already generated Lowered IR program               |
-| `typed-lowering`     | Validate trusted Typed Core and lower it into Lowered IR       |
-| `runtime`            | Evaluate an already prepared program                           |
-| `whole-program`      | Load the entry program through final runtime result            |
+| Group                 | Timed work                                                    |
+| --------------------- | ------------------------------------------------------------- |
+| `parse-lower`         | Tokenize, parse the surface program, and lower to the core AST |
+| `analysis`            | Re-analyze the lowered entry module with imported interfaces  |
+| `diagnostic-analysis` | Analyze a direct core expression and materialize diagnostics  |
+| `module-preparation`  | Discover, resolve, analyze, and prepare a module program      |
+| `typed-validation`    | Validate an already generated Typed Core program              |
+| `lowered-validation`  | Validate an already generated Lowered IR program              |
+| `typed-lowering`      | Validate trusted Typed Core and lower it into Lowered IR      |
+| `runtime`             | Evaluate an already prepared program                          |
+| `whole-program`       | Load the entry program through final runtime result           |
 
 Setup required by a narrower group is performed before its timed action, and
 the result is forced before the sample ends. Smoke mode executes one fast case
@@ -155,10 +156,11 @@ interfaces.
 
 Compiler-scale cases are generated in memory and are opt-in, so the ordinary
 repeated corpus tree and extended benchmark workload remain unchanged. Smoke
-mode still executes one case per boundary. No corpus case owns the validation
-or typed-lowering boundaries, so smoke uses the smallest recursive Typed Core,
-Lowered IR temporary, and Typed Core handoff fixtures for those three
-boundaries. The registered case families isolate these growth curves:
+mode still executes one case per boundary. No corpus case owns the
+diagnostic-analysis, validation, or typed-lowering boundaries, so smoke uses
+the smallest analyzer chain, recursive Typed Core, Lowered IR temporary, and
+Typed Core handoff fixtures for those four boundaries. The registered case
+families isolate these growth curves:
 
 | Scenario                          | Stable case sizes                   | Timed groups                                      | Exact result or artifact            |
 | --------------------------------- | ----------------------------------- | ------------------------------------------------- | ----------------------------------- |
@@ -175,7 +177,7 @@ boundaries. The registered case families isolate these growth curves:
 | Wide constructor applications     | 32, 64, 128, 256 fields             | `analysis`, `runtime`, `whole-program`            | `(<function>, (0, midpoint, last))` |
 | Capability candidate width        | 16, 32, 64, 128 candidates          | `analysis`, `runtime`, `whole-program`            | last candidate index                |
 | Host-free opaque environments     | 64, 256, 1024, 4096 bindings        | `runtime`, `whole-program`                        | `1`                                 |
-| Analyzer diagnostic chains        | 64, 128, 256, 512 nodes             | `analysis`                                        | exact error count                   |
+| Analyzer diagnostic chains        | 64, 128, 256, 512 nodes             | `diagnostic-analysis`                             | exact error count                   |
 | Interleaved recursive groups      | 16, 32, 64, 128 groups              | `analysis`, `module-preparation`                  | `(1, True)`                         |
 | Recursive preview bursts          | 16, 32, 64, 128 groups              | `analysis`                                        | `(1, True)`                         |
 | Recursive rebinding bursts        | 128, 256, 512, 1024                 | `analysis`                                        | final rebound value                 |
@@ -392,12 +394,14 @@ Stable stages are:
 | ------------------------------- | -------------------------------------------------------- |
 | `source-loading`                | Read requested source text                               |
 | `module-discovery`              | Find module files and dependencies                       |
-| `lexing`, `parsing`, `lowering` | Convert source through surface syntax to core AST        |
+| `lexing`, `parsing`, `lowering` | Convert source or Typed Core into the next compiler IR   |
 | `module-resolution`             | Build and validate the dependency-ordered module program |
 | `static-analysis`               | Run module/expression semantic analysis                  |
 | `type-inference`                | Infer types at the public inference boundary             |
 | `constraint-solving`            | Solve accumulated type constraints                       |
 | `capability-solving`            | Resolve capability requirements                          |
+| `typed-core-validation`         | Validate a generated Typed Core artifact                 |
+| `lowered-ir-validation`         | Validate a generated Lowered IR artifact                 |
 | `runtime-preparation`           | Build runtime-ready module state                         |
 | `evaluation`                    | Execute Jazz evaluator work                              |
 | `host-operation`                | Invoke validated host effects                            |

@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import Control.DeepSeq (NFData (rnf))
-import Control.Exception (IOException, evaluate, throw, try)
+import Control.Exception (IOException, try)
 import Control.Monad (void)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Benchmark.ScaleCases
@@ -22,32 +22,20 @@ import Jazz.Benchmark.ScaleCases
     selectCompilerScaleCases,
   )
 import Jazz.Benchmark.StageInputs
-  ( PreparedBenchmark (PreparedAnalysis),
-    PreparedCompilerScaleBenchmark (PreparedCompilerScaleAnalysis),
-    prepareBenchmark,
+  ( prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
     runPreparedBenchmark,
     runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
-import Jazz.Compiler.AST (Expr (EList))
 import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
-import Jazz.Compiler.ModuleExports
-  ( ModuleExport (ModuleExport),
-    exportInventory,
-  )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    DeclaredModuleExports (..),
-    ResolvedImport (..),
-    ResolvedModule (..),
-  )
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
+    benchmarkIngredientsWithFinalizer,
     parseBenchmarkCommand,
   )
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace), identifierText)
+import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -61,6 +49,8 @@ import Jazz.Compiler.Profiling (BenchmarkGroup (..))
 import Jazz.ProgramCorpus.Manifest (loadProgramCorpus, programCaseById, renderProgramCorpusViolation)
 import Jazz.ProgramCorpus.Types (ProgramCase (..), ProgramCorpus (..))
 import Jazz.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
+import Test.Tasty.Ingredients (tryIngredients)
+import Test.Tasty.Providers (IsTest (..), singleTest, testFailed, testPassed)
 
 main :: IO ()
 main = runTestSuite "BenchmarkStages" tests
@@ -104,11 +94,48 @@ tests =
     ("selects requested cases before stage preparation", testCaseSelection),
     ("parse-lower setup does not require module compilation", testParseLowerSetupBoundary),
     ("parse-lower setup reports entry-source read failures", testParseLowerSourceReadFailure),
-    ("corpus analysis setup deeply owns its resolved module", testPreparedAnalysisForcesResolvedModule),
-    ("compiler-scale analysis setup deeply owns its resolved module", testPreparedCompilerScaleAnalysisForcesResolvedModule),
     ("analysis uses module-aware imported interfaces", testModuleAwareAnalysis),
-    ("runtime benchmarks reject unexpected results", testRuntimeResultValidation)
+    ("runtime benchmarks reject unexpected results", testRuntimeResultValidation),
+    ("failed benchmark runs do not finalize recorded artifacts", testFailedBenchmarkDoesNotFinalizeArtifacts),
+    ("successful benchmark runs finalize recorded artifacts once", testSuccessfulBenchmarkFinalizesArtifactsOnce)
   ]
+
+data SyntheticBenchmark = SyntheticBenchmark Bool
+
+instance IsTest SyntheticBenchmark where
+  run _ (SyntheticBenchmark successful) _ =
+    pure
+      ( if successful
+          then testPassed "synthetic benchmark success"
+          else testFailed "synthetic benchmark failure"
+      )
+  testOptions = pure []
+
+testFailedBenchmarkDoesNotFinalizeArtifacts :: IO ()
+testFailedBenchmarkDoesNotFinalizeArtifacts = do
+  finalized <- newIORef False
+  let benchmarkTree = singleTest "synthetic failure" (SyntheticBenchmark False)
+      ingredients = benchmarkIngredientsWithFinalizer (writeIORef finalized True)
+  successful <-
+    case tryIngredients ingredients mempty benchmarkTree of
+      Nothing -> failTest "benchmark ingredients did not select a reporter"
+      Just runBenchmarks -> runBenchmarks
+  artifactsFinalized <- readIORef finalized
+  assertEqual "failed benchmark reporter result" False successful
+  assertEqual "failed benchmark artifact finalization" False artifactsFinalized
+
+testSuccessfulBenchmarkFinalizesArtifactsOnce :: IO ()
+testSuccessfulBenchmarkFinalizesArtifactsOnce = do
+  finalizationCount <- newIORef (0 :: Int)
+  let benchmarkTree = singleTest "synthetic success" (SyntheticBenchmark True)
+      ingredients = benchmarkIngredientsWithFinalizer (modifyIORef' finalizationCount (+ 1))
+  successful <-
+    case tryIngredients ingredients mempty benchmarkTree of
+      Nothing -> failTest "benchmark ingredients did not select a reporter"
+      Just runBenchmarks -> runBenchmarks
+  artifactsFinalized <- readIORef finalizationCount
+  assertEqual "successful benchmark reporter result" True successful
+  assertEqual "successful benchmark artifact finalization count" 1 artifactsFinalized
 
 testRuntimeEvidenceScaleFamilies :: IO ()
 testRuntimeEvidenceScaleFamilies = do
@@ -545,9 +572,9 @@ testAnalyzerDiagnosticChainSemantics = do
   programCase <- loadCompilerScaleCase "analyzer-diagnostic-chain-0064"
   assertEqual
     "analyzer diagnostic benchmark boundary"
-    [AnalysisBenchmark]
+    [DiagnosticAnalysisBenchmark]
     (compilerScaleCaseBenchmarks programCase)
-  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
+  prepared <- prepareCompilerScaleBenchmark DiagnosticAnalysisBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testInterleavedRecursiveGroupSemantics :: IO ()
@@ -743,152 +770,6 @@ testParseLowerSourceReadFailure = do
     Left exception ->
       failTest ("expected a structured entry-source read failure, got " <> Text.pack (show exception))
     Right () -> failTest "expected parse-lower setup to reject an unreadable entry source"
-
-testPreparedAnalysisForcesResolvedModule :: IO ()
-testPreparedAnalysisForcesResolvedModule = do
-  programCase <- loadCase "identifier-classifier"
-  prepared <- prepareBenchmark AnalysisBenchmark programCase
-  case prepared of
-    PreparedAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
-      mapM_
-        ( \(field, marker, poisonedModule) ->
-            assertPreparedResolvedModuleForced
-              ("corpus analysis " <> field)
-              marker
-              ( rnf
-                  ( PreparedAnalysis
-                      preparedCase
-                      compiledProgram
-                      inputs
-                      dependencies
-                      poisonedModule
-                  )
-              )
-        )
-        (poisonResolvedModuleCases "corpus analysis" resolvedModule)
-    _ -> failTest "analysis preparation returned the wrong prepared benchmark variant"
-
-testPreparedCompilerScaleAnalysisForcesResolvedModule :: IO ()
-testPreparedCompilerScaleAnalysisForcesResolvedModule = do
-  programCase <- loadCompilerScaleCase "sequential-polymorphic-bindings-0064"
-  prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  case prepared of
-    PreparedCompilerScaleAnalysis preparedCase compiledProgram inputs dependencies resolvedModule ->
-      mapM_
-        ( \(field, marker, poisonedModule) ->
-            assertPreparedResolvedModuleForced
-              ("compiler-scale analysis " <> field)
-              marker
-              ( rnf
-                  ( PreparedCompilerScaleAnalysis
-                      preparedCase
-                      compiledProgram
-                      inputs
-                      dependencies
-                      poisonedModule
-                  )
-              )
-        )
-        (poisonResolvedModuleCases "compiler-scale analysis" resolvedModule)
-    _ -> failTest "analysis preparation returned the wrong prepared compiler-scale variant"
-
-poisonResolvedModuleCases :: Text -> ResolvedModule -> [(Text, Text, ResolvedModule)]
-poisonResolvedModuleCases prefix resolvedModule =
-  [ poisonCase
-      "module path"
-      resolvedModule
-        { resolvedModulePath = resolvedModulePath resolvedModule <> [deferred "module path"]
-        },
-    poisonCase
-      "source path"
-      resolvedModule
-        { resolvedSourcePath = resolvedSourcePath resolvedModule <> deferred "source path"
-        },
-    poisonCase "import span" (withResolvedImport (baseResolvedImport {resolvedImportSpan = deferred "import span"})),
-    poisonCase "import path" (withResolvedImport (baseResolvedImport {resolvedImportPath = ["Lib", deferred "import path"]})),
-    poisonCase "import alias" (withResolvedImport (baseResolvedImport {resolvedImportAlias = Just (deferred "import alias")})),
-    poisonCase "import symbols" (withResolvedImport (baseResolvedImport {resolvedImportSymbols = Just ["value", deferred "import symbols"]})),
-    poisonCase
-      "export inventory"
-      resolvedModule
-        { resolvedModuleExportInventory =
-            exportInventory [ModuleExport ValueNamespace (deferred "export inventory")]
-        },
-    poisonCase
-      "Core declared path"
-      ( withCoreModule
-          ( \coreModule ->
-              coreModule
-                { coreModuleDeclaredPath = Just ["App", deferred "Core declared path"]
-                }
-          )
-      ),
-    poisonCase
-      "Core declared-export span"
-      ( withCoreModule
-          ( \coreModule ->
-              coreModule
-                { coreModuleDeclaredExports =
-                    Just
-                      ( DeclaredModuleExports
-                          (deferred "Core declared-export span")
-                          []
-                      )
-                }
-          )
-      ),
-    poisonCase
-      "Core declared-export selectors"
-      ( withCoreModule
-          ( \coreModule ->
-              coreModule
-                { coreModuleDeclaredExports =
-                    Just
-                      ( DeclaredModuleExports
-                          (SourceSpan 1 1)
-                          [deferred "Core declared-export selectors"]
-                      )
-                }
-          )
-      ),
-    poisonCase
-      "Core imports"
-      (withCoreModule (\coreModule -> coreModule {coreModuleImports = [deferred "Core imports"]})),
-    poisonCase
-      "Core expression"
-      (withCoreModule (\coreModule -> coreModule {coreModuleExpr = EList [deferred "Core expression"]}))
-  ]
-  where
-    poisonCase field poisonedModule = (field, marker field, poisonedModule)
-    marker field = prefix <> " " <> field <> " was forced"
-    deferred field = throw (userError (Text.unpack (marker field)))
-    withResolvedImport resolvedImport =
-      resolvedModule {resolvedModuleImports = [resolvedImport]}
-    withCoreModule updateCore =
-      resolvedModule
-        { resolvedModuleCore = updateCore (resolvedModuleCore resolvedModule)
-        }
-    baseResolvedImport =
-      ResolvedImport
-        { resolvedImportSpan = SourceSpan 1 1,
-          resolvedImportPath = ["Lib"],
-          resolvedImportAlias = Nothing,
-          resolvedImportSymbols = Nothing
-        }
-
-assertPreparedResolvedModuleForced :: Text -> Text -> () -> IO ()
-assertPreparedResolvedModuleForced label marker forced = do
-  result <- try (evaluate forced) :: IO (Either IOException ())
-  case result of
-    Left exception
-      | marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
-      | otherwise ->
-          failTest
-            ( label
-                <> " forcing failed before reaching its resolved module: "
-                <> Text.pack (show exception)
-            )
-    Right () -> failTest (label <> " left its resolved module lazy")
 
 testModuleAwareAnalysis :: IO ()
 testModuleAwareAnalysis = do
