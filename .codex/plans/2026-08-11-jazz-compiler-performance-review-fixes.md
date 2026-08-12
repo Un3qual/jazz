@@ -21,6 +21,7 @@
 ### Task 1: Close nested verification job escapes and stale dispatch state
 
 **Files:**
+
 - Modify: `scripts/check-examples.sh`
 - Modify: `scripts/ci/determinism.sh`
 - Modify: `scripts/ci/fast-compiler.sh`
@@ -31,6 +32,7 @@
 - Modify: `.codex/execution/blocker-contracts.md`
 
 **Interfaces:**
+
 - Consumes: `JAZZ_CABAL_JOBS`, defaulting to `1`.
 - Produces: every script that invokes Cabal validates the value and passes `--jobs="$JAZZ_CABAL_JOBS"`; completed performance work is no longer promotable as a blocker.
 
@@ -61,6 +63,7 @@
 ### Task 2: Make benchmark boundaries truthful and fully forced
 
 **Files:**
+
 - Modify: `src/Jazz/Compiler/Profiling.hs`
 - Modify: `src/Jazz/Compiler/Force.hs`
 - Modify: `benchmark/Jazz/Benchmark/ScaleCases.hs`
@@ -71,6 +74,7 @@
 - Modify: `PERFORMANCE.md`
 
 **Interfaces:**
+
 - Consumes: generated Typed Core and Lowered IR scale fixtures.
 - Produces: distinct `typed-validation`, `lowered-validation`, and `typed-lowering` benchmark groups; a structural `forceLoweredProgram` helper used before timed lowering samples return.
 
@@ -97,6 +101,7 @@
 ### Task 3: Make shared recursive facts scope-owned
 
 **Files:**
+
 - Modify: `src/Jazz/Compiler/RecursiveBindings.hs`
 - Modify: `src/Jazz/Compiler/Analyzer.hs`
 - Modify: `src/Jazz/Compiler/TypeInference.hs`
@@ -105,6 +110,7 @@
 - Modify: relevant analyzer/inference semantic test owner discovered by focused search.
 
 **Interfaces:**
+
 - Produces: opaque `PreparedRecursiveScope`, built from outer visibility plus one statement list, with read-only access to its statements and facts.
 - Consumes: analyzer and type-inference supplied-facts paths accept the prepared value and do not accept a second independent statement list/expression.
 
@@ -131,12 +137,19 @@
 ### Task 4: Integrated closeout and push
 
 **Files:**
+
 - Modify: this plan and the existing performance program plan/report only as needed to record the review-fix receipts.
 
 - [x] **Step 1: Run one final source review over the fix range**
 
-- [x] **Step 2: Run the scope-based closeout gate exactly once**
+- [x] **Step 2: Run the focused scope-based closeout gate exactly once**
 
-  Run focused repository policy checks plus the affected Haskell suites under Nix with `--jobs=1`. Reuse the still-valid full-gate receipt because the fixes alter verification orchestration, benchmark-only taxonomy/forcing, and an internal safety boundary already covered by focused semantic suites; do not rerun the entire release gate unless review finds compiled behavior outside that scope.
+  Run focused repository policy checks plus the affected Haskell suites under Nix with `--jobs=1`.
 
-- [ ] **Step 3: Record receipts, commit plan updates, and push `codex/compiler-performance-program`**
+- [x] **Step 3: Run the authoritative full closeout gate once**
+
+  The review fixes include production Haskell changes after the prior full-gate receipt, so run `main-functional.sh` once with `JAZZ_MAIN_PHASE=all`, `JAZZ_CABAL_JOBS=1`, `JAZZ_NIX_JOBS=1`, and `JAZZ_NIX_CORES=1`. Do not reuse the earlier receipt.
+
+  Receipt: `nix --extra-experimental-features 'nix-command flakes' develop -c env JAZZ_MAIN_PHASE=all JAZZ_CABAL_JOBS=1 JAZZ_NIX_JOBS=1 JAZZ_NIX_CORES=1 JAZZ_DIFF_BASE=bdb2747b8cf9179b9b9f987070d23c515cf988da bash scripts/ci/main-functional.sh` exited `0` on 2026-08-11. The gate passed the full Cabal suite, repository policy/docs/queue/example checks, and bounded `nix flake check`.
+
+- [x] **Step 4: Record receipts, commit plan updates, and push `codex/compiler-performance-program`**
