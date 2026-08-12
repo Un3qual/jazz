@@ -98,6 +98,9 @@ recursionTests =
     , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
     , ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError)
     , ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer)
+    , ( "nested recursive forward alias preserves callable recursion"
+      , testNestedRecursiveForwardAliasRuntimeSuccess
+      )
     , ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess)
     , ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError)
     , ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError)
@@ -623,6 +626,19 @@ testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNestedRecursiveForwardAliasRuntimeSuccess :: IO ()
+testNestedRecursiveForwardAliasRuntimeSuccess = do
+  plan <- scopePlanForSource ResolveKernelOnly source
+  assertEqual "nested forward alias is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
+  assertEqual "nested forward alias gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
+  result <- runSource defaultWarningSettings source
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+  where
+    source =
+      "f = { a = b. b = if False then a else \\(x) -> if x == 0 then 0 else f (x - 1). a. }. f 3."
 
 testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
 testRecursiveDeclaredUserOperatorRuntimeSuccess = do

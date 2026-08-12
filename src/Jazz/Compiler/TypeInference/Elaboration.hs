@@ -291,7 +291,7 @@ expressionDependencyNames = go
       | otherwise = Set.singleton (operatorBindingName operatorSymbol)
 
 data ExpressionRole
-  = FunctionBindingExpression TypedCallableShape
+  = FunctionBindingExpression TypedCallableShape Int
   | CalleeExpression
   | ScalarExpression
 
@@ -379,7 +379,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           let callableShape = shapeFor callableShapes name
-           in case callableInfo callableShape statementIndex [] expressionType of
+              directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
+           in case callableInfo callableShape directArity statementIndex [] expressionType of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let typedName = resolvedValueName name
@@ -410,9 +411,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 case expression of
                   ProvisionalLambdaExpression {} -> []
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+              directArity = maybe 0 functionArity (Map.lookup name functions)
               (expressionFailures, maybeExpression) =
-                finalizeExpression functions callableShapes statementIndex [0] Map.empty (FunctionBindingExpression callableShape) expression
-              infoResult = callableInfo callableShape statementIndex [] expressionType
+                finalizeExpression functions callableShapes statementIndex [0] Map.empty (FunctionBindingExpression callableShape directArity) expression
+              infoResult = callableInfo callableShape directArity statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
               owningStatementFailures =
                 shapeFailures
@@ -515,8 +517,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               )
         ProvisionalLambdaExpression parameterName expressionType body ->
           case expressionRole of
-            FunctionBindingExpression callableShape ->
-              case callableInfo callableShape statementIndex childPath expressionType of
+            FunctionBindingExpression callableShape remainingDirectArity ->
+              case callableInfo callableShape remainingDirectArity statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let duplicateParameterFailures =
@@ -536,7 +538,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           statementIndex
                           (childPath <> [0])
                           (Map.insert parameterName parameterBinder parameters)
-                          (FunctionBindingExpression callableShape)
+                          (FunctionBindingExpression callableShape (max 0 (remainingDirectArity - 1)))
                           body
                       failures = duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
@@ -552,7 +554,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
       where
         finalizeNamedFunctionReference name callableShape function =
-          case callableInfo callableShape statementIndex childPath (functionType function) of
+          case callableInfo callableShape (functionArity function) statementIndex childPath (functionType function) of
             Left failure -> ([failure], Nothing)
             Right info ->
               let typedName = resolvedValueName name
@@ -677,8 +679,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             TypedFunctionType {} -> Just callableShape
             _ -> Nothing
 
-    callableInfo callableShape statementIndex childPath expressionType =
-      case callableTypeAndRecipe callableShape statementIndex childPath expressionType of
+    callableInfo callableShape directArity statementIndex childPath expressionType =
+      case callableTypeAndRecipe callableShape directArity statementIndex childPath expressionType of
         Right (typeValue@TypedFunctionType {}, recipe@TypedClosureRecipe {}) ->
           Right (TypedNodeInfo typeValue recipe [] [])
         Right _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
@@ -692,18 +694,31 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         Right (typeValue, recipe) -> Right (TypedNodeInfo typeValue recipe [] [])
         Left failure -> Left failure
 
-    callableTypeAndRecipe callableShape =
+    callableTypeAndRecipe callableShape directArity =
       case callableShape of
-        TypedDirectCallableShape -> directTypeAndRecipe
+        TypedDirectCallableShape -> directTypeAndRecipe directArity
         TypedClosureCallableShape -> stagedTypeAndRecipe
 
-    directTypeAndRecipe statementIndex childPath expressionType =
+    directTypeAndRecipe remainingDirectArity statementIndex childPath expressionType =
+      case (remainingDirectArity, defaultScalarLiterals (resolveType state expressionType)) of
+        (remaining, TFunctionType argument result)
+          | remaining > 0 -> do
+              (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
+              (resultType, resultRecipe) <-
+                if remaining == 1
+                  then valueTypeAndRecipe statementIndex childPath result
+                  else directTypeAndRecipe (remaining - 1) statementIndex childPath result
+              let recipe =
+                    if remaining == 1
+                      then TypedClosureRecipe [argumentRecipe] resultRecipe
+                      else prependClosureRecipe argumentRecipe resultRecipe
+              Right (TypedFunctionType argumentType resultType, recipe)
+        (_, other) -> scalarTypeAndRecipe statementIndex childPath other
+
+    resolvedFunctionArity expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
-        TFunctionType argument result -> do
-          (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
-          (resultType, resultRecipe) <- directTypeAndRecipe statementIndex childPath result
-          Right (TypedFunctionType argumentType resultType, prependClosureRecipe argumentRecipe resultRecipe)
-        other -> scalarTypeAndRecipe statementIndex childPath other
+        TFunctionType _ result -> 1 + resolvedFunctionArity result
+        _ -> 0
 
     stagedTypeAndRecipe statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
@@ -870,7 +885,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
                 [(sourceName, function)] ->
                   let callableShape = shapeFor callableShapes sourceName
-                   in case callableInfo callableShape (functionStatementIndex function) [] (functionType function) of
+                   in case callableInfo callableShape (functionArity function) (functionStatementIndex function) [] (functionType function) of
                         Right info ->
                           let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
                               owner = binderAt (functionStatementIndex function) [] typedName

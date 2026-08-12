@@ -227,9 +227,7 @@ testIndependentLowererManifest = do
           "closure-shaped-named-application",
           "callable-parameter-shadows-top-level-lowerer",
           "callable-parameter-value-shadows-enclosing-function-lowerer",
-          "direct-flattened-representation",
           "non-concrete-closure-representation",
-          "callable-shape-body-disagreement",
           "duplicate-parameter-function",
           "self-recursive-duplicate-parameter-function",
           "duplicate-function-identity",
@@ -240,12 +238,6 @@ testIndependentLowererManifest = do
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
-          "direct-shaped-closure-value-self-recursion",
-          "shape-rejected-self-recursion",
-          "shape-rejected-mutual-recursion",
-          "shape-rejected-binder-shadow-control",
-          "bare-function-value",
-          "partial-direct-call",
           "imported-direct-call",
           "managed-scalar-entry",
           "conditional-entry"
@@ -253,7 +245,15 @@ testIndependentLowererManifest = do
       expectedInvalidNames =
         [ "closure-shape-flattened-recipe",
           "direct-shape-staged-recipe",
-          "variable-binder-reference-mismatch"
+          "callable-shape-body-disagreement",
+          "variable-binder-reference-mismatch",
+          "direct-flattened-representation",
+          "direct-shaped-closure-value-self-recursion",
+          "shape-rejected-self-recursion",
+          "shape-rejected-mutual-recursion",
+          "shape-rejected-binder-shadow-control",
+          "bare-function-value",
+          "partial-direct-call"
         ]
   assertEqual "valid independent typed-core fixture names" expectedValidNames validNames
   assertEqual "invalid independent typed-core fixture names" expectedInvalidNames invalidNames
@@ -456,26 +456,11 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
-        ( "direct-flattened-representation",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "combine"))
-          ]
-        ),
         ( "non-concrete-closure-representation",
           [ statementFailure
               1
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "callable-shape-body-disagreement",
-          [ statementFailure
-              3
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "choose"))
           ]
         ),
         ( "capturing-function",
@@ -572,91 +557,6 @@ testLowererCallableBoundary =
               LoweredIRNoFailureDetail
           ]
         ),
-        ( "direct-shaped-closure-value-self-recursion",
-          [ statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              3
-              [0, 0, 1]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
-        ( "shape-rejected-self-recursion",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "shape-rejected-mutual-recursion",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "left")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail,
-            statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "right")),
-            statementFailure
-              3
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "right")),
-            expressionFailure
-              3
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "shape-rejected-binder-shadow-control",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "bare-function-value",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallableValueUnsupported
-              (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "partial-direct-call",
-          [ expressionFailure
-              2
-              [0]
-              LoweredIRCallArityUnsupported
-              (LoweredIRArityFailureDetail 2 1)
-          ]
-        ),
         ( "imported-direct-call",
           [ LoweredIRLoweringFailure
               TypedProgramPath
@@ -715,9 +615,21 @@ testInvalidLowererTypedCoreBoundary =
           ]
         ),
         ( "direct-shape-staged-recipe",
-          [ callableShapeFailure 0,
-            callableShapeFailure 1
-          ]
+          [callableShapeFailure 1]
+        ),
+        ( "callable-shape-body-disagreement",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [3] [0])
+              TypedLambdaResultMismatch
+                ( TypedRecipeDetail
+                    (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+                    (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
+                ),
+              TypedCoreValidationFailure
+                (TypedExpressionPath ["App", "Main"] [3] [0, 0])
+                TypedCallableShapeMismatch
+                (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
+            ]
         ),
         ( "variable-binder-reference-mismatch",
           [ TypedCoreValidationFailure
@@ -725,14 +637,55 @@ testInvalidLowererTypedCoreBoundary =
               TypedBinderReferenceMismatch
               (TypedBinderDetail (TypedBinderId (["App", "Main"], [999], currentName "identity")))
           ]
+        ),
+        ( "direct-flattened-representation",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [2] [0])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
+          ]
+        ),
+        ( "direct-shaped-closure-value-self-recursion",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [3] [0, 0, 1])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [3], currentName "loop")))
+          ]
+        ),
+        ( "shape-rejected-self-recursion",
+          [callableShapeFailureFor 1 "loop"]
+        ),
+        ( "shape-rejected-mutual-recursion",
+          [ callableShapeFailureFor 1 "left",
+            callableShapeFailureFor 3 "right"
+          ]
+        ),
+        ( "shape-rejected-binder-shadow-control",
+          [callableShapeFailureFor 1 "loop"]
+        ),
+        ( "bare-function-value",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [2] [0])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "identity")))
+          ]
+        ),
+        ( "partial-direct-call",
+          [ TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [2] [0, 0])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
+          ]
         )
       ]
     callableShapeFailure statementIndex =
+      callableShapeFailureFor statementIndex "combine"
+    callableShapeFailureFor statementIndex identifier =
       TypedCoreValidationFailure
         (TypedStatementPath ["App", "Main"] [statementIndex])
         TypedCallableShapeMismatch
         ( TypedBinderDetail
-            (TypedBinderId (["App", "Main"], [statementIndex], currentName "combine"))
+            (TypedBinderId (["App", "Main"], [statementIndex], currentName identifier))
         )
     currentName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 
@@ -2622,4 +2575,5 @@ fixtureByName :: Text -> Fixture
 fixtureByName name =
   case filter ((== name) . fixtureName) fixtures of
     [fixture] -> fixture
-    _ -> error "fixture is missing"
+    [] -> error ("fixture is missing: " <> Text.unpack name)
+    _ -> error ("fixture name is ambiguous: " <> Text.unpack name)

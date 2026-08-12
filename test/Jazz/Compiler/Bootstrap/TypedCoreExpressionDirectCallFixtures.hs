@@ -1178,9 +1178,7 @@ lowererBoundaryPrograms =
     ("closure-shaped-named-application", closureShapeApplicationLowererProgram),
     ("callable-parameter-shadows-top-level-lowerer", callableParameterShadowsTopLevelLowererProgram),
     ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
-    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
-    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
     ("self-recursive-duplicate-parameter-function", selfRecursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
@@ -1191,12 +1189,6 @@ lowererBoundaryPrograms =
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
-    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
-    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
-    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
-    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
-    ("bare-function-value", bareFunctionLowererProgram),
-    ("partial-direct-call", partialCallLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
 
@@ -1208,7 +1200,15 @@ invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
   [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
     ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
-    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram)
+    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
+    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram),
+    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
+    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
+    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
+    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
+    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
+    ("bare-function-value", bareFunctionLowererProgram),
+    ("partial-direct-call", partialCallLowererProgram)
   ]
 
 independentLowererPrograms :: [(Text, TypedProgram)]
@@ -3633,15 +3633,15 @@ functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 functionInfo parameters resultInfo =
   TypedNodeInfo
     (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
-    (foldr prependRecipe (typedExpressionRecipe resultInfo) parameters)
+    ( case parameters of
+        [] -> typedExpressionRecipe resultInfo
+        _ ->
+          TypedClosureRecipe
+            (map (typedExpressionRecipe . snd) parameters)
+            (typedExpressionRecipe resultInfo)
+    )
     []
     []
-  where
-    prependRecipe (_, parameterInfo) resultRecipe =
-      case resultRecipe of
-        TypedClosureRecipe arguments finalResult ->
-          TypedClosureRecipe (typedExpressionRecipe parameterInfo : arguments) finalResult
-        _ -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe
 
 stagedFunctionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 stagedFunctionInfo parameters resultInfo =

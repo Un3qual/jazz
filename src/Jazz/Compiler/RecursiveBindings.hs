@@ -555,27 +555,68 @@ data ScopeBindingExpr =
 data ScopeStatementContext =
   ScopeStatementContext Statement [ScopeBindingExpr] [Int]
 
-scopeStatementContexts :: [Int] -> Set Name -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
-scopeStatementContexts scopePath bindingBoundNames = go 0
+scopeStatementContexts ::
+  [Int] -> Set Name -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
+scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statements = contexts
   where
-    go _ _ [] = []
-    go statementIndex visibleBindings (statement : rest) =
-      let statementPath = scopePath <> [statementIndex]
-          nextVisibleBindings =
-            case statement of
-              SLet bindingName _ valueExpr ->
-                ScopeBindingExpr
-                  (ScopeBindingIdentity statementPath)
-                  bindingName
-                  valueExpr
-                  visibleBindings
-                  bindingBoundNames
-                  statementPath
-                  : visibleBindings
-              _ -> visibleBindings
-       in
-        ScopeStatementContext statement visibleBindings statementPath
-          : go (statementIndex + 1) nextVisibleBindings rest
+    indexedStatements = zip [0 ..] statements
+    contexts = buildContexts initialVisibleBindings indexedStatements
+    outerBindingNames =
+      Set.union
+        bindingBoundNames
+        ( Set.fromList
+            [ bindingName
+              | ScopeBindingExpr _ bindingName _ _ _ _ <- initialVisibleBindings
+            ]
+        )
+    recursiveGroupsByStatement =
+      inferRecursiveGroupsOrdered outerBindingNames indexedStatements
+    -- This is an intentional lazy knot: bindingByStatement depends on each
+    -- definition environment, which in turn reads visibleBindingsByStatement.
+    -- Keep ScopeBindingExpr fields and this Data.Map usage lazy.
+    bindingByStatement =
+      Map.fromList
+        [ ( statementIndex,
+            ScopeBindingExpr
+              (ScopeBindingIdentity (statementPath statementIndex))
+              bindingName
+              valueExpr
+              (definitionBindings statementIndex)
+              bindingBoundNames
+              (statementPath statementIndex)
+          )
+          | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+        ]
+    visibleBindingsByStatement =
+      Map.fromList
+        [ (statementIndex, visibleBindings)
+          | (statementIndex, ScopeStatementContext _ visibleBindings _) <- zip [0 ..] contexts
+        ]
+
+    statementPath statementIndex = scopePath <> [statementIndex]
+
+    definitionBindings statementIndex =
+      Map.findWithDefault initialVisibleBindings statementIndex visibleBindingsByStatement
+        <> bindingsAt
+          [ peerIndex
+            | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+              peerIndex > statementIndex
+          ]
+
+    bindingsAt statementIndices =
+      [ binding
+        | statementIndex <- statementIndices,
+          Just binding <- [Map.lookup statementIndex bindingByStatement]
+      ]
+
+    buildContexts _ [] = []
+    buildContexts visibleBindings ((statementIndex, statement) : rest) =
+      let nextVisibleBindings =
+            case Map.lookup statementIndex bindingByStatement of
+              Just binding -> binding : visibleBindings
+              Nothing -> visibleBindings
+       in ScopeStatementContext statement visibleBindings (statementPath statementIndex)
+            : buildContexts nextVisibleBindings rest
 
 lookupScopeBinding :: Name -> [ScopeBindingExpr] -> Maybe ScopeBindingExpr
 lookupScopeBinding requestedName =
