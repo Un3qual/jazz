@@ -11,7 +11,9 @@ import Jazz.Compiler.AST
     Statement (..)
   )
 import Jazz.Compiler.Analyzer
-  ( analyzeRebindingWarnings
+  ( AnalysisResult (..),
+    analyzeProgram,
+    analyzeRebindingWarnings,
   )
 import Jazz.Compiler.BundledPrelude
   ( bundledPreludeSource
@@ -66,6 +68,7 @@ tests =
   [ ("disabled warning category emits nothing", testDisabledCategoryEmitsNoWarnings),
     ("enabled warning emits one same-scope rebinding warning", testEnabledCategoryEmitsWarning),
     ("repeated same-scope rebinding order is deterministic", testDeterministicWarningOrder),
+    ("deep application errors retain left-to-right order", testApplicationDiagnosticOrder),
     ("constructor rebinding emits same-scope warning", testConstructorRebindingEmitsWarning),
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
     ("disabled outer-scope shadowing emits nothing", testDisabledOuterScopeShadowingEmitsNoWarnings),
@@ -123,6 +126,17 @@ testDeterministicWarningOrder = do
       assertEqual "second warning span" (Just (SourceSpan 3 1)) (diagnosticPrimarySpan secondWarning)
       assertEqual "second previous span" (Just (SourceSpan 2 1)) (diagnosticRelatedSpan secondWarning)
     _ -> failTest "expected exactly two warning records"
+
+testApplicationDiagnosticOrder :: IO ()
+testApplicationDiagnosticOrder = do
+  result <-
+    analyzeProgram
+      defaultWarningSettings
+      (foldl1 EApply [EVar "missing0", EVar "missing1", EVar "missing2", EVar "missing3"])
+  assertEqual
+    "application diagnostic subjects"
+    [Just "missing0", Just "missing1", Just "missing2", Just "missing3"]
+    (map diagnosticSubject (analysisDiagnostics result))
 
 testConstructorRebindingEmitsWarning :: IO ()
 testConstructorRebindingEmitsWarning = do

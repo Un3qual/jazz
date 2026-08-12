@@ -5,6 +5,7 @@
 -- explicit resolved-module producer.
 module Jazz.Compiler.TypeInference.Elaboration
   ( TypedCoreProductionStatus (..),
+    TypedCoreProductionOutcome,
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
@@ -16,10 +17,14 @@ module Jazz.Compiler.TypeInference.Elaboration
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
+    blockedTypedCoreProductionOutcome,
     expressionDependencyNames,
     specializeInferredExpression,
-    finalizeTypedCoreExpressionDirectCall,
+    finalizeValidatedTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
+    typedCoreProductionOutcomeStatus,
+    typedCoreProductionOutcomeValidatedProgram,
+    unsupportedTypedCoreProductionOutcome,
   )
 where
 
@@ -57,7 +62,11 @@ import Jazz.Compiler.TypeInference.Solver
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( ValidatedTypedProgram,
+    validateTypedProgramOnce,
+    validatedTypedProgram,
+  )
 
 data TypedCoreProductionStatus
   = TypedCoreProductionBlockedByDiagnostics
@@ -65,6 +74,37 @@ data TypedCoreProductionStatus
   | TypedCoreProductionInvariantFailures [TypedCoreValidationFailure]
   | TypedCoreProductionSucceeded TypedProgram
   deriving (Eq, Show)
+
+-- | The private production outcome keeps a successful raw program and its
+-- validation proof in one constructor. Public callers can observe the legacy
+-- status and trusted proof without being able to forge an inconsistent pair.
+data TypedCoreProductionOutcome
+  = ProductionBlockedByDiagnostics
+  | ProductionUnsupported [TypedCoreProductionFailure]
+  | ProductionInvariantFailures [TypedCoreValidationFailure]
+  | ProductionSucceeded ValidatedTypedProgram
+  deriving (Eq, Show)
+
+blockedTypedCoreProductionOutcome :: TypedCoreProductionOutcome
+blockedTypedCoreProductionOutcome = ProductionBlockedByDiagnostics
+
+unsupportedTypedCoreProductionOutcome :: [TypedCoreProductionFailure] -> TypedCoreProductionOutcome
+unsupportedTypedCoreProductionOutcome = ProductionUnsupported
+
+typedCoreProductionOutcomeStatus :: TypedCoreProductionOutcome -> TypedCoreProductionStatus
+typedCoreProductionOutcomeStatus outcome =
+  case outcome of
+    ProductionBlockedByDiagnostics -> TypedCoreProductionBlockedByDiagnostics
+    ProductionUnsupported failures -> TypedCoreProductionUnsupported failures
+    ProductionInvariantFailures failures -> TypedCoreProductionInvariantFailures failures
+    ProductionSucceeded validatedProgram ->
+      TypedCoreProductionSucceeded (validatedTypedProgram validatedProgram)
+
+typedCoreProductionOutcomeValidatedProgram :: TypedCoreProductionOutcome -> Maybe ValidatedTypedProgram
+typedCoreProductionOutcomeValidatedProgram outcome =
+  case outcome of
+    ProductionSucceeded validatedProgram -> Just validatedProgram
+    _ -> Nothing
 
 data TypedCoreProductionPath
   = TypedCoreProductionInputPath
@@ -255,16 +295,16 @@ data ExpressionRole
   | CalleeExpression
   | ScalarExpression
 
--- | Finalize the initial unit-only root against the permanent contract.
--- Future production slices extend the provisional scope rather than changing the
--- typed-core constructors themselves.
-finalizeTypedCoreExpressionDirectCall ::
+-- | Finalize once while retaining the opaque validation proof for a trusted
+-- downstream lowering handoff. The public status keeps exposing the exact raw
+-- Typed Program artifact for compatibility.
+finalizeValidatedTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
   ResolvedModule ->
   InferState ->
   ProvisionalTypedExpr ->
-  TypedCoreProductionStatus
-finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
+  TypedCoreProductionOutcome
+finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
       let functions = functionTable provisionalStatements
@@ -281,7 +321,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           moduleFailures = missingResultFailures <> fst exportResult
           productionFailures = moduleFailures <> concatMap fst finalizedStatements
        in case productionFailures of
-            _ : _ -> TypedCoreProductionUnsupported productionFailures
+            _ : _ -> ProductionUnsupported productionFailures
             [] ->
               case traverse snd finalizedStatements of
                 Just typedStatements ->
@@ -292,14 +332,15 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                               (snd exportResult)
                               typedStatements
                               (typedExpressionInfo terminalExpression)
-                       in case validateTypedProgram programValue of
-                            [] -> TypedCoreProductionSucceeded programValue
-                            failures -> TypedCoreProductionInvariantFailures failures
-                    _ -> TypedCoreProductionUnsupported [missingModuleResultFailure]
-                Nothing -> TypedCoreProductionUnsupported [missingModuleResultFailure]
+                       in case validateTypedProgramOnce programValue of
+                            Right validatedProgram -> ProductionSucceeded validatedProgram
+                            Left failures -> ProductionInvariantFailures failures
+                    _ -> ProductionUnsupported [missingModuleResultFailure]
+                Nothing -> ProductionUnsupported [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
-      TypedCoreProductionUnsupported [failureAt 0 [] kind detail]
-    _ -> TypedCoreProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+      ProductionUnsupported [failureAt 0 [] kind detail]
+    _ ->
+      ProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
     modulePath = resolvedModulePath resolvedModule
 

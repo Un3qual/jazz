@@ -10,8 +10,10 @@ module Jazz.Compiler.ModuleInterface
     compiledModuleWarnings,
     compiledPreludeErrors,
     compiledPreludeWarnings,
+    compiledProgramDiagnostics,
     compiledProgramErrors,
     compiledProgramWarnings,
+    firstCompiledProgramError,
     ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
@@ -35,7 +37,7 @@ import Jazz.Compiler.Diagnostics
     isErrorDiagnostic,
     isWarningDiagnostic
   )
-import Jazz.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
+import Jazz.Compiler.ModuleGraph (ResolvedImport)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -118,7 +120,9 @@ emptyCompiledPrelude =
     }
 
 data CompiledModule = CompiledModule
-  { compiledResolvedModule :: ResolvedModule,
+  { compiledModulePath :: [Text],
+    compiledModuleImports :: [ResolvedImport],
+    compiledModuleExportInventory :: ModuleExportInventory,
     compiledModuleInterface :: ModuleInterface,
     compiledModuleDiagnostics :: [Diagnostic],
     compiledModuleExpr :: Expr
@@ -128,10 +132,14 @@ data CompiledModule = CompiledModule
 data CompiledProgram = CompiledProgram
   { compiledProgramPrelude :: CompiledPrelude,
     compiledProgramEntryPath :: [Text],
-    compiledProgramModules :: [CompiledModule],
-    compiledProgramDiagnostics :: [Diagnostic]
+    compiledProgramModules :: [CompiledModule]
   }
   deriving (Eq, Show)
+
+compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
+compiledProgramDiagnostics compiledProgram =
+  compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)
+    <> concatMap compiledModuleDiagnostics (compiledProgramModules compiledProgram)
 
 compiledPreludeWarnings :: CompiledPrelude -> [Diagnostic]
 compiledPreludeWarnings = filter isWarningDiagnostic . compiledPreludeDiagnostics
@@ -150,6 +158,26 @@ compiledProgramWarnings = filter isWarningDiagnostic . compiledProgramDiagnostic
 
 compiledProgramErrors :: CompiledProgram -> [Diagnostic]
 compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
+
+firstCompiledProgramError :: CompiledProgram -> Maybe Diagnostic
+firstCompiledProgramError compiledProgram =
+  case firstError (compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)) of
+    Just diagnostic -> Just diagnostic
+    Nothing -> firstModuleError (compiledProgramModules compiledProgram)
+  where
+    firstError diagnostics =
+      case diagnostics of
+        [] -> Nothing
+        diagnostic : rest
+          | isErrorDiagnostic diagnostic -> Just diagnostic
+          | otherwise -> firstError rest
+    firstModuleError compiledModules =
+      case compiledModules of
+        [] -> Nothing
+        compiledModule : rest ->
+          case firstError (compiledModuleDiagnostics compiledModule) of
+            Just diagnostic -> Just diagnostic
+            Nothing -> firstModuleError rest
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,
@@ -181,5 +209,5 @@ lookupCompiledModule modulePath =
       case modules of
         [] -> Nothing
         compiledModule : rest
-          | resolvedModulePath (compiledResolvedModule compiledModule) == modulePath -> Just compiledModule
+          | compiledModulePath compiledModule == modulePath -> Just compiledModule
           | otherwise -> go rest

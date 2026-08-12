@@ -109,11 +109,19 @@ import Jazz.Compiler.Runtime.Types
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
+    RuntimeConstructorArguments,
+    RuntimeConstructorShape,
     RuntimeValue (..),
     attachRuntimeExplicitResultHints,
+    constructorApplicationIsSaturated,
     constructorIsSaturated,
     data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
+    runtimeConstructorArity,
+    runtimeConstructorArgumentCount,
+    runtimeConstructorName,
+    runtimeConstructorTypeName,
+    runtimeConstructorTypeParameters,
     runtimeEvidenceTarget
   )
 import Numeric (showHex)
@@ -596,13 +604,13 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
           identifierText typeName == "Char"
         (TypeName typeName, VText {}) ->
           identifierText typeName == "Text"
-        (TypeName typeName, VConstructor constructorTypeName _ _ constructorArguments capturedArgs) ->
-          identifierText typeName == identifierText constructorTypeName
-            && constructorIsSaturated constructorArguments capturedArgs
-        (TypeApplication typeName arguments, VConstructor constructorTypeName typeParameters _ constructorArguments capturedArgs) ->
-          identifierText typeName == identifierText constructorTypeName
-            && length arguments == length typeParameters
-            && constructorIsSaturated constructorArguments capturedArgs
+        (TypeName typeName, VConstructorApplication shape capturedArgs) ->
+          identifierText typeName == identifierText (runtimeConstructorTypeName shape)
+            && constructorApplicationIsSaturated shape capturedArgs
+        (TypeApplication typeName arguments, VConstructorApplication shape capturedArgs) ->
+          identifierText typeName == identifierText (runtimeConstructorTypeName shape)
+            && length arguments == length (runtimeConstructorTypeParameters shape)
+            && constructorApplicationIsSaturated shape capturedArgs
         (TypeList {}, VList {}) ->
           True
         (TypeTuple elementTypes, VTuple elements) ->
@@ -639,10 +647,10 @@ explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
       explicitTypeApplicationRuntimeShapeHint typeHint innerValue
     VList {} ->
       Just (TypeList typeHint)
-    VConstructor typeName typeParameters _ constructorArguments capturedArgs
-      | length typeParameters == 1,
-        constructorIsSaturated constructorArguments capturedArgs ->
-          Just (TypeApplication typeName [typeHint])
+    VConstructorApplication shape capturedArgs
+      | [_] <- runtimeConstructorTypeParameters shape,
+        constructorApplicationIsSaturated shape capturedArgs ->
+          Just (TypeApplication (runtimeConstructorTypeName shape) [typeHint])
     _ -> Nothing
 
 runtimeValueSignatureHint :: RuntimeValue -> Maybe SignatureType
@@ -787,7 +795,7 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
           | length elementTypes == length elements ->
               and (zipWith runtimeValueExactlyMatchesConstraint elementTypes elements)
         _ -> False
-    VConstructor {} ->
+    VConstructorApplication {} ->
       case signatureType of
         TypeName typeName ->
           runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
@@ -898,9 +906,9 @@ runtimeValueMatchesTypeName typeName runtimeValue =
 runtimeValueMatchesDataTypeName :: Text -> RuntimeValue -> Bool
 runtimeValueMatchesDataTypeName typeName runtimeValue =
   case runtimeValue of
-    VConstructor valueTypeName _ _ constructorArguments capturedArgs ->
-      identifierText valueTypeName == typeName
-        && constructorIsSaturated constructorArguments capturedArgs
+    VConstructorApplication shape capturedArgs ->
+      identifierText (runtimeConstructorTypeName shape) == typeName
+        && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
 runtimeValueMatchesDataTypeApplication :: Name -> [SignatureType] -> RuntimeValue -> Bool
@@ -922,9 +930,9 @@ runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
 runtimeValueExactlyMatchesDataTypeName :: Name -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
   case runtimeValue of
-    VConstructor valueTypeName _ _ constructorArguments capturedArgs ->
-      valueTypeName == typeName
-        && constructorIsSaturated constructorArguments capturedArgs
+    VConstructorApplication shape capturedArgs ->
+      runtimeConstructorTypeName shape == typeName
+        && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
 runtimeValueExactlyMatchesDataTypeApplication :: Name -> [SignatureType] -> RuntimeValue -> Bool
@@ -1019,24 +1027,25 @@ isRuntimeText runtimeValue =
 
 -- | Constructor values are curried like builtins until their declared arity is
 -- saturated; extra applications are runtime errors.
-applyConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-applyConstructor typeName typeParameters constructorName fieldTypes arguments
-  | length arguments <= constructorArity =
-      Right (VConstructor typeName typeParameters constructorName fieldTypes arguments)
+applyConstructor :: RuntimeConstructorShape -> RuntimeConstructorArguments -> Either Diagnostic RuntimeValue
+applyConstructor shape arguments
+  | receivedArity <= expectedArity =
+      Right (VConstructorApplication shape arguments)
   | otherwise =
       Left
         ( runtimeDiagnostic
             E3023
             ( "runtime constructor '"
-                <> identifierText constructorName
+                <> identifierText (runtimeConstructorName shape)
                 <> "' expected "
-                <> renderArityCount constructorArity
+                <> renderArityCount expectedArity
                 <> " but received "
-                <> renderArityCount (length arguments)
+                <> renderArityCount receivedArity
             )
         )
   where
-    constructorArity = length fieldTypes
+    expectedArity = runtimeConstructorArity shape
+    receivedArity = runtimeConstructorArgumentCount arguments
 
 renderArityCount :: Int -> Text
 renderArityCount count =
@@ -1298,8 +1307,8 @@ isFunctionValue value =
     VClosure {} -> True
     VBuiltin {} -> True
     VOperator {} -> True
-    VConstructor _ _ _ constructorArguments capturedArgs ->
-      not (constructorIsSaturated constructorArguments capturedArgs)
+    VConstructorApplication shape capturedArgs ->
+      not (constructorApplicationIsSaturated shape capturedArgs)
     VQualifiedMethod {} -> True
     _ -> False
 
@@ -1385,8 +1394,8 @@ renderRuntimeType value =
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"
-    VConstructor _ _ _ constructorArguments capturedArgs
-      | constructorIsSaturated constructorArguments capturedArgs -> "Data"
+    VConstructorApplication shape capturedArgs
+      | constructorApplicationIsSaturated shape capturedArgs -> "Data"
       | otherwise -> "Function"
     VQualifiedMethod {} -> "Function"
     VTyped _ innerValue -> renderRuntimeType innerValue

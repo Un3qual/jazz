@@ -229,7 +229,7 @@ testIndependentLowererManifest = do
           "callable-parameter-value-shadows-enclosing-function-lowerer",
           "non-concrete-closure-representation",
           "duplicate-parameter-function",
-          "recursive-duplicate-parameter-function",
+          "self-recursive-duplicate-parameter-function",
           "duplicate-function-identity",
           "capturing-function",
           "self-recursive-function",
@@ -333,9 +333,11 @@ testAcceptedManifestPipeline =
           case typedCoreProductionStatus firstProduction of
             TypedCoreProductionSucceeded typedProgram -> do
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
-              case lookup name expectedLoweredPrograms of
-                Just expectedLoweredProgram -> do
+              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms) of
+                (Just validatedProgram, Just expectedLoweredProgram) -> do
                   let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                      trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
+                  assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
                   assertEqual
                     (name <> " complete lowered production")
                     (LoweredIRSucceeded expectedLoweredProgram)
@@ -344,7 +346,8 @@ testAcceptedManifestPipeline =
                     LoweredIRSucceeded loweredProgram ->
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
-                Nothing -> failTest (name <> " is missing a lowered-program expectation")
+                (Nothing, _) -> failTest (name <> " did not retain its validation proof")
+                (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
 
@@ -480,7 +483,7 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "item"))
           ]
         ),
-        ( "recursive-duplicate-parameter-function",
+        ( "self-recursive-duplicate-parameter-function",
           [ statementFailure
               1
               LoweredIRRecursiveFunctionUnsupported
@@ -1066,6 +1069,10 @@ testProductionDiagnosticCompatibility = do
     "out-of-range signed function blocks typed-core production"
     TypedCoreProductionBlockedByDiagnostics
     (typedCoreProductionStatus firstRun)
+  assertEqual
+    "blocked production does not retain a validation proof"
+    Nothing
+    (typedCoreProductionValidatedProgram firstRun)
 
 testInvalidForwardDeclarationAnalysisVisibility :: IO ()
 testInvalidForwardDeclarationAnalysisVisibility = do
@@ -1802,10 +1809,10 @@ testProducerIdentityBoundary =
           ]
         ),
         ( "duplicate-leading-parameters",
-          [ parameterFailure [0, 0] ]
+          [parameterFailure [0, 0]]
         ),
         ( "curried-shadowed-parameter",
-          [ parameterFailure [0, 0] ]
+          [parameterFailure [0, 0]]
         )
       ]
     parameterFailure childPath =
@@ -1943,7 +1950,8 @@ testCanonicalRecursionTransportControls =
           | TypedCoreProductionFailure
               (TypedCoreProductionStatementPath _ statementIndex)
               TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail name) <- failures
+              (TypedCoreNameDetail name) <-
+              failures
           ]
         _ -> []
 
@@ -1972,7 +1980,8 @@ testNestedPriorOuterAliasOwnership requestedName = do
           | TypedCoreProductionFailure
               (TypedCoreProductionStatementPath _ statementIndex)
               TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail name) <- failures
+              (TypedCoreNameDetail name) <-
+              failures
           ]
         _ -> []
 
@@ -2255,7 +2264,8 @@ testRejectedCallableDeclarationTransport requestedName =
 
 testRejectedProducerDependencyTransport :: IO ()
 testRejectedProducerDependencyTransport =
-  mapM_ assertExact
+  mapM_
+    assertExact
     [ ( "rejected-conditional-self-recursion",
         [ statementFailure 1 "loop",
           expressionFailure 1 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
@@ -2553,13 +2563,13 @@ assertUnsupportedResolved fixture resolvedModule expectedFailures = do
 withExpression :: Expr -> ResolvedModule -> ResolvedModule
 withExpression expression moduleValue =
   moduleValue
-        { resolvedModuleCore =
-            CoreModule
-              (Just ["App", "Main"])
-              Nothing
-              []
-              expression
-        }
+    { resolvedModuleCore =
+        CoreModule
+          (Just ["App", "Main"])
+          Nothing
+          []
+          expression
+    }
 
 fixtureByName :: Text -> Fixture
 fixtureByName name =

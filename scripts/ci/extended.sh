@@ -5,6 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
+JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+case "$JAZZ_CABAL_JOBS" in
+  "" | 0 | *[!0-9]*)
+    printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
+    exit 2
+    ;;
+esac
+export JAZZ_CABAL_JOBS
+
 JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/extended}"
 : "${JAZZ_BENCHMARK_LABEL:?JAZZ_BENCHMARK_LABEL is required}"
 if [[ -e "$JAZZ_ARTIFACT_ROOT" && ! -d "$JAZZ_ARTIFACT_ROOT" ]]; then
@@ -31,11 +40,13 @@ full_scale_components=(
 cabal test all "${full_scale_components[@]}" \
   -ffull-parser-scale \
   --test-show-details=always \
-  --test-log="$corpus_log_root/first/\$test-suite.log"
+  --test-log="$corpus_log_root/first/\$test-suite.log" \
+  --jobs="$JAZZ_CABAL_JOBS"
 
 cabal test program-corpus-spec \
   --test-show-details=always \
-  --test-log="$corpus_log_root/second/\$test-suite.log"
+  --test-log="$corpus_log_root/second/\$test-suite.log" \
+  --jobs="$JAZZ_CABAL_JOBS"
 
 python3 - \
   "$corpus_log_root/first/program-corpus-spec.log" \
@@ -73,13 +84,16 @@ JAZZ_ARTIFACT_ROOT="$JAZZ_ARTIFACT_ROOT/determinism" \
   bash scripts/ci/determinism.sh
 
 cabal --project-file=cabal.project.profile-stages \
-  build all --builddir=dist-newstyle-profile-stages
+  build all --builddir=dist-newstyle-profile-stages \
+  --jobs="$JAZZ_CABAL_JOBS"
 cabal --project-file=cabal.project.profile-hotspots \
-  build all --builddir=dist-newstyle-profile-hotspots
+  build all --builddir=dist-newstyle-profile-hotspots \
+  --jobs="$JAZZ_CABAL_JOBS"
 
 cabal bench jazz-bench \
   --benchmark-option="--environment-label=$JAZZ_BENCHMARK_LABEL" \
-  --benchmark-option="--result-root=$JAZZ_ARTIFACT_ROOT/benchmarks"
+  --benchmark-option="--result-root=$JAZZ_ARTIFACT_ROOT/benchmarks" \
+  --jobs="$JAZZ_CABAL_JOBS"
 
 python3 - "$JAZZ_ARTIFACT_ROOT/benchmarks" "$JAZZ_BENCHMARK_LABEL" <<'PY'
 import csv
@@ -123,7 +137,9 @@ if len(rows) < 2 or not rows[0] or any(not heading for heading in rows[0]):
     raise SystemExit("generated benchmark results.csv has no data rows or a malformed header")
 PY
 
-cabal test benchmark-metadata-spec --test-show-details=direct
+cabal test benchmark-metadata-spec \
+  --test-show-details=direct \
+  --jobs="$JAZZ_CABAL_JOBS"
 
 manifest_path="$JAZZ_ARTIFACT_ROOT/manifest.json"
 python3 - "$JAZZ_ARTIFACT_ROOT" "$manifest_path" <<'PY'

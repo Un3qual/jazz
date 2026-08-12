@@ -5,7 +5,10 @@
 -- lowering: it accepts an already-constructed contract value and reports all
 -- invariant failures in stable structural order.
 module Jazz.Compiler.TypedCore.Validate
-  ( validateTypedProgram,
+  ( ValidatedTypedProgram,
+    validateTypedProgram,
+    validateTypedProgramOnce,
+    validatedTypedProgram,
   )
 where
 
@@ -88,6 +91,21 @@ data InstantiationContract
       [TypedTypeParameterId]
       [TypedEvidenceParameter]
       [TypedPrimitiveConstraint]
+
+-- | Proof-carrying transport for internal producer-to-consumer paths. The
+-- constructor stays private so externally built contract values must cross
+-- 'validateTypedProgramOnce' before using a trusted consumer.
+newtype ValidatedTypedProgram = ValidatedTypedProgram TypedProgram
+  deriving (Eq, Show)
+
+validatedTypedProgram :: ValidatedTypedProgram -> TypedProgram
+validatedTypedProgram (ValidatedTypedProgram typedProgram) = typedProgram
+
+validateTypedProgramOnce :: TypedProgram -> Either [TypedCoreValidationFailure] ValidatedTypedProgram
+validateTypedProgramOnce typedProgram =
+  case validateTypedProgram typedProgram of
+    [] -> Right (ValidatedTypedProgram typedProgram)
+    failures -> Left failures
 
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram (TypedProgram prelude modules entryModule) =
@@ -1342,7 +1360,7 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
     statements = map snd locatedStatements
     forwardContext = prepareForwardSignedFunctionContext initialContext forwardSignedFunctions
     dependencies = recursiveGroupDependencies initialContext statements
-    reachability = recursiveGroupReachability dependencies
+    recursiveGroups = recursiveGroupFacts dependencies statements
     validateFrom _ _ [] = []
     validateFrom visibleContext blockIndex ((statementLocation, statement) : rest) =
       case rejectedStatement initialContext statementLocation statement of
@@ -1355,7 +1373,7 @@ validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialCo
                 | isForwardSignedFunctionDeclaration forwardSignedFunctions statement =
                     forwardVisibleContext
                 | otherwise = visibleContext
-              recursiveGroup = recursiveGroupStatements dependencies reachability statements blockIndex
+              recursiveGroup = Map.findWithDefault [] blockIndex recursiveGroups
               statementContext =
                 case statement of
                   TypedLetStatement {}
@@ -1489,20 +1507,49 @@ blockStatementScopeFailure context statementLocation statement =
             (TypedTextDetail declarationKind)
         )
 
-recursiveGroupStatements :: Map Int (Set Int) -> Map Int (Set Int) -> [TypedStatement] -> Int -> [TypedStatement]
-recursiveGroupStatements dependencies reachability statements statementIndex =
-  case Map.lookup statementIndex dependencies of
-    Nothing -> []
-    Just directDependencies
-      | length members > 1 || Set.member statementIndex directDependencies ->
-          [statement | (index, statement) <- zip [0 ..] statements, index `elem` members]
-      | otherwise -> []
+recursiveGroupFacts :: Map Int (Set Int) -> [TypedStatement] -> Map Int [TypedStatement]
+recursiveGroupFacts dependencies statements =
+  Map.mapMaybe
+    (\componentIndex -> Map.lookup componentIndex sourceOrderedGroups)
+    memberComponents
   where
-    members =
-      [ candidate
-      | candidate <- Set.toList (Map.findWithDefault Set.empty statementIndex reachability),
-        Set.member statementIndex (Map.findWithDefault Set.empty candidate reachability)
+    graphNodes =
+      [ (statementIndex, statementIndex, Set.toList directDependencies)
+      | (statementIndex, directDependencies) <- Map.toList dependencies
       ]
+    cyclicComponents =
+      [ (componentIndex, members)
+      | (componentIndex, component) <- zip [0 :: Int ..] (stronglyConnComp graphNodes),
+        members <- maybeToList (cyclicComponentMembers component)
+      ]
+    cyclicComponentMembers component =
+      case component of
+        AcyclicSCC statementIndex
+          | selfDependent statementIndex -> Just [statementIndex]
+        CyclicSCC members
+          | length members > 1 || any selfDependent members -> Just members
+        _ -> Nothing
+    selfDependent statementIndex =
+      Set.member
+        statementIndex
+        (Map.findWithDefault Set.empty statementIndex dependencies)
+    memberComponents =
+      Map.fromList
+        [ (statementIndex, componentIndex)
+        | (componentIndex, members) <- cyclicComponents,
+          statementIndex <- members
+        ]
+    reversedGroups =
+      foldl'
+        addSourceStatement
+        Map.empty
+        (zip [0 :: Int ..] statements)
+    addSourceStatement groups (statementIndex, statement) =
+      case Map.lookup statementIndex memberComponents of
+        Nothing -> groups
+        Just componentIndex ->
+          Map.insertWith (<>) componentIndex [statement] groups
+    sourceOrderedGroups = Map.map reverse reversedGroups
 
 recursiveGroupDependencies :: ModuleContext -> [TypedStatement] -> Map Int (Set Int)
 recursiveGroupDependencies outerContext statements =
@@ -1524,37 +1571,22 @@ recursiveGroupDependencies outerContext statements =
       ]
     declarationIndicesByName =
       Map.fromListWith
-        (flip (<>))
-        [ (nameKey, [index])
+        Set.union
+        [ (nameKey, Set.singleton index)
         | (index, nameKey, _) <- declarations
         ]
     resolveDependency index ownName expression referencedName =
       case Map.lookup referencedName declarationIndicesByName of
         Nothing -> Nothing
         Just declarationIndices ->
-          case reverse (filter (< index) declarationIndices) of
-            prior : _ -> Just prior
-            []
+          case Set.lookupLT index declarationIndices of
+            Just prior -> Just prior
+            Nothing
               | Set.member referencedName (moduleContextVisibleNames outerContext) -> Nothing
               | referencedName == ownName ->
                   if expressionCanBeRecursive outerContext ownName expression then Just index else Nothing
               | otherwise ->
-                  case filter (> index) declarationIndices of
-                    future : _ -> Just future
-                    [] -> Nothing
-
-recursiveGroupReachability :: Map Int (Set Int) -> Map Int (Set Int)
-recursiveGroupReachability dependencies =
-  Map.mapWithKey (\source _ -> reachableDependencies source) dependencies
-  where
-    reachableDependencies source = go Set.empty [source]
-    go seen [] = seen
-    go seen (current : rest)
-      | Set.member current seen = go seen rest
-      | otherwise =
-          go
-            (Set.insert current seen)
-            (Set.toList (Map.findWithDefault Set.empty current dependencies) <> rest)
+                  Set.lookupGT index declarationIndices
 
 expressionCanBeRecursive :: ModuleContext -> ResolvedNameKey -> TypedExpr -> Bool
 expressionCanBeRecursive context bindingName expression =
@@ -5138,6 +5170,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         [ (name, scheme)
         | TypedLetStatement _ name _ scheme _ <- statements
         ]
+    exportSet = Set.fromList exports
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
@@ -5172,7 +5205,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           | preludeModule <- maybeToList (Map.lookup ["Prelude"] moduleTable)
           ]
     validateValueInterface (TypedValueInterface name scheme)
-      | Map.lookup name activeDeclaredValues == Just scheme && moduleExportsName TypedValueNamespace name exports =
+      | Map.lookup name activeDeclaredValues == Just scheme && interfaceExportsName TypedValueNamespace name =
           validateValueInterfaceDependencies scheme
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateDataInterface (TypedDataInterface declaration@(TypedDataDeclaration _ name _ constructors))
@@ -5281,21 +5314,26 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     localClassInterfaceMatches exportedName (TypedClassInterface declaration) =
       declaration `elem` declaredClasses
         && classDeclarationMatches exportedName declaration
-    valueExportProviderCount exportedName =
-      length
-        ( nub
-            ( [ owner
-              | TypedValueInterface name (TypedScheme owner _ _ _ _ _ _) <- values,
-                coreNameIdentifier name == Just exportedName
-              ]
-                <> [ owner
-                   | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
-                     declaration `elem` declaredClasses,
-                     TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _ _) <- methods,
-                     coreNameIdentifier name == Just exportedName
-                   ]
-            )
+    interfaceExportsName namespace name =
+      case coreNameIdentifier name of
+        Nothing -> False
+        Just identifier -> Set.member (TypedModuleExport namespace identifier) exportSet
+    valueExportProviders =
+      Map.fromListWith
+        Set.union
+        ( [ (identifier, Set.singleton owner)
+          | TypedValueInterface name (TypedScheme owner _ _ _ _ _ _) <- values,
+            identifier <- maybeToList (coreNameIdentifier name)
+          ]
+            <> [ (identifier, Set.singleton owner)
+               | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
+                 declaration `elem` declaredClasses,
+                 TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _ _) <- methods,
+                 identifier <- maybeToList (coreNameIdentifier name)
+               ]
         )
+    valueExportProviderCount exportedName =
+      maybe 0 Set.size (Map.lookup exportedName valueExportProviders)
 
 schemeLocalDataDependencies :: [Text] -> TypedScheme -> [TypedCoreName]
 schemeLocalDataDependencies modulePath (TypedScheme _ _ evidence primitive resultType _ _) =

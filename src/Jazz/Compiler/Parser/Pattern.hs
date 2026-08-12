@@ -3,8 +3,10 @@
 -- | Pattern grammar over lexer tokens.
 module Jazz.Compiler.Parser.Pattern
   ( parseCaseArmPatternParser,
+    parseCaseArmPatternTokenStream,
     parseCaseArmPatternTokens,
     parseCasePatternParser,
+    parseCasePatternTokenStream,
     parseCasePatternTokens,
     parseLambdaParameterParser,
     parseLambdaParameterTokens,
@@ -42,7 +44,9 @@ import Jazz.Compiler.Parser.TokenParser
     parseToken,
     peekToken,
     runTokenParserPrefix,
+    runTokenStreamParserPrefix,
   )
+import Jazz.Compiler.Parser.TokenStream (TokenStream)
 import qualified Text.Megaparsec as MP
 
 parseCaseArmPatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
@@ -52,6 +56,14 @@ parseCaseArmPatternTokens =
 parseCasePatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePatternTokens =
   runTokenParserPrefix "case pattern" parseCasePatternParser
+
+parseCaseArmPatternTokenStream :: TokenStream -> Either Diagnostic (SurfacePattern, TokenStream)
+parseCaseArmPatternTokenStream =
+  runTokenStreamParserPrefix "case arm pattern" parseCaseArmPatternParser
+
+parseCasePatternTokenStream :: TokenStream -> Either Diagnostic (SurfacePattern, TokenStream)
+parseCasePatternTokenStream =
+  runTokenStreamParserPrefix "case pattern" parseCasePatternParser
 
 parseLambdaParameterTokens :: [Token] -> Either Diagnostic (SurfaceLambdaParameter, [Token])
 parseLambdaParameterTokens =

@@ -4,18 +4,27 @@
 module Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    OperatorTable,
     builtinOperatorInfos,
+    builtinOperatorTable,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
+    insertDeclaredOperator,
     isBuiltinOperatorSymbol,
+    isDeclaredOperator,
     isReservedOperatorSymbol,
     isStage2OperatorSymbolChar,
     isValidUserOperatorSymbol,
     lookupOperatorInfoIn,
     lookupOperatorInfo,
+    operatorTableFromDeclarations,
   )
 where
 
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -52,6 +61,34 @@ builtinOperatorInfos =
     OperatorInfo "$" 1 AssocRight
   ]
 
+-- | Scope-local fixity lookup. Builtins are indexed once; the declared-symbol
+-- set remains separate because only user declarations may be bound or signed.
+data OperatorTable = OperatorTable
+  { operatorInfosBySymbol :: !(Map Text OperatorInfo),
+    declaredOperatorSymbols :: !(Set Text)
+  }
+  deriving (Eq, Show)
+
+builtinOperatorTable :: OperatorTable
+builtinOperatorTable =
+  OperatorTable
+    { operatorInfosBySymbol = Map.fromList [(operatorSymbol info, info) | info <- builtinOperatorInfos],
+      declaredOperatorSymbols = Set.empty
+    }
+
+operatorTableFromDeclarations :: [OperatorInfo] -> OperatorTable
+operatorTableFromDeclarations = foldr insertDeclaredOperator builtinOperatorTable
+
+insertDeclaredOperator :: OperatorInfo -> OperatorTable -> OperatorTable
+insertDeclaredOperator operatorInfo operatorTable =
+  operatorTable
+    { operatorInfosBySymbol = Map.insert (operatorSymbol operatorInfo) operatorInfo (operatorInfosBySymbol operatorTable),
+      declaredOperatorSymbols = Set.insert (operatorSymbol operatorInfo) (declaredOperatorSymbols operatorTable)
+    }
+
+isDeclaredOperator :: Text -> OperatorTable -> Bool
+isDeclaredOperator symbol = Set.member symbol . declaredOperatorSymbols
+
 -- | Lexer-facing membership check so unsupported operator spellings are
 -- rejected before expression parsing.
 isBuiltinOperatorSymbol :: Text -> Bool
@@ -63,27 +100,12 @@ isBuiltinOperatorSymbol symbol =
 -- | Lookup helper used by both the lexer and parser so they share the same
 -- operator vocabulary and fixity data.
 lookupOperatorInfo :: Text -> Maybe OperatorInfo
-lookupOperatorInfo symbol = go builtinOperatorInfos
-  where
-    go infos =
-      case infos of
-        [] -> Nothing
-        info : rest
-          | operatorSymbol info == symbol -> Just info
-          | otherwise -> go rest
+lookupOperatorInfo symbol = Map.lookup symbol (operatorInfosBySymbol builtinOperatorTable)
 
 -- | Lookup helper for parser state that extends the builtin table with
 -- source-unit-local user declarations.
-lookupOperatorInfoIn :: [OperatorInfo] -> Text -> Maybe OperatorInfo
-lookupOperatorInfoIn declaredOperators symbol =
-  go (declaredOperators <> builtinOperatorInfos)
-  where
-    go infos =
-      case infos of
-        [] -> Nothing
-        info : rest
-          | operatorSymbol info == symbol -> Just info
-          | otherwise -> go rest
+lookupOperatorInfoIn :: OperatorTable -> Text -> Maybe OperatorInfo
+lookupOperatorInfoIn operatorTable symbol = Map.lookup symbol (operatorInfosBySymbol operatorTable)
 
 -- | Stage 2 declaration tiers map from documentation tiers (1 is tightest) to
 -- the parser's internal precedence numbers (larger numbers bind tighter).

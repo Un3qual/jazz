@@ -5,11 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
+JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+case "$JAZZ_CABAL_JOBS" in
+  "" | 0 | *[!0-9]*)
+    printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
+    exit 2
+    ;;
+esac
+
 JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/determinism}"
 SOURCE="examples/functions/factorial.jz"
 mkdir -p "$JAZZ_ARTIFACT_ROOT"
 
-cabal build jazz
+cabal build jazz --jobs="$JAZZ_CABAL_JOBS"
 JAZZ_BIN="$(cabal list-bin jazz)"
 
 "$JAZZ_BIN" --run --runtime-stats=json "$SOURCE" \

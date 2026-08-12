@@ -15,7 +15,10 @@ import Jazz.Compiler.Parser.AST
   ( SurfaceExpr,
     SurfaceStatement
   )
-import Jazz.Compiler.Parser.Operator (OperatorInfo)
+import Jazz.Compiler.Parser.Operator
+  ( OperatorTable,
+    builtinOperatorTable
+  )
 import Jazz.Compiler.Parser.TokenParser (Parser)
 
 data StatementContext
@@ -26,7 +29,7 @@ data StatementContext
 
 data ParserContext = ParserContext
   { parserKnownAliases :: Set Text,
-    parserDeclaredOperators :: [OperatorInfo],
+    parserDeclaredOperators :: OperatorTable,
     parserStatementContext :: StatementContext
   }
   deriving (Eq, Show)
@@ -39,6 +42,6 @@ initialParserContext :: ParserContext
 initialParserContext =
   ParserContext
     { parserKnownAliases = Set.empty,
-      parserDeclaredOperators = [],
+      parserDeclaredOperators = builtinOperatorTable,
       parserStatementContext = TopLevelContext
     }

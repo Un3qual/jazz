@@ -43,6 +43,9 @@ generalizationTests =
     , ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding)
     , ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument)
     , ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState)
+    , ("source pipeline retains shared outer variables after rebinding", testSourceRetainsSharedOuterVariableAfterRebinding)
+    , ("source pipeline removes shadowed outer variables from generalization env", testSourceRemovesShadowedOuterVariableFromGeneralizationEnv)
+    , ("source pipeline keeps constructor bindings out of generalization env", testSourceKeepsConstructorBindingsOutOfGeneralizationEnv)
   ]
 
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
@@ -221,3 +224,49 @@ testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
     "later diagnostic keeps deterministic type variable id"
     "cannot apply function of type [t3] to argument of type Int"
     (Text.unlines (map renderDiagnostic (compileErrors result)))
+
+testSourceRetainsSharedOuterVariableAfterRebinding :: IO ()
+testSourceRetainsSharedOuterVariableAfterRebinding =
+  assertSourceErrorContains
+    """
+    outer = \\(x) -> {
+      first = \\(ignored) -> x.
+      second = first.
+      first = 1.
+      third = second.
+      intValue = third True + 1.
+      boolValue = if third False then 1 else 0.
+      (intValue, boolValue).
+    }.
+    outer 7.
+    """
+    "if condition must have type Bool"
+
+testSourceRemovesShadowedOuterVariableFromGeneralizationEnv :: IO ()
+testSourceRemovesShadowedOuterVariableFromGeneralizationEnv = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      outer = \\(x) -> {
+        captured = \\(ignored) -> x.
+        x = 1.
+        identity = \\(candidate) -> candidate.
+        (identity True, identity 2).
+      }.
+      outer 7.
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, 2)") (runOutput result)
+
+testSourceKeepsConstructorBindingsOutOfGeneralizationEnv :: IO ()
+testSourceKeepsConstructorBindingsOutOfGeneralizationEnv =
+  assertSourceOkWithoutPrelude
+    """
+    data Box a = Box a.
+    identity = \\(candidate) -> candidate.
+    intBox = Box (identity 1).
+    boolBox = Box (identity True).
+    """

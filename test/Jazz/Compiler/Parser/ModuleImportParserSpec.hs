@@ -67,6 +67,7 @@ tests =
     ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
     ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
+    ("parses nested lowercase qualified lookup before later alias import", testParsesNestedLowercaseQualifiedAliasLookupBeforeImport),
     ("parses uppercase qualified alias member lookup", testParsesUppercaseQualifiedAliasMemberLookup),
     ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
     ("parses compact signature when not an alias", testParsesCompactSignatureWhenNotAlias),
@@ -451,6 +452,27 @@ testParsesNestedLowercaseQualifiedAliasLookup =
     result = {
       math::subtract.
     }.
+    """)
+
+testParsesNestedLowercaseQualifiedAliasLookupBeforeImport :: IO ()
+testParsesNestedLowercaseQualifiedAliasLookupBeforeImport =
+  assertEqual
+    "nested lowercase qualified alias lookup before import surface AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "result"
+                (SourceSpan 1 1)
+                (SEBlock [SSExpr (SourceSpan 2 3) (SEQualifiedVar "math" "subtract")]),
+              SSImport (SourceSpan 4 1) ["Lib", "Math"] (Just "math") Nothing
+            ]
+        )
+    )
+    (parseSurfaceProgram """
+    result = {
+      math::subtract.
+    }.
+    import Lib::Math as math.
     """)
 
 testParsesUppercaseQualifiedAliasMemberLookup :: IO ()

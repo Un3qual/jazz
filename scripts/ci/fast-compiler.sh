@@ -5,6 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
+JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+case "$JAZZ_CABAL_JOBS" in
+  "" | 0 | *[!0-9]*)
+    printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
+    exit 2
+    ;;
+esac
+export JAZZ_CABAL_JOBS
+
 test_components=(
   cli-spec
   runtime-observation-spec
@@ -36,11 +45,14 @@ test_components=(
 )
 
 actionlint
-cabal build all
-cabal test "${test_components[@]}" --test-show-details=direct
+cabal build all --jobs="$JAZZ_CABAL_JOBS"
+cabal test "${test_components[@]}" \
+  --test-show-details=direct \
+  --jobs="$JAZZ_CABAL_JOBS"
 cabal check
 python3 scripts/release/test-verify-artifacts.py
-bash scripts/check-examples.sh
+jazz_bin="$(cabal list-bin jazz)"
+bash scripts/check-examples.sh --jazz-bin "$jazz_bin"
 if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
   git diff --check "$JAZZ_DIFF_BASE...HEAD"
 else

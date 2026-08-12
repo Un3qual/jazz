@@ -20,6 +20,46 @@ The commands below assume the repository root and its Nix development shell:
 nix --extra-experimental-features 'nix-command flakes' develop
 ```
 
+## Bounded local verification
+
+Run only one Cabal, Jazz, profiling, or Nix command at a time. The verification
+scripts default Cabal jobs, Nix build jobs, and Nix cores to `1`; override the
+defaults only when the machine has measured capacity:
+
+```bash
+JAZZ_CABAL_JOBS=2 JAZZ_NIX_JOBS=2 JAZZ_NIX_CORES=2 \
+  bash scripts/ci/main-functional.sh
+```
+
+With no phase selection, `main-functional.sh` remains the authoritative main
+gate: repository preflight, the ordinary Cabal build and complete test suite,
+repository checks, and `nix flake check`. During a focused batch, select the
+narrowest completed phase instead of restarting the whole gate after every
+edit:
+
+```bash
+JAZZ_MAIN_PHASE=compiler bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=repository bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=nix bash scripts/ci/main-functional.sh
+```
+
+On a memory-constrained development machine, the low-memory phase runs the
+compiler and repository phases serially and deliberately omits Nix:
+
+```bash
+JAZZ_MAIN_PHASE=low-memory bash scripts/ci/main-functional.sh
+```
+
+The script prints that omission so its receipt cannot be mistaken for complete
+main or release evidence. Before publication, run exactly one fresh full
+closeout after the final source change. Release candidates still require the
+complete main, extended/profile, Nix build, packaging, website, determinism,
+and artifact-validation gates through `scripts/ci/release-candidate.sh`.
+
+If a long command goes quiet, inspect and keep waiting for that process. Do not
+start a duplicate Cabal, Jazz, profiling, or Nix invocation merely because a
+terminal session stopped displaying output.
+
 ## Correctness and semantic budgets
 
 The corpus suite is the deterministic performance gate. It runs all `fast` and
@@ -45,9 +85,10 @@ different runtime shapes:
 - `symbolic-differentiation` exercises recursive ADT construction,
   transformation, simplification, and evaluation.
 
-All six participate in every benchmark boundary. Their manifest ceilings come
-from deterministic runtime observations with bounded headroom; they are full
-workloads and therefore do not lengthen the default fast smoke selection.
+All six participate in every corpus-backed benchmark boundary. Their manifest
+ceilings come from deterministic runtime observations with bounded headroom;
+they are full workloads and therefore do not lengthen the default fast smoke
+selection.
 
 ### Hosted parser scale tiers
 
@@ -85,15 +126,19 @@ artifacts.
 
 ## Benchmarks
 
-The benchmark tree has five boundaries:
+The benchmark tree has nine boundaries:
 
-| Group                | Timed work                                                     |
-| -------------------- | -------------------------------------------------------------- |
-| `parse-lower`        | Tokenize, parse the surface program, and lower to the core AST |
-| `analysis`           | Re-analyze the lowered entry module with imported interfaces   |
-| `module-preparation` | Discover, resolve, analyze, and prepare a module program       |
-| `runtime`            | Evaluate an already prepared program                           |
-| `whole-program`      | Load the entry program through final runtime result            |
+| Group                 | Timed work                                                    |
+| --------------------- | ------------------------------------------------------------- |
+| `parse-lower`         | Tokenize, parse the surface program, and lower to the core AST |
+| `analysis`            | Re-analyze the lowered entry module with imported interfaces  |
+| `diagnostic-analysis` | Analyze a direct core expression and materialize diagnostics  |
+| `module-preparation`  | Discover, resolve, analyze, and prepare a module program      |
+| `typed-validation`    | Validate an already generated Typed Core program              |
+| `lowered-validation`  | Validate an already generated Lowered IR program              |
+| `typed-lowering`      | Validate trusted Typed Core and lower it into Lowered IR      |
+| `runtime`             | Evaluate an already prepared program                          |
+| `whole-program`       | Load the entry program through final runtime result           |
 
 Setup required by a narrower group is performed before its timed action, and
 the result is forced before the sample ends. Smoke mode executes one fast case
@@ -106,6 +151,80 @@ cabal bench jazz-bench --benchmark-options='--jazz-smoke'
 Analysis setup compiles the program once to materialize validated dependency
 interfaces; the timed action then re-analyzes the entry module against those
 interfaces.
+
+### Generated compiler scale cases
+
+Compiler-scale cases are generated in memory and are opt-in, so the ordinary
+repeated corpus tree and extended benchmark workload remain unchanged. Smoke
+mode still executes one case per boundary. No corpus case owns the
+diagnostic-analysis, validation, or typed-lowering boundaries, so smoke uses
+the smallest analyzer chain, recursive Typed Core, Lowered IR temporary, and
+Typed Core handoff fixtures for those four boundaries. The registered case
+families isolate these growth curves:
+
+| Scenario                          | Stable case sizes                   | Timed groups                                      | Exact result or artifact            |
+| --------------------------------- | ----------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| Sequential polymorphic bindings   | 64, 128, 256, 512                   | `analysis`, `module-preparation`                  | `(42, True)`                        |
+| Wide module fanout, width 16      | 8, 16, 32, 64 modules               | `module-preparation`, `whole-program`             | `0`                                 |
+| Wide module fanout, width 1       | 64, 128, 256, 512                   | `module-preparation`, `whole-program`             | `0`                                 |
+| Shared-interface fanout, width 16 | 16, 32, 64, 128 modules             | `module-preparation`, `whole-program`             | `0`                                 |
+| Resolver fact-rich declarations   | 16, 32, 64, 128 groups              | `module-preparation`                              | `Token`                             |
+| Typed validation handoff          | 64, 128, 256, 512 nodes             | `typed-lowering`                                  | valid Lowered IR                    |
+| Lowered temporary validation      | 64, 256, 1024, 4096 instructions    | `lowered-validation`                              | valid Lowered IR                    |
+| Typed recursive statement graph   | 128, 512, 1024, 2048 statements     | `typed-validation`                                | valid Typed Core graph              |
+| Typed forward-signed functions    | 128, 512, 1024, 2048 functions      | `typed-lowering`                                  | valid Lowered IR                    |
+| Typed wide export providers       | 128, 512, 1024, 2048 providers      | `typed-validation`                                | valid Typed Core export inventory   |
+| Wide constructor applications     | 32, 64, 128, 256 fields             | `analysis`, `runtime`, `whole-program`            | `(<function>, (0, midpoint, last))` |
+| Capability candidate width        | 16, 32, 64, 128 candidates          | `analysis`, `runtime`, `whole-program`            | last candidate index                |
+| Host-free opaque environments     | 64, 256, 1024, 4096 bindings        | `runtime`, `whole-program`                        | `1`                                 |
+| Analyzer diagnostic chains        | 64, 128, 256, 512 nodes             | `diagnostic-analysis`                             | exact error count                   |
+| Interleaved recursive groups      | 16, 32, 64, 128 groups              | `analysis`, `module-preparation`                  | `(1, True)`                         |
+| Recursive preview bursts          | 16, 32, 64, 128 groups              | `analysis`                                        | `(1, True)`                         |
+| Recursive rebinding bursts        | 128, 256, 512, 1024                 | `analysis`                                        | final rebound value                 |
+| Constrained signatures            | 32, 64, 128, 256                    | `parse-lower`, `analysis`                         | `(1, True)`                         |
+| Deferred constraint bursts        | 128, 256, 512, 1024                 | `analysis`                                        | exact result list                   |
+| Deep nested lambdas               | 16, 32, 64, 128 levels              | `analysis`, `module-preparation`, `whole-program` | `(1, depth)`                        |
+| Large declared operator tables    | 16, 32, 64, 128 symbols             | `parse-lower`                                     | parses and lowers                   |
+| Nested expression blocks          | 16, 32, 64, 128 levels              | `parse-lower`                                     | parses and lowers                   |
+| Ambiguous case-arm pipe bodies    | 64, 128, 256, 512 terms             | `parse-lower`                                     | one left-associated body            |
+| Exact long token streams          | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Identifier token streams          | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Literal token streams             | 1,024, 4,096, 16,384, 65,536 tokens | `parse-lower`                                     | exact token count                   |
+| Nested runtime applications       | 64, 128, 256, 512 levels            | `runtime`                                         | `7`                                 |
+| Runtime import width              | 64, 128, 256, 512 exports           | `runtime`, `whole-program`                        | `7`                                 |
+
+Case identifiers encode the controlling size, for example
+`sequential-polymorphic-bindings-0064` and
+`wide-module-fanout-0008x0016`; the final field is the interface width, so
+`wide-module-fanout-0064x0001` isolates dependency lookup with minimal rebasing.
+`shared-interface-fanout-0016x0016` makes every dependent module import the
+same interface, isolating repeated dependency rebasing and cache reuse.
+List one generated case with:
+
+```bash
+cabal bench jazz-bench --jobs=1 \
+  --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests'
+```
+
+The unrecorded leaves are stable, such as
+`compiler-scale.analysis.sequential-polymorphic-bindings-0064`. Repeat
+`--jazz-scale-case=ID` to select a comparable curve, and add an environment
+label to record the ordinary `results.csv` and `environment.json` pair:
+
+```bash
+cabal bench jazz-bench --jobs=1 \
+  --benchmark-options='--environment-label=compiler-scale-local --time-mode=cpu --jazz-scale-case=sequential-polymorphic-bindings-0064 --jazz-scale-case=sequential-polymorphic-bindings-0128 --jazz-scale-case=sequential-polymorphic-bindings-0256 --jazz-scale-case=sequential-polymorphic-bindings-0512 +RTS -T -RTS'
+```
+
+Generated selectors cannot be combined with `--jazz-case` or `--jazz-smoke`.
+The semantic tests compile and evaluate the smallest runtime-capable case and
+assert exact output. Parser-only families traverse the real lexer, parser, and
+lowerer, and the smallest long-stream case asserts its exact token count.
+Physical time, cumulative allocation, and maximum residency remain recorded
+evidence rather than deterministic thresholds. Use
+`+RTS -T -RTS` when the optimized CSV must include `Allocated`, `Copied`, and
+`Peak Memory` columns; the captured environment records the `-T` configuration
+so comparisons cannot silently mix it with a timing-only run.
 
 List the registered tree or select cases and a Tasty pattern:
 
@@ -275,12 +394,14 @@ Stable stages are:
 | ------------------------------- | -------------------------------------------------------- |
 | `source-loading`                | Read requested source text                               |
 | `module-discovery`              | Find module files and dependencies                       |
-| `lexing`, `parsing`, `lowering` | Convert source through surface syntax to core AST        |
+| `lexing`, `parsing`, `lowering` | Convert source or Typed Core into the next compiler IR   |
 | `module-resolution`             | Build and validate the dependency-ordered module program |
 | `static-analysis`               | Run module/expression semantic analysis                  |
 | `type-inference`                | Infer types at the public inference boundary             |
 | `constraint-solving`            | Solve accumulated type constraints                       |
 | `capability-solving`            | Resolve capability requirements                          |
+| `typed-core-validation`         | Validate a generated Typed Core artifact                 |
+| `lowered-ir-validation`         | Validate a generated Lowered IR artifact                 |
 | `runtime-preparation`           | Build runtime-ready module state                         |
 | `evaluation`                    | Execute Jazz evaluator work                              |
 | `host-operation`                | Invoke validated host effects                            |

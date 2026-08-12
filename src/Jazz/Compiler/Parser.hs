@@ -47,7 +47,10 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize,
   )
-import Jazz.Compiler.Parser.Operator (OperatorInfo)
+import Jazz.Compiler.Parser.Operator
+  ( OperatorInfo,
+    operatorTableFromDeclarations
+  )
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
@@ -99,7 +102,7 @@ parseSurfaceExpressionTokens knownAliases declaredOperators =
     expressionContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
 
@@ -147,14 +150,18 @@ parseProgramStatements parseStatement context = do
 
 parseStatementsUntilBrace :: StatementParser -> StatementBlockParser
 parseStatementsUntilBrace parseStatement context = do
-  tokens <- MP.lookAhead MP.getInput
-  let scopeContext =
-        context
-          { parserKnownAliases =
-              Set.union
-                (parserKnownAliases context)
-                (collectImportAliasesUntilBrace tokens)
-          }
+  scopeContext <-
+    case parserStatementContext context of
+      NestedBlockContext -> pure context
+      _ -> do
+        tokens <- MP.lookAhead MP.getInput
+        pure
+          context
+            { parserKnownAliases =
+                Set.union
+                  (parserKnownAliases context)
+                  (collectImportAliasesUntilBrace tokens)
+            }
   go [] scopeContext
   where
     go reversedStatements currentContext = do
@@ -170,7 +177,7 @@ parseStatementsUntilBrace parseStatement context = do
 
 reversePrepend :: [a] -> [a] -> [a]
 reversePrepend values reversedValues =
-  foldl (flip (:)) reversedValues values
+  foldl' (flip (:)) reversedValues values
 
 leadingModuleDeclaration :: [SurfaceStatement] -> Maybe SourceSpan
 leadingModuleDeclaration statements =

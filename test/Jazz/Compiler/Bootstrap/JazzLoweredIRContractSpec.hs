@@ -59,6 +59,10 @@ tests =
     ("rejects non-scalar character immediates", testUnicodeScalarImmediate),
     ("rejects variant tags outside the shared Haskell/Jazz carrier", testSharedTagCarrierRange),
     ("scopes temporary identifiers to their blocks", testBlockLocalTemporaryScope),
+    ("accepts chained temporary representations", testChainedTemporaryRepresentations),
+    ("duplicate temporaries retain the first representation", testDuplicateTemporaryFirstRepresentation),
+    ("duplicate blocks retain last-block temporary lookup", testDuplicateBlockTemporaryRepresentation),
+    ("preserves temporary validation failure order", testTemporaryValidationFailureOrder),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
@@ -457,6 +461,37 @@ testSharedTagCarrierRange = do
 testBlockLocalTemporaryScope :: IO ()
 testBlockLocalTemporaryScope =
   assertEqual "block-local temporary validation" [] (validateLoweredProgram blockLocalTemporaryProgram)
+
+testChainedTemporaryRepresentations :: IO ()
+testChainedTemporaryRepresentations =
+  assertEqual
+    "chained temporary validation"
+    []
+    (validateLoweredProgram chainedTemporaryProgram)
+
+testDuplicateTemporaryFirstRepresentation :: IO ()
+testDuplicateTemporaryFirstRepresentation =
+  assertEqual
+    "duplicate temporary first representation"
+    [instructionFailure "main" "entry" 1 LoweredDuplicateTemporary (identifierDetail "value")]
+    (validateLoweredProgram duplicateTemporaryFirstRepresentationProgram)
+
+testDuplicateBlockTemporaryRepresentation :: IO ()
+testDuplicateBlockTemporaryRepresentation =
+  assertEqual
+    "duplicate block temporary representation"
+    [blockFailure "main" "entry" LoweredDuplicateBlock (identifierDetail "entry")]
+    (validateLoweredProgram duplicateBlockTemporaryRepresentationProgram)
+
+testTemporaryValidationFailureOrder :: IO ()
+testTemporaryValidationFailureOrder =
+  assertEqual
+    "temporary validation failure order"
+    [ instructionFailure "main" "entry" 1 LoweredDuplicateTemporary (identifierDetail "value"),
+      instructionFailure "main" "entry" 2 LoweredUseBeforeDefinition (identifierDetail "later"),
+      terminatorFailure "main" "next" LoweredCrossBlockTemporary (identifierDetail "value")
+    ]
+    (validateLoweredProgram temporaryValidationFailureOrderProgram)
 
 testDuplicateVariantTagOrder :: IO ()
 testDuplicateVariantTagOrder =
@@ -1005,6 +1040,127 @@ blockLocalTemporaryProgram =
         i64
         [ block "entry" [] [addInstruction "value" 1 2] (LoweredReturn (temporary "value" i64)),
           block "other" [] [addInstruction "value" 3 4] (LoweredReturn (temporary "value" i64))
+        ]
+        "entry"
+    ]
+    "main"
+
+chainedTemporaryProgram :: LoweredProgram
+chainedTemporaryProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        i64
+        [ block
+            "entry"
+            []
+            [ addInstruction "first" 1 2,
+              instruction
+                "second"
+                i64
+                (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [temporary "first" i64, int64 3]),
+              instruction
+                "third"
+                i64
+                (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [temporary "second" i64, temporary "first" i64])
+            ]
+            (LoweredReturn (temporary "third" i64))
+        ]
+        "entry"
+    ]
+    "main"
+
+duplicateTemporaryFirstRepresentationProgram :: LoweredProgram
+duplicateTemporaryFirstRepresentationProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        i64
+        [ block
+            "entry"
+            []
+            [ addInstruction "value" 1 2,
+              instruction
+                "value"
+                LoweredBoolRepresentation
+                (LoweredPrimitiveOperation (LoweredBooleanPrimitive LoweredBooleanNot) [immediate (LoweredBoolImmediate True)]),
+              instruction
+                "result"
+                i64
+                (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [temporary "value" i64, int64 1])
+            ]
+            (LoweredReturn (temporary "result" i64))
+        ]
+        "entry"
+    ]
+    "main"
+
+duplicateBlockTemporaryRepresentationProgram :: LoweredProgram
+duplicateBlockTemporaryRepresentationProgram =
+  -- Duplicate block lookup is intentionally last-block-wins: the returned
+  -- temporary therefore resolves to the second entry block's Bool value.
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        LoweredBoolRepresentation
+        [ block
+            "entry"
+            []
+            [addInstruction "value" 1 2]
+            (LoweredReturn (temporary "value" LoweredBoolRepresentation)),
+          block
+            "entry"
+            []
+            [ instruction
+                "value"
+                LoweredBoolRepresentation
+                (LoweredPrimitiveOperation (LoweredBooleanPrimitive LoweredBooleanNot) [immediate (LoweredBoolImmediate True)])
+            ]
+            (LoweredReturn (temporary "value" LoweredBoolRepresentation))
+        ]
+        "entry"
+    ]
+    "main"
+
+temporaryValidationFailureOrderProgram :: LoweredProgram
+temporaryValidationFailureOrderProgram =
+  program
+    []
+    []
+    [ function
+        "main"
+        Nothing
+        []
+        i64
+        [ block
+            "entry"
+            []
+            [ addInstruction "value" 1 2,
+              addInstruction "value" 3 4,
+              instruction
+                "early"
+                i64
+                (LoweredPrimitiveOperation (LoweredArithmeticPrimitive LoweredAdd) [temporary "later" i64, int64 1]),
+              addInstruction "later" 5 6
+            ]
+            (LoweredJump (blockId "next") []),
+          block
+            "next"
+            []
+            []
+            (LoweredReturn (temporary "value" i64))
         ]
         "entry"
     ]

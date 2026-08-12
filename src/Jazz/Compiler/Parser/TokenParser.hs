@@ -17,6 +17,10 @@ module Jazz.Compiler.Parser.TokenParser
     runTokenParserDetailed,
     runTokenParserPrefix,
     runTokenParserPrefixDetailed,
+    runTokenStreamParser,
+    runTokenStreamParserDetailed,
+    runTokenStreamParserPrefix,
+    runTokenStreamParserPrefixDetailed,
   )
 where
 
@@ -50,6 +54,11 @@ import Jazz.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
   )
+import Jazz.Compiler.Parser.TokenStream
+  ( TokenStream,
+    tokenStreamFromList,
+    tokenStreamToList,
+  )
 import Text.Megaparsec
   ( Parsec,
   )
@@ -68,7 +77,7 @@ instance ShowErrorComponent ParserError where
   showErrorComponent (ParserError failure) =
     Text.unpack (diagnosticSummary (parserFailureDiagnostic failure))
 
-type Parser = Parsec ParserError [Token]
+type Parser = Parsec ParserError TokenStream
 
 runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
 runTokenParser label parser tokens =
@@ -77,6 +86,15 @@ runTokenParser label parser tokens =
 
 runTokenParserDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure a
 runTokenParserDetailed label parser tokens =
+  runTokenStreamParserDetailed label parser (tokenStreamFromList tokens)
+
+runTokenStreamParser :: Text -> Parser a -> TokenStream -> Either Diagnostic a
+runTokenStreamParser label parser tokens =
+  parserFailureDiagnostic
+    `mapLeft` runTokenStreamParserDetailed label parser tokens
+
+runTokenStreamParserDetailed :: Text -> Parser a -> TokenStream -> Either ParserFailure a
+runTokenStreamParserDetailed label parser tokens =
   case MP.runParser (parser <* requireEndOfInput) (Text.unpack label) tokens of
     Right value -> Right value
     Left bundle -> Left (tokenParserFailure bundle)
@@ -88,6 +106,15 @@ runTokenParserPrefix label parser tokens =
 
 runTokenParserPrefixDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure (a, [Token])
 runTokenParserPrefixDetailed label parser tokens =
+  fmap (fmap tokenStreamToList) (runTokenStreamParserPrefixDetailed label parser (tokenStreamFromList tokens))
+
+runTokenStreamParserPrefix :: Text -> Parser a -> TokenStream -> Either Diagnostic (a, TokenStream)
+runTokenStreamParserPrefix label parser tokens =
+  parserFailureDiagnostic
+    `mapLeft` runTokenStreamParserPrefixDetailed label parser tokens
+
+runTokenStreamParserPrefixDetailed :: Text -> Parser a -> TokenStream -> Either ParserFailure (a, TokenStream)
+runTokenStreamParserPrefixDetailed label parser tokens =
   case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
     Right value -> Right value
     Left bundle -> Left (tokenParserFailure bundle)
@@ -173,13 +200,13 @@ failTokenParserAt spanValue = failParserFailure . parserFailureAt spanValue
 failParserFailure :: ParserFailure -> Parser a
 failParserFailure = MP.customFailure . ParserError
 
-tokenParserFailure :: MP.ParseErrorBundle [Token] ParserError -> ParserFailure
+tokenParserFailure :: MP.ParseErrorBundle TokenStream ParserError -> ParserFailure
 tokenParserFailure bundle =
   case firstCustomParserError (MP.bundleErrors bundle) of
     Just (ParserError failure) -> failure
     Nothing -> parserFailure (InternalParserFailure TokenStreamParseFailure)
 
-firstCustomParserError :: NonEmpty (ParseError [Token] ParserError) -> Maybe ParserError
+firstCustomParserError :: NonEmpty (ParseError TokenStream ParserError) -> Maybe ParserError
 firstCustomParserError errors =
   firstJust (map customErrorMessage (NonEmpty.toList errors))
   where
