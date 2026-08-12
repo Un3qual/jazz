@@ -16,6 +16,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     scalarBindingExpectedPrograms,
+    scalarBindingExpectedLoweredPrograms,
     directCallExpectedPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
@@ -422,6 +423,40 @@ scalarBindingExpectedPrograms =
   [ ("scalar-binding-literal", scalarBindingLiteralProgram),
     ("scalar-binding-ordered-reuse", scalarBindingOrderedReuseProgram),
     ("scalar-binding-direct-call-result", scalarBindingDirectCallResultProgram)
+  ]
+
+scalarBindingExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+scalarBindingExpectedLoweredPrograms =
+  [ ( "scalar-binding-literal",
+      scalarBindingLiteralProgram,
+      expectedCallableLoweredProgram
+        []
+        int64Representation
+        [expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 40, loweredInt64 2]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "scalar-binding-ordered-reuse",
+      scalarBindingOrderedReuseProgram,
+      expectedCallableLoweredProgram
+        []
+        int64Representation
+        [expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 40, loweredInt64 2]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "scalar-binding-direct-call-result",
+      scalarBindingDirectCallResultProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "identity"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            LoweredBoolRepresentation
+            []
+            (loweredParameter 1 LoweredBoolRepresentation)
+        ]
+        LoweredBoolRepresentation
+        [expectedDirectCallInstruction 1 LoweredBoolRepresentation "identity" [loweredImmediate (LoweredBoolImmediate True)]]
+        (loweredTemporary 1 LoweredBoolRepresentation)
+    )
   ]
 
 scalarBindingLiteralProgram :: TypedProgram
@@ -1267,8 +1302,7 @@ loweredParameter index =
 
 lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
-  [ ("invalid-function-shape", scalarBindingProgram),
-    ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
+  [ ("scalar-binding-unsupported-rhs", invalidScalarBindingRhsProgram),
     ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
     ("recursion-descendant-failure-order", recursionDescendantFailureOrderLowererProgram),
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
@@ -1293,7 +1327,11 @@ lowererBoundaryPrograms =
 
 validIndependentLowererPrograms :: [(Text, TypedProgram)]
 validIndependentLowererPrograms =
-  lowererBoundaryPrograms <> lowererStructuralBoundaryPrograms
+  [ (name, programValue)
+  | (name, programValue, _) <- scalarBindingExpectedLoweredPrograms
+  ]
+    <> lowererBoundaryPrograms
+    <> lowererStructuralBoundaryPrograms
 
 invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
@@ -1612,32 +1650,6 @@ duplicateFunctionLowererProgram =
         (variableExpr "second" intInfo)
     ]
     (directCall "identity" [intInfo] intInfo [intExpr 1])
-
-scalarBindingProgram :: TypedProgram
-scalarBindingProgram =
-  TypedProgram
-    Nothing
-    [ TypedModule
-        modulePath
-        validSourcePath
-        []
-        []
-        (TypedModuleInterface [] [] [] [])
-        [ TypedLetStatement
-            seedBinder
-            seedName
-            (TypedSpan 1 1)
-            seedScheme
-            (intExpr 1),
-          TypedExpressionStatement (TypedSpan 2 1) (intExpr 1)
-        ]
-        intInfo
-    ]
-    modulePath
-  where
-    seedName = resolvedName "seed"
-    seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
 invalidScalarBindingRhsProgram :: TypedProgram
 invalidScalarBindingRhsProgram =

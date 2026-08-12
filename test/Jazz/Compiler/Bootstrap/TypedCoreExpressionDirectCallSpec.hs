@@ -44,6 +44,7 @@ tests =
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
+    ("lowers scalar bindings once for ordered entry reuse", testScalarBindingLowering),
     ("preserves flattened recipes through a named direct leading-lambda chain", testThreeArgumentDirectLeadingLambdaRecipe),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
@@ -218,8 +219,10 @@ testIndependentLowererManifest = do
       validSet = Set.fromList validNames
       invalidSet = Set.fromList invalidNames
       expectedValidNames =
-        [ "invalid-function-shape",
-          "invalid-function-shape-rhs",
+        [ "scalar-binding-literal",
+          "scalar-binding-ordered-reuse",
+          "scalar-binding-direct-call-result",
+          "scalar-binding-unsupported-rhs",
           "combined-statement-failure-order",
           "recursion-descendant-failure-order",
           "closure-valued-parameter",
@@ -387,6 +390,18 @@ testScalarBindingProduction = do
         kind
         detail
 
+testScalarBindingLowering :: IO ()
+testScalarBindingLowering =
+  mapM_ assertLowered scalarBindingExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable scalar lowering") firstRun secondRun
+      assertEqual (name <> " exact scalar lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
+
 testThreeArgumentDirectLeadingLambdaRecipe :: IO ()
 testThreeArgumentDirectLeadingLambdaRecipe =
   case lookup "three-argument-direct-call" directCallExpectedPrograms of
@@ -436,19 +451,8 @@ testLowererCallableBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "invalid-function-shape",
-          [ statementFailure
-              0
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "seed"))
-          ]
-        ),
-        ( "invalid-function-shape-rhs",
-          [ statementFailure
-              0
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "seed")),
-            expressionFailure
+      [ ( "scalar-binding-unsupported-rhs",
+          [ expressionFailure
               0
               [0]
               LoweredIRUnsupportedExpression
@@ -456,11 +460,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "combined-statement-failure-order",
-          [ statementFailure
-              0
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "seed")),
-            expressionFailure
+          [ expressionFailure
               0
               [0]
               LoweredIRUnsupportedExpression
@@ -478,10 +478,6 @@ testLowererCallableBoundary =
         ),
         ( "recursion-descendant-failure-order",
           [ statementFailure
-              0
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "seed")),
-            statementFailure
               2
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "loop")),
@@ -500,11 +496,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "capturing-function",
-          [ statementFailure
-              0
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "seed")),
-            expressionFailure
+          [ expressionFailure
               2
               [0, 0, 1]
               LoweredIRCaptureUnsupported

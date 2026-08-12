@@ -224,35 +224,35 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
 - Initialize function lowering with an empty local map so no scalar capture is
   introduced accidentally.
 
-- [ ] **Step 1: Promote scalar lowerer boundaries to exact success fixtures.**
+- [x] **Step 1: Promote scalar lowerer boundaries to exact success fixtures.**
   Replace the current `invalid-function-shape` scalar program with exact
   expected lowered programs for a literal binding, derived ordered reuse, and
   a direct-call result binding. Assert instruction order and final return
   operands literally.
 
-- [ ] **Step 2: Retain exact lowerer failures.** Keep a scalar initializer with
+- [x] **Step 2: Retain exact lowerer failures.** Keep a scalar initializer with
   unsupported control flow and a managed scalar binding as rejected cases;
   update only the failure kinds displaced by recognizing concrete scalar lets.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Run the Task 2 Step 3
+- [x] **Step 3: Run the focused suite and verify RED.** Run the Task 2 Step 3
   command. Expected: scalar valid programs still report
   `LoweredIRInvalidFunctionShape` and do not match the expected entry blocks.
 
-- [ ] **Step 4: Separate scalar locals from function shapes.** Change
+- [x] **Step 4: Separate scalar locals from function shapes.** Change
   `collectFunctionShapes` so concrete non-callable `TypedLetStatement` values
   remain visible to profile validation without entering the function index or
   generated-identity checks.
 
-- [ ] **Step 5: Thread binder-indexed entry locals.** Lower each scalar
+- [x] **Step 5: Thread binder-indexed entry locals.** Lower each scalar
   initializer once, update the local map only after a successful operand is
   produced, and reuse the exact operand for later variables, binary operations,
   direct-call arguments, and the terminal result.
 
-- [ ] **Step 6: Run the focused suite twice and verify GREEN.** Run the Task 2
+- [x] **Step 6: Run the focused suite twice and verify GREEN.** Run the Task 2
   Step 3 command twice. Expected: both repetitions pass with stable instruction
   ordering and all prior direct/closure fixtures unchanged.
 
-- [ ] **Step 7: Commit the lowerer milestone.**
+- [x] **Step 7: Commit the lowerer milestone.**
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
